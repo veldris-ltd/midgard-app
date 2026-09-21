@@ -1,0 +1,33 @@
+[package]
+name = "heimdall-picture-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall picture replication: exports the common picture as a PQ-signed delta and applies peer deltas only after verifying the source signature, converging multi-node/multi-site pictures over PQ-mTLS. [FR-H-6] [NFR-PQ-3]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips", "pq-mtls/backend-fips"]
+
+[dependencies]
+# The picture + delta contract replicated.
+heimdall-picture = { path = "../picture" }
+# PQ signatures authenticating each replicated delta + the agility provider.
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The real replication transport: signed deltas ride a PQ-mTLS session between
+# nodes/sites. [FR-H-6] [NFR-PQ-1]
+pq-mtls = { path = "../../crypto/pq-mtls" }
+
+[dev-dependencies]
+# The AC harness builds real pictures on two nodes and converges them.
+heimdall-fusion = { path = "../fusion" }
+heimdall-feed-gateway = { path = "../feed-gateway" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+# The 2-node RC-26 harness mints node/feed identities and runs a real PQ-mTLS link.
+pq-mtls = { path = "../../crypto/pq-mtls", features = ["backend-fips"] }
+iam = { path = "../../services/iam" }
+policy = { path = "../../crypto/policy" }
+
+[lib]
+path = "src/lib.rs"

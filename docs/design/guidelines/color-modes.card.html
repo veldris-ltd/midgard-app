@@ -1,0 +1,31 @@
+<!-- @dsCard group="Colors" viewport="700x210" subtitle="Dark (default) · light · system, .mode-light re-points semantics" name="Colour modes" -->
+<!DOCTYPE html><html><head><link rel="stylesheet" href="../styles.css"><style>
+.half{flex:1;border-radius:10px;border:1px solid var(--ink-600);overflow:hidden}
+.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid}
+.chip{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em}
+.bodyy{padding:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-family:var(--font-sans);font-size:11px;font-weight:600;padding:6px 12px;border-radius:6px;background:#ca1d25;color:#fff}
+.pill{font-family:var(--font-mono);font-size:9px;padding:3px 9px;border-radius:999px;border:1px solid}
+</style></head><body style="background:var(--ink-950)">
+<div style="display:flex;gap:12px;padding:16px">
+  <div class="half" style="background:#0a0b0d">
+    <div class="bar" style="background:#050506;border-color:#2a2d34"><span class="chip" style="color:#6b7279">MODE · DARK (DEFAULT)</span></div>
+    <div class="bodyy">
+      <span class="btn">Primary</span>
+      <span class="pill" style="background:#101114;border-color:#2a2d34;color:#b6bcc4">● PQ-SEALED</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:#b6bcc4">&gt; midgard status</span>
+      <span style="font-size:12px;color:#9199a3">Ink ramp · white headings</span>
+    </div>
+  </div>
+  <div class="half" style="background:#eff0f3">
+    <div class="bar" style="background:#e6e8ec;border-color:#d6d9de"><span class="chip" style="color:#8a9099">MODE · LIGHT (.MODE-LIGHT)</span></div>
+    <div class="bodyy">
+      <span class="btn">Primary</span>
+      <span class="pill" style="background:#e9ebef;border-color:#d6d9de;color:#383d44">● PQ-SEALED</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:#383d44">&gt; midgard status</span>
+      <span style="font-size:12px;color:#5c636b">Paper ramp · inverted text</span>
+    </div>
+  </div>
+</div>
+<div style="padding:0 16px 14px;font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;color:#6b7279">SYSTEM MODE RESOLVES VIA PREFERS-COLOR-SCHEME (docs/mode.js) · ACCENTS AND MARKINGS KEEP FIXED HUES IN BOTH MODES</div>
+</body></html>

@@ -1,0 +1,35 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="mimir_model_supply" id="mimir_model_supply">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="b_stage" value="Staging enclave (network-connected)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="280" y="30" width="490" height="350" as="geometry"/></mxCell>
+        <mxCell id="b_enc" value="Midgard enclosure (air-gapped)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="1080" y="30" width="230" height="350" as="geometry"/></mxCell>
+        <mxCell id="hf" value="Hugging Face (Mistral/Gemma)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="40" y="60" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="ngc" value="NVIDIA NGC (Nemotron)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="40" y="150" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="vend" value="Vendor CDNs (signed)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="40" y="240" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="fetch" value="Fetch + native provenance verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="60" width="190" height="70" as="geometry"/></mxCell>
+        <mxCell id="lic" value="Licence capture + policy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="160" width="190" height="50" as="geometry"/></mxCell>
+        <mxCell id="sbom" value="Model SBOM (CycloneDX)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="230" width="190" height="50" as="geometry"/></mxCell>
+        <mxCell id="eval0" value="Baseline Evals + HW fingerprint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="300" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="resign" value="RE-SIGN under Veldris ML-DSA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="560" y="160" width="190" height="70" as="geometry"/></mxCell>
+        <mxCell id="bnd" value="model.mbundle (weights+manifest+SBOM+sig)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="820" y="160" width="210" height="80" as="geometry"/></mxCell>
+        <mxCell id="bifrost" value="Bifrost signed-bundle import" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="1100" y="60" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="reg" value="Model Registry" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="1100" y="170" width="190" height="70" as="geometry"/></mxCell>
+        <mxCell id="rt" value="Inference runtime (verify-on-load)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="1100" y="290" width="190" height="70" as="geometry"/></mxCell>
+        <mxCell id="e0" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="hf" target="fetch"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ngc" target="fetch"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="vend" target="fetch"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="fetch" target="lic"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="lic" target="sbom"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="sbom" target="eval0"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="eval0" target="resign"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="resign" target="bnd"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="air-gap" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bnd" target="bifrost"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="verify sig" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bifrost" target="reg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="load if OK" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="reg" target="rt"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

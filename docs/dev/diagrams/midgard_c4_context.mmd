@@ -1,0 +1,28 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    analyst["fa:fa-user Data / Ops Analyst"]:::actor
+    admin["fa:fa-user Platform Admin"]:::actor
+    dev["fa:fa-user Developer"]:::actor
+    midgard["MIDGARD CORE PLATFORM\nIdentity, Object Fabric, Storage,\nCompute, Governance, Enclosure"]:::system
+    forge["Forge (data ops)"]:::system
+    mimir["Mimir (local AI, Mistral Small 3.2)"]:::system
+    bifrost["Bifrost (delivery)"]:::system
+    heimdall["Heimdall (fusion)"]:::system
+    src["External data sources\n(DBs, APIs, files, feeds)"]:::external
+    idp["Enterprise IdP\n(OIDC/SAML, optional)"]:::external
+    hsm["HSM / TPM\n(key sealing)"]:::external
+
+    analyst -->|HTTPS+PQ| midgard
+    admin -->|HTTPS+PQ| midgard
+    dev -->|SDK/CLI| midgard
+    forge --> midgard
+    mimir --> midgard
+    bifrost --> midgard
+    heimdall --> midgard
+    forge -->|ingest| src
+    midgard -->|federate identity| idp
+    midgard -->|seal keys| hsm
+
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B

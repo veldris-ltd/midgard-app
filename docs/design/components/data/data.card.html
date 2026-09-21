@@ -1,0 +1,48 @@
+<!-- @dsCard group="Components" viewport="700x560" name="Data · Card, Table, Stats, Terminal, Provenance" subtitle="Console data furniture" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:22px;background:var(--bg-page)}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .cap{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase;width:100%;margin:6px 0 2px}
+</style></head><body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+
+const { Card, Table, StatBlock, SectionLabel, Terminal, ProvenanceTag, StatusPill } = NS;
+function Demo(){
+  const [sel, setSel] = React.useState(1);
+  return (<>
+    <div className="row" style={{alignItems:'stretch'}}>
+      <Card style={{flex:1}}><SectionLabel number={1}>ENCLOSURE</SectionLabel><div style={{marginTop:10}}><StatBlock value="99.9%" label="CONTROL-PLANE SLO"/></div></Card>
+      <Card accentRule interactive style={{flex:1}}><StatBlock value="312" label="OBJECT TYPES" accent/></Card>
+      <Card style={{flex:1.4}}><Terminal title="ENCLOSURE" lines={["> midgard status","# PQ-SEALED · NO EGRESS","identity   OK","fabric     OK"]} style={{margin:-8}}/></Card>
+    </div>
+    <div className="cap">Table · selectable rows</div>
+    <Table
+      columns={[
+        {header:'Dataset', key:'name'},
+        {header:'Version', key:'v', mono:true, width:110},
+        {header:'Status', cell:(r)=><StatusPill status={r.st} pulse={false} label={r.stl}/>, width:140},
+        {header:'Provenance', cell:(r)=><ProvenanceTag id={r.p}/>, width:120},
+      ]}
+      rows={[
+        {name:'flight_tracks_eu', v:'v41 · main', st:'secure', stl:'Sealed', p:'FR-F-3'},
+        {name:'sensor_feed_north', v:'v12 · main', st:'healthy', stl:'Healthy', p:'NFR-PQ-2'},
+        {name:'maintenance_events', v:'v7 · dev', st:'warn', stl:'Drift', p:'FR-F-6'},
+      ]}
+      selectedIndex={sel} onRowClick={setSel}
+    />
+    <div className="cap" style={{marginTop:14}}>ProvenanceTag · kinds</div>
+    <div className="row">
+      <ProvenanceTag id="DD-4"/><ProvenanceTag id="FR-H-1"/><ProvenanceTag id="NFR-PQ-2"/><ProvenanceTag id="STD:NIST FIPS 203"/><ProvenanceTag id="AC-M-5"/>
+    </div>
+  </>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body></html>

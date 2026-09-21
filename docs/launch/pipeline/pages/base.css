@@ -1,0 +1,26 @@
+@font-face { font-family: 'Oxanium'; src: url('/ui/design-system/src/fonts/Oxanium.ttf'); font-weight: 200 800; }
+@font-face { font-family: 'Space Grotesk'; src: url('/ui/design-system/src/fonts/SpaceGrotesk.ttf'); font-weight: 300 700; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/ui/design-system/src/fonts/JetBrainsMono.ttf'); font-weight: 100 800; }
+html, body { margin: 0; height: 100%; background: #0a0b0d; color: #e9ebee; font-family: 'Space Grotesk', system-ui, sans-serif; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+.display { font-family: 'Oxanium', sans-serif; font-weight: 800; }
+.label { font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: #9199a3; }
+.grid { background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px); background-size: 48px 48px; }
+
+/* light mode (ui/design-system tokens, .mode-light) */
+html.mode-light body { background: #eff0f3; color: #101114; }
+html.mode-light .label { color: #5c636b; }
+html.mode-light .grid { background-image: linear-gradient(rgba(0,0,0,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.055) 1px, transparent 1px); }
+html.mode-light p { color: #383d44; }
+html.mode-light .seal { border-color: #d6d9de; background: #ffffff; }
+html.mode-light .stat { background: #ffffff; border-color: #d6d9de; }
+html.mode-light .stat b { color: #101114; }
+html.mode-light .foot { color: #8a9099; }
+html.mode-light .term { background: #ffffff; border-color: #d6d9de; box-shadow: 0 30px 80px rgba(0,0,0,0.18); }
+html.mode-light .bar { background: #f7f8fa; border-bottom-color: #e4e6ea; }
+html.mode-light .bar i { background: #d6d9de; }
+html.mode-light .bar .t { color: #8a9099; }
+html.mode-light pre { color: #383d44; }
+html.mode-light .p { color: #a8171e; } html.mode-light .c { color: #101114; } html.mode-light .k { color: #17828e; }
+html.mode-light .ok { color: #168a57; } html.mode-light .d { color: #8a9099; } html.mode-light .w { color: #a17a17; }
+html.mode-light .cur { background: #101114; }

@@ -1,0 +1,20 @@
+[package]
+name = "kms"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Crypto/KMS: envelope encryption — AES-256-GCM under an ML-KEM-1024-wrapped key sealed to the trust root. [NFR-PQ-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips"]
+
+[dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The audit ledger's `Sealer` seam: `KmsSealer` encrypts durable ledger entries at
+# rest with this KMS's envelope scheme. Backend-agnostic (no feature needed). [AC-M-4]
+audit-writer = { path = "../../crypto/audit-writer" }
+
+[lib]
+path = "src/lib.rs"

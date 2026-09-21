@@ -1,0 +1,197 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Coverage</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section } = window.Docs;
+const { ProvenanceTag, Badge, Icon } = window.Docs.NS;
+
+/* Full requirement-to-surface traceability: every DD / FR / NFR / AC across the
+   seven SADs, and the design surface that demonstrates it. */
+const K = '../ui_kits/';
+const SADS = [
+  { name: 'SAD-00 · Midgard Core', theme: 'midgard', rows: [
+    ['DD-1', 'Parity-plus with established platforms; object fabric at the centre', [['Object Explorer', K+'midgard-console/index.html']]],
+    ['DD-2', 'Open-source core, reproducible builds, optional commercial tier', [['SDK & APIs', K+'midgard-console/sdk.html'], ['Artefact Registry', K+'bifrost/artefacts.html']]],
+    ['DD-3', 'Post-quantum native and default', [['Keys & Crypto', K+'midgard-console/kms.html']]],
+    ['DD-4', 'Local AI via the Mimir layer; no hosted LLM', [['Model Plane', K+'mimir/models.html']]],
+    ['DD-5', 'Agentic self-* AI under evaluation and guardrails', [['Guardrails', K+'mimir/guardrails.html'], ['Governed Feedback', K+'mimir/feedback.html']]],
+    ['DD-6', 'Independent yet composable; runtime capability discovery', [['Flow · Standalone mode', 'flows.html#degraded']]],
+    ['DD-7', 'Sovereignty: self-host / air-gap first', [['Offline Bundles', K+'bifrost/bundles.html'], ['Resilience', K+'midgard-console/resilience.html']]],
+    ['DD-8', 'Standards-aligned assurance (arc42, NIST, ASVS, ISO 27001)', [['Policies & Markings', K+'midgard-console/policies.html']]],
+    ['NFR-PQ-1', 'Hybrid X25519 + ML-KEM-768 in transit', [['Flow · Session handshake', 'flows.html#session']]],
+    ['NFR-PQ-2', 'AES-256-GCM under ML-KEM-1024-wrapped keys at rest', [['Keys & Crypto', K+'midgard-console/kms.html'], ['Resilience', K+'midgard-console/resilience.html']]],
+    ['NFR-PQ-3', 'ML-DSA / SLH-DSA for service auth + artefact signing', [['Artefacts', K+'bifrost/artefacts.html'], ['Audit Lineage', K+'midgard-console/audit.html']]],
+    ['NFR-PQ-4', 'Crypto-agility: negotiated, versioned, hot-swappable', [['Keys & Crypto', K+'midgard-console/kms.html'], ['Flow · Hot-swap', 'flows.html#agility']]],
+    ['NFR-SEC-1', 'Zero-trust: identity + posture + purpose per request', [['Identity & Access', K+'midgard-console/identity.html']]],
+    ['NFR-SEC-2', 'Role/marking/purpose control with audit lineage', [['Policies & Markings', K+'midgard-console/policies.html'], ['Audit Lineage', K+'midgard-console/audit.html']]],
+    ['NFR-AVA-1', '99.9% control-plane SLO; zero-downtime upgrades', [['Release Console', K+'bifrost/index.html'], ['Observability', K+'midgard-console/observability.html']]],
+    ['NFR-PRV-1', 'Fully offline / air-gapped operation', [['Offline Bundles', K+'bifrost/bundles.html']]],
+    ['NFR-OSS-1', 'Reproducible builds + CycloneDX SBOM per release', [['Artefacts', K+'bifrost/artefacts.html']]],
+    ['NFR-PERF-1', 'First-token < 800 ms on reference hardware', [['Model Plane', K+'mimir/models.html']]],
+    ['NFR-AI-1', 'Agentic actions traceable, evaluated, reversible or human-gated', [['Action Workflows', K+'heimdall/workflows.html'], ['Evals', K+'mimir/evals.html']]],
+    ['AC-M-1', 'Handshake negotiates hybrid PQ; fails closed', [['Flow · Session handshake', 'flows.html#session']]],
+    ['AC-M-2', 'At-rest writes sealed under wrapped keys', [['Keys & Crypto', K+'midgard-console/kms.html']]],
+    ['AC-M-3', 'Unauthenticated calls denied (zero-trust)', [['Identity & Access', K+'midgard-console/identity.html']]],
+    ['AC-M-4', 'Marked-data queries policy-enforced + audited', [['Policies & Markings', K+'midgard-console/policies.html']]],
+    ['AC-M-5', 'Full function with no outbound connectivity', [['Offline Bundles', K+'bifrost/bundles.html']]],
+    ['AC-M-6', 'Bit-identical double build + SBOM', [['Artefacts', K+'bifrost/artefacts.html']]],
+    ['AC-M-7', 'Rolling upgrade with zero failed requests + auto-rollback', [['Release Console', K+'bifrost/index.html'], ['Rollback Centre', K+'bifrost/rollback.html']]],
+    ['AC-M-8', 'New PQ algorithm without data migration', [['Flow · Hot-swap', 'flows.html#agility']]],
+    ['AC-M-9', 'Defined degraded mode when Mimir is absent', [['Flow · Standalone mode', 'flows.html#degraded']]],
+  ]},
+  { name: 'SAD-01 · Forge', theme: 'forge', rows: [
+    ['FR-F-1', 'Low-code builder + pro-code IDE, same contracts', [['Pipeline Builder', K+'forge/index.html'], ['Transform IDE', K+'forge/ide.html']]],
+    ['FR-F-2', 'Typed connector SDK + reference connectors', [['Connectors', K+'forge/connectors.html']]],
+    ['FR-F-3', 'Git-style dataset versioning, branches, reproducible rebuilds', [['Datasets', K+'forge/datasets.html']]],
+    ['FR-F-4', 'Project curated datasets into object/link types', [['Projection', K+'forge/projection.html']]],
+    ['FR-F-5', 'Batch + streaming with schedules/triggers', [['Schedules', K+'forge/schedules.html']]],
+    ['FR-F-6', 'Health expectations gate every build', [['Data Health', K+'forge/health.html']]],
+    ['FR-F-7', 'AI-assisted transforms, preview-before-commit', [['Pipeline Builder', K+'forge/index.html']]],
+    ['AC-F-1', 'Connector sync yields PQ-sealed raw dataset', [['Connectors', K+'forge/connectors.html']]],
+    ['AC-F-2', 'Double build → content-identical versions', [['Datasets', K+'forge/datasets.html']]],
+    ['AC-F-3', 'Failing expectations block promotion', [['Data Health', K+'forge/health.html']]],
+    ['AC-F-4', 'Projection propagates markings', [['Projection', K+'forge/projection.html']]],
+    ['AC-F-5', 'AI transform shown as preview diff, never auto-committed', [['Pipeline Builder', K+'forge/index.html']]],
+    ['AC-F-6', 'Full non-AI function without Mimir', [['Flow · Standalone mode', 'flows.html#degraded']]],
+    ['AC-F-7', 'All data ops succeed air-gapped', [['Connectors', K+'forge/connectors.html']]],
+  ]},
+  { name: 'SAD-02 · Mimir', theme: 'mimir', rows: [
+    ['FR-MI-1', 'Local serving: batching, KV-cache, quantisation; Mistral / Nemotron / Gemma / Granite', [['Model Plane', K+'mimir/models.html']]],
+    ['FR-MI-2', 'OAG grounding with citations', [['Agent Studio', K+'mimir/index.html']]],
+    ['FR-MI-3', 'Agent runtime: tools, memory, planning, per-agent Evals', [['Session Traces', K+'mimir/sessions.html']]],
+    ['FR-MI-4', 'No-code + pro-code builders', [['Logic Builder', K+'mimir/logic.html']]],
+    ['FR-MI-5', 'Self-learning from governed feedback', [['Governed Feedback', K+'mimir/feedback.html']]],
+    ['FR-MI-6', 'Self-healing: reroute, retry, rollback', [['Flow · Self-healing', 'flows.html#healing']]],
+    ['FR-MI-7', 'Self-defending: injection filter, tool scoping, exfil block', [['Guardrails', K+'mimir/guardrails.html']]],
+    ['FR-MI-8', 'Inference for Forge/Bifrost/Heimdall over PQ-mTLS', [['Model Plane · consumers', K+'mimir/models.html']]],
+    ['AC-MI-1', 'Inference responds locally, air-gapped', [['Model Plane', K+'mimir/models.html']]],
+    ['AC-MI-2', 'OAG answers cite fabric evidence', [['Agent Studio', K+'mimir/index.html']]],
+    ['AC-MI-3', 'State mutation is Evals-checked + human-gated', [['Agent Studio', K+'mimir/index.html'], ['Evals', K+'mimir/evals.html']]],
+    ['AC-MI-4', 'Feedback applies with logged provenance', [['Governed Feedback', K+'mimir/feedback.html']]],
+    ['AC-MI-5', 'Degraded inference reroutes automatically', [['Flow · Self-healing', 'flows.html#healing']]],
+    ['AC-MI-6', 'Injection blocked before any tool executes', [['Guardrails', K+'mimir/guardrails.html']]],
+    ['AC-MI-7', 'Weights verified on load; fails closed', [['Registry & Governance', K+'admin/registry.html']]],
+    ['AC-MI-8', 'Consumer calls over PQ-mTLS, audited', [['Model Plane · consumers', K+'mimir/models.html']]],
+    ['AC-MS-2', 'Signature + licence + hardware eligibility on model load', [['Registry & Governance', K+'admin/registry.html']]],
+  ]},
+  { name: 'SAD-03 · Bifrost', theme: 'bifrost', rows: [
+    ['FR-B-1', 'Signed, versioned artefacts with SBOM attestation', [['Artefacts', K+'bifrost/artefacts.html']]],
+    ['FR-B-2', 'Zero-downtime rings with health-gated auto-rollback', [['Release Console', K+'bifrost/index.html'], ['Rollback Centre', K+'bifrost/rollback.html']]],
+    ['FR-B-3', 'Declarative channels + fleet management', [['Channels', K+'bifrost/channels.html'], ['Fleet & Drift', K+'bifrost/fleet.html']]],
+    ['FR-B-4', 'Verify signature + SBOM before deploy; fail closed', [['Artefacts', K+'bifrost/artefacts.html']]],
+    ['FR-B-5', 'Signed offline bundles for air-gapped sites', [['Offline Bundles', K+'bifrost/bundles.html']]],
+    ['FR-B-6', 'AI release intelligence: risk scoring, anomaly detection', [['Release Console', K+'bifrost/index.html']]],
+    ['AC-B-1', 'Unsigned/tampered artefact rejected', [['Artefacts', K+'bifrost/artefacts.html']]],
+    ['AC-B-2', 'Gate failure → automatic no-downtime rollback', [['Rollback Centre', K+'bifrost/rollback.html']]],
+    ['AC-B-3', 'Bundle signature verified offline before deploy', [['Offline Bundles', K+'bifrost/bundles.html']]],
+    ['AC-B-4', 'SBOM + ML-DSA attached and verifiable per release', [['Artefacts', K+'bifrost/artefacts.html']]],
+    ['AC-B-5', 'Mimir risk score can gate the rollout', [['Release Console', K+'bifrost/index.html']]],
+    ['AC-B-6', 'Rule-based gates alone still enforce safe rollout', [['Flow · Standalone mode', 'flows.html#degraded']]],
+  ]},
+  { name: 'SAD-04 · Heimdall', theme: 'heimdall', rows: [
+    ['FR-H-1', 'Multi-feed fusion, one picture, layer control', [['Operating Picture', K+'heimdall/index.html']]],
+    ['FR-H-2', 'Entity tracking + classification over the fabric', [['Entities', K+'heimdall/entities.html']]],
+    ['FR-H-3', 'PQ-authenticated feeds; reject unverified', [['Feeds', K+'heimdall/feeds.html']]],
+    ['FR-H-4', 'Explainable, cited, ranked options (advisory)', [['Operating Picture', K+'heimdall/index.html']]],
+    ['FR-H-5', 'Human-gated workflows with audit lineage', [['Action Workflows', K+'heimdall/workflows.html'], ['Decision Lineage', K+'heimdall/lineage.html']]],
+    ['FR-H-6', 'Picture sync across sites over PQ-mTLS', [['Picture Sync', K+'heimdall/sync.html']]],
+    ['AC-H-1', 'Fused picture with per-layer toggles', [['Operating Picture', K+'heimdall/index.html']]],
+    ['AC-H-2', 'Unverified feed data rejected from the picture', [['Feeds', K+'heimdall/feeds.html']]],
+    ['AC-H-3', 'Options ranked, each citing evidence', [['Operating Picture', K+'heimdall/index.html']]],
+    ['AC-H-4', 'No execution without explicit human authorisation', [['Action Workflows', K+'heimdall/workflows.html']]],
+    ['AC-H-5', 'Picture replicates across nodes over PQ-mTLS', [['Picture Sync', K+'heimdall/sync.html']]],
+    ['AC-H-6', 'Rules-only classification without Mimir', [['Entities', K+'heimdall/entities.html']]],
+    ['AC-H-7', 'Fusion, picture, workflows all function air-gapped', [['Flow · Standalone mode', 'flows.html#degraded']]],
+  ]},
+  { name: 'SAD-06 · Client Platforms', theme: 'midgard', rows: [
+    ['FR-C-1', 'One Rust core across all seven targets', [['Clients · docs', 'clients.html']]],
+    ['FR-C-2', 'Keystore abstraction with per-platform floors', [['Desktop', K+'clients/desktop.html'], ['Clients · docs', 'clients.html']]],
+    ['FR-C-3', 'Native shells per OS HIG + accessibility', [['Mobile', K+'clients/mobile.html'], ['Desktop', K+'clients/desktop.html']]],
+    ['FR-C-4', 'Offline-first CRDT sync', [['Mobile', K+'clients/mobile.html']]],
+    ['FR-C-5', 'PQ-mTLS transport; fail closed', [['Clients · docs', 'clients.html']]],
+    ['FR-C-6', 'Automatic inference tiering', [['Mobile', K+'clients/mobile.html'], ['Flow · Tiering', 'flows.html']]],
+    ['FR-C-7', 'Reproducible, PQ-signed distribution', [['Flow · Signed updates', 'flows.html']]],
+    ['FR-C-8', 'Minimal-privilege extension, no raw keys', [['Web + Extension', K+'clients/web.html']]],
+    ['FR-C-9', 'Biometric / platform authentication', [['Mobile', K+'clients/mobile.html']]],
+    ['FR-C-10', 'Graceful capability degradation', [['Clients · docs', 'clients.html']]],
+    ['AC-C-1', 'All targets link the same core version', [['Clients · docs', 'clients.html']]],
+    ['AC-C-2', 'Local data sealed under keystore-held keys', [['Desktop', K+'clients/desktop.html']]],
+    ['AC-C-3', 'Transport fails closed without PQ', [['Clients · docs', 'clients.html']]],
+    ['AC-C-4', 'Offline edits merge conflict-free', [['Mobile', K+'clients/mobile.html']]],
+    ['AC-C-5', 'Tier-1 on-device or graceful disable', [['Mobile', K+'clients/mobile.html']]],
+    ['AC-C-6', 'Delegated inference grounded, cited, audited', [['Web + Extension', K+'clients/web.html']]],
+    ['AC-C-7', 'Signature verified before install/update', [['Flow · Signed updates', 'flows.html']]],
+    ['AC-C-8', 'Extension brokers all privileged operations', [['Web + Extension', K+'clients/web.html']]],
+    ['AC-C-9', 'Platform auth; secrets never leave the boundary', [['Mobile', K+'clients/mobile.html']]],
+    ['AC-C-10', 'On-device model verified on load; fails closed', [['Mobile', K+'clients/mobile.html']]],
+    ['AC-C-11', 'Meets per-OS accessibility + HIG audits', [['Clients · docs', 'clients.html']]],
+    ['AC-C-12', 'Install from signed offline bundles, no store', [['Offline Bundles', K+'bifrost/bundles.html']]],
+    ['AC-C-13', 'Above-clearance data never rendered or cached', [['Clients · docs', 'clients.html']]],
+  ]},
+  { name: 'SAD-07 · Admin Control Panel', theme: 'midgard', rows: [
+    ['FR-AD-1', 'One console composing subsystem admin APIs', [['Overview', K+'admin/index.html']]],
+    ['FR-AD-2', 'Role-separated RBAC; read-only Auditor; no super-admin', [['Identity & Roles', K+'admin/iam.html']]],
+    ['FR-AD-3', 'Manage users, groups, roles, markings, purposes, policies', [['Identity & Roles', K+'admin/iam.html'], ['Config & Policy', K+'admin/config.html']]],
+    ['FR-AD-4', 'Administer model registry, agents, Evals gates, releases, fleet', [['Registry & Governance', K+'admin/registry.html']]],
+    ['FR-AD-5', 'Dual-control on high-risk actions', [['Approvals', K+'admin/approvals.html']]],
+    ['FR-AD-6', 'Policy simulation before commit', [['Config & Policy', K+'admin/config.html']]],
+    ['FR-AD-7', 'Versioned config: diff, review, rollback, signed audit', [['Config & Policy', K+'admin/config.html']]],
+    ['FR-AD-8', 'Time-boxed, justified, alerted break-glass', [['Break-Glass', K+'admin/breakglass.html']]],
+    ['FR-AD-9', 'Aggregated observability + audit search', [['Audit Ledger', K+'admin/ledger.html'], ['Overview', K+'admin/index.html']]],
+    ['FR-AD-10', 'Advisory-only copilot; guarded path executes', [['Admin Copilot', K+'admin/copilot.html']]],
+    ['AC-AD-1', 'MFA + step-up on admin scope', [['Identity & Roles', K+'admin/iam.html']]],
+    ['AC-AD-2', 'No single role grants all; Auditor mutates nothing', [['Identity & Roles', K+'admin/iam.html']]],
+    ['AC-AD-3', 'High-risk needs a second distinct approver', [['Approvals', K+'admin/approvals.html']]],
+    ['AC-AD-4', 'Self-approval denied (separation of duties)', [['Approvals', K+'admin/approvals.html']]],
+    ['AC-AD-5', 'Simulation shows exact effect pre-commit', [['Config & Policy', K+'admin/config.html']]],
+    ['AC-AD-6', 'Denied + simulated actions ledgered too', [['Audit Ledger', K+'admin/ledger.html']]],
+    ['AC-AD-7', 'Committed config versioned + roll-backable', [['Config & Policy', K+'admin/config.html']]],
+    ['AC-AD-8', 'Break-glass time-boxed, alerted, review forced', [['Break-Glass', K+'admin/breakglass.html']]],
+    ['AC-AD-9', 'Least-privilege identity per subsystem; no superuser', [['Overview', K+'admin/index.html']]],
+    ['AC-AD-10', 'Panel outage pauses admin only, never the data plane', [['Overview', K+'admin/index.html']]],
+    ['AC-AD-11', 'Copilot cannot execute; guarded path always', [['Admin Copilot', K+'admin/copilot.html']]],
+    ['AC-AD-12', 'Break-glass + audit work fully offline', [['Break-Glass', K+'admin/breakglass.html']]],
+    ['AC-AD-13', 'Privilege-logic changes need security-officer dual-control', [['Overview', K+'admin/index.html']]],
+  ]},
+];
+
+function App() {
+  const total = SADS.reduce((n, s) => n + s.rows.length, 0);
+  return (
+    <DocsShell active="coverage">
+      <PageIntro num={8} eyebrow="TRACEABILITY" title="Requirement coverage matrix"
+        lead={'Every design driver, functional requirement, NFR, and acceptance criterion across the seven Solutions Architecture Documents (' + total + ' requirements), traced to the design surface that demonstrates it. The same discipline the SADs demand of the architecture — no claim without provenance — applied to the design system itself.'} />
+      {SADS.map((sad, si) => (
+        <Section key={sad.name} id={'sad' + si} num={si + 1} title={sad.name} lead="">
+          <div className={'theme-' + sad.theme} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: 'var(--surface-card)' }}>
+            {sad.rows.map(([id, req, links], i) => (
+              <div key={id} style={{ display: 'flex', gap: 14, alignItems: 'baseline', padding: '9px 16px', borderBottom: i < sad.rows.length - 1 ? '1px solid var(--divider)' : 'none', flexWrap: 'wrap' }}>
+                <span style={{ width: 100, flex: 'none' }}><ProvenanceTag id={id} /></span>
+                <span style={{ flex: '1 1 300px', fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.5 }}>{req}</span>
+                <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', flex: '0 1 auto' }}>
+                  {links.map(([label, href]) => (
+                    <a key={label} href={href} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-micro)', fontFamily: 'var(--font-mono)', letterSpacing: '0.04em', textDecoration: 'none' }}>
+                      {label} <Icon name="arrow-up-right" size={10} />
+                    </a>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      ))}
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

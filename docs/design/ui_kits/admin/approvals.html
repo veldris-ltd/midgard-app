@@ -1,0 +1,81 @@
+<!-- @dsCard group="Admin Panel" viewport="1440x820" subtitle="The guarded action queue: second approver, separation of duties" name="Admin · Dual-Control Approvals" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Admin · Dual-Control Approvals</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+function App() {
+  const [items, setItems] = React.useState([
+    { action: 'Rotate enclosure-root-03', subsystem: 'KMS', risk: 5, requester: 'j.benjamin', approver: 'k.osei', state: 'awaiting', j: 'Scheduled 90-day rotation · KAT-verified replacement staged' },
+    { action: 'Escalate m.silva → release-manager', subsystem: 'IAM', risk: 4, requester: 'j.benjamin', approver: 'a.novak', state: 'awaiting', j: 'Coverage for release window W28 · expiry 14d' },
+    { action: 'Revoke model mistral-small-3.2.0 (superseded)', subsystem: 'MIMIR REGISTRY', risk: 4, requester: 'p.iwu', approver: 'j.benjamin', state: 'awaiting', j: 'CVE in tokenizer dependency · 5.2.1 verified' },
+    { action: 'Fleet-wide release 2.5.0 → stable', subsystem: 'BIFROST', risk: 5, requester: 'm.silva', approver: 'm.silva', state: 'denied', j: 'Ring 2 complete · all health gates green', dr: 'DENIED · SELF-APPROVAL BLOCKED (AC-AD-4)' },
+  ]);
+  const setState = (i, state) => setItems(xs => xs.map((x, k) => k === i ? { ...x, state } : x));
+  return (
+    <ConsoleShell product="admin" active="approvals" context="ADMIN CONTROL PANEL / DUAL-CONTROL"
+      toolbar={<Badge tone="warn">3 AWAITING</Badge>}
+      asideWidth={330}
+      aside={<>
+        <SectionLabel number={3} muted>THE GUARDED PATH</SectionLabel>
+        {['Risk classified (1–5)', 'Justification captured', 'Second approver routed out-of-band', 'Separation of duties verified', 'Step-up re-auth at approval', 'Time-boxed single-use token', 'PQ-signed audit · incl. denials'].map((s, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--divider)' }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: 'var(--text-faint)', width: 18 }}>{String(i + 1).padStart(2, '0')}</span>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-body)' }}>{s}</span>
+          </div>
+        ))}
+        <Card size="sm" style={{ marginTop: 4 }}>
+          <div className="mg-label" style={{ color: 'var(--text-faint)' }}>APPROVER POOL HEALTH</div>
+          <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
+            <StatBlock value="8" label="ELIGIBLE" size="sm" />
+            <StatBlock value="31d" label="LAST ROTATION" size="sm" />
+            <StatBlock value="0" label="COLLUSION FLAGS" size="sm" />
+          </div>
+        </Card>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-AD-5" title="Dual-control on key rotation, escalation, model revocation, fleet release, break-glass" />
+          <ProvenanceTag id="AC-AD-4" title="Self-approval denied by separation-of-duties check" />
+          <ProvenanceTag id="AC-AD-6" title="Denied and simulated actions are audited too" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={2}>DUAL-CONTROL</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Approval queue</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="3" label="AWAITING" size="sm" accent />
+        <StatBlock value="14" label="APPROVED · 7D" size="sm" />
+        <StatBlock value="2" label="DENIED · 7D" size="sm" />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {items.map((it, i) => (
+          <GuardedAction key={i} action={it.action} subsystem={it.subsystem} risk={it.risk}
+            requester={it.requester} approver={it.approver} state={it.state}
+            justification={it.j} deniedReason={it.dr}
+            onApprove={() => setState(i, 'approved')} onDeny={() => setState(i, 'denied')} />
+        ))}
+      </div>
+      <Terminal title="AUDIT · INCLUDING DENIALS" lines={[
+        '> admin audit tail --class approvals',
+        '#A-9107  denied   fleet-release   m.silva  self-approval · separation check',
+        '#A-9104  approved model-revoke    p.iwu → j.benjamin · token 10m',
+        '#A-9101  approved kms-rotation    drill · k.osei → a.novak',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

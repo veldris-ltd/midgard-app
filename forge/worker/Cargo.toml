@@ -1,0 +1,57 @@
+[package]
+name = "forge-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Forge worker as a running service: on a schedule it syncs each declared source through a Forge connector into a sealed, versioned dataset with lineage, projects its rows onto the ontology, and syncs the objects and links into the enclosure's fabric over PQ-mTLS, auditing every run. [FR-F-2] [FR-F-3] [FR-F-4] [NFR-SEC-1] [RC-11]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "forge-connector-sdk/backend-fips",
+    "forge-dataset-store/backend-fips",
+    "forge-projection/backend-fips",
+    "fabric/backend-fips",
+    "kms/backend-fips",
+    "governance/backend-fips",
+    "pqc-agility/backend-fips",
+    "service-runtime/backend-fips",
+    "audit-writer/backend-fips",
+]
+
+[dependencies]
+# Ingest, versioned datasets with lineage, and projection onto object types.
+forge-connector-sdk = { path = "../connector-sdk" }
+forge-dataset-store = { path = "../dataset-store" }
+forge-projection = { path = "../projection" }
+# The object and link instances projection produces.
+fabric = { path = "../../services/fabric" }
+kms = { path = "../../services/kms" }
+policy = { path = "../../crypto/policy" }
+# Each job's checkpoint, in a sealed journal. [RC-11]
+audit-writer = { path = "../../crypto/audit-writer" }
+# The worker's own audit ledger: every job run is recorded.
+governance = { path = "../../services/governance" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+telemetry = { path = "../../services/telemetry" }
+service-runtime = { path = "../../services/runtime" }
+
+[dev-dependencies]
+# The end-to-end test syncs into a real enclosure through the gateway's mesh door.
+http-gateway = { path = "../../services/http-gateway" }
+iam = { path = "../../services/iam" }
+attest = { path = "../../crypto/attest" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+
+[[bin]]
+name = "forge-worker"
+path = "src/main.rs"
+
+# Renders the egress broker's HAProxy configuration from the worker's routes file.
+[[bin]]
+name = "forge-egress"
+path = "src/bin/forge-egress.rs"
+
+[lib]
+path = "src/lib.rs"

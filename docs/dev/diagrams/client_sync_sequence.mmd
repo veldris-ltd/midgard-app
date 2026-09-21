@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant U as User (client)
+    participant L as Local store (CRDT)
+    participant S as Sync engine
+    participant G as Gateway (PQ-mTLS)
+    participant F as Object Fabric
+    U->>L: edit object (offline OK)
+    L->>L: append CRDT op, encrypt at rest
+    Note over L,S: connectivity returns
+    S->>G: PQ-mTLS handshake (X25519+ML-KEM-768)
+    G-->>S: session established
+    S->>F: push sealed CRDT ops
+    F-->>S: merged state + remote ops
+    S->>L: merge remote ops (conflict-free)
+    L-->>U: updated view
+    Note over F: policy + markings enforced server-side

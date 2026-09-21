@@ -1,0 +1,22 @@
+[package]
+name = "forge-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Forge compute engine: a typed ComputeBackend seam with a deterministic in-process reference executor and a mock backend (Polars/DuckDB/Spark plug in behind the same trait). [FR-F-1] [FR-F-5]"
+
+[dependencies]
+# The shared dataset contract executed over.
+forge-dataset-store = { path = "../dataset-store" }
+
+[dev-dependencies]
+# RC-27 end-to-end: a real file source → join+aggregate on the engine → projection
+# to the fabric, plus an egress-blocked connector.
+forge-connector-sdk = { path = "../connector-sdk" }
+forge-projection = { path = "../projection" }
+fabric = { path = "../../services/fabric" }
+policy = { path = "../../crypto/policy" }
+
+[lib]
+path = "src/lib.rs"

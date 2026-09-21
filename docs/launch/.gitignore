@@ -1,0 +1,18 @@
+# PowerPoint lock and temp files, left behind while a deck is open.
+~$*
+*.tmp
+
+# Pipeline working directories: dependencies, recordings, renders and the
+# HTTP-mode console build. All of it is rebuilt by the steps in README.md.
+pipeline/node_modules/
+pipeline/out/
+pipeline/out-light/
+pipeline/img/
+pipeline/img-light/
+pipeline/pages/midgard/
+
+# Copies of the decks and videos above, made by `pipeline/build-site-assets.py`.
+# The originals are committed once, at the top of this folder; run the builder
+# before uploading `site/`.
+site/media/**/*.mp4
+site/media/**/*.pptx

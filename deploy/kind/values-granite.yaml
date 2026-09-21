@@ -1,0 +1,10 @@
+# Helm overlay for a local kind cluster serving Granite: turns on the chart's
+# modelServing for mimir-server, with the pinned llama.cpp image loaded into the
+# cluster under a local tag (deploy/kind/model.sh loads it and the model). Applied on
+# top of deploy/kind/values.yaml. [FR-MI-1] [AC-MI-7] [RC-33]
+modelServing:
+  enabled: true
+  # ghcr.io/ggml-org/llama.cpp:server@sha256:bbf6fde2…, tagged locally: `kind load`
+  # does not keep the registry digest, so the node could not match it and would pull.
+  image: midgard/llama-cpp:bbf6fde2
+  pullPolicy: Never

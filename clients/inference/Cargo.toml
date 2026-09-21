@@ -1,0 +1,47 @@
+[package]
+name = "midgard-client-inference"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Client inference tiering: an automatic on-device / remote / hybrid / disable decision (A.C2), the on-device assistant seam (A.C1, PQ-signature-verified model load), remote delegation to Mimir, and audited results. [FR-C-6] [FR-C-10] [NFR-AI-1]"
+
+[features]
+# The lib is backend-agnostic (tiering is pure logic); model PQ-signature
+# verification and the audited path need a signature backend. Tests run under the
+# deterministic `test-backend` (like the enclosure client); `backend-fips` selects
+# the production ML-DSA. Mutually exclusive.
+default = []
+test-backend = ["pqc-agility/test-backend", "audit-writer/test-backend"]
+# `backend-fips` additionally enables the live PQ-mTLS remote-inference bridge
+# (`remote_bridge`), which needs the real handshake + enclosure client. [RT-57]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "audit-writer/backend-fips",
+    "pq-mtls/backend-fips",
+    "midgard-client-enclosure/backend-fips",
+]
+
+[dependencies]
+# Signature verify on model load + SHA-256 digest; the tier reasoner/assistant text.
+pqc-agility = { path = "../../crypto/pqc-agility", default-features = false }
+# The verbatim A.C1 / A.C2 prompts (authoritative text lives in the library). [KDD-1]
+mimir-prompts = { path = "../../mimir/prompts" }
+# PQ-signed audit lineage for every tier decision / inference. [NFR-AI-1]
+audit-writer = { path = "../../crypto/audit-writer" }
+# The live Tier-2 remote bridge delegates over the client's PQ-mTLS session to the
+# enclosure gateway. Backend-selected (mutually exclusive) like the crypto crates;
+# the bridge module itself is gated on `backend-fips`. [RT-57] [FR-C-6]
+pq-mtls = { path = "../../crypto/pq-mtls", default-features = false }
+midgard-client-enclosure = { path = "../enclosure", default-features = false }
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+# The RC-57 loopback proof (gated on `backend-fips`) stands up a real PQ-mTLS
+# Responder + PDP for the enclosure side. It reaches pq-mtls through the normal
+# dependency (which the crate's own `backend-fips` feature turns on), and needs the
+# `policy` types for the PDP/resource setup. `policy` is backend-free, so it does
+# not drag a crypto backend into the deterministic `test-backend` test run.
+policy = { path = "../../crypto/policy" }

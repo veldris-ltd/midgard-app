@@ -1,0 +1,88 @@
+# Serve a real model instead of the reference engine: IBM Granite 3.3 2B Instruct
+# (Apache-2.0, GGUF Q4_K_M) on llama.cpp's CPU server, beside mimir-server.
+# [FR-MI-1] [AC-MI-7] [DD-4] [NFR-SEC-1]
+#
+#   bash deploy/compose/stage-model.sh PATH/TO/granite-3.3-2b-instruct-Q4_K_M.gguf
+#   docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.yaml \
+#       up -d --build --wait
+#   docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.yaml \
+#       run --rm probe --prompt "What is an audit ledger?" --max-tokens 64
+#
+# stage-model.sh fills the external volume `midgard-models`: the weights, the manifest
+# signed by a development model key, and that key's public half. mimir-server verifies
+# the model before it serves: the signature, the family, and the weights' size, format
+# and SHA-256. It exits if any fails. The llama.cpp server joins mimir-server's network
+# namespace and listens only on its loopback address, so nothing else on the mesh can
+# reach it, and it cannot reach anything but mimir-server. Both mount the models volume
+# read-only.
+
+services:
+  mimir-server:
+    entrypoint:
+      - mimir-server
+      - --identity-dir
+      - /identity
+      - --state-dir
+      - /state
+      - --purposes
+      - investigation
+      - --bind
+      - 0.0.0.0:7720
+      - --health-bind
+      - 0.0.0.0:9090
+      - --engine
+      - llama-cpp
+      - --model-dir
+      - /models/granite
+      - --model-trust
+      - /models/trust/model-signing.pub
+      - --sidecar
+      - 127.0.0.1:8080
+    volumes:
+      - mimir-models:/models:ro
+    # Ready only once the model is verified and llama.cpp has loaded it.
+    healthcheck:
+      test: ["CMD", "midgard-ready", "9090", "/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 120
+
+  mimir-llamacpp:
+    # The multi-arch index, pinned by digest: each host pulls its native build.
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:bbf6fde2eedbe1b6c8ee9d93a54ea4606e90a4eda18681a7f8b4b6ed0cbc9f00
+    network_mode: "service:mimir-server"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp"]
+    command:
+      - -m
+      - /models/granite/granite-3.3-2b-instruct-Q4_K_M.gguf
+      - --alias
+      - granite-3.3-2b-instruct-q4km
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8080"
+      - --ctx-size
+      - "4096"
+      - --parallel
+      - "2"
+    depends_on:
+      mimir-server:
+        condition: service_started
+    volumes:
+      - mimir-models:/models:ro
+    restart: unless-stopped
+    # Loading the weights takes a while on a CPU: allow it before calling it unhealthy.
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 120
+
+volumes:
+  mimir-models:
+    external: true
+    name: midgard-models

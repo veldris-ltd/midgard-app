@@ -1,0 +1,113 @@
+<!-- @dsCard group="Mimir" viewport="1440x820" subtitle="Plan–act–observe traces, memory records, per-step evals" name="Mimir · Session Traces" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mimir · Session Traces</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-mimir">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const STEPS = [
+  { kind: 'plan', label: 'Plan', detail: 'Identify aircraft trending toward maintenance risk; propose action if warranted', ms: 380, ok: true },
+  { kind: 'act', label: 'Tool · fabric.query', detail: 'ObjectSet aircraft · risk_score > 0.6 · purpose-scoped', ms: 122, ok: true },
+  { kind: 'observe', label: 'Observe', detail: '3 objects returned · AC-2214 highest at 0.87', ms: 8, ok: true },
+  { kind: 'act', label: 'Tool · fn check_slack()', detail: 'Maintenance slack at FAC-DUB within 48h: available', ms: 64, ok: true },
+  { kind: 'guard', label: 'Guardrail screen', detail: 'Tool scope OK · no injection markers · citations bound', ms: 12, ok: true },
+  { kind: 'eval', label: 'Per-step eval', detail: 'Grounding 0.97 · calibration OK', ms: 41, ok: true },
+  { kind: 'gate', label: 'Action proposal', detail: 'Schedule maintenance · awaiting human gate', ms: null, ok: null },
+];
+const MEM = [
+  { key: 'fleet/AC-2214/history', kind: 'episodic', age: '4d', size: '2.1 KB' },
+  { key: 'ops/dispatch-preferences', kind: 'semantic', age: '31d', size: '0.8 KB' },
+  { key: 'session/S-8812/scratch', kind: 'working', age: 'live', size: '4.4 KB' },
+];
+function App() {
+  const [sel, setSel] = React.useState(6);
+  const s = STEPS[sel];
+  const kindColor = { plan: 'var(--info)', act: 'var(--accent)', observe: 'var(--grey-400)', guard: 'var(--secure)', eval: 'var(--secure)', gate: 'var(--warn)' };
+  return (
+    <ConsoleShell product="mimir" active="sessions" context="AGENT STUDIO / SESSION S-8812 · DISPATCH-01"
+      toolbar={<>
+        <Badge tone="accent">Mistral Small 3.2 · LOCAL</Badge>
+        <Button variant="secondary" size="sm" iconLeft={<Icon name="download" size={14} />}>Export trace</Button>
+      </>}
+      asideWidth={340}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="terminal" size={17} color={kindColor[s.kind]} />
+          <h2 style={{ fontSize: 15, flex: 1 }}>{s.label}</h2>
+          {s.ok === true && <Badge tone="secure">OK</Badge>}
+          {s.ok === null && <Badge tone="warn">PENDING</Badge>}
+        </div>
+        <Card size="sm">
+          <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.6 }}>{s.detail}</p>
+          {s.ms != null && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 8 }}>{s.ms}MS</div>}
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>MEMORY RECORDS · PQ-ENCRYPTED</div>
+          {MEM.map(m => (
+            <div key={m.key} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)' }}>
+              <span style={{ color: 'var(--grey-100)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.key}</span>
+              <span style={{ color: 'var(--text-faint)' }}>{m.kind}</span>
+              <span style={{ color: 'var(--text-faint)' }}>{m.age}</span>
+            </div>
+          ))}
+        </div>
+        <Terminal title="SESSION LEDGER" lines={[
+          'agent    dispatch-01 · policy v6',
+          'steps    7 · tools 2 · guards 1',
+          'evals    per-step · all passed',
+          'sig      ML-DSA · session lineage',
+        ]} style={{ marginTop: 'auto' }} />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <ProvenanceTag id="FR-MI-3" title="Agent runtime with tools, memory, planning, and per-agent Evals" />
+          <ProvenanceTag id="NFR-PQ-2" title="Agent memory PQ-encrypted at rest" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={7}>SESSIONS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Session trace · S-8812</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="7" label="STEPS" size="sm" />
+        <StatBlock value="627ms" label="TOTAL · FIRST TOKEN 420MS" size="sm" />
+        <StatBlock value="1" label="HUMAN GATE PENDING" size="sm" accent />
+      </div>
+      <div className="mg-grid-bg" style={{ flex: 1, background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 22, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 640 }}>
+          {STEPS.map((st, i) => (
+            <React.Fragment key={i}>
+              <div onClick={() => setSel(i)} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer',
+                background: i === sel ? 'var(--surface-raised)' : 'var(--surface-card)',
+                border: '1px solid ' + (i === sel ? 'var(--accent)' : st.kind === 'gate' ? 'var(--warn)' : 'var(--border)'),
+                borderRadius: 'var(--radius-md)',
+              }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: kindColor[st.kind], width: 58, flex: 'none', textTransform: 'uppercase' }}>{st.kind}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-heading)' }}>{st.label}</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', marginTop: 2 }}>{st.detail}</div>
+                </div>
+                {st.ms != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{st.ms}ms</span>}
+                {st.kind === 'gate' && <Badge tone="warn">HUMAN GATE</Badge>}
+              </div>
+              {i < STEPS.length - 1 && <div style={{ width: 2, height: 10, background: 'var(--border-strong)', marginLeft: 40 }} />}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,25 @@
+[package]
+name = "mg-register"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Register a gate-verified artefact in the Bifrost artefact registry, so it can enter ring rollout and air-gap bundling. Verifies before it stores. [FR-B-1] [FR-B-4] [AC-B-1] [NFR-PQ-3]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "bifrost-artefact/backend-fips",
+    "pqc-agility/backend-fips",
+    "attest/backend-fips",
+]
+
+[[bin]]
+name = "mg-register"
+path = "src/main.rs"
+
+[dependencies]
+bifrost-artefact = { path = "../../bifrost/artefact", features = ["backend-fips"] }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+attest = { path = "../../crypto/attest", features = ["backend-fips"] }
+kms = { path = "../../services/kms" }

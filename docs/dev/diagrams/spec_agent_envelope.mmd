@@ -1,0 +1,27 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    goal["Agent goal / task"]:::external
+    subgraph loop["Plan-Act-Observe loop"]
+        plan["Plan\n(decompose, select tools)"]:::system
+        gate1["Pre-act gate\npurpose + policy + Evals precheck"]:::system
+        act["Act\n(call tool / propose action)"]:::system
+        mut{"Mutates state?"}:::system
+        human["Human authorisation\n(unless pre-authorised scope)"]:::system
+        exec["Execute via Object Fabric action"]:::system
+        obs["Observe\n(result + eval score)"]:::system
+    end
+    audit["PQ-signed audit lineage"]:::datastore
+    heal["Self-healing supervisor\n(reroute / retry / rollback)"]:::system
+    done["Goal satisfied / halt"]:::external
+    goal --> plan --> gate1 --> act --> mut
+    mut -->|yes| human --> exec --> obs
+    mut -->|no| obs
+    obs -->|continue| plan
+    obs -->|done| done
+    gate1 --> audit
+    exec --> audit
+    obs --> heal
+    heal -->|recovered| plan
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

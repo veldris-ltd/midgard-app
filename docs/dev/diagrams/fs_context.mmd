@@ -1,0 +1,24 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    planner["Human planner"]:::actor
+    oversight["Oversight operator"]:::actor
+    subgraph gungnir["Gungnir (SAD_08)"]
+        proj["Projection engine\n(sandboxed)"]:::gung
+    end
+    subgraph sentinel["Forseti — assurance layer (independent)"]
+        monitor["Projection-integrity monitor\n(own model, separate)"]:::sent
+        forcep["Force-protection geometry\n(asset-centric)"]:::sent
+        hf["Role-level human-factors\nguardrails (situational)"]:::sent
+    end
+    audit["PQ audit ledger"]:::ext
+    proj -->|"projections + baseline"| monitor
+    monitor -->|"integrity verdict\n(down-weight / flag / HALT)"| proj
+    monitor -->|"flag to human"| oversight
+    forcep -->|"proximity / viewshed alerts\n(human-gated)"| oversight
+    hf -->|"surface more scrutiny\nby situation"| planner
+    monitor --> audit
+    forcep --> audit
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef gung fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B
+    classDef sent fill:#1E7A46,color:#fff,stroke:#125230,stroke-width:2px
+    classDef ext fill:#1168BD,color:#fff,stroke:#0B4884

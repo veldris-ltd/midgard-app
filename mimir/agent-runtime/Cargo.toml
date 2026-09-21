@@ -1,0 +1,34 @@
+[package]
+name = "agent-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Mimir agent runtime: the eight-layer prompt-assembly pipeline and OAG-grounded response. [NFR-AI-1] [FR-MI-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "model-server/backend-fips",
+    "oag-retriever/backend-fips",
+    "fabric/backend-fips",
+    "governance/backend-fips",
+]
+
+[dependencies]
+mimir-prompts = { path = "../prompts" }
+oag-retriever = { path = "../oag-retriever" }
+model-server = { path = "../model-server" }
+policy = { path = "../../crypto/policy" }
+fabric = { path = "../../services/fabric" }
+# The governed loop writes PQ-signed audit lineage for every gate decision and
+# halt through the governance spine (INV-6). [NFR-PQ-3]
+governance = { path = "../../services/governance" }
+
+[dev-dependencies]
+# The AC-MI-2 test grounds against a real fabric (built over the governance
+# spine); pqc-agility supplies the Rng the spine's audit key is generated from.
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

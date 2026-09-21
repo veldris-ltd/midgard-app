@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Midgard edge</title><link rel="stylesheet" href="base.css"><script>try{if(localStorage.getItem('mg-mode')==='light')document.documentElement.classList.add('mode-light')}catch(e){}</script>
+<style>
+body { display: grid; place-items: center; }
+.term { width: 1560px; height: 860px; background: #050506; border: 1px solid #2a2d34; border-radius: 10px; box-shadow: 0 30px 80px rgba(0,0,0,0.6); overflow: hidden; display: flex; flex-direction: column; }
+.bar { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid #1e2126; background: #0a0b0d; }
+.bar i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; background: #2a2d34; }
+.bar .t { margin-left: 12px; color: #6b7279; }
+pre { flex: 1; margin: 0; padding: 22px 26px; font-family: 'JetBrains Mono', monospace; font-size: 19px; line-height: 1.55; color: #b6bcc4; white-space: pre-wrap; overflow: hidden; }
+.p { color: #f26b70; } .c { color: #e9ebee; } .k { color: #63d3dd; } .ok { color: #21c07a; } .d { color: #6b7279; } .w { color: #ecc55c; }
+.cur { display: inline-block; width: 10px; height: 20px; background: #e9ebee; vertical-align: -3px; animation: b 1s steps(2) infinite; }
+@keyframes b { 50% { opacity: 0; } }
+</style></head><body class="grid">
+<div class="term"><div class="bar"><i></i><i></i><i></i><span class="t label">operator@laptop — the enclosure edge, development mode</span></div><pre id="o"></pre></div>
+<script>
+const o = document.getElementById('o'); const base = 'http://127.0.0.1:7710/api/v1';
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+let html = '';
+function cur(){ o.innerHTML = html + '<span class="cur"></span>'; }
+async function type(cmd, speed = 26) { html += '<span class="p">$ </span><span class="c">'; for (const ch of cmd) { html += esc(ch); cur(); await sleep(speed + Math.random()*18); } html += '</span>\n'; cur(); await sleep(350); }
+async function out(lines, pace = 40) { for (const l of lines) { html += l + '\n'; cur(); await sleep(pace); } }
+async function run() {
+  await sleep(600);
+  await type('docker run --rm -p 7710:7710 midgard/dev:local http-gateway 0.0.0.0:7710');
+  await out(['<span class="w">http-gateway: WARNING binding non-loopback 0.0.0.0:7710; production MUST front this with PQ-mTLS/TLS-1.3 termination. [RC-24]</span>', 'http-gateway (secured) listening on <span class="k">http://0.0.0.0:7710</span>', '']);
+  await sleep(600);
+  await type('curl -s http://127.0.0.1:7710/api/v1/health');
+  const h = await (await fetch(base + '/health')).json();
+  await out([esc(JSON.stringify(h)), '']);
+  await sleep(500);
+  await type("curl -s -X POST http://127.0.0.1:7710/api/v1/login -d '{\"username\":\"operator\",\"password\":\"midgard-demo\"}'");
+  const l = await (await fetch(base + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'operator', password: 'midgard-demo' }) })).json();
+  await out([esc(JSON.stringify({ token: l.token.slice(0, 40) + '… (' + l.token.length + ' hex chars, ML-DSA-65 signed)', subject: l.subject, expiresAt: l.expiresAt })), '']);
+  await sleep(500);
+  await type("curl -s -X POST http://127.0.0.1:7710/api/v1/query -H \"authorization: Bearer $TOKEN\" -d '{\"objectType\":\"aircraft\"}'");
+  const q = await (await fetch(base + '/query', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + l.token }, body: JSON.stringify({ objectType: 'aircraft' }) })).json();
+  const rows = q.results.map(r => '  ' + esc(r.id).padEnd(20) + ' tail=' + esc(r.propertyValues.tail) + '  status=' + esc(r.propertyValues.status).padEnd(12) + ' base=' + esc(r.propertyValues.base) + '  <span class="d">' + esc(r.markings.map(m => m.name).join(', ')) + '</span>');
+  await out(['<span class="d">' + q.results.length + ' objects the operator is cleared to read (marking, compartment and purpose enforced per object)</span>', ...rows, '<span class="d">authorised and recorded as</span> <span class="ok">' + esc(q.auditId) + '</span>', '']);
+  await sleep(500);
+  await type('curl -s "http://127.0.0.1:7710/api/v1/audit?limit=4" -H "authorization: Bearer $TOKEN"');
+  const a = await (await fetch(base + '/audit?limit=4', { headers: { authorization: 'Bearer ' + l.token } })).json();
+  const list = Array.isArray(a) ? a : (a.records ?? a.results ?? []);
+  await out(list.map(r => '  <span class="k">' + esc(r.id).padEnd(8) + '</span> ' + esc(r.ts) + '  ' + esc(r.actor).padEnd(9) + ' ' + esc(r.action).padEnd(14) + ' ' + esc(r.resource).padEnd(24) + ' <span class="ok">ML-DSA-65 ✓</span>'));
+  await out(['', '<span class="d"># every response above was authorised by the policy decision point and written to one PQ-signed ledger before it was served</span>']);
+  window.__done = true;
+}
+run();
+</script></body></html>

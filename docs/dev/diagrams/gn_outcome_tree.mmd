@@ -1,0 +1,23 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    start["Intended plan\n(human-authored)"]:::start
+    a1["Action 1\n(human would authorise)"]:::action
+    b1["Branch: success 0.8"]:::good
+    b2["Branch: partial 0.15"]:::warn
+    b3["Branch: failure 0.05"]:::bad
+    a2["Action 2\n(conditional)"]:::action
+    c1["Cascade effects\n2nd/3rd order"]:::cascade
+    sum["Projected SUM\nof plan (P success,\ncollateral, cost)"]:::sum
+    start --> a1
+    a1 --> b1 --> a2
+    a1 --> b2 --> a2
+    a1 --> b3
+    a2 --> c1 --> sum
+    b3 --> sum
+    classDef start fill:#0B4884,color:#fff,stroke:#052E56
+    classDef action fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B
+    classDef good fill:#1E7A46,color:#fff,stroke:#125230
+    classDef warn fill:#B7791F,color:#fff,stroke:#7A5A15
+    classDef bad fill:#B23B3B,color:#fff,stroke:#7A2727
+    classDef cascade fill:#5B6B7B,color:#fff,stroke:#3A4652
+    classDef sum fill:#1168BD,color:#fff,stroke:#0B4884,stroke-width:2px

@@ -1,0 +1,121 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="heimdall.midgard.eu · product page with early-access signup" name="heimdall.midgard.eu" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Heimdall · Operational fusion</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-heimdall">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, ProductMark, Button, Badge, StatusPill, SectionLabel, Terminal, StatBlock, Card, Tag } = NS;
+
+function Hero({ eyebrow, headline, sub, seals, stats }) {
+  return (
+    <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(64px, 9vw, 120px) clamp(16px, 4vw, 36px) clamp(44px, 6vw, 84px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>{seals}</div>
+        <div className="mg-label" style={{ marginBottom: 14 }}>{eyebrow}</div>
+        <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 3.8rem)', lineHeight: 1.06, maxWidth: 780, fontWeight: 800 }}>{headline}</h1>
+        <p style={{ margin: '20px 0 0', fontSize: 'clamp(1rem, 1.6vw, 1.125rem)', color: 'var(--text-body)', maxWidth: 600, lineHeight: 1.7 }}>{sub}</p>
+        <div style={{ display: 'flex', gap: 12, marginTop: 30, flexWrap: 'wrap' }}>
+          <a href="#early-access" style={{ textDecoration: 'none' }}><Button variant="primary" size="lg" iconRight={<Icon name="arrow-right" size={16} />}>Request early access</Button></a>
+          <a href="index.html" style={{ textDecoration: 'none' }}><Button variant="ghost" size="lg">The full suite →</Button></a>
+        </div>
+        <div style={{ display: 'flex', gap: 'clamp(24px, 5vw, 56px)', marginTop: 'clamp(36px, 5vw, 64px)', flexWrap: 'wrap' }}>{stats}</div>
+      </div>
+    </section>
+  );
+}
+
+function Capabilities({ num, title, items }) {
+  return (
+    <section style={{ padding: 'clamp(44px, 7vw, 88px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <SectionLabel number={num}>CAPABILITIES</SectionLabel>
+        <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 30px', maxWidth: 680 }}>{title}</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: 14 }}>
+          {items.map(([icon, t, d]) => (
+            <Card key={t} size="md">
+              <Icon name={icon} size={20} color="var(--accent)" />
+              <h3 style={{ fontSize: 'var(--fs-body)', margin: '12px 0 7px' }}>{t}</h3>
+              <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65 }}>{d}</p>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Showcase({ num, title, body, terminal, reverse }) {
+  return (
+    <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: 'clamp(44px, 7vw, 88px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 'clamp(24px, 4vw, 48px)', flexWrap: 'wrap', alignItems: 'center', flexDirection: reverse ? 'row-reverse' : 'row' }}>
+        <div style={{ flex: '1 1 320px' }}>
+          <SectionLabel number={num}>IN PRACTICE</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 12px', maxWidth: 480 }}>{title}</h2>
+          <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-muted)', lineHeight: 1.7, maxWidth: 480 }}>{body}</p>
+        </div>
+        {terminal}
+      </div>
+    </section>
+  );
+}
+
+function Standalone({ num, line }) {
+  return (
+    <section style={{ padding: 'clamp(36px, 6vw, 72px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <SectionLabel number={num} muted>COMPOSABLE</SectionLabel>
+        <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-body)', flex: '1 1 400px', lineHeight: 1.65 }}>{line}</p>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>MIDGARD CORE REQUIRED · EVERYTHING ELSE OPTIONAL</span>
+      </div>
+    </section>
+  );
+}
+
+
+function App() {
+  return (
+    <SiteShell active="heimdall">
+      <Hero
+        eyebrow="01 // HEIMDALL · OPERATIONAL FUSION"
+        headline={<>One picture. Every feed.<br /><span style={{ color: 'var(--text-muted)' }}>Humans decide.</span></>}
+        sub="Heimdall fuses live feeds into a single shared operating picture: entities tracked and classified over time, ranked options generated locally by Mimir, and every consequential action gated by a named human with a signed decision record."
+        seals={<><StatusPill status="online" label="FEEDS · FUSED LIVE" /><StatusPill status="secure" label="FEEDS PQ-AUTH ✓" pulse={false} /></>}
+        stats={<><StatBlock value="0.4s" label="FUSION LATENCY" /><StatBlock value="100%" label="DECISIONS SIGNED + REPLAYABLE" accent /><StatBlock value="0" label="ACTIONS AUTO-EXECUTED" /></>}
+      />
+      <Capabilities num={2} title="See everything. Trust what you see."
+        items={[
+          ['radar', 'Multi-feed fusion', 'Radar, transponder, satellite, maritime, ground: correlated into one live picture with per-layer control.'],
+          ['shield-check', 'Spoof-proof feeds', 'Every source signs every frame. Unverified feeds are quarantined before they can touch the picture.'],
+          ['crosshair', 'Entity tracking', 'Entities tracked and classified over time against the object fabric, with confidence you can see and interrogate.'],
+          ['sparkles', 'Ranked options, cited', 'Mimir proposes courses of action with the evidence attached. Advisory always; executing never.'],
+          ['workflow', 'Human-gated workflows', 'From anomaly to authorised action in one governed flow, with the human gate built into the workflow engine itself.'],
+          ['network', 'Multi-site sync', 'The picture replicates across sites over PQ-mTLS, marking-aware, so every cleared operator sees one truth.'],
+        ]} />
+      <Showcase num={3} title="From anomaly to authorised action." reverse
+        body="A track goes anomalous. Options arrive ranked and cited. An operator picks one, authorises it with a hardware key, and the entire chain, evidence, options, decision, outcome, is one replayable signed record."
+        terminal={<Terminal title="DECISION" style={{ flex: '1 1 360px' }} lines={[
+          '> heimdall workflow W-0912',
+          'anomaly    E-0871 · conf 54% · flagged',
+          'options    3 ranked · cited · advisory',
+          'authorise  k.osei · option 01 · WebAuthn ✓',
+          'action     re-task NORTH-2 → E-0871',
+          'outcome    conf 54% → 86% · 12 min',
+          '# decision #D-4472 · signed · replayable',
+        ]} />}
+      />
+      <Standalone num={4} line="Midgard + Heimdall delivers fusion and a common operating picture on its own, rules-based classification included. Add Mimir for AI options, Forge for curated object feeds." />
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,35 @@
+:root {
+  /* ---- Corner radii, crisp, engineered, no soft blobs ---- */
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   10px;   /* default card / input */
+  --radius-lg:   16px;   /* large panels */
+  --radius-pill: 999px;  /* status pills, tags, markings only */
+
+  /* ---- Border widths ---- */
+  --bw-hair:  1px;
+  --bw-1:     1px;
+  --bw-2:     2px;   /* accent underlines, active states */
+
+  /* ---- Shadows (elevation on dark = border + lighter surface, not drops) ---- */
+  --shadow-sm:  0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md:  0 6px 20px rgba(0,0,0,0.45);
+  --shadow-lg:  0 20px 50px rgba(0,0,0,0.55);
+
+  /* Accent neon halo, focus + primary CTA only; follows the product accent */
+  --shadow-glow: 0 0 0 1px var(--accent-glow), 0 0 24px -4px var(--accent-glow);
+  --ring-focus:  0 0 0 3px var(--focus-ring);
+
+  /* ---- Motion, precise and quick; no bounce, no overshoot ---- */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out:cubic-bezier(0.65, 0, 0.35, 1); /* @kind other */
+  --dur-fast:   120ms; /* @kind other */
+  --dur-base:   200ms; /* @kind other */
+  --dur-slow:   360ms; /* @kind other */
+
+  /* ---- Glass / blur, sticky chrome + floating panels only ---- */
+  --blur-panel: saturate(140%) blur(14px); /* @kind other */
+
+  /* ---- Signature blueprint grid overlay ---- */
+  --grid-line: rgba(255,255,255,0.035); /* @kind color */
+}

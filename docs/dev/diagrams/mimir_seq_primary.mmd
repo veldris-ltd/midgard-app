@@ -1,0 +1,17 @@
+sequenceDiagram
+    actor User
+    participant AG as Agent Runtime
+    participant PL as Planner/Reasoner (Mistral Small 3.2)
+    participant TL as Tool Broker
+    participant EV as Evals & Guardrails
+    participant OF as Object Fabric (OAG)
+    User->>AG: goal (natural language)
+    AG->>PL: plan (decompose)
+    PL->>OF: retrieve grounded context (OAG)
+    OF-->>PL: objects/links/actions
+    PL->>TL: call tool / action
+    TL->>EV: pre-flight guardrail + purpose check
+    EV-->>TL: allow / gate / deny
+    TL-->>AG: tool result
+    AG->>EV: post-hoc evaluation (trace)
+    AG-->>User: answer + citations + reasoning

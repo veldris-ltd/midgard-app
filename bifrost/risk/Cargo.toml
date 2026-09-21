@@ -1,0 +1,17 @@
+[package]
+name = "bifrost-risk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Bifrost release-intelligence adapter: A.7 advisory risk scoring via Mimir feeding a DETERMINISTIC rollout gate; rule-based gate works with Mimir absent. [FR-B-6] [NFR-AI-1]"
+
+[dependencies]
+# The verbatim A.7 system prompt.
+mimir-prompts = { path = "../../mimir/prompts" }
+# The live inference transport (PQ-mTLS to the Mimir gateway) behind the seam. The
+# Mock/Unavailable advisors keep working with no bridge configured. [RT-45]
+mimir-bridge = { path = "../../mimir/bridge" }
+
+[lib]
+path = "src/lib.rs"

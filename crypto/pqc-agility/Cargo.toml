@@ -1,0 +1,47 @@
+[package]
+name = "pqc-agility"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Crypto-agility shim: negotiated, versioned, hot-swappable PQC (ML-KEM/ML-DSA/SLH-DSA). [NFR-PQ-4]"
+
+[features]
+# The deterministic, INSECURE reference backend used by tests and by downstream
+# crates' tests. Never enable in production.
+test-backend = []
+# The production backend: pure-Rust, ACVP-validated FIPS 203/204/205 (ML-KEM,
+# ML-DSA, SLH-DSA) plus X25519 for the hybrid transit suites. Pure Rust means no
+# C toolchain, trivial offline vendoring, and deterministic (bit-reproducible)
+# builds — the reasons it was chosen over liboqs in Phase 1. [NFR-PQ-1..4]
+# [AC-M-6] [NFR-PRV-1]
+backend-fips = ["dep:fips203", "dep:fips204", "dep:fips205", "dep:x25519-dalek", "dep:rand_core", "dep:aes-gcm"]
+
+[dependencies]
+# Secret hygiene (always on, vendored, tiny): vetted zeroization on drop, replacing
+# the home-rolled volatile-write; and mlock/munlock so long-lived key material is
+# kept out of swap on Unix. [RC-39] [NFR-PQ-2]
+zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
+libc = "0.2"
+# All post-quantum primitives are pure Rust and OPTIONAL — with no features the
+# crate stays std-only apart from the two secret-hygiene deps above (traits,
+# negotiation, registry, hash, hybrid combiner all still compile). The vendored
+# source under /vendor keeps the whole graph buildable fully offline. [NFR-PRV-1]
+# Only the parameter sets the platform offers are enabled (smaller build; the
+# unused SLH-DSA variants stay compiled out). `default-rng` is off — callers
+# inject an `&mut dyn Rng`; production randomness comes from `rand_core`'s
+# `getrandom` (enabled below), not the crates' bundled OS-RNG convenience.
+fips203 = { version = "0.4", optional = true, default-features = false, features = ["ml-kem-768", "ml-kem-1024"] }
+fips204 = { version = "0.4", optional = true, default-features = false, features = ["ml-dsa-44", "ml-dsa-65", "ml-dsa-87"] }
+fips205 = { version = "0.4", optional = true, default-features = false, features = ["slh_dsa_sha2_128s"] }
+x25519-dalek = { version = "2", optional = true, default-features = false, features = ["static_secrets"] }
+# AES-256-GCM for record protection in transit (pq-mtls) and envelope encryption
+# at rest (KMS). Pure Rust; one implementation shared so no service re-rolls AEAD.
+# [NFR-PQ-2] [NFR-SEC-1]
+aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "alloc"] }
+# `getrandom` gives the production OS CSPRNG (a syscall — offline, no network) that
+# backs `OsRng`; the KEM/sig APIs still take an injected `&mut dyn Rng` from callers.
+rand_core = { version = "0.6", optional = true, default-features = false, features = ["getrandom"] }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,20 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    req["AI request on client"]:::system
+    cap{"Device capability\n+ connectivity?"}:::system
+    t1["Tier 1: on-device\nsmall quantised model\n(Gemma/Mistral int4)"]:::system
+    t2["Tier 2: remote enclosure\nMimir full models\n(PQ-mTLS)"]:::system
+    t3["Tier 3: hybrid\non-device draft +\nenclosure verify"]:::system
+    off["Offline + capable?\nuse Tier 1"]:::system
+    deny["No model + offline\nfeature disabled gracefully"]:::external
+    resp["Grounded response\n(cited, audited)"]:::system
+    req --> cap
+    cap -->|"strong device, offline"| t1
+    cap -->|"connected"| t2
+    cap -->|"strong + connected"| t3
+    cap -->|"weak + offline"| deny
+    t1 --> resp
+    t2 --> resp
+    t3 --> resp
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B

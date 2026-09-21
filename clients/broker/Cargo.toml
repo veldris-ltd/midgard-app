@@ -1,0 +1,15 @@
+[package]
+name = "midgard-client-broker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Minimal-privilege browser-extension broker (A.C3): holds no keys, performs no crypto, reads only the user-shared page selection, and brokers every privileged operation to the enclosure. [FR-C-8] [AC-C-8] [KDD-2]"
+
+[dependencies]
+# The verbatim A.C3 prompt. NOTE: no crypto/keystore dependency — the broker holds
+# no key material and performs no cryptography, by construction. [KDD-2]
+mimir-prompts = { path = "../../mimir/prompts" }
+
+[lib]
+path = "src/lib.rs"

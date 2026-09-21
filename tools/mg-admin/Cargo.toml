@@ -1,0 +1,48 @@
+[package]
+name = "mg-admin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Operator tool for an enclosure's state directory: create it and its custody keys, and enrol the principals who log in. Offline; writes only under --state-dir. [RC-29] [NFR-SEC-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "audit-writer/backend-fips",
+    "admin-identity/backend-fips",
+    "attest/backend-fips",
+    "fabric/backend-fips",
+    "pq-mtls/backend-fips",
+    "iam/backend-fips",
+    "governance/backend-fips",
+    "http-gateway/backend-fips",
+]
+
+[[bin]]
+name = "mg-admin"
+path = "src/main.rs"
+
+[dependencies]
+# Sealed keystores: the custody devices for the issuer and audit keys.
+attest = { path = "../../crypto/attest", features = ["backend-fips"] }
+# Administrators' post-quantum passkeys and role bindings, for `admin add` and for
+# answering a gateway's challenges in the `enrol` commands.
+admin-identity = { path = "../../admin/identity" }
+# The governance audit ledger every enrolment is recorded in.
+audit-writer = { path = "../../crypto/audit-writer" }
+# Workload identities and certificates for the service mesh.
+pq-mtls = { path = "../../crypto/pq-mtls" }
+# The durable object store an import writes into.
+fabric = { path = "../../services/fabric" }
+# The durable identity directory, password hashing and TOTP enrolment.
+iam = { path = "../../services/iam" }
+# The audit key's algorithm.
+governance = { path = "../../services/governance" }
+# The state-directory layout, the policy-file codec and the marking bands, shared with
+# the gateway that serves the directory.
+http-gateway = { path = "../../services/http-gateway" }
+kms = { path = "../../services/kms" }
+policy = { path = "../../crypto/policy" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }

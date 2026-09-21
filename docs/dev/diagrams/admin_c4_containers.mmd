@@ -1,0 +1,29 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    ui["Admin UI\n(SvelteKit + WASM)"]:::system
+    bff["Admin BFF / API gateway\n(PQ-mTLS, admin scope)"]:::system
+    subgraph svc["Admin services"]
+        priv["Privilege & dual-control\nservice"]:::system
+        cfg["Configuration service\n(versioned, GitOps)"]:::system
+        agg["Aggregation service\n(read models across subsystems)"]:::system
+        act["Action orchestrator\n(guarded admin actions)"]:::system
+        break["Break-glass service"]:::system
+    end
+    audit["Admin audit ledger\n(PQ-signed, append-only)"]:::datastore
+    subsys["Managed subsystem APIs\n(IAM/Gov/KMS/Mimir/Bifrost/Obs)"]:::external
+    ui --> bff
+    bff --> priv
+    bff --> cfg
+    bff --> agg
+    bff --> act
+    bff --> break
+    act --> priv
+    act --> subsys
+    cfg --> subsys
+    agg --> subsys
+    priv --> audit
+    act --> audit
+    break --> audit
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B

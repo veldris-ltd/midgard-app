@@ -1,0 +1,18 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    user["User"]:::actor
+    ui["UI shell"]:::system
+    core["Rust core"]:::system
+    store["Local encrypted store"]:::datastore
+    key["Device keystore\n(Keychain/Keystore/TPM)"]:::system
+    net["PQ-mTLS channel"]:::system
+    gw["Enclosure gateway"]:::system
+    user -->|"1 input"| ui
+    ui -->|"2"| core
+    core -->|"3 seal"| store
+    core -->|"4 wrap keys"| key
+    core -->|"5 PQ-mTLS"| net
+    net -->|"6"| gw
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

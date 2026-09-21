@@ -1,0 +1,31 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="midgard_c4_context" id="midgard_c4_context">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="analyst" value="Data / Ops Analyst" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="admin" value="Platform Admin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="240" y="40" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="dev" value="Developer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="440" y="40" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="midgard" value="MIDGARD CORE PLATFORM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="240" y="180" width="320" height="80" as="geometry"/></mxCell>
+        <mxCell id="forge" value="Forge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="340" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="mimir" value="Mimir (Mistral Small 3.2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="210" y="340" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="bifrost" value="Bifrost" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="400" y="340" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="heimdall" value="Heimdall" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="570" y="340" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="src" value="External data sources" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="40" y="500" width="200" height="60" as="geometry"/></mxCell>
+        <mxCell id="idp" value="Enterprise IdP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="280" y="500" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="hsm" value="HSM / TPM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="500" y="500" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="e0" value="HTTPS+PQ" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="analyst" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="HTTPS+PQ" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="admin" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="SDK/CLI" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="dev" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="forge" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="mimir" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bifrost" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="heimdall" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="ingest" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="forge" target="src"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="federate" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="midgard" target="idp"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="seal keys" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="midgard" target="hsm"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

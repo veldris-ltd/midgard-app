@@ -1,0 +1,18 @@
+{
+  "name": "midgard-launch-pipeline",
+  "private": true,
+  "description": "Records the Midgard launch demo and builds the launch deck",
+  "scripts": {
+    "serve": "node server.js",
+    "record": "node record.js",
+    "deck": "node build-deck.js"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0",
+    "pptxgenjs": "^4.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-icons": "^5.5.0",
+    "sharp": "^0.34.0"
+  }
+}

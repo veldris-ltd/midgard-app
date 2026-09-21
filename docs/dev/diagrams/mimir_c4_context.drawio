@@ -1,0 +1,21 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="mimir_c4_context" id="mimir_c4_context">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="user" value="Mimir User" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="admin" value="Admin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="260" y="40" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="prod" value="MIMIR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="120" y="180" width="240" height="70" as="geometry"/></mxCell>
+        <mxCell id="midgard" value="Midgard Core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="340" width="200" height="60" as="geometry"/></mxCell>
+        <mxCell id="mimir" value="Mimir (Mistral Small 3.2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="280" y="340" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="ext" value="External systems" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="500" y="340" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="e0" value="HTTPS+PQ" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="prod"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="HTTPS+PQ" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="admin" target="prod"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="objects/keys" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="prod" target="midgard"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="inference" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="prod" target="mimir"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="integrate" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="prod" target="ext"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

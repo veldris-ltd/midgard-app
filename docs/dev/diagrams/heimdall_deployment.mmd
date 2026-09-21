@@ -1,0 +1,16 @@
+flowchart TB
+    subgraph host["Sovereign deployment (edge-capable)"]
+        subgraph k8s["Kubernetes"]
+            console["Heimdall Console pods"]
+            fusion["Fusion Engine pods"]
+            ingest["Feed Ingest pods"]
+            coa["COA Engine pods"]
+        end
+        mimir["Mimir inference (GPU)"]
+        fabric[("Object Fabric")]
+        cop[("COP store")]
+    end
+    ingest --> fusion --> cop
+    fusion --> fabric
+    console --> fusion
+    console --> coa --> mimir

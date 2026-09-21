@@ -1,0 +1,29 @@
+[package]
+name = "mg-sign"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "PQ-sign a release artefact: ML-DSA over a domain-separated preimage binding the artefact, its CycloneDX SBOM, and its in-toto provenance. Fails closed. [NFR-PQ-3] [AC-B-4]"
+
+[[bin]]
+name = "mg-sign"
+path = "src/main.rs"
+
+[features]
+# Real ML-DSA (FIPS 204) — a signer that did not actually sign would be worse
+# than no signer, so the production backend is the default.
+default = ["backend-fips"]
+backend-fips = [
+    "attest/backend-fips",
+    "pqc-agility/backend-fips",
+    "kms/backend-fips",
+]
+
+[dependencies]
+# The format, the custody seam, and verification all live in attest so that
+# mg-sign, mg-verify, Bifrost pre-deploy and Mimir model-load share exactly one
+# implementation of "acceptable". [AC-B-1] [AC-MS-2]
+attest = { path = "../../crypto/attest" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+kms = { path = "../../services/kms" }

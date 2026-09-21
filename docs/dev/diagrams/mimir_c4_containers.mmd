@@ -1,0 +1,28 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    user["fa:fa-user Builder / User"]:::actor
+    subgraph mimir["MIMIR"]
+        studio["Agent & Logic Studio (Web)\n[React/TS]"]:::container
+        agent["Agent Runtime\n(orchestration)\n[Rust]"]:::container
+        infer["Mistral Small 3.2 Inference Server\n(vLLM/TensorRT-LLM)"]:::container
+        tools["Tool Broker\n(functions/actions/MCP)\n[Rust]"]:::container
+        evals["Evals & Guardrails\n(self-defending)\n[Python]"]:::container
+        heal["Self-Heal Controller\n(watch/retry/rollback)\n[Rust]"]:::container
+        learn["Self-Learning Loop\n(feedback/finetune queue)\n[Python]"]:::container
+        vec[("Vector Store\n(embeddings)")]:::datastore
+    end
+    fabric["Midgard Object Fabric (OAG)"]:::external
+    user -->|HTTPS+PQ| studio
+    studio --> agent
+    agent --> infer
+    agent --> tools
+    tools --> fabric
+    agent --> evals
+    evals --> heal
+    agent --> vec
+    evals --> learn
+    learn --> infer
+    classDef actor fill:#08427B,color:#fff
+    classDef container fill:#1168BD,color:#fff
+    classDef datastore fill:#1168BD,color:#fff
+    classDef external fill:#999999,color:#fff

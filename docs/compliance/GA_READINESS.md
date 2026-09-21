@@ -1,0 +1,153 @@
+# GA readiness sign-off
+
+Release-decision record for the Midgard platform. This is the single go/no-go
+artifact a release approver signs. It does not restate the evidence — it points
+at the authoritative sources, states what has been verified and by what means,
+and names precisely what still blocks General Availability.
+
+- **Branch / commit at assessment:** `dev` @ `9f4b49f`
+- **Assessment date:** 2026-09-10
+- **Verdict:** **CODE-COMPLETE — GA CONDITIONAL.** The in-repo remediation and its
+  test evidence are complete and green. GA remains blocked on two external
+  activities and on running the acceptance + release-gate suites on release
+  infrastructure (see §4). This is a *not-yet-GA* record, not an approval.
+
+---
+
+## 1. Scope of this sign-off
+
+| Dimension | Covered |
+|-----------|---------|
+| Remedial campaign | `docs/dev/remedial/remedial-tasks.md` — **RT-01 … RT-59** (all worked; RT-21 was found unfinished and corrected on 2026-09-14 — see its status there) |
+| Residual risks | `docs/compliance/RESIDUAL_RISK_REGISTER.md` — SAD §6 closure |
+| Compliance mapping | `docs/compliance/COMPLIANCE_MATRIX.md`, `DATA_RESIDENCY.md` |
+| Build/verification posture | `docs/dev/BUILD_ENV.md`, `justfile` |
+
+Out of scope (external, by nature): FIPS 140-3 module certification; live
+deployment-tier assurance on real HSM / GPU / multi-node hardware.
+
+---
+
+## 2. Verified this assessment — offline test sweep
+
+The full workspace test recipe (`just test`) was run in the pinned, hermetic,
+**offline** toolchain and passed end to end.
+
+| Property | Value |
+|----------|-------|
+| Command | `just test` under `midgard-ci:1.82.0` |
+| Network | `--network none` (air-gapped) |
+| Dependency source | vendored `/vendor` only (crates-io source replaced) |
+| Toolchain | `rustc` / `cargo` **1.82.0** (pinned) |
+| Crate invocations | **44 / 44** ran to completion |
+| Test binaries | **238** |
+| Result | **664 passed · 0 failed** |
+| Crypto backends | **both** exercised — `test-backend` *and* `backend-fips`, in separate invocations (the RT-08 mutual-exclusion `compile_error!` guard forbids unifying them) |
+
+The sweep found one real regression on first run — a client-delivery test target
+missed during the supply-chain integration still called `.unwrap()` on the now-
+infallible `build_and_sign` / `build_bundle` — which was fixed (`9f4b49f`); the
+re-run above is clean. **The finding is the point:** the full fail-fast recipe,
+not per-crate spot checks, is the gate that surfaced it.
+
+---
+
+## 3. Verified previously (in-repo, standing controls)
+
+Each maps to implemented, tested controls; see the register for the risk it closes.
+
+- **Post-quantum crypto core** — pure-Rust FIPS 203/204/205 + X25519; ACVP KATs
+  pass in-repo (`fips_backend`, `aead_kat`, `agility_fips`).
+- **Supply-chain gate** (`justfile`: `repro → sbom → scan → sign → verify`, each
+  **fail-closed**) — reproducible build, deterministic CycloneDX SBOM with
+  component integrity hashes (RT-41), offline CVE + licence scan between SBOM and
+  signature (RT-06 / mg-scan), ML-DSA signing + provenance, verify-before-publish.
+- **Autonomy safety** — AI proposes, humans dispose; no consequential action
+  auto-executes (RT-44, register SAD_02/04/07).
+- **Admin self-governance** — dual-control guarded-action orchestrator; no
+  superuser identity minted (RT-31, AC-AD-9); config-drift reconciler (RT-59).
+- **Air-gap release** — signed offline `.mgbundle` produce/import, verify-before-
+  import over `--network none` (RT-19).
+
+---
+
+## 4. Required before GA — not run this assessment
+
+These are gates that must run on **release infrastructure** as the final pre-GA
+step. They are available in-repo but were **not** executed in this assessment;
+they must be run and shown green (or the two external items completed) before GA.
+
+| # | Gate | Where | Blocking? |
+|---|------|-------|-----------|
+| A | Acceptance suites (`verify-core`, `verify-mimir`, `verify-forge`, `verify-bifrost`, `verify-heimdall`, `verify-admin`, `verify-clients`) under `--network none` | `deploy/acceptance/verify-*.sh` | **Yes** — Definition-of-Done matrices AC-M/MI/F/B/H/AD/C |
+| B | Shell audits + accessibility (`verify-shell-audits`, `verify-shells-accessibility`) | `deploy/acceptance/` | **Yes** (RT-49) — fails closed until run on device |
+| C | Per-artefact release gate `just gate <pkg>` for each deployable | `justfile` | **Yes** — nothing ships unsigned/unverified |
+| D | **FIPS 140-3 module certification** | External CMVP lab | **Yes** — SAD_00's explicit bar; in-repo KATs pass, formal cert is external |
+| E | **Deployment-tier assurance** for the register's **†** controls (real HSM custody, GPU inference, multi-node cluster) | Deployment activity, gated by RT-40 | **Yes** — RT-40 fails a release closed until run on real infrastructure |
+
+Items A–C are runnable now on suitable infrastructure; D–E are external
+activities outside this repo by nature. The step-by-step procedure for A–C is
+[`docs/ops/RUNBOOK_ga_gate.md`](../ops/RUNBOOK_ga_gate.md).
+
+---
+
+## 4a. Release-candidate rehearsal — v0.1.0-rc.1 (2026-09-15)
+
+The release mechanics were run end to end on a developer machine. The keys were
+throwaway **drill keys**, generated for the run and never committed or published: an
+ML-DSA-87 release key and an ML-DSA-65 Bifrost admission key. This proves the pipeline,
+not a release. Nothing was signed with a ceremony key, and nothing was published.
+
+| Stage | Result |
+|-------|--------|
+| Coverage (RC-07) | `supply-chain/release-artefacts.txt` names all 18 binaries the workspace builds; the check passes |
+| Gate | `just gate forge-worker forge-egress` passes. All 18 binaries were proven bit-reproducible (`mg-repro`), SBOM'd, scanned (0 blocking findings), signed and verified. Every attestation records source revision `cbf26da` |
+| Images | 6 verify-before-run images. Every binary they carry (7) is verified and started through the image's own entrypoint. The image list is signed and verified |
+| Bundle | 54 artefacts (18 binaries, each with its `.sig` and `.att`), 28 MB, signed with the admission key |
+| Install | `deploy/air-gap-bundle/install.sh` verified all 54 artefacts offline, rebuilt the images, loaded them into a three-node kind cluster and deployed 0.1.0-rc.1. Every service logged `verify-before-run: OK` and came up ready |
+| On the release images | `just kind-smoke` passes. The deployment tier exits 3: RC-40.1 PASS, RC-40.2 PASS, RC-40.3 SKIP (no HSM), RC-40.4 SKIP (no real model or GPU) |
+| Tamper | An image with one byte of its `mimir-probe` binary changed refuses to start |
+
+**Defects the rehearsal found, fixed before the candidate was committed:**
+- `mg-sign` recorded an empty source revision when `MIDGARD_SOURCE_REVISION` was set
+  but empty.
+- Images built from a CRLF checkout had an entrypoint no container could execute. The
+  earlier image check had called `mg-verify` directly and never ran the entrypoint.
+  `deploy/images/build.sh` now strips carriage returns, and proves each binary starts
+  through the entrypoint.
+- The release workflow's image-list signing step did not pass the source revision.
+- `run-deployment-tier.sh` passed `kubectl` non-native paths under Git Bash.
+
+**Not yet exercised:**
+- the release workflow itself on a `[self-hosted, kms]` runner (no runner or secrets
+  exist yet);
+- keys from a ceremony, with committed trust anchors;
+- the publish job.
+
+---
+
+## 5. Decision
+
+**NO-GO for GA at this commit** — not because of an unmet code obligation (there
+are none outstanding; RT-01…59 are complete — RT-21 only since its 2026-09-14
+correction — and the test sweep is green) but
+because the release-gate and acceptance runs (§4 A–C) have not been executed on
+release infrastructure and the two external activities (§4 D–E) are incomplete.
+
+**Path to GO:** run §4 A–C green on release infra → complete §4 D (CMVP cert) and
+§4 E (deployment-tier acceptance, RT-40) → re-assess. When all of §4 is
+satisfied, this record is updated to **GO** and signed below.
+
+---
+
+## 6. Sign-off
+
+| Role | Name | Decision | Date |
+|------|------|----------|------|
+| Release engineering | | | |
+| Security / crypto | | | |
+| Compliance | | | |
+| Accountable executive | | | |
+
+> This document is code-side complete as of `9f4b49f`. Approvers sign only once
+> §4 is satisfied; an unsigned record is a NO-GO by default.

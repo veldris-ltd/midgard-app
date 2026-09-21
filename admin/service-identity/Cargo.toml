@@ -1,0 +1,25 @@
+[package]
+name = "admin-service-identity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Per-subsystem least-privilege service identities for the admin panel: one distinct PQ-mTLS workload identity per managed subsystem, each carrying only that subsystem's narrow service role — no superuser credential. [FR-AD-1] [NFR-SEC-1] [AC-AD-9]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["iam/backend-fips", "pq-mtls/backend-fips", "pqc-agility/backend-fips"]
+
+[dependencies]
+# The IdP is the mesh CA that certifies these workload identities.
+iam = { path = "../../services/iam" }
+# WorkloadIdentity / IdentityCert / TrustAnchor / verify_cert.
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

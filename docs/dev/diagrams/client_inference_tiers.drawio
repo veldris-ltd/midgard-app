@@ -1,0 +1,25 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="client_inference_tiers" id="client_inference_tiers">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="req" value="AI request on client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="340" y="30" width="180" height="45" as="geometry"/></mxCell>
+        <mxCell id="cap" value="Device capability + connectivity?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="320" y="110" width="200" height="55" as="geometry"/></mxCell>
+        <mxCell id="t1" value="Tier 1: on-device small model" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="220" width="180" height="55" as="geometry"/></mxCell>
+        <mxCell id="t2" value="Tier 2: remote Mimir (PQ-mTLS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="250" y="220" width="190" height="55" as="geometry"/></mxCell>
+        <mxCell id="t3" value="Tier 3: hybrid draft+verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="470" y="220" width="180" height="55" as="geometry"/></mxCell>
+        <mxCell id="deny" value="Weak+offline: disabled gracefully" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="680" y="220" width="190" height="55" as="geometry"/></mxCell>
+        <mxCell id="resp" value="Grounded, cited, audited response" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="250" y="330" width="200" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="req" target="cap"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="strong, offline" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="cap" target="t1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="connected" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="cap" target="t2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="strong+connected" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="cap" target="t3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="weak+offline" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="cap" target="deny"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="t1" target="resp"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="t2" target="resp"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="t3" target="resp"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,9 @@
+/* Midgard Platform Design System, global entry.
+   Consumers import this one file (`@midgard/design-system/tokens.css`).
+   Paths are relative — this file sits alongside the token files. */
+@import url('./fonts.css');
+@import url('./colors.css');
+@import url('./typography.css');
+@import url('./spacing.css');
+@import url('./effects.css');
+@import url('./base.css');

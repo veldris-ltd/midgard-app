@@ -1,0 +1,45 @@
+[package]
+name = "model-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Mimir local inference plane: hardware-aware model serving behind a typed API, exposed only over PQ-mTLS and audited per call. [FR-MI-1] [FR-MI-8]"
+
+[features]
+# The inference gateway terminates PQ-mTLS and audits every call through the
+# governance spine, so the real backend is required by default. [FR-MI-8]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "pq-mtls/backend-fips",
+    "gateway/backend-fips",
+    "governance/backend-fips",
+    "attest/backend-fips",
+    "audit-writer/backend-fips",
+]
+
+[dependencies]
+# The typed API + serving core enforce nothing on their own; enforcement and
+# audit are delegated to the existing spine (never re-implemented).
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# Verify-on-load delegates to the suite's one acceptance decision rather than
+# re-implementing it. Verification needs no key custody, so `custody` (and with
+# it `kms`) stays off. [AC-MS-2] [AC-RF-SC-2d]
+attest = { path = "../../crypto/attest", default-features = false }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+governance = { path = "../../services/governance" }
+# The handler is generic over the audit ledger, so a running service can audit to a
+# durable, sealed `FileLedger`. [RC-09]
+audit-writer = { path = "../../crypto/audit-writer" }
+# Reuse the proven PQ-mTLS termination + RequestHandler seam rather than
+# re-deriving a responder loop. [NFR-SEC-1]
+gateway = { path = "../../services/gateway" }
+
+[dev-dependencies]
+# Tests wire an in-enclosure IdP as the mesh CA, exactly like the gateway tests.
+iam = { path = "../../services/iam" }
+
+[lib]
+path = "src/lib.rs"

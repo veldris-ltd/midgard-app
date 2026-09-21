@@ -1,0 +1,27 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    user["fa:fa-user Data Engineer"]:::actor
+    subgraph forge["FORGE"]
+        studio["Pipeline Studio (Web)\n[React/TS]"]:::container
+        conn["Data Connection\n(200+ connectors)\n[Rust]"]:::container
+        planner["Transform Planner\n(type-safe)\n[Rust]"]:::container
+        engine["Compute Orchestrator\n(Spark/Flink/Polars/DuckDB)"]:::container
+        health["Data Health & Checks\n[Rust]"]:::container
+        modelsvc["Model & Modelling Objectives\n[Python]"]:::container
+    end
+    mimir["Mimir (Mistral Small 3.2)\ntransform suggest / schema infer"]:::external
+    fabric["Midgard Object Fabric\n(+ Seal)"]:::external
+    src["External sources"]:::external
+    user -->|HTTPS+PQ| studio
+    studio --> planner
+    studio --> conn
+    conn --> src
+    planner --> engine
+    planner --> mimir
+    engine --> fabric
+    engine --> health
+    modelsvc --> mimir
+    modelsvc --> fabric
+    classDef actor fill:#08427B,color:#fff
+    classDef container fill:#1168BD,color:#fff
+    classDef external fill:#999999,color:#fff

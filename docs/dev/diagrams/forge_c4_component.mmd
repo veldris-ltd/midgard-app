@@ -1,0 +1,12 @@
+flowchart TB
+    subgraph planner["Transform Planner container"]
+        parse["Pipeline IR parser"]
+        typ["Type system / caster"]
+        opt["Optimiser (predicate pushdown)"]
+        codegen["Engine codegen (Spark/Flink/Polars)"]
+        aiassist["Mimir Assist adapter"]
+    end
+    parse --> typ
+    typ --> opt
+    opt --> codegen
+    typ --> aiassist

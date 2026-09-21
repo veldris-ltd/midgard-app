@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "objectTypes": [
+    { "id": "aircraft", "title": "Aircraft",
+      "properties": [ { "name": "tail", "type": "text", "required": true },
+                      { "name": "status", "type": "text" },
+                      { "name": "flight_hours", "type": "int" } ] },
+    { "id": "facility", "title": "Facility",
+      "properties": [ { "name": "name", "type": "text", "required": true } ] }
+  ],
+  "linkTypes": [
+    { "id": "aircraft_base", "name": "based at", "from": "aircraft", "to": "facility",
+      "cardinality": "many-to-many" }
+  ],
+  "actions": []
+}

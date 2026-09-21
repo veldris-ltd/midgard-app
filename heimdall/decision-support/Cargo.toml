@@ -1,0 +1,19 @@
+[package]
+name = "heimdall-decision-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall decision-support adapter: A.8 option generation via Mimir — ranked options each citing specific feed/entity evidence, strictly advisory (never acts), grounded against the operating picture. [FR-H-4] [NFR-AI-1]"
+
+[dependencies]
+# The operating picture options are grounded against.
+heimdall-picture = { path = "../picture" }
+# The verbatim A.8 system prompt (authoritative text lives in the prompt library).
+mimir-prompts = { path = "../../mimir/prompts" }
+# The live inference transport (PQ-mTLS to the Mimir gateway) behind the seam. The
+# Mock/Unavailable providers keep working with no bridge configured. [RT-45]
+mimir-bridge = { path = "../../mimir/bridge" }
+
+[lib]
+path = "src/lib.rs"

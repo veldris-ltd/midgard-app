@@ -1,0 +1,25 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="mimir_model_registry_er" id="mimir_model_registry_er">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="fam" value="MODEL_FAMILY" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="60" y="60" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="var" value="MODEL_VARIANT" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="320" y="60" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="art" value="MODEL_ARTEFACT" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="580" y="60" width="200" height="60" as="geometry"/></mxCell>
+        <mxCell id="prov" value="PROVENANCE" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="580" y="180" width="200" height="60" as="geometry"/></mxCell>
+        <mxCell id="lic" value="LICENCE" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="580" y="300" width="200" height="60" as="geometry"/></mxCell>
+        <mxCell id="eval" value="EVAL_SCORE" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="860" y="60" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="hw" value="HW_PROFILE" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="860" y="180" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="load" value="LOAD_EVENT" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="860" y="300" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="e0" value="has" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="fam" target="var"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="packaged as" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="var" target="art"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="attested by" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="art" target="prov"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="governed by" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="art" target="lic"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="scored by" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="art" target="eval"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="eligible on" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="art" target="hw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="loaded in" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="art" target="load"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

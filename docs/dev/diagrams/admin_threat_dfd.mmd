@@ -1,0 +1,18 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    admin["Admin"]:::actor
+    ui["Admin UI"]:::system
+    bff["Admin BFF"]:::system
+    priv["Privilege service"]:::system
+    orch["Action orchestrator"]:::system
+    sub["Subsystem APIs"]:::system
+    audit["Audit ledger"]:::datastore
+    admin -->|"1 MFA + step-up"| ui
+    ui -->|"2 PQ-mTLS"| bff
+    bff -->|"3 authz"| priv
+    priv -->|"4 dual-control"| orch
+    orch -->|"5 scoped call"| sub
+    orch -->|"6 PQ-sign"| audit
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

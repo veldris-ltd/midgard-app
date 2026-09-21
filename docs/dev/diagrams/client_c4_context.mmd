@@ -1,0 +1,26 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    user["End user"]:::actor
+    subgraph clients["Midgard client surfaces"]
+        mob["Mobile apps\nAndroid / iOS / Linux"]:::system
+        desk["Desktop apps\nWindows / macOS / Linux"]:::system
+        web["Web app\n(browser)"]:::system
+        ext["Browser extension"]:::system
+    end
+    subgraph enc["Midgard enclosure"]
+        gw["Gateway\n(PQ-mTLS)"]:::system
+        fabric["Object Fabric"]:::system
+        mimir["Mimir inference"]:::system
+    end
+    user --> mob
+    user --> desk
+    user --> web
+    user --> ext
+    mob -->|"PQ-mTLS"| gw
+    desk -->|"PQ-mTLS"| gw
+    web -->|"PQ-mTLS"| gw
+    ext -->|"PQ-mTLS"| gw
+    gw --> fabric
+    gw --> mimir
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884

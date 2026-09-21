@@ -1,0 +1,125 @@
+<!-- @dsCard group="Clients" viewport="1440x860" subtitle="iOS, Android and Linux-mobile shells over one Rust core" name="Clients · Mobile" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Clients · Mobile</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;background:var(--bg-page)}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="android-frame.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { Card, StatBlock, StatusPill, Badge, Button, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, SyncStatus, TierBadge, KeyCustodyChip, HumanGate, MeterBar, ProductMark, ClassificationBanner } = NS;
+
+const { IOSDevice } = window;
+const { AndroidDevice } = window;
+
+/* Shared mobile screen content, rendered inside each bezel.
+   One core, many shells [DD-6]: identical content, per-platform chrome. */
+function MobilePicture({ platform }) {
+  const [gate, setGate] = React.useState('pending');
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingTop: platform === 'ios' ? 58 : 0, background: platform === 'ios' ? 'linear-gradient(#0a0b0d 58px, var(--bg-page) 58px)' : 'var(--bg-page)', color: 'var(--text-body)', fontFamily: 'var(--font-sans)' }}>
+      <div style={{ height: 20, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--marking-confidential)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.16em', fontWeight: 600 }}>CONFIDENTIAL · RECIPIENT EYES ONLY</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 6px' }}>
+        <ProductMark product="heimdall" size="sm" showDescriptor={false} />
+        <span style={{ marginLeft: 'auto', maxWidth: '62%' }}><SyncStatus state="offline" queued={3} style={{ fontSize: 9, padding: '3px 8px 3px 6px', whiteSpace: 'normal', maxWidth: '100%' }} /></span>
+      </div>
+      <div className="mg-grid-bg" style={{ flex: 1, position: 'relative', margin: '6px 12px', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+        {[['E-2214', 30, 34, 'var(--heimdall-500)'], ['E-0871 ⚠', 66, 28, 'var(--warn)'], ['E-0442', 55, 66, 'var(--heimdall-500)']].map(([id, x, y, c]) => (
+          <span key={id} style={{ position: 'absolute', left: x + '%', top: y + '%', transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: c, boxShadow: id.includes('⚠') ? '0 0 10px -1px var(--warn)' : 'none' }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-body)' }}>{id}</span>
+          </span>
+        ))}
+        <span style={{ position: 'absolute', left: 8, bottom: 6, fontFamily: 'var(--font-mono)', fontSize: 7, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>CACHED PICTURE · POLICY-SCOPED · 3 MIN OLD</span>
+      </div>
+      <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-heading)' }}>E-0871 · UNKNOWN · 54%</span>
+            <span style={{ marginLeft: 'auto', maxWidth: '58%' }}><TierBadge tier="on-device" model="GEMMA INT4" leaves={false} style={{ fontSize: 8, padding: '2px 6px', whiteSpace: 'normal', maxWidth: '100%' }} /></span>
+          </div>
+          <p style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: 'var(--text-body)' }}>Local model: track matches descent-toward-ambiguity pattern. Full options need the enclosure; proposal queued for sync.</p>
+          <div style={{ marginTop: 8 }}>
+            {gate === 'pending' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', background: 'var(--surface-inset)', border: '1px solid var(--warn)', borderRadius: 8 }}>
+                <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.1em', color: 'var(--warn)' }}>PROPOSAL · EXECUTES AFTER SYNC + HUMAN GATE</span>
+                <button onClick={() => setGate('authorised')} style={{ all: 'unset', cursor: 'pointer', padding: '5px 10px', background: 'var(--accent)', color: '#fff', borderRadius: 6, fontSize: 10, fontWeight: 600 }}>Queue</button>
+              </div>
+            ) : (
+              <div style={{ padding: '7px 9px', background: 'var(--surface-inset)', border: '1px solid var(--secure)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.1em', color: 'var(--secure)' }}>QUEUED · OP 4 OF 4 · SIGNS ON SYNC</div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <KeyCustodyChip platform={platform} style={{ fontSize: 8, padding: '2px 6px', whiteSpace: 'normal', maxWidth: '100%' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-faint)', alignSelf: 'center' }}>{platform === 'ios' ? 'FACE ID' : platform === 'android' ? 'BIOMETRICPROMPT' : 'PAM · FPRINTD'} ✓</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LinuxMobileFrame({ children }) {
+  return (
+    <div style={{ width: 300, borderRadius: 24, border: '2px solid var(--border-strong)', background: 'var(--bg-sunken)', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ height: 22, display: 'flex', alignItems: 'center', padding: '0 12px', fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-faint)', borderBottom: '1px solid var(--divider)', gap: 8 }}>
+        <span>14:32</span><span style={{ marginLeft: 'auto' }}>PHOSH · WLAN ✕ · ▮▮▮</span>
+      </div>
+      <div style={{ height: 560 }}>{children}</div>
+      <div style={{ height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ width: 60, height: 3.5, borderRadius: 2, background: 'var(--border-strong)' }} />
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <ClassificationBanner level="confidential" />
+      <div style={{ padding: '22px 28px 10px', display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={1}>CLIENTS · MOBILE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>One core, three mobile shells</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="3" label="MOBILE TARGETS" size="sm" />
+        <StatBlock value="1" label="RUST CORE · UNIFFI" size="sm" accent />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <ProvenanceTag id="FR-C-1" title="Crypto, sync, storage once in a shared Rust core" />
+          <ProvenanceTag id="FR-C-3" title="Platform-native shells meeting each OS's HIG" />
+          <ProvenanceTag id="FR-C-4" title="Offline-first CRDT sync" />
+        </div>
+      </div>
+      <div style={{ flex: 1, display: 'flex', gap: 34, alignItems: 'flex-start', justifyContent: 'center', flexWrap: 'wrap', padding: '18px 28px 34px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+          <IOSDevice dark>
+            <MobilePicture platform="ios" />
+          </IOSDevice>
+          <span className="mg-label" style={{ color: 'var(--text-faint)' }}>iOS · SWIFTUI · APP STORE</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+          <AndroidDevice dark title="Heimdall">
+            <MobilePicture platform="android" />
+          </AndroidDevice>
+          <span className="mg-label" style={{ color: 'var(--text-faint)' }}>ANDROID · COMPOSE · PLAY + APK</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+          <LinuxMobileFrame>
+            <MobilePicture platform="linux" />
+          </LinuxMobileFrame>
+          <span className="mg-label" style={{ color: 'var(--text-faint)' }}>LINUX MOBILE · GTK · FLATPAK</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

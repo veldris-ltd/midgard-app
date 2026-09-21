@@ -1,0 +1,32 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    subgraph up["Untrusted upstream (external)"]
+        hf["Hugging Face\nGLM / Gemma repos"]:::external
+        ngc["NVIDIA NGC\nNemotron"]:::external
+        vend["Vendor CDNs\n(signed releases)"]:::external
+    end
+    subgraph stage["Staging enclave (controlled, network-connected)"]
+        fetch["Fetch + native\nprovenance verify\n(GPG / SHA-256 / commit)"]:::system
+        lic["Licence capture\n+ policy check"]:::system
+        sbom["Model SBOM\n(CycloneDX)"]:::system
+        eval0["Baseline Evals\n+ hardware fingerprint"]:::system
+        resign["RE-SIGN under\nVeldris ML-DSA key\n(FIPS 204)"]:::system
+    end
+    subgraph bundle["Signed model bundle"]
+        bnd["model.mbundle\nweights + manifest + SBOM\n+ ML-DSA signature"]:::system
+    end
+    subgraph enc["Midgard enclosure (air-gapped)"]
+        bifrost["Bifrost\nsigned-bundle import"]:::system
+        reg["Model Registry\n(system of record)"]:::datastore
+        rt["Inference runtime\nverify-on-load, fail closed"]:::system
+    end
+    hf --> fetch
+    ngc --> fetch
+    vend --> fetch
+    fetch --> lic --> sbom --> eval0 --> resign --> bnd
+    bnd -->|"air-gap transfer"| bifrost
+    bifrost -->|"verify Veldris signature"| reg
+    reg -->|"load if sig + hw OK"| rt
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

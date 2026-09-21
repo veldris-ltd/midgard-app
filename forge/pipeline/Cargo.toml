@@ -1,0 +1,30 @@
+[package]
+name = "forge-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Forge pipeline engine: one IR for the low-code builder and the pro-code IDE, type-check → optimise (predicate pushdown) → engine codegen, build runs, and batch/stream scheduling. [FR-F-1] [FR-F-5]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "forge-dataset-store/backend-fips",
+    "kms/backend-fips",
+    "pqc-agility/backend-fips",
+]
+
+[dependencies]
+forge-dataset-store = { path = "../dataset-store" }
+forge-engine = { path = "../engine" }
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+# The Phase-4.b acceptance test drives the whole ingest→version→build stack; the
+# connector SDK is a test-only dependency here (no runtime cycle — connector-sdk
+# does not depend on the pipeline engine).
+forge-connector-sdk = { path = "../connector-sdk" }
+
+[lib]
+path = "src/lib.rs"

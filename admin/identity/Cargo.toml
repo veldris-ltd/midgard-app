@@ -1,0 +1,26 @@
+[package]
+name = "admin-identity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Admin Control Panel RBAC: role-separated capabilities with a strictly read-only Auditor and NO all-powerful role, scoped + expiring bindings, and MFA + step-up admin sessions. Pure logic, zero dependencies. [FR-AD-2] [AC-AD-1] [AC-AD-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips"]
+
+[dependencies]
+# The generic SealedJournal + Sealer seam backing the durable store. [RC-14]
+audit-writer = { path = "../../crypto/audit-writer" }
+# Real WebAuthn assertion verification (ML-DSA passkey signatures) for admin sign-in
+# and step-up. [RC-30]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+# Durable restart tests seal via the real KMS envelope (AES-256-GCM under ML-KEM-1024).
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,32 @@
+[package]
+name = "mg-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Operator tool for model artefacts: generate the model-signing key, sign a model's weights into the manifest Mimir loads, and verify a model directory the way the plane does. Offline. [AC-MI-7] [FR-MS-4] [NFR-PQ-3]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "attest/backend-fips",
+    "model-server/backend-fips",
+    "service-runtime/backend-fips",
+]
+
+[[bin]]
+name = "mg-model"
+path = "src/main.rs"
+
+[dependencies]
+# The sealed keystore the model-signing key lives in.
+attest = { path = "../../crypto/attest", features = ["backend-fips"] }
+# The manifest, its file form, the weights digest and the load gate the plane runs.
+model-server = { path = "../../mimir/model-server" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+# Strict options, as every Midgard binary parses them.
+service-runtime = { path = "../../services/runtime" }
+# The signed, streamed bundle a model crosses the air gap in. [AC-MS-3] [FR-B-5]
+bifrost-bundle = { path = "../../bifrost/bundle", features = ["backend-fips"] }
+bifrost-artefact = { path = "../../bifrost/artefact", features = ["backend-fips"] }

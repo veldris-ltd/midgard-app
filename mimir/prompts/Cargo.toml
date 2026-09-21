@@ -1,0 +1,10 @@
+[package]
+name = "mimir-prompts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Mimir's verbatim system-prompt library (SAD_05 Part A). The single source of truth for the runtime prompts. [FR-MI-3]"
+
+[lib]
+path = "src/lib.rs"

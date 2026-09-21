@@ -1,0 +1,51 @@
+// Midgard core — Object Fabric service surface (semantic + kinetic).
+// This is the scaffold of the contract products depend on; the full API lands
+// in Phase 1. Every call carries a PolicyContext and is authorised + audited.
+// [DD-1] [NFR-SEC-2] SAD_00 §6.2.3, §9.1
+syntax = "proto3";
+
+package midgard.v1;
+
+import "midgard/v1/common.proto";
+
+// Typed query / action surface over the object fabric.
+service ObjectFabric {
+  // Typed object/link query under policy. Result is filtered by markings and
+  // the decision is audited. [NFR-SEC-2]
+  rpc Query(QueryRequest) returns (QueryResponse);
+
+  // Apply a validated, function-backed action. Mutations are proposed and gated
+  // upstream; this returns the audit id of the applied action. [NFR-AI-1]
+  rpc ApplyAction(ApplyActionRequest) returns (ApplyActionResponse);
+}
+
+message QueryRequest {
+  PolicyContext policy = 1;
+  string object_type = 2;
+  map<string, string> filter = 3;
+  repeated string link_traversals = 4;
+  uint32 max_results = 5;
+}
+
+message QueryResponse {
+  repeated ObjectInstance results = 1;
+  string audit_id = 2;
+}
+
+message ObjectInstance {
+  string id = 1;
+  string type_id = 2;
+  map<string, string> property_values = 3;
+  repeated Marking markings = 4;
+}
+
+message ApplyActionRequest {
+  PolicyContext policy = 1;
+  string action_type = 2;
+  map<string, string> params = 3;
+}
+
+message ApplyActionResponse {
+  string audit_id = 1;
+  bool applied = 2;
+}

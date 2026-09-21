@@ -1,0 +1,27 @@
+[package]
+name = "bifrost-fleet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Bifrost fleet manager: declarative release channels, installation tracking, and desired-vs-actual reconciliation into rollout plans. [FR-B-3]"
+
+[dependencies]
+# The reconciler emits a rollout plan the orchestrator executes (fleet -> rollout).
+bifrost-rollout = { path = "../rollout" }
+# The `Sealer` seam for the durable, KMS-sealed fleet-state journal (backend-agnostic
+# — the concrete KmsSealer is injected by callers/tests). [RC-12]
+audit-writer = { path = "../../crypto/audit-writer" }
+
+[dev-dependencies]
+# The restart test seals fleet state with the real KMS envelope (AES-256-GCM under
+# ML-KEM-1024) and needs a deterministic RNG + FIPS provider.
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+# The agent check-in test runs a real PQ-mTLS handshake between host agents and the
+# fleet listener. [RC-17]
+pq-mtls = { path = "../../crypto/pq-mtls", features = ["backend-fips"] }
+policy = { path = "../../crypto/policy" }
+
+[lib]
+path = "src/lib.rs"

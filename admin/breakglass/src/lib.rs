@@ -1,0 +1,38 @@
+//! # admin-breakglass — time-boxed emergency elevation
+//!
+//! Emergency access is the panel's most dangerous capability, so it is the most
+//! heavily controlled. A break-glass grant is `[FR-AD-8]` `[AC-AD-8]`:
+//!
+//! - **time-boxed** — it carries an explicit expiry and stops being active the
+//!   moment it passes;
+//! - **justified** — a non-empty justification is mandatory (and an approver is
+//!   recorded, so break-glass is never self-granted in the dark);
+//! - **real-time alerted** — granting raises an alert immediately, and an expiry
+//!   that has not yet been reviewed raises another;
+//! - **forced post-hoc review** — an expired grant remains outstanding until a
+//!   reviewer signs it off; [`BreakGlassService::pending_reviews`] surfaces the
+//!   backlog so review cannot be quietly skipped.
+//!
+//! It is a pure state machine over an injected clock and an [`Alerter`] sink, with
+//! no network or storage of its own, so it functions fully in-enclosure /
+//! air-gapped. `[AC-AD-12]` The orchestrator records each transition to the admin
+//! audit ledger. `[AC-AD-6]`
+
+pub mod alert;
+pub mod controller;
+pub mod durable;
+pub mod error;
+pub mod grant;
+pub mod service;
+pub mod token;
+
+pub use alert::{
+    AlertBus, AlertBusError, AlertKind, Alerter, BreakGlassAlert, DurableAlerter, RecordingAlerter,
+    SecurityOfficerBus,
+};
+pub use controller::BreakGlassController;
+pub use durable::DurableBreakGlass;
+pub use error::BreakGlassError;
+pub use grant::{BreakGlassGrant, BreakGlassState, GrantRequest, Review};
+pub use service::BreakGlassService;
+pub use token::{BreakGlassAuthority, CapabilityToken};

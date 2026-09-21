@@ -1,0 +1,41 @@
+erDiagram
+    OBJECT_TYPE ||--o{ OBJECT : instantiates
+    OBJECT_TYPE ||--o{ PROPERTY_DEF : has
+    OBJECT ||--o{ PROPERTY_VALUE : holds
+    OBJECT_TYPE ||--o{ LINK_TYPE : "source/target"
+    OBJECT ||--o{ LINK : participates
+    OBJECT_TYPE ||--o{ ACTION_TYPE : mutated_by
+    ACTION_TYPE ||--o{ ACTION_LOG : records
+    MARKING ||--o{ OBJECT : classifies
+    OBJECT_TYPE {
+        uuid id PK
+        string api_name
+        string display_name
+        jsonb metadata
+    }
+    OBJECT {
+        uuid id PK
+        uuid type_id FK
+        bytea sealed_payload
+        uuid marking_id FK
+        timestamp updated_at
+    }
+    LINK_TYPE {
+        uuid id PK
+        uuid source_type FK
+        uuid target_type FK
+        string cardinality
+    }
+    ACTION_TYPE {
+        uuid id PK
+        uuid object_type FK
+        jsonb rules
+        jsonb validations
+    }
+    ACTION_LOG {
+        uuid id PK
+        uuid action_type FK
+        uuid actor_id
+        timestamp applied_at
+        jsonb diff
+    }

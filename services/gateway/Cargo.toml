@@ -1,0 +1,26 @@
+[package]
+name = "gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Public ingress: terminates PQ-mTLS, asserts identity, forwards to the control plane. [NFR-PQ-1] [NFR-SEC-1]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips", "pq-mtls/backend-fips"]
+
+[dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+
+[dev-dependencies]
+# The gateway trusts the IdP as its mesh CA; tests wire the two together.
+iam = { path = "../iam" }
+# A real control-plane handler behind one router route, proving requests reach the
+# governance spine (not a stub) — the RT-25 routing acceptance.
+governance = { path = "../governance" }
+
+[lib]
+path = "src/lib.rs"

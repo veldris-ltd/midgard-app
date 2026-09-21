@@ -1,0 +1,19 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    admins["Admins / officers / auditors"]:::actor
+    subgraph zone["Admin management zone (isolated)"]
+        ui["Admin UI (hosted)"]:::system
+        bff["Admin BFF"]:::system
+        svc["Admin services\n(priv/cfg/agg/act/break)"]:::system
+        aud["Admin audit ledger"]:::datastore
+    end
+    subgraph core["Enclosure control plane"]
+        apis["Subsystem admin APIs\n(mTLS, admin scope)"]:::system
+    end
+    admins -->|"PQ-mTLS + MFA + step-up"| ui
+    ui --> bff --> svc
+    svc --> aud
+    svc -->|"least-privilege service identity"| apis
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

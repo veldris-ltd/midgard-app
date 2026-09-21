@@ -1,0 +1,15 @@
+# Midgard contracts — the cross-language source of truth for the CLIENT SDK edge
+# (the HTTP/JSON gateway RPCs the SDKs/consoles call). Internal service-to-service
+# uses the lean pq-mtls binary codec, not gRPC — see README. [DD-6] SAD_00 §5.1
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # Services are named as domain nouns (Gateway, ObjectFabric), not "…Service".
+    - SERVICE_SUFFIX
+breaking:
+  use:
+    - FILE

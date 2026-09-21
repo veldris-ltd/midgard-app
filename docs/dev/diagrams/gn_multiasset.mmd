@@ -1,0 +1,22 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    plan["Multi-asset plan\n(human-authored)"]:::start
+    subgraph model["Asset behaviour MODELS (for simulation only)"]
+        hum["Humanoid asset model\n(movement, sensing envelope)"]:::heimdall
+        drone["Drone asset model\n(endurance, sensor, route)"]:::heimdall
+        veh["Vehicular asset model\n(mobility, terrain)"]:::heimdall
+    end
+    coord["Coordination projector\n(timing, deconfliction, dependencies)"]:::heimdall
+    out["Projected joint outcome\n+ probabilities + risks"]:::sum
+    note["NOTE: models predict what assets\nWOULD do under a human-authorised\nplan. Gungnir issues no commands."]:::note
+    plan --> hum
+    plan --> drone
+    plan --> veh
+    hum --> coord
+    drone --> coord
+    veh --> coord
+    coord --> out
+    classDef start fill:#0B4884,color:#fff,stroke:#052E56
+    classDef heimdall fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B
+    classDef sum fill:#1168BD,color:#fff,stroke:#0B4884,stroke-width:2px
+    classDef note fill:#4A4A4A,color:#fff,stroke:#2A2A2A

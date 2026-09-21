@@ -1,0 +1,17 @@
+[package]
+name = "mg-sbom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mg-sbom"
+path = "src/main.rs"
+
+[dependencies]
+# The platform's own KAT-tested SHA-256 (std-only, no backend feature): component
+# integrity hashes come from Cargo.lock, the artefact self-hash is computed here.
+# One hash implementation, shared with the rest of the supply chain. [RT-41]
+# [NFR-OSS-1]
+pqc-agility = { path = "../../crypto/pqc-agility" }

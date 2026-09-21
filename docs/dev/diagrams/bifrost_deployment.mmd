@@ -1,0 +1,14 @@
+flowchart TB
+    subgraph mgmt["Management plane (Midgard enclosure)"]
+        console["Bifrost Console"]
+        orch["Orchestrator"]
+        registry[("Artefact registry")]
+    end
+    subgraph targets["Target planes"]
+        agentA["Cluster Agent A"]
+        agentB["Cluster Agent B (edge/air-gap)"]
+    end
+    console --> orch
+    orch --> registry
+    orch -->|signed pull| agentA
+    orch -->|signed pull| agentB

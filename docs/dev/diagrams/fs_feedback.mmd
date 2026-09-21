@@ -1,0 +1,13 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    proj["Projection produced"]:::gung
+    integ["Forseti integrity score\n(0-1 + reasons)"]:::sent
+    weight["Confidence-weighting\n(down-weight if suspect)"]:::sent
+    present["Presented to human\nWITH integrity flag + reasons"]:::good
+    human["Human decides\n(never silently trusts)"]:::human
+    proj --> integ --> weight --> present --> human
+    integ -.->|"suspect/compromised\nnever hidden"| present
+    classDef gung fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B
+    classDef sent fill:#1E7A46,color:#fff,stroke:#125230
+    classDef good fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef human fill:#08427B,color:#fff,stroke:#052E56

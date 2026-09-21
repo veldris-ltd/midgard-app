@@ -1,0 +1,15 @@
+[package]
+name = "admin-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Admin policy simulation / access dry-run: evaluates a proposed policy change against the SAME deny-by-default PDP the data plane uses and reports the exact grants/revokes before any commit. Pure logic. [FR-AD-6] [AC-AD-5]"
+
+[dependencies]
+# Simulation reuses the real policy-decision point — the dry-run is the actual
+# evaluation, just against the proposed policy and without committing.
+policy = { path = "../../crypto/policy" }
+
+[lib]
+path = "src/lib.rs"

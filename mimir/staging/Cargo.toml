@@ -1,0 +1,30 @@
+[package]
+name = "staging"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Mimir staging-enclave model intake: fetch upstream (staging ONLY), verify native provenance, SBOM, advisory A.9 licence/risk assessment, re-sign under Veldris's ML-DSA key. [FR-MS-1] [FR-MS-2] [FR-MS-6] [NFR-PQ-3]"
+
+[features]
+# Re-signing is a real ML-DSA (FIPS 204) operation, so the FIPS backend is the
+# default: the staging custody-transfer step must produce a signature the
+# in-enclosure loader actually verifies.
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "model-server/backend-fips",
+]
+
+[dependencies]
+# The re-signed bundle is a model-server SignedArtifact/ModelManifest, and it is
+# signed with the same Veldris ML-DSA key the in-enclosure loader trusts — the
+# custody-transfer contract is shared, never re-derived.
+model-server = { path = "../model-server" }
+# SHA-256 for weight-digest provenance + ML-DSA re-signing.
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The A.9 intake prompt is authoritative text; the assessor implements it.
+mimir-prompts = { path = "../prompts" }
+
+[lib]
+path = "src/lib.rs"

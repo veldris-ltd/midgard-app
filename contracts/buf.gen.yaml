@@ -1,0 +1,22 @@
+# Codegen for every consumer SDK. Run via `just gen`. Outputs are gitignored
+# and regenerated deterministically. [DD-6]
+version: v2
+plugins:
+  # TypeScript SDK (sdk/ts)
+  - remote: buf.build/community/timostamm-protobuf-ts
+    out: ../sdk/ts/src/gen
+  # Python SDK (sdk/py)
+  - remote: buf.build/protocolbuffers/python
+    out: ../sdk/py/src/gen
+  - remote: buf.build/grpc/python
+    out: ../sdk/py/src/gen
+  # Rust (core services + client core) — via prost/tonic
+  - remote: buf.build/community/neoeinstein-prost
+    out: ../services/gen/rust
+  - remote: buf.build/community/neoeinstein-tonic
+    out: ../services/gen/rust
+  # Go (scheduler, Bifrost, admin)
+  - remote: buf.build/protocolbuffers/go
+    out: ../services/gen/go
+  - remote: buf.build/grpc/go
+    out: ../services/gen/go

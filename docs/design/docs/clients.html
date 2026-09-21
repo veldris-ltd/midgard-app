@@ -1,0 +1,223 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Clients</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section, SubHead, Demo, Code, DoDont, PropsTable } = window.Docs;
+const { Button, Badge, StatusPill, Card, Table, StatBlock, SectionLabel, Terminal, ProvenanceTag, Icon, ProductMark, SyncStatus, TierBadge, KeyCustodyChip, HumanGate } = window.Docs.NS;
+
+const TARGETS = [
+  { family: 'Mobile', target: 'Android', shell: 'Kotlin / Jetpack Compose', dist: 'Google Play + APK sideload', custody: 'android' },
+  { family: 'Mobile', target: 'iOS', shell: 'Swift / SwiftUI', dist: 'App Store', custody: 'ios' },
+  { family: 'Mobile', target: 'Linux mobile', shell: 'Rust / GTK (mobile profile)', dist: 'Flatpak / distro repos', custody: 'linux' },
+  { family: 'Desktop', target: 'Windows', shell: 'Tauri + SvelteKit', dist: 'MSI / Microsoft Store', custody: 'windows' },
+  { family: 'Desktop', target: 'macOS', shell: 'Tauri + SvelteKit (or SwiftUI)', dist: 'Notarised DMG / App Store', custody: 'macos' },
+  { family: 'Desktop', target: 'Linux desktop', shell: 'Tauri + SvelteKit', dist: 'Flatpak / AUR / AppImage', custody: 'linux' },
+  { family: 'Web', target: 'Browser app', shell: 'TypeScript + WASM', dist: 'Enclosure-hosted · SRI', custody: 'web' },
+  { family: 'Web', target: 'Extension', shell: 'TypeScript + WASM (minimal)', dist: 'Chrome / Firefox stores', custody: 'extension' },
+];
+
+function TierFlowDemo() {
+  const [cap, setCap] = React.useState(true);
+  const [online, setOnline] = React.useState(true);
+  const tier = cap && !online ? 'on-device' : !cap && !online ? 'disabled' : cap && online ? 'hybrid' : 'remote';
+  return (
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <button onClick={() => setCap(!cap)} style={{ all: 'unset', cursor: 'pointer', padding: '5px 12px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: cap ? 'var(--secure)' : 'var(--text-faint)', border: '1px solid var(--border)', background: 'var(--surface-inset)' }}>DEVICE · {cap ? 'CAPABLE (NPU + INT4 MODEL)' : 'CONSTRAINED'}</button>
+        <button onClick={() => setOnline(!online)} style={{ all: 'unset', cursor: 'pointer', padding: '5px 12px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: online ? 'var(--secure)' : 'var(--text-faint)', border: '1px solid var(--border)', background: 'var(--surface-inset)' }}>CONNECTIVITY · {online ? 'ENCLOSURE REACHABLE' : 'OFFLINE'}</button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <TierBadge tier={tier} model={tier === 'remote' ? 'Mistral Small 3.2' : tier === 'disabled' ? undefined : 'Mistral INT4'} leaves={tier === 'remote' || tier === 'hybrid' ? true : tier === 'on-device' ? false : null} />
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
+          {tier === 'on-device' ? 'CORRECT · PRIVATE · LOCAL — NOTHING LEAVES' : tier === 'remote' ? 'TASK EXCEEDS DEVICE · DELEGATED OVER PQ-mTLS' : tier === 'hybrid' ? 'LOCAL DRAFT · ENCLOSURE VERIFY/AUGMENT' : 'WEAK DEVICE + OFFLINE · FEATURE HIDES CLEANLY'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SyncTimelineDemo() {
+  const [phase, setPhase] = React.useState(0);
+  const phases = [
+    { s: 'offline', q: 4, t: '> edit Aircraft/AC-2214.status', d: 'Edits are local CRDT operations; the app is fully functional.' },
+    { s: 'syncing', q: 4, t: '> reconnect · PQ-mTLS handshake · draining queue', d: 'Ops exchange through the sealed-sender relay; backoff on failure.' },
+    { s: 'merged', q: 0, t: '# merged conflict-free · lineage signed on the enclosure', d: 'Concurrent edits from other devices merge without loss.' },
+  ];
+  const p = phases[phase];
+  return (
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {['Offline edit', 'Reconnect', 'Merged'].map((lb, i) => (
+          <button key={lb} onClick={() => setPhase(i)} style={{ all: 'unset', cursor: 'pointer', padding: '5px 12px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: phase === i ? 'var(--text-heading)' : 'var(--text-faint)', background: phase === i ? 'var(--surface-raised)' : 'transparent', border: '1px solid ' + (phase === i ? 'var(--border-strong)' : 'var(--border)') }}>{i + 1} · {lb.toUpperCase()}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <SyncStatus state={p.s} queued={p.q} />
+        <Terminal lines={[p.t]} />
+        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{p.d}</span>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DocsShell active="clients">
+      <PageIntro num={6} eyebrow="CLIENTS" title="Seven targets, one core"
+        lead="The client layer of the suite: native mobile (Android, iOS, Linux), desktop (Windows, macOS, Linux), and web (browser app + extension). Policy-thin, experience-rich: governance and authoritative data stay in the enclosure; clients provide native, offline-capable, PQ-secured access. Everything security-critical lives once, in a shared Rust core." />
+
+      <Section id="targets" num={1} title="Delivery targets" lead="Eight shells (seven install targets plus the extension) over one Rust core (midgard-client-core), bound via UniFFI on native and wasm-bindgen on the web. Shells own presentation and platform integration only; crypto, sync, storage, and the enclosure client are core code.">
+        <Table
+          columns={[
+            { header: 'Family', key: 'family', mono: true, width: 90 },
+            { header: 'Target', cell: r => <span style={{ color: 'var(--text-heading)', fontWeight: 500 }}>{r.target}</span>, width: 130 },
+            { header: 'Shell', key: 'shell' },
+            { header: 'Distribution', key: 'dist', width: 220 },
+            { header: 'Key custody', cell: r => <KeyCustodyChip platform={r.custody} style={{ fontSize: 9 }} />, width: 280 },
+          ]}
+          rows={TARGETS}
+        />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
+          <ProvenanceTag id="FR-C-1" title="One shared Rust core across all seven targets" />
+          <ProvenanceTag id="FR-C-2" title="Keystore abstraction with per-platform minimum-security floors" />
+          <ProvenanceTag id="FR-C-3" title="Platform-native shells meeting each OS's HIG and accessibility guidelines" />
+          <ProvenanceTag id="DD-6" title="Shared-core discipline across the Veldris portfolio" />
+        </div>
+      </Section>
+
+      <Section id="foundations" num={2} title="Client foundations" lead="What changes on a client, and what must not. The visual language is the same ink-and-accent system; these four rules are additive.">
+        <SubHead>Native chrome, Midgard content</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>Each shell keeps its platform's navigation idioms, type ramp behaviour, and accessibility affordances (Dynamic Type, TalkBack, Narrator). Inside the content area, Midgard tokens apply unchanged: ink surfaces, one product accent, mono labels, markings. The classification banner is always the first row of content — inside the safe area, below the OS status bar, at compact height (20px).</p>
+        <SubHead>Touch density</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>Console density (40px rows) relaxes to 44px minimum hit targets on touch. Inspector rails become bottom sheets; side navs become platform navigation (tab bar, drawer). The mono-label device survives at 10px minimum with unchanged tracking.</p>
+        <SubHead>Offline is a state, not an error</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>Every client works disconnected. Offline UI never uses danger colour: the SyncStatus chip states the queue plainly, cached data is labelled with its age, and state-changing intents queue as proposals. Reconnect is silent; only a merge receipt appears.</p>
+        <SubHead>Trust is visible</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>Three chips carry the device trust story wherever relevant: KeyCustodyChip (where keys live), TierBadge (where AI ran, and whether data left the device), SyncStatus (what is queued). They are informational chrome, rendered small, never modal.</p>
+      </Section>
+
+      <Section id="components" num={3} title="Client components" lead="Three additions to the component set, used across all screens of every client. Full API in Components.">
+        <Demo label="SYNCSTATUS · FR-C-4">
+          <SyncStatus state="offline" queued={7} />
+          <SyncStatus state="syncing" queued={7} />
+          <SyncStatus state="merged" />
+          <SyncStatus state="synced" />
+        </Demo>
+        <Demo label="TIERBADGE · FR-C-6">
+          <TierBadge tier="on-device" model="GEMMA INT4" leaves={false} />
+          <TierBadge tier="remote" model="Mistral Small 3.2" />
+          <TierBadge tier="hybrid" />
+          <TierBadge tier="disabled" />
+        </Demo>
+        <Demo label="KEYCUSTODYCHIP · FR-C-2">
+          <KeyCustodyChip platform="ios" />
+          <KeyCustodyChip platform="android" />
+          <KeyCustodyChip platform="windows" />
+          <KeyCustodyChip platform="linux" />
+          <KeyCustodyChip platform="web" />
+          <KeyCustodyChip platform="extension" />
+        </Demo>
+      </Section>
+
+      <Section id="tiering" num={4} title="Pattern · tiered inference" lead="The inference adapter picks a tier per request from device capability, connectivity, and policy: correct, private, performant, in that order. The same binary serves a phone and a workstation; the tier is a runtime decision (KDD-3). Toggle the conditions:">
+        <Demo label="TIER SELECTION · INTERACTIVE">
+          <TierFlowDemo />
+        </Demo>
+        <DoDont
+          dos={['Badge every AI answer with the tier that served it', 'State data_leaves_device explicitly when remote/hybrid', 'Hide AI affordances entirely when the tier is disable']}
+          donts={['Let the user force a tier that policy forbids', 'Treat on-device answers as second-class (they carry the same contract)', 'Send data above policy off-device for a "better" answer']}
+        />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
+          <ProvenanceTag id="FR-C-6" title="Automatic tiering by capability, connectivity, policy" />
+          <ProvenanceTag id="FR-C-10" title="Graceful feature disablement" />
+          <ProvenanceTag id="AC-C-5" title="Capable offline device → Tier 1; weak offline device → disable" />
+        </div>
+      </Section>
+
+      <Section id="offline" num={5} title="Pattern · offline-first sync" lead="Edits are local CRDT operations against the encrypted cache; reconnect drains the queue through a sealed-sender relay over PQ-mTLS and merges conflict-free. Walk the timeline:">
+        <Demo label="OFFLINE → RECONNECT → MERGE · AC-C-4">
+          <SyncTimelineDemo />
+        </Demo>
+        <DoDont
+          dos={['Label cached data with its age', 'Queue state-changing intents as proposals for the governed path', 'Surface sync health and conflict metrics to the user']}
+          donts={['Use danger colour for the offline state', 'Block any read of already-cached data on connectivity', 'Claim an action is done while it is still queued']}
+        />
+      </Section>
+
+      <Section id="extension" num={6} title="Pattern · the least-capable extension" lead="The browser extension is the most exposed surface, so it gets the smallest safe role (KDD-2): it holds no raw keys, performs no bulk crypto, reads only user-shared selections, and brokers every privileged operation to the enclosure or companion app.">
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
+            <thead><tr style={{ background: 'var(--surface-inset)' }}>
+              {['Capability', 'Web app', 'Extension'].map(h => <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-faint)', borderBottom: '1px solid var(--border)' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                ['Key custody', 'WebCrypto non-extractable, session-scoped', 'None — brokered only'],
+                ['Crypto', 'WASM core in-page', 'None — delegated'],
+                ['Page access', 'Own origin only', 'User-shared selection only'],
+                ['Inference', 'Tier 2 remote', 'Brokered to enclosure'],
+                ['Permissions', 'Standard web sandbox', 'Narrowest set the stores allow'],
+              ].map((r, i, arr) => (
+                <tr key={r[0]}>
+                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-heading)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{r[0]}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-body)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{r[1]}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-body)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{r[2]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
+          <ProvenanceTag id="FR-C-8" title="Minimal-privilege extension; no raw key material" />
+          <ProvenanceTag id="AC-C-8" title="Privileged operations brokered, never in-page" />
+        </div>
+      </Section>
+
+      <Section id="distribution" num={7} title="Pattern · signed distribution & updates" lead="Every artefact for every channel is reproducibly built and PQ-signed by Bifrost; the client verifies before install or update. Air-gapped sites receive clients as signed offline bundles, no store required.">
+        <Demo label="UPDATE RECEIPT · AC-C-7">
+          <Terminal title="UPDATE · v2.5.0" lines={[
+            '> midgard-client update check',
+            'artefact   midgard-desktop 2.5.0 · via bifrost/stable',
+            'build      reproducible ✓ · sbom attached',
+            'signature  ML-DSA verified · fails closed on mismatch',
+            '# staged · applies on restart',
+          ]} style={{ width: '100%' }} />
+        </Demo>
+        <DoDont
+          dos={['Verify the PQ signature before any install or update', 'Show the verification receipt in plain terms', 'Deliver air-gap clients as signed offline bundles']}
+          donts={['Auto-apply an update that failed verification (fail closed)', 'Depend on store connectivity for any core function', 'Ship the web app without subresource integrity']}
+        />
+      </Section>
+
+      <Section id="screens" num={8} title="Client screens" lead="Three interactive reference screens cover the seven targets: the mobile trio, the desktop app with per-OS chrome, and the web app with the extension popup. Open full screen to interact.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          {[
+            ['Mobile · iOS / Android / Linux', '../ui_kits/clients/mobile.html', 'Offline picture, queued proposal, biometric + custody chips, per-OS bezels'],
+            ['Desktop · Windows / macOS / Linux', '../ui_kits/clients/desktop.html', 'Cached workspace, CRDT sync drain, tier switcher, signed update'],
+            ['Web app + Extension', '../ui_kits/clients/web.html', 'WASM core, WebAuthn session, broker-mode extension popup'],
+          ].map(([t, href, d]) => (
+            <a key={t} href={href} style={{ display: 'block', textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-heading)', flex: 1 }}>{t}</span>
+                <Icon name="arrow-up-right" size={13} color="var(--text-faint)" />
+              </div>
+              <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{d}</p>
+            </a>
+          ))}
+        </div>
+      </Section>
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

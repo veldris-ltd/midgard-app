@@ -1,0 +1,30 @@
+[package]
+name = "admin-audit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The admin audit ledger: a PQ-signed, append-only chain recording who/what/why/when/approver + outcome for every admin action — including denied and simulated ones. Wraps crypto/audit-writer. [NFR-PQ-3] [AC-AD-6]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["audit-writer/backend-fips", "pqc-agility/backend-fips"]
+
+[dependencies]
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+audit-writer = { path = "../../crypto/audit-writer", features = ["backend-fips"] }
+# The unified-audit integration test drives every admin action type through one
+# shared ledger; these are the services that produce them.
+admin-sim = { path = "../sim" }
+admin-config = { path = "../config" }
+admin-breakglass = { path = "../breakglass" }
+# The data-plane-independence test (AC-AD-10) exercises the policy PDP with no
+# admin service present.
+policy = { path = "../../crypto/policy" }
+
+[lib]
+path = "src/lib.rs"

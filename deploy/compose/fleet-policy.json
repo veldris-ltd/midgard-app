@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "agent-channel", "role": "fleet-agent", "action": "OpenChannel",
+      "resource": "*", "effect": "permit" },
+    { "id": "agent-check-in", "role": "fleet-agent", "action": "CheckIn",
+      "resource": "*", "effect": "permit" },
+    { "id": "operator-channel", "role": "fleet-operator", "action": "OpenChannel",
+      "resource": "*", "effect": "permit" },
+    { "id": "operator-read", "role": "fleet-operator", "action": "ReadFleet",
+      "resource": "*", "effect": "permit" }
+  ]
+}

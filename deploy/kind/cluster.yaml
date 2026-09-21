@@ -1,0 +1,12 @@
+# A local kind cluster for Midgard: one control plane and two workers, so pods can be
+# spread across hosts (the cross-host PQ-mTLS check needs two schedulable nodes).
+# kind's default CNI enforces NetworkPolicy, so the enclosure's default-deny posture
+# is exercised as it would be on a real cluster. [NFR-SEC-1] [NFR-PRV-1]
+#
+#   kind create cluster --name midgard --config deploy/kind/cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

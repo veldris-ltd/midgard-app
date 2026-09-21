@@ -1,0 +1,9 @@
+# Midgard suite — TypeScript/JS workspace.
+# UIs, generated SDKs, the web client, and the browser extension are members.
+# Directories are placeholders in Phase 0.b; packages appear as each lands.
+packages:
+  - "sdk/ts"
+  - "ui/*"
+  - "products/*/ui"
+  - "clients/shells/web"
+  - "clients/shells/extension"

@@ -1,0 +1,76 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="Terms of use · website terms + open-core licence pointers" name="midgard.eu/terms" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Terms of use</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { SectionLabel } = NS;
+
+function Clause({ n, title, children }) {
+  return (
+    <div style={{ padding: '22px 0', borderBottom: '1px solid var(--divider)' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em', color: 'var(--accent)' }}>{String(n).padStart(2, '0')} //</span>
+        <h2 style={{ fontSize: 'var(--fs-h5)', margin: 0 }}>{title}</h2>
+      </div>
+      <div style={{ margin: '10px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.75 }}>{children}</div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <SiteShell active="midgard">
+      <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(60px, 9vw, 110px) clamp(16px, 4vw, 36px) clamp(40px, 6vw, 72px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <div className="mg-label" style={{ marginBottom: 14 }}>01 // TERMS OF USE</div>
+          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3.2rem)', lineHeight: 1.08, maxWidth: 720, fontWeight: 800 }}>
+            Plain terms.<br /><span style={{ color: 'var(--text-muted)' }}>No traps in the footnotes.</span>
+          </h1>
+          <p style={{ margin: '14px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>VERSION 1.0 · EFFECTIVE 2026-07-08 · GOVERNS USE OF *.MIDGARD.EU WEBSITES</p>
+        </div>
+      </section>
+
+      <section style={{ padding: 'clamp(32px, 5vw, 64px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <Clause n={1} title="Who we are, what this covers">
+            These terms govern your use of midgard.eu and its product subdomains, operated by Veldris Ltd (see the <a href="legal.html" style={{ color: 'var(--accent-hover)' }}>legal notice</a> for registration details). They do not govern the Midgard software itself; the software carries its own licences (clause 3) and, for commercial tiers, its own agreements.
+          </Clause>
+          <Clause n={2} title="Using the site">
+            The site is provided for information about the Midgard platform suite. You may browse, link to, and quote it with attribution. You may not misrepresent its content, probe or disrupt the infrastructure serving it, or use it to violate applicable law. Security research on the site itself is welcome under the disclosure policy on the <a href="contact.html#security" style={{ color: 'var(--accent-hover)' }}>contact page</a>.
+          </Clause>
+          <Clause n={3} title="Software licences">
+            The core of every Midgard product is published under an OSI-approved open-source licence; the licence text in each repository is authoritative. Commercial modules are licensed under separate written agreements. Nothing on this website grants rights to trademarks or commercial modules.
+          </Clause>
+          <Clause n={4} title="Content, accuracy, forward-looking statements">
+            The suite is in closed development. Screens shown are design proposals; specifications, dates, and tier contents may change before launch. We correct errors when we find them or you report them, but the site is provided "as is" without warranty of completeness or fitness for a particular purpose.
+          </Clause>
+          <Clause n={5} title="Liability">
+            Nothing in these terms excludes liability that cannot lawfully be excluded (including for fraud or for death or personal injury caused by negligence). Otherwise, to the maximum extent permitted by law, Veldris Ltd is not liable for indirect or consequential loss arising from use of this website.
+          </Clause>
+          <Clause n={6} title="Intellectual property">
+            Site content, the Midgard name, and the product names Forge, Mimir, Bifrost, and Heimdall in connection with this suite are property of Veldris Ltd or its licensors. Open-source components remain under their respective licences.
+          </Clause>
+          <Clause n={7} title="Governing law">
+            These terms are governed by the laws of England and Wales, and disputes belong to the courts of England and Wales, without limiting mandatory consumer protections of your country of residence.
+          </Clause>
+          <Clause n={8} title="Changes">
+            We may update these terms; the version and effective date above change when we do. Continued use after a change is acceptance of the new terms.
+          </Clause>
+        </div>
+      </section>
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

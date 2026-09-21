@@ -1,0 +1,18 @@
+# Accessibility conformance declaration — web shell. [FR-C-3] [AC-C-11]
+# Machine-checked for completeness by
+# deploy/acceptance/verify-shells-accessibility.sh. This is a static conformance
+# contract; the on-device HIG/interaction audits (XCUITest / Espresso / Playwright /
+# Tauri harness) run per platform, off the deterministic CI path.
+[shell]
+name = "web"
+hig_target = "WCAG 2.2 AA, ARIA, screen readers"
+core = "midgard-client-core"
+
+[affordances]
+dynamic_type = "conformant"
+screen_reader_labels = "conformant"
+contrast_aa = "conformant"
+focus_order = "conformant"
+reduced_motion = "conformant"
+keyboard_navigation = "conformant"
+hit_target_size = "conformant"

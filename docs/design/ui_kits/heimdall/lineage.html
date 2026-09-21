@@ -1,0 +1,95 @@
+<!-- @dsCard group="Heimdall" viewport="1440x820" subtitle="Signed decision records: from evidence to outcome, replayable" name="Heimdall · Decision Lineage" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Heimdall · Decision Lineage</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-heimdall">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const DECS = [
+  { id: 'D-4472', action: 'Re-task NORTH-2 → E-0871', authoriser: 'k.osei', basis: '3 options · opt 01', outcome: 'conf 54→86%', when: 'today 14:39', st: 'secure' },
+  { id: 'D-4468', action: 'Ground aircraft AC-1180', authoriser: 'k.osei', basis: '1 option · manual', outcome: 'grounded · ME opened', when: 'today 12:11', st: 'secure' },
+  { id: 'D-4461', action: 'Cross-cue maritime sweep', authoriser: 'j.benjamin', basis: '2 options · opt 02', outcome: 'no contact · closed', when: 'yesterday', st: 'secure' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const d = DECS[sel];
+  return (
+    <ConsoleShell product="heimdall" active="lineage" context="DECIDE / DECISION LINEAGE"
+      toolbar={<Button variant="secondary" size="sm" iconLeft={<Icon name="download" size={14} />}>Export for review</Button>}
+      asideWidth={360}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="scroll-text" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15, flex: 1 }}>#{d.id}</h2>
+          <Badge tone="secure">ML-DSA ✓</Badge>
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>REPLAY · EVIDENCE AT DECISION TIME</div>
+          {[
+            ['Picture state', 'snapshot #S-88121 · 11 feeds'],
+            ['Entity', 'E-0871 · UNKNOWN · conf 54%'],
+            ['Options shown', '3 · all cited · ranks preserved'],
+            ['Chosen', 'opt 01 · re-task NORTH-2'],
+            ['Authoriser', d.authoriser + ' · WebAuthn verified'],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-faint)', width: 100, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--text-body)', lineHeight: 1.5 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <Card size="sm">
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--secure)', marginBottom: 6 }}>OUTCOME</div>
+          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>{d.outcome} · The decision, its evidence, and its result are one chain: audit, review, and after-action all read the same record.</p>
+        </Card>
+        <Button variant="primary" size="sm" iconLeft={<Icon name="play" size={13} />}>Replay picture at decision time</Button>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-H-5" title="Full audit lineage on decision workflows" />
+          <ProvenanceTag id="NFR-SEC-2" title="Full audit lineage enforced at the data and object layer" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={5}>LINEAGE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Decision lineage</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="312" label="DECISIONS · 90D" size="sm" />
+        <StatBlock value="100%" label="SIGNED + REPLAYABLE" size="sm" accent />
+        <StatBlock value="0" label="CHAIN BREAKS" size="sm" />
+      </div>
+      <Table
+        columns={[
+          { header: 'Decision', cell: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--accent-hover)' }}>#{r.id}</span>, width: 90 },
+          { header: 'Action', key: 'action' },
+          { header: 'Authoriser', key: 'authoriser', mono: true, width: 110 },
+          { header: 'Basis', key: 'basis', mono: true, width: 150 },
+          { header: 'Outcome', key: 'outcome', width: 170 },
+          { header: 'Signature', cell: () => <Badge tone="secure">ML-DSA ✓</Badge>, width: 100 },
+          { header: 'When', key: 'when', mono: true, width: 100 },
+        ]}
+        rows={DECS} selectedIndex={sel} onRowClick={setSel}
+      />
+      <Terminal title="CHAIN VERIFICATION" lines={[
+        '> heimdall lineage verify --range 90d',
+        'records    312 · signatures 312/312 OK',
+        'chain      contiguous · no gaps',
+        'replays    snapshots resolvable 312/312',
+        '# lineage intact',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

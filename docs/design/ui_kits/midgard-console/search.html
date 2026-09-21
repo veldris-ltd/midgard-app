@@ -1,0 +1,106 @@
+<!-- @dsCard group="Midgard Console" viewport="1440x820" subtitle="Typed instance queries and search-around under policy" name="Midgard · Search-around" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Search-around</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, HumanGate, MeterBar } = NS;
+
+const NODES = [
+  { id: 'AC-2214', type: 'Aircraft', x: 46, y: 42, hop: 0 },
+  { id: 'RT-DUB-FRA', type: 'Route', x: 22, y: 22, hop: 1, link: 'operates' },
+  { id: 'CR-0441', type: 'Crew Member', x: 70, y: 20, hop: 1, link: 'assigned' },
+  { id: 'ME-88121', type: 'Maintenance Event', x: 74, y: 66, hop: 1, link: 'on' },
+  { id: 'FAC-DUB', type: 'Facility', x: 22, y: 70, hop: 2, link: 'hosted at' },
+  { id: 'SF-NORTH-2', type: 'Sensor Feed', x: 50, y: 82, hop: 2, link: 'observes' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const n = NODES[sel];
+  return (
+    <ConsoleShell product="midgard" active="search" context="ENCLOSURE / SEARCH-AROUND"
+      toolbar={<Input size="sm" mono defaultValue='aircraft.where(risk > 0.6)' prefix={<Icon name="search" size={14} color="var(--text-faint)" />} style={{ width: 300 }} />}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="boxes" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{n.id}</h2>
+          <MarkingChip level="confidential" compartment="OPS-N" />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={n.type.toUpperCase()} label="OBJECT TYPE" size="sm" />
+            <StatBlock value={String(n.hop)} label="HOPS FROM ROOT" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PROPERTIES · POLICY-FILTERED</div>
+          {[['tail_id', n.id], ['risk_score', n.hop === 0 ? '0.87' : '—'], ['position', '53.42N · 6.27W'], ['clearance_note', '█ REDACTED · marking']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 104, flex: 'none' }}>{k}</span>
+              <span style={{ color: v.startsWith('█') ? 'var(--text-faint)' : 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <Terminal title="QUERY · AUDITED" lines={[
+          '> fabric.searchAround("' + n.id + '")',
+          'hops      2 · links 5 · objects 6',
+          'policy    row + column level · applied',
+          'redacted  1 property (marking)',
+          '# decision audited · #A-77131',
+        ]} />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="DD-1" title="Typed query, search-around, and action APIs on the object fabric" />
+          <ProvenanceTag id="NFR-SEC-2" title="Role/marking/purpose enforced at query time" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={13}>QUERY ENGINE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Search-around · AC-2214</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="6" label="OBJECTS" size="sm" />
+        <StatBlock value="5" label="LINKS · 2 HOPS" size="sm" />
+        <StatBlock value="1" label="REDACTIONS" size="sm" accent />
+      </div>
+      <div className="mg-grid-bg" style={{ flex: 1, position: 'relative', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', minHeight: 0, overflow: 'hidden' }}>
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+          {NODES.filter(x => x.hop > 0).map((x, i) => {
+            const from = x.hop === 2 ? NODES.find(y => y.hop === 1 && Math.abs(y.x - x.x) < 30) || NODES[0] : NODES[0];
+            return <line key={i} x1={from.x + '%'} y1={from.y + '%'} x2={x.x + '%'} y2={x.y + '%'} stroke="var(--ink-500)" strokeWidth="1.5" />;
+          })}
+        </svg>
+        {NODES.map((node, i) => (
+          <button key={node.id} onClick={() => setSel(i)} style={{
+            all: 'unset', position: 'absolute', left: node.x + '%', top: node.y + '%', transform: 'translate(-50%,-50%)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer',
+          }}>
+            <span style={{
+              padding: '8px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8,
+              background: i === sel ? 'var(--surface-raised)' : 'var(--surface-card)',
+              border: '1px solid ' + (i === sel ? 'var(--accent)' : node.hop === 0 ? 'var(--accent)' : 'var(--border)'),
+              boxShadow: i === sel ? 'var(--shadow-glow)' : 'none',
+            }}>
+              <Icon name="boxes" size={13} color="var(--accent)" />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--grey-100)' }}>{node.id}</span>
+            </span>
+            {node.link && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>{node.link.toUpperCase()}</span>}
+          </button>
+        ))}
+        <span style={{ position: 'absolute', right: 14, bottom: 10, fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>SEARCH-AROUND · 2 HOPS · POLICY AT QUERY TIME</span>
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,21 @@
+[package]
+name = "admin-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Versioned, GitOps-style admin configuration: content-hashed, parent-linked, PQ-signed commits with diff and append-only rollback. [FR-AD-7] [AC-AD-7]"
+
+[dependencies]
+# The generic SealedJournal + Sealer seam backing the durable store. [RC-14]
+audit-writer = { path = "../../crypto/audit-writer" }
+# Content hashing (SHA-256) and PQ commit signing go through the agility shim; the
+# concrete backend is supplied by the caller, so the lib needs no backend feature.
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

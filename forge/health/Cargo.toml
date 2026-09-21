@@ -1,0 +1,26 @@
+[package]
+name = "forge-health"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Forge data-health engine: expectations checked on every build; promotion is blocked and reported on failure. [FR-F-6]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "forge-dataset-store/backend-fips",
+    "forge-pipeline/backend-fips",
+    "kms/backend-fips",
+    "pqc-agility/backend-fips",
+]
+
+[dependencies]
+forge-dataset-store = { path = "../dataset-store" }
+forge-engine = { path = "../engine" }
+forge-pipeline = { path = "../pipeline" }
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,10 @@
+flowchart TB
+    subgraph orch["Rollout Orchestrator container"]
+        strat["Strategy (canary/blue-green)"]
+        health["Health gate evaluator"]
+        rollback["Auto-rollback controller"]
+        recon["Reconciler (desired vs actual)"]
+    end
+    strat --> recon
+    recon --> health
+    health --> rollback

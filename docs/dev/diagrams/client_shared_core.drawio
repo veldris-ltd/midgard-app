@@ -1,0 +1,32 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="client_shared_core" id="client_shared_core">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="b_shell" value="Native UI shells (per platform)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="30" y="30" width="900" height="90" as="geometry"/></mxCell>
+        <mxCell id="b_bind" value="Binding layer" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="160" y="150" width="660" height="80" as="geometry"/></mxCell>
+        <mxCell id="b_core" value="Shared Rust core (midgard-client-core)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="40" y="270" width="890" height="90" as="geometry"/></mxCell>
+        <mxCell id="sw" value="Swift/SwiftUI (iOS,macOS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="50" width="170" height="50" as="geometry"/></mxCell>
+        <mxCell id="kt" value="Kotlin/Compose (Android)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="230" y="50" width="170" height="50" as="geometry"/></mxCell>
+        <mxCell id="rs2" value="Rust/GTK (Linux)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="420" y="50" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="tau" value="Tauri+SvelteKit (desktop)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="590" y="50" width="170" height="50" as="geometry"/></mxCell>
+        <mxCell id="wsm" value="TS/WASM (web+ext)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="780" y="50" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="uniffi" value="UniFFI (Swift/Kotlin)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="180" y="170" width="180" height="45" as="geometry"/></mxCell>
+        <mxCell id="wasm" value="wasm-bindgen (WASM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="620" y="170" width="180" height="45" as="geometry"/></mxCell>
+        <mxCell id="sync" value="Sync engine (CRDT)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="60" y="290" width="150" height="45" as="geometry"/></mxCell>
+        <mxCell id="crypto" value="PQ crypto" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="230" y="290" width="140" height="45" as="geometry"/></mxCell>
+        <mxCell id="store" value="Local encrypted store" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="390" y="290" width="160" height="45" as="geometry"/></mxCell>
+        <mxCell id="api" value="Fabric/Mimir client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="570" y="290" width="160" height="45" as="geometry"/></mxCell>
+        <mxCell id="infer" value="Local inference (tiered)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="750" y="290" width="160" height="45" as="geometry"/></mxCell>
+        <mxCell id="e0" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="sw" target="uniffi"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="kt" target="uniffi"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="rs2" target="sync"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="tau" target="wasm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="wsm" target="wasm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="uniffi" target="sync"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="wasm" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

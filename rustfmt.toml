@@ -1,0 +1,13 @@
+# Formatting is pinned, not incidental. [NFR-OSS-1]
+#
+# The workspace pins rustc via rust-toolchain.toml; this pins the formatter that
+# runs against it, so `cargo fmt --all --check` produces the same verdict on a
+# developer's machine and in CI. Without both pins, a contributor on a different
+# toolchain reformats files they did not touch and every diff becomes noise.
+#
+# Deliberately DEFAULT settings only. Every non-default option is a house style
+# somebody has to learn and every reviewer has to hold in their head, and none of
+# them would make this codebase easier to read. The single entry below is the
+# edition, which `cargo fmt` infers per crate but bare `rustfmt` does not — it is
+# here so both routes agree.
+edition = "2021"

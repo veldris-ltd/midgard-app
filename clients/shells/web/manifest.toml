@@ -1,0 +1,11 @@
+# Shell manifest — web
+# One of the six client shell codebases (SAD_06 §3.1). Presentation only.
+[shell]
+name = "web"
+technology = "SvelteKit + WASM"
+targets = "Enclosure-hosted browser app"
+
+# KDD-1: this shell implements NO cryptography, key handling, or sync-merge logic.
+# It links the shared Rust core and calls it for everything security-/data-related.
+links_core = "midgard-client-core"
+binding = "wasm-bindgen"

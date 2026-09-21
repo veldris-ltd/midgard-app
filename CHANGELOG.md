@@ -1,0 +1,146 @@
+# Changelog
+
+All notable changes to Midgard are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to
+follow [Semantic Versioning](https://semver.org/) from 1.0.
+
+Midgard is pre-1.0; the public API and wire formats may change until 1.0. See
+CONTRIBUTING.md for the version policy.
+
+## [Unreleased]
+
+### Added
+- **Model bundles that stream.**
+  - `bifrost-bundle` format version 2 writes each payload in chunks, each with its own
+    SHA-256.
+  - `pack_streaming` and `import_streaming` pack and verify a bundle a chunk at a time,
+    so a model's weights cross the air gap without being held in memory.
+  - Authenticity is unchanged: the signed payload digests decide it, and the unsigned
+    chunk digests locate damage.
+  - An import stages its output and moves it into place only once everything has
+    verified.
+  - `mg-bundle` packs and imports this way; version 1 bundles still import.
+  - `mg-model pack` bundles a model directory that passes the load gate.
+  - `mg-model unpack` verifies the bundle offline and runs the load gate on what it
+    wrote, removing the directory if the model does not verify. [AC-MS-3]
+
+### Changed
+- **CI no longer uses Nix.** `ci.yml` builds the digest-pinned toolchain image and runs
+  formatting, lints, the build, the tests, the reproducibility check and the advisory
+  scan in it, with no network (`tools/ci/in-toolchain.sh`). These are the same
+  toolchain and posture as developers and the release runners. The Nix steps ran on a
+  flake with no lock file, which BUILD_ENV already said no automated path should depend
+  on. [RT-47]
+
+## [0.1.0-rc.1] — release candidate, not yet tagged
+
+The first release candidate: from verified libraries to a platform that can be
+deployed and used. **A release candidate is not a supported release.** It exercises
+the whole release pipeline. GA remains blocked on:
+
+- the deployment tier passing on real infrastructure: HSM signing and GPU inference
+  have not run;
+- FIPS 140-3 module certification;
+- shell audits on real devices.
+
+See `docs/compliance/GA_READINESS.md`.
+
+### Added
+- **The edge on the real enclosure.** `http-gateway` serves the object-fabric routes
+  from `fabric::Fabric` and its single governance spine, so edge admission and every
+  fabric call go to one PQ-signed ledger.
+- **Persistent keys, policy and users.**
+  - `mg-admin` initialises a state directory: issuer, audit and storage keys, a
+    durable store, a ledger and an identity directory.
+  - The gateway loads ontology and policy files at startup.
+  - Operators enrol users offline, or online with dual control and post-quantum
+    passkeys, and import data.
+- **Runnable services on a shared PQ-mTLS runtime.** Besides the edge, four services
+  run: `mimir-server`, `bifrost-fleet` (with `bifrost-agent`), `heimdall-feed` (with
+  `heimdall-source`) and `forge-worker`. The shared runtime provides mesh identity from
+  files, durable audit, and health and metrics. `mg-admin mesh issue` gives each
+  workload its identity.
+- **Deployment.** Docker compose and a Helm chart deploy the services. The chart runs
+  hardened one-replica StatefulSets with default-deny NetworkPolicies, and has run on a
+  three-node kind cluster. The plain `deploy/k8s/enclosure.yaml` is checked in CI
+  against the chart.
+- **Forge connectors.** Hand-rolled, std-only clients for PostgreSQL (protocol v3,
+  SCRAM-SHA-256), S3 (SigV4) and Kafka, syncing incrementally from checkpoints. An
+  egress broker (HAProxy, TLS 1.3 with a pinned CA per route) reaches sources outside
+  the enclosure.
+- **Model serving.**
+  - `mimir-server` serves a real model through an OpenAI-compatible engine on loopback:
+    llama.cpp on CPU, vLLM on GPU.
+  - A model loads only from a signed manifest whose weights stream to the signed digest.
+  - `mg-model` generates the signing key, signs weights and verifies a model directory.
+  - Granite 3.3 2B Instruct (Apache-2.0) is staged from an operator download. No
+    weights are vendored.
+- **Deployment tier.** RC-40.4 is a certified PQ-mTLS inference call to the deployed
+  `mimir-server`, which must be answered by a real model.
+- **Release pipeline.**
+  - Every binary the workspace builds is listed in `supply-chain/release-artefacts.txt`
+    and passes the per-artefact gate; a coverage check fails on a missing binary (RC-07).
+  - Services become verify-before-run images.
+  - The verified set travels as one signed air-gap bundle.
+  - A GitHub pre-release is published only on a manual run that names the tag.
+
+### Fixed
+- RT-21: model provenance checks no longer report `Verified` without comparing bytes.
+  A present vendor signature is recorded as unchecked, and a commit is verified only
+  against a pinned file listing.
+
+### Known limits in this candidate
+- Key custody is software: keystores are files, and no HSM is wired in.
+- Model serving on GPU (vLLM) has not run. The 800 ms first-token target is unproven.
+- The Kafka connector has been tested only against a fake broker. PostgreSQL cannot
+  use the egress broker before PostgreSQL 17.
+- Consoles other than Midgard's run on mock data.
+
+### Launch-readiness hardening (carried into this candidate)
+
+Taking the platform from end-of-design + core-logic to a production-defensible
+posture. Highlights:
+- **Supply chain:** real PQ signing/verification (`mg-sign`/`mg-verify`), CycloneDX
+  SBOM, reproducible-build and coverage gates, offline CVE + licence gates; signed
+  air-gap bundle.
+- **Durability:** every stateful store is a KMS-sealed, append-only journal with
+  replay-on-boot and fail-closed-on-tamper (fabric, forge, bifrost, heimdall, admin,
+  IAM directory, audit ledger).
+- **Transport & mesh:** PQ-mTLS session resumption, connection reuse, a method router,
+  and per-identity rate limiting on the gateway; real Heimdall feed ingest +
+  cross-node picture replication over PQ-mTLS.
+- **Data platform (Forge):** real sandboxed connectors with egress enforcement, a
+  pure-Rust partitioned compute engine (hash shuffle + spill-to-disk), and IR breadth
+  (join / aggregate / sort / window).
+- **Key custody:** hardware (HSM/TPM) trust-root architecture with attestation and an
+  operated key-rotation manager; documented software-only residual risk.
+- **Identity & admin:** real principal authentication (PBKDF2 + TOTP + WebAuthn), a
+  durable directory, JWKS, enterprise-IdP federation; real admin WebAuthn assertion
+  verification; the guarded-action orchestrator (authenticate → simulate →
+  dual-control → single-use token → commit → audit); break-glass with real alerts and
+  time-boxed capability elevation.
+- **Operability:** in-enclosure telemetry (structured logs, Prometheus `/metrics`,
+  tracing, liveness/readiness, SLOs — zero-dependency, cannot egress); operational
+  runbooks, a DR plan with a **tested restore drill**, backup/restore procedures, and
+  an incident-response / on-call policy.
+- **PKI:** operated CA lifecycle — workload cert issuance / renewal (downtime-free) /
+  revocation honoured at the next handshake; HSM key-ceremony + rotation docs; signing
+  runner provisioning.
+- **Consoles:** the Midgard console authenticates against the edge (login → PQ-signed
+  token) and renders enclosure data; MockGateway retained for offline demos.
+- **Governance:** LICENSE (Apache-2.0) + NOTICE, SECURITY.md, CONTRIBUTING, CODEOWNERS,
+  a threat model, and a compliance/data-residency matrix.
+
+### Changed
+- Contract surface reconciled with reality: protos govern the client SDK edge;
+  internal service-to-service uses the lean `pq-mtls` binary codec (Rust-typed).
+- Rebranded to Veldris Ltd. across the design system and marketing site.
+
+### Security
+- Fail-closed everywhere on the critical paths (signature/verification, policy
+  enforcement, durability replay, revocation). See SECURITY.md and
+  `docs/security/THREAT_MODEL.md`.
+
+---
+
+Tagged releases will be listed here once the first tag ships.

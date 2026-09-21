@@ -1,0 +1,36 @@
+Midgard
+Copyright 2026 Veldris Ltd. (veldris.io)
+
+This product includes software developed by Veldris Ltd. and the Midgard
+contributors, licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Midgard is a sovereign, post-quantum, in-enclosure platform suite. Its
+open-source core — the crypto (pqc-agility, pq-mtls, policy, audit-writer),
+services (fabric, iam, kms, governance, gateway, http-gateway, scheduler,
+telemetry), Forge, Mimir, Bifrost, Heimdall, the Admin control plane, the
+client platform crates, and the supply-chain tools — is distributed under
+Apache-2.0. Commercial tiers (see veldris.io) are operated and maintained by
+Veldris Ltd. and may include additional, separately-licensed components.
+
+"Midgard", "Forge", "Mimir", "Bifrost", and "Heimdall", as used for this
+platform suite, are marks of Veldris Ltd. The Apache-2.0 licence does not grant
+permission to use these marks except as required for reasonable and customary
+use in describing the origin of the work (see LICENSE §6).
+
+Third-party components:
+
+  Vendored Rust crates under /vendor are redistributed under their own
+  OSI-approved / permissive licences; the release gate enforces an allow-list
+  (`just check-licences`). Each retains its own copyright and licence, listed in
+  the generated CycloneDX SBOM (`*.sbom.cdx.json`).
+
+  The consoles and the design documentation bundle three typefaces, each
+  licensed under the SIL Open Font License, Version 1.1 (OFL-1.1):
+  Oxanium (Copyright 2019 The Oxanium Project Authors), Space Grotesk
+  (Copyright 2020 The Space Grotesk Project Authors) and JetBrains Mono
+  (Copyright 2020 The JetBrains Mono Project Authors). The font files and their
+  licence texts are in ui/design-system/src/fonts and docs/design/fonts.
+
+Post-quantum cryptography implements the NIST FIPS 203 (ML-KEM), FIPS 204
+(ML-DSA), and FIPS 205 (SLH-DSA) standards; AES-256-GCM per FIPS 197. See
+docs/compliance/COMPLIANCE_MATRIX.md for the full standards mapping.

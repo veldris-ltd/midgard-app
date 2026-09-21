@@ -1,0 +1,23 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph inside["INSIDE the sandbox (hermetic)"]
+        world["World-model = COPY of picture\n(read-only snapshot)"]:::inside
+        sim["Simulation kernel\n(deterministic + stochastic)"]:::inside
+        proj["Outcome projections\n(probabilities, cascades)"]:::inside
+    end
+    gate1{"No network egress\nto real assets"}:::gate
+    gate2{"No execution interface\nexists in binary"}:::gate
+    gate3{"Outputs are DATA\n(trees), not commands"}:::gate
+    human["Human planner\nreads projections"]:::human
+    realworld["Real assets / Heimdall actions\n(separate, human-gated)"]:::ext
+    world --> sim --> proj
+    proj --> gate3 --> human
+    inside -.- gate1
+    inside -.- gate2
+    gate1 -.blocks.-> realworld
+    gate2 -.blocks.-> realworld
+    human -->|"may authorise real action\nvia EXISTING Heimdall human-gate"| realworld
+    classDef inside fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef gate fill:#B23B3B,color:#fff,stroke:#7A2727,stroke-width:2px
+    classDef human fill:#1E7A46,color:#fff,stroke:#125230
+    classDef ext fill:#4A4A4A,color:#fff,stroke:#2A2A2A

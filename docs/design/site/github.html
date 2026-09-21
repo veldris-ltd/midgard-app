@@ -1,0 +1,152 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="Source & GitHub · official repos, expectations, verify-and-build instructions" name="midgard.eu/source" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Source on GitHub</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, Button, Badge, StatusPill, SectionLabel, Terminal, Card } = NS;
+
+const ORG = 'https://github.com/veldris-ltd';
+const REPO = 'https://github.com/veldris-ltd/midgard-app';
+
+const REPOS = [
+  { name: 'midgard', theme: 'theme-midgard', href: REPO, desc: 'The suite monorepo: Midgard core (identity, object fabric, KMS, governance) plus the open core of every product.', tag: 'CANONICAL' },
+  { name: 'midgard / forge', theme: 'theme-forge', href: REPO + '/tree/main/forge', desc: 'Data operations: connectors, pipelines, dataset versioning, projection to the fabric.', tag: 'IN MONOREPO' },
+  { name: 'midgard / mimir', theme: 'theme-mimir', href: REPO + '/tree/main/mimir', desc: 'Local agentic AI: model plane, agents, guardrails, Evals. Weights ship separately, signed.', tag: 'IN MONOREPO' },
+  { name: 'midgard / bifrost', theme: 'theme-bifrost', href: REPO + '/tree/main/bifrost', desc: 'Continuous delivery: artefacts, release channels, rings, offline bundles, rollback.', tag: 'IN MONOREPO' },
+  { name: 'midgard / heimdall', theme: 'theme-heimdall', href: REPO + '/tree/main/heimdall', desc: 'Operational fusion: feeds, the common picture, decision workflows with human gates.', tag: 'IN MONOREPO' },
+];
+
+function App() {
+  return (
+    <SiteShell active="midgard">
+      <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(60px, 9vw, 110px) clamp(16px, 4vw, 36px) clamp(40px, 6vw, 72px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div className="mg-label" style={{ marginBottom: 14 }}>01 // SOURCE</div>
+          <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 3.6rem)', lineHeight: 1.06, maxWidth: 780, fontWeight: 800 }}>
+            Don't trust us.<br /><span style={{ color: 'var(--text-muted)' }}>Read the source.</span>
+          </h1>
+          <p style={{ margin: '20px 0 0', fontSize: 'var(--fs-body-lg)', color: 'var(--text-body)', maxWidth: 640, lineHeight: 1.7 }}>
+            The core of every Midgard product is open source under the Veldris Ltd organisation on GitHub. Clone it, audit it, rebuild it bit for bit. If your build differs from our release, that is a finding and we want to hear about it.
+          </p>
+          <div style={{ display: 'flex', gap: 12, marginTop: 30, flexWrap: 'wrap', alignItems: 'center' }}>
+            <a href={REPO} target="_blank" rel="noopener" style={{ textDecoration: 'none' }}>
+              <Button variant="primary" size="lg" iconRight={<Icon name="arrow-up-right" size={16} />}>veldris-ltd/midgard-app</Button>
+            </a>
+            <a href={ORG} target="_blank" rel="noopener" style={{ textDecoration: 'none' }}>
+              <Button variant="outline" size="lg">All repositories</Button>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section style={{ padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <SectionLabel number={2}>REPOSITORIES</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 28px' }}>One monorepo, five products.</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: 14 }}>
+            {REPOS.map(r => (
+              <a key={r.name} href={r.href} target="_blank" rel="noopener" className={r.theme} style={{ textDecoration: 'none' }}>
+                <Card interactive accentRule size="lg" style={{ height: '100%' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Icon name="git-branch" size={18} color="var(--accent)" />
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, letterSpacing: '0.03em', color: 'var(--text-heading)', fontWeight: 600 }}>{r.name}</span>
+                    <span style={{ marginLeft: 'auto' }}><Badge tone={r.tag === 'CANONICAL' ? 'accent' : 'neutral'}>{r.tag}</Badge></span>
+                  </div>
+                  <p style={{ margin: '12px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.6 }}>{r.desc}</p>
+                </Card>
+              </a>
+            ))}
+          </div>
+          <p style={{ margin: '18px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>ONE HISTORY · ONE SBOM · ONE SIGNATURE PER RELEASE · PRODUCTS BUILD INDEPENDENTLY FROM THEIR SUBTREES</p>
+        </div>
+      </section>
+
+      <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <SectionLabel number={3}>WHAT TO EXPECT</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 28px' }}>Honest boundaries, before you clone.</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 14 }}>
+            {[
+              ['check', 'What is in the repo', 'Every product core, the PQ crypto substrate, the client-core library, deployment recipes, and the full test and Evals suites. OSI licence; the LICENSE file in the repo is authoritative.'],
+              ['x', 'What is not', 'Commercial modules (HA control plane, DR replication, advanced governance) live in private repos under separate agreements. Model weights are distributed as signed bundles, not in git.'],
+              ['gauge', 'Maturity', 'The suite is in closed development and pre-1.0. Interfaces change between minor versions, and main may be ahead of anything we support. Production use belongs on signed releases, not on main.'],
+              ['shield-check', 'Support', 'Open-core users get issues and discussions, best effort. Response SLAs, hardening guidance, and someone to call at 03:00 are what the commercial tiers pay for.'],
+            ].map(([icon, title, body]) => (
+              <Card key={title} size="lg">
+                <Icon name={icon} size={22} color="var(--accent)" />
+                <h3 style={{ fontSize: 'var(--fs-h5)', margin: '12px 0 8px' }}>{title}</h3>
+                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65 }}>{body}</p>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section style={{ padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <SectionLabel number={4}>GET IT RUNNING</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 10px' }}>Clone, verify, build.</h2>
+          <p style={{ margin: '0 0 22px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65, maxWidth: 620 }}>
+            Verification is not optional ceremony; it is the point. Every release tag is ML-DSA-signed and ships a CycloneDX SBOM. Build from a verified tag, then check your artefact against ours.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Terminal lines={[
+              '# 1 · clone and pin to a signed release',
+              '> git clone https://github.com/veldris-ltd/midgard-app.git',
+              '> cd midgard && git tag --list \'v*\' | tail -3',
+              '> git checkout v0.9.2',
+            ]} />
+            <Terminal lines={[
+              '# 2 · verify the tag signature and the SBOM',
+              '> ./scripts/verify-release v0.9.2',
+              'signature   ML-DSA-87 · VALID · signer: releases@veldris.io',
+              'sbom        CycloneDX 1.6 · 214 components · 0 unknown licences',
+            ]} />
+            <Terminal lines={[
+              '# 3 · reproducible build + self-check',
+              '> make build && make verify-reproducible',
+              'artefact    sha256:9f2c…e41a · MATCHES published release',
+              '> make bootstrap-enclosure   # single-node dev enclosure',
+              'enclosure   up · https://localhost:8443 · SEALED · ML-KEM-1024',
+            ]} />
+          </div>
+          <p style={{ margin: '18px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>FULL PREREQUISITES AND HARDWARE GUIDANCE LIVE IN THE REPO README · COMMANDS ABOVE ARE ILLUSTRATIVE UNTIL THE REPO OPENS</p>
+        </div>
+      </section>
+
+      <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <SectionLabel number={5}>CONTRIBUTING</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 24px' }}>House rules.</h2>
+          {[
+            ['Issues and discussions', 'Bug reports with a reproduction get priority. Feature requests are welcome; the SAD provenance tags in the docs tell you what is designed versus aspirational.'],
+            ['Pull requests', 'Sign your commits (DCO). Small, reviewable changes land fastest. Anything touching cryptography, policy evaluation, or lineage requires two maintainer reviews; expect that to take time.'],
+            ['Security issues', 'Never open a public issue for a vulnerability. Write to security@veldris.io; disclosures are acknowledged within one working day and handled under the safe-harbour policy on the contact page.'],
+          ].map(([q, a]) => (
+            <div key={q} style={{ padding: '16px 0', borderBottom: '1px solid var(--divider)' }}>
+              <h3 style={{ fontSize: 'var(--fs-body)', margin: '0 0 6px' }}>{q}</h3>
+              <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.7 }}>{a}</p>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
+            <a href={REPO} target="_blank" rel="noopener" style={{ textDecoration: 'none' }}><Button variant="primary" iconRight={<Icon name="arrow-up-right" size={15} />}>Open the repository</Button></a>
+            <a href="contact.html#security" style={{ textDecoration: 'none' }}><Button variant="outline">Security disclosure policy</Button></a>
+          </div>
+        </div>
+      </section>
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,110 @@
+<!-- @dsCard group="Mimir" viewport="1440x820" subtitle="Evaluation suites, regression gates, adversarial batteries" name="Mimir · Evals Dashboard" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mimir · Evals Dashboard</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-mimir">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const SUITES = [
+  { name: 'dispatch-core', agent: 'dispatch-01', cases: 412, pass: 96, delta: '+1.2', kind: 'capability', st: 'secure', stl: 'Passing' },
+  { name: 'dispatch-adversarial', agent: 'dispatch-01', cases: 128, pass: 92, delta: '−0.8', kind: 'adversarial', st: 'warn', stl: 'Drift' },
+  { name: 'triage-grounding', agent: 'feed-triage', cases: 260, pass: 94, delta: '+0.4', kind: 'grounding', st: 'secure', stl: 'Passing' },
+  { name: 'risk-calibration', agent: 'release-risk', cases: 96, pass: 88, delta: '−2.1', kind: 'calibration', st: 'warn', stl: 'Below gate' },
+];
+function PassBar({ v, warn }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 70, height: 5, background: 'var(--surface-inset)', borderRadius: 3, overflow: 'hidden', display: 'inline-block' }}>
+        <span style={{ display: 'block', height: '100%', width: v + '%', background: warn ? 'var(--warn)' : 'var(--secure)', borderRadius: 3 }} />
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>{v}%</span>
+    </span>
+  );
+}
+function App() {
+  const [sel, setSel] = React.useState(3);
+  const s = SUITES[sel];
+  return (
+    <ConsoleShell product="mimir" active="evals" context="AGENT STUDIO / EVALS"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="play" size={14} />}>Run all suites</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="gauge" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{s.name}</h2>
+          <StatusPill status={s.st} pulse={false} label={s.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={s.pass + '%'} label="PASS · GATE 90%" size="sm" accent={s.pass < 90} />
+            <StatBlock value={s.delta} label="7-DAY DELTA" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>FAILING CASES · TOP 3</div>
+          {[
+            'multi-leg schedule with crew constraint',
+            'conflicting maintenance windows',
+            'risk score on config-only diffs',
+          ].map((l, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.5 }}>
+              <Icon name="x" size={13} color="var(--danger)" style={{ marginTop: 2 }} />{l}
+            </div>
+          ))}
+        </div>
+        <Card size="sm" style={{ borderColor: s.pass < 90 ? 'var(--warn)' : 'var(--border)' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: s.pass < 90 ? 'var(--warn)' : 'var(--secure)', marginBottom: 6 }}>{s.pass < 90 ? 'GATE · BLOCKING' : 'GATE · CLEAR'}</div>
+          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>{s.pass < 90 ? 'Policy updates for ' + s.agent + ' are blocked until this suite clears 90%. Self-learning proposals queue behind the gate.' : 'Suite clears the regression gate; policy updates may proceed to human review.'}</p>
+        </Card>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-MI-3" title="Agent runtime with tools, memory, planning, and per-agent Evals" />
+          <ProvenanceTag id="NFR-AI-1" title="Traceable, evaluated, reversible or human-gated" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={1}>EVALS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Evaluation suites</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="18" label="SUITES" size="sm" />
+        <StatBlock value="93.4%" label="FLEET PASS RATE" size="sm" accent />
+        <StatBlock value="2" label="GATES BLOCKING" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Tag active>all kinds</Tag><Tag>capability</Tag><Tag>grounding</Tag><Tag>adversarial</Tag><Tag>calibration</Tag>
+      </div>
+      <Table
+        columns={[
+          { header: 'Suite', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="gauge" size={14} color="var(--accent)" />{r.name}</span> },
+          { header: 'Agent', key: 'agent', mono: true, width: 130 },
+          { header: 'Kind', key: 'kind', mono: true, width: 110 },
+          { header: 'Cases', key: 'cases', mono: true, align: 'right', width: 70 },
+          { header: 'Pass rate', cell: r => <PassBar v={r.pass} warn={r.pass < 90 || r.st === 'warn'} />, width: 150 },
+          { header: 'Δ 7d', key: 'delta', mono: true, align: 'right', width: 70 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 130 },
+        ]}
+        rows={SUITES} selectedIndex={sel} onRowClick={setSel}
+      />
+      <Terminal title="LAST RUN · 14:20" lines={[
+        '> mimir evals run --all --model mistral-small-3.2',
+        'dispatch-core        412/412 · 96% · 4m02s',
+        'dispatch-adversarial 128/128 · 92% · 2m11s ⚠ drift −0.8',
+        'risk-calibration      96/96  · 88% · 1m38s ⚠ below gate',
+        '# 2 gates blocking · policy updates queued',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

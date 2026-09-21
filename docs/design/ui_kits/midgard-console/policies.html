@@ -1,0 +1,104 @@
+<!-- @dsCard group="Midgard Console" viewport="1440x820" subtitle="Role / marking / purpose policy, evaluated at query time" name="Midgard · Policies & Markings" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Policies & Markings</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const POLICIES = [
+  { name: 'ops-maintenance-read', effect: 'permit', roles: 'ops-analyst', marking: 'confidential', purpose: 'maintenance', hits: '4,812/d', st: 'secure', stl: 'Enforced' },
+  { name: 'agent-dispatch-scope', effect: 'permit+gate', roles: 'dispatch-scoped', marking: 'internal', purpose: 'maintenance', hits: '184/d', st: 'gated', stl: 'Human gate' },
+  { name: 'no-egress-default', effect: 'deny', roles: '*', marking: '*', purpose: 'external-transfer', hits: '17/d', st: 'secure', stl: 'Enforced' },
+  { name: 'projection-writer', effect: 'permit', roles: 'fabric-writer', marking: 'restricted', purpose: 'projection', hits: '96k/d', st: 'secure', stl: 'Enforced' },
+];
+function App() {
+  const [sel, setSel] = React.useState(1);
+  const [tab, setTab] = React.useState(0);
+  const p = POLICIES[sel];
+  return (
+    <ConsoleShell product="midgard" active="policies" context="ENCLOSURE / POLICIES & MARKINGS"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>New policy</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="shield-check" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{p.name}</h2>
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={p.effect.toUpperCase()} label="EFFECT" size="sm" accent={p.effect !== 'permit'} />
+            <StatBlock value={p.hits} label="EVALUATIONS" size="sm" />
+          </div>
+        </Card>
+        <Terminal title="POLICY · DECLARATIVE" lines={[
+          'permit when {',
+          '  role    in [' + p.roles + ']',
+          '  marking <= ' + p.marking.toUpperCase(),
+          '  purpose == ' + p.purpose,
+          '}' + (p.effect === 'permit+gate' ? ' requiring human_gate' : '')]} />
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>EVALUATED AT</div>
+          {['Query time · row and column level', 'Action invocation · pre-execution', 'Agent retrieval · OAG scope'].map((l, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)', color: 'var(--text-body)' }}>
+              <Icon name="check" size={13} color="var(--secure)" />{l}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="NFR-SEC-2" title="Role, marking and purpose enforced at query time" />
+          <ProvenanceTag id="DD-8" title="Standards-aligned assurance: NIST SP 800-53, OWASP ASVS, ISO/IEC 27001" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={8}>GOVERNANCE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Policies & markings</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="64" label="POLICIES" size="sm" />
+        <StatBlock value="4" label="MARKING LEVELS" size="sm" />
+        <StatBlock value="0" label="UNGOVERNED TYPES" size="sm" accent />
+      </div>
+      <Tabs tabs={[{ label: 'Policies', badge: '64' }, { label: 'Markings' }, { label: 'Purposes', badge: '9' }]} active={tab} onChange={setTab} />
+      {tab === 1 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[['confidential', 'OPS-N · SIG', '212 types · 118 users cleared'], ['restricted', '—', '84 types · 402 users'], ['internal', '—', '16 types · all staff'], ['open', '—', '0 types']].map(([lvl, comp, meta]) => (
+            <Card key={lvl} size="sm">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <MarkingChip level={lvl} compartment={comp !== '—' ? comp.split(' · ')[0] : null} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{meta}</span>
+                <div style={{ flex: 1 }} />
+                <Button variant="ghost" size="sm">Edit clearances</Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Table
+          columns={[
+            { header: 'Policy', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="shield-check" size={14} color="var(--accent)" />{r.name}</span> },
+            { header: 'Effect', cell: r => <Badge tone={r.effect === 'deny' ? 'danger' : r.effect === 'permit+gate' ? 'warn' : 'secure'}>{r.effect.toUpperCase()}</Badge>, width: 130 },
+            { header: 'Roles', key: 'roles', mono: true, width: 150 },
+            { header: 'Marking', key: 'marking', mono: true, width: 120 },
+            { header: 'Purpose', key: 'purpose', mono: true, width: 140 },
+            { header: 'Evaluations', key: 'hits', mono: true, align: 'right', width: 100 },
+            { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 130 },
+          ]}
+          rows={POLICIES} selectedIndex={sel} onRowClick={setSel}
+        />
+      )}
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

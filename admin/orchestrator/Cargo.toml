@@ -1,0 +1,35 @@
+[package]
+name = "admin-orchestrator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Guarded-action orchestrator: the ONE enforced transaction every mutating admin action traverses — authenticate → simulate → dual-control approval (distinct approver, single-use time-boxed token) → commit → audit, all linked. [FR-AD-5] [FR-AD-6] [FR-AD-7] [RC-31]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips"]
+
+[dependencies]
+# Authenticated admin sessions (MFA + step-up) — the first gate.
+admin-identity = { path = "../identity" }
+# Dual-control state machine + the PQ-signed decision ledger.
+admin-privilege = { path = "../privilege" }
+# The real deny-by-default PDP dry-run that must precede any commit.
+admin-sim = { path = "../sim" }
+# The append-only, PQ-signed config history the transaction commits to.
+admin-config = { path = "../config" }
+# Policy sets simulated over.
+policy = { path = "../../crypto/policy" }
+# Single-use token randomness + the ledger-store bound.
+pqc-agility = { path = "../../crypto/pqc-agility" }
+audit-writer = { path = "../../crypto/audit-writer" }
+
+[dev-dependencies]
+# The RC-31 harness seals the decision ledger with the real KMS envelope and wires a
+# real WebAuthn-gated admin session.
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

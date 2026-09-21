@@ -1,0 +1,29 @@
+[package]
+name = "midgard-client-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The single shared Rust core every client shell links: crypto, sync, and storage implemented once and composed behind one typed façade — no per-shell reimplementation. [FR-C-1] [AC-C-1] [KDD-1]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "midgard-client-store/backend-fips",
+    "midgard-client-keystore/backend-fips",
+    "midgard-client-enclosure/backend-fips",
+    "pqc-agility/backend-fips",
+]
+
+[dependencies]
+# The one-and-only implementations of each concern. The shells depend on THIS
+# crate; everything security- or data-critical lives below it. [FR-C-1] [KDD-1]
+midgard-client-sync = { path = "../sync" }
+midgard-client-store = { path = "../store" }
+midgard-client-keystore = { path = "../keystore" }
+midgard-client-enclosure = { path = "../enclosure", default-features = false }
+policy = { path = "../../crypto/policy" }
+pqc-agility = { path = "../../crypto/pqc-agility", default-features = false }
+
+[lib]
+path = "src/lib.rs"

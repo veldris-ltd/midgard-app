@@ -1,0 +1,10 @@
+flowchart LR
+    push["Git push / MR"] --> lint["Lint + format"]
+    lint --> test["Unit + integration tests"]
+    test --> sbom["SBOM (CycloneDX)"]
+    sbom --> scan["SAST + dep audit + PQ crypto lint"]
+    scan --> sign["Sign artefacts (ML-DSA)"]
+    sign --> pkg["Reproducible build"]
+    pkg --> stage["Deploy: staging (Bifrost)"]
+    stage --> approve{"Manual approval"}
+    approve -->|yes| prod["Deploy: prod (Bifrost, zero-downtime)"]

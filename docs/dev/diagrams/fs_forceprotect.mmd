@@ -1,0 +1,30 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph inputs["Spatial inputs (geometry only)"]
+        asset["Protected asset\n(position, perimeter)"]:::in
+        terrain["Terrain + structures\n(3D from Phase 3)"]:::in
+        tracks["Tracked entities\n(kinematics: position, bearing)"]:::in
+        sensors["Own sensors/assets\n(field-of-regard, facing)"]:::in
+    end
+    subgraph fp["Force-protection geometry engine"]
+        viewshed["Viewshed:\nwhat vantage points\ncan see the asset"]:::sent
+        prox["Proximity + closing geometry\n(entity near / approaching asset)"]:::sent
+        coverage["Coverage / blind-spot map\n(where we can/can't see)"]:::sent
+    end
+    alert["Asset-centric alert\n('entity within Xm, closing on bearing;\nat a vantage with LoS to asset')"]:::warn
+    op["Oversight operator\n(looks, decides)"]:::human
+    note["Subject is always the ASSET or GEOMETRY.\nNo person is scored, judged, or watched.\nNo gaze / attention / intent inference."]:::note
+    asset --> viewshed
+    terrain --> viewshed
+    tracks --> prox
+    sensors --> coverage
+    asset --> prox
+    viewshed --> alert
+    prox --> alert
+    coverage --> alert
+    alert --> op
+    classDef in fill:#5B6B7B,color:#fff,stroke:#3A4652
+    classDef sent fill:#1E7A46,color:#fff,stroke:#125230
+    classDef warn fill:#B7791F,color:#fff,stroke:#7A5A15
+    classDef human fill:#08427B,color:#fff,stroke:#052E56
+    classDef note fill:#4A4A4A,color:#fff,stroke:#2A2A2A

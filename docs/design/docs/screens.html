@@ -1,0 +1,205 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Screens</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section } = window.Docs;
+const { ProductMark, Badge, Button, Icon, ProvenanceTag } = window.Docs.NS;
+
+const SCREENS = [
+  { id: 'midgard', title: 'Midgard Console · Object Fabric', href: '../ui_kits/midgard-console/index.html', preview: 'table', banner: 'var(--marking-confidential)',
+    desc: 'Enclosure admin: object type registry with markings, live PQ-signed audit lineage, inspector rail with link/action types.',
+    feats: ['Type registry table + selection-driven inspector', 'Live audit trail (compact rows)', 'Human-gated action types'], prov: ['DD-1', 'NFR-SEC-2'] },
+  { id: 'forge', title: 'Forge · Pipeline Builder', href: '../ui_kits/forge/index.html', preview: 'flow', banner: 'var(--marking-restricted)',
+    desc: 'Data operations: DAG canvas on the blueprint grid, streaming build log, git-style dataset versions, governed Mimir transform suggestion.',
+    feats: ['Selectable DAG nodes (source → transform → dataset → projection)', 'Animated build run with seal + lineage steps', 'Expectations health'], prov: ['FR-F-1', 'FR-F-3'] },
+  { id: 'mimir', title: 'Mimir · Agent Studio', href: '../ui_kits/mimir/index.html', preview: 'chat', banner: 'var(--marking-confidential)',
+    desc: 'Local agentic AI: agent roster with Evals scores, OAG-grounded chat with live object citations, human gate on state mutation, guardrail status.',
+    feats: ['Cited, grounded answers (OAG)', 'Authorise / reject action gate', 'Self-* loop summary + model family selector'], prov: ['FR-MI-2', 'NFR-AI-1'] },
+  { id: 'bifrost', title: 'Bifrost · Release Console', href: '../ui_kits/bifrost/index.html', preview: 'table', banner: 'var(--marking-internal)',
+    desc: 'Continuous delivery: staged ring rollout with animated promotion, fleet table, supply-chain verification terminal, advisory risk panel.',
+    feats: ['Ring 0–3 progression incl. air-gap bundles', 'Reproducible build + SBOM + ML-DSA receipt', 'Health gates and rollback path'], prov: ['FR-B-2', 'NFR-PQ-3'] },
+  { id: 'heimdall', title: 'Heimdall · Common Operating Picture', href: '../ui_kits/heimdall/index.html', preview: 'canvas', banner: 'var(--marking-confidential)',
+    desc: 'Operational fusion: abstract picture canvas with range rings and layer toggles, entity tracking with classification confidence, ranked options behind a mandatory human gate.',
+    feats: ['Layer switches (air / maritime / ground / coverage)', 'Anomaly selection → ranked, cited options', 'Authorisation with signed audit id'], prov: ['FR-H-1', 'FR-H-5'] },
+];
+
+/* Static screen preview: no iframe. A stylised wireframe of the console anatomy
+   drawn with divs; costs nothing to render. */
+function Preview({ height = 152, banner = 'var(--marking-confidential)', kind = 'table' }) {
+  const rows = kind === 'table' ? 4 : 0;
+  return (
+    <div style={{ height, background: 'var(--bg-page)', display: 'flex', flexDirection: 'column', overflow: 'hidden', pointerEvents: 'none' }} aria-hidden="true">
+      <div style={{ height: 5, flex: 'none', background: banner }} />
+      <div style={{ height: 14, flex: 'none', display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--accent-tint)', border: '1px solid var(--accent)' }} />
+        <span style={{ width: 40, height: 3, borderRadius: 2, background: 'var(--border-strong)' }} />
+        <span style={{ marginLeft: 'auto', width: 22, height: 5, borderRadius: 3, background: 'var(--secure-tint)', border: '1px solid var(--secure)' }} />
+      </div>
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div style={{ width: 34, flex: 'none', background: 'var(--bg-sunken)', borderRight: '1px solid var(--border)', padding: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ height: 6, borderRadius: 2, background: 'var(--accent-tint)', boxShadow: 'inset 1px 0 0 var(--accent)' }} />
+          {[0, 1, 2].map(x => <span key={x} style={{ height: 6, borderRadius: 2, background: 'var(--surface-card)' }} />)}
+        </div>
+        <div className="mg-grid-bg" style={{ flex: 1, padding: 7, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <span style={{ width: 44, height: 5, borderRadius: 2, background: 'var(--border-strong)' }} />
+            <span style={{ marginLeft: 'auto', width: 26, height: 8, borderRadius: 2, background: 'var(--accent)' }} />
+          </div>
+          {kind === 'table' && [...Array(rows)].map((_, x) => (
+            <span key={x} style={{ height: 8, borderRadius: 2, background: x === 1 ? 'var(--accent-tint)' : 'var(--surface-card)', border: '1px solid ' + (x === 1 ? 'var(--accent)' : 'var(--border)'), boxShadow: x === 1 ? 'inset 2px 0 0 var(--accent)' : 'none' }} />
+          ))}
+          {kind === 'canvas' && (
+            <div style={{ flex: 1, position: 'relative' }}>
+              <span style={{ position: 'absolute', left: '22%', top: '34%', width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+              <span style={{ position: 'absolute', left: '58%', top: '22%', width: 6, height: 6, borderRadius: '50%', background: 'var(--warn)' }} />
+              <span style={{ position: 'absolute', left: '44%', top: '60%', width: 6, height: 6, borderRadius: 2, background: 'var(--accent)' }} />
+            </div>
+          )}
+          {kind === 'flow' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+              {[0, 1, 2, 3].map(x => (
+                <React.Fragment key={x}>
+                  <span style={{ width: 26, height: 16, borderRadius: 3, background: 'var(--surface-card)', border: '1px solid ' + (x === 2 ? 'var(--accent)' : 'var(--border)') }} />
+                  {x < 3 && <span style={{ width: 8, height: 1, background: 'var(--border-strong)' }} />}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+          {kind === 'chat' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+              <span style={{ alignSelf: 'flex-end', width: '45%', height: 10, borderRadius: 3, background: 'var(--accent-tint)', border: '1px solid var(--accent)' }} />
+              <span style={{ width: '62%', height: 14, borderRadius: 3, background: 'var(--surface-card)', border: '1px solid var(--border)' }} />
+              <span style={{ width: '30%', height: 8, borderRadius: 3, background: 'var(--warn-tint)', border: '1px solid var(--warn)' }} />
+            </div>
+          )}
+        </div>
+        <div style={{ width: 44, flex: 'none', background: 'var(--bg-sunken)', borderLeft: '1px solid var(--border)', padding: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ height: 12, borderRadius: 2, background: 'var(--surface-card)', border: '1px solid var(--border)' }} />
+          <span style={{ height: 20, borderRadius: 2, background: 'var(--surface-card)', border: '1px solid var(--border)' }} />
+          <span style={{ marginTop: 'auto', height: 8, borderRadius: 2, background: 'var(--accent)' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScreenCard({ s }) {
+  const [loaded, setLoaded] = React.useState(false);
+  return (
+    <div className={'theme-' + s.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: 'var(--surface-card)', marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sunken)' }}>
+        <ProductMark product={s.id} size="sm" showDescriptor={false} />
+        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{s.title.split(' · ')[1]}</span>
+        <div style={{ flex: 1 }} />
+        {s.prov.map(p => <ProvenanceTag key={p} id={p} />)}
+        <a href={s.href} style={{ textDecoration: 'none' }}><Button variant="primary" size="sm" iconRight={<Icon name="arrow-up-right" size={14} />}>Open full screen</Button></a>
+      </div>
+      <div style={{ position: 'relative', height: 430, overflow: 'hidden', background: 'var(--bg-page)' }}>
+        {loaded ? (
+          <iframe src={s.href} title={s.title} style={{ width: 1440, height: 860, border: 'none', transform: 'scale(0.795)', transformOrigin: 'top left' }} />
+        ) : (
+          <>
+            <Preview height={430} kind={s.preview} banner={s.banner} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Button variant="secondary" onClick={() => setLoaded(true)} iconLeft={<Icon name="play" size={15} />}>Load live preview</Button>
+            </div>
+          </>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 24, padding: '16px 20px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <p style={{ margin: 0, flex: '2 1 320px', fontSize: 'var(--fs-sm)', lineHeight: 1.65, color: 'var(--text-muted)', textWrap: 'pretty' }}>{s.desc}</p>
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', flex: '1 1 280px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {s.feats.map((f, i) => (
+            <li key={i} style={{ display: 'flex', gap: 8, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.5 }}>
+              <Icon name="check" size={13} color="var(--accent)" style={{ marginTop: 2 }} />{f}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DocsShell active="screens">
+      <PageIntro num={4} eyebrow="SCREENS" title="47 screens: consoles, clients, admin"
+        lead="The complete surface inventory from the Solutions Architecture Documents, built as interactive proposed designs (the suite is greenfield; there is no existing UI to recreate). Side navigation inside each console moves between its screens." />
+      <Section id="map" num={1} title="Screen map, per platform" lead="All 47 screens are built and interactive, including the client layer (SAD-06) and the admin control panel (SAD-07). Click any screen to open it.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14 }}>
+          {[
+            { id: 'midgard', base: '../ui_kits/midgard-console/', screens: [['Object Explorer', 'index.html'], ['Identity & Access', 'identity.html'], ['Keys & Crypto (KMS)', 'kms.html'], ['Policies & Markings', 'policies.html'], ['Audit Lineage', 'audit.html'], ['Compute Scheduler', 'compute.html'], ['Search-around', 'search.html'], ['SDK & APIs', 'sdk.html'], ['Observability', 'observability.html'], ['Resilience · Backup & DR', 'resilience.html']] },
+            { id: 'forge', base: '../ui_kits/forge/', screens: [['Pipeline Builder', 'index.html'], ['Connector Catalogue', 'connectors.html'], ['Dataset Browser & Versions', 'datasets.html'], ['Data Health & Expectations', 'health.html'], ['Object Projection Mapping', 'projection.html'], ['Schedules & Triggers', 'schedules.html'], ['Transform IDE', 'ide.html']] },
+            { id: 'mimir', base: '../ui_kits/mimir/', screens: [['Agent Studio', 'index.html'], ['Evals Dashboard', 'evals.html'], ['Guardrail Console', 'guardrails.html'], ['Model Plane', 'models.html'], ['Logic Builder (no-code)', 'logic.html'], ['Session Traces', 'sessions.html'], ['Governed Feedback', 'feedback.html']] },
+            { id: 'bifrost', base: '../ui_kits/bifrost/', screens: [['Release Console', 'index.html'], ['Artefact Registry', 'artefacts.html'], ['Channel Configuration', 'channels.html'], ['Offline Bundles', 'bundles.html'], ['Rollback Centre', 'rollback.html'], ['Fleet & Drift', 'fleet.html']] },
+            { id: 'heimdall', base: '../ui_kits/heimdall/', screens: [['Operating Picture', 'index.html'], ['Feed Manager', 'feeds.html'], ['Entity Browser', 'entities.html'], ['Action Workflows', 'workflows.html'], ['Decision Lineage', 'lineage.html'], ['Picture Sync', 'sync.html']] },
+            { id: 'midgard', label: 'CLIENTS', base: '../ui_kits/clients/', screens: [['Mobile · iOS / Android / Linux', 'mobile.html'], ['Desktop · Win / macOS / Linux', 'desktop.html'], ['Web app + Extension', 'web.html']] },
+            { id: 'midgard', label: 'ADMIN PANEL', base: '../ui_kits/admin/', screens: [['Overview', 'index.html'], ['Dual-Control Approvals', 'approvals.html'], ['Identity & Roles', 'iam.html'], ['Config & Policy', 'config.html'], ['Break-Glass', 'breakglass.html'], ['Registry & Suite Governance', 'registry.html'], ['Audit Ledger & Investigation', 'ledger.html'], ['Admin Copilot', 'copilot.html']] },
+          ].map(p => (
+            <div key={p.label || p.id} className={'theme-' + p.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16 }}>
+              <div style={{ marginBottom: 12 }}>{p.label ? <span className="mg-label">{p.label} · SAD-06</span> : <ProductMark product={p.id} size="sm" showDescriptor={false} />}</div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {p.screens.map(([n, href], i) => (
+                  <a key={n} href={p.base + href} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 0', borderBottom: i < p.screens.length - 1 ? '1px solid var(--divider)' : 'none', textDecoration: 'none' }}>
+                    <Icon name="check" size={13} color="var(--secure)" />
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-heading)', flex: 1 }}>{n}</span>
+                    <Icon name="arrow-up-right" size={12} color="var(--text-faint)" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ border: '1px dashed var(--border-strong)', borderRadius: 'var(--radius-md)', padding: 16, display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>47 SCREENS · 5 CONSOLES + 7 CLIENT TARGETS + ADMIN PANEL</span>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.6, color: 'var(--text-muted)' }}>Every screen follows the console anatomy (Patterns): classification banner, top bar with seals, side nav, work canvas, inspector rail. Side navigation moves between screens inside each console.</p>
+          </div>
+        </div>
+      </Section>
+      <Section id="gallery" num={2} title="Screen gallery" lead="Every screen as a wireframe preview. Click to open the live screen full size.">
+        {[
+          { id: 'midgard', base: '../ui_kits/midgard-console/', banner: 'var(--marking-confidential)', screens: [['Object Explorer', 'index.html', 'table'], ['Identity & Access', 'identity.html', 'table'], ['Keys & Crypto', 'kms.html', 'table'], ['Policies & Markings', 'policies.html', 'table'], ['Audit Lineage', 'audit.html', 'table'], ['Compute', 'compute.html', 'table'], ['Search-around', 'search.html', 'canvas'], ['SDK & APIs', 'sdk.html', 'table'], ['Observability', 'observability.html', 'table'], ['Resilience', 'resilience.html', 'table']] },
+          { id: 'forge', base: '../ui_kits/forge/', banner: 'var(--marking-restricted)', screens: [['Pipeline Builder', 'index.html', 'flow'], ['Connectors', 'connectors.html', 'table'], ['Datasets', 'datasets.html', 'table'], ['Data Health', 'health.html', 'table'], ['Projection', 'projection.html', 'flow'], ['Schedules & Triggers', 'schedules.html', 'table'], ['Transform IDE', 'ide.html', 'flow']] },
+          { id: 'mimir', base: '../ui_kits/mimir/', banner: 'var(--marking-confidential)', screens: [['Agent Studio', 'index.html', 'chat'], ['Evals', 'evals.html', 'table'], ['Guardrails', 'guardrails.html', 'table'], ['Model Plane', 'models.html', 'table'], ['Logic Builder', 'logic.html', 'flow'], ['Session Traces', 'sessions.html', 'flow'], ['Governed Feedback', 'feedback.html', 'table']] },
+          { id: 'bifrost', base: '../ui_kits/bifrost/', banner: 'var(--marking-internal)', screens: [['Release Console', 'index.html', 'table'], ['Artefacts', 'artefacts.html', 'table'], ['Channels', 'channels.html', 'table'], ['Offline Bundles', 'bundles.html', 'flow'], ['Rollback Centre', 'rollback.html', 'table'], ['Fleet & Drift', 'fleet.html', 'table']] },
+          { id: 'heimdall', base: '../ui_kits/heimdall/', banner: 'var(--marking-confidential)', screens: [['Operating Picture', 'index.html', 'canvas'], ['Feeds', 'feeds.html', 'table'], ['Entities', 'entities.html', 'table'], ['Workflows', 'workflows.html', 'table'], ['Decision Lineage', 'lineage.html', 'table'], ['Picture Sync', 'sync.html', 'flow']] },
+        ].map(k => (
+          <div key={k.id} className={'theme-' + k.id} style={{ marginBottom: 26 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+              <ProductMark product={k.id} size="sm" showDescriptor={false} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>{k.screens.length} SCREENS</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+              {k.screens.map(([n, href, kind]) => (
+                <a key={href} href={k.base + href} style={{ textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: 'var(--surface-card)', display: 'block' }}>
+                  <Preview kind={kind || 'table'} banner={k.banner} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', borderTop: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-heading)', fontWeight: 500, flex: 1 }}>{n}</span>
+                    <Icon name="arrow-up-right" size={12} color="var(--text-faint)" />
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Section>
+      <Section id="reference" num={3} title="Reference consoles" lead="The five flagship screens. Load live preview embeds one console at a time; open full screen to interact and to move between a console's screens via its side navigation.">
+        <div>
+          {SCREENS.map(s => <ScreenCard key={s.id} s={s} />)}
+        </div>
+        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>NOTE · LIVE EMBEDS LOAD ON DEMAND TO KEEP THIS PAGE LIGHT. SCREENS FOLLOW THE DOCS COLOUR MODE ONLY WHEN OPENED DIRECTLY (MODE IS PER-PAGE, SHARED VIA LOCALSTORAGE).</p>
+      </Section>
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

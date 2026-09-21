@@ -1,0 +1,90 @@
+<!-- @dsCard group="Bifrost" viewport="1440x820" subtitle="Standing rollback plans, automatic triggers, drill history" name="Bifrost · Rollback Centre" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Bifrost · Rollback Centre</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-bifrost">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const PLANS = [
+  { scope: 'midgard-suite 2.5.0 → 2.4.1', kind: 'release', trigger: 'health gate failure', ready: 'staged on 73/73', tested: '2d ago', st: 'secure', stl: 'Armed' },
+  { scope: 'mimir policy v7 → v6', kind: 'agent policy', trigger: 'eval regression', ready: 'instant · versioned', tested: '6h ago', st: 'secure', stl: 'Armed' },
+  { scope: 'forge flight_tracks v42 → v41', kind: 'dataset', trigger: 'manual only', ready: 'time travel', tested: 'n/a', st: 'healthy', stl: 'Available' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const [drill, setDrill] = React.useState(false);
+  const [log, setLog] = React.useState(['> bifrost rollback drill --plan release-2.5.0', '# last drill 2d ago · 41s to healthy']);
+  const p = PLANS[sel];
+  const runDrill = () => {
+    if (drill) return;
+    setDrill(true);
+    setLog(l => [...l, '> bifrost rollback drill --plan release-2.5.0']);
+    [['freeze     promotions paused', 400], ['revert     2.5.0 → 2.4.1 · ring order reversed', 1200], ['health     p99 OK · errors 0 · 38s', 2200], ['restore    promotions resumed · state intact', 3000], ['# drill complete · 41s to healthy · audit #R-2214', 3400]].forEach(([line, t]) => setTimeout(() => setLog(l => [...l, line]), t));
+    setTimeout(() => setDrill(false), 3600);
+  };
+  return (
+    <ConsoleShell product="bifrost" active="rollback" context="FLEET / ROLLBACK CENTRE"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="play" size={14} />} onClick={runDrill} disabled={drill}>{drill ? 'Drilling…' : 'Run drill'}</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="undo-2" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, flex: 1 }}>{p.kind} rollback</h2>
+          <StatusPill status={p.st} pulse={false} label={p.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--grey-100)', lineHeight: 1.7 }}>{p.scope}</div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>AUTOMATIC TRIGGERS</div>
+          {[['p99 latency > 250ms · 3 min', p.kind === 'release'], ['error rate > 0.1% · 3 min', p.kind === 'release'], ['eval pass < gate', p.kind === 'agent policy'], ['manual only', p.trigger === 'manual only']].filter(([, on]) => on).map(([l]) => (
+            <div key={l} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--text-body)' }}>
+              <Icon name="zap" size={13} color="var(--warn)" />{l}
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>GUARANTEES</div>
+          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>Rollback is rehearsed, not hoped for. Plans are staged with every promotion, drilled on schedule, and the drill itself is signed lineage.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-B-2" title="Zero-downtime upgrades with health-gated automatic rollback" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={5}>ROLLBACK</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Rollback centre</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="3" label="STANDING PLANS" size="sm" />
+        <StatBlock value="41s" label="LAST DRILL · TO HEALTHY" size="sm" accent />
+        <StatBlock value="0" label="UNPLANNED ROLLBACKS · 90D" size="sm" />
+      </div>
+      <Table
+        columns={[
+          { header: 'Plan', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="undo-2" size={14} color="var(--accent)" />{r.scope}</span> },
+          { header: 'Kind', key: 'kind', mono: true, width: 120 },
+          { header: 'Trigger', key: 'trigger', width: 170 },
+          { header: 'Readiness', key: 'ready', mono: true, width: 160 },
+          { header: 'Last drill', key: 'tested', mono: true, width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 110 },
+        ]}
+        rows={PLANS} selectedIndex={sel} onRowClick={setSel}
+      />
+      <Terminal title={drill ? 'DRILL · RUNNING' : 'DRILL LOG'} lines={log} style={{ flex: 1, overflowY: 'auto' }} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,14 @@
+[package]
+name = "scheduler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Compute scheduler: zero-downtime rolling upgrades with automatic health-gated rollback. [NFR-AVA-1]"
+
+[dependencies]
+# Pure-std orchestration logic. The Kubernetes/mesh integration is the adapter
+# seam; the rollout state machine here is deterministic and testable in isolation.
+
+[lib]
+path = "src/lib.rs"

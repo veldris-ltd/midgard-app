@@ -1,0 +1,133 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Admin</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section, SubHead, Demo, Code, DoDont, PropsTable } = window.Docs;
+const { Button, Badge, StatusPill, Card, Table, StatBlock, SectionLabel, Terminal, ProvenanceTag, Icon, RiskBadge, GuardedAction, BreakGlass } = window.Docs.NS;
+
+function GuardedDemo() {
+  const [state, setState] = React.useState('awaiting');
+  return (
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <GuardedAction action="Rotate enclosure-root-03" subsystem="KMS" risk={5} state={state}
+        requester="j.benjamin" approver="k.osei"
+        justification="Scheduled 90-day rotation · KAT-verified replacement staged"
+        onApprove={() => setState('approved')} onDeny={() => setState('denied')} />
+      <GuardedAction action="Fleet-wide release 2.5.0 → stable" subsystem="BIFROST" risk={5} state="denied"
+        requester="m.silva" approver="m.silva"
+        justification="Ring 2 complete · all health gates green"
+        deniedReason="DENIED · SELF-APPROVAL BLOCKED (AC-AD-4)" />
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DocsShell active="admin">
+      <PageIntro num={7} eyebrow="ADMIN CONTROL PANEL" title="The most powerful surface, the most governed"
+        lead="The unified governance and operations console for the whole suite (SAD-07): one pane over IAM, Governance, KMS, Fabric, Mimir, Bifrost, and Observability. It composes their admin APIs; it reimplements nothing. Its design is dominated by three principles: privilege separation (no super-admin), dual-control for the dangerous actions, and self-governance — the panel is bound by the very policy engine it configures." />
+
+      <Section id="foundations" num={1} title="Admin foundations" lead="Four rules that shape every admin surface, additive to the house system.">
+        <SubHead>Risk is visible, always</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>Every action class carries a risk level 1–5 (KDD-2), rendered as the RiskBadge rising-bar glyph. Control strength scales with it automatically: risk ≥4 means dual-control, risk ≥3 means step-up re-auth. An admin never wonders whether a click is dangerous; the chrome says so.</p>
+        <SubHead>Neutral identity</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>The panel is suite infrastructure, not a product: its mark is a neutral grey ADMIN tile, and it keeps the Midgard red only as the action accent. Product accents appear solely on the subsystem rows they belong to.</p>
+        <SubHead>Read-only is a first-class mode</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>The Auditor role can mutate nothing (AC-AD-2), so every admin screen must degrade to a pure-read rendering: mutation affordances hide (not disable), and evidence-export affordances appear in their place.</p>
+        <SubHead>Denials are content</SubHead>
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.7, maxWidth: 720 }}>Denied and simulated actions are audited and displayed with the same weight as executed ones (AC-AD-6). A separation-of-duties denial is rendered in place, in red, with its rule cited — never silently swallowed.</p>
+      </Section>
+
+      <Section id="components" num={2} title="Admin components" lead="Three additions, used across the six admin screens. Full API in Components.">
+        <Demo label="RISKBADGE · KDD-2">
+          <RiskBadge level={1} />
+          <RiskBadge level={2} />
+          <RiskBadge level={3} />
+          <RiskBadge level={4} />
+          <RiskBadge level={5} />
+        </Demo>
+        <Demo label="GUARDEDACTION · FR-AD-5 · INTERACTIVE">
+          <GuardedDemo />
+        </Demo>
+        <Demo label="BREAKGLASS · FR-AD-8">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+            <BreakGlass state="idle" />
+            <BreakGlass state="active" holder="k.osei" scope="KMS · unwrap only" remaining="00:41:12" justification="HSM failover during rotation window" />
+            <BreakGlass state="review" holder="k.osei" scope="KMS · unwrap only" justification="Expired 06:12 · post-hoc review due in 18h" />
+          </div>
+        </Demo>
+      </Section>
+
+      <Section id="guarded" num={3} title="Pattern · the guarded action" lead="The panel's core behaviour: no high-risk change reaches a subsystem without risk classification, justification, a distinct second approver, separation-of-duties verification, a time-boxed single-use token, and PQ-signed audit — including denials.">
+        <Demo label="SEQUENCE">
+          <Terminal title="GUARDED ACTION · KEY ROTATION" lines={[
+            '> admin request kms.rotate enclosure-root-03',
+            'risk       5 · dual-control required',
+            'justify    "scheduled 90-day rotation" · captured',
+            'approver   routed out-of-band → k.osei (≠ requester ✓)',
+            'step-up    fresh WebAuthn at approval ✓',
+            'token      issued · 10m · single-use',
+            'execute    kms-admin API · least-privilege identity',
+            'audit      #A-9108 · ML-DSA signed · who/what/why/approver',
+          ]} style={{ width: '100%' }} />
+        </Demo>
+        <DoDont
+          dos={['Route approval to a distinct approver, out-of-band', 'Demand fresh re-auth at the moment of approval', 'Audit denied and simulated actions with equal weight', 'Time-box and single-use every authorisation token']}
+          donts={['Let a requester approve their own action (AC-AD-4)', 'Hold a superuser credential to any subsystem (AC-AD-9)', 'Offer a bulk approve-all affordance', 'Treat a denial as an error state — it is the system working']}
+        />
+      </Section>
+
+      <Section id="selfgov" num={4} title="Pattern · self-governance" lead="AR-SEC: every admin action passes the same policy point, markings, and audit lineage as any other actor in the suite. The panel holds no privileged side-channel, and changes to its own privilege logic require the highest control tier (AC-AD-13).">
+        <Demo label="NO BYPASS EXISTS">
+          <Terminal lines={[
+            '> admin policy self-check',
+            'policy point   shared with data plane · no admin bypass',
+            'audit path     same append-only ledger',
+            'super-admin    NOT DEFINED · capability split across 5 roles',
+            'privilege code change → security-officer dual-control [AC-AD-13]',
+          ]} style={{ width: '100%' }} />
+        </Demo>
+      </Section>
+
+      <Section id="simulation" num={5} title="Pattern · simulate before commit" lead="Consequential changes are dry-run first (KDD-3): the sim engine computes the exact effect, the copilot explains it in plain language ('grants 14 users read on marked data'), and only then may the admin commit — versioned, diffed, roll-backable.">
+        <DoDont
+          dos={['Show the simulation before the commit control enables', 'Lead with the highest-impact effect', 'Flag privilege escalation, marking exposure, fleet-wide reach, irreversibility', 'Keep rollback one click from every committed version']}
+          donts={['Enable commit while simulation is pending or failed', 'Summarise a diff without citing the resources it touches', 'Apply config outside the versioned store (drift alerts fire)']}
+        />
+      </Section>
+
+      <Section id="screens" num={6} title="Admin screens" lead="Six interactive screens; side navigation moves between them. Open full screen to interact.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          {[
+            ['Overview', '../ui_kits/admin/index.html', 'Subsystem health, SLOs, security events, least-privilege bindings, self-governance check'],
+            ['Approvals', '../ui_kits/admin/approvals.html', 'Dual-control queue with a live separation-of-duties denial'],
+            ['Identity & roles', '../ui_kits/admin/iam.html', 'Role-separated RBAC, risk ceilings, expiring bindings, read-only Auditor'],
+            ['Config & policy', '../ui_kits/admin/config.html', 'GitOps config: diff, simulation, commit, rollback, drift'],
+            ['Break-glass', '../ui_kits/admin/breakglass.html', 'Active / review / sealed lifecycle with live constraints and alerts'],
+            ['Copilot', '../ui_kits/admin/copilot.html', 'Advisory-only drafts, least-privilege proposals, CONTROL_BYPASS_REFUSED'],
+          ].map(([t, href, d]) => (
+            <a key={t} href={href} style={{ display: 'block', textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-heading)', flex: 1 }}>{t}</span>
+                <Icon name="arrow-up-right" size={13} color="var(--text-faint)" />
+              </div>
+              <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{d}</p>
+            </a>
+          ))}
+        </div>
+      </Section>
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

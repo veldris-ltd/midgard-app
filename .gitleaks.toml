@@ -1,0 +1,43 @@
+# Gitleaks configuration for the Midgard workspace.
+#
+# The CI guard (.github/workflows/ci.yml) runs the upstream gitleaks binary
+# directly rather than gitleaks-action, because the action requires a paid
+# licence for organisation-owned repositories and therefore never actually ran.
+# The binary is MIT-licensed and the scan is identical. [ASVS V14.3]
+#
+# Everything below SUPPRESSES KNOWN FALSE POSITIVES ONLY. Each entry names the
+# exact string it tolerates, so a real credential in the same file is still
+# caught. Do not add a path here to silence a finding you have not read.
+
+title = "Midgard"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Vendored third-party crates. Each .cargo-checksum.json holds SHA-256 digests of
+the crate's files — high-entropy by construction, and the mechanism cargo uses to
+prove the vendored source is untampered. They are not credentials, and the tree
+is not ours to edit.
+"""
+paths = ['''^vendor/''']
+
+[[allowlists]]
+description = """
+The default `generic-api-key` rule is keyword-proximity based: it flags a
+slash-joined token that happens to follow a word like "secret", "credential",
+"token" or "api". These four matches are English prose and product names, not
+secrets. Listed literally so any other high-entropy value in the same files
+still fails the scan.
+"""
+stopwords = [
+  # BUILD_PLAYBOOK.md — "…Keychain, Keystore, TPM/DPAPI, Secret Service, WebCrypto/enclave…"
+  "WebCrypto/enclave",
+  # admin/identity/src/error.rs — "…wrong credential, forged/absent signature…"
+  "forged/absent",
+  # SAD_02b — "…Gemma template/tokenizer, GGUF/quantised formats…"
+  "GGUF/quantised",
+  # SAD_02b — "…behind the existing inference API, Forge/Bifrost/Heimdall are unchanged…"
+  "Forge/Bifrost/Heimdall",
+]

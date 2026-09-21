@@ -1,0 +1,25 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    req["Inbound request\n(user / product / agent)"]:::external
+    subgraph assembly["Prompt Assembly Pipeline (Mimir)"]
+        sys["1. System prompt\n(role, guardrails, output contract)"]:::system
+        pol["2. Policy context\n(markings, purpose, tenant)"]:::system
+        oag["3. OAG grounding\n(retrieved objects/logic/actions + citations)"]:::system
+        mem["4. Agent memory\n(scoped, PQ-decrypted)"]:::system
+        tools["5. Tool schemas\n(least-privilege, purpose-bound)"]:::system
+        hist["6. Conversation / task history"]:::system
+        usr["7. User / task message"]:::system
+        guard_in["8. Input guardrail\n(injection / exfil / policy scan)"]:::system
+        final["Assembled prompt\n(token-budgeted, ordered)"]:::system
+    end
+    model["Model router → adapter →\nMistral / Nemotron / Gemma / Granite"]:::system
+    guard_out["Output guardrail\n(marking-aware redaction, schema check)"]:::system
+    evals["Evals + audit\n(scored, PQ-signed lineage)"]:::datastore
+    resp["Response to caller"]:::external
+    req --> sys --> pol --> oag --> mem --> tools --> hist --> usr --> guard_in --> final
+    final --> model --> guard_out --> resp
+    guard_out --> evals
+    guard_in --> evals
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

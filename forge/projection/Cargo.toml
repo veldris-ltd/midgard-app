@@ -1,0 +1,26 @@
+[package]
+name = "forge-projection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Forge projection mapper: curated datasets -> Midgard object/link types with markings propagated into the object fabric. [FR-F-4] [NFR-SEC-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "forge-dataset-store/backend-fips",
+    "fabric/backend-fips",
+    "pqc-agility/backend-fips",
+]
+
+[dependencies]
+forge-dataset-store = { path = "../dataset-store" }
+# The projection target: object/link instances + the object store trait.
+fabric = { path = "../../services/fabric" }
+# Markings and purposes propagated onto projected objects.
+policy = { path = "../../crypto/policy" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

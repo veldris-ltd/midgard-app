@@ -1,0 +1,15 @@
+# Packages known NOT to be bit-reproducible.
+#
+# `mg-repro` reports a listed package and does not fail the run for it; anything
+# else that differs fails the release gate. This exists so a newly-discovered
+# regression can be quarantined with an owner and a tracking item instead of
+# someone weakening the check — never as a permanent home for a known problem.
+#
+# THIS LIST MUST BE EMPTY AT GA. [AC-M-6] [AC-RF-SC-3e]
+#
+# Format: one package per line; `#` starts a comment. Every entry must name an
+# owner and the item tracking its removal.
+#
+#   example-crate    # owner: <name>, tracked in RF-SC-3 — build script stamps a date
+#
+# (empty)

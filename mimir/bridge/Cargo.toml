@@ -1,0 +1,38 @@
+[package]
+name = "mimir-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Client bridge from the product AI-assist seams (OptionProvider/Suggester/Advisor/Copilot) to the Mimir inference plane over internal PQ-mTLS. Advisory, fails closed. [FR-MI-8] [RT-45]"
+
+[features]
+# Real PQ-mTLS to the inference gateway, so the production client needs the FIPS
+# backend by default. The `Inference` trait + wire types compile regardless; the
+# concrete `PqMtlsClient` is the part that terminates the post-quantum channel.
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "pq-mtls/backend-fips",
+    "gateway/backend-fips",
+    "model-server/backend-fips",
+]
+
+[dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+# The single inference contract + its canonical wire codec (re-exported here so the
+# product adapters depend only on this bridge), and the gateway constant both ends
+# of the record layer must agree on.
+model-server = { path = "../model-server" }
+gateway = { path = "../../services/gateway" }
+
+[dev-dependencies]
+# The loopback proof stands up a real inference gateway + server, exactly like the
+# model-server's own PQ-mTLS test.
+iam = { path = "../../services/iam" }
+governance = { path = "../../services/governance" }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,96 @@
+<!-- @dsCard group="Bifrost" viewport="1440x820" subtitle="Reproducible builds, SBOMs, ML-DSA signatures" name="Bifrost · Artefact Registry" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Bifrost · Artefact Registry</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-bifrost">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const ARTS = [
+  { name: 'midgard-suite', ver: '2.5.0', kind: 'platform bundle', size: '4.1 GB', repro: '2/2', cves: 0, st: 'secure', stl: 'Verified' },
+  { name: 'mimir-weights-mistral', ver: '5.2.1', kind: 'model weights', size: '38 GB', repro: 'n/a · digest', cves: 0, st: 'secure', stl: 'Verified' },
+  { name: 'forge-connectors', ver: '1.9.2', kind: 'plugin set', size: '212 MB', repro: '2/2', cves: 1, st: 'warn', stl: 'CVE review' },
+  { name: 'heimdall-fusion', ver: '3.0.0-rc2', kind: 'service image', size: '890 MB', repro: '1/2 ⚠', cves: 0, st: 'danger', stl: 'Not reproducible' },
+];
+function App() {
+  const [sel, setSel] = React.useState(3);
+  const a = ARTS[sel];
+  return (
+    <ConsoleShell product="bifrost" active="artefacts" context="DELIVERY / ARTEFACT REGISTRY"
+      toolbar={<Button variant="secondary" size="sm" iconLeft={<Icon name="upload" size={14} />}>Register artefact</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="package" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{a.name}:{a.ver}</h2>
+          <StatusPill status={a.st} pulse={false} label={a.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={a.repro} label="REPRODUCIBLE" size="sm" accent={a.repro.includes('⚠')} />
+            <StatBlock value={String(a.cves)} label="CRITICAL CVES" size="sm" />
+          </div>
+        </Card>
+        <Terminal title="VERIFICATION" lines={a.st === 'danger' ? [
+          '> bifrost verify ' + a.name + ':' + a.ver,
+          'build      NOT bit-identical (1/2)',
+          'diff       embedded timestamp in layer 4',
+          '# promotion BLOCKED · fail closed [FR-B-4]',
+        ] : [
+          '> bifrost verify ' + a.name + ':' + a.ver,
+          'build      reproducible ✓',
+          'sbom       CycloneDX attached',
+          'signature  ML-DSA verified · artefact-sign-01',
+          '# promotion permitted',
+        ]} />
+        {a.st === 'danger' && (
+          <Card size="sm" style={{ borderColor: 'var(--danger)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--danger)', marginBottom: 6 }}>BLOCKED · NOTHING WAS PROMOTED</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>Rebuild determinism failed: a timestamp leaks into layer 4. Fix the build recipe; verification will clear automatically on the next registration.</p>
+          </Card>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-B-4" title="Reproducible builds + SBOM + PQ signature, verified before promotion" />
+          <ProvenanceTag id="NFR-PQ-3" title="ML-DSA / SLH-DSA artefact signing" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={1}>ARTEFACTS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Artefact registry</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="58" label="ARTEFACTS" size="sm" />
+        <StatBlock value="100%" label="SIGNED" size="sm" accent />
+        <StatBlock value="1" label="BLOCKED" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Input size="sm" mono placeholder="Search by name, digest, CVE…" prefix={<Icon name="search" size={14} color="var(--text-faint)" />} style={{ width: 300 }} />
+        <Tag active>all</Tag><Tag>images</Tag><Tag>bundles</Tag><Tag>weights</Tag><Tag>blocked</Tag>
+      </div>
+      <Table
+        columns={[
+          { header: 'Artefact', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="package" size={14} color="var(--accent)" />{r.name}</span> },
+          { header: 'Version', key: 'ver', mono: true, width: 100 },
+          { header: 'Kind', key: 'kind', width: 130 },
+          { header: 'Size', key: 'size', mono: true, align: 'right', width: 90 },
+          { header: 'Reproducible', key: 'repro', mono: true, width: 110 },
+          { header: 'Crit. CVEs', key: 'cves', mono: true, align: 'right', width: 90 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 150 },
+        ]}
+        rows={ARTS} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,45 @@
+<!-- @dsCard group="Components" viewport="700x380" name="Navigation · Tabs, SideNav" subtitle="Console navigation" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:22px;background:var(--bg-page)}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .cap{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase;width:100%;margin:6px 0 2px}
+</style></head><body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+
+const { Tabs, SideNav, Icon, Badge } = NS;
+function Demo(){
+  const [t, setT] = React.useState(0);
+  const [nav, setNav] = React.useState('objects');
+  return (<>
+    <div className="cap">Tabs</div>
+    <Tabs tabs={[{label:'Objects', badge:'312'},{label:'Links'},{label:'Actions', badge:'28'},{label:'Audit'}]} active={t} onChange={setT} style={{marginBottom:18}}/>
+    <div className="cap">SideNav</div>
+    <div style={{display:'flex',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',height:240}}>
+      <SideNav
+        sections={[
+          {title:'FABRIC', items:[
+            {id:'objects', label:'Objects', icon:<Icon name="boxes" size={16}/>, badge:'312'},
+            {id:'links', label:'Link types', icon:<Icon name="network" size={16}/>},
+            {id:'actions', label:'Actions', icon:<Icon name="zap" size={16}/>},
+          ]},
+          {title:'GOVERNANCE', items:[
+            {id:'policies', label:'Policies', icon:<Icon name="shield-check" size={16}/>},
+            {id:'audit', label:'Audit lineage', icon:<Icon name="scroll-text" size={16}/>},
+          ]},
+        ]}
+        activeId={nav} onSelect={setNav} style={{height:'100%'}}
+      />
+      <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text-faint)',fontFamily:'var(--font-mono)',fontSize:11,letterSpacing:'.1em'}} className="mg-grid-bg">WORK CANVAS</div>
+    </div>
+  </>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body></html>

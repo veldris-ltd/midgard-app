@@ -1,0 +1,23 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="admin_deployment" id="admin_deployment">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="b_zone" value="Admin management zone (isolated)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="100" y="120" width="420" height="160" as="geometry"/></mxCell>
+        <mxCell id="b_core" value="Enclosure control plane" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="300" y="310" width="260" height="80" as="geometry"/></mxCell>
+        <mxCell id="admins" value="Admins / officers / auditors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="320" y="30" width="220" height="45" as="geometry"/></mxCell>
+        <mxCell id="ui" value="Admin UI (hosted)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="120" y="140" width="160" height="45" as="geometry"/></mxCell>
+        <mxCell id="bff" value="Admin BFF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="320" y="140" width="150" height="45" as="geometry"/></mxCell>
+        <mxCell id="svc" value="Admin services" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="320" y="220" width="180" height="45" as="geometry"/></mxCell>
+        <mxCell id="aud" value="Admin audit ledger" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="120" y="220" width="160" height="45" as="geometry"/></mxCell>
+        <mxCell id="apis" value="Subsystem admin APIs (mTLS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="320" y="330" width="220" height="45" as="geometry"/></mxCell>
+        <mxCell id="e0" value="PQ-mTLS+MFA" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="admins" target="ui"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ui" target="bff"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bff" target="svc"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="svc" target="aud"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="least-privilege" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="svc" target="apis"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,305 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Patterns</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section, SubHead, Demo, Code, DoDont } = window.Docs;
+const { Button, Badge, StatusPill, Card, Table, StatBlock, SectionLabel, Terminal, ProvenanceTag, Tabs, SideNav, ClassificationBanner, MarkingChip, Icon, ProductMark, Switch, Input } = window.Docs.NS;
+
+function ThemeSwitcherDemo() {
+  const [t, setT] = React.useState('forge');
+  return (
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        {['midgard', 'forge', 'mimir', 'bifrost', 'heimdall'].map(x => (
+          <button key={x} onClick={() => setT(x)} style={{
+            all: 'unset', cursor: 'pointer', padding: '5px 12px', borderRadius: 4,
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+            color: t === x ? 'var(--text-heading)' : 'var(--text-faint)',
+            background: t === x ? 'var(--surface-raised)' : 'transparent',
+            border: '1px solid ' + (t === x ? 'var(--border-strong)' : 'var(--border)'),
+          }}>{x}</button>
+        ))}
+      </div>
+      <div className={'theme-' + t} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--border)' }}>
+          <ProductMark product={t} size="sm" showDescriptor={false} />
+          <div style={{ flex: 1 }} />
+          <StatusPill status="secure" label="PQ-SEALED" pulse={false} />
+          <Button variant="primary" size="sm">Primary action</Button>
+        </div>
+        <div style={{ padding: 18, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', background: 'var(--bg-page)' }}>
+          <SectionLabel number={1}>SCOPED ACCENT</SectionLabel>
+          <Badge tone="accent">ACTIVE</Badge>
+          <StatBlock value="0.4s" label="LATENCY" size="sm" accent />
+          <span style={{ fontSize: 'var(--fs-sm)' }}><a href="#theming">Accent link →</a></span>
+          <Card accentRule size="sm" style={{ minWidth: 170 }}><span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Accent top rule follows the scope.</span></Card>
+        </div>
+      </div>
+      <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 8 }}>class="theme-{t}", nothing else changed.</p>
+    </div>
+  );
+}
+
+function GateDemo() {
+  const [state, setState] = React.useState('pending');
+  return (
+    <div style={{ width: '100%', maxWidth: 560 }}>
+      <div style={{ padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid ' + (state === 'authorised' ? 'var(--secure)' : 'var(--warn)'), borderRadius: 'var(--radius-md)' }}>
+        {state === 'authorised' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Icon name="shield-check" size={16} color="var(--secure)" />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--secure)' }}>AUTHORISED · ML-DSA SIGNED · AUDIT #A-77120</span>
+            <button onClick={() => setState('pending')} style={{ all: 'unset', cursor: 'pointer', marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>RESET DEMO</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Icon name="zap" size={15} color="var(--warn)" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-heading)' }}>Schedule maintenance · AC-2214 → FAC-DUB</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--warn)', marginTop: 2 }}>STATE MUTATION · HUMAN GATE REQUIRED</div>
+              </div>
+              <Button variant="primary" size="sm" onClick={() => setState('authorised')}>Authorise</Button>
+              <Button variant="ghost" size="sm">Reject</Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DocsShell active="patterns">
+      <PageIntro num={3} eyebrow="PATTERNS" title="How the pieces compose"
+        lead="Recurring compositions that make a Midgard product feel like a Midgard product: the console frame, the theming rule, governance chrome, and the terminal/provenance devices." />
+
+      <Section id="anatomy" num={1} title="Console anatomy" lead="Every operator console follows the same five-region frame. Regions are fixed; only the canvas scrolls freely.">
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 16 }}>
+          <ClassificationBanner level="confidential" compact />
+          <div style={{ height: 42, background: 'var(--bg-sunken)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px' }}>
+            <ProductMark product="midgard" size="sm" showDescriptor={false} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>ENCLOSURE / CONTEXT PATH</span>
+            <div style={{ flex: 1 }} />
+            <StatusPill status="secure" label="PQ-SEALED" pulse={false} />
+          </div>
+          <div style={{ display: 'flex', height: 190 }}>
+            <div style={{ width: 150, flex: 'none', background: 'var(--bg-sunken)', borderRight: '1px solid var(--border)', padding: 10 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.14em', color: 'var(--text-faint)', marginBottom: 8 }}>SIDENAV · 232</div>
+              <div style={{ height: 24, borderRadius: 4, background: 'var(--accent-tint)', boxShadow: 'inset 2px 0 0 var(--accent)', marginBottom: 4 }} />
+              <div style={{ height: 24, borderRadius: 4, background: 'var(--surface-card)', marginBottom: 4 }} />
+              <div style={{ height: 24, borderRadius: 4, background: 'var(--surface-card)' }} />
+            </div>
+            <div className="mg-grid-bg" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>WORK CANVAS · TABLES · GRAPHS · MAPS · CHAT</div>
+            <div style={{ width: 170, flex: 'none', background: 'var(--bg-sunken)', borderLeft: '1px solid var(--border)', padding: 10 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.14em', color: 'var(--text-faint)', marginBottom: 8 }}>INSPECTOR · 300–360</div>
+              <div style={{ height: 40, borderRadius: 4, background: 'var(--surface-card)', border: '1px solid var(--border)', marginBottom: 6 }} />
+              <div style={{ height: 60, borderRadius: 4, background: 'var(--surface-card)', border: '1px solid var(--border)' }} />
+            </div>
+          </div>
+        </div>
+        <DoDont
+          dos={['Banner → top bar → sidenav → canvas → inspector, in that order', 'Keep crypto state (seals, air-gap) visible in the top bar', 'Selection in the canvas drives the inspector', 'Both rails collapse: sidenav to an icon rail, inspector fully; on mobile both become overlay drawers']}
+          donts={['Hide the classification banner behind scroll', 'Nest a second sidenav inside the canvas', 'Float modals for things the inspector rail can host']}
+        />
+      </Section>
+
+      <Section id="theming" num={2} title="Theming: one accent at a time" lead="A product theme is a single class. Semantic --accent-* tokens re-point; every component, link, focus ring and glow follows. Try it:">
+        <Demo style={{ display: 'block' }}><ThemeSwitcherDemo /></Demo>
+        <Code>{'/* the entire theming API */\n<body class="theme-heimdall mode-light">\n\n/* tokens that re-point per scope */\n--accent · --accent-hover · --accent-press · --accent-tint · --accent-glow'}</Code>
+      </Section>
+
+      <Section id="governance" num={3} title="Governance chrome" lead="Markings, purpose, and human gates are platform requirements (NFR-SEC-2, NFR-AI-1), so they get consistent, non-negotiable UI everywhere.">
+        <SubHead>The human gate · AI proposes, people authorise</SubHead>
+        <Demo style={{ display: 'block' }}><GateDemo /></Demo>
+        <SubHead>Rules</SubHead>
+        <DoDont
+          dos={['Amber border + HUMAN GATE label on any state-mutating AI proposal', 'Green + audit id after authorisation, the receipt is part of the flow', 'MarkingChip on every marked object, row, and inspector header', 'Cite live object references on every AI claim']}
+          donts={['Auto-execute agent actions that mutate state', 'Restyle marking colours per theme or mode', 'Bury the audit id in a toast that disappears']}
+        />
+        <SubHead>Provenance discipline</SubHead>
+        <Demo>
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)' }}>Datasets are sealed at rest</span>
+          <ProvenanceTag id="NFR-PQ-2" title="AES-256-GCM under ML-KEM-1024-wrapped keys" />
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-body)' }}>and every option is advisory</span>
+          <ProvenanceTag id="FR-H-4" title="AI-assisted, explainable, cited ranked options" />
+        </Demo>
+      </Section>
+
+      <Section id="density" num={4} title="Data density" lead="These are operator tools: 14px body, 40px rows (32 compact), mono for everything machine-generated, ids, hashes, timestamps, versions.">
+        <DoDont
+          dos={['Mono ALL-CAPS table headers on a sunken strip', 'Right-align numerics; ellipsis long ids with full value on hover', 'Compact rows (32px) for logs and audit trails']}
+          donts={['16px+ body inside tables and inspectors', 'Zebra striping, hairline dividers carry the rhythm', 'More than one accent-tinted selection state per view']}
+        />
+      </Section>
+
+      <Section id="terminal" num={5} title="Terminal & empty states" lead="The command prompt is a brand device, not decoration. Use it for system status, build logs, and verification receipts. Empty canvases carry the blueprint grid and a mono cue, never illustration.">
+        <Demo style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'stretch' }}>
+          <Terminal title="VERIFICATION RECEIPT" lines={[
+            '> bifrost verify midgard-suite:2.5.0',
+            'build      reproducible ✓',
+            'sbom       CycloneDX · 0 critical',
+            'signature  ML-DSA verified',
+            '# promotion permitted [FR-B-4]',
+          ]} />
+          <div className="mg-grid-bg" style={{ border: '1px dashed var(--border-strong)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 160, background: 'var(--bg-sunken)' }}>
+            <Icon name="boxes" size={22} color="var(--text-faint)" />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>NO OBJECT TYPES YET</span>
+            <Button variant="outline" size="sm">Define the first type →</Button>
+          </div>
+        </Demo>
+      </Section>
+
+      <Section id="platform-patterns" num={6} title="Platform signatures" lead="Each product has one signature composition that makes it recognisable at a glance. Everything else is shared console furniture.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, marginBottom: 8 }}>
+          <div className="theme-midgard" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><ProductMark product="midgard" size="sm" showDescriptor={false} /><span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>REGISTRY + INSPECTOR</span></div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1.4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {['Aircraft', 'Facility', 'Sensor Feed'].map((n, i) => (
+                  <div key={n} style={{ padding: '6px 9px', borderRadius: 4, fontSize: 'var(--fs-xs)', color: i === 0 ? 'var(--text-heading)' : 'var(--text-muted)', background: i === 0 ? 'var(--accent-tint)' : 'var(--surface-inset)', boxShadow: i === 0 ? 'inset 2px 0 0 var(--accent)' : 'none' }}>{n}</div>
+                ))}
+              </div>
+              <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 6, padding: 9, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <MarkingChip level="confidential" compartment="OPS-N" style={{ alignSelf: 'flex-start' }} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>14 PROPS · 12,408 INST</span>
+              </div>
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.55, color: 'var(--text-muted)' }}>Selection in the registry drives the inspector; the marked object always shows its marking.</p>
+          </div>
+          <div className="theme-forge" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><ProductMark product="forge" size="sm" showDescriptor={false} /><span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>DAG + BUILD LOG</span></div>
+            <div className="mg-grid-bg" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 12, background: 'var(--bg-sunken)', borderRadius: 6, border: '1px solid var(--border)' }}>
+              {['database', 'workflow', 'table', 'boxes'].map((ic, i, arr) => (
+                <React.Fragment key={ic}>
+                  <span style={{ padding: 7, borderRadius: 6, background: 'var(--surface-card)', border: '1px solid ' + (i === 2 ? 'var(--accent)' : 'var(--border)'), boxShadow: i === 2 ? 'var(--shadow-glow)' : 'none' }}><Icon name={ic} size={14} color="var(--accent)" /></span>
+                  {i < arr.length - 1 && <Icon name="chevron-right" size={12} color="var(--text-faint)" />}
+                </React.Fragment>
+              ))}
+              <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--secure)' }}>v41 OK</span>
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.55, color: 'var(--text-muted)' }}>Left-to-right flow on the blueprint grid: source → transform → dataset → projection. The build log terminal sits below the canvas.</p>
+          </div>
+          <div className="theme-mimir" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><ProductMark product="mimir" size="sm" showDescriptor={false} /><span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>CITED ANSWER + GATE</span></div>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 10, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>
+              AC-2214 trends toward a hydraulic fault.
+              <div style={{ display: 'flex', gap: 5, marginTop: 7 }}>
+                {['Aircraft/AC-2214', 'ME-88121'].map(c => <span key={c} style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent-hover)', background: 'var(--surface-inset)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 6px' }}>{c}</span>)}
+              </div>
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.55, color: 'var(--text-muted)' }}>Every claim carries live object citations; any state mutation ends at the amber human gate (see Governance chrome above).</p>
+          </div>
+          <div className="theme-bifrost" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><ProductMark product="bifrost" size="sm" showDescriptor={false} /><span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>RINGS + RECEIPT</span></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {[['RING 0 · CANARY', 100], ['RING 2 · PROD-EU', 44], ['RING 3 · AIR-GAP', 0]].map(([n, pct]) => (
+                <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', width: 110, flex: 'none' }}>{n}</span>
+                  <div style={{ flex: 1, height: 5, background: 'var(--surface-inset)', borderRadius: 3, overflow: 'hidden' }}><div style={{ height: '100%', width: pct + '%', background: pct === 100 ? 'var(--secure)' : 'var(--accent)' }} /></div>
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.55, color: 'var(--text-muted)' }}>Staged rings with health gates between them; every promotion follows a signed verification receipt (terminal pattern above).</p>
+          </div>
+          <div className="theme-heimdall" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><ProductMark product="heimdall" size="sm" showDescriptor={false} /><span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>PICTURE + OPTIONS</span></div>
+            <div className="mg-grid-bg" style={{ position: 'relative', height: 72, background: 'var(--bg-sunken)', borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
+              <span style={{ position: 'absolute', left: '28%', top: '38%', width: 9, height: 9, borderRadius: '50%', background: 'var(--accent)' }} />
+              <span style={{ position: 'absolute', left: '62%', top: '30%', width: 9, height: 9, borderRadius: '50%', background: 'var(--warn)', boxShadow: '0 0 0 4px var(--warn-tint)' }} />
+              <span style={{ position: 'absolute', left: '48%', top: '64%', width: 9, height: 9, borderRadius: 2, background: 'var(--accent)' }} />
+              <span style={{ position: 'absolute', right: 8, bottom: 5, fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>1 ANOMALY</span>
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.55, color: 'var(--text-muted)' }}>Abstract picture canvas with layer toggles; an anomaly opens ranked, cited options, and only a human authorises.</p>
+          </div>
+          <div style={{ border: '1px dashed var(--border-strong)', borderRadius: 'var(--radius-md)', padding: 16, display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>THE RULE</span>
+            <p style={{ margin: 0, fontSize: 'var(--fs-sm)', lineHeight: 1.6, color: 'var(--text-body)' }}>One signature per product, everything else shared. A Forge user opening Heimdall should already know where the nav, inspector, seals, and gates live.</p>
+          </div>
+        </div>
+      </Section>
+
+      <Section id="defaults" num={7} title="Console defaults, per platform" lead="What each console pins in its frame: banner, seals, and side-nav sections. These are the kit-shell defaults every screen inherits.">
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
+            <thead><tr style={{ background: 'var(--surface-inset)' }}>
+              {['Platform', 'Banner', 'Top-bar seals', 'Side-nav sections', 'Inspector focus'].map(h => <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-faint)', borderBottom: '1px solid var(--border)' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                ['midgard', 'CONFIDENTIAL', 'PQ-SEALED · AIR-GAP', 'Fabric · Governance · Platform', 'Type schema, grants, keys, audit trace'],
+                ['forge', 'RESTRICTED · DATA PLANE', 'PQ-SEALED', 'Data ops · Fabric', 'Versions, seals, expectations, mappings'],
+                ['mimir', 'CONFIDENTIAL', 'INFERENCE LOCAL · NO EGRESS', 'Build · Govern · Serve', 'Evals, guardrails, weights provenance'],
+                ['bifrost', 'INTERNAL · RELEASE CONTROL PLANE', 'ARTEFACTS ML-DSA ✓', 'Delivery · Fleet', 'Verification receipts, plans, bundles'],
+                ['heimdall', 'CONFIDENTIAL · OPERATIONAL PICTURE', 'FEEDS FUSED · PQ-AUTH ✓', 'Picture · Decide', 'Entities, options, decision records'],
+              ].map((r, i, arr) => (
+                <tr key={r[0]}>
+                  <td style={{ padding: '8px 12px', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>
+                    <span className={'theme-' + r[0]}><ProductMark product={r[0]} size="sm" showDescriptor={false} /></span>
+                  </td>
+                  {r.slice(1).map((c, j) => <td key={j} style={{ padding: '8px 12px', fontFamily: j < 2 ? 'var(--font-mono)' : 'var(--font-sans)', fontSize: j < 2 ? 10 : 'var(--fs-xs)', color: 'var(--text-body)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{c}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)', margin: 0 }}>Classification banners keep fixed colours in every theme and mode. Seals are StatusPills; sections are SideNav groups; each console's screens share the frame via kit-shell.</p>
+      </Section>
+
+      <Section id="feedback" num={8} title="Feedback states" lead="Loading, empty, success, and failure follow one grammar: mono status lines, plain-language cause, one next step. Errors state what failed and what to do; receipts carry the audit id.">
+        <Demo style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, alignItems: 'stretch' }}>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 14, background: 'var(--surface-card)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>LOADING</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>fusing 12 feeds…</span>
+            <div style={{ height: 4, background: 'var(--surface-inset)', borderRadius: 2, overflow: 'hidden' }}><div style={{ height: '100%', width: '60%', background: 'var(--accent)', borderRadius: 2 }} /></div>
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 14, background: 'var(--surface-card)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>EMPTY</span>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>No pipelines yet. Connect a source to begin.</span>
+            <Button variant="outline" size="sm" style={{ alignSelf: 'flex-start' }}>Connect source →</Button>
+          </div>
+          <div style={{ border: '1px solid var(--secure)', borderRadius: 'var(--radius-md)', padding: 14, background: 'var(--secure-tint)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--secure)' }}>SUCCESS · RECEIPT</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-body)' }}>Sealed · ML-KEM-1024<br />Audit #A-77120</span>
+          </div>
+          <div style={{ border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)', padding: 14, background: 'var(--danger-tint)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--danger)' }}>FAILURE</span>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.5 }}>Signature verification failed for artefact 2.5.1. Deployment blocked; nothing was applied.</span>
+            <Button variant="secondary" size="sm" style={{ alignSelf: 'flex-start' }}>View verification log</Button>
+          </div>
+        </Demo>
+        <DoDont
+          dos={['State the cause and the consequence ("Deployment blocked; nothing was applied")', 'Keep the audit id in success receipts, persistently', 'Fail closed and say so']}
+          donts={['"Something went wrong", apologise-and-hide errors', 'Toasts for anything an operator may need to reference later', 'Spinners without a mono status line']}
+        />
+      </Section>
+
+      <Section id="degraded" num={9} title="Standalone & degraded mode" lead="Each product declares a hard dependency only on Midgard core; AI is an optional capability discovered at runtime (DD-6). When Mimir is absent or down, consoles say so plainly and keep every core function working.">
+        <Demo label="DEGRADED-MODE BANNER · SITS UNDER THE TOP BAR">
+          <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: 'var(--info-tint)', border: '1px solid var(--info)', borderRadius: 'var(--radius-sm)' }}>
+            <Icon name="cpu" size={15} color="var(--info)" />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-body)' }}>DEGRADED MODE · MIMIR UNAVAILABLE — AI assist hidden; all core functions operational. Rules-based gates remain in force.</span>
+            <span style={{ marginLeft: 'auto' }}><Badge tone="info">AC-M-9</Badge></span>
+          </div>
+        </Demo>
+        <DoDont
+          dos={['State exactly what is lost ("suggestions") and what is not ("builds, gates, fusion")', 'Hide AI affordances entirely rather than disabling them', 'Rediscover AI capability at runtime and drop the banner silently']}
+          donts={['Block any core workflow on AI availability', 'Show error toasts for an architecture-sanctioned mode', 'Let rule-based gates weaken when the advisory layer is away']}
+        />
+      </Section>
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

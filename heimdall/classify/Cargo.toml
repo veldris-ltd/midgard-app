@@ -1,0 +1,14 @@
+[package]
+name = "heimdall-classify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall entity classification: a Classifier seam with a deterministic rules engine that labels tracked entities with full provenance and stays fully functional with Mimir absent and no network. [FR-H-2] [AC-H-6] [AC-H-7]"
+
+[dependencies]
+# The tracked-entity + classification contract classified over.
+heimdall-picture = { path = "../picture" }
+
+[lib]
+path = "src/lib.rs"

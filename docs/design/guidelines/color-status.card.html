@@ -1,0 +1,14 @@
+<!-- @dsCard group="Colors" viewport="700x150" subtitle="Status colours, state only, never decoration" name="Status" -->
+<!DOCTYPE html><html><head><link rel="stylesheet" href="../styles.css"><style>
+.row{display:flex;gap:8px;padding:16px}
+.s{flex:1;border-radius:10px;border:1px solid var(--border);background:var(--surface-card);padding:12px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:-1px}
+.s b{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--grey-100)}
+.s i{display:block;font-family:var(--font-mono);font-size:9px;color:var(--grey-500);font-style:normal;margin-top:6px}
+</style></head><body>
+<div class="row">
+<div class="s" style="background:var(--secure-tint)"><span class="dot" style="background:var(--secure)"></span><b>SECURE</b><i>sealed · verified · healthy</i></div>
+<div class="s" style="background:var(--warn-tint)"><span class="dot" style="background:var(--warn)"></span><b>WARN</b><i>degraded · pending gate</i></div>
+<div class="s" style="background:var(--danger-tint)"><span class="dot" style="background:var(--danger)"></span><b>DANGER</b><i>failed · rejected · breach</i></div>
+<div class="s" style="background:var(--info-tint)"><span class="dot" style="background:var(--info)"></span><b>INFO</b><i>advisory · in progress</i></div>
+</div></body></html>

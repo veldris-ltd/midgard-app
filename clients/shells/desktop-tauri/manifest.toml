@@ -1,0 +1,11 @@
+# Shell manifest — desktop-tauri
+# One of the six client shell codebases (SAD_06 §3.1). Presentation only.
+[shell]
+name = "desktop-tauri"
+technology = "Tauri 2.x + SvelteKit"
+targets = "Windows (MSI), macOS, Linux desktop"
+
+# KDD-1: this shell implements NO cryptography, key handling, or sync-merge logic.
+# It links the shared Rust core and calls it for everything security-/data-related.
+links_core = "midgard-client-core"
+binding = "native"

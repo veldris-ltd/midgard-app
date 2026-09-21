@@ -1,0 +1,33 @@
+erDiagram
+    AGENT ||--o{ AGENT_VERSION : versions
+    AGENT ||--o{ TOOL_BINDING : uses
+    AGENT ||--o{ SESSION : runs
+    SESSION ||--o{ TRACE : records
+    TRACE ||--o{ EVAL_RESULT : scored_by
+    EVAL_SUITE ||--o{ EVAL_RESULT : produces
+    SESSION ||--o{ FEEDBACK : gathers
+    FEEDBACK ||--o{ FINETUNE_JOB : feeds
+    AGENT {
+        uuid id PK
+        string name
+        jsonb system_prompt
+        jsonb guardrails
+    }
+    SESSION {
+        uuid id PK
+        uuid agent_id FK
+        uuid actor_id
+        timestamp started_at
+    }
+    TRACE {
+        uuid id PK
+        uuid session_id FK
+        jsonb steps
+        jsonb tool_calls
+    }
+    EVAL_RESULT {
+        uuid id PK
+        uuid trace_id FK
+        string metric
+        float score
+    }

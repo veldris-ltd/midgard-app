@@ -1,0 +1,17 @@
+[package]
+name = "mg-scan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Vulnerability and licence gate over a CycloneDX SBOM, against a vendored advisory database. Runs between sbom and sign; fails closed. [FR-MS-6] [NFR-OSS-1]"
+
+[[bin]]
+name = "mg-scan"
+path = "src/main.rs"
+
+[dependencies]
+# No dependencies at all: the SBOM reader, the SPDX expression evaluator, the
+# semver comparator, the CVSS scorer and the date arithmetic are all in-crate.
+# This runs inside the release gate on an air-gapped runner, so every input is a
+# local file. [NFR-PRV-1] [NFR-OSS-1]

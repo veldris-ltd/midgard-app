@@ -1,0 +1,23 @@
+[package]
+name = "forge-dataset-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Forge dataset & versioning store: content-addressed immutable snapshots, branch refs, lineage, PQ-wrapped AES-256-GCM at rest. [FR-F-3] [NFR-PQ-2]"
+
+[features]
+# Sealing at rest is a real ML-KEM-1024 envelope operation, so the FIPS backend
+# is the default: a committed dataset version must be recoverable only through
+# the trust root, exactly like every other at-rest store in the suite.
+default = ["backend-fips"]
+backend-fips = ["kms/backend-fips", "pqc-agility/backend-fips"]
+
+[dependencies]
+# At-rest sealing (AES-256-GCM under an ML-KEM-1024-wrapped key). [NFR-PQ-2]
+kms = { path = "../../services/kms" }
+# SHA-256 content addressing + the Rng seam used when sealing.
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,89 @@
+{{- /* Namespace, default-deny networking, DNS, quota, and the pinned trust key. */ -}}
+{{- if .Values.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: midgard
+    pod-security.kubernetes.io/enforce: restricted
+{{- end }}
+---
+# Default-deny for every pod in the enclosure: no ingress, no egress. Each service then
+# opens only the hops it needs. This is the sovereign no-egress posture. [NFR-PRV-1]
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Service names resolve through the cluster's DNS, and nowhere else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cluster-dns
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: enclosure-quota
+  namespace: {{ .Values.namespace }}
+spec:
+  hard:
+    requests.cpu: {{ .Values.quota.requestsCpu | quote }}
+    requests.memory: {{ .Values.quota.requestsMemory }}
+    limits.cpu: {{ .Values.quota.limitsCpu | quote }}
+    limits.memory: {{ .Values.quota.limitsMemory }}
+    pods: {{ .Values.quota.pods | quote }}
+{{- if not .Values.image.single }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.trustKeyConfigMap }}
+  namespace: {{ .Values.namespace }}
+data:
+  release-trust.pub: |
+    # Populated by the key ceremony (RT-35) from deploy/trust/release-trust.pub
+{{- end }}
+{{- range .Values.clients }}
+---
+# Mesh client {{ .name }}: may reach only the service ports it calls.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ .name }}-egress
+  namespace: {{ $.Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .name }}
+  policyTypes: [Egress]
+  egress:
+{{- range .talksTo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .name }}
+      ports:
+        - { protocol: TCP, port: {{ .port }} }
+{{- end }}
+{{- end }}

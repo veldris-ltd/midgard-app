@@ -1,0 +1,27 @@
+# Pinned snapshot of the RustSec advisory database.
+#
+# The scan MUST work with no network, so the advisory data is vendored like every
+# other dependency. That makes staleness the real risk: an advisory database
+# nobody refreshes silently stops finding things, which is worse than not having
+# one, because it still reports "clean". mg-scan therefore warns past
+# `warn_after_days` and FAILS past `fail_after_days`.
+#
+# Refresh (the only online step; mirrors deploy/acceptance/Dockerfile's posture):
+#
+#   just advisory-db-refresh
+#
+# which re-clones upstream, replaces crates/, and rewrites this file. Commit the
+# result. Review the diff: a shrinking advisory count means something went wrong.
+[snapshot]
+source = "https://github.com/rustsec/advisory-db"
+revision = "6420e39260b3d771b049954cf5d52b57e2118da4"
+# Upstream commit date, not the date this file was written: what matters is how
+# old the DATA is.
+date = "2026-08-27"
+advisory_count = 1206
+# CC0-1.0 (see LICENSE.txt) — public domain, so vendoring carries no obligation.
+license = "CC0-1.0"
+
+[staleness]
+warn_after_days = 30
+fail_after_days = 180

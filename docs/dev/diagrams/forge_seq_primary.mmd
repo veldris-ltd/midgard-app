@@ -1,0 +1,14 @@
+sequenceDiagram
+    actor Eng as Data Engineer
+    participant PB as Pipeline Builder
+    participant CE as Compute Engine (Spark/Flink/Polars)
+    participant MI as Mimir (Mistral Small 3.2)
+    participant OF as Object Fabric (Midgard)
+    Eng->>PB: define pipeline (visual/low-code)
+    PB->>MI: suggest transforms / infer schema
+    MI-->>PB: typed transform suggestions
+    PB->>CE: compile & execute (incremental)
+    CE->>OF: write sealed datasets/objects
+    OF-->>CE: commit + lineage
+    CE-->>PB: build health + checks
+    PB-->>Eng: preview + health report

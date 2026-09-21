@@ -1,0 +1,15 @@
+flowchart TB
+    subgraph host["Sovereign deployment"]
+        subgraph k8s["Kubernetes"]
+            studio["Forge Studio pods"]
+            planner["Planner pods"]
+            spark["Spark/Flink executors"]
+            polars["Polars/DuckDB single-node pods"]
+        end
+        fabric[("Midgard Object Fabric")]
+        mimir["Mimir inference (GPU)"]
+    end
+    studio --> planner --> spark
+    planner --> polars
+    spark --> fabric
+    planner --> mimir

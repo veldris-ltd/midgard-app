@@ -1,0 +1,104 @@
+<!-- @dsCard group="Admin Panel" viewport="1440x820" subtitle="GitOps-style versioned config: diff, simulate, review, rollback" name="Admin · Config & Policy" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Admin · Config & Policy</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+const CHANGES = [
+  { id: 'CFG-2214', title: 'Grant ops-analyst read on maintenance datasets', sub: 'GOVERNANCE', risk: 3, state: 'simulated', author: 'j.benjamin' },
+  { id: 'CFG-2213', title: 'Add release channel: beta-eu', sub: 'BIFROST', risk: 2, state: 'committed', author: 'm.silva' },
+  { id: 'CFG-2212', title: 'Tighten purpose list for sensor exports', sub: 'GOVERNANCE', risk: 4, state: 'in review', author: 'k.osei' },
+  { id: 'CFG-2209', title: 'Raise Evals gate to 92% for dispatch agents', sub: 'MIMIR', risk: 3, state: 'committed', author: 'p.iwu' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const [committed, setCommitted] = React.useState(false);
+  const c = CHANGES[sel];
+  return (
+    <ConsoleShell product="admin" active="config" context="ADMIN CONTROL PANEL / CONFIG & POLICY"
+      toolbar={<Button variant="secondary" size="sm" iconLeft={<Icon name="undo-2" size={14} />}>Rollback…</Button>}
+      asideWidth={360}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="git-branch" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{c.id}</h2>
+          <RiskBadge level={c.risk} />
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>DIFF · VERSIONED LIKE SOURCE</div>
+          <Terminal lines={[
+            'policy/ops-analyst.access',
+            '- datasets: [flight_tracks_eu]',
+            '+ datasets: [flight_tracks_eu, maintenance_events]',
+            '+ expiry: 2026-10-06 (90d)',
+          ]} />
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>SIMULATION · BEFORE COMMIT</div>
+          <Card size="sm" style={{ borderColor: 'var(--warn)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--warn)', marginBottom: 6 }}>EFFECT · WOULD GRANT</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.6 }}>
+              Grants <b style={{ color: 'var(--text-heading)' }}>14 users</b> read on <b style={{ color: 'var(--text-heading)' }}>INTERNAL-marked</b> maintenance data. No marking exposure above clearance. Reversible. Blast radius: one dataset family.
+            </p>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)', marginTop: 7 }}>SIM ENGINE · EXPLAINED BY COPILOT · ADVISORY [FR-AD-10]</div>
+          </Card>
+        </div>
+        {committed ? (
+          <div style={{ padding: '10px 12px', background: 'var(--surface-inset)', border: '1px solid var(--secure)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--secure)' }}>COMMITTED · v482 · SIGNED · ROLLBACK AVAILABLE</div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="secondary" size="sm" fullWidth>Request review</Button>
+            <Button variant="primary" size="sm" fullWidth onClick={() => setCommitted(true)}>Commit v482</Button>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-AD-6" title="Policy simulation and dry-run before commit" />
+          <ProvenanceTag id="FR-AD-7" title="Versioned config with diff, review, rollback, signed audit" />
+          <ProvenanceTag id="AC-AD-7" title="Committed changes are versioned and roll-backable" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={5}>CONFIG</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Config as code</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="v481" label="CURRENT · ALL SUBSYSTEMS" size="sm" />
+        <StatBlock value="100%" label="CHANGES SIMULATED FIRST" size="sm" accent />
+        <StatBlock value="4" label="ROLLBACKS · 90D" size="sm" />
+      </div>
+      <Table
+        columns={[
+          { header: 'Change', cell: x => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="git-commit" size={14} color="var(--accent)" />{x.title}</span> },
+          { header: 'Id', key: 'id', mono: true, width: 100 },
+          { header: 'Subsystem', key: 'sub', mono: true, width: 120 },
+          { header: 'Risk', cell: x => <RiskBadge level={x.risk} dualControl={false} />, width: 110 },
+          { header: 'Author', key: 'author', mono: true, width: 110 },
+          { header: 'State', cell: x => <Badge tone={x.state === 'committed' ? 'secure' : x.state === 'in review' ? 'warn' : 'info'}>{x.state.toUpperCase()}</Badge>, width: 110 },
+        ]}
+        rows={CHANGES} selectedIndex={sel} onRowClick={setSel}
+      />
+      <Terminal title="DRIFT RECONCILIATION" lines={[
+        '> admin config drift --all',
+        'iam         in sync · v481',
+        'governance  in sync · v481',
+        'bifrost     DRIFT · channel beta-eu manual edit → reconcile queued',
+        '# drift alerts page the owning admin [FR-AD-7]',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,26 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="heimdall_seq_primary" id="heimdall_seq_primary">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="ex" value="External feeds" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="40" y="40" width="140" height="50" as="geometry"/></mxCell>
+        <mxCell id="fu" value="Fusion Engine" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="200" y="40" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="of" value="Object Fabric" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="380" y="40" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="hm" value="Heimdall Console" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="560" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="mi" value="Mimir" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="750" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="op" value="Operator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="900" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="feeds" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ex" target="fu"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="correlate" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="fu" target="of"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="open picture" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="op" target="hm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="query" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="hm" target="fu"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="summarise/rank" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="hm" target="mi"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="OAG" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="mi" target="of"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="entities" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="of" target="mi"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="ranked COA" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="mi" target="hm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="select" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="op" target="hm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="sealed decision" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="hm" target="of"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
