@@ -1,0 +1,10 @@
+[package]
+name = "midgard-client-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Client offline-first CRDT sync: LWW-map ops, an offline queue, and a deterministic conflict-free merge that converges every replica with no data loss. [FR-C-4] [AC-C-4]"
+
+[lib]
+path = "src/lib.rs"

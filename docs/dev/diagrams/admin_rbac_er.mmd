@@ -1,0 +1,56 @@
+erDiagram
+    ADMIN_USER ||--o{ ROLE_BINDING : has
+    ROLE ||--o{ ROLE_BINDING : grants
+    ROLE ||--o{ PERMISSION : includes
+    PERMISSION ||--o{ RESOURCE_SCOPE : "applies to"
+    ADMIN_ACTION ||--|| PERMISSION : "requires"
+    ADMIN_ACTION ||--o{ APPROVAL : "may need"
+    ADMIN_ACTION ||--|| AUDIT_ENTRY : "produces"
+    ADMIN_USER {
+        string id PK
+        string name
+        bool break_glass_eligible
+        string mfa_status
+    }
+    ROLE {
+        string id PK
+        string name "e.g. IAM-Admin, KMS-Officer, Auditor"
+        bool read_only
+        int risk_ceiling
+    }
+    ROLE_BINDING {
+        string id PK
+        string user_id FK
+        string role_id FK
+        string scope
+        timestamp expires_at
+    }
+    PERMISSION {
+        string id PK
+        string action_class
+        int risk_level "1-5"
+        bool dual_control
+    }
+    RESOURCE_SCOPE {
+        string id PK
+        string subsystem
+        string selector
+    }
+    ADMIN_ACTION {
+        string id PK
+        string action_class
+        string requester_id
+        string status
+    }
+    APPROVAL {
+        string id PK
+        string approver_id
+        string decision
+        string reason
+    }
+    AUDIT_ENTRY {
+        string id PK
+        timestamp ts
+        blob pq_signature
+        string detail
+    }

@@ -1,0 +1,10 @@
+# Build context for deploy/compose/Dockerfile (the repository root). Only sources,
+# the lock file and the vendored crates are needed; build outputs, JavaScript
+# dependencies and history are not. [NFR-OSS-1]
+.git
+target
+**/target
+node_modules
+**/node_modules
+ui/**/dist
+.claude

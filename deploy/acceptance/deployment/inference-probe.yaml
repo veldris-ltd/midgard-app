@@ -1,0 +1,57 @@
+# Live inference for the deployment-acceptance tier (RT-40 / RC-40.4).
+#
+# One certified PQ-mTLS inference call to the deployed mimir-server, the way a product
+# reaches it: `mimir-probe` with the mimir-probe mesh identity (Secret
+# mimir-probe-identity), through the enclosure's NetworkPolicies — the label below is
+# the one mimir-server's ingress policy admits. There is no HTTP inference endpoint to
+# call: FR-MI-8 exposes inference over PQ-mTLS only. The call is authorised and audited
+# like any other; the runner reads the model, first-token latency and completion from
+# the probe's output. [FR-MI-8] [FR-MI-1] [NFR-PERF-1]
+#
+# The image must carry /usr/local/bin/mimir-probe. MIDGARD_PROBE_IMAGE substitutes one.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inference-probe
+  labels:
+    app.kubernetes.io/part-of: midgard
+    app.kubernetes.io/component: acceptance
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 280
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mimir-probe
+        app.kubernetes.io/part-of: midgard
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: probe
+          image: registry.enclosure.local/midgard/mimir-probe:0.0.0
+          command: ["mimir-probe"]
+          args: ["--identity-dir", "/identity", "--addr", "mimir-server:7720",
+                 "--purpose", "investigation", "--max-tokens", "32",
+                 "--prompt", "In one sentence, what does an append-only audit ledger protect against?"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - { name: identity, mountPath: /identity, readOnly: true }
+      volumes:
+        - name: identity
+          secret: { secretName: mimir-probe-identity, defaultMode: 288 }

@@ -1,0 +1,11 @@
+# Shell manifest — linux-gtk
+# One of the six client shell codebases (SAD_06 §3.1). Presentation only.
+[shell]
+name = "linux-gtk"
+technology = "Rust / GTK4"
+targets = "Linux mobile + desktop (Flatpak/AUR)"
+
+# KDD-1: this shell implements NO cryptography, key handling, or sync-merge logic.
+# It links the shared Rust core and calls it for everything security-/data-related.
+links_core = "midgard-client-core"
+binding = "native"

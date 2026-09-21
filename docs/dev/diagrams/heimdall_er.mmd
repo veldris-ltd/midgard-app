@@ -1,0 +1,32 @@
+erDiagram
+    FEED ||--o{ OBSERVATION : emits
+    OBSERVATION ||--o{ TRACK : resolves_to
+    TRACK ||--o{ ENTITY : represents
+    ENTITY ||--o{ OBJECT : "linked in fabric"
+    TRACK ||--o{ ALERT : may_raise
+    DECISION ||--o{ TRACK : concerns
+    DECISION ||--o{ ACTION_LOG : writes
+    FEED {
+        uuid id PK
+        string type
+        string classification
+        bool pq_sealed
+    }
+    OBSERVATION {
+        uuid id PK
+        uuid feed_id FK
+        jsonb payload
+        timestamp observed_at
+    }
+    TRACK {
+        uuid id PK
+        uuid entity_id FK
+        geometry geom
+        timestamp updated_at
+    }
+    DECISION {
+        uuid id PK
+        uuid actor_id
+        string coa
+        bool human_gated
+    }

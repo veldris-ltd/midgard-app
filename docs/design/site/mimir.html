@@ -1,0 +1,121 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="mimir.midgard.eu · product page with early-access signup" name="mimir.midgard.eu" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mimir · Local agentic AI</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-mimir">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, ProductMark, Button, Badge, StatusPill, SectionLabel, Terminal, StatBlock, Card, Tag } = NS;
+
+function Hero({ eyebrow, headline, sub, seals, stats }) {
+  return (
+    <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(64px, 9vw, 120px) clamp(16px, 4vw, 36px) clamp(44px, 6vw, 84px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>{seals}</div>
+        <div className="mg-label" style={{ marginBottom: 14 }}>{eyebrow}</div>
+        <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 3.8rem)', lineHeight: 1.06, maxWidth: 780, fontWeight: 800 }}>{headline}</h1>
+        <p style={{ margin: '20px 0 0', fontSize: 'clamp(1rem, 1.6vw, 1.125rem)', color: 'var(--text-body)', maxWidth: 600, lineHeight: 1.7 }}>{sub}</p>
+        <div style={{ display: 'flex', gap: 12, marginTop: 30, flexWrap: 'wrap' }}>
+          <a href="#early-access" style={{ textDecoration: 'none' }}><Button variant="primary" size="lg" iconRight={<Icon name="arrow-right" size={16} />}>Request early access</Button></a>
+          <a href="index.html" style={{ textDecoration: 'none' }}><Button variant="ghost" size="lg">The full suite →</Button></a>
+        </div>
+        <div style={{ display: 'flex', gap: 'clamp(24px, 5vw, 56px)', marginTop: 'clamp(36px, 5vw, 64px)', flexWrap: 'wrap' }}>{stats}</div>
+      </div>
+    </section>
+  );
+}
+
+function Capabilities({ num, title, items }) {
+  return (
+    <section style={{ padding: 'clamp(44px, 7vw, 88px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <SectionLabel number={num}>CAPABILITIES</SectionLabel>
+        <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 30px', maxWidth: 680 }}>{title}</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: 14 }}>
+          {items.map(([icon, t, d]) => (
+            <Card key={t} size="md">
+              <Icon name={icon} size={20} color="var(--accent)" />
+              <h3 style={{ fontSize: 'var(--fs-body)', margin: '12px 0 7px' }}>{t}</h3>
+              <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65 }}>{d}</p>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Showcase({ num, title, body, terminal, reverse }) {
+  return (
+    <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: 'clamp(44px, 7vw, 88px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 'clamp(24px, 4vw, 48px)', flexWrap: 'wrap', alignItems: 'center', flexDirection: reverse ? 'row-reverse' : 'row' }}>
+        <div style={{ flex: '1 1 320px' }}>
+          <SectionLabel number={num}>IN PRACTICE</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 12px', maxWidth: 480 }}>{title}</h2>
+          <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-muted)', lineHeight: 1.7, maxWidth: 480 }}>{body}</p>
+        </div>
+        {terminal}
+      </div>
+    </section>
+  );
+}
+
+function Standalone({ num, line }) {
+  return (
+    <section style={{ padding: 'clamp(36px, 6vw, 72px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <SectionLabel number={num} muted>COMPOSABLE</SectionLabel>
+        <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-body)', flex: '1 1 400px', lineHeight: 1.65 }}>{line}</p>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>MIDGARD CORE REQUIRED · EVERYTHING ELSE OPTIONAL</span>
+      </div>
+    </section>
+  );
+}
+
+
+function App() {
+  return (
+    <SiteShell active="mimir">
+      <Hero
+        eyebrow="01 // MIMIR · LOCAL AGENTIC AI"
+        headline={<>AI that never phones home.<br /><span style={{ color: 'var(--text-muted)' }}>Because it can't.</span></>}
+        sub="Mimir serves GLM, Nemotron, and Gemma entirely inside your enclosure. Agents are grounded in your object fabric, cite their evidence, score against evaluation suites, and stop at a human gate before anything changes state."
+        seals={<><StatusPill status="online" label="INFERENCE · LOCAL" /><StatusPill status="secure" label="NO EGRESS" pulse={false} /></>}
+        stats={<><StatBlock value="3" label="MODEL FAMILIES · IN-ENCLOSURE" /><StatBlock value="0.42s" label="FIRST TOKEN" accent /><StatBlock value="0" label="HOSTED-LLM DEPENDENCIES" /></>}
+      />
+      <Capabilities num={2} title="Agentic, grounded, governed. In that order."
+        items={[
+          ['brain-circuit', 'Ontology-augmented generation', 'Answers are retrieved from your object fabric under your policy, and every claim carries a live citation.'],
+          ['bot', 'Agent runtime', 'Plan–act–observe loops with typed tools, memory, and per-step evaluation. Session traces show every decision.'],
+          ['gauge', 'Evals as gates', 'Capability, grounding, adversarial, and calibration suites gate every agent and model change. Below the gate, nothing ships.'],
+          ['shield-check', 'Self-defending', 'Prompt-injection filtering, least-privilege tool scoping, and exfiltration blocks screen every input and tool call.'],
+          ['refresh-cw', 'Self-learning & self-healing', 'Governed feedback improves retrieval; degraded inference reroutes, retries, or rolls back. Every loop is bounded and audited.'],
+          ['workflow', 'No-code to pro-code', 'Build AI functions and agents visually or in code; a mandatory human gate guards every state mutation.'],
+        ]} />
+      <Showcase num={3} title="The gate is not a feature. It's the design." reverse
+        body="An agent can find the problem, draft the fix, and queue the action, and then it waits. A named human authorises; the decision, its evidence, and its outcome become one signed record."
+        terminal={<Terminal title="AGENT TURN" style={{ flex: '1 1 360px' }} lines={[
+          '> mimir agent run dispatch-01',
+          'retrieve   OAG · policy-scoped · 3 citations',
+          'plan       schedule maintenance · AC-2214',
+          'guard      injection ✓ · tool scope ✓',
+          'action     STATE MUTATION → HUMAN GATE',
+          'authorise  k.osei · WebAuthn ✓',
+          '# executed · lineage #A-77123 · ML-DSA',
+        ]} />}
+      />
+      <Standalone num={4} line="Midgard + Mimir is a complete local-AI platform on its own. It is also the shared inference plane: Forge, Bifrost, and Heimdall all reason through it, and degrade gracefully without it." />
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

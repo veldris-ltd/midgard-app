@@ -1,0 +1,94 @@
+<!-- @dsCard group="Heimdall" viewport="1440x820" subtitle="PQ-authenticated live feeds: health, latency, fusion weight" name="Heimdall · Feed Manager" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Heimdall · Feed Manager</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-heimdall">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const FEEDS = [
+  { name: 'NORTH-2', kind: 'radar', rate: '4 Hz', latency: '0.2s', weight: 'high', auth: true, st: 'online', stl: 'Live' },
+  { name: 'MAR-RAD-1', kind: 'maritime radar', rate: '1 Hz', latency: '0.4s', weight: 'high', auth: true, st: 'online', stl: 'Live' },
+  { name: 'ADS-B-EU', kind: 'transponder', rate: 'stream', latency: '0.1s', weight: 'medium', auth: true, st: 'online', stl: 'Live' },
+  { name: 'SAT-IR-7', kind: 'satellite IR', rate: '1/30s', latency: '22s', weight: 'medium', auth: true, st: 'healthy', stl: 'Nominal' },
+  { name: 'GND-OBS-4', kind: 'ground observer', rate: 'manual', latency: '2m', weight: 'low', auth: true, st: 'warn', stl: 'Stale 8m' },
+  { name: 'LEGACY-L16', kind: 'datalink bridge', rate: '1 Hz', latency: '0.9s', weight: 'medium', auth: false, st: 'danger', stl: 'Auth failed' },
+];
+function App() {
+  const [sel, setSel] = React.useState(5);
+  const f = FEEDS[sel];
+  return (
+    <ConsoleShell product="heimdall" active="feeds" context="PICTURE / FEED MANAGER"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>Register feed</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="radio-tower" size={17} color={f.st === 'danger' ? 'var(--danger)' : 'var(--accent)'} />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15, flex: 1 }}>{f.name}</h2>
+          <StatusPill status={f.st} pulse={f.st === 'online'} label={f.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={f.latency} label="LATENCY" size="sm" />
+            <StatBlock value={f.weight.toUpperCase()} label="FUSION WEIGHT" size="sm" />
+          </div>
+        </Card>
+        {f.st === 'danger' ? (
+          <Card size="sm" style={{ borderColor: 'var(--danger)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--danger)', marginBottom: 6 }}>EXCLUDED FROM FUSION</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>PQ signature check failed on the bridge relay at 13:58. The feed is quarantined; the picture runs without it. Nothing unauthenticated reaches fusion.</p>
+            <Button variant="outline" size="sm" style={{ marginTop: 10 }}>Re-key bridge</Button>
+          </Card>
+        ) : (
+          <Terminal title="AUTHENTICATION" lines={['> heimdall feed verify ' + f.name, 'transport  PQ-mTLS OK', 'payload    ML-DSA per frame OK', '# admitted to fusion']} />
+        )}
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>CONTRIBUTION</div>
+          {[['Entities fed', f.weight === 'high' ? '412' : f.weight === 'medium' ? '188' : '9'], ['Unique coverage', f.name === 'SAT-IR-7' ? '31%' : '12%'], ['Marking', 'CONFIDENTIAL // OPS-N']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 110, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-H-1" title="Fuse multiple live feeds into one common picture" />
+          <ProvenanceTag id="FR-H-3" title="Authenticate feed sources with PQ signatures; reject unverified feeds" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={1}>FEEDS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Feed manager</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="12" label="REGISTERED" size="sm" />
+        <StatBlock value="11" label="IN FUSION" size="sm" />
+        <StatBlock value="1" label="QUARANTINED" size="sm" accent />
+      </div>
+      <Table
+        columns={[
+          { header: 'Feed', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="radio-tower" size={14} color={r.st === 'danger' ? 'var(--danger)' : 'var(--accent)'} />{r.name}</span> },
+          { header: 'Kind', key: 'kind', width: 140 },
+          { header: 'Rate', key: 'rate', mono: true, width: 80 },
+          { header: 'Latency', key: 'latency', mono: true, align: 'right', width: 80 },
+          { header: 'Weight', key: 'weight', mono: true, width: 80 },
+          { header: 'PQ auth', cell: r => <Badge tone={r.auth ? 'secure' : 'danger'}>{r.auth ? 'ML-DSA ✓' : 'FAILED'}</Badge>, width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={r.st === 'online'} label={r.stl} />, width: 120 },
+        ]}
+        rows={FEEDS} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

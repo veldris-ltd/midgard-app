@@ -1,0 +1,21 @@
+[package]
+name = "admin-breakglass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Break-glass emergency elevation: time-boxed, justification-mandatory, real-time alerted, with a forced post-hoc review. Pure state machine over an injected clock and alert sink; works fully in-enclosure. [FR-AD-8] [AC-AD-8] [AC-AD-12]"
+
+[dependencies]
+# The generic SealedJournal + Sealer seam backing the durable store. [RC-14]
+audit-writer = { path = "../../crypto/audit-writer" }
+# The audit verifying key type exposed by the controller. [RC-32]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+# Durable restart tests seal via the real KMS envelope (AES-256-GCM under ML-KEM-1024).
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

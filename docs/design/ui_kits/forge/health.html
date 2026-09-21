@@ -1,0 +1,98 @@
+<!-- @dsCard group="Forge" viewport="1440x820" subtitle="Expectations, drift monitors, freshness SLOs" name="Forge · Data Health" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Forge · Data Health</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-forge">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const CHECKS = [
+  { ds: 'flight_tracks_eu', check: 'alt_ft within [0, 60000]', kind: 'bounds', pass: '99.6%', trend: 'fixed in v42', st: 'secure', stl: 'Passing' },
+  { ds: 'sensor_feed_north', check: 'freshness < 30s', kind: 'freshness', pass: '100%', trend: 'stable', st: 'healthy', stl: 'Passing' },
+  { ds: 'maintenance_events', check: 'closed_by not null when status=closed', kind: 'integrity', pass: '97.1%', trend: 'degrading 4d', st: 'warn', stl: 'Drift' },
+  { ds: 'crew_roster', check: 'unique(crew_id)', kind: 'uniqueness', pass: '100%', trend: 'stable', st: 'secure', stl: 'Passing' },
+  { ds: 'flight_tracks_eu', check: 'row volume ±15% of 7d mean', kind: 'volume', pass: '91.2%', trend: 'seasonal', st: 'warn', stl: 'Watch' },
+];
+function App() {
+  const [sel, setSel] = React.useState(2);
+  const c = CHECKS[sel];
+  return (
+    <ConsoleShell product="forge" active="health" context="DATA OPS / DATA HEALTH"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>New expectation</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="activity" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, fontFamily: 'var(--font-mono)', fontWeight: 600, flex: 1 }}>{c.kind}</h2>
+          <StatusPill status={c.st} pulse={false} label={c.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--grey-100)', lineHeight: 1.7 }}>{c.check}</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 6 }}>ON {c.ds.toUpperCase()}</div>
+        </Card>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={c.pass} label="PASS RATE" size="sm" accent={c.st === 'warn'} />
+            <StatBlock value={c.st === 'warn' ? 'BLOCKS' : 'CLEAR'} label="PROJECTION GATE" size="sm" />
+          </div>
+        </Card>
+        {c.st === 'warn' && (
+          <Card size="sm" style={{ borderColor: 'var(--accent)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--accent-hover)', marginBottom: 6 }}>MIMIR DIAGNOSIS · LOCAL</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>Nulls correlate with imports from maint_sftp after 02:00. Likely upstream export truncation; suggest a quarantine rule pending source fix.</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Button variant="outline" size="sm" fullWidth>Preview quarantine</Button>
+              <Button variant="ghost" size="sm">Dismiss</Button>
+            </div>
+          </Card>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-F-6" title="Expectations and health checks gate every build" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={4}>DATA HEALTH</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Expectations & drift</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="1,204" label="EXPECTATIONS" size="sm" />
+        <StatBlock value="3" label="FAILING" size="sm" accent />
+        <StatBlock value="2" label="PROJECTIONS BLOCKED" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        {[['PASSING', '1,199', 'var(--secure)'], ['DRIFTING', '3', 'var(--warn)'], ['BLOCKING', '2', 'var(--danger)']].map(([t, v, col]) => (
+          <Card key={t} size="sm" style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: col }} />
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'var(--text-heading)' }}>{v}</span>
+              <span className="mg-label" style={{ color: 'var(--text-faint)' }}>{t}</span>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <Table
+        columns={[
+          { header: 'Dataset', key: 'ds', mono: true, width: 170 },
+          { header: 'Expectation', key: 'check' },
+          { header: 'Kind', key: 'kind', mono: true, width: 100 },
+          { header: 'Pass rate', key: 'pass', mono: true, align: 'right', width: 90 },
+          { header: 'Trend', key: 'trend', mono: true, width: 130 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 120 },
+        ]}
+        rows={CHECKS} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

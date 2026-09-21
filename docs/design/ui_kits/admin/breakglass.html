@@ -1,0 +1,110 @@
+<!-- @dsCard group="Admin Panel" viewport="1440x820" subtitle="Emergency elevation: time-boxed, justified, alerted, reviewed" name="Admin · Break-Glass" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Admin · Break-Glass</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+function App() {
+  const [phase, setPhase] = React.useState('active');
+  return (
+    <ConsoleShell product="admin" active="breakglass" context="ADMIN CONTROL PANEL / BREAK-GLASS"
+      toolbar={<Badge tone="danger">1 ACTIVE</Badge>}
+      asideWidth={340}
+      aside={<>
+        <SectionLabel number={7} muted>LIFECYCLE</SectionLabel>
+        {[['Request + justification', 'mandatory, written'], ['Dual-control open', 'second officer approves'], ['Time-boxed grant', 'never wider than the emergency'], ['Real-time alerts', 'all security officers paged'], ['Auto-expiry', 'hard stop at the box'], ['Post-hoc review', 'forced · itself audited']].map(([t, d], i) => (
+          <div key={i} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)' }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: 'var(--text-faint)', width: 18, flex: 'none' }}>{String(i + 1).padStart(2, '0')}</span>
+            <div>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-heading)', fontWeight: 600 }}>{t}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>{d.toUpperCase()}</div>
+            </div>
+          </div>
+        ))}
+        <Card size="sm">
+          <div className="mg-label" style={{ color: 'var(--text-faint)' }}>ABUSE GUARDS</div>
+          <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
+            <StatBlock value="2/mo" label="RATE LIMIT" size="sm" />
+            <StatBlock value="3" label="USES · 12MO" size="sm" />
+            <StatBlock value="0" label="OVERDUE REVIEWS" size="sm" />
+          </div>
+        </Card>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-AD-8" title="Time-boxed, justified, alerted break-glass with forced post-hoc review" />
+          <ProvenanceTag id="AC-AD-8" title="Granted break-glass is time-boxed, alerted in real time, review forced" />
+          <ProvenanceTag id="AC-AD-12" title="Break-glass and audit work fully offline" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={6}>EMERGENCY</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Break-glass console</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['active', 'Active'], ['review', 'Review'], ['idle', 'Sealed']].map(([k, lb]) => (
+            <Tag key={k} active={phase === k} onClick={() => setPhase(k)}>{lb}</Tag>
+          ))}
+        </div>
+      </div>
+      <BreakGlass state={phase} holder="k.osei" scope="KMS · unwrap only · enclosure-root-03"
+        remaining="00:41:12"
+        justification={phase !== 'idle' ? 'HSM failover mid-rotation: primary HSM unreachable, rotation window closes 07:00. Need unwrap capability to complete re-wrap on secondary.' : undefined} />
+      {phase === 'active' && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <Card size="sm" style={{ flex: 1, minWidth: 260 }}>
+            <div className="mg-label" style={{ color: 'var(--text-faint)' }}>LIVE SESSION CONSTRAINTS</div>
+            {[['Scope', 'unwrap only · one key family'], ['Excluded', 'no policy edits · no IAM · no export'], ['Session recording', 'every call ledgered live'], ['Hard stop', '07:00:00 · no extension without re-approval']].map(([k, v]) => (
+              <div key={k} style={{ display: 'flex', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+                <span style={{ color: 'var(--text-faint)', width: 120, flex: 'none' }}>{k.toUpperCase()}</span>
+                <span style={{ color: 'var(--text-heading)' }}>{v}</span>
+              </div>
+            ))}
+          </Card>
+          <Card size="sm" style={{ flex: 1, minWidth: 260 }}>
+            <div className="mg-label" style={{ color: 'var(--text-faint)' }}>ALERTS FIRED · REAL-TIME</div>
+            <Table compact style={{ marginTop: 8, border: 'none' }}
+              columns={[
+                { header: 'Officer', key: 'o', mono: true },
+                { header: 'Channel', key: 'c', mono: true, width: 110 },
+                { header: 'Ack', cell: r => <Badge tone={r.ack ? 'secure' : 'warn'}>{r.ack ? 'ACK' : 'PENDING'}</Badge>, width: 90 },
+              ]}
+              rows={[{ o: 'a.novak', c: 'page + console', ack: true }, { o: 'j.benjamin', c: 'page + console', ack: true }, { o: 'security-duty', c: 'ops channel', ack: false }]}
+            />
+          </Card>
+        </div>
+      )}
+      {phase === 'review' && (
+        <Card size="sm">
+          <div className="mg-label" style={{ color: 'var(--warn)' }}>POST-HOC REVIEW · DUE IN 18H · FORCED</div>
+          <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.65, maxWidth: 680 }}>Session transcript: 4 unwrap calls, 0 out-of-scope attempts, closed 12 minutes early. Reviewer must confirm the emergency was real, the scope minimal, and the actions proportionate. The review itself becomes a signed audit entry.</p>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <Button variant="primary" size="sm">Open review · second officer</Button>
+            <Button variant="ghost" size="sm">Export transcript</Button>
+          </div>
+        </Card>
+      )}
+      <Terminal title="LEDGER · BREAK-GLASS CLASS" lines={[
+        '> admin audit tail --class break-glass',
+        '#B-0331  opened   k.osei · dual-control a.novak · box 60m',
+        '#B-0331  call     kms.unwrap enclosure-root-03 · in scope',
+        '#B-0331  closed   47m52s · auto-review queued',
+        '# every entry ML-DSA signed · offline capable',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

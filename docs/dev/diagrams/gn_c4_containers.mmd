@@ -1,0 +1,21 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    ui["Planner UI + Oversight console\n(SAD_06 clients)"]:::system
+    api["Gungnir API / BFF\n(PQ-mTLS, admin-scoped)"]:::system
+    subgraph sandbox["Sandbox boundary (hermetic — no egress to real assets)"]
+        planner["Plan modeller\n(linear + branched)"]:::system
+        montecarlo["Probability engine\n(Monte Carlo / branch)"]:::system
+        cascade["Cascade / 2nd-3rd order\neffect projector"]:::system
+        worldmodel["World-model store\n(picture COPY, read-only)"]:::datastore
+        abstraction["Effect/cyber ABSTRACTION layer\n(planning-level only)"]:::system
+    end
+    audit["Projection audit ledger\n(PQ-signed)"]:::datastore
+    ui --> api
+    api --> planner
+    planner --> montecarlo --> cascade
+    planner --> worldmodel
+    cascade --> abstraction
+    api --> audit
+    cascade --> audit
+    classDef system fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

@@ -1,0 +1,28 @@
+[package]
+name = "heimdall-workflow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall action-workflow engine: any consequential action requires explicit human authorisation before it can execute, and every step is sealed into a PQ-signed audit chain. [FR-H-5] [NFR-AI-1]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["audit-writer/backend-fips", "pqc-agility/backend-fips"]
+
+[dependencies]
+# The tamper-evident, PQ-signed audit ledger the workflow lineage is sealed into.
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# A proposed action can be built from an advisory A.8 option, carrying its cited
+# evidence into the audit lineage.
+heimdall-decision-support = { path = "../decision-support" }
+
+[dev-dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+audit-writer = { path = "../../crypto/audit-writer", features = ["backend-fips"] }
+# The AC-H-3+4 integration test drives options -> proposed action -> human gate.
+heimdall-picture = { path = "../picture" }
+
+[lib]
+path = "src/lib.rs"

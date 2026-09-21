@@ -1,0 +1,29 @@
+[package]
+name = "heimdall-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall durable stores: PQ-wrapped-at-rest common-operating-picture and persistent human-gated workflow state, recovered on boot. [FR-H-1] [FR-H-5] [RC-13]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "kms/backend-fips",
+    "audit-writer/backend-fips",
+    "pqc-agility/backend-fips",
+    "heimdall-workflow/backend-fips",
+]
+
+[dependencies]
+# The pure-std picture/workflow types this crate makes durable (behind them).
+heimdall-picture = { path = "../picture" }
+heimdall-workflow = { path = "../workflow" }
+# At-rest sealing (AES-256-GCM under an ML-KEM-1024-wrapped key) + the Sealer seam
+# and durable FileLedger the workflow audit chain persists into. [NFR-PQ-2] [AC-M-4]
+kms = { path = "../../services/kms" }
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

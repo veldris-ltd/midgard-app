@@ -1,0 +1,20 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    shared["Networked 3D picture"]:::shared
+    subgraph aug["Operator augmentation (read-only to operator, human-in-loop)"]
+        sa["Situational awareness\n(what's around me)"]:::orion
+        nav["Navigation / routing\n(terrain-aware)"]:::orion
+        losop["Line-of-sight\n'what can see me / I can see'"]:::orion
+        alert["Proximity / detection alerts\n(advisory)"]:::orion
+    end
+    op["Dismounted operator\n(mobile / wearable)"]:::human
+    back["Enriches Midgard core\n+ Mimir grounding"]:::back
+    shared --> sa --> op
+    shared --> nav --> op
+    shared --> losop --> op
+    shared --> alert --> op
+    op -.observations (human-entered).-> back
+    classDef shared fill:#0B4884,color:#fff,stroke:#052E56
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef human fill:#1E7A46,color:#fff,stroke:#125230
+    classDef back fill:#5B6B7B,color:#fff,stroke:#3A4652

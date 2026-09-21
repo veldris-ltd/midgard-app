@@ -1,0 +1,104 @@
+<!-- @dsCard group="Mimir" viewport="1440x820" subtitle="In-enclosure model serving: GLM, Nemotron, Gemma" name="Mimir · Model Plane" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mimir · Model Plane</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-mimir">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const MODELS = [
+  { name: 'GLM 5.2', role: 'primary · reasoning + tools', quant: 'FP8', ctx: '128k', gpu: '4× pool', tps: '84 t/s', st: 'healthy', stl: 'Serving' },
+  { name: 'Nemotron', role: 'fallback · long context', quant: 'FP8', ctx: '256k', gpu: '2× pool', tps: '61 t/s', st: 'healthy', stl: 'Serving' },
+  { name: 'Gemma', role: 'edge · low-footprint sites', quant: 'INT4', ctx: '32k', gpu: 'CPU-only OK', tps: '22 t/s', st: 'online', stl: 'Standby' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const m = MODELS[sel];
+  return (
+    <ConsoleShell product="mimir" active="models" context="AGENT STUDIO / MODEL PLANE"
+      toolbar={<Select size="sm" options={['route: capability', 'route: latency', 'route: pinned']} value="route: capability" onChange={() => {}} />}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="cpu" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, flex: 1 }}>{m.name}</h2>
+          <StatusPill status={m.st} pulse={m.st === 'healthy'} label={m.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={m.tps} label="THROUGHPUT" size="sm" />
+            <StatBlock value="0.42s" label="FIRST TOKEN · NFR-PERF-1" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>WEIGHTS PROVENANCE</div>
+          {[['Source', 'open weights · vendored'], ['Digest', 'sha3:77aa…41c9'], ['Signature', 'ML-DSA verified on load · fails closed'], ['Serving', 'continuous batching · KV-cache'], ['Egress', 'none · weights never leave']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 76, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <Terminal title="CANARY PROMPTS" lines={['> mimir models canary ' + m.name.toLowerCase().replace(' ', '-'), 'grounding   24/24 OK', 'refusals    18/18 OK', 'latency     p99 0.61s', '# canary battery clean']} />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="DD-4" title="Local AI processing via the Mimir layer" />
+          <ProvenanceTag id="FR-MI-8" title="Expose inference to Forge, Bifrost, Heimdall over internal PQ-mTLS" /><ProvenanceTag id="FR-MI-1" title="Serve open-weight model families in-enclosure" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={4}>MODEL PLANE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Model serving</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="3" label="FAMILIES" size="sm" />
+        <StatBlock value="8×" label="GPU POOL" size="sm" />
+        <StatBlock value="0" label="EXTERNAL CALLS" size="sm" accent />
+      </div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        {MODELS.map((mm, i) => (
+          <Card key={mm.name} size="md" interactive accentRule={i === sel} onClick={() => setSel(i)} style={{ flex: 1, borderColor: i === sel ? 'var(--accent)' : undefined }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Icon name="cpu" size={16} color="var(--accent)" />
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, color: 'var(--text-heading)' }}>{mm.name}</span>
+              <span style={{ marginLeft: 'auto' }}><StatusPill status={mm.st} pulse={false} label={mm.stl} /></span>
+            </div>
+            <p style={{ margin: '10px 0 12px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{mm.role}</p>
+            <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
+              <span>{mm.quant}</span><span>CTX {mm.ctx}</span><span>{mm.gpu}</span><span>{mm.tps}</span>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <div>
+        <SectionLabel number={5} muted>CONSUMERS · BY PRODUCT</SectionLabel>
+        <Table compact style={{ marginTop: 8 }}
+          columns={[
+            { header: 'Consumer', key: 'c', mono: true },
+            { header: 'Use', key: 'u' },
+            { header: 'Model', key: 'm', mono: true, width: 110 },
+            { header: 'Calls · 24h', key: 'n', mono: true, align: 'right', width: 100 },
+          ]}
+          rows={[
+            { c: 'mimir/agents', u: 'OAG chat, dispatch, triage', m: 'GLM 5.2', n: '4,812' },
+            { c: 'forge/assist', u: 'NL→transform, drift diagnosis', m: 'GLM 5.2', n: '210' },
+            { c: 'bifrost/risk', u: 'Release risk advisories', m: 'Nemotron', n: '38' },
+            { c: 'heimdall/options', u: 'Ranked courses of action', m: 'GLM 5.2', n: '96' },
+            { c: 'mcp/tools', u: 'Governed agent/tool access to the fabric (MCP)', m: 'GLM 5.2', n: '1,204' },
+          ]}
+        />
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

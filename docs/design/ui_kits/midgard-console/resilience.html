@@ -1,0 +1,96 @@
+<!-- @dsCard group="Midgard Console" viewport="1440x820" subtitle="Backup, tested restore, DR replication (SAD-00 §13)" name="Midgard · Resilience" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Resilience</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+const SNAPS = [
+  { store: 'Object store', last: '02:00', size: '412 GB', crypto: 'PQ-wrapped', restore: '38m · tested 6d ago', st: 'secure', stl: 'Current' },
+  { store: 'Metadata store', last: '02:00', size: '8.1 GB', crypto: 'PQ-wrapped', restore: '4m · tested 6d ago', st: 'secure', stl: 'Current' },
+  { store: 'Audit ledger', last: 'continuous', size: '96 GB', crypto: 'ML-DSA chain', restore: 'replicated · never restored over', st: 'secure', stl: 'Replicated' },
+  { store: 'Key store', last: '02:00', size: '14 MB', crypto: 'HSM-sealed', restore: 'ceremony · dual-control', st: 'gated', stl: 'Dual-control' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const [drill, setDrill] = React.useState(false);
+  const [log, setLog] = React.useState(['> midgard restore drill --store object-store --env staging', '# last drill 6d ago · 38m to verified']);
+  const s = SNAPS[sel];
+  const run = () => {
+    if (drill) return;
+    setDrill(true);
+    setLog(l => [...l, '> midgard restore drill --store object-store --env staging']);
+    [['fetch      snapshot 02:00 · integrity tags OK', 500], ['unwrap     DEKs via ML-KEM-1024 · KMS OK', 1300], ['restore    412 GB → staging · 34m (simulated)', 2200], ['verify     row counts + index parity ✓', 3000], ['# drill PASS · signed record #R-0812', 3400]].forEach(([line, t]) => setTimeout(() => setLog(l => [...l, line]), t));
+    setTimeout(() => setDrill(false), 3600);
+  };
+  return (
+    <ConsoleShell product="midgard" active="resilience" context="ENCLOSURE / RESILIENCE"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="play" size={14} />} onClick={run} disabled={drill}>{drill ? 'Drilling…' : 'Run restore drill'}</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="database" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, flex: 1 }}>{s.store}</h2>
+          <StatusPill status={s.st} pulse={false} label={s.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={s.size} label="SNAPSHOT SIZE" size="sm" />
+            <StatBlock value={s.last} label="LAST SNAPSHOT" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>DR POSTURE</div>
+          {[['Within site', 'HA · zone-spread replicas'], ['Cross-site', 'optional · PQ-encrypted replication'], ['Air-gap', 'snapshots export as signed bundles'], ['Third-party cloud', 'never']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 110, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: v === 'never' ? 'var(--danger)' : 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PRINCIPLE</div>
+          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>A backup that has not been restored is a hope, not a backup. Every store has a scheduled restore drill into staging, and the drill result is signed lineage.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="NFR-PQ-2" title="Encrypted snapshots under PQ-wrapped keys" />
+          <ProvenanceTag id="NFR-PRV-1" title="Backups stay in-enclosure; no third-party cloud" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={12}>RESILIENCE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Backup & recovery</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="4/4" label="STORES SNAPSHOTTED" size="sm" />
+        <StatBlock value="6d" label="LAST TESTED RESTORE" size="sm" accent />
+        <StatBlock value="38m" label="OBJECT-STORE RTO" size="sm" />
+      </div>
+      <Table
+        columns={[
+          { header: 'Store', cell: x => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="database" size={14} color="var(--accent)" />{x.store}</span> },
+          { header: 'Last snapshot', key: 'last', mono: true, width: 120 },
+          { header: 'Size', key: 'size', mono: true, align: 'right', width: 90 },
+          { header: 'Protection', key: 'crypto', mono: true, width: 130 },
+          { header: 'Restore path', key: 'restore', width: 240 },
+          { header: 'State', cell: x => <StatusPill status={x.st} pulse={false} label={x.stl} />, width: 130 },
+        ]}
+        rows={SNAPS} selectedIndex={sel} onRowClick={setSel}
+      />
+      <Terminal title={drill ? 'RESTORE DRILL · RUNNING' : 'RESTORE DRILL LOG'} lines={log} style={{ flex: 1, overflowY: 'auto' }} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

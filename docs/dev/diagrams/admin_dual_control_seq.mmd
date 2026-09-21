@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant A1 as Admin (requester)
+    participant P as Admin panel
+    participant PR as Privilege service
+    participant A2 as Second approver
+    participant O as Action orchestrator
+    participant S as Target subsystem
+    participant L as Audit ledger
+    A1->>P: request sensitive action (e.g. key rotation)
+    P->>PR: classify action risk
+    PR-->>P: requires dual-control + reason
+    P->>A1: prompt for justification
+    A1->>P: submit justification
+    P->>A2: request approval (out-of-band notify)
+    A2->>P: approve (or deny) with reason
+    P->>PR: verify approver != requester, roles valid
+    PR->>O: authorise (time-boxed token)
+    O->>S: execute via subsystem API
+    S-->>O: result
+    O->>L: PQ-signed audit (who/what/why/approver)
+    P-->>A1: outcome

@@ -1,0 +1,121 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="forge.midgard.eu · product page with early-access signup" name="forge.midgard.eu" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Forge · Data operations for the enclosure</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-forge">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, ProductMark, Button, Badge, StatusPill, SectionLabel, Terminal, StatBlock, Card, Tag } = NS;
+
+function Hero({ eyebrow, headline, sub, seals, stats }) {
+  return (
+    <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(64px, 9vw, 120px) clamp(16px, 4vw, 36px) clamp(44px, 6vw, 84px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>{seals}</div>
+        <div className="mg-label" style={{ marginBottom: 14 }}>{eyebrow}</div>
+        <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 3.8rem)', lineHeight: 1.06, maxWidth: 780, fontWeight: 800 }}>{headline}</h1>
+        <p style={{ margin: '20px 0 0', fontSize: 'clamp(1rem, 1.6vw, 1.125rem)', color: 'var(--text-body)', maxWidth: 600, lineHeight: 1.7 }}>{sub}</p>
+        <div style={{ display: 'flex', gap: 12, marginTop: 30, flexWrap: 'wrap' }}>
+          <a href="#early-access" style={{ textDecoration: 'none' }}><Button variant="primary" size="lg" iconRight={<Icon name="arrow-right" size={16} />}>Request early access</Button></a>
+          <a href="index.html" style={{ textDecoration: 'none' }}><Button variant="ghost" size="lg">The full suite →</Button></a>
+        </div>
+        <div style={{ display: 'flex', gap: 'clamp(24px, 5vw, 56px)', marginTop: 'clamp(36px, 5vw, 64px)', flexWrap: 'wrap' }}>{stats}</div>
+      </div>
+    </section>
+  );
+}
+
+function Capabilities({ num, title, items }) {
+  return (
+    <section style={{ padding: 'clamp(44px, 7vw, 88px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <SectionLabel number={num}>CAPABILITIES</SectionLabel>
+        <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 30px', maxWidth: 680 }}>{title}</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: 14 }}>
+          {items.map(([icon, t, d]) => (
+            <Card key={t} size="md">
+              <Icon name={icon} size={20} color="var(--accent)" />
+              <h3 style={{ fontSize: 'var(--fs-body)', margin: '12px 0 7px' }}>{t}</h3>
+              <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65 }}>{d}</p>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Showcase({ num, title, body, terminal, reverse }) {
+  return (
+    <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: 'clamp(44px, 7vw, 88px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 'clamp(24px, 4vw, 48px)', flexWrap: 'wrap', alignItems: 'center', flexDirection: reverse ? 'row-reverse' : 'row' }}>
+        <div style={{ flex: '1 1 320px' }}>
+          <SectionLabel number={num}>IN PRACTICE</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 12px', maxWidth: 480 }}>{title}</h2>
+          <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-muted)', lineHeight: 1.7, maxWidth: 480 }}>{body}</p>
+        </div>
+        {terminal}
+      </div>
+    </section>
+  );
+}
+
+function Standalone({ num, line }) {
+  return (
+    <section style={{ padding: 'clamp(36px, 6vw, 72px) clamp(16px, 4vw, 36px)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <SectionLabel number={num} muted>COMPOSABLE</SectionLabel>
+        <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-body)', flex: '1 1 400px', lineHeight: 1.65 }}>{line}</p>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>MIDGARD CORE REQUIRED · EVERYTHING ELSE OPTIONAL</span>
+      </div>
+    </section>
+  );
+}
+
+
+function App() {
+  return (
+    <SiteShell active="forge">
+      <Hero
+        eyebrow="01 // FORGE · DATA OPERATIONS"
+        headline={<>Your data, versioned like code.<br /><span style={{ color: 'var(--text-muted)' }}>Sealed like state secrets.</span></>}
+        sub="Forge ingests from any source, transforms through low-code and pro-code pipelines over the same contracts, and versions every dataset with branches, diffs, and reproducible rebuilds, then projects it into the object fabric."
+        seals={<><StatusPill status="secure" label="PQ-SEALED AT REST" pulse={false} /><Badge tone="accent">OPEN-SOURCE CORE</Badge></>}
+        stats={<><StatBlock value="v42" label="EVERY DATASET VERSIONED" /><StatBlock value="2/2" label="REBUILDS BIT-IDENTICAL" accent /><StatBlock value="0" label="OUTBOUND CONNECTIONS" /></>}
+      />
+      <Capabilities num={2} title="From raw source to governed objects, one lineage."
+        items={[
+          ['workflow', 'Dual-mode pipelines', 'A visual builder and a pro-code IDE compile to the same typed contracts, and interoperate in a single pipeline.'],
+          ['git-branch', 'Git-style data versioning', 'Immutable, content-addressed snapshots with branches and lineage. Rebuild any version, bit-identical.'],
+          ['database', 'Typed connectors', 'Databases, object stores, APIs, files, streams: sandboxed, inbound-pull only, credentials held by the platform KMS.'],
+          ['activity', 'Health gates every build', 'Expectations run on every build; failures block promotion before bad data reaches anyone.'],
+          ['sparkles', 'AI-assisted transforms', 'Describe the transform; Mimir drafts it locally. Every suggestion is a preview diff that a human commits.'],
+          ['boxes', 'Object projection', 'Curated datasets map to object and link types with markings carried through, so policy follows the data.'],
+        ]} />
+      <Showcase num={3} title="A build you can trust twice."
+        body="Every build resolves its sources over PQ-mTLS, runs its expectations, seals the result under wrapped keys, and signs the lineage. Run it again and you get the same bytes."
+        terminal={<Terminal title="FORGE BUILD" style={{ flex: '1 1 360px' }} lines={[
+          '> forge build flight_tracks --branch main',
+          'resolve    sources 2/2 · PQ-mTLS OK',
+          'transform  clean + fuse · 6/6 steps',
+          'health     expectations 12/12 ✓',
+          'seal       AES-256-GCM · ML-KEM-1024 wrap',
+          'project    12,408 objects → fabric',
+          '# v42 OK · reproducible · lineage signed',
+        ]} />}
+      />
+      <Standalone num={4} line="Midgard + Forge is a complete data-operations platform on its own. Add Mimir for AI-assisted authoring, Bifrost for governed promotion, Heimdall to feed the operational picture." />
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

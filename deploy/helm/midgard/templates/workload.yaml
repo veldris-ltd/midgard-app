@@ -1,0 +1,327 @@
+{{- /*
+One hardened StatefulSet + Service + NetworkPolicies per enabled service. Non-root,
+read-only root filesystem, no capabilities, the restricted seccomp profile, probes and
+resource limits; a single replica with its own volume, because each service holds a
+single-writer state directory. [AC-B-1] [AC-B-2] [RC-18] [RC-33] [NFR-SEC-1]
+*/ -}}
+{{- define "midgard.hardened" -}}
+allowPrivilegeEscalation: false
+readOnlyRootFilesystem: true
+capabilities:
+  drop: ["ALL"]
+{{- end -}}
+{{- range .Values.services }}
+{{- if .enabled }}
+{{- $image := $.Values.image.single | default (printf "%s/%s:%s" $.Values.image.registry .name $.Values.image.tag) }}
+{{- $eb := $.Values.egressBroker }}
+{{- $broker := and $eb.enabled (eq .name $eb.service) }}
+{{- $ms := $.Values.modelServing }}
+{{- $model := and $ms.enabled (eq .name $ms.service) }}
+{{- $args := .args }}
+{{- if $broker }}
+{{- $args = concat $args (list "--egress-routes" "/egress-routes/routes.json") }}
+{{- end }}
+{{- if .sourcesSecret }}
+{{- $args = concat $args (list "--secrets-dir" "/secrets") }}
+{{- end }}
+{{- if $model }}
+{{- $args = concat $args (list "--engine" $ms.engine "--model-dir" (printf "/models/%s" $ms.modelDir) "--model-trust" "/model-trust/model-signing.pub" "--sidecar" "127.0.0.1:8080") }}
+{{- end }}
+{{- $nodeSelector := .nodeSelector }}
+{{- $tolerations := .tolerations }}
+{{- if $model }}
+{{- $nodeSelector = $ms.nodeSelector | default $nodeSelector }}
+{{- $tolerations = $ms.tolerations | default $tolerations }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+    app.kubernetes.io/part-of: midgard
+spec:
+  serviceName: {{ .name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .name }}
+        app.kubernetes.io/part-of: midgard
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with $tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with .affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- if or .seed $broker }}
+      initContainers:
+      {{- end }}
+      {{- if $broker }}
+        # Render the egress broker's configuration from the routes, refusing any job
+        # whose source is not one of the broker's local ports.
+        - name: egress-config
+          image: {{ $image }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- if $.Values.image.single }}
+          command: ["forge-egress"]
+          {{- else }}
+          env:
+            - name: MIDGARD_SERVICE
+              value: forge-egress
+          {{- end }}
+          args: ["--routes", "/egress-routes/routes.json", "--jobs", "/jobs/jobs.json",
+                 "--ca-dir", "/etc/egress/ca", "--out", "/egress/haproxy.cfg"]
+          securityContext:
+{{ include "midgard.hardened" . | indent 12 }}
+          resources:
+{{ toYaml $.Values.defaultResources | indent 12 }}
+          volumeMounts:
+            - { name: egress, mountPath: /egress }
+            - { name: egress-routes, mountPath: /egress-routes, readOnly: true }
+            - { name: jobs, mountPath: /jobs, readOnly: true }
+            {{- if not $.Values.image.single }}
+            - { name: trust, mountPath: /trust, readOnly: true }
+            {{- end }}
+      {{- end }}
+      {{- if .seed }}
+        # First start only: unpack the provisioned state (keys, policy, ledger) into the
+        # volume. Later starts keep what the service has written.
+        - name: seed
+          image: {{ $image }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          # The volume's root belongs to the node, so leave its own mode and times alone.
+          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          securityContext:
+{{ include "midgard.hardened" . | indent 12 }}
+          resources:
+{{ toYaml $.Values.defaultResources | indent 12 }}
+          volumeMounts:
+            - { name: state, mountPath: /state }
+            - { name: seed, mountPath: /seed, readOnly: true }
+      {{- end }}
+      containers:
+        - name: {{ .name }}
+          image: {{ $image }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- if $.Values.image.single }}
+          command: [{{ .binary | quote }}]
+          {{- else }}
+          env:
+            - name: MIDGARD_SERVICE
+              value: {{ .name }}
+          {{- end }}
+          args: {{ toJson $args }}
+          ports:
+            {{- range .ports }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+            {{- end }}
+          securityContext:
+{{ include "midgard.hardened" . | indent 12 }}
+          resources:
+{{ toYaml (.resources | default $.Values.defaultResources) | indent 12 }}
+          readinessProbe:
+            httpGet: { path: {{ .probe.path }}, port: {{ .probe.port }} }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            {{- if $model }}
+            # With a model sidecar, readiness waits on the sidecar; liveness must not.
+            {{- end }}
+            httpGet: { path: {{ if $model }}/healthz{{ else }}{{ .probe.path }}{{ end }}, port: {{ .probe.port }} }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /state }
+            {{- if .identity }}
+            - { name: identity, mountPath: /identity, readOnly: true }
+            {{- end }}
+            {{- if .jobsConfigMap }}
+            - { name: jobs, mountPath: /jobs, readOnly: true }
+            {{- end }}
+            {{- if $broker }}
+            - { name: egress-routes, mountPath: /egress-routes, readOnly: true }
+            {{- end }}
+            {{- if .sourcesSecret }}
+            - { name: sources, mountPath: /secrets, readOnly: true }
+            {{- end }}
+            {{- if $model }}
+            - { name: models, mountPath: /models, readOnly: true }
+            - { name: model-trust, mountPath: /model-trust, readOnly: true }
+            {{- end }}
+            {{- if not $.Values.image.single }}
+            - { name: trust, mountPath: /trust, readOnly: true }
+            {{- end }}
+        {{- if $model }}
+        # The model engine, on the pod's loopback only, reading the weights read-only.
+        - name: model-sidecar
+          image: {{ $ms.image }}
+          imagePullPolicy: {{ $ms.pullPolicy | default "IfNotPresent" }}
+          args: {{ toJson $ms.sidecarArgs }}
+          securityContext:
+{{ include "midgard.hardened" . | indent 12 }}
+          resources:
+{{ toYaml ($ms.resources | default $.Values.defaultResources) | indent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: models, mountPath: /models, readOnly: true }
+        {{- end }}
+        {{- if $broker }}
+        # TLS 1.3 to each declared upstream, verified against its pinned CA; nothing else.
+        - name: egress-broker
+          image: {{ $eb.image }}
+          imagePullPolicy: IfNotPresent
+          args: ["haproxy", "-f", "/egress/haproxy.cfg"]
+          securityContext:
+{{ include "midgard.hardened" . | indent 12 }}
+          resources:
+{{ toYaml $.Values.defaultResources | indent 12 }}
+          volumeMounts:
+            - { name: egress, mountPath: /egress, readOnly: true }
+            - { name: egress-ca, mountPath: /etc/egress/ca, readOnly: true }
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .identity }}
+        - name: identity
+          secret: { secretName: {{ .name }}-identity, defaultMode: 288 }
+        {{- end }}
+        {{- if .seed }}
+        - name: seed
+          secret: { secretName: {{ .name }}-seed, defaultMode: 288 }
+        {{- end }}
+        {{- if .jobsConfigMap }}
+        - name: jobs
+          configMap: { name: {{ .jobsConfigMap }} }
+        {{- end }}
+        {{- if $broker }}
+        - name: egress
+          emptyDir: {}
+        - name: egress-routes
+          configMap: { name: {{ $eb.routesConfigMap }} }
+        - name: egress-ca
+          secret: { secretName: {{ $eb.caSecret }}, defaultMode: 288 }
+        {{- end }}
+        {{- if .sourcesSecret }}
+        - name: sources
+          secret: { secretName: {{ .sourcesSecret }}, defaultMode: 288 }
+        {{- end }}
+        {{- if $model }}
+        - name: models
+          persistentVolumeClaim: { claimName: {{ $ms.modelsClaim }}, readOnly: true }
+        - name: model-trust
+          configMap: { name: {{ $ms.trustConfigMap }} }
+        {{- end }}
+        {{- if not $.Values.image.single }}
+        - name: trust
+          configMap: { name: {{ $.Values.trustKeyConfigMap }} }
+        {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .storage | default "64Mi" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .name }}
+  ports:
+    {{- range .ports }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .port }}
+    {{- end }}
+---
+# Who may reach {{ .name }}, port by port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ .name }}-ingress
+  namespace: {{ $.Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .name }}
+  policyTypes: [Ingress]
+  ingress:
+    {{- range .ports }}
+    - ports:
+        - { protocol: TCP, port: {{ .port }} }
+      {{- if not (has "*" .from) }}
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: {{ toJson .from }}
+      {{- end }}
+    {{- end }}
+{{- if or .talksTo $broker }}
+---
+# The service ports {{ .name }} may reach.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ .name }}-egress
+  namespace: {{ $.Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .name }}
+  policyTypes: [Egress]
+  egress:
+    {{- range .talksTo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .name }}
+      ports:
+        - { protocol: TCP, port: {{ .port }} }
+    {{- end }}
+    {{- if $broker }}
+    {{- range $eb.upstreamPorts }}
+    # An egress broker upstream port, outside the cluster.
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: TCP, port: {{ . }} }
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

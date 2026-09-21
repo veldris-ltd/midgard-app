@@ -1,0 +1,20 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph orion["Everything Orion does (Phases 1-3)"]
+        sense["Sense / detect / track"]:::orion
+        fuse["Fuse / federate / build 3D picture"]:::orion
+        analyse["Analyse / rank / simulate"]:::orion
+        present["Present options + evidence"]:::orion
+    end
+    gate{"HUMAN AUTHORISATION\n(mandatory, audited,\nno bypass in design)"}:::gate
+    subgraph out["Outside Orion's scope by design"]
+        exec["Effects execution"]:::forbidden
+        weapon["Weapon / fire control"]:::forbidden
+        cyber["Offensive cyber reach"]:::forbidden
+    end
+    sense --> fuse --> analyse --> present --> gate
+    gate -->|"authorised humans act in\nseparate, accountable systems"| out
+    gate -.->|"Orion NEVER crosses\nthis line autonomously"| out
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef gate fill:#B23B3B,color:#fff,stroke:#7A2727,stroke-width:3px
+    classDef forbidden fill:#4A4A4A,color:#fff,stroke:#2A2A2A,stroke-dasharray: 5 5

@@ -1,0 +1,48 @@
+# The licence allow-list for everything that ships in the OSS core. [FR-MS-6]
+#
+# `mg-scan` refuses any component whose licence expression cannot be satisfied by
+# this list, and any component with no licence metadata at all. Unknown is a
+# refusal, not a warning: a dependency nobody can identify the terms of is a
+# dependency nobody can agree to.
+#
+# The check is expression-aware. A component licensed `MIT OR Apache-2.0` passes
+# if *either* is allowed; `(MIT OR Apache-2.0) AND Unicode-3.0` requires the OR
+# to be satisfiable *and* Unicode-3.0 to be allowed. That matters because
+# dual-licensing is the norm in the Rust ecosystem and treating the whole string
+# as an opaque token would reject almost everything.
+
+[allowed]
+# Every identifier here is OSI-approved. One line each on why it is acceptable
+# for a project that ships under Apache-2.0.
+
+"Apache-2.0" = "The suite's own licence. Patent grant, compatible with our distribution."
+"MIT" = "Permissive, no copyleft, no patent clause to reconcile. Ubiquitous in the Rust ecosystem."
+"BSD-3-Clause" = "Permissive; the non-endorsement clause is satisfied by not using contributors' names in promotion."
+"BSD-1-Clause" = "Permissive, weaker than BSD-3. Appears only as an alternative in a dual/triple licence."
+"Unicode-3.0" = "The Unicode data licence, required by unicode-ident. Permissive, data-only."
+"LLVM-exception" = "An exception modifier on Apache-2.0 (`Apache-2.0 WITH LLVM-exception`), not a licence in its own right. It relaxes Apache-2.0, so anything it modifies stays acceptable."
+
+# Deliberately NOT allowed, recorded so the omission reads as a decision rather
+# than an oversight:
+#   GPL-*, AGPL-*, LGPL-*  copyleft — incompatible with distributing the suite
+#                          under Apache-2.0
+#   MPL-2.0                file-level copyleft; permitted only via an exception
+#                          below, with the obligations understood
+#   CC0-1.0 / Unlicense    public-domain dedications are fine for DATA (the
+#                          vendored advisory database is CC0) but are not
+#                          accepted for code, whose provenance we want stated
+#   NOASSERTION            not a licence
+
+[exceptions]
+# A component allowed despite failing the rules above. Every entry MUST carry an
+# owner, a reason, and an expiry — an expired exception FAILS the gate, so this
+# table cannot quietly become permanent. [AC-RF-SC-4d]
+#
+# Format:
+#   [exceptions."<crate>"]
+#   licence = "<the expression being permitted>"
+#   owner   = "<a person, not a team>"
+#   reason  = "<why this is acceptable, and what would change it>"
+#   expires = "YYYY-MM-DD"
+#
+# (empty)

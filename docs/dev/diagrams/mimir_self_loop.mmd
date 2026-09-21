@@ -1,0 +1,9 @@
+flowchart LR
+    obs["Observe\n(traces, metrics, evals)"] --> diag["Diagnose\n(anomaly / drift / attack)"]
+    diag --> decide{"Class?"}
+    decide -->|degraded| heal["Self-Heal\nretry / rollback / reroute"]
+    decide -->|drift| learn["Self-Learn\nqueue finetune / update memory"]
+    decide -->|attack| defend["Self-Defend\nquarantine / block / alert"]
+    heal --> obs
+    learn --> obs
+    defend --> obs

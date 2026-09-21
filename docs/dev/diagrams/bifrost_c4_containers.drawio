@@ -1,0 +1,32 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="bifrost_c4_containers" id="bifrost_c4_containers">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="bifrost" value="BIFROST" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="20" y="110" width="930" height="180" as="geometry"/></mxCell>
+        <mxCell id="user" value="Operator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="console" value="Delivery Console (Web)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="40" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="planner" value="Release Planner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="170" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="registry" value="Artefact Registry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="230" y="170" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="orch" value="Rollout Orchestrator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="420" y="170" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="agents" value="Cluster Agents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="620" y="170" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="risk" value="Risk Engine" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="790" y="170" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="state" value="Desired-State Store" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="230" y="320" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="mimir" value="Mimir" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="430" y="320" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="envs" value="Target environments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="610" y="320" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="fabric" value="Midgard (Seal)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="810" y="320" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="e0" value="HTTPS+PQ" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="console"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="console" target="planner"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="planner" target="registry"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="planner" target="risk"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="risk" target="mimir"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="planner" target="orch"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="orch" target="agents"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="agents" target="envs"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="orch" target="state"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="registry" target="fabric"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

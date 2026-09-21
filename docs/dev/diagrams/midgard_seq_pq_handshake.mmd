@@ -1,0 +1,14 @@
+sequenceDiagram
+    actor Client
+    participant GW as Object Gateway
+    participant IAM as Identity & Access
+    participant KMS as PQ Key Mgmt (Seal)
+    Client->>GW: ClientHello (X25519 + ML-KEM-768 shares)
+    GW->>IAM: validate device posture + identity
+    IAM-->>GW: identity assertion (ML-DSA signed)
+    GW-->>Client: ServerHello (hybrid key agreement)
+    Note over Client,GW: TLS 1.3 hybrid session established (classical+PQ)
+    Client->>GW: request + purpose token
+    GW->>KMS: unwrap object key (ML-KEM-1024)
+    KMS-->>GW: session data key (AES-256-GCM)
+    GW-->>Client: response (sealed payload)

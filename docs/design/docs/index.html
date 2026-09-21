@@ -1,0 +1,131 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Overview</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section, SubHead, Demo, Code } = window.Docs;
+const { ProductMark, Icon, StatBlock, Terminal, Badge, Button, SectionLabel, StatusPill, Card } = window.Docs.NS;
+
+const PRODUCTS = [
+  { id: 'midgard', name: 'Midgard', role: 'Core platform, identity, object fabric, governance, PQ crypto substrate. The enclosure everything runs inside.', vs: 'Platform core', hex: 'var(--midgard-500)', kit: '../ui_kits/midgard-console/index.html' },
+  { id: 'forge', name: 'Forge', role: 'Data operations, ingest, transform, version like source control, project into the fabric.', vs: 'Foundry', hex: 'var(--forge-500)', kit: '../ui_kits/forge/index.html' },
+  { id: 'mimir', name: 'Mimir', role: 'Local agentic AI, GLM / Nemotron / Gemma in-enclosure, OAG grounding, Evals, self-* loops.', vs: 'AIP', hex: 'var(--mimir-500)', kit: '../ui_kits/mimir/index.html' },
+  { id: 'bifrost', name: 'Bifrost', role: 'Continuous delivery, PQ-signed artefacts, ring rollouts, fleet upgrades, offline bundles.', vs: 'Apollo', hex: 'var(--bifrost-500)', kit: '../ui_kits/bifrost/index.html' },
+  { id: 'heimdall', name: 'Heimdall', role: 'Operational fusion, feeds into one live picture, human-gated decision workflows.', vs: 'Maven', hex: 'var(--heimdall-500)', kit: '../ui_kits/heimdall/index.html' },
+];
+
+const PRINCIPLES = [
+  { icon: 'shield-check', title: 'Sovereign by construction', body: 'Nothing leaves the enclosure. Interfaces never assume connectivity, telemetry, or hosted services. Design for air-gap first.' },
+  { icon: 'lock', title: 'Post-quantum by default', body: 'Crypto state is always visible: seals, signatures, and verification are visible UI, not settings buried three levels deep.' },
+  { icon: 'crosshair', title: 'One accent at a time', body: 'Each product owns a single hue. A screen carries exactly one accent: the product you are inside. Status colours are for state only.' },
+  { icon: 'fingerprint', title: 'Provenance everywhere', body: 'Every claim has a source, every action has lineage. Provenance tags, audit trails, and human gates are house devices, not afterthoughts.' },
+];
+
+function App() {
+  return (
+    <DocsShell active="overview">
+      <div className="mg-grid-bg" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-sunken)', padding: '64px 56px', marginBottom: 56, position: 'relative', overflow: 'hidden' }}>
+        <SectionLabel number={0}>THE ENCLOSURE</SectionLabel>
+        <h1 style={{ fontSize: 'var(--fs-display)', lineHeight: 'var(--lh-tight)', maxWidth: 780, marginTop: 16 }}>One system.<br />Five wardens.</h1>
+        <p style={{ fontSize: 'var(--fs-body-lg)', lineHeight: 1.7, color: 'var(--text-muted)', maxWidth: 640, marginTop: 18, textWrap: 'pretty' }}>
+          The design system for the Midgard platform suite: a sovereign, open-source, post-quantum alternative to the Palantir family. Built for designers and engineers shipping operator consoles that people trust with consequential decisions.
+        </p>
+        <div style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' }}>
+          <a href="../site/index.html" style={{ textDecoration: 'none' }}><Button variant="outline">Marketing site ↗</Button></a>
+          <a href="foundations.html" style={{ textDecoration: 'none' }}><Button variant="primary" iconRight={<Icon name="arrow-right" size={15} />}>Start with foundations</Button></a>
+          <a href="components.html" style={{ textDecoration: 'none' }}><Button variant="secondary">Browse components</Button></a>
+        </div>
+        <div style={{ display: 'flex', gap: 44, marginTop: 44, flexWrap: 'wrap' }}>
+          <StatBlock value="5" label="PRODUCTS · 1 LANGUAGE" size="sm" />
+          <StatBlock value="28" label="COMPONENTS" size="sm" />
+          <StatBlock value="3" label="COLOUR MODES" size="sm" />
+          <StatBlock value="47" label="SCREENS" size="sm" />
+          <StatBlock value="28" label="GOVERNED FLOWS" size="sm" />
+        </div>
+      </div>
+
+      <Section num={1} title="The suite" lead="Five products, one visual language. Every product inherits the same ink surfaces, type system, and governance chrome, and differs in exactly one variable: its accent hue, applied via a theme scope class.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+          {PRODUCTS.map(p => (
+            <a key={p.id} href={p.kit} style={{ textDecoration: 'none' }}>
+              <Card interactive size="md" style={{ height: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <ProductMark product={p.id} size="sm" showDescriptor={false} />
+                  <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>VS · {p.vs.toUpperCase()}</span>
+                </div>
+                <div style={{ height: 3, borderRadius: 2, background: p.hex, margin: '14px 0' }} />
+                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', lineHeight: 1.6, color: 'var(--text-muted)' }}>{p.role}</p>
+                <div style={{ marginTop: 14, fontSize: 'var(--fs-sm)', color: p.hex, fontWeight: 600 }}>Open console →</div>
+              </Card>
+            </a>
+          ))}
+          <Card size="md" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 10, background: 'transparent', borderStyle: 'dashed' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>THEME SCOPES</span>
+            <Code>{'<body class="theme-forge">\n  <!-- --accent → ember orange -->\n</body>'}</Code>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)' }}>Semantic --accent-* tokens re-point per scope; components adapt unmodified.</span>
+          </Card>
+        </div>
+      </Section>
+
+      <Section num={2} title="Principles" lead="Derived from the suite's design drivers (DD-1…DD-8), the same provenance discipline the architecture documents demand of every claim.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 14 }}>
+          {PRINCIPLES.map((p, i) => (
+            <Card key={i} accentRule size="md">
+              <Icon name={p.icon} size={20} color="var(--accent)" />
+              <h3 style={{ fontSize: 'var(--fs-h4)', margin: '12px 0 8px' }}>{p.title}</h3>
+              <p style={{ margin: 0, fontSize: 'var(--fs-sm)', lineHeight: 1.65, color: 'var(--text-muted)', textWrap: 'pretty' }}>{p.body}</p>
+            </Card>
+          ))}
+        </div>
+      </Section>
+
+      <Section num={3} title="Colour modes" lead="The product default is dark: the platform lives in the dark. Light mode is a full alternative for documentation, print, and daylight operations; system mode follows the OS. Try the mode toggle in the header, and the platform selector next to it to re-scope the whole docs to any product accent.">
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          {[['dark', 'Default. Ink ramp surfaces, white headings, accent glow reserved for primary actions.'], ['light', 'Paper ramp replaces ink; the grey text ramp inverts; accent hover darkens instead of lightening.'], ['system', 'Resolves to light or dark from prefers-color-scheme, live.']].map(([m, d]) => (
+            <Card key={m} size="md" style={{ flex: 1, minWidth: 240 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', letterSpacing: '0.12em', color: 'var(--text-heading)', textTransform: 'uppercase' }}>{m}</span>
+                {m === 'dark' && <Badge tone="accent">DEFAULT</Badge>}
+              </div>
+              <p style={{ margin: '10px 0 0', fontSize: 'var(--fs-sm)', lineHeight: 1.6, color: 'var(--text-muted)' }}>{d}</p>
+            </Card>
+          ))}
+        </div>
+        <SubHead>Wiring</SubHead>
+        <Code>{'<link rel="stylesheet" href="styles.css">\n<script src="docs/mode.js"><\/script>  <!-- persists mg-mode; applies .mode-light to <html> -->\n\n/* or manually: */\n<html class="mode-light"> …paper surfaces…\n<html>              …ink surfaces (default)…'}</Code>
+      </Section>
+
+      <Section num={4} title="Getting started">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div>
+            <SubHead>Designers</SubHead>
+            <p style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)', lineHeight: 1.65, color: 'var(--text-muted)' }}>
+              Read <a href="foundations.html">Foundations</a> for colour, type, and voice; <a href="patterns.html">Patterns</a> for console anatomy and governance chrome; <a href="screens.html">Screens</a> for the five reference consoles. The Design System tab in this project renders every token and component specimen.
+            </p>
+            <StatusPill status="secure" label="TOKENS ARE THE CONTRACT" pulse={false} />
+          </div>
+          <div>
+            <SubHead>Engineers</SubHead>
+            <Terminal title="CONSUME" lines={[
+              '> link styles.css            # tokens + base',
+              '> load ds-loader.js          # component namespace',
+              "> body class='theme-forge'   # pick your product",
+              '# style against var(--*) only, never hex literals',
+            ]} />
+          </div>
+        </div>
+      </Section>
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

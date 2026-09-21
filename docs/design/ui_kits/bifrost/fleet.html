@@ -1,0 +1,105 @@
+<!-- @dsCard group="Bifrost" viewport="1440x820" subtitle="Desired vs actual state across every installation; reconciliation" name="Bifrost · Fleet & Drift" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Bifrost · Fleet & Drift</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-bifrost">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const FLEET = [
+  { inst: 'enclave-dub-01', ring: 'PROD-EU', desired: '2.5.0', actual: '2.5.0', drift: 'none', agent: 'ML-DSA ✓', st: 'secure', stl: 'Converged' },
+  { inst: 'enclave-fra-02', ring: 'PROD-EU', desired: '2.5.0', actual: '2.5.0', drift: 'none', agent: 'ML-DSA ✓', st: 'secure', stl: 'Converged' },
+  { inst: 'enclave-ams-03', ring: 'PROD-EU', desired: '2.5.0', actual: '2.4.1', drift: 'version · held', agent: 'ML-DSA ✓', st: 'warn', stl: 'Health gate' },
+  { inst: 'site-north-ag', ring: 'AIR-GAP', desired: '2.5.0', actual: '2.4.0', drift: 'bundle pending', agent: 'offline', st: 'offline', stl: 'Awaiting courier' },
+  { inst: 'enclave-lon-01', ring: 'PROD-EU', desired: '2.5.0', actual: '2.5.0+cfg', drift: 'config · 1 key', agent: 'ML-DSA ✓', st: 'warn', stl: 'Config drift' },
+];
+function App() {
+  const [sel, setSel] = React.useState(4);
+  const f = FLEET[sel];
+  return (
+    <ConsoleShell product="bifrost" active="fleet" context="FLEET / DESIRED VS ACTUAL"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="refresh-cw" size={14} />}>Reconcile all</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="server" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{f.inst}</h2>
+          <StatusPill status={f.st} pulse={false} label={f.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={f.desired} label="DESIRED" size="sm" />
+            <StatBlock value={f.actual} label="ACTUAL" size="sm" accent={f.drift !== 'none'} />
+          </div>
+        </Card>
+        {f.drift === 'config · 1 key' && (
+          <Card size="sm" style={{ borderColor: 'var(--warn)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 6 }}>CONFIG DRIFT</div>
+            <Terminal lines={['- fusion.batch_window: 200ms', '+ fusion.batch_window: 350ms  # local edit']} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Button variant="primary" size="sm" fullWidth>Revert to desired</Button>
+              <Button variant="ghost" size="sm">Adopt</Button>
+            </div>
+          </Card>
+        )}
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>ON-HOST AGENT</div>
+          {[['Identity', f.agent === 'offline' ? 'signed bundle only' : 'workload · ML-DSA'], ['Instructions', 'signed · least-privilege'], ['Heartbeat', f.agent === 'offline' ? 'courier cycle' : '10s · healthy']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 100, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-B-3" title="Declarative release channels and fleet/installation management" />
+          <ProvenanceTag id="NFR-SEC-1" title="Least-privilege on-host agents, signed instructions" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={6}>FLEET</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Fleet & drift</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="73" label="INSTALLATIONS" size="sm" />
+        <StatBlock value="70" label="CONVERGED" size="sm" accent />
+        <StatBlock value="3" label="DRIFTED / HELD" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        {[['CONVERGED', '70', 'var(--secure)'], ['VERSION DRIFT', '2', 'var(--warn)'], ['CONFIG DRIFT', '1', 'var(--warn)']].map(([t, v, col]) => (
+          <Card key={t} size="sm" style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: col }} />
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: 'var(--text-heading)' }}>{v}</span>
+              <span className="mg-label" style={{ color: 'var(--text-faint)' }}>{t}</span>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <Table
+        columns={[
+          { header: 'Installation', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="server" size={14} color="var(--accent)" />{r.inst}</span> },
+          { header: 'Ring', key: 'ring', mono: true, width: 100 },
+          { header: 'Desired', key: 'desired', mono: true, width: 90 },
+          { header: 'Actual', key: 'actual', mono: true, width: 100 },
+          { header: 'Drift', key: 'drift', mono: true, width: 140 },
+          { header: 'Agent', cell: r => <Badge tone={r.agent === 'offline' ? 'neutral' : 'secure'}>{r.agent}</Badge>, width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 150 },
+        ]}
+        rows={FLEET} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

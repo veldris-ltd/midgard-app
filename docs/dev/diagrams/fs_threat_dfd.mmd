@@ -1,0 +1,15 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    gung["Gungnir projection"]:::gung
+    mon["Forseti monitor\n(independent)"]:::sent
+    world["World snapshot (read-only)"]:::datastore
+    human["Human (planner/operator)"]:::actor
+    audit["Audit ledger"]:::datastore
+    gung -->|"1 projection + baseline"| mon
+    mon -->|"2 reconcile"| world
+    mon -->|"3 verdict (PQ-signed)"| audit
+    mon -->|"4 flag / down-weight / HALT"| human
+    classDef gung fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B
+    classDef sent fill:#1E7A46,color:#fff,stroke:#125230
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56

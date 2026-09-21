@@ -1,0 +1,258 @@
+// Midgard — the client SDK edge. Every RPC a console / SDK can call over the
+// browser-facing HTTP/JSON gateway has a governing message + service definition
+// here (the object query/action surface lives in object_fabric.proto). This is the
+// typed contract the TypeScript/Python/… SDKs and the product consoles depend on;
+// internal service-to-service traffic uses the lean pq-mtls binary codec (its source
+// of truth is the Rust type definitions), NOT gRPC. [DD-6] SAD_00 §5.1, §9.1
+syntax = "proto3";
+
+package midgard.v1;
+
+import "midgard/v1/common.proto";
+
+// The read + governance surface the UI's single transport seam (`GatewayClient`)
+// calls. Object query/ApplyAction are in ObjectFabric; everything else is here.
+// Every call carries or is bound to a PolicyContext and is authorised + audited.
+service Gateway {
+  // List object *types* in the fabric registry (Object Explorer rows).
+  rpc ListObjectTypes(ListObjectTypesRequest) returns (ListObjectTypesResponse);
+
+  // Search-around: expand links from a seed object out to `hops`.
+  rpc SearchAround(SearchAroundRequest) returns (SearchAroundResponse);
+
+  // A snapshot of the most recent audit records (newest first).
+  rpc GetAudit(GetAuditRequest) returns (GetAuditResponse);
+
+  // Subscribe to the live audit lineage (server-streaming).
+  rpc AuditStream(AuditStreamRequest) returns (stream AuditStreamResponse);
+
+  // The active discretionary policy rules.
+  rpc ListPolicies(ListPoliciesRequest) returns (ListPoliciesResponse);
+
+  // Deny-by-default policy dry-run for a context against a marking.
+  rpc SimulatePolicy(SimulatePolicyRequest) returns (SimulatePolicyResponse);
+
+  // Platform read models (per-console views).
+  rpc ListIdentities(ListIdentitiesRequest) returns (ListIdentitiesResponse);
+  rpc ListKeys(ListKeysRequest) returns (ListKeysResponse);
+  rpc ListComputeJobs(ListComputeJobsRequest) returns (ListComputeJobsResponse);
+  rpc GetObservability(GetObservabilityRequest) returns (GetObservabilityResponse);
+  rpc GetResilience(GetResilienceRequest) returns (GetResilienceResponse);
+  rpc GetContractSurface(GetContractSurfaceRequest) returns (GetContractSurfaceResponse);
+}
+
+// ---- object type registry --------------------------------------------------
+
+message ListObjectTypesRequest {}
+
+message ListObjectTypesResponse {
+  repeated ObjectType object_types = 1;
+}
+
+message ObjectType {
+  string name = 1;
+  string api_name = 2;
+  uint32 property_count = 3;
+  string instance_count = 4;   // display string (e.g. "1.2k")
+  string marking = 5;
+  string compartment = 6;      // empty when none
+  repeated LinkType links = 7;
+  repeated ActionType actions = 8;
+  string updated = 9;
+}
+
+message LinkType {
+  string label = 1;
+}
+
+message ActionType {
+  string name = 1;
+  bool human_gated = 2;        // consequential actions require a human gate
+}
+
+// ---- search-around ---------------------------------------------------------
+
+message SearchAroundRequest {
+  PolicyContext policy = 1;
+  string seed_id = 2;
+  uint32 hops = 3;
+}
+
+message SearchAroundResponse {
+  SearchGraph graph = 1;
+}
+
+message SearchGraph {
+  string seed = 1;
+  repeated GraphNode nodes = 2;
+  repeated GraphEdge edges = 3;
+  string audit_id = 4;
+}
+
+message GraphNode {
+  string id = 1;
+  string label = 2;
+  string type_name = 3;
+  string marking = 4;
+  uint32 hop = 5;
+}
+
+message GraphEdge {
+  string from = 1;
+  string to = 2;
+  string label = 3;
+}
+
+// ---- audit -----------------------------------------------------------------
+
+message GetAuditRequest {
+  uint32 limit = 1;            // 0 = server default
+}
+
+message GetAuditResponse {
+  repeated AuditRecord records = 1;
+}
+
+message AuditStreamRequest {}
+
+message AuditStreamResponse {
+  AuditRecord record = 1;
+}
+
+// ---- policies & markings ---------------------------------------------------
+
+message ListPoliciesRequest {}
+
+message ListPoliciesResponse {
+  repeated PolicyRule rules = 1;
+}
+
+message PolicyRule {
+  string id = 1;
+  string name = 2;
+  string effect = 3;           // "allow" | "deny"
+  string marking = 4;
+  string purpose = 5;
+  repeated string roles = 6;
+}
+
+message SimulatePolicyRequest {
+  PolicyContext policy = 1;
+  string marking = 2;
+}
+
+message SimulatePolicyResponse {
+  PolicyDecision decision = 1;
+}
+
+message PolicyDecision {
+  string decision = 1;         // "grant" | "deny"
+  string matched_rule = 2;     // empty for deny-by-default
+  string reason = 3;
+  string audit_id = 4;
+}
+
+// ---- identity & access -----------------------------------------------------
+
+message ListIdentitiesRequest {}
+
+message ListIdentitiesResponse {
+  repeated Identity identities = 1;
+}
+
+message Identity {
+  string subject = 1;
+  string kind = 2;             // "user" | "service" | "agent"
+  string clearance = 3;
+  repeated string roles = 4;
+  repeated string groups = 5;
+  string status = 6;           // "active" | "suspended"
+  string last_seen = 7;
+}
+
+// ---- keys & crypto ---------------------------------------------------------
+
+message ListKeysRequest {}
+
+message ListKeysResponse {
+  repeated KeyRecord keys = 1;
+}
+
+message KeyRecord {
+  string id = 1;
+  string purpose = 2;
+  string alg = 3;
+  string custody = 4;          // "enclosure" | "hsm" | "client"
+  bool wrapped = 5;
+  string rotated = 6;
+  string status = 7;           // "active" | "rotating" | "retired"
+}
+
+// ---- compute ---------------------------------------------------------------
+
+message ListComputeJobsRequest {}
+
+message ListComputeJobsResponse {
+  repeated ComputeJob jobs = 1;
+}
+
+message ComputeJob {
+  string id = 1;
+  string kind = 2;
+  string backend = 3;
+  string state = 4;            // "queued" | "running" | "done" | "failed"
+  uint32 progress = 5;
+  string submitted = 6;
+}
+
+// ---- observability ---------------------------------------------------------
+
+message GetObservabilityRequest {}
+
+message GetObservabilityResponse {
+  repeated SloMetric metrics = 1;
+}
+
+message SloMetric {
+  string label = 1;
+  string value = 2;
+  string target = 3;
+  bool healthy = 4;
+}
+
+// ---- resilience ------------------------------------------------------------
+
+message GetResilienceRequest {}
+
+message GetResilienceResponse {
+  repeated RolloutState rollouts = 1;
+}
+
+message RolloutState {
+  string id = 1;
+  string ring = 2;
+  string version = 3;
+  uint32 progress = 4;
+  string state = 5;            // "pending" | "in-progress" | "healthy" | "rolled-back"
+  string health_gate = 6;      // "pass" | "watch" | "fail"
+}
+
+// ---- contract surface ------------------------------------------------------
+
+message GetContractSurfaceRequest {}
+
+message GetContractSurfaceResponse {
+  repeated RpcSurface surfaces = 1;
+}
+
+message RpcSurface {
+  string service = 1;
+  repeated RpcInfo rpcs = 2;
+}
+
+message RpcInfo {
+  string name = 1;
+  string request = 2;
+  string response = 3;
+  string note = 4;
+}

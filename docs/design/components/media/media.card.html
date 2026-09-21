@@ -1,0 +1,39 @@
+<!-- @dsCard group="Components" viewport="700x380" name="Media · Icon, ProductMark" subtitle="Glyphs & typographic identity" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:22px;background:var(--bg-page)}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .cap{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase;width:100%;margin:6px 0 2px}
+</style></head><body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+
+const { Icon, ProductMark } = NS;
+function Demo(){
+  const names = ['lock','shield-check','key','fingerprint','boxes','network','database','server','terminal','hammer','git-branch','workflow','table','brain-circuit','bot','sparkles','gauge','rocket','package','radio-tower','undo-2','eye','radar','map','crosshair','layers','activity','search'];
+  return (<>
+    <div className="cap">Icon · Lucide-substituted line glyphs</div>
+    <div className="row" style={{gap:14,color:'var(--grey-300)'}}>
+      {names.map(n=><Icon key={n} name={n} size={19}/>)}
+    </div>
+    <div className="cap" style={{marginTop:10}}>ProductMark · typographic stand-ins (no logos provided)</div>
+    <div className="row" style={{gap:26}}>
+      <ProductMark product="midgard"/>
+      <ProductMark product="forge"/>
+      <ProductMark product="mimir"/>
+    </div>
+    <div className="row" style={{gap:26}}>
+      <ProductMark product="bifrost"/>
+      <ProductMark product="heimdall"/>
+      <ProductMark product="midgard" size="sm" showDescriptor={false}/>
+    </div>
+  </>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body></html>

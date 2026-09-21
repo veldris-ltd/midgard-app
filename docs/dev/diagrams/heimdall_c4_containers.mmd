@@ -1,0 +1,28 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    user["fa:fa-user Operator / Analyst"]:::actor
+    subgraph heimdall["HEIMDALL"]
+        console["Operational Console (Web/Map)\n[React/TS/deck.gl]"]:::container
+        fusion["Fusion Engine\n(correlate/track)\n[Rust]"]:::container
+        ingest["Feed Ingest\n(streaming)\n[Rust]"]:::container
+        coa["COA & Decision Engine\n(via Mimir)\n[Python]"]:::container
+        alert["Alerting & Watch\n[Rust]"]:::container
+        picture[("Common Operating Picture Store")]:::datastore
+    end
+    mimir["Mimir (GLM 5.2)\nsummarise/rank/recommend"]:::external
+    fabric["Midgard Object Fabric (+ Seal)"]:::external
+    feeds["External feeds\n(sensors, data, APIs)"]:::external
+    user -->|HTTPS+PQ| console
+    console --> fusion
+    ingest --> feeds
+    ingest --> fusion
+    fusion --> picture
+    fusion --> fabric
+    console --> coa
+    coa --> mimir
+    coa --> fabric
+    fusion --> alert
+    classDef actor fill:#08427B,color:#fff
+    classDef container fill:#1168BD,color:#fff
+    classDef datastore fill:#1168BD,color:#fff
+    classDef external fill:#999999,color:#fff

@@ -1,0 +1,95 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="About Veldris Ltd · who builds the enclosure" name="midgard.eu/about" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · About Veldris</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, Button, Badge, StatusPill, SectionLabel, Terminal, StatBlock, Card } = NS;
+
+function App() {
+  return (
+    <SiteShell active="midgard">
+      <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(60px, 9vw, 110px) clamp(16px, 4vw, 36px) clamp(40px, 6vw, 72px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div className="mg-label" style={{ marginBottom: 14 }}>01 // ABOUT US</div>
+          <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 3.6rem)', lineHeight: 1.06, maxWidth: 780, fontWeight: 800 }}>
+            We build the walls.<br /><span style={{ color: 'var(--text-muted)' }}>You keep the keys.</span>
+          </h1>
+          <p style={{ margin: '20px 0 0', fontSize: 'var(--fs-body-lg)', color: 'var(--text-body)', maxWidth: 640, lineHeight: 1.7 }}>
+            Midgard is built by Veldris Ltd, a security engineering company with one conviction: organisations should be able to run world-class data, AI, and operations platforms without handing their most sensitive material to someone else's cloud.
+          </p>
+        </div>
+      </section>
+
+      <section style={{ padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <SectionLabel number={2}>WHY MIDGARD EXISTS</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 18px' }}>Sovereignty is not a feature tier.</h2>
+          <p style={{ margin: '0 0 14px', fontSize: 'var(--fs-body)', color: 'var(--text-body)', lineHeight: 1.75, maxWidth: 680 }}>
+            The platforms that run critical operations today mostly assume the opposite: your data flows to the vendor, your models are metered by the vendor, and leaving is a migration project. Midgard inverts that. The core is open source, every function runs inside your enclosure, and the cryptography is post-quantum from the first byte, because the material worth protecting today will still need protecting in twenty years.
+          </p>
+          <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-body)', lineHeight: 1.75, maxWidth: 680 }}>
+            Veldris's lineage is "Security by Design": products where protection is the substrate, not a setting. Midgard and its four child products (Forge, Mimir, Bifrost, and Heimdall) are that discipline applied to the whole operational stack.
+          </p>
+        </div>
+      </section>
+
+      <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <SectionLabel number={3}>HOW WE WORK</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 28px' }}>Three commitments, verifiable.</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 14 }}>
+            {[
+              ['git-branch', 'Open by default', 'Every product core ships under an OSI-approved licence and builds reproducibly from source. If our published build differs from yours, that is a finding.'],
+              ['lock', 'Trust nothing, prove everything', 'PQ signatures on artefacts, append-only lineage on actions, human gates on consequence. Claims you can audit, not claims you must believe.'],
+              ['eye-off', 'Your data is not our business model', 'No telemetry leaves your enclosure. No usage metering inside your walls. We sell engineering and support, never your information.'],
+            ].map(([icon, title, body]) => (
+              <Card key={title} size="lg">
+                <Icon name={icon} size={24} color="var(--accent)" />
+                <h3 style={{ fontSize: 'var(--fs-h5)', margin: '14px 0 8px' }}>{title}</h3>
+                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65 }}>{body}</p>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section style={{ padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <SectionLabel number={4}>THE COMPANY</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 20px' }}>Veldris Ltd, on the record.</h2>
+          <p style={{ margin: '0 0 20px', fontSize: 'var(--fs-body)', color: 'var(--text-body)', lineHeight: 1.75, maxWidth: 680 }}>
+            Midgard is created and maintained by Veldris Ltd. The core is open source; the commercial version of Midgard — the supported, enterprise and sovereign tiers — is operated and maintained by Veldris Ltd.
+          </p>
+          <Terminal lines={[
+            '> whoami --company',
+            'name        Veldris Ltd',
+            'website     veldris.io',
+            'focus       sovereign, post-quantum platform engineering',
+            'flagship    Midgard platform suite',
+            'commercial  operated & maintained by Veldris Ltd',
+            'registry    [company number · to be supplied]',
+            'office      [registered office address · to be supplied]',
+            'contact     hello@veldris.io',
+          ]} />
+          <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
+            <a href="contact.html" style={{ textDecoration: 'none' }}><Button variant="primary" iconRight={<Icon name="arrow-right" size={15} />}>Contact us</Button></a>
+            <a href="architecture.html" style={{ textDecoration: 'none' }}><Button variant="outline">Read the architecture</Button></a>
+          </div>
+        </div>
+      </section>
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

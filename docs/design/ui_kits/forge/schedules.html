@@ -1,0 +1,96 @@
+<!-- @dsCard group="Forge" viewport="1440x820" subtitle="Batch and streaming pipelines: cadence, triggers, run history" name="Forge · Schedules & Triggers" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Forge · Schedules & Triggers</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-forge">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const SCHED = [
+  { pipeline: 'flight_tracks_eu', mode: 'batch', trigger: 'cron · every 5m', last: 'OK · 1m42s', next: 'in 3m', st: 'healthy', stl: 'On schedule' },
+  { pipeline: 'sensor_fusion_live', mode: 'stream', trigger: 'continuous', last: 'running · 4d', next: '—', st: 'online', stl: 'Streaming' },
+  { pipeline: 'maintenance_rollup', mode: 'batch', trigger: 'on upstream commit', last: 'OK · 22s', next: 'on v43', st: 'healthy', stl: 'Event-driven' },
+  { pipeline: 'crew_roster_sync', mode: 'batch', trigger: 'cron · daily 02:00', last: 'FAIL · retry 2/3', next: '02:00', st: 'warn', stl: 'Retrying' },
+];
+function App() {
+  const [sel, setSel] = React.useState(1);
+  const s = SCHED[sel];
+  return (
+    <ConsoleShell product="forge" active="schedules" context="DATA OPS / SCHEDULES & TRIGGERS"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>New schedule</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name={s.mode === 'stream' ? 'radio-tower' : 'clock'} size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{s.pipeline}</h2>
+          <StatusPill status={s.st} pulse={s.st === 'online'} label={s.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={s.mode.toUpperCase()} label="MODE" size="sm" />
+            <StatBlock value={s.mode === 'stream' ? '0.4s' : '5m'} label={s.mode === 'stream' ? 'FUSION LAG' : 'CADENCE'} size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>TRIGGER RULES</div>
+          {[['Trigger', s.trigger], ['Backfill', s.mode === 'stream' ? 'checkpointed · resume' : 'auto on gap'], ['Concurrency', '1 · queue next'], ['On failure', 'retry 3× then alert']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 92, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        {s.st === 'warn' && (
+          <Card size="sm" style={{ borderColor: 'var(--warn)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 6 }}>RETRY 2/3</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>Source connection refused at 02:00. Next retry with backoff; alert fires if retry 3 fails. No partial version was committed.</p>
+          </Card>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-F-5" title="Batch and streaming pipelines with schedule/trigger management" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={6}>SCHEDULES</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Schedules & triggers</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="38" label="SCHEDULED" size="sm" />
+        <StatBlock value="4" label="STREAMING" size="sm" accent />
+        <StatBlock value="1" label="RETRYING" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Tag active>all</Tag><Tag>batch</Tag><Tag>streaming</Tag><Tag>event-driven</Tag><Tag>failing</Tag>
+      </div>
+      <Table
+        columns={[
+          { header: 'Pipeline', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name={r.mode === 'stream' ? 'radio-tower' : 'workflow'} size={14} color="var(--accent)" />{r.pipeline}</span> },
+          { header: 'Mode', key: 'mode', mono: true, width: 90 },
+          { header: 'Trigger', key: 'trigger', mono: true, width: 190 },
+          { header: 'Last run', key: 'last', mono: true, width: 150 },
+          { header: 'Next', key: 'next', mono: true, width: 90 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={r.st === 'online'} label={r.stl} />, width: 140 },
+        ]}
+        rows={SCHED} selectedIndex={sel} onRowClick={setSel}
+      />
+      <Terminal title="RUN LEDGER · TODAY" lines={[
+        '02:00  crew_roster_sync      FAIL  conn refused · retry queued',
+        '13:55  flight_tracks_eu      OK    1m42s · v41 → v42 · sealed',
+        '14:00  maintenance_rollup    OK    22s · triggered by v42',
+        '# every run recorded with lineage',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

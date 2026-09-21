@@ -1,0 +1,153 @@
+# Cross-host PQ-mTLS proof for the deployment-acceptance tier (RT-40 / RC-40.2).
+#
+# A responder Pod and an initiator Job run `pqmtls-probe` (crypto/pq-mtls example)
+# and complete a genuine hybrid X25519+ML-KEM-768 handshake over the pod network.
+# Pod anti-affinity forces the initiator onto a DIFFERENT node than the responder,
+# so a completed Job proves cross-HOST — not just cross-pod — PQ-mTLS. The runner
+# (run-deployment-tier.sh) additionally asserts the two landed on different nodes.
+#
+# The image must carry the probe binary at /usr/local/bin/pqmtls-probe (built with
+# --features backend-fips). Both sides share --ca-seed so they mutually trust an
+# ephemeral anchor; this checks the transport+crypto path, not production PKI.
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pqmtls-responder
+  labels:
+    app: pqmtls-responder
+    app.kubernetes.io/part-of: midgard
+    app.kubernetes.io/component: acceptance
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: responder
+      image: registry.enclosure.local/midgard/pqmtls-probe:0.0.0
+      command: ["pqmtls-probe"]
+      args: ["responder", "--listen", "0.0.0.0:8443", "--ca-seed", "40402"]
+      ports:
+        - name: mtls
+          containerPort: 8443
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits:   { cpu: "1", memory: 256Mi }
+      # No readiness probe: the responder serves exactly one connection, and a TCP
+      # probe would be it. The initiator retries its connection instead.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pqmtls-responder
+  labels:
+    app: pqmtls-responder
+spec:
+  selector:
+    app: pqmtls-responder
+  ports:
+    - name: mtls
+      port: 8443
+      targetPort: mtls
+---
+# Allow the initiator Job to reach the responder on 8443 (the enclosure namespace
+# is default-deny; this opens exactly that one hop for the probe).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pqmtls-probe
+spec:
+  podSelector:
+    matchLabels:
+      app: pqmtls-responder
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              job-name: pqmtls-probe
+      ports:
+        - protocol: TCP
+          port: 8443
+---
+# ... and let the initiator out to exactly that one hop (egress is default-deny too).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pqmtls-probe-egress
+spec:
+  podSelector:
+    matchLabels:
+      job-name: pqmtls-probe
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: pqmtls-responder
+      ports:
+        - protocol: TCP
+          port: 8443
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pqmtls-probe
+  labels:
+    app.kubernetes.io/part-of: midgard
+    app.kubernetes.io/component: acceptance
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 150
+  template:
+    metadata:
+      labels:
+        job-name: pqmtls-probe
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Force onto a different node than the responder → genuine cross-host.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: pqmtls-responder
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: initiator
+          image: registry.enclosure.local/midgard/pqmtls-probe:0.0.0
+          command: ["/bin/sh", "-c"]
+          # Wait for the responder Service to accept connections, then handshake.
+          args:
+            - |
+              for i in $(seq 1 30); do
+                if pqmtls-probe initiator --connect pqmtls-responder:8443 --ca-seed 40402; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "pqmtls-probe: initiator gave up after retries" >&2
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: "1", memory: 256Mi }

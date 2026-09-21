@@ -1,0 +1,186 @@
+:root {
+  /* =========================================================
+     MIDGARD PLATFORM, colour system
+     Inherits the Veldris ink-on-black language; extends it
+     with one accent hue per product in the suite.
+     ========================================================= */
+
+  --black:        #000000;
+  --white:        #ffffff;
+
+  /* Ink ramp, the near-black surfaces the platform is built on */
+  --ink-950:      #050506;
+  --ink-900:      #0a0b0d;   /* page background */
+  --ink-850:      #101114;
+  --ink-800:      #16181c;   /* raised surface / cards */
+  --ink-700:      #1e2126;   /* elevated / hover surface */
+  --ink-600:      #2a2d34;   /* borders on dark, dividers */
+  --ink-500:      #3a3e46;
+
+  /* Neutral text ramp (cool grey) */
+  --grey-100:     #e9ebee;
+  --grey-300:     #b6bcc4;
+  --grey-400:     #9199a3;   /* muted body */
+  --grey-500:     #6b7279;   /* captions, disabled */
+  --grey-600:     #4a4f56;
+
+  /* ---- Suite / product accents (one hue per product) ----
+     Midgard keeps the Veldris house red; children take
+     harmonised hues at matched chroma. One accent on screen
+     at a time, the product you are inside. */
+
+  /* MIDGARD, enclosure red (Veldris house red) */
+  --midgard-300:  #f26b70;
+  --midgard-500:  #ca1d25;
+  --midgard-600:  #a8171e;
+  --midgard-tint: rgba(202, 29, 37, 0.14);
+  --midgard-glow: rgba(202, 29, 37, 0.45);
+
+  /* FORGE, ember orange (data operations) */
+  --forge-300:    #f39b57;
+  --forge-500:    #d96e1e;
+  --forge-600:    #b25715;
+  --forge-tint:   rgba(217, 110, 30, 0.14);
+  --forge-glow:   rgba(217, 110, 30, 0.45);
+
+  /* MIMIR, well-of-wisdom teal (local agentic AI) */
+  --mimir-300:    #63d3dd;
+  --mimir-500:    #23a8b6;
+  --mimir-600:    #17828e;
+  --mimir-tint:   rgba(35, 168, 182, 0.14);
+  --mimir-glow:   rgba(35, 168, 182, 0.45);
+
+  /* BIFROST, bridge violet (continuous delivery) */
+  --bifrost-300:  #ab93f5;
+  --bifrost-500:  #7d5ce6;
+  --bifrost-600:  #6244c2;
+  --bifrost-tint: rgba(125, 92, 230, 0.14);
+  --bifrost-glow: rgba(125, 92, 230, 0.45);
+
+  /* HEIMDALL, watchman gold (operational fusion) */
+  --heimdall-300: #ecc55c;
+  --heimdall-500: #c99a22;
+  --heimdall-600: #a17a17;
+  --heimdall-tint: rgba(201, 154, 34, 0.14);
+  --heimdall-glow: rgba(201, 154, 34, 0.45);
+
+  /* ---- Functional / status (status only, never decoration) ---- */
+  --secure:       #21c07a;   /* sealed / verified / healthy / online */
+  --secure-tint:  rgba(33, 192, 122, 0.14);
+  --warn:         #f0a824;
+  --warn-tint:    rgba(240, 168, 36, 0.14);
+  --danger:       #ca1d25;
+  --danger-tint:  rgba(202, 29, 37, 0.14);
+  --info:         #3d8bff;
+  --info-tint:    rgba(61, 139, 255, 0.14);
+
+  /* ---- Classification markings (governance chrome) ---- */
+  --marking-confidential: #ca1d25;  /* CONFIDENTIAL banner */
+  --marking-restricted:   #f0a824;  /* RESTRICTED */
+  --marking-internal:     #3d8bff;  /* INTERNAL */
+  --marking-open:         #21c07a;  /* OPEN / UNCLASSIFIED */
+
+  /* =========================================================
+     SEMANTIC ALIASES, reference these in product code.
+     --accent-* re-points per product via a scope class:
+     .theme-midgard | .theme-forge | .theme-mimir |
+     .theme-bifrost | .theme-heimdall  (default: midgard)
+     ========================================================= */
+  --bg-page:        var(--ink-900);
+  --bg-sunken:      var(--ink-950);
+  --surface-card:   var(--ink-800);
+  --surface-raised: var(--ink-700);
+  --surface-inset:  var(--ink-850);
+
+  --text-heading:   var(--white);
+  --text-body:      var(--grey-300);
+  --text-muted:     var(--grey-400);
+  --text-faint:     var(--grey-500);
+  --text-on-accent: var(--white);
+
+  --accent:         var(--midgard-500);
+  --accent-hover:   var(--midgard-300);
+  --accent-press:   var(--midgard-600);
+  --accent-tint:    var(--midgard-tint);
+  --accent-glow:    var(--midgard-glow);
+
+  --border:         var(--ink-600);
+  --border-strong:  var(--ink-500);
+  --border-accent:  var(--accent);
+  --divider:        rgba(255, 255, 255, 0.07);
+
+  --focus-ring:     var(--accent-glow);
+
+  color-scheme: dark;
+}
+
+/* ---- Product theme scopes ---- */
+.theme-midgard {
+  --accent: var(--midgard-500); --accent-hover: var(--midgard-300);
+  --accent-press: var(--midgard-600); --accent-tint: var(--midgard-tint);
+  --accent-glow: var(--midgard-glow);
+}
+.theme-forge {
+  --accent: var(--forge-500); --accent-hover: var(--forge-300);
+  --accent-press: var(--forge-600); --accent-tint: var(--forge-tint);
+  --accent-glow: var(--forge-glow);
+}
+.theme-mimir {
+  --accent: var(--mimir-500); --accent-hover: var(--mimir-300);
+  --accent-press: var(--mimir-600); --accent-tint: var(--mimir-tint);
+  --accent-glow: var(--mimir-glow);
+}
+.theme-bifrost {
+  --accent: var(--bifrost-500); --accent-hover: var(--bifrost-300);
+  --accent-press: var(--bifrost-600); --accent-tint: var(--bifrost-tint);
+  --accent-glow: var(--bifrost-glow);
+}
+.theme-heimdall {
+  --accent: var(--heimdall-500); --accent-hover: var(--heimdall-300);
+  --accent-press: var(--heimdall-600); --accent-tint: var(--heimdall-tint);
+  --accent-glow: var(--heimdall-glow);
+}
+
+/* =========================================================
+   LIGHT MODE, .mode-light on <html> or <body>.
+   The product default is dark ("the platform lives in the
+   dark"); light mode is a full alternative for docs,
+   print and daylight ops. System mode is resolved by JS
+   (docs/mode.js) to one of these two classes.
+   Semantic aliases and the grey TEXT ramp are re-pointed so
+   every component adapts unmodified.
+   ========================================================= */
+.mode-light {
+  /* Paper ramp replaces the ink ramp semantics */
+  --bg-page:        #eff0f3;
+  --bg-sunken:      #e6e8ec;
+  --surface-card:   #ffffff;
+  --surface-raised: #f6f7f9;
+  --surface-inset:  #e9ebef;
+
+  /* Text ramp inverts (raw --grey-* flip so mono meta stays legible) */
+  --text-heading:   #0a0b0d;
+  --text-body:      #383d44;
+  --text-muted:     #5c636b;
+  --text-faint:     #8a9099;
+  --grey-100:       #101114;
+  --grey-300:       #383d44;
+  --grey-400:       #5c636b;
+  --grey-500:       #8a9099;
+  --grey-600:       #b6bcc4;
+
+  --border:         #d6d9de;
+  --border-strong:  #bfc4cb;
+  --divider:        rgba(10, 11, 13, 0.08);
+  --grid-line:      rgba(10, 11, 13, 0.05);
+
+  /* Accent text/hover darkens instead of lightening on paper */
+  --accent-hover:   var(--midgard-600);
+
+  color-scheme: light;
+}
+.mode-light .theme-midgard,  .mode-light.theme-midgard  { --accent-hover: var(--midgard-600); }
+.mode-light .theme-forge,    .mode-light.theme-forge    { --accent-hover: var(--forge-600); }
+.mode-light .theme-mimir,    .mode-light.theme-mimir    { --accent-hover: var(--mimir-600); }
+.mode-light .theme-bifrost,  .mode-light.theme-bifrost  { --accent-hover: var(--bifrost-600); }
+.mode-light .theme-heimdall, .mode-light.theme-heimdall { --accent-hover: var(--heimdall-600); }

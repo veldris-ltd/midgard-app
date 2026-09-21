@@ -1,0 +1,103 @@
+<!-- @dsCard group="Admin Panel" viewport="1440x820" subtitle="Unified oversight: subsystem health, SLOs, security events, pending controls" name="Admin · Overview" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Admin · Overview</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+const SUBS = [
+  { name: 'Identity & Access', api: 'iam-admin', slo: '99.97%', st: 'healthy', stl: 'Healthy' },
+  { name: 'Governance & Audit', api: 'governance', slo: '99.99%', st: 'healthy', stl: 'Healthy' },
+  { name: 'Crypto & KMS', api: 'kms-admin', slo: '99.98%', st: 'secure', stl: 'Sealed' },
+  { name: 'Object Fabric', api: 'fabric-admin', slo: '99.95%', st: 'healthy', stl: 'Healthy' },
+  { name: 'Mimir', api: 'registry · evals', slo: '99.91%', st: 'warn', stl: 'Eval gate' },
+  { name: 'Bifrost', api: 'release · fleet', slo: '99.96%', st: 'healthy', stl: 'Rolling' },
+  { name: 'Observability', api: 'metrics · traces', slo: '99.99%', st: 'healthy', stl: 'Healthy' },
+];
+function App() {
+  const [sel, setSel] = React.useState(4);
+  const s = SUBS[sel];
+  return (
+    <ConsoleShell product="admin" active="overview" context="ADMIN CONTROL PANEL / OVERVIEW"
+      toolbar={<Button variant="secondary" size="sm" iconLeft={<Icon name="search" size={14} />}>Audit search</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="server" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, flex: 1 }}>{s.name}</h2>
+          <StatusPill status={s.st} pulse={false} label={s.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={s.slo} label="SLO · 30D" size="sm" />
+            <StatBlock value={sel === 4 ? '1' : '0'} label="OPEN FINDINGS" size="sm" accent={sel === 4} />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PANEL BINDING · LEAST PRIVILEGE</div>
+          {[['Identity', 'svc:admin/' + s.api], ['Scope', 'admin API only · no data plane'], ['Transport', 'PQ-mTLS · admin zone'], ['Blast radius', 'this subsystem only']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 90, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--text-heading)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <Terminal title="AR-SEC · SELF-GOVERNANCE" lines={[
+          '> admin policy self-check',
+          'policy point   shared · no bypass',
+          'audit path     shared ledger',
+          'super-admin    NOT DEFINED',
+          '# the panel is governed by what it governs',
+        ]} style={{ marginTop: 'auto' }} />
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={1}>ADMIN</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Suite oversight</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="7" label="SUBSYSTEMS" size="sm" />
+        <StatBlock value="3" label="PENDING APPROVALS" size="sm" accent />
+        <StatBlock value="1" label="BREAK-GLASS · REVIEW" size="sm" />
+        <StatBlock value="0" label="SUPER-ADMIN ROLES" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <BreakGlass state="review" holder="k.osei" scope="KMS · unwrap only" justification="HSM failover during rotation window · expired 06:12 · review due in 18h" style={{ flex: 2, minWidth: 320 }} />
+        <Card size="sm" style={{ flex: 1, minWidth: 220 }}>
+          <div className="mg-label" style={{ color: 'var(--text-faint)' }}>SECURITY EVENTS · 24H</div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 10 }}>
+            <StatBlock value="2" label="DENIED ACTIONS" size="sm" />
+            <StatBlock value="0" label="SELF-APPROVALS" size="sm" />
+            <StatBlock value="1" label="ANOMALY FLAGS" size="sm" accent />
+          </div>
+        </Card>
+      </div>
+      <Table
+        columns={[
+          { header: 'Subsystem', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="server" size={14} color="var(--accent)" />{r.name}</span> },
+          { header: 'Admin surface', key: 'api', mono: true, width: 160 },
+          { header: 'SLO · 30d', key: 'slo', mono: true, align: 'right', width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 130 },
+        ]}
+        rows={SUBS} selectedIndex={sel} onRowClick={setSel}
+      />
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <ProvenanceTag id="FR-AD-1" title="One console composing existing subsystem admin APIs" />
+        <ProvenanceTag id="FR-AD-9" title="Aggregated cross-subsystem observability" />
+        <ProvenanceTag id="AC-AD-10" title="Panel outage pauses administration only, never the data plane" />
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

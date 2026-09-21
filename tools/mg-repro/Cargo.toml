@@ -1,0 +1,15 @@
+[package]
+name = "mg-repro"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mg-repro"
+path = "src/main.rs"
+
+[dependencies]
+# Reuse the platform's KAT-tested SHA-256 (std-only, no crypto backend feature)
+# to digest the built artefacts. [AC-M-6] [NFR-OSS-1]
+pqc-agility = { path = "../../crypto/pqc-agility" }

@@ -1,0 +1,146 @@
+[
+  {
+    "img": "site-home",
+    "sec": 9,
+    "acc": "midgard",
+    "ch": "OPENING",
+    "eyebrow": "MIDGARD · VELDRIS LTD",
+    "head": "Decisions, not just data. Inside your own walls.",
+    "body": "Midgard is a sovereign, open-source platform suite: one enclosure for your data, your models and your operations. Four products, one trust boundary, zero outbound dependencies."
+  },
+  {
+    "img": "midgard-fabric",
+    "sec": 8,
+    "acc": "midgard",
+    "ch": "THE ENCLOSURE",
+    "eyebrow": "MIDGARD CONSOLE · OBJECT FABRIC",
+    "head": "Your organisation, described once.",
+    "body": "Aircraft, facilities, crew, sensor feeds — real things with real properties and links, not rows in a table. Select one and you see what it connects to, and exactly which actions a person is allowed to take on it."
+  },
+  {
+    "img": "midgard-policies",
+    "sec": 7,
+    "acc": "midgard",
+    "ch": "THE ENCLOSURE",
+    "eyebrow": "MIDGARD CONSOLE · POLICIES & MARKINGS",
+    "head": "Access is proven, not assumed.",
+    "body": "Rules are written down and can be dry-run before they go live — this person, this clearance, this purpose. Nothing is permitted unless a rule proves it, and the decision itself is signed."
+  },
+  {
+    "img": "midgard-audit",
+    "sec": 6,
+    "acc": "midgard",
+    "ch": "THE ENCLOSURE",
+    "eyebrow": "MIDGARD CONSOLE · AUDIT LINEAGE",
+    "head": "Audit is a query, not an archaeology project.",
+    "body": "Every read, every write and every AI step lands in an append-only record, signed as it is written. Months later you search it the same way you search anything else."
+  },
+  {
+    "img": "forge-pipeline",
+    "sec": 7,
+    "acc": "forge",
+    "ch": "FORGE",
+    "eyebrow": "FORGE · PIPELINE BUILDER",
+    "head": "Getting data in, without losing track of it.",
+    "body": "Draw the route from raw source to finished dataset, or write it in code — the same pipeline either way. Every build is repeatable, versioned like source control, and carries its lineage with it."
+  },
+  {
+    "img": "forge-health",
+    "sec": 7,
+    "acc": "forge",
+    "ch": "FORGE",
+    "eyebrow": "FORGE · EXPECTATIONS & DRIFT",
+    "head": "Bad data stops before it reaches anyone.",
+    "body": "1,204 expectations run on every build. Three are failing here, so two projections are blocked from promotion — nobody downstream ever sees them."
+  },
+  {
+    "img": "mimir-studio",
+    "sec": 9,
+    "acc": "mimir",
+    "ch": "MIMIR",
+    "eyebrow": "MIMIR · AGENT STUDIO",
+    "head": "AI that never phones home.",
+    "body": "Ask a question in plain language; the answer is grounded in your own data with every claim cited back to it. Here Mimir spots a maintenance risk, drafts the fix — and then stops, because acting on it changes something real."
+  },
+  {
+    "img": "mimir-guardrails",
+    "sec": 7,
+    "acc": "mimir",
+    "ch": "MIMIR",
+    "eyebrow": "MIMIR · GUARDRAIL CONSOLE",
+    "head": "Five rails screen every input and every tool call.",
+    "body": "A prompt-injection attempt is quarantined before a single tool runs; an uncited claim is stripped and the answer regenerated. 46 trips in seven days, and nothing has ever left the enclosure."
+  },
+  {
+    "img": "heimdall-picture",
+    "sec": 8,
+    "acc": "heimdall",
+    "ch": "HEIMDALL",
+    "eyebrow": "HEIMDALL · COMMON OPERATING PICTURE",
+    "head": "Many feeds, one picture everyone shares.",
+    "body": "Radar, transponder, maritime and ground sources correlated into a single live view — 1,204 tracked entities, fused in four tenths of a second, with one anomaly raised for a human to look at."
+  },
+  {
+    "img": "heimdall-workflows",
+    "sec": 7,
+    "acc": "heimdall",
+    "ch": "HEIMDALL",
+    "eyebrow": "HEIMDALL · ACTION WORKFLOWS",
+    "head": "AI ranks the options. People authorise the action.",
+    "body": "100% human-authorised. Nothing auto-executed, ever. The authorisation, the evidence behind it and what happened next become a single signed record."
+  },
+  {
+    "img": "bifrost-release",
+    "sec": 7,
+    "acc": "bifrost",
+    "ch": "BIFROST",
+    "eyebrow": "BIFROST · RELEASE CONSOLE",
+    "head": "Nothing deploys unless it proves itself.",
+    "body": "Rebuilt bit-for-bit, ingredients listed, signature verified — then released to a small ring first, with health gates between rings and automatic rollback if one fails."
+  },
+  {
+    "img": "bifrost-bundles",
+    "sec": 6,
+    "acc": "bifrost",
+    "ch": "BIFROST",
+    "eyebrow": "BIFROST · OFFLINE BUNDLES",
+    "head": "Even where the internet can't reach.",
+    "body": "Nine sites here never connect to anything. They get the identical release on signed media, carried in by hand; it verifies itself offline and sends a signed receipt back."
+  },
+  {
+    "img": "admin-approvals",
+    "sec": 6,
+    "acc": "midgard",
+    "ch": "CONTROL & REACH",
+    "eyebrow": "ADMIN CONTROL PANEL · DUAL CONTROL",
+    "head": "No single person can do the dangerous things.",
+    "body": "High-risk changes need a second, different approver — there is no super-admin. A self-approval attempt is refused, and the refusal is recorded alongside everything else."
+  },
+  {
+    "img": "admin-ledger",
+    "sec": 6,
+    "acc": "midgard",
+    "ch": "CONTROL & REACH",
+    "eyebrow": "ADMIN CONTROL PANEL · AUDIT LEDGER",
+    "head": "Seven subsystems, one tamper-evident ledger.",
+    "body": "Approvals, denials, emergency break-glass sessions and rehearsals all land in the same signed record. Zero entries escaped."
+  },
+  {
+    "img": "clients-mobile",
+    "sec": 6,
+    "acc": "midgard",
+    "ch": "CONTROL & REACH",
+    "eyebrow": "CLIENT PLATFORMS · MOBILE SHELLS",
+    "head": "It works where the work happens.",
+    "body": "One shared core behind phone, desktop and browser. Keys stay in the device's hardware, and the app keeps working with no signal — reconnecting merges everything back with no conflicts."
+  },
+  {
+    "img": "site-arch",
+    "sec": 8,
+    "acc": "midgard",
+    "ch": "CLOSE",
+    "eyebrow": "MIDGARD · ARCHITECTURE",
+    "head": "One boundary. Everything inside it.",
+    "body": "From a single laptop to a fleet of air-gapped sites — the same releases, the same signatures, every topology. Open core, reproducible builds, and a full bill of materials with every release."
+  }
+]

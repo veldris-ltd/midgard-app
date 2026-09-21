@@ -1,0 +1,24 @@
+[package]
+name = "governance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Governance & audit: role/marking/purpose enforcement with PQ-signed audit of every decision. [NFR-SEC-2] [NFR-PQ-3]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips", "audit-writer/backend-fips"]
+
+[dependencies]
+policy = { path = "../../crypto/policy" }
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+# The durable-ledger repoint test wires an AuditWriter<FileLedger> over a KmsSealer,
+# proving governance lineage persists + re-verifies across a restart (RC-09).
+kms = { path = "../kms" }
+
+[lib]
+path = "src/lib.rs"

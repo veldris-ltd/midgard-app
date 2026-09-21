@@ -1,0 +1,26 @@
+[package]
+name = "pq-mtls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Zero-trust, mutually-authenticated PQ handshake for inter-service calls. [NFR-SEC-1]"
+
+[features]
+default = []
+test-backend = ["pqc-agility/test-backend"]
+backend-fips = ["pqc-agility/backend-fips"]
+
+[dependencies]
+pqc-agility = { path = "../pqc-agility" }
+policy = { path = "../policy" }
+
+# No forced backend here: the crate's own `test-backend` / `backend-fips`
+# features select one (they are mutually exclusive). Hardcoding a backend in
+# dev-deps would force it ON alongside `--features backend-fips` and trip the
+# mutual-exclusion compile_error.
+[dev-dependencies]
+pqc-agility = { path = "../pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

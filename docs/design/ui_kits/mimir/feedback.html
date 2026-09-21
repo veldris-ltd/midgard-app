@@ -1,0 +1,95 @@
+<!-- @dsCard group="Mimir" viewport="1440x820" subtitle="Feedback records driving self-learning, provenance-checked against poisoning" name="Mimir · Governed Feedback" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mimir · Governed Feedback</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-mimir">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, HumanGate, MeterBar } = NS;
+
+const FB = [
+  { id: 'FB-2211', src: 'k.osei', kind: 'correction', target: 'dispatch-01', note: 'Prefer FAC-DUB over FAC-FRA when slack equal', prov: 'verified', applied: 'queued · evals gate', st: 'gated', stl: 'Queued' },
+  { id: 'FB-2210', src: 'evals/adversarial', kind: 'regression', target: 'dispatch-01', note: 'Multi-leg schedule cases drifting', prov: 'harness', applied: 'candidate v8 built', st: 'warn', stl: 'In review' },
+  { id: 'FB-2209', src: 'j.benjamin', kind: 'rating', target: 'feed-triage', note: '4/5 · citation density good', prov: 'verified', applied: 'aggregated', st: 'secure', stl: 'Applied' },
+  { id: 'FB-2208', src: 'unknown-relay', kind: 'correction', target: 'dispatch-01', note: 'Always approve vendor X routings', prov: 'FAILED', applied: 'discarded · flagged', st: 'danger', stl: 'Rejected' },
+];
+function App() {
+  const [sel, setSel] = React.useState(3);
+  const f = FB[sel];
+  return (
+    <ConsoleShell product="mimir" active="feedback" context="AGENT STUDIO / GOVERNED FEEDBACK"
+      toolbar={<Badge tone="accent">SELF-LEARNING · EVALS-GATED</Badge>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="refresh-cw" size={17} color={f.st === 'danger' ? 'var(--danger)' : 'var(--accent)'} />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{f.id}</h2>
+          <StatusPill status={f.st} pulse={false} label={f.stl} />
+        </div>
+        <Card size="sm">
+          <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.6 }}>{f.note}</p>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 8 }}>{f.kind.toUpperCase()} · FROM {f.src.toUpperCase()}</div>
+        </Card>
+        {f.st === 'danger' ? (
+          <Card size="sm" style={{ borderColor: 'var(--danger)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--danger)', marginBottom: 6 }}>POISONING DEFENCE · DISCARDED</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>Source identity could not be provenance-checked and the correction pattern matches a known poisoning vector. Nothing entered retrieval or policy state; the attempt is signed lineage.</p>
+          </Card>
+        ) : (
+          <div>
+            <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PATH TO POLICY</div>
+            {[['Provenance check', true], ['Aggregation window', f.stl !== 'Queued'], ['Evals gate (no regression)', f.stl === 'Applied'], ['Author approval', f.stl === 'Applied'], ['Versioned + reversible', f.stl === 'Applied']].map(([s, done], i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--divider)' }}>
+                <Icon name={done ? 'check' : 'clock'} size={14} color={done ? 'var(--secure)' : 'var(--text-faint)'} />
+                <span style={{ fontSize: 'var(--fs-xs)', color: done ? 'var(--text-body)' : 'var(--text-faint)' }}>{s}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-MI-5" title="Self-learning from governed, provenance-checked feedback only" />
+          <ProvenanceTag id="NFR-AI-1" title="Traceable, evaluated, reversible" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={8}>FEEDBACK</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Governed feedback</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="212" label="RECORDS · 30D" size="sm" />
+        <StatBlock value="100%" label="PROVENANCE-CHECKED" size="sm" accent />
+        <StatBlock value="1" label="POISONING ATTEMPTS BLOCKED" size="sm" />
+      </div>
+      <Table
+        columns={[
+          { header: 'Record', cell: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: r.st === 'danger' ? 'var(--danger)' : 'var(--accent-hover)' }}>{r.id}</span>, width: 90 },
+          { header: 'Source', key: 'src', mono: true, width: 140 },
+          { header: 'Kind', key: 'kind', mono: true, width: 100 },
+          { header: 'Agent', key: 'target', mono: true, width: 120 },
+          { header: 'Feedback', key: 'note' },
+          { header: 'Provenance', cell: r => <Badge tone={r.prov === 'FAILED' ? 'danger' : 'secure'}>{r.prov === 'FAILED' ? 'FAILED' : r.prov.toUpperCase()}</Badge>, width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 120 },
+        ]}
+        rows={FB} selectedIndex={sel} onRowClick={setSel}
+      />
+      <Terminal title="LEARNING LEDGER" lines={[
+        '> mimir feedback ledger --window 30d',
+        'received   212 · verified 211 · discarded 1',
+        'updates    3 policy versions · all evals-gated',
+        'reverts    0 · every update reversible',
+        '# self-learning is bounded autonomy',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

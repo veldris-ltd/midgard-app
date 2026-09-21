@@ -1,0 +1,26 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="mimir_seq_primary" id="mimir_seq_primary">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="u" value="User" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="ag" value="Agent Runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="200" y="40" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="pl" value="Planner (GLM 5.2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="380" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="tl" value="Tool Broker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="570" y="40" width="140" height="50" as="geometry"/></mxCell>
+        <mxCell id="ev" value="Evals/Guardrails" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="740" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="of" value="Object Fabric" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="930" y="40" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="goal" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="u" target="ag"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="plan" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ag" target="pl"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="OAG retrieve" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="pl" target="of"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="context" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="of" target="pl"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="call tool" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="pl" target="tl"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="guardrail" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="tl" target="ev"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="allow/gate" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ev" target="tl"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="result" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="tl" target="ag"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="evaluate" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ag" target="ev"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="answer+citations" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ag" target="u"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

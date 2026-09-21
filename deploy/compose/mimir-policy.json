@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "consumer-channel", "role": "inference-consumer", "action": "OpenChannel",
+      "resource": "*", "effect": "permit" },
+    { "id": "consumer-infer", "role": "inference-consumer", "action": "Infer",
+      "resource": "*", "effect": "permit" }
+  ]
+}

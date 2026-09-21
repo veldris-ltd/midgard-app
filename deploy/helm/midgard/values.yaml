@@ -1,0 +1,176 @@
+# Midgard Helm values. The defaults are the release posture: one signed,
+# verify-before-run image per service. deploy/kind/values.yaml overrides the image for
+# a local cluster built from source.
+namespace: midgard-enclosure
+# Create the namespace (with the restricted pod-security profile) from this chart.
+createNamespace: true
+
+image:
+  # Release: "<registry>/<service>:<tag>", each image re-verifying its binary's signature
+  # before it runs (deploy/images/entrypoint.sh).
+  registry: registry.enclosure.local/midgard
+  tag: "0.1.0-rc.1"
+  pullPolicy: IfNotPresent
+  # Set to one image holding every binary (the compose image) to run each service's
+  # binary directly instead — for development clusters only; nothing is verified.
+  single: ""
+
+# The pinned public release trust key mg-verify checks every image against before it
+# runs. Provisioned by the key ceremony (RT-35). Unused with image.single.
+trustKeyConfigMap: midgard-release-trust
+
+# Namespace-wide resource ceiling.
+quota:
+  requestsCpu: "4"
+  requestsMemory: 4Gi
+  limitsCpu: "8"
+  limitsMemory: 8Gi
+  pods: "50"
+
+# Default per-container resources (overridable per service).
+defaultResources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# The services. Each holds a single-writer state directory (sealed journals and a
+# PQ-signed ledger, locked while it runs), so each is a one-replica StatefulSet with
+# its own volume: a second replica would be refused the lock, not share the load.
+#
+# Per service:
+#   args            the binary's options (/identity, /state and /jobs are the mounts)
+#   ports           each port, and the app names allowed to reach it ("*" = any pod)
+#   probe           the HTTP readiness/liveness endpoint
+#   identity        mount Secret "<name>-identity" (what `mg-admin mesh issue` wrote)
+#   seed            on first start, unpack Secret "<name>-seed" (seed.tar) into /state
+#   storage         the state volume's size
+#   jobsConfigMap   mount this ConfigMap at /jobs
+#   talksTo         the service ports this one may reach (egress)
+#   sourcesSecret   mount this Secret at /secrets (forge-worker's --secrets-dir)
+#   nodeSelector, tolerations, affinity   the pod's placement
+# Secrets and the jobs ConfigMap are provisioned outside the chart
+# (deploy/kind/bootstrap-secrets.sh for a local cluster).
+services:
+  - name: http-gateway
+    enabled: true
+    binary: http-gateway
+    args: ["--state-dir", "/state", "--bind", "0.0.0.0:7710",
+           "--mesh-bind", "0.0.0.0:7711", "--mesh-identity-dir", "/identity"]
+    ports:
+      - { name: http, port: 7710, from: [console-edge] }
+      - { name: mesh, port: 7711, from: [forge-worker] }
+    probe: { port: 7710, path: /api/v1/health }
+    identity: true
+    seed: true
+    storage: 256Mi
+
+  - name: mimir-server
+    enabled: true
+    binary: mimir-server
+    args: ["--identity-dir", "/identity", "--state-dir", "/state",
+           "--purposes", "investigation", "--bind", "0.0.0.0:7720",
+           "--health-bind", "0.0.0.0:9090"]
+    ports:
+      - { name: mesh, port: 7720, from: [mimir-probe] }
+      - { name: health, port: 9090, from: ["*"] }
+    probe: { port: 9090, path: /readyz }
+    identity: true
+    seed: true
+    storage: 64Mi
+
+  - name: bifrost-fleet
+    enabled: true
+    binary: bifrost-fleet
+    args: ["--identity-dir", "/identity", "--state-dir", "/state",
+           "--bind", "0.0.0.0:7740", "--health-bind", "0.0.0.0:9090"]
+    ports:
+      - { name: mesh, port: 7740, from: [fleet-agent, fleet-operator] }
+      - { name: health, port: 9090, from: ["*"] }
+    probe: { port: 9090, path: /readyz }
+    identity: true
+    seed: true
+    storage: 64Mi
+
+  - name: heimdall-feed
+    enabled: true
+    binary: heimdall-feed
+    args: ["--identity-dir", "/identity", "--state-dir", "/state",
+           "--bind", "0.0.0.0:7730", "--health-bind", "0.0.0.0:9090"]
+    ports:
+      - { name: mesh, port: 7730, from: [feed-source, picture-analyst] }
+      - { name: health, port: 9090, from: ["*"] }
+    probe: { port: 9090, path: /readyz }
+    identity: true
+    seed: true
+    storage: 64Mi
+
+  - name: forge-worker
+    enabled: true
+    binary: forge-worker
+    args: ["--identity-dir", "/identity", "--state-dir", "/state",
+           "--jobs", "/jobs/jobs.json", "--gateway", "http-gateway:7711",
+           "--health-bind", "0.0.0.0:9090"]
+    ports:
+      - { name: health, port: 9090, from: ["*"] }
+    probe: { port: 9090, path: /readyz }
+    identity: true
+    storage: 128Mi
+    jobsConfigMap: forge-jobs
+    talksTo:
+      - { name: http-gateway, port: 7711 }
+    # The secrets job sources name (database passwords, secret keys), mounted at
+    # /secrets for --secrets-dir. Empty: no sources need secrets.
+    sourcesSecret: ""
+
+# Serve a real model behind `service` instead of the reference engine. [FR-MI-1]
+# [AC-MI-7] A sidecar runs the engine in the pod, listening on 127.0.0.1:8080 only.
+# mimir-server verifies the model in /models/<modelDir> before it serves: a manifest
+# signed by the key in trustConfigMap (key model-signing.pub, from `mg-model keygen`),
+# and weights whose size, format and SHA-256 match it. It is ready only while the
+# sidecar is healthy. modelsClaim is a PersistentVolumeClaim holding the staged model
+# directories; both containers mount it read-only.
+modelServing:
+  enabled: false
+  service: mimir-server
+  # llama-cpp (CPU, GGUF) or vllm (GPU, safetensors).
+  engine: llama-cpp
+  image: ghcr.io/ggml-org/llama.cpp:server@sha256:bbf6fde2eedbe1b6c8ee9d93a54ea4606e90a4eda18681a7f8b4b6ed0cbc9f00
+  pullPolicy: IfNotPresent
+  modelsClaim: mimir-models
+  modelDir: granite
+  trustConfigMap: mimir-model-trust
+  # The engine's own arguments. For vLLM, use its image and e.g.
+  # ["--model", "/models/<dir>", "--served-model-name", "<manifest id>",
+  #  "--host", "127.0.0.1", "--port", "8080"], with a GPU in resources.
+  sidecarArgs: ["-m", "/models/granite/granite-3.3-2b-instruct-Q4_K_M.gguf",
+                "--alias", "granite-3.3-2b-instruct-q4km",
+                "--host", "127.0.0.1", "--port", "8080", "--ctx-size", "4096"]
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits: { cpu: "4", memory: 4Gi }
+  # Where the model may run, overriding the service's own placement: for vLLM, e.g.
+  # nodeSelector { nvidia.com/gpu.present: "true" } and the GPU nodes' toleration.
+  nodeSelector: {}
+  tolerations: []
+
+# Sources outside the enclosure, through the egress broker, for `service`. [NFR-SEC-1]
+# An init container renders HAProxy's configuration with forge-egress from the routes
+# ConfigMap (key routes.json), refusing any job that would reach around it; HAProxy
+# runs beside the worker, originating TLS 1.3 to each route's upstream against the CA
+# files in caSecret; the worker is started with --egress-routes; and the pod may reach
+# only upstreamPorts outside the cluster.
+egressBroker:
+  enabled: false
+  service: forge-worker
+  routesConfigMap: forge-egress-routes
+  caSecret: forge-egress-ca
+  image: haproxy@sha256:34cc7d1f6142464d7d2b73e2a1eef7392556dbf304160aef543e513cfd9e5162
+  upstreamPorts: []
+
+# Mesh clients that run as Jobs (probes, agents, sources): the service ports each may
+# reach. Their identities are Secrets named here.
+clients:
+  - { name: mimir-probe, talksTo: [{ name: mimir-server, port: 7720 }] }
+  - { name: fleet-agent, talksTo: [{ name: bifrost-fleet, port: 7740 }] }
+  - { name: fleet-operator, talksTo: [{ name: bifrost-fleet, port: 7740 }] }
+  - { name: feed-source, talksTo: [{ name: heimdall-feed, port: 7730 }] }
+  - { name: picture-analyst, talksTo: [{ name: heimdall-feed, port: 7730 }] }

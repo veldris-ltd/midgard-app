@@ -1,0 +1,34 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="mimir_model_router" id="mimir_model_router">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="b_adapt" value="Model Abstraction Layer" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="100" y="320" width="520" height="90" as="geometry"/></mxCell>
+        <mxCell id="forge" value="Forge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="60" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="heim" value="Heimdall" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="200" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="bif" value="Bifrost" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="340" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="agent" value="Mimir agent runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="480" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="api" value="Inference API (unchanged)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="240" y="140" width="220" height="55" as="geometry"/></mxCell>
+        <mxCell id="router" value="Model router (policy+HW+workload)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="240" y="230" width="220" height="60" as="geometry"/></mxCell>
+        <mxCell id="reg" value="Model Registry" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="540" y="230" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="glm" value="GLM adapter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="120" y="340" width="140" height="55" as="geometry"/></mxCell>
+        <mxCell id="nem" value="Nemotron adapter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="290" y="340" width="140" height="55" as="geometry"/></mxCell>
+        <mxCell id="gem" value="Gemma adapter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="460" y="340" width="140" height="55" as="geometry"/></mxCell>
+        <mxCell id="rt" value="GPU inference runtime (verify-on-load)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="240" y="440" width="220" height="60" as="geometry"/></mxCell>
+        <mxCell id="e0" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="forge" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="heim" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bif" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="agent" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="api" target="router"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="eligibility" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="router" target="reg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="router" target="glm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="router" target="nem"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="router" target="gem"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="glm" target="rt"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="nem" target="rt"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="gem" target="rt"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

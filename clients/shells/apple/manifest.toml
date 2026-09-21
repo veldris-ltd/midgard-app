@@ -1,0 +1,11 @@
+# Shell manifest — apple
+# One of the six client shell codebases (SAD_06 §3.1). Presentation only.
+[shell]
+name = "apple"
+technology = "Swift / SwiftUI"
+targets = "iOS (App Store), macOS (DMG/App Store)"
+
+# KDD-1: this shell implements NO cryptography, key handling, or sync-merge logic.
+# It links the shared Rust core and calls it for everything security-/data-related.
+links_core = "midgard-client-core"
+binding = "uniffi"

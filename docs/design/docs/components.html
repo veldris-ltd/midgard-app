@@ -1,0 +1,425 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Components</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section, SubHead, Demo, Code, PropsTable, DoDont } = window.Docs;
+const NSx = window.Docs.NS;
+const { Button, IconButton, Badge, Tag, StatusPill, Input, Select, Switch, Card, Table, StatBlock, SectionLabel, Terminal, ProvenanceTag, Tabs, SideNav, ClassificationBanner, MarkingChip, Icon, ProductMark, HumanGate, MeterBar, SyncStatus, TierBadge, KeyCustodyChip, RiskBadge, GuardedAction, BreakGlass } = NSx;
+
+const GROUPS = [
+  { id: 'core', label: 'Core', items: ['Button', 'IconButton', 'Badge', 'Tag', 'StatusPill'] },
+  { id: 'forms', label: 'Forms', items: ['Input', 'Select', 'Switch'] },
+  { id: 'data', label: 'Data', items: ['Card', 'Table', 'StatBlock', 'SectionLabel', 'Terminal', 'ProvenanceTag', 'MeterBar'] },
+  { id: 'nav', label: 'Navigation', items: ['Tabs', 'SideNav'] },
+  { id: 'governance', label: 'Governance', items: ['ClassificationBanner', 'MarkingChip', 'HumanGate'] },
+            { id: 'clients', label: 'Clients', items: ['SyncStatus', 'TierBadge', 'KeyCustodyChip'] },
+            { id: 'admin', label: 'Admin', items: ['RiskBadge', 'GuardedAction', 'BreakGlass'] },
+  { id: 'media', label: 'Media', items: ['Icon', 'ProductMark'] },
+];
+
+function Anchor({ name, children }) {
+  return (
+    <div id={name.toLowerCase()} style={{ scrollMarginTop: 90, marginBottom: 56 }}>
+      <h3 style={{ fontSize: 'var(--fs-h4)', fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: 0, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ color: 'var(--accent)' }}>&lt;</span>{name}<span style={{ color: 'var(--accent)' }}>/&gt;</span>
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function TabsDemo() { const [t, setT] = React.useState(0); return <Tabs tabs={[{ label: 'Objects', badge: '312' }, { label: 'Links' }, { label: 'Actions', badge: '28' }, { label: 'Audit' }]} active={t} onChange={setT} style={{ width: '100%' }} />; }
+function SideNavDemo() {
+  const [id, setId] = React.useState('objects');
+  return (
+    <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', height: 220, width: '100%' }}>
+      <SideNav sections={[
+        { title: 'FABRIC', items: [{ id: 'objects', label: 'Objects', icon: <Icon name="boxes" size={16} />, badge: '312' }, { id: 'links', label: 'Link types', icon: <Icon name="network" size={16} /> }] },
+        { title: 'GOVERNANCE', items: [{ id: 'audit', label: 'Audit lineage', icon: <Icon name="scroll-text" size={16} /> }] },
+      ]} activeId={id} onSelect={setId} style={{ height: '100%' }} />
+      <div className="mg-grid-bg" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>{id.toUpperCase()}</div>
+    </div>
+  );
+}
+function TableDemo() {
+  const [sel, setSel] = React.useState(0);
+  return <Table style={{ width: '100%' }}
+    columns={[
+      { header: 'Dataset', key: 'name' },
+      { header: 'Version', key: 'v', mono: true, width: 110 },
+      { header: 'Marking', cell: r => <MarkingChip level={r.m} />, width: 160 },
+      { header: 'Status', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 130 },
+    ]}
+    rows={[
+      { name: 'flight_tracks_eu', v: 'v41 · main', m: 'confidential', st: 'secure', stl: 'Sealed' },
+      { name: 'sensor_feed_north', v: 'v12 · main', m: 'restricted', st: 'healthy', stl: 'Healthy' },
+      { name: 'maintenance_events', v: 'v7 · dev', m: 'internal', st: 'warn', stl: 'Drift' },
+    ]} selectedIndex={sel} onRowClick={setSel} />;
+}
+function SwitchDemo() { const [a, setA] = React.useState(true); const [b, setB] = React.useState(false); return (<><Switch checked={a} onChange={setA} label="Air-gapped mode" /><Switch checked={b} onChange={setB} label="Outbound webhooks" /><Switch checked={false} onChange={() => {}} label="Disabled" disabled /></>); }
+function SelectDemo() { const [v, setV] = React.useState('stable'); return <Select label="Release channel" options={['stable', 'beta', 'canary']} value={v} onChange={e => setV(e.target.value)} />; }
+
+function App() {
+  return (
+    <DocsShell active="components">
+      <PageIntro num={2} eyebrow="COMPONENTS" title="28 primitives, 8 groups"
+        lead="Every component styles itself against semantic tokens only, so all of them adapt to the five product themes and to light, dark, and system modes unmodified. The header platform selector re-scopes every demo below; demos are live, hover, press, click." />
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 48 }}>
+        {GROUPS.flatMap(g => g.items).map(n => (
+          <a key={n} href={'#' + n.toLowerCase()} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: 'var(--text-muted)', textDecoration: 'none', background: 'var(--surface-card)' }}>{n}</a>
+        ))}
+      </div>
+
+      <Section id="core" num={1} title="Core: actions & inline state">
+        <Anchor name="Button">
+          <Demo label="VARIANTS · ONE PRIMARY PER VIEW">
+            <Button variant="primary" iconRight={<Icon name="arrow-right" size={15} />}>Deploy release</Button>
+            <Button variant="secondary">Secondary</Button>
+            <Button variant="outline">Outline</Button>
+            <Button variant="ghost">Ghost</Button>
+            <Button variant="primary" disabled>Disabled</Button>
+          </Demo>
+          <Demo label="SIZES · 30 / 38 / 48PX">
+            <Button size="sm" variant="secondary">Small</Button>
+            <Button size="md" variant="secondary">Medium</Button>
+            <Button size="lg" variant="secondary">Large</Button>
+          </Demo>
+          <Demo label="THEME ADAPTATION · SAME COMPONENT, FIVE SCOPES">
+            {['midgard', 'forge', 'mimir', 'bifrost', 'heimdall'].map(t => (
+              <span key={t} className={'theme-' + t}><Button variant="primary" size="sm">{t}</Button></span>
+            ))}
+          </Demo>
+          <PropsTable rows={[
+            ['variant', "'primary' | 'secondary' | 'outline' | 'ghost'", 'Primary = accent fill; glows on hover. Max one per view.'],
+            ['size', "'sm' | 'md' | 'lg'", '30 / 38 / 48px'],
+            ['iconLeft / iconRight', 'ReactNode', 'Usually an <Icon>'],
+            ['fullWidth · disabled', 'boolean', 'Disabled drops to faint on inset, no accent'],
+          ]} />
+        </Anchor>
+        <Anchor name="IconButton">
+          <Demo>
+            <IconButton label="Settings" variant="solid"><Icon name="settings" size={17} /></IconButton>
+            <IconButton label="Terminal" variant="solid" active><Icon name="terminal" size={17} /></IconButton>
+            <IconButton label="Alerts"><Icon name="bell" size={17} /></IconButton>
+            <IconButton label="Disabled" disabled><Icon name="x" size={17} /></IconButton>
+            <IconButton label="Large" size="lg" variant="solid"><Icon name="search" size={20} /></IconButton>
+          </Demo>
+          <PropsTable rows={[
+            ['variant', "'ghost' | 'solid'", 'Solid = ink surface + border'],
+            ['active', 'boolean', 'Accent tint + accent glyph'],
+            ['label', 'string', 'Required for a11y; doubles as tooltip'],
+            ['size', "'sm' | 'md' | 'lg'", '28 / 36 / 44px square; press scales 0.96'],
+          ]} />
+        </Anchor>
+        <Anchor name="Badge">
+          <Demo>
+            <Badge>v1.0.0</Badge><Badge tone="accent">GA</Badge><Badge tone="secure">SEALED</Badge><Badge tone="warn">CANARY</Badge><Badge tone="danger">CVE-CRIT</Badge><Badge tone="info">ADVISORY</Badge>
+          </Demo>
+          <PropsTable rows={[['tone', "'neutral' | 'accent' | 'secure' | 'warn' | 'danger' | 'info'", 'Status tones for state only']]} />
+        </Anchor>
+        <Anchor name="Tag">
+          <Demo>
+            <Tag active>pipeline:prod</Tag><Tag>air-gap</Tag><Tag onRemove={() => {}}>marking:C</Tag><Tag onClick={() => {}}>clickable</Tag>
+          </Demo>
+          <PropsTable rows={[['active', 'boolean', 'Accent-selected'], ['onRemove', '() => void', 'Shows the × affordance'], ['onClick', '() => void', 'Makes the tag selectable']]} />
+        </Anchor>
+        <Anchor name="StatusPill">
+          <Demo>
+            <StatusPill status="secure" label="PQ-SEALED" /><StatusPill status="online" /><StatusPill status="healthy" /><StatusPill status="warn" /><StatusPill status="danger" /><StatusPill status="gated" /><StatusPill status="offline" /><StatusPill status="live" />
+          </Demo>
+          <PropsTable rows={[
+            ['status', "'secure' | 'online' | 'healthy' | 'offline' | 'warn' | 'danger' | 'live' | 'gated'", 'Colour + default text per state'],
+            ['label', 'string', 'Override the default text'],
+            ['pulse', 'boolean', 'Pulses on positive/live states; honours prefers-reduced-motion'],
+          ]} />
+        </Anchor>
+      </Section>
+
+      <Section id="forms" num={2} title="Forms: fields on sunken wells">
+        <Anchor name="Input">
+          <Demo style={{ alignItems: 'flex-start' }}>
+            <Input label="Object type" placeholder="e.g. Aircraft" style={{ width: 220 }} />
+            <Input label="Artefact digest" mono defaultValue="sha256:9f2c…e1" prefix={<Icon name="key" size={15} color="var(--text-faint)" />} style={{ width: 250 }} />
+            <Input label="Purpose" placeholder="Required" error="Purpose declaration required" style={{ width: 200 }} />
+            <Input label="Search" size="sm" placeholder="Search…" prefix={<Icon name="search" size={14} color="var(--text-faint)" />} style={{ width: 200 }} />
+          </Demo>
+          <PropsTable rows={[
+            ['label · hint · error', 'string', 'Mono caps label; error turns the border red'],
+            ['mono', 'boolean', 'Monospace value, ids, keys, digests, commands'],
+            ['prefix / suffix', 'ReactNode', 'Leading/trailing glyph'],
+            ['size', "'sm' | 'md' | 'lg'", '32 / 38 / 46px'],
+          ]} />
+        </Anchor>
+        <Anchor name="Select">
+          <Demo style={{ alignItems: 'flex-end' }}><SelectDemo /><Select label="Model family" options={[{ value: 'glm', label: 'GLM 5.2' }, { value: 'nemotron', label: 'Nemotron' }, { value: 'gemma', label: 'Gemma' }]} value="glm" onChange={() => {}} /><Select label="Disabled" options={[', ']} disabled /></Demo>
+          <PropsTable rows={[['options', "Array<string | {value, label}>", ''], ['value / onChange', 'string / (e) => void', 'Native select semantics']]} />
+        </Anchor>
+        <Anchor name="Switch">
+          <Demo><SwitchDemo /></Demo>
+          <PropsTable rows={[['checked / onChange', 'boolean / (next: boolean) => void', 'Accent when on'], ['label', 'string', ''], ['disabled', 'boolean', '']]} />
+        </Anchor>
+      </Section>
+
+      <Section id="data" num={3} title="Data: console furniture">
+        <Anchor name="Card">
+          <Demo style={{ alignItems: 'stretch' }}>
+            <Card style={{ flex: 1, minWidth: 180 }}><SectionLabel number={1}>DEFAULT</SectionLabel><p style={{ margin: '10px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Flat ink surface, hairline border, no shadow at rest.</p></Card>
+            <Card interactive style={{ flex: 1, minWidth: 180 }}><SectionLabel number={2} muted>INTERACTIVE</SectionLabel><p style={{ margin: '10px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Lifts one ink step on hover.</p></Card>
+            <Card accentRule interactive style={{ flex: 1, minWidth: 180 }}><SectionLabel number={3} muted>ACCENT RULE</SectionLabel><p style={{ margin: '10px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>2px product-accent top rule for emphasis.</p></Card>
+          </Demo>
+          <PropsTable rows={[['interactive', 'boolean', 'Hover lift'], ['accentRule', 'boolean', '2px accent top rule'], ['size', "'sm' | 'md' | 'lg'", 'Padding 14 / 20 / 28; lg uses radius-lg']]} />
+        </Anchor>
+        <Anchor name="Table">
+          <Demo><TableDemo /></Demo>
+          <Demo label="COMPACT · 32PX ROWS, FOR LOGS AND AUDIT TRAILS">
+            <Table compact style={{ width: '100%' }}
+              columns={[
+                { header: 'Actor', key: 'a', mono: true },
+                { header: 'Operation', key: 'o' },
+                { header: 'Signature', cell: r => <Badge tone="secure">ML-DSA ✓</Badge>, width: 110 },
+                { header: 'TS', key: 't', mono: true, width: 90 },
+              ]}
+              rows={[
+                { a: 'agent:mimir/dispatch-01', o: 'Action · Schedule maintenance', t: '14:32:08' },
+                { a: 'svc:forge/projector', o: 'Write · object sync', t: '14:31:41' },
+              ]} />
+          </Demo>
+          <PropsTable rows={[
+            ['columns', 'TableColumn[]', '{header, key | cell(row), mono, align, width}'],
+            ['rows', 'any[]', ''],
+            ['compact', 'boolean', '32px rows instead of 40px'],
+            ['selectedIndex / onRowClick', 'number / (i) => void', 'Accent tint + 2px left rail on selection'],
+          ]} />
+        </Anchor>
+        <Anchor name="StatBlock">
+          <Demo>
+            <StatBlock value="99.9%" label="CONTROL-PLANE SLO" />
+            <StatBlock value="312" label="OBJECT TYPES" accent />
+            <StatBlock value="0.42s" label="FIRST TOKEN" size="sm" sub="reference GPU class" />
+            <StatBlock value="1.2M" label="INSTANCES" size="lg" />
+          </Demo>
+          <PropsTable rows={[['value / label', 'ReactNode / string', 'Oxanium numeral + mono caps label'], ['accent', 'boolean', 'Numeral in the product accent'], ['size', "'sm' | 'md' | 'lg'", ''], ['sub', 'ReactNode', 'Small sub-line']]} />
+        </Anchor>
+        <Anchor name="SectionLabel">
+          <Demo><SectionLabel number={1}>IDENTITY</SectionLabel><SectionLabel number={2}>OBJECT FABRIC</SectionLabel><SectionLabel number={12} muted>MUTED VARIANT</SectionLabel><SectionLabel>NO NUMBER</SectionLabel></Demo>
+          <PropsTable rows={[['number', 'number | string', 'Zero-padded automatically'], ['muted', 'boolean', 'Grey instead of accent']]} />
+        </Anchor>
+        <Anchor name="Terminal">
+          <Demo style={{ display: 'block' }}>
+            <Terminal title="ENCLOSURE" lines={[
+              '> midgard status --enclosure',
+              'identity   OK   fabric   OK   kms   OK',
+              '> bifrost verify midgard-suite:2.5.0',
+              'signature  ML-DSA verified',
+              '# PQ-SEALED · NO EGRESS · AIR-GAP READY',
+            ]} />
+          </Demo>
+          <PropsTable rows={[['title', 'string', 'Mono caps title bar with accent dot'], ['lines', 'Array<string | ReactNode>', '"> " lines get the accent caret; "#" lines render faint']]} />
+        </Anchor>
+        <Anchor name="ProvenanceTag">
+          <Demo>
+            <ProvenanceTag id="DD-4" title="Local AI processing via the Mimir layer" />
+            <ProvenanceTag id="FR-H-1" title="Fuse multiple live feeds into one picture" />
+            <ProvenanceTag id="NFR-PQ-2" title="AES-256-GCM under ML-KEM-1024-wrapped keys" />
+            <ProvenanceTag id="STD:NIST FIPS 203" />
+            <ProvenanceTag id="AC-M-5" title="Full air-gap acceptance criterion" />
+          </Demo>
+          <PropsTable rows={[['id', 'string', 'Without brackets; colour keys off the prefix (DD / FR / NFR / STD / AC)'], ['title', 'string', 'Tooltip, the requirement statement'], ['kind', "'dd' | 'nfr' | 'fr' | 'std' | 'ac'", 'Override inferred colour']]} />
+        </Anchor>
+        <Anchor name="MeterBar">
+          <Demo>
+            <MeterBar value={41} label="CPU" />
+            <MeterBar value={88} label="CPU" warnAt={85} dangerAt={95} />
+            <MeterBar value={96} label="EVAL PASS" warnAt={90} invert />
+            <MeterBar value={54} label="CONF." warnAt={70} invert />
+            <MeterBar value={44} width={120} showValue={false} />
+          </Demo>
+          <PropsTable rows={[['value', 'number', '0–100'], ['label', 'string', 'Mono caps prefix'], ['warnAt / dangerAt', 'number', 'Threshold recolouring'], ['invert', 'boolean', 'Lower is worse (pass rates, confidence)'], ['width · showValue · format', 'number · boolean · fn', '']]} />
+        </Anchor>
+      </Section>
+
+      <Section id="nav" num={4} title="Navigation">
+        <Anchor name="Tabs">
+          <Demo style={{ display: 'block' }}><TabsDemo /></Demo>
+          <PropsTable rows={[['tabs', "Array<string | {label, icon, badge}>", ''], ['active / onChange', 'number / (i) => void', '2px accent rule on the active tab'], ['size', "'sm' | 'md'", '']]} />
+        </Anchor>
+        <Anchor name="SideNav">
+          <Demo style={{ display: 'block' }}><SideNavDemo /></Demo>
+          <PropsTable rows={[
+            ['sections', 'Array<{title, items}>', 'items: {id, label, icon, badge}'],
+            ['activeId / onSelect', 'string / (id) => void', 'Accent tint + 2px left rail'],
+            ['footer', 'ReactNode', 'Pinned to the bottom'],
+            ['width', 'number | string', 'Defaults to --sidenav-w (232px)'],
+          ]} />
+        </Anchor>
+      </Section>
+
+      <Section id="governance" num={5} title="Governance: marking chrome" lead="Classification colours never follow the product theme or the colour mode. A CONFIDENTIAL banner is the same red in Forge, Heimdall, light and dark.">
+        <Anchor name="ClassificationBanner">
+          <Demo style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            <ClassificationBanner level="confidential" />
+            <ClassificationBanner level="restricted" />
+            <ClassificationBanner level="internal" compact />
+            <ClassificationBanner level="open" compact />
+          </Demo>
+          <PropsTable rows={[['level', "'confidential' | 'restricted' | 'internal' | 'open'", 'Fixed colours'], ['text', 'string', 'Override the default banner text'], ['compact', 'boolean', '20px instead of 26px']]} />
+        </Anchor>
+        <Anchor name="MarkingChip">
+          <Demo>
+            <MarkingChip level="confidential" compartment="OPS-N" /><MarkingChip level="restricted" /><MarkingChip level="internal" /><MarkingChip level="open" label="unclassified" />
+          </Demo>
+          <PropsTable rows={[['level', 'as banner', 'Per-object marking'], ['compartment', 'string', 'Suffix, e.g. OPS-N'], ['label', 'string', 'Override text']]} />
+        </Anchor>
+        <Anchor name="HumanGate">
+          <Demo style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            <HumanGate title="Schedule maintenance · AC-2214 → FAC-DUB" onAuthorise={() => {}} onReject={() => {}} />
+            <HumanGate state="authorised" auditId="A-77120" />
+            <HumanGate state="rejected" auditId="A-77121" />
+          </Demo>
+          <PropsTable rows={[['title', 'string', 'The proposed action'], ['state', "'pending' | 'authorised' | 'rejected'", 'Amber → green with audit id'], ['auditId', 'string', 'Receipt shown after resolution'], ['onAuthorise / onReject', '() => void', 'The two human decisions']]} />
+          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)' }}>The one non-negotiable component: any state-mutating AI proposal renders through it (NFR-AI-1). It never auto-resolves.</p>
+        </Anchor>
+        <Anchor name="SyncStatus">
+          <Demo>
+            <SyncStatus state="offline" queued={7} />
+            <SyncStatus state="syncing" queued={7} />
+            <SyncStatus state="merged" />
+            <SyncStatus state="synced" />
+          </Demo>
+          <PropsTable rows={[['state', "'offline' | 'syncing' | 'synced' | 'merged'", 'Offline is a state, never an error tone'], ['queued', 'number', 'Locally queued CRDT ops'], ['detail', 'string', 'Override the detail text']]} />
+        </Anchor>
+        <Anchor name="TierBadge">
+          <Demo>
+            <TierBadge tier="on-device" model="GEMMA INT4" leaves={false} />
+            <TierBadge tier="remote" model="GLM 5.2" />
+            <TierBadge tier="hybrid" />
+            <TierBadge tier="disabled" />
+          </Demo>
+          <PropsTable rows={[['tier', "'on-device' | 'remote' | 'hybrid' | 'disabled'", 'Which tier served the answer (FR-C-6)'], ['model', 'string', 'e.g. GEMMA INT4'], ['leaves', 'boolean | null', 'Explicit data_leaves_device readout']]} />
+          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)' }}>Every AI answer on a client carries one; remote/hybrid must state that data left the device.</p>
+        </Anchor>
+        <Anchor name="KeyCustodyChip">
+          <Demo>
+            <KeyCustodyChip platform="ios" />
+            <KeyCustodyChip platform="android" />
+            <KeyCustodyChip platform="windows" />
+            <KeyCustodyChip platform="linux" />
+            <KeyCustodyChip platform="web" />
+            <KeyCustodyChip platform="extension" />
+          </Demo>
+          <PropsTable rows={[['platform', "'ios' | 'macos' | 'android' | 'windows' | 'linux' | 'web' | 'extension'", 'Names the keystore + its security floor (FR-C-2)']]} />
+        </Anchor>
+        <Anchor name="RiskBadge">
+          <Demo>
+            <RiskBadge level={1} />
+            <RiskBadge level={3} />
+            <RiskBadge level={5} />
+          </Demo>
+          <PropsTable rows={[['level', '1 | 2 | 3 | 4 | 5', 'Admin action risk class (KDD-2)'], ['dualControl', 'boolean | null', 'Force the DUAL-CONTROL flag; null = inferred (≥4)']]} />
+        </Anchor>
+        <Anchor name="GuardedAction">
+          <Demo>
+            <GuardedAction action="Rotate enclosure-root-03" subsystem="KMS" risk={5} state="awaiting" requester="j.benjamin" approver="k.osei" justification="Scheduled 90-day rotation" onApprove={() => {}} onDeny={() => {}} style={{ width: '100%' }} />
+          </Demo>
+          <PropsTable rows={[['action / subsystem', 'string', 'What is being requested, where'], ['risk', '1–5', 'Risk bars, coloured by class'], ['state', "'awaiting' | 'approved' | 'executed' | 'denied'", 'Dual-control lifecycle'], ['requester / approver', 'string', 'Separation-of-duties readout is live'], ['justification', 'string', 'Mandatory written reason'], ['deniedReason', 'string', 'e.g. self-approval blocked (AC-AD-4)'], ['tokenTtl', 'string', 'Time-boxed token label'], ['onApprove / onDeny', '() => void', 'Approver controls (step-up implied)']]} />
+          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)' }}>The admin panel's core primitive: no high-risk change executes without a second, distinct approver (FR-AD-5).</p>
+        </Anchor>
+        <Anchor name="BreakGlass">
+          <Demo>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+              <BreakGlass state="idle" />
+              <BreakGlass state="active" holder="k.osei" scope="KMS · unwrap only" remaining="00:41:12" />
+              <BreakGlass state="review" holder="k.osei" scope="KMS · unwrap only" />
+            </div>
+          </Demo>
+          <PropsTable rows={[['state', "'idle' | 'active' | 'review'", 'Sealed chip · pulsing countdown · forced review'], ['holder / scope', 'string', 'Who holds it, over exactly what'], ['remaining', 'string', 'Countdown while active'], ['justification', 'string', 'The written emergency reason']]} />
+        </Anchor>
+      </Section>
+
+      <Section id="media" num={6} title="Media">
+        <Anchor name="Icon">
+          <Demo>
+            {['lock', 'shield-check', 'key', 'boxes', 'network', 'database', 'terminal', 'hammer', 'git-branch', 'workflow', 'brain-circuit', 'bot', 'sparkles', 'rocket', 'package', 'undo-2', 'eye', 'radar', 'map', 'crosshair', 'layers'].map(n => <Icon key={n} name={n} size={19} color="var(--text-body)" />)}
+            <span style={{ width: 12 }} />
+            <Icon name="shield-check" size={19} color="var(--accent)" />
+            <Icon name="radar" size={26} color="var(--accent)" />
+          </Demo>
+          <PropsTable rows={[['name', 'string', 'Lucide-style name; full grid on the Foundations page'], ['size', 'number', 'Default 20'], ['strokeWidth', 'number', 'Default 1.9'], ['color', 'string', 'Defaults to currentColor']]} />
+        </Anchor>
+        <Anchor name="ProductMark">
+          <Demo>
+            <ProductMark product="midgard" /><ProductMark product="forge" /><ProductMark product="mimir" /><ProductMark product="bifrost" /><ProductMark product="heimdall" />
+          </Demo>
+          <Demo label="SIZES + BARE">
+            <ProductMark product="midgard" size="lg" /><ProductMark product="midgard" size="md" /><ProductMark product="midgard" size="sm" showDescriptor={false} />
+          </Demo>
+          <PropsTable rows={[['product', "'midgard' | 'forge' | 'mimir' | 'bifrost' | 'heimdall'", 'Initial tile in the product tint'], ['showDescriptor', 'boolean', 'Mono descriptor line'], ['size', "'sm' | 'md' | 'lg'", '']]} />
+          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)' }}>Plain type by design; no logos were provided and none were invented. Replace when real marks exist.</p>
+        </Anchor>
+      </Section>
+
+      <Section id="platforms" num={7} title="One kit, five platforms" lead="The same composite, once per theme scope. Nothing changes between panels except the class on the wrapper; this is the test any new component must pass before it ships.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, marginBottom: 22 }}>
+          {['midgard', 'forge', 'mimir', 'bifrost', 'heimdall'].map(t => (
+            <div key={t} className={'theme-' + t} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: 'var(--surface-card)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--bg-sunken)', borderBottom: '1px solid var(--border)' }}>
+                <ProductMark product={t} size="sm" showDescriptor={false} />
+                <div style={{ flex: 1 }} />
+                <StatusPill status="secure" label="PQ-SEALED" pulse={false} />
+              </div>
+              <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <SectionLabel number={1}>SCOPED</SectionLabel>
+                  <Badge tone="accent">ACTIVE</Badge>
+                  <Tag active>filter</Tag>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <Button variant="primary" size="sm">Primary</Button>
+                  <Button variant="outline" size="sm">Outline</Button>
+                  <StatBlock value="0.4s" label="LATENCY" size="sm" accent />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section id="coverage" num={8} title="State coverage" lead="What every component must handle. A dot means the state exists and is demonstrated above; a dash means the state does not apply.">
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
+            <thead><tr style={{ background: 'var(--surface-inset)' }}>
+              {['Component', 'Hover', 'Press', 'Focus', 'Disabled', 'Selected / active', 'Error', 'Themed'].map(h => <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-faint)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                ['Button', 1, 1, 1, 1, 0, 0, 1], ['IconButton', 1, 1, 1, 1, 1, 0, 1], ['Badge', 0, 0, 0, 0, 0, 0, 1], ['Tag', 1, 0, 0, 0, 1, 0, 1], ['StatusPill', 0, 0, 0, 0, 0, 0, 0],
+                ['Input', 0, 0, 1, 1, 0, 1, 1], ['Select', 0, 0, 1, 1, 0, 0, 1], ['Switch', 0, 0, 1, 1, 1, 0, 1],
+                ['Card', 1, 0, 0, 0, 1, 0, 1], ['Table', 1, 0, 0, 0, 1, 0, 1], ['Tabs', 1, 0, 0, 0, 1, 0, 1], ['SideNav', 1, 0, 0, 0, 1, 0, 1],
+                ['ClassificationBanner', 0, 0, 0, 0, 0, 0, 0], ['MarkingChip', 0, 0, 0, 0, 0, 0, 0], ['ProvenanceTag', 0, 0, 0, 0, 0, 0, 0], ['HumanGate', 1, 1, 1, 0, 0, 0, 1], ['MeterBar', 0, 0, 0, 0, 0, 0, 1], ['SyncStatus', 0, 0, 0, 0, 0, 0, 1], ['TierBadge', 0, 0, 1, 0, 0, 0, 1], ['KeyCustodyChip', 0, 0, 0, 0, 0, 0, 1], ['RiskBadge', 1, 0, 0, 0, 0, 0, 1], ['GuardedAction', 1, 0, 0, 0, 0, 0, 1], ['BreakGlass', 1, 0, 0, 0, 0, 0, 1],
+              ].map((r, i, arr) => (
+                <tr key={r[0]}>
+                  <td style={{ padding: '6px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent-hover)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{r[0]}</td>
+                  {r.slice(1).map((v, j) => <td key={j} style={{ padding: '6px 12px', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{v ? <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'var(--secure)' }} /> : <span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>–</span>}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)', margin: 0 }}>Themed · renders in all five product scopes and both colour modes unmodified. StatusPill, banners, markings, and provenance keep fixed colours everywhere by design.</p>
+      </Section>
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

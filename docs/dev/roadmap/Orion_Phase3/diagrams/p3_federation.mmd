@@ -1,0 +1,27 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph nodeA["Heimdall node A (site 1)"]
+        pa["Local picture + Orion detections"]:::node
+    end
+    subgraph nodeB["Heimdall node B (site 2)"]
+        pb["Local picture + Orion detections"]:::node
+    end
+    subgraph nodeC["Heimdall node C (forward)"]
+        pc["Local picture + Orion detections"]:::node
+    end
+    subgraph fed["Federation layer (new)"]
+        crdt["CRDT merge\n(offline-first, conflict-free)"]:::orion
+        auth["PQ-mTLS + feed authentication\n(reject unverified nodes)"]:::orion
+        marking["Marking / need-to-know\nfilter per node"]:::orion
+    end
+    shared["Shared networked picture\n(one operational truth)"]:::shared
+    pa --> crdt
+    pb --> crdt
+    pc --> crdt
+    crdt --> auth --> marking --> shared
+    shared -.replicated back.-> pa
+    shared -.replicated back.-> pb
+    shared -.replicated back.-> pc
+    classDef node fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef shared fill:#0B4884,color:#fff,stroke:#052E56,stroke-width:2px

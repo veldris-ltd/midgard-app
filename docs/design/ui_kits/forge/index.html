@@ -1,0 +1,150 @@
+<!-- @dsCard group="Forge" viewport="1440x820" subtitle="Data operations: pipeline DAG, dataset versioning, build health" name="Forge · Pipeline Builder" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Forge · Pipeline Builder</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-forge">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+
+const { Tabs, Table, Card, StatusPill, Badge, Button, IconButton, Input, Icon, SectionLabel, Terminal, Tag, StatBlock } = NS;
+
+/* Pipeline DAG nodes: x,y in canvas grid units */
+const NODES = [
+  { id: 'src1', kind: 'source', label: 'flights_raw', icon: 'database', x: 0, y: 0, status: 'healthy', meta: 'JDBC · pull 5m' },
+  { id: 'src2', kind: 'source', label: 'sensor_stream', icon: 'radio-tower', x: 0, y: 1, status: 'healthy', meta: 'Stream · live' },
+  { id: 't1', kind: 'transform', label: 'clean_flights', icon: 'workflow', x: 1, y: 0, status: 'healthy', meta: 'Low-code · 6 steps' },
+  { id: 't2', kind: 'transform', label: 'fuse_positions', icon: 'code', x: 1, y: 1, status: 'warn', meta: 'Pro-code · Python' },
+  { id: 'ds', kind: 'dataset', label: 'flight_tracks_eu', icon: 'table', x: 2, y: 0.5, status: 'healthy', meta: 'v41 · branch main' },
+  { id: 'proj', kind: 'projection', label: 'Aircraft objects', icon: 'boxes', x: 3, y: 0.5, status: 'healthy', meta: '→ Midgard fabric' },
+];
+const EDGES = [['src1','t1'],['src2','t2'],['t1','ds'],['t2','ds'],['ds','proj']];
+const COL_W = 250, ROW_H = 150, NODE_W = 190, NODE_H = 84, PAD = 28;
+
+function Node({ n, selected, onClick }) {
+  const statusColor = n.status === 'warn' ? 'var(--warn)' : 'var(--secure)';
+  return (
+    <div onClick={onClick} style={{
+      position: 'absolute', left: PAD + n.x * COL_W, top: PAD + n.y * ROW_H, width: NODE_W, height: NODE_H,
+      background: selected ? 'var(--surface-raised)' : 'var(--surface-card)',
+      border: '1px solid ' + (selected ? 'var(--accent)' : 'var(--border)'),
+      boxShadow: selected ? 'var(--shadow-glow)' : 'none',
+      borderRadius: 'var(--radius-md)', padding: '10px 12px', cursor: 'pointer',
+      display: 'flex', flexDirection: 'column', gap: 4,
+      transition: 'border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name={n.icon} size={15} color="var(--accent)" />
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--grey-100)', fontWeight: 'var(--fw-medium)' }}>{n.label}</span>
+        <span style={{ marginLeft: 'auto', width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
+      </div>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>{n.meta}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)', textTransform: 'uppercase' }}>{n.kind}</span>
+    </div>
+  );
+}
+
+function App() {
+  const [sel, setSel] = React.useState('ds');
+  const [log, setLog] = React.useState(['> forge build flight_tracks_eu --branch main', '# last build 14:02 · OK · 1m42s']);
+  const [building, setBuilding] = React.useState(false);
+  const node = NODES.find(n => n.id === sel);
+
+  const runBuild = () => {
+    if (building) return;
+    setBuilding(true);
+    setLog(l => [...l, '> forge build flight_tracks_eu --branch main']);
+    const steps = [
+      ['resolve   sources 2/2 · PQ-mTLS OK', 500],
+      ['transform clean_flights · 6/6 steps', 1100],
+      ['transform fuse_positions · expectations 11/12 ⚠', 1800],
+      ['seal      AES-256-GCM · ML-KEM-1024 wrap', 2400],
+      ['project   12,408 objects → fabric', 3000],
+      ['# build v42 OK · 1m38s · lineage signed (ML-DSA)', 3400],
+    ];
+    steps.forEach(([line, t]) => setTimeout(() => setLog(l => [...l, line]), t));
+    setTimeout(() => setBuilding(false), 3600);
+  };
+
+  const edgePath = ([a, b]) => {
+    const na = NODES.find(n => n.id === a), nb = NODES.find(n => n.id === b);
+    const x1 = PAD + na.x * COL_W + NODE_W, y1 = PAD + na.y * ROW_H + NODE_H / 2;
+    const x2 = PAD + nb.x * COL_W, y2 = PAD + nb.y * ROW_H + NODE_H / 2;
+    const mx = (x1 + x2) / 2;
+    return 'M ' + x1 + ' ' + y1 + ' C ' + mx + ' ' + y1 + ', ' + mx + ' ' + y2 + ', ' + x2 + ' ' + y2;
+  };
+
+  return (
+    <ConsoleShell product="forge" active="pipeline" context="PIPELINES / FLIGHT_TRACKS_EU" asideWidth={320}
+      mainStyle={{ padding: 0, gap: 0 }}
+      toolbar={<>
+        <Badge tone="accent">BRANCH · MAIN</Badge>
+        <Button variant="secondary" size="sm" iconLeft={<Icon name="git-branch" size={14} />}>Branch</Button>
+        <Button variant="primary" size="sm" iconLeft={<Icon name="play" size={14} />} onClick={runBuild} disabled={building}>{building ? 'Building…' : 'Run build'}</Button>
+      </>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <Icon name={node.icon} size={17} color="var(--accent)" />
+          <h2 style={{ flex: 1, fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15 }}>{node.label}</h2>
+          <StatusPill status={node.status} pulse={false} label={node.status === 'warn' ? 'Drift' : 'Healthy'} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value="v41" label="VERSION" size="sm" />
+            <StatBlock value="12/12" label="EXPECTATIONS" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>VERSION HISTORY</div>
+          {[['v41', 'main', '14:02', 'OK'], ['v40', 'main', '12:40', 'OK'], ['v39', 'dev/fuse-fix', '11:18', 'FAIL']].map(([v, br, ts, st], i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <Icon name="git-commit" size={13} color="var(--text-faint)" />
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+              <span style={{ color: 'var(--text-faint)' }}>{br}</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--text-faint)' }}>{ts}</span>
+              <Badge tone={st === 'OK' ? 'secure' : 'danger'}>{st}</Badge>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>ENCRYPTION</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-muted)', lineHeight: 2 }}>
+            AT REST&nbsp;&nbsp;AES-256-GCM · ML-KEM-1024<br />TRANSIT&nbsp;&nbsp;X25519 + ML-KEM-768<br />LINEAGE&nbsp;&nbsp;ML-DSA SIGNED
+          </div>
+        </div>
+        <Button variant="secondary" size="sm" style={{ marginTop: 'auto' }} iconLeft={<Icon name="boxes" size={14} />}>Open projection mapping</Button>
+      </>}>
+          <div className="mg-grid-bg" style={{ flex: 1, position: 'relative', background: 'var(--bg-sunken)', minHeight: 0, overflow: 'auto' }}>
+            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+              {EDGES.map((e, i) => <path key={i} d={edgePath(e)} fill="none" stroke="var(--ink-500)" strokeWidth="1.5" />)}
+            </svg>
+            {NODES.map(n => <Node key={n.id} n={n} selected={sel === n.id} onClick={() => setSel(n.id)} />)}
+            <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8 }}>
+              <Tag active>low-code</Tag><Tag>pro-code</Tag>
+            </div>
+          </div>
+          <div style={{ flex: 'none', borderTop: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap' }}>
+            <Terminal title={building ? 'BUILD, RUNNING' : 'BUILD LOG'} lines={log} style={{ flex: '1 1 320px', border: 'none', borderRadius: 0, overflowY: 'auto', maxHeight: 190 }} />
+            <div style={{ width: 'min(330px, 100%)', flex: '0 1 auto', borderLeft: '1px solid var(--border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <SectionLabel number={4} muted>MIMIR SUGGESTION</SectionLabel>
+              <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.6, color: 'var(--text-body)' }}>Expectation <code>alt_ft &lt; 60000</code> fails on 0.4% of rows in <code>fuse_positions</code>. Suggest a bounds filter before the join.</p>
+              <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+                <Button variant="outline" size="sm" fullWidth iconLeft={<Icon name="sparkles" size={13} />}>Preview transform</Button>
+                <Button variant="ghost" size="sm">Dismiss</Button>
+              </div>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>LOCAL INFERENCE · GLM 5.2 · PREVIEW-BEFORE-COMMIT [FR-F-7]</span>
+            </div>
+          </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

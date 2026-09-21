@@ -1,0 +1,92 @@
+<!-- @dsCard group="Midgard Console" viewport="1440x820" subtitle="Append-only, PQ-signed audit chain with lineage tracing" name="Midgard · Audit Lineage" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Audit Lineage</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const EVENTS = [
+  { id: 'A-77124', actor: 'k.osei', op: 'Action · Ground aircraft', res: 'aircraft/AC-1180', sig: true, gate: 'human', ts: '14:33:02' },
+  { id: 'A-77123', actor: 'agent:mimir/dispatch-01', op: 'Action · Schedule maintenance', res: 'aircraft/AC-2214', sig: true, gate: 'human', ts: '14:32:08' },
+  { id: 'A-77122', actor: 'j.benjamin', op: 'Query · search-around', res: 'aircraft/*', sig: true, gate: null, ts: '14:31:56' },
+  { id: 'A-77121', actor: 'svc:forge/projector', op: 'Write · object sync', res: 'sensor_feed/†640', sig: true, gate: null, ts: '14:31:41' },
+  { id: 'A-77120', actor: 'agent:mimir/dispatch-01', op: 'Retrieve · OAG scope', res: 'ObjectSet/aircraft·risk', sig: true, gate: null, ts: '14:31:22' },
+];
+function App() {
+  const [sel, setSel] = React.useState(1);
+  const e = EVENTS[sel];
+  return (
+    <ConsoleShell product="midgard" active="audit" context="ENCLOSURE / AUDIT LINEAGE"
+      toolbar={<Button variant="secondary" size="sm" iconLeft={<Icon name="download" size={14} />}>Export chain</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="scroll-text" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>#{e.id}</h2>
+          <Badge tone="secure">ML-DSA ✓</Badge>
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>LINEAGE TRACE</div>
+          {[
+            ['↑ caused by', sel < EVENTS.length - 1 ? '#' + EVENTS[sel + 1].id + ' · ' + EVENTS[sel + 1].op : 'origin'],
+            ['this event', e.op + ' → ' + e.res],
+            ['↓ leads to', sel > 0 ? '#' + EVENTS[sel - 1].id + ' · ' + EVENTS[sel - 1].op : 'chain head'],
+          ].map(([k, v], i) => (
+            <div key={k} style={{ padding: '8px 10px', marginBottom: 6, borderRadius: 6, background: i === 1 ? 'var(--accent-tint)' : 'var(--surface-inset)', border: '1px solid ' + (i === 1 ? 'var(--accent)' : 'var(--border)') }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.12em', color: 'var(--text-faint)', textTransform: 'uppercase' }}>{k}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--grey-100)', marginTop: 3 }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        <Terminal title="RECORD" lines={[
+          'actor    ' + e.actor,
+          'purpose  maintenance',
+          'sig      ML-DSA-65 · lineage-sign-02',
+          'prev     sha3:44e1…9c02',
+          '# append-only · verified',
+        ]} />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="NFR-SEC-2" title="Role/marking/purpose access control with full audit lineage" /><ProvenanceTag id="NFR-AI-1" title="Every agentic action traceable, evaluated, reversible or human-gated" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={9}>AUDIT</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Audit lineage</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="2.1M" label="EVENTS · 30D" size="sm" />
+        <StatBlock value="100%" label="SIGNED" size="sm" accent />
+        <StatBlock value="0" label="CHAIN BREAKS" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Input size="sm" mono placeholder="Trace by resource, actor, or audit id…" prefix={<Icon name="search" size={14} color="var(--text-faint)" />} style={{ width: 320 }} />
+        <Tag active>all events</Tag><Tag>actions</Tag><Tag>queries</Tag><Tag>writes</Tag><Tag>agent activity</Tag>
+      </div>
+      <Table
+        columns={[
+          { header: 'Audit id', cell: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--accent-hover)' }}>#{r.id}</span>, width: 100 },
+          { header: 'Actor', key: 'actor', mono: true },
+          { header: 'Operation', key: 'op' },
+          { header: 'Resource', key: 'res', mono: true, width: 180 },
+          { header: 'Gate', cell: r => r.gate ? <Badge tone="warn">HUMAN GATE</Badge> : <span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>–</span>, width: 110 },
+          { header: 'Signature', cell: () => <Badge tone="secure">ML-DSA ✓</Badge>, width: 100 },
+          { header: 'TS', key: 'ts', mono: true, width: 90 },
+        ]}
+        rows={EVENTS} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

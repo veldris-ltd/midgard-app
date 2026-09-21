@@ -1,0 +1,31 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="forge_c4_containers" id="forge_c4_containers">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="forge" value="FORGE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="20" y="110" width="780" height="180" as="geometry"/></mxCell>
+        <mxCell id="user" value="Data Engineer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="studio" value="Pipeline Studio (Web)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="40" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="conn" value="Data Connection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="170" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="planner" value="Transform Planner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="230" y="170" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="engine" value="Compute Orchestrator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="420" y="170" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="health" value="Data Health &amp; Checks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="610" y="170" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="modelsvc" value="Modelling Objectives" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="800" y="170" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="mimir" value="Mimir (GLM 5.2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="230" y="320" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="fabric" value="Midgard Object Fabric" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="430" y="320" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="src" value="External sources" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="40" y="320" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="e0" value="HTTPS+PQ" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="studio"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="studio" target="planner"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="studio" target="conn"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="conn" target="src"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="planner" target="engine"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="planner" target="mimir"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="engine" target="fabric"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="engine" target="health"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="modelsvc" target="mimir"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="modelsvc" target="fabric"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

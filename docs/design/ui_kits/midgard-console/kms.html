@@ -1,0 +1,96 @@
+<!-- @dsCard group="Midgard Console" viewport="1440x820" subtitle="KMS: key hierarchy, rotation, PQ algorithms in force" name="Midgard · Keys & Crypto" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Keys & Crypto</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const KEYS = [
+  { id: 'enclosure-root-03', kind: 'Root KEK', alg: 'ML-KEM-1024', scope: 'enclosure', rotated: '12d ago', next: '78d', st: 'secure', stl: 'Sealed' },
+  { id: 'fabric-dek-ring-a', kind: 'DEK ring', alg: 'AES-256-GCM', scope: 'object fabric', rotated: '6h ago', next: '18h', st: 'secure', stl: 'Active' },
+  { id: 'artefact-sign-01', kind: 'Signing', alg: 'ML-DSA-87', scope: 'bifrost artefacts', rotated: '31d ago', next: '59d', st: 'secure', stl: 'Active' },
+  { id: 'lineage-sign-02', kind: 'Signing', alg: 'ML-DSA-65', scope: 'audit lineage', rotated: '31d ago', next: '59d', st: 'secure', stl: 'Active' },
+  { id: 'fw-sign-slh-01', kind: 'Firmware', alg: 'SLH-DSA', scope: 'device firmware', rotated: '88d ago', next: '2d', st: 'warn', stl: 'Rotate soon' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const k = KEYS[sel];
+  return (
+    <ConsoleShell product="midgard" active="kms" context="ENCLOSURE / KEYS & CRYPTO"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="refresh-cw" size={14} />}>Rotate now</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="key" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{k.id}</h2>
+          <StatusPill status={k.st} pulse={false} label={k.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={k.alg} label="ALGORITHM" size="sm" />
+            <StatBlock value={k.next} label="NEXT ROTATION" size="sm" accent={k.st === 'warn'} />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>WRAP CHAIN</div>
+          {['enclosure-root-03 (ML-KEM-1024)', '└ ' + (k.kind === 'Root KEK' ? 'hardware anchor' : k.id + ' (' + k.alg + ')')].map((l, i) => (
+            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: i === 0 ? 'var(--grey-100)' : 'var(--text-muted)', padding: '5px 0' }}>{l}</div>
+          ))}
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PROVENANCE</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <ProvenanceTag id="NFR-PQ-2" title="Data at rest: AES-256-GCM under ML-KEM-1024-wrapped keys" />
+            <ProvenanceTag id="STD:NIST FIPS 203" />
+            <ProvenanceTag id="STD:NIST FIPS 204" />
+            <ProvenanceTag id="NFR-PQ-4" title="Crypto-agility: algorithms negotiated, versioned, hot-swappable without data migration" />
+          </div>
+        </div>
+        <Terminal title="ROTATION DRILL" lines={['> midgard kms rehearse --key ' + k.id, 'unwrap    OK · 1.2s', 'rewrap    OK · 0.9s', '# zero-downtime rotation verified']} style={{ marginTop: 'auto' }} />
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={7}>CRYPTOGRAPHY</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Key hierarchy</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="100%" label="PQ COVERAGE" size="sm" accent />
+        <StatBlock value="5" label="KEY FAMILIES" size="sm" />
+        <StatBlock value="1" label="ROTATIONS DUE" size="sm" />
+      </div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        {[['TRANSIT', 'TLS 1.3 · X25519 + ML-KEM-768', 'hybrid, fails closed'], ['AT REST', 'AES-256-GCM · ML-KEM-1024 wrap', 'per-dataset DEKs'], ['SIGNATURES', 'ML-DSA-65/87 · SLH-DSA', 'lineage, artefacts, firmware'], ['AGILITY', 'negotiated · versioned · hot-swap', 'no data migration · KAT-verified']].map(([t, v, d]) => (
+          <Card key={t} size="sm" style={{ flex: 1 }}>
+            <div className="mg-label" style={{ color: 'var(--text-faint)' }}>{t}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--grey-100)', margin: '8px 0 4px' }}>{v}</div>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{d}</div>
+          </Card>
+        ))}
+      </div>
+      <Table
+        columns={[
+          { header: 'Key', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="key" size={14} color="var(--accent)" />{r.id}</span> },
+          { header: 'Kind', key: 'kind', width: 110 },
+          { header: 'Algorithm', key: 'alg', mono: true, width: 130 },
+          { header: 'Scope', key: 'scope', mono: true, width: 150 },
+          { header: 'Rotated', key: 'rotated', mono: true, width: 100 },
+          { header: 'Next', key: 'next', mono: true, width: 80 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 130 },
+        ]}
+        rows={KEYS} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,23 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    planner["Human planner"]:::actor
+    oversight["Oversight operator\n(on-the-ground)"]:::actor
+    subgraph gn["Gungnir — consequence-projection module"]
+        engine["Simulation & projection engine\n(hermetically sandboxed)"]:::system
+    end
+    subgraph suite["Midgard suite (existing)"]
+        orion["Orion / Heimdall\n(picture + human-gated actions)"]:::ext
+        mimir["Mimir\n(advisory grounding)"]:::ext
+        fabric["Object fabric"]:::ext
+        admin["Admin panel\n(governance)"]:::ext
+    end
+    planner -->|"intended plan"| engine
+    engine -->|"projected outcome tree"| planner
+    oversight -->|"monitor / intervene / halt"| engine
+    engine -->|"reads picture (copy)"| fabric
+    engine -->|"advisory reasoning"| mimir
+    engine -.->|"projections ONLY\n(never executes)"| orion
+    admin -->|"governs"| engine
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef ext fill:#1168BD,color:#fff,stroke:#0B4884

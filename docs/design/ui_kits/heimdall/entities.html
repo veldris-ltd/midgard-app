@@ -1,0 +1,109 @@
+<!-- @dsCard group="Heimdall" viewport="1440x820" subtitle="Tracked entities: classification confidence, track quality, history" name="Heimdall · Entity Browser" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Heimdall · Entity Browser</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-heimdall">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const ENTS = [
+  { id: 'E-0871', cls: 'UNKNOWN', conf: 54, feeds: 2, track: 'anomalous', first: '13:41', marking: 'confidential', st: 'warn', stl: 'Anomalous' },
+  { id: 'E-2214', cls: 'AIRCRAFT', conf: 97, feeds: 4, track: 'stable', first: '06:02', marking: 'confidential', st: 'online', stl: 'Tracked' },
+  { id: 'E-2231', cls: 'AIRCRAFT', conf: 91, feeds: 3, track: 'stable', first: '07:15', marking: 'confidential', st: 'online', stl: 'Tracked' },
+  { id: 'E-0442', cls: 'VESSEL', conf: 88, feeds: 2, track: 'stable', first: '04:48', marking: 'restricted', st: 'online', stl: 'Tracked' },
+  { id: 'E-1108', cls: 'GROUND UNIT', conf: 93, feeds: 3, track: 'stable', first: '09:20', marking: 'confidential', st: 'online', stl: 'Tracked' },
+];
+function Conf({ v }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 60, height: 5, background: 'var(--surface-inset)', borderRadius: 3, overflow: 'hidden', display: 'inline-block' }}>
+        <span style={{ display: 'block', height: '100%', width: v + '%', background: v < 70 ? 'var(--warn)' : 'var(--secure)', borderRadius: 3 }} />
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>{v}%</span>
+    </span>
+  );
+}
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const e = ENTS[sel];
+  return (
+    <ConsoleShell product="heimdall" active="entities" context="PICTURE / ENTITY BROWSER"
+      toolbar={<Input size="sm" mono placeholder="Search entities…" prefix={<Icon name="search" size={14} color="var(--text-faint)" />} style={{ width: 240 }} />}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="crosshair" size={17} color={e.track === 'anomalous' ? 'var(--warn)' : 'var(--accent)'} />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15, flex: 1 }}>{e.id}</h2>
+          <MarkingChip level={e.marking} compartment="OPS-N" />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={e.conf + '%'} label="CLASSIFICATION CONF." size="sm" accent={e.conf < 70} />
+            <StatBlock value={String(e.feeds)} label="CORROBORATING FEEDS" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>CLASSIFIER</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--text-body)', paddingBottom: 10 }}>rules + mimir · provenance logged<br /><span style={{ color: 'var(--text-faint)', fontSize: 10 }}>rules-only when Mimir is absent (degraded mode)</span></div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>TRACK HISTORY</div>
+          {[
+            [e.first, 'first observed · ' + (e.feeds > 2 ? 'NORTH-2 + ADS-B' : 'NORTH-2')],
+            ['13:58', e.track === 'anomalous' ? 'transponder ceased · reclassified UNKNOWN' : 'course steady'],
+            ['14:31', e.track === 'anomalous' ? 'descent through FL180 · flagged' : 'position nominal'],
+          ].map(([t, ev], i) => (
+            <div key={i} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-faint)', width: 44, flex: 'none' }}>{t}</span>
+              <span style={{ color: 'var(--text-body)', lineHeight: 1.5 }}>{ev}</span>
+            </div>
+          ))}
+        </div>
+        {e.track === 'anomalous' && (
+          <Card size="sm" style={{ borderColor: 'var(--warn)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 6 }}>OPTIONS AVAILABLE</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>Mimir has 3 ranked options for improving classification. Review on the operating picture.</p>
+            <Button variant="primary" size="sm" style={{ marginTop: 10 }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => location.href = 'index.html'}>Open picture</Button>
+          </Card>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-H-2" title="Track and classify entities over time against the object fabric" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={2}>ENTITIES</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Entity browser</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="1,204" label="TRACKED" size="sm" />
+        <StatBlock value="96.8%" label="MEAN CONFIDENCE" size="sm" />
+        <StatBlock value="1" label="ANOMALOUS" size="sm" accent />
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Tag active>all</Tag><Tag>air</Tag><Tag>maritime</Tag><Tag>ground</Tag><Tag>anomalous</Tag><Tag>low confidence</Tag>
+      </div>
+      <Table
+        columns={[
+          { header: 'Entity', cell: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: r.track === 'anomalous' ? 'var(--warn)' : 'var(--accent-hover)' }}>{r.id}{r.track === 'anomalous' ? ' ⚠' : ''}</span>, width: 100 },
+          { header: 'Class', key: 'cls', mono: true, width: 120 },
+          { header: 'Confidence', cell: r => <Conf v={r.conf} />, width: 140 },
+          { header: 'Feeds', key: 'feeds', mono: true, align: 'right', width: 60 },
+          { header: 'First seen', key: 'first', mono: true, width: 90 },
+          { header: 'Marking', cell: r => <MarkingChip level={r.marking} />, width: 150 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 120 },
+        ]}
+        rows={ENTS} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

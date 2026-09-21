@@ -1,0 +1,101 @@
+<!-- @dsCard group="Mimir" viewport="1440x820" subtitle="Injection defence, tool scoping, exfiltration blocks, incidents" name="Mimir · Guardrail Console" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Mimir · Guardrail Console</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-mimir">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const RAILS = [
+  { name: 'Prompt-injection filter', layer: 'input', mode: 'enforce', trips: 14, st: 'secure', stl: 'Enforcing' },
+  { name: 'Tool scoping', layer: 'execution', mode: 'enforce', trips: 3, st: 'secure', stl: 'Enforcing' },
+  { name: 'Exfiltration block', layer: 'output', mode: 'enforce', trips: 0, st: 'secure', stl: 'Enforcing' },
+  { name: 'Citation requirement', layer: 'output', mode: 'enforce', trips: 22, st: 'secure', stl: 'Enforcing' },
+  { name: 'Anomalous-plan detector', layer: 'planning', mode: 'monitor', trips: 7, st: 'warn', stl: 'Monitor only' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const [mode, setMode] = React.useState(true);
+  const r = RAILS[sel];
+  return (
+    <ConsoleShell product="mimir" active="guardrails" context="AGENT STUDIO / GUARDRAILS"
+      toolbar={<Button variant="secondary" size="sm" iconLeft={<Icon name="download" size={14} />}>Export incident log</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="shield-check" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, flex: 1 }}>{r.name}</h2>
+          <StatusPill status={r.st} pulse={false} label={r.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={String(r.trips)} label="TRIPS · 7D" size="sm" accent={r.trips > 10} />
+            <StatBlock value={r.layer.toUpperCase()} label="LAYER" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>MODE</div>
+          <Switch checked={r.mode === 'enforce' || mode} onChange={setMode} label={r.mode === 'enforce' ? 'Enforce (blocks on trip)' : 'Monitor only (logs, never blocks)'} disabled={r.mode === 'enforce'} />
+          {r.mode === 'enforce' && <p style={{ margin: '8px 0 0', fontSize: 'var(--fs-micro)', fontFamily: 'var(--font-mono)', color: 'var(--text-faint)' }}>CORE RAILS CANNOT BE DISABLED [FR-MI-7]</p>}
+        </div>
+        <Terminal title="LAST TRIP" lines={[
+          'agent    dispatch-01',
+          'vector   indirect injection via ticket body',
+          'action   input quarantined · session flagged',
+          'audit    #G-1182 · ML-DSA signed',
+        ]} />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="DD-5" title="Agentic self-* AI governed by evaluation and guardrails" /><ProvenanceTag id="FR-MI-7" title="Self-defending: filter prompt-injection, scope tools, block exfiltration" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={2}>GUARDRAILS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Guardrail console</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="5" label="RAILS ACTIVE" size="sm" />
+        <StatBlock value="46" label="TRIPS · 7D" size="sm" />
+        <StatBlock value="0" label="EXFIL EVENTS · EVER" size="sm" accent />
+      </div>
+      <Table
+        columns={[
+          { header: 'Guardrail', cell: r2 => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="shield-check" size={14} color="var(--accent)" />{r2.name}</span> },
+          { header: 'Layer', key: 'layer', mono: true, width: 110 },
+          { header: 'Mode', cell: r2 => <Badge tone={r2.mode === 'enforce' ? 'secure' : 'warn'}>{r2.mode.toUpperCase()}</Badge>, width: 110 },
+          { header: 'Trips · 7d', key: 'trips', mono: true, align: 'right', width: 90 },
+          { header: 'State', cell: r2 => <StatusPill status={r2.st} pulse={false} label={r2.stl} />, width: 140 },
+        ]}
+        rows={RAILS} selectedIndex={sel} onRowClick={setSel}
+      />
+      <div>
+        <SectionLabel number={3} muted>INCIDENTS · 7D</SectionLabel>
+        <Table compact style={{ marginTop: 8 }}
+          columns={[
+            { header: 'Incident', key: 'i', mono: true, width: 90 },
+            { header: 'Rail', key: 'r' },
+            { header: 'Agent', key: 'a', mono: true, width: 130 },
+            { header: 'Disposition', key: 'd' },
+            { header: 'TS', key: 't', mono: true, width: 110 },
+          ]}
+          rows={[
+            { i: '#G-1182', r: 'Prompt-injection filter', a: 'dispatch-01', d: 'Input quarantined · no tool calls made', t: 'today 11:02' },
+            { i: '#G-1181', r: 'Citation requirement', a: 'feed-triage', d: 'Uncited claim stripped · answer regenerated', t: 'today 09:44' },
+            { i: '#G-1179', r: 'Anomalous-plan detector', a: 'release-risk', d: 'Flagged for review · monitor mode', t: 'yesterday' },
+          ]}
+        />
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

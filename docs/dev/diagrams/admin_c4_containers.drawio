@@ -1,0 +1,33 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="admin_c4_containers" id="admin_c4_containers">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="b_svc" value="Admin services" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="30" y="190" width="760" height="160" as="geometry"/></mxCell>
+        <mxCell id="ui" value="Admin UI (SvelteKit+WASM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="320" y="30" width="200" height="45" as="geometry"/></mxCell>
+        <mxCell id="bff" value="Admin BFF / API gateway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="320" y="110" width="200" height="45" as="geometry"/></mxCell>
+        <mxCell id="priv" value="Privilege &amp; dual-control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="210" width="170" height="45" as="geometry"/></mxCell>
+        <mxCell id="cfg" value="Configuration (versioned)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="230" y="210" width="170" height="45" as="geometry"/></mxCell>
+        <mxCell id="agg" value="Aggregation (read models)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="420" y="210" width="170" height="45" as="geometry"/></mxCell>
+        <mxCell id="act" value="Action orchestrator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="610" y="210" width="170" height="45" as="geometry"/></mxCell>
+        <mxCell id="break" value="Break-glass service" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="230" y="290" width="170" height="45" as="geometry"/></mxCell>
+        <mxCell id="audit" value="Admin audit ledger (PQ-signed)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="420" y="290" width="200" height="45" as="geometry"/></mxCell>
+        <mxCell id="subsys" value="Managed subsystem APIs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="610" y="370" width="200" height="45" as="geometry"/></mxCell>
+        <mxCell id="e0" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ui" target="bff"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bff" target="priv"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bff" target="cfg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bff" target="agg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bff" target="act"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="bff" target="break"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="act" target="priv"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="act" target="subsys"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="cfg" target="subsys"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="agg" target="subsys"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="priv" target="audit"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="act" target="audit"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e12" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="break" target="audit"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

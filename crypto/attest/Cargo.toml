@@ -1,0 +1,28 @@
+[package]
+name = "attest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The release-artefact attestation format: domain-separated ML-DSA signing, CycloneDX SBOM binding, and in-toto/DSSE provenance — one implementation of sign and of reject-unless-proven. [NFR-PQ-3] [NFR-OSS-1] [AC-B-1] [AC-B-4]"
+
+[features]
+# Signing and verification are real ML-DSA (FIPS 204). A release gate that did
+# not actually sign or actually verify would be worthless, so the production
+# backend is the default — matching `kms` and `bifrost-artefact`.
+default = ["backend-fips", "custody"]
+backend-fips = ["pqc-agility/backend-fips", "kms?/backend-fips"]
+# Key custody: the KMS-backed signer and the sealed keystore. Signers need it;
+# verifiers do not, so `bifrost-artefact` and `model-server` depend on this crate
+# with `default-features = false` and never pull `kms` in just to check a
+# signature.
+custody = ["dep:kms"]
+
+[dependencies]
+# No external crates: the envelope, the attestation JSON, and the keystore are
+# hand-rolled deterministic encoders, in the style of tools/mg-sbom. [NFR-OSS-1]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+kms = { path = "../../services/kms", optional = true }
+
+[lib]
+path = "src/lib.rs"

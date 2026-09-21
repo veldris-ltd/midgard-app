@@ -1,0 +1,23 @@
+[package]
+name = "heimdall-feed-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall feed gateway: verifies ML-DSA/SLH-DSA source signatures on every observation and REJECTS unverified feeds from the picture; only a VerifiedObservation can enter fusion. [FR-H-3] [NFR-PQ-3]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips", "pq-mtls/backend-fips"]
+
+[dependencies]
+# The observation contract signed over.
+heimdall-picture = { path = "../picture" }
+# PQ signatures + the agility provider that resolves a scheme per algorithm id.
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The real transport: a PQ-mTLS session carries signed observations from a feed
+# source to the gateway's listener. [FR-H-3] [NFR-PQ-1]
+pq-mtls = { path = "../../crypto/pq-mtls" }
+
+[lib]
+path = "src/lib.rs"

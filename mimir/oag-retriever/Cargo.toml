@@ -1,0 +1,20 @@
+[package]
+name = "oag-retriever"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Mimir OAG grounding: A.2 query-formulation over the object fabric, binding citations to retrieved evidence. [FR-MI-2]"
+
+[features]
+default = ["backend-fips"]
+# Grounding executes through the fabric's governed, audited query path.
+backend-fips = ["fabric/backend-fips"]
+
+[dependencies]
+mimir-prompts = { path = "../prompts" }
+policy = { path = "../../crypto/policy" }
+fabric = { path = "../../services/fabric" }
+
+[lib]
+path = "src/lib.rs"

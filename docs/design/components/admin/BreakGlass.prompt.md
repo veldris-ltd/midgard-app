@@ -1,0 +1,1 @@
+BreakGlass renders emergency elevation (FR-AD-8): sealed by default, pulsing countdown while active (holder, scope, real-time alerts), amber review state after expiry.\n\n```jsx\n<BreakGlass state="active" holder="k.osei" scope="KMS · unwrap only" remaining="00:41:12" justification="HSM failover during rotation window" />\n```

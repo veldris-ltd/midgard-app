@@ -1,0 +1,62 @@
+erDiagram
+    MODEL_FAMILY ||--o{ MODEL_VARIANT : has
+    MODEL_VARIANT ||--o{ MODEL_ARTEFACT : "packaged as"
+    MODEL_ARTEFACT ||--|| PROVENANCE : "attested by"
+    MODEL_ARTEFACT ||--|| LICENCE : "governed by"
+    MODEL_ARTEFACT ||--o{ EVAL_SCORE : "scored by"
+    MODEL_ARTEFACT ||--o{ HW_PROFILE : "eligible on"
+    MODEL_ARTEFACT ||--o{ LOAD_EVENT : "loaded in"
+    MODEL_FAMILY {
+        string id PK
+        string name "GLM | Nemotron | Gemma"
+        string steward
+    }
+    MODEL_VARIANT {
+        string id PK
+        string family_id FK
+        string label "e.g. -Air, -Ultra, 27B"
+        string modality
+    }
+    MODEL_ARTEFACT {
+        string id PK
+        string variant_id FK
+        string version
+        string quantisation "fp16|int8|int4|awq|gguf"
+        string tokenizer_ref
+        string sha256
+        blob mldsa_signature "FIPS 204"
+        string sbom_ref
+        string status "staged|approved|deprecated|revoked"
+    }
+    PROVENANCE {
+        string id PK
+        string upstream_source
+        string native_sig "GPG|commit|sha"
+        string staged_by
+        timestamp staged_at
+    }
+    LICENCE {
+        string id PK
+        string spdx_or_name
+        bool osi_approved
+        string use_restrictions
+        bool redistribution_ok
+    }
+    EVAL_SCORE {
+        string id PK
+        string suite
+        float score
+        timestamp run_at
+    }
+    HW_PROFILE {
+        string id PK
+        string min_vram_gb
+        int min_gpus
+        bool multinode
+    }
+    LOAD_EVENT {
+        string id PK
+        timestamp loaded_at
+        bool sig_verified
+        string node
+    }

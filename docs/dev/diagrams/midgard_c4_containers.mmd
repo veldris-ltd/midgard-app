@@ -1,0 +1,33 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    user["fa:fa-user User"]:::actor
+    subgraph enclosure["MIDGARD ENCLOSURE (trust boundary)"]
+        gw["API / Object Gateway\n[Rust/axum]"]:::container
+        iam["Identity & Access\n(RBAC/ABAC + PQ mTLS)\n[Rust]"]:::container
+        oms["Ontology Metadata Service\n[Rust]"]:::container
+        funnel["Object Data Funnel\n(index/write)\n[Rust]"]:::container
+        objdb[("Object Store V2\n[FoundationDB/ScyllaDB]")]:::datastore
+        blob[("Artifact/Blob Store\n(PQ-sealed) [MinIO/S3]")]:::datastore
+        meta[("Metadata DB\n[PostgreSQL]")]:::datastore
+        bus[["Event Bus\n[NATS JetStream]"]]:::queue
+        compute["Compute Mesh\n(batch+stream) [K8s]"]:::container
+        gov["Governance & Audit\n(markings, lineage)\n[Rust]"]:::container
+        kms["PQ Key Mgmt (Seal)\n[Kryotech]"]:::container
+    end
+    user -->|HTTPS+PQ| gw
+    gw --> iam
+    gw --> oms
+    gw --> funnel
+    funnel --> objdb
+    funnel --> bus
+    oms --> meta
+    gw --> blob
+    compute --> objdb
+    gov --> meta
+    kms --> blob
+    iam --> kms
+
+    classDef actor fill:#08427B,color:#fff
+    classDef container fill:#1168BD,color:#fff
+    classDef datastore fill:#1168BD,color:#fff
+    classDef queue fill:#1168BD,color:#fff

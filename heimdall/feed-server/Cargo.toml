@@ -1,0 +1,54 @@
+[package]
+name = "heimdall-feed-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Heimdall feed gateway as a running service: certified sources submit PQ-signed observations over PQ-mTLS, each is authorised, audited and verified against the source's certified key before it is fused, the picture is sealed at rest, and analysts read it; plus heimdall-source, a feed source client. [FR-H-1] [FR-H-3] [NFR-PQ-3] [RC-13] [NFR-SEC-1]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "pq-mtls/backend-fips",
+    "gateway/backend-fips",
+    "governance/backend-fips",
+    "audit-writer/backend-fips",
+    "service-runtime/backend-fips",
+    "heimdall-feed-gateway/backend-fips",
+    "heimdall-fusion/backend-fips",
+    "heimdall-store/backend-fips",
+]
+
+[dependencies]
+# Observation admission (signature verification), fusion, and the sealed picture.
+heimdall-picture = { path = "../picture" }
+heimdall-feed-gateway = { path = "../feed-gateway" }
+heimdall-fusion = { path = "../fusion" }
+heimdall-store = { path = "../store" }
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+# PQ-mTLS termination and routing, and the authorise-and-audit spine every request
+# goes through.
+gateway = { path = "../../services/gateway" }
+governance = { path = "../../services/governance" }
+telemetry = { path = "../../services/telemetry" }
+service-runtime = { path = "../../services/runtime" }
+
+[dev-dependencies]
+# Tests issue real mesh identities with an in-enclosure issuer.
+iam = { path = "../../services/iam" }
+attest = { path = "../../crypto/attest" }
+
+[[bin]]
+name = "heimdall-feed"
+path = "src/main.rs"
+
+[[bin]]
+name = "heimdall-source"
+path = "src/bin/heimdall-source.rs"
+
+[lib]
+path = "src/lib.rs"

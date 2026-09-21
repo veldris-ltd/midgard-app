@@ -1,0 +1,28 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph shells["Native UI shells (per platform)"]
+        sw["Swift / SwiftUI\niOS, macOS"]:::system
+        kt["Kotlin / Compose\nAndroid"]:::system
+        rs2["Rust / GTK\nLinux native"]:::system
+        tau["Tauri + SvelteKit\nWin / macOS / Linux desktop"]:::system
+        wsm["TypeScript / WASM\nWeb app + extension"]:::system
+    end
+    subgraph bind["Binding layer"]
+        uniffi["UniFFI\n(Swift/Kotlin)"]:::system
+        wasm["wasm-bindgen\n(browser/WASM)"]:::system
+    end
+    subgraph core["Shared Rust core (midgard-client-core)"]
+        sync["Sync engine\n(CRDT, offline-first)"]:::system
+        crypto["PQ crypto\n(ML-KEM/ML-DSA)"]:::system
+        store["Local encrypted store"]:::system
+        api["Fabric/Mimir client\n(PQ-mTLS)"]:::system
+        infer["Local inference\nadapter (tiered)"]:::system
+    end
+    sw --> uniffi
+    kt --> uniffi
+    rs2 --> core
+    tau --> wasm
+    wsm --> wasm
+    uniffi --> core
+    wasm --> core
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884

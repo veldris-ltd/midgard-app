@@ -1,0 +1,45 @@
+[package]
+name = "mimir-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Mimir inference plane as a running service: audited inference over PQ-mTLS only, a durable ledger, and health and metrics for its orchestrator; plus mimir-probe, a PQ-mTLS client that proves it answers. [FR-MI-8] [NFR-SEC-1] [RC-33]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "pq-mtls/backend-fips",
+    "gateway/backend-fips",
+    "governance/backend-fips",
+    "model-server/backend-fips",
+    "mimir-bridge/backend-fips",
+    "service-runtime/backend-fips",
+]
+
+[dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+gateway = { path = "../../services/gateway" }
+governance = { path = "../../services/governance" }
+telemetry = { path = "../../services/telemetry" }
+service-runtime = { path = "../../services/runtime" }
+# The serving core and its audited PQ-mTLS handler. [FR-MI-1] [FR-MI-8]
+model-server = { path = "../model-server" }
+# The consumer side `mimir-probe` calls it through — the same client the products use.
+mimir-bridge = { path = "../bridge" }
+
+[dev-dependencies]
+# Tests issue real mesh identities with an in-enclosure issuer.
+iam = { path = "../../services/iam" }
+attest = { path = "../../crypto/attest" }
+
+[[bin]]
+name = "mimir-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "mimir-probe"
+path = "src/bin/mimir-probe.rs"

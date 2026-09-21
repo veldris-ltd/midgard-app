@@ -1,0 +1,109 @@
+<!-- @dsCard group="Bifrost" viewport="1440x820" subtitle="Release channels: cadence, subscribers, promotion policy" name="Bifrost · Channels" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Bifrost · Channels</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-bifrost">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const CH = [
+  { name: 'stable', cadence: 'monthly', subs: 61, current: '2.4.1', next: '2.5.0 staged', policy: 'all gates + 7d soak', st: 'secure', stl: 'Healthy' },
+  { name: 'beta', cadence: 'weekly', subs: 9, current: '2.5.0', next: '2.5.1 building', policy: 'all gates', st: 'healthy', stl: 'Healthy' },
+  { name: 'canary', cadence: 'on merge', subs: 3, current: '2.5.1-rc', next: 'continuous', policy: 'health gates only', st: 'online', stl: 'Rolling' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const c = CH[sel];
+  return (
+    <ConsoleShell product="bifrost" active="channels" context="DELIVERY / CHANNELS"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>New channel</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="git-branch" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15, flex: 1 }}>{c.name}</h2>
+          <StatusPill status={c.st} pulse={c.st === 'online'} label={c.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={c.current} label="CURRENT" size="sm" />
+            <StatBlock value={String(c.subs)} label="SUBSCRIBERS" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PROMOTION POLICY</div>
+          {[['Verification', 'reproducible + SBOM + ML-DSA'], ['Rings', 'canary → staging → prod'], ['Gates', c.policy], ['Rollback', 'automatic on health failure']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 90, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>SUBSCRIBER MIX</div>
+          {[['Connected enclaves', c.name === 'stable' ? 52 : c.subs - 1], ['Air-gapped sites', c.name === 'stable' ? 9 : 1]].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', fontSize: 'var(--fs-xs)', color: 'var(--text-body)' }}>
+              <Icon name={k.includes('gap') ? 'download' : 'server'} size={13} color="var(--accent)" />{k}
+              <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <Button variant="secondary" size="sm" style={{ marginTop: 'auto' }} iconLeft={<Icon name="rocket" size={14} />}>Open release console</Button>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={2}>CHANNELS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Release channels</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="3" label="CHANNELS" size="sm" />
+        <StatBlock value="73" label="TOTAL SUBSCRIBERS" size="sm" />
+        <StatBlock value="7d" label="STABLE SOAK" size="sm" accent />
+      </div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        {CH.map((ch, i) => (
+          <Card key={ch.name} size="md" interactive accentRule={i === sel} onClick={() => setSel(i)} style={{ flex: 1, borderColor: i === sel ? 'var(--accent)' : undefined }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: 'var(--text-heading)' }}>{ch.name}</span>
+              <Badge tone={i === 0 ? 'accent' : 'neutral'}>{ch.cadence.toUpperCase()}</Badge>
+              <span style={{ marginLeft: 'auto' }}><StatusPill status={ch.st} pulse={false} label={ch.stl} /></span>
+            </div>
+            <div style={{ display: 'flex', gap: 18, marginTop: 14 }}>
+              <StatBlock value={ch.current} label="CURRENT" size="sm" />
+              <StatBlock value={String(ch.subs)} label="SUBS" size="sm" />
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 12 }}>NEXT · {ch.next.toUpperCase()}</div>
+          </Card>
+        ))}
+      </div>
+      <div>
+        <SectionLabel number={3} muted>PROMOTION HISTORY</SectionLabel>
+        <Table compact style={{ marginTop: 8 }}
+          columns={[
+            { header: 'Release', key: 'r', mono: true, width: 110 },
+            { header: 'Path', key: 'p', mono: true },
+            { header: 'Verification', cell: () => <Badge tone="secure">ML-DSA ✓</Badge>, width: 110 },
+            { header: 'Outcome', cell: r => <Badge tone={r.ok ? 'secure' : 'danger'}>{r.ok ? 'COMPLETED' : 'ROLLED BACK'}</Badge>, width: 120 },
+            { header: 'When', key: 'w', mono: true, width: 110 },
+          ]}
+          rows={[
+            { r: '2.5.0', p: 'beta → stable · staged', ok: true, w: 'in progress' },
+            { r: '2.4.1', p: 'beta → stable', ok: true, w: '32d ago' },
+            { r: '2.4.0', p: 'beta → stable', ok: false, w: '61d ago' },
+          ]}
+        />
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

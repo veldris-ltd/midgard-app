@@ -1,0 +1,31 @@
+# Every binary the workspace builds, and how it ships. [RC-07] [AC-B-1]
+#
+# The release matrix is generated from this list: each binary goes through the full
+# per-artefact gate (reproduce, SBOM, scan, PQ-sign, verify) and is admitted to the
+# Bifrost registry as its component. `bash tools/ci/release-artefacts.sh --check`
+# fails if the workspace builds a binary that is not listed here, or if a listed
+# binary is no longer built — a new binary cannot skip the gate.
+#
+# image: the verify-before-run image (deploy/images/service.Dockerfile) the binary is
+# packed into, or "-" when it ships as a bare signed binary only. An image may carry
+# several binaries: forge-worker's pod runs forge-egress from the same image.
+#
+# package               binary            component  image
+http-gateway            http-gateway      service    http-gateway
+mimir-server            mimir-server      service    mimir-server
+mimir-server            mimir-probe       tool       mimir-probe
+bifrost-fleet-server    bifrost-fleet     service    bifrost-fleet
+bifrost-fleet-server    bifrost-agent     tool       -
+heimdall-feed-server    heimdall-feed     service    heimdall-feed
+heimdall-feed-server    heimdall-source   tool       -
+forge-worker            forge-worker      service    forge-worker
+forge-worker            forge-egress      service    forge-worker
+mg-admin                mg-admin          tool       -
+mg-bundle               mg-bundle         tool       -
+mg-model                mg-model          tool       -
+mg-register             mg-register       tool       -
+mg-repro                mg-repro          tool       -
+mg-sbom                 mg-sbom           tool       -
+mg-scan                 mg-scan           tool       -
+mg-sign                 mg-sign           tool       -
+mg-verify               mg-verify         tool       -

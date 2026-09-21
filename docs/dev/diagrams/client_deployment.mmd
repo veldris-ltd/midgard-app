@@ -1,0 +1,30 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    ci["Bifrost CI\nreproducible build + PQ sign"]:::system
+    subgraph dist["Signed distribution channels"]
+        play["Google Play\n(Android)"]:::external
+        appstore["App Store\n(iOS/macOS)"]:::external
+        flat["Flatpak/AUR\n(Linux)"]:::external
+        msi["MSI/Store\n(Windows)"]:::external
+        dmg["DMG/notarised\n(macOS)"]:::external
+        webhost["Enclosure-hosted\nweb app"]:::system
+        extstore["Extension stores\n(Chrome/Firefox)"]:::external
+    end
+    device["User devices"]:::actor
+    ci --> play
+    ci --> appstore
+    ci --> flat
+    ci --> msi
+    ci --> dmg
+    ci --> webhost
+    ci --> extstore
+    play --> device
+    appstore --> device
+    flat --> device
+    msi --> device
+    dmg --> device
+    webhost --> device
+    extstore --> device
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56

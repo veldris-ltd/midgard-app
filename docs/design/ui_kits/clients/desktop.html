@@ -1,0 +1,164 @@
+<!-- @dsCard group="Clients" viewport="1440x860" subtitle="Windows, macOS and Linux desktop app (Tauri) over the shared core" name="Clients · Desktop" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Clients · Desktop</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;background:var(--bg-page)}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { Card, StatBlock, StatusPill, Badge, Button, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, SyncStatus, TierBadge, KeyCustodyChip, HumanGate, MeterBar, ProductMark, ClassificationBanner } = NS;
+
+const OS_CHROME = {
+  macos:   { label: 'MACOS · TAURI/SWIFTUI · DMG NOTARISED', custody: 'macos' },
+  windows: { label: 'WINDOWS · TAURI + SVELTEKIT · MSI / STORE', custody: 'windows' },
+  linux:   { label: 'LINUX · TAURI + SVELTEKIT · FLATPAK / AUR', custody: 'linux' },
+};
+
+function DesktopContent({ os }) {
+  const [tier, setTier] = React.useState('hybrid');
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-page)', fontFamily: 'var(--font-sans)', color: 'var(--text-body)' }}>
+      <div style={{ height: 20, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--marking-confidential)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.16em', fontWeight: 600 }}>CONFIDENTIAL · RECIPIENT EYES ONLY</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>OBJECT FABRIC · CACHED WORKSPACE</span>
+        <div style={{ flex: 1 }} />
+        <SyncStatus state="syncing" queued={12} style={{ fontSize: 9 }} />
+        <KeyCustodyChip platform={os} style={{ fontSize: 9 }} />
+      </div>
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <StatBlock value="12,408" label="CACHED OBJECTS" size="sm" />
+            <StatBlock value="12" label="LOCAL OPS DRAINING" size="sm" accent />
+            <StatBlock value="0" label="CONFLICTS · EVER" size="sm" />
+          </div>
+          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-heading)' }}>Ask across the cached fabric</span>
+              <span style={{ marginLeft: 'auto' }}><TierBadge tier={tier} model={tier === 'remote' ? 'GLM 5.2' : 'GLM INT4'} /></span>
+            </div>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.55, color: 'var(--text-body)' }}>Which aircraft in my cached set are trending toward maintenance risk? <span style={{ color: 'var(--text-faint)' }}>→ Local draft found 3 candidates; enclosure verification confirms 2, cites live lineage.</span></p>
+            <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap' }}>
+              {['on-device', 'hybrid', 'remote'].map(t => (
+                <button key={t} onClick={() => setTier(t)} style={{ all: 'unset', cursor: 'pointer', padding: '4px 10px', borderRadius: 999, fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em', color: tier === t ? 'var(--accent-hover)' : 'var(--text-faint)', background: tier === t ? 'var(--accent-tint)' : 'var(--surface-inset)', border: '1px solid ' + (tier === t ? 'var(--accent)' : 'var(--border)') }}>{t.toUpperCase()}</button>
+              ))}
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)', alignSelf: 'center' }}>TIER IS AUTOMATIC · OVERRIDE IS POLICY-BOUND</span>
+            </div>
+          </div>
+          <Terminal title="SYNC ENGINE · CRDT" lines={[
+            '> midgard-client sync status',
+            'queue     12 ops · draining · backoff none',
+            'merge     conflict-free · last 14:31:44',
+            'transport PQ-mTLS · X25519+ML-KEM-768 · pinned',
+            '# fails closed if PQ negotiation fails [FR-C-5]',
+          ]} style={{ fontSize: 10 }} />
+        </div>
+        <div style={{ width: 218, flex: 'none', borderLeft: '1px solid var(--border)', background: 'var(--bg-sunken)', padding: 12, display: 'flex', flexDirection: 'column', gap: 9 }}>
+          <span className="mg-label" style={{ color: 'var(--text-faint)' }}>UPDATE · SIGNED</span>
+          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-heading)' }}>v2.5.0 ready</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--secure)', margin: '5px 0' }}>ML-DSA VERIFIED · REPRODUCIBLE ✓</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)' }}>VIA BIFROST · {OS_CHROME[os].label.split(' · ')[2]}</div>
+            <Button variant="primary" size="sm" fullWidth style={{ marginTop: 8 }}>Apply on restart</Button>
+          </div>
+          <span className="mg-label" style={{ color: 'var(--text-faint)', marginTop: 4 }}>PLATFORM AUTH</span>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-body)', lineHeight: 1.9 }}>
+            {os === 'macos' ? 'TOUCH ID ✓' : os === 'windows' ? 'WINDOWS HELLO ✓' : 'FPRINTD / PAM ✓'}<br />
+            SESSION · PQ TOKEN · 47M
+          </div>
+          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <ProvenanceTag id="FR-C-7" title="Artefacts reproducibly built + PQ-signed via Bifrost; verified on device" />
+            <ProvenanceTag id="FR-C-9" title="Biometric / platform authentication" />
+            <ProvenanceTag id="NFR-PQ-2" title="Local store AES-256-GCM under ML-KEM-wrapped keys" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MacFrame({ children, title }) {
+  return (
+    <div style={{ width: 900, borderRadius: 12, border: '1px solid var(--border-strong)', overflow: 'hidden', background: 'var(--bg-sunken)', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ height: 34, display: 'flex', alignItems: 'center', position: 'relative', background: 'var(--surface-inset)', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', gap: 7, padding: '0 14px' }}>
+          {['#ff5f57', '#febc2e', '#28c840'].map(c => <span key={c} style={{ width: 11, height: 11, borderRadius: '50%', background: c, opacity: 0.9 }} />)}
+        </div>
+        <span style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{title}</span>
+      </div>
+      <div style={{ height: 520 }}>{children}</div>
+    </div>
+  );
+}
+
+function WindowsFrame({ children, title }) {
+  return (
+    <div style={{ width: 900, borderRadius: 8, border: '1px solid var(--border-strong)', overflow: 'hidden', background: 'var(--bg-sunken)', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ height: 32, display: 'flex', alignItems: 'center', background: 'var(--surface-inset)', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', padding: '0 12px' }}>{title}</span>
+        <div style={{ flex: 1 }} />
+        {['—', '▢', '✕'].map(g => (
+          <span key={g} style={{ width: 42, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-muted)' }}>{g}</span>
+        ))}
+      </div>
+      <div style={{ height: 520 }}>{children}</div>
+    </div>
+  );
+}
+function LinuxFrame({ children, title }) {
+  return (
+    <div style={{ width: 900, borderRadius: 10, border: '1px solid var(--border-strong)', overflow: 'hidden', background: 'var(--bg-sunken)', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', background: 'var(--surface-inset)', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{title}</span>
+        <div style={{ position: 'absolute', right: 10, display: 'flex', gap: 8 }}>
+          {['–', '✕'].map(g => <span key={g} style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--surface-raised)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: 'var(--text-muted)' }}>{g}</span>)}
+        </div>
+      </div>
+      <div style={{ height: 520 }}>{children}</div>
+    </div>
+  );
+}
+
+function App() {
+  const [os, setOs] = React.useState('macos');
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <ClassificationBanner level="confidential" />
+      <div style={{ padding: '22px 28px 10px', display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={2}>CLIENTS · DESKTOP</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Desktop · one binary, native chrome</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['macos', 'macOS'], ['windows', 'Windows'], ['linux', 'Linux']].map(([k, lb]) => (
+            <Tag key={k} active={os === k} onClick={() => setOs(k)}>{lb}</Tag>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <ProvenanceTag id="FR-C-1" title="One shared Rust core" />
+          <ProvenanceTag id="FR-C-5" title="Hybrid PQ-mTLS; fail closed" />
+          <ProvenanceTag id="FR-C-2" title="Keystore abstraction with per-platform floors" />
+        </div>
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '14px 28px 34px' }}>
+        {os === 'macos' && (
+          <MacFrame title="Midgard — Object Fabric">
+            <DesktopContent os="macos" />
+          </MacFrame>
+        )}
+        {os === 'windows' && <WindowsFrame title="Midgard — Object Fabric"><DesktopContent os="windows" /></WindowsFrame>}
+        {os === 'linux' && <LinuxFrame title="Midgard — Object Fabric"><DesktopContent os="linux" /></LinuxFrame>}
+        <span className="mg-label" style={{ color: 'var(--text-faint)' }}>{OS_CHROME[os].label}</span>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

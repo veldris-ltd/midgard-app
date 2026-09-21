@@ -1,0 +1,49 @@
+[package]
+name = "bifrost-fleet-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Bifrost fleet manager as a running service: agents check in over PQ-mTLS, every request is authorised and audited, fleet state is durable, and operators read drift and node liveness; plus bifrost-agent, the on-host client. [FR-B-3] [RC-12] [RC-17] [NFR-SEC-1]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "pq-mtls/backend-fips",
+    "gateway/backend-fips",
+    "governance/backend-fips",
+    "audit-writer/backend-fips",
+    "service-runtime/backend-fips",
+]
+
+[dependencies]
+# Declarative channels, installations, check-ins and drift, durably journalled.
+bifrost-fleet = { path = "../fleet" }
+bifrost-rollout = { path = "../rollout" }
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+# PQ-mTLS termination and routing, and the authorise-and-audit spine every request
+# goes through.
+gateway = { path = "../../services/gateway" }
+governance = { path = "../../services/governance" }
+telemetry = { path = "../../services/telemetry" }
+service-runtime = { path = "../../services/runtime" }
+
+[dev-dependencies]
+# Tests issue real mesh identities with an in-enclosure issuer.
+iam = { path = "../../services/iam" }
+attest = { path = "../../crypto/attest" }
+
+[[bin]]
+name = "bifrost-fleet"
+path = "src/main.rs"
+
+[[bin]]
+name = "bifrost-agent"
+path = "src/bin/bifrost-agent.rs"
+
+[lib]
+path = "src/lib.rs"

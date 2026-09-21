@@ -1,0 +1,10 @@
+flowchart TB
+    subgraph fusion["Fusion Engine container"]
+        norm["Normaliser (schema map)"]
+        corr["Correlator (entity resolution)"]
+        track["Tracker (temporal)"]
+        geo["Geo/temporal indexer"]
+    end
+    norm --> corr
+    corr --> track
+    track --> geo

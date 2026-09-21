@@ -1,0 +1,5 @@
+# Pinned Rust toolchain for reproducible builds. [AC-M-6] [NFR-OSS-1]
+# The Nix flake also pins rustc; this file keeps `cargo` outside Nix consistent.
+[toolchain]
+channel = "1.82.0"
+components = ["rustfmt", "clippy"]

@@ -1,0 +1,23 @@
+[package]
+name = "midgard-client-keystore"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Client key-custody abstraction: one API over Keychain/Keystore/TPM/Secret-Service/WebCrypto, each declaring a minimum-security floor; the key-holding root plugs into the KMS envelope unchanged, and the extension holds no key (brokered). [FR-C-2] [NFR-PQ-2]"
+
+[features]
+# A key-holding keystore is a real ML-KEM-1024 trust root, so the FIPS backend is
+# the default — a client seals under a non-exportable platform key exactly like
+# every at-rest store in the suite.
+default = ["backend-fips"]
+backend-fips = ["kms/backend-fips", "pqc-agility/backend-fips"]
+
+[dependencies]
+# The keystore-held root wraps data keys at rest via the same KEM-DEM envelope the
+# whole suite uses; a key-holding keystore IS a kms::TrustRoot. [NFR-PQ-2] [KDD-1]
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,16 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    user["fa:fa-user Mimir User"]:::actor
+    admin["fa:fa-user Admin"]:::actor
+    prod["MIMIR\nmimir product"]:::system
+    midgard["Midgard Core\n(identity, object fabric, Seal)"]:::system
+    mimir["Mimir (GLM 5.2 local inference)"]:::system
+    ext["External systems\n(feeds / sources / targets)"]:::external
+    user -->|HTTPS+PQ| prod
+    admin -->|HTTPS+PQ| prod
+    prod -->|objects, auth, keys| midgard
+    prod -->|inference| mimir
+    prod -->|integrate| ext
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B

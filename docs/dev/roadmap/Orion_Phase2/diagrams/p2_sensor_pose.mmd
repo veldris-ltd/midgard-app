@@ -1,0 +1,15 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    subgraph plat["Platform telemetry"]
+        ppose["Position (lat/long/alt)\nHeading, Roll, Pitch"]:::orion
+    end
+    subgraph sens["Sensor telemetry"]
+        spose["Sensor model id (e.g. FLIR SS3 HD)\nrel. Azimuth, Elevation, Roll, Pitch"]:::orion
+    end
+    geo["Geo-projection\n(sensor footprint -> ground)"]:::orion
+    pic["Common operating picture\n(video geo-registered)"]:::existing
+    ppose --> geo
+    spose --> geo
+    geo --> pic
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef existing fill:#1168BD,color:#fff,stroke:#0B4884

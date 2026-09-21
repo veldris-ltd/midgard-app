@@ -1,0 +1,25 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="admin_rbac_er" id="admin_rbac_er">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="au" value="ADMIN_USER" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="60" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="rb" value="ROLE_BINDING" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="260" y="60" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="ro" value="ROLE" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="480" y="60" width="140" height="50" as="geometry"/></mxCell>
+        <mxCell id="pe" value="PERMISSION" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="480" y="160" width="140" height="50" as="geometry"/></mxCell>
+        <mxCell id="rs" value="RESOURCE_SCOPE" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="480" y="260" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="aa" value="ADMIN_ACTION" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="700" y="60" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="ap" value="APPROVAL" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="700" y="160" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="ae" value="AUDIT_ENTRY" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="700" y="260" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="has" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="au" target="rb"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="grants" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ro" target="rb"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="includes" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ro" target="pe"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="applies to" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="pe" target="rs"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="requires" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="aa" target="pe"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="may need" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="aa" target="ap"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="produces" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="aa" target="ae"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

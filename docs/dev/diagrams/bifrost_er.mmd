@@ -1,0 +1,31 @@
+erDiagram
+    RELEASE ||--o{ ARTEFACT : bundles
+    RELEASE ||--o{ ROLLOUT : triggers
+    ROLLOUT ||--o{ STAGE : has
+    STAGE ||--o{ HEALTH_GATE : guarded_by
+    ROLLOUT ||--o{ ROLLBACK : may_trigger
+    ARTEFACT ||--|| SIGNATURE : signed_by
+    RELEASE {
+        uuid id PK
+        string version
+        uuid actor_id
+        timestamp created_at
+    }
+    ARTEFACT {
+        uuid id PK
+        string digest
+        string sig_alg
+        bytea ml_dsa_sig
+    }
+    ROLLOUT {
+        uuid id PK
+        uuid release_id FK
+        string strategy
+        string status
+    }
+    STAGE {
+        uuid id PK
+        uuid rollout_id FK
+        string env
+        int order
+    }

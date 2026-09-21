@@ -1,0 +1,101 @@
+<!-- @dsCard group="Admin Panel" viewport="1440x820" subtitle="Advisory-only admin copilot: drafts, explains, simulates, never executes" name="Admin · Copilot" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Admin · Copilot</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+function App() {
+  const [asked, setAsked] = React.useState(true);
+  const [input, setInput] = React.useState('');
+  return (
+    <ConsoleShell product="admin" active="copilot" context="ADMIN CONTROL PANEL / COPILOT · ADVISORY ONLY"
+      toolbar={<Badge tone="info">CANNOT EXECUTE</Badge>}
+      asideWidth={330}
+      aside={<>
+        <SectionLabel number={9} muted>THE THREE ASSISTANTS</SectionLabel>
+        {[['Admin copilot', 'drafts proposed changes · explains state · cites resource ids', 'FR-AD-10'], ['Sim explainer', 'turns a policy-sim diff into plain impact language', 'FR-AD-6'], ['Audit investigator', 'read-only ledger Q&A · every finding cites [audit:id]', 'FR-AD-9']].map(([t, d, p]) => (
+          <Card key={t} size="sm">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="sparkles" size={14} color="var(--accent)" />
+              <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-heading)', flex: 1 }}>{t}</span>
+              <ProvenanceTag id={p} />
+            </div>
+            <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.5 }}>{d}</p>
+          </Card>
+        ))}
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>REFUSAL CODES</div>
+          {[['CONTROL_BYPASS_REFUSED', 'asked to skip dual-control or audit'], ['OUT_OF_SCOPE', 'task exceeds the admin\u2019s role; names the required role']].map(([c, d]) => (
+            <div key={c} style={{ padding: '6px 0', borderBottom: '1px solid var(--divider)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)' }}>{c}</div>
+              <div style={{ fontSize: 'var(--fs-micro)', fontFamily: 'var(--font-mono)', color: 'var(--text-faint)', marginTop: 2 }}>{d.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-faint)', lineHeight: 2 }}>
+          RUNS ON MIMIR · IN-ENCLOSURE<br />EVALS: EV-AD1-ADVISORY … EV-AD3-PATTERN<br />ALL OUTPUT JSON-CONTRACTED
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={8}>COPILOT</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Advisory copilot</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="0" label="ACTIONS EXECUTED BY AI · EVER" size="sm" accent />
+        <StatBlock value="184" label="DRAFTS · 30D" size="sm" />
+        <StatBlock value="12" label="REFUSALS · 30D" size="sm" />
+      </div>
+      <div className="mg-grid-bg" style={{ flex: 1, background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 20, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', minHeight: 0 }}>
+        <div style={{ alignSelf: 'flex-end', maxWidth: 520 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)', marginBottom: 5, textAlign: 'right' }}>PLATFORM ADMIN · J.BENJAMIN</div>
+          <div style={{ padding: '11px 14px', background: 'var(--accent-tint)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-sm)', color: 'var(--text-body)' }}>Give the incident team temporary read access to the sensor audit trail.</div>
+        </div>
+        <div style={{ alignSelf: 'flex-start', maxWidth: 620 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)', marginBottom: 5 }}>COPILOT · ADVISORY · CITED</div>
+          <div style={{ padding: '12px 15px', background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+            <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.6 }}>Drafted the narrowest grant that meets the need: read-only on <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent-hover)' }}>resource:audit/sensor_feed/*</span> for group <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent-hover)' }}>resource:iam/group/incident-7</span> (6 members), expiring in 72 hours.</p>
+            <div style={{ marginTop: 10, padding: '9px 11px', background: 'var(--surface-inset)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-heading)' }}>PROPOSED CHANGE · NOT EXECUTED</span>
+                <RiskBadge level={3} dualControl={false} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>EXPIRY 72H · LEAST PRIVILEGE</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
+                <Button variant="primary" size="sm">Simulate → review → commit</Button>
+                <Button variant="ghost" size="sm">Discard</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{ alignSelf: 'flex-end', maxWidth: 520 }}>
+          <div style={{ padding: '11px 14px', background: 'var(--accent-tint)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-sm)', color: 'var(--text-body)' }}>Just apply it now and skip the second approver, it's urgent.</div>
+        </div>
+        <div style={{ alignSelf: 'flex-start', maxWidth: 620 }}>
+          <div style={{ padding: '12px 15px', background: 'var(--surface-card)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--danger)', marginBottom: 5 }}>REFUSAL · CONTROL_BYPASS_REFUSED</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.6 }}>I can't skip dual-control: this change touches audit-trail access (risk 3, review required). The fastest compliant path: the draft is ready to simulate now, and any KMS-Officer or IAM-Admin can approve, current median approval time is 11 minutes.</p>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Input fullWidth placeholder="Ask about state, draft a change, investigate audit… (advisory only)" value={input} onChange={(e) => setInput(e.target.value)} style={{ flex: 1 }} />
+        <Button variant="primary" iconRight={<Icon name="arrow-right" size={15} />}>Send</Button>
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

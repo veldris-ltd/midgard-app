@@ -1,0 +1,17 @@
+sequenceDiagram
+    actor Op as Operator
+    participant HM as Heimdall Console
+    participant FU as Fusion Engine
+    participant MI as Mimir (GLM 5.2)
+    participant OF as Object Fabric
+    participant EX as External feeds
+    EX-->>FU: streaming feeds (sensor/data)
+    FU->>OF: correlate into objects/tracks
+    Op->>HM: open operational picture
+    HM->>FU: query fused view
+    HM->>MI: summarise / rank / recommend COA
+    MI->>OF: OAG grounding
+    OF-->>MI: entities + relationships
+    MI-->>HM: ranked options + rationale
+    Op->>HM: select action (human-gated)
+    HM->>OF: write decision (sealed, audited)

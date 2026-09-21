@@ -1,0 +1,34 @@
+// Midgard core — shared types for the object fabric and governance.
+// Every service message carries the governance context that the policy point
+// evaluates at query/action time. [NFR-SEC-2]
+syntax = "proto3";
+
+package midgard.v1;
+
+// A mandatory classification tag. Colours are fixed platform-side; here we carry
+// only the identity of the marking. [NFR-SEC-2] SAD_00 §8.2
+message Marking {
+  string id = 1;
+  string name = 2;
+  string level = 3;
+  repeated string compartments = 4;
+}
+
+// The caller's governance context, asserted by the gateway from a PQ-signed
+// token and enforced deny-by-default downstream. [NFR-SEC-1] [NFR-SEC-2]
+message PolicyContext {
+  string subject = 1;            // authenticated principal
+  string purpose = 2;            // declared purpose of access
+  string clearance = 3;          // highest marking level permitted
+  repeated string roles = 4;
+}
+
+// An immutable, PQ-signed audit lineage entry. [NFR-PQ-3] SAD_00 §8.2
+message AuditRecord {
+  string id = 1;
+  string actor = 2;
+  string action = 3;
+  string resource = 4;
+  string ts = 5;                 // RFC3339
+  bytes pq_signature = 6;        // ML-DSA over the record
+}

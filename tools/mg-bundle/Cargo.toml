@@ -1,0 +1,22 @@
+[package]
+name = "mg-bundle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Air-gap bundle tool: pack signed artefacts into a portable, ML-DSA-signed .mgbundle file, and import + verify one fully offline before deploy. [FR-B-5] [AC-B-3] [RC-19]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["bifrost-bundle/backend-fips", "bifrost-artefact/backend-fips", "pqc-agility/backend-fips"]
+
+[[bin]]
+name = "mg-bundle"
+path = "src/main.rs"
+
+[dependencies]
+bifrost-bundle = { path = "../../bifrost/bundle", features = ["backend-fips"] }
+bifrost-artefact = { path = "../../bifrost/artefact", features = ["backend-fips"] }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+# The sealed keystore a release signs the bundle from, as mg-register and mg-sign do.
+attest = { path = "../../crypto/attest", features = ["backend-fips"] }

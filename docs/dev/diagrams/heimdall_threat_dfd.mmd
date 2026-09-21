@@ -1,0 +1,18 @@
+flowchart TB
+    user["fa:fa-user User"]
+    subgraph tb1["Trust Boundary: Client Edge"]
+        client["Heimdall client"]
+    end
+    subgraph tb2["Trust Boundary: Heimdall Service"]
+        api["Heimdall API"]
+        svc["Domain services"]
+    end
+    subgraph tb3["Trust Boundary: Midgard Enclosure"]
+        fabric["Object fabric"]
+        seal["Seal (PQ keys)"]
+    end
+    user -- "hybrid TLS 1.3 (S,T,I)" --> client
+    client -- "PQ mTLS + purpose token (S,E)" --> api
+    api -- "authz check (E,R)" --> svc
+    svc -- "sealed I/O (T,I)" --> fabric
+    fabric -- "key unwrap (I)" --> seal

@@ -1,0 +1,18 @@
+flowchart TB
+    user["fa:fa-user User"]
+    subgraph tb1["Trust Boundary: Public / Client Edge"]
+        client["Client (SDK/Web/CLI)"]
+    end
+    subgraph tb2["Trust Boundary: Midgard Enclosure"]
+        gw["Object Gateway"]
+        iam["Identity & Access"]
+        funnel["Object Data Funnel"]
+        objdb[("Object Store V2")]
+        kms["PQ Key Mgmt (Seal)"]
+    end
+    user -- "hybrid TLS 1.3 (S,T,I)" --> client
+    client -- "PQ mTLS + purpose token (S,E)" --> gw
+    gw -- "authz check (E,R)" --> iam
+    gw -- "sealed write (T,I)" --> funnel
+    funnel -- "AES-256-GCM (I)" --> objdb
+    gw -- "key unwrap (I)" --> kms

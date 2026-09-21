@@ -1,0 +1,26 @@
+[package]
+name = "midgard-client-delivery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Client-side signed delivery: verify a reproducibly-built, PQ-signed artefact before install/update, and install air-gapped from a signed offline bundle — reusing the Bifrost supply-chain trust root. [FR-C-7] [AC-C-7] [AC-C-12]"
+
+[features]
+# Verification uses the FIPS ML-DSA backend, exactly as the Bifrost registry does.
+default = ["backend-fips"]
+backend-fips = [
+    "bifrost-artefact/backend-fips",
+    "bifrost-bundle/backend-fips",
+    "pqc-agility/backend-fips",
+]
+
+[dependencies]
+# The Bifrost supply-chain primitives: fail-closed artefact verify and offline
+# bundle import. The client re-uses these unchanged — no second verifier. [KDD-1]
+bifrost-artefact = { path = "../../bifrost/artefact" }
+bifrost-bundle = { path = "../../bifrost/bundle" }
+pqc-agility = { path = "../../crypto/pqc-agility", default-features = false }
+
+[lib]
+path = "src/lib.rs"

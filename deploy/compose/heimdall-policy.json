@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "source-channel", "role": "feed-source", "action": "OpenChannel",
+      "resource": "*", "effect": "permit" },
+    { "id": "source-ingest", "role": "feed-source", "action": "Ingest",
+      "resource": "*", "effect": "permit" },
+    { "id": "analyst-channel", "role": "picture-reader", "action": "OpenChannel",
+      "resource": "*", "effect": "permit" },
+    { "id": "analyst-read", "role": "picture-reader", "action": "ReadPicture",
+      "resource": "*", "effect": "permit" }
+  ]
+}

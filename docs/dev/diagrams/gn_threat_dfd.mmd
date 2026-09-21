@@ -1,0 +1,16 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    planner["Planner"]:::actor
+    ui["UI / console"]:::system
+    api["Gungnir API"]:::system
+    sim["Sandbox sim kernel"]:::system
+    world["World-model copy"]:::datastore
+    audit["Audit ledger"]:::datastore
+    planner -->|"1 auth + step-up"| ui
+    ui -->|"2 PQ-mTLS"| api
+    api -->|"3 admin-scoped"| sim
+    sim -->|"4 read-only snapshot"| world
+    sim -->|"5 PQ-sign projection"| audit
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

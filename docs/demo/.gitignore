@@ -1,0 +1,11 @@
+# Where `render.py --fetch-fonts` used to download fonts. No longer used: the film
+# now reads the design system's self-hosted fonts. Safe to delete.
+fonts/
+
+# Filled by `capture.mjs --fetch-vendor`: the site pages' React and Babel,
+# served to the page during capture so no screen needs the network.
+vendor/
+
+# Render output.
+*.mp4
+probe*.jpg

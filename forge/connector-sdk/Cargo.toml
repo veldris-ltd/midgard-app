@@ -1,0 +1,47 @@
+[package]
+name = "forge-connector-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Forge typed connector SDK: sandboxed source bindings, KMS-resolved credentials (no inline secrets), sync → PQ-sealed raw dataset. [FR-F-2] [NFR-PQ-2]"
+
+[features]
+default = [
+    "backend-fips",
+    "connector-file",
+    "connector-inmem",
+    "connector-api",
+    "connector-db",
+    "connector-objstore",
+    "connector-stream",
+]
+# Sealing raw ingests at rest goes through the dataset-store's KMS envelope.
+backend-fips = [
+    "forge-dataset-store/backend-fips",
+    "kms/backend-fips",
+    "pqc-agility/backend-fips",
+]
+# Reference connectors, each shipped behind its own flag so a deployment pulls in
+# only the source types it trusts. [FR-F-2]
+connector-file = []
+connector-inmem = []
+# The API connector reuses the delimited parser, so it pulls in connector-file.
+connector-api = ["connector-file"]
+# Database sources: PostgreSQL over its v3 protocol, SCRAM-SHA-256 only. Its nonces
+# come from the operating system's randomness, which the FIPS backend provides.
+connector-db = ["backend-fips"]
+# S3-compatible object stores: ListObjectsV2 and GetObject signed with SigV4, each
+# object parsed as delimited text.
+connector-objstore = ["connector-file"]
+# Kafka topics: a bounded, checkpointed read of every partition (record batches v2,
+# SASL SCRAM-SHA-256), each value one delimited record.
+connector-stream = ["connector-file", "backend-fips"]
+
+[dependencies]
+forge-dataset-store = { path = "../dataset-store" }
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[lib]
+path = "src/lib.rs"

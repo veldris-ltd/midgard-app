@@ -1,0 +1,133 @@
+<!-- @dsCard group="Clients" viewport="1440x860" subtitle="Enclosure-hosted WASM app and the least-capable browser extension" name="Clients · Web & Extension" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Clients · Web & Extension</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;background:var(--bg-page)}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="browser-window.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { Card, StatBlock, StatusPill, Badge, Button, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, SyncStatus, TierBadge, KeyCustodyChip, HumanGate, MeterBar, ProductMark, ClassificationBanner } = NS;
+
+const { ChromeWindow } = window;
+
+function WebApp() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-page)', fontFamily: 'var(--font-sans)', color: 'var(--text-body)', position: 'relative' }}>
+      <div style={{ height: 20, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--marking-confidential)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.16em', fontWeight: 600 }}>CONFIDENTIAL · RECIPIENT EYES ONLY</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--border)' }}>
+        <ProductMark product="midgard" size="sm" showDescriptor={false} />
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>WEB APP · WASM CORE</span>
+        <div style={{ flex: 1 }} />
+        <SyncStatus state="synced" style={{ fontSize: 9 }} />
+        <KeyCustodyChip platform="web" style={{ fontSize: 9 }} />
+      </div>
+      <div style={{ flex: 1, display: 'flex', gap: 12, padding: 14, minHeight: 0 }}>
+        <div style={{ flex: 1.4, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <StatBlock value="WASM" label="CORE · WASM-BINDGEN" size="sm" accent />
+            <StatBlock value="SRI" label="SUBRESOURCE INTEGRITY" size="sm" />
+            <StatBlock value="0" label="THIRD-PARTY ORIGINS" size="sm" />
+          </div>
+          <Terminal title="SESSION" lines={[
+            '> handshake',
+            'tls        1.3 hybrid · X25519+ML-KEM-768',
+            'auth       WebAuthn · passkey ✓',
+            'keys       WebCrypto · non-extractable · session',
+            'serving    enclosure-hosted · SRI verified',
+          ]} style={{ fontSize: 10 }} />
+          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-heading)' }}>Object query · policy at query time</span>
+              <span style={{ marginLeft: 'auto' }}><TierBadge tier="remote" model="GLM 5.2" /></span>
+            </div>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.55, color: 'var(--text-body)' }}>Web inference is always Tier 2 (remote): the browser holds no model weights and no long-lived keys. Grounded, cited, audited in the enclosure.</p>
+          </div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="mg-grid-bg" style={{ height: '100%', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
+            {[['Aircraft', 30, 30], ['Route', 68, 22], ['Crew', 62, 64], ['Event', 28, 68]].map(([t, x, y]) => (
+              <span key={t} style={{ position: 'absolute', left: x + '%', top: y + '%', transform: 'translate(-50%,-50%)', padding: '6px 10px', background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 7, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-heading)' }}>{t}</span>
+            ))}
+            <span style={{ position: 'absolute', left: 10, bottom: 8, fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>FABRIC EXPLORER · SERVER-SIDE MARKING ENFORCEMENT</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExtensionPopup() {
+  const [sent, setSent] = React.useState(false);
+  return (
+    <div style={{ position: 'absolute', top: 6, right: 10, width: 300, zIndex: 20, background: 'var(--surface-inset)', border: '1px solid var(--border-strong)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden', fontFamily: 'var(--font-sans)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg-page)' }}>
+        <ProductMark product="midgard" size="sm" showDescriptor={false} />
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.1em', color: 'var(--info)' }}>BROKER MODE</span>
+      </div>
+      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <KeyCustodyChip platform="extension" style={{ fontSize: 8.5 }} />
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.1em', color: 'var(--text-faint)', marginBottom: 5 }}>USER-SHARED SELECTION · NOTHING ELSE READ</div>
+          <p style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: 'var(--text-body)', fontStyle: 'italic' }}>"…tail AC-2214 diverted to Dublin for an unscheduled check…"</p>
+        </div>
+        {sent ? (
+          <div style={{ padding: '8px 10px', background: 'var(--surface-inset)', border: '1px solid var(--secure)', borderRadius: 8 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.1em', color: 'var(--secure)', marginBottom: 4 }}>BROKERED → ENCLOSURE · AUDITED</div>
+            <p style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: 'var(--text-body)' }}>Matches <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-hover)' }}>Aircraft/AC-2214</span>: open event ME-88121, human gate pending in Heimdall.</p>
+          </div>
+        ) : (
+          <Button variant="primary" size="sm" fullWidth onClick={() => setSent(true)}>Match against the fabric</Button>
+        )}
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 7.5, lineHeight: 1.9, color: 'var(--text-faint)', letterSpacing: '0.06em' }}>
+          NO KEYS HELD · NO BULK CRYPTO<br />NO TABS READ · NO FORM FIELDS READ<br />PRIVILEGED OPS → ENCLOSURE / COMPANION
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [scale, setScale] = React.useState(1);
+  React.useEffect(() => {
+    const f = () => setScale(Math.min(1, (window.innerWidth - 48) / 1120));
+    f();
+    window.addEventListener('resize', f);
+    return () => window.removeEventListener('resize', f);
+  }, []);
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <ClassificationBanner level="confidential" />
+      <div style={{ padding: '22px 28px 10px', display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={3}>CLIENTS · WEB</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Web app & the least-capable extension</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <ProvenanceTag id="FR-C-8" title="Minimal-privilege extension: no raw keys, brokered operations" />
+          <ProvenanceTag id="NFR-SEC-1" title="Zero-trust: identity, device posture, purpose" />
+          <ProvenanceTag id="AC-C-13" title="Server-side marking enforcement; nothing above clearance rendered or cached" />
+        </div>
+      </div>
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '10px 24px 34px', overflow: 'hidden' }}>
+        <div style={{ height: 660 * scale }}>
+          <div style={{ position: 'relative', transform: 'scale(' + scale + ')', transformOrigin: 'top center' }}>
+            <ChromeWindow width={1080} height={640} url="fabric.enclosure.internal/workspace">
+              <WebApp />
+            </ChromeWindow>
+            <ExtensionPopup />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

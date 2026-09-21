@@ -1,0 +1,935 @@
+# Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default,
+# release values: a default-deny, egress-denied namespace (NFR-PRV-1), a resource
+# quota, and one hardened, verify-before-run StatefulSet per service — non-root,
+# read-only rootfs, dropped capabilities, probes, resource limits, its own volume —
+# with per-port ingress and egress NetworkPolicies. [NFR-SEC-1] [AC-B-1] [RC-18]
+#
+# Every service expects Secrets "<service>-identity" (and "<service>-seed" where it
+# seeds state) and the forge-jobs ConfigMap to exist; provision them from your key
+# custody. Apply with:  kubectl apply -f deploy/k8s/enclosure.yaml
+#
+# GENERATED — do not edit. Regenerate with:  bash deploy/k8s/render.sh
+# (CI fails if this file is not what the chart renders.)
+---
+# Source: midgard/templates/enclosure.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: midgard-enclosure
+  labels:
+    app.kubernetes.io/part-of: midgard
+    pod-security.kubernetes.io/enforce: restricted
+---
+# Source: midgard/templates/enclosure.yaml
+# Default-deny for every pod in the enclosure: no ingress, no egress. Each service then
+# opens only the hops it needs. This is the sovereign no-egress posture. [NFR-PRV-1]
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: midgard-enclosure
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Source: midgard/templates/enclosure.yaml
+# Service names resolve through the cluster's DNS, and nowhere else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cluster-dns
+  namespace: midgard-enclosure
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# Source: midgard/templates/enclosure.yaml
+# Mesh client mimir-probe: may reach only the service ports it calls.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mimir-probe-egress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mimir-probe
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mimir-server
+      ports:
+        - { protocol: TCP, port: 7720 }
+---
+# Source: midgard/templates/enclosure.yaml
+# Mesh client fleet-agent: may reach only the service ports it calls.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fleet-agent-egress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fleet-agent
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: bifrost-fleet
+      ports:
+        - { protocol: TCP, port: 7740 }
+---
+# Source: midgard/templates/enclosure.yaml
+# Mesh client fleet-operator: may reach only the service ports it calls.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fleet-operator-egress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fleet-operator
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: bifrost-fleet
+      ports:
+        - { protocol: TCP, port: 7740 }
+---
+# Source: midgard/templates/enclosure.yaml
+# Mesh client feed-source: may reach only the service ports it calls.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-feed-source-egress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: feed-source
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: heimdall-feed
+      ports:
+        - { protocol: TCP, port: 7730 }
+---
+# Source: midgard/templates/enclosure.yaml
+# Mesh client picture-analyst: may reach only the service ports it calls.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-picture-analyst-egress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: picture-analyst
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: heimdall-feed
+      ports:
+        - { protocol: TCP, port: 7730 }
+---
+# Source: midgard/templates/workload.yaml
+# Who may reach http-gateway, port by port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-http-gateway-ingress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: http-gateway
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 7710 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["console-edge"]
+    - ports:
+        - { protocol: TCP, port: 7711 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["forge-worker"]
+---
+# Source: midgard/templates/workload.yaml
+# Who may reach mimir-server, port by port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mimir-server-ingress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mimir-server
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 7720 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["mimir-probe"]
+    - ports:
+        - { protocol: TCP, port: 9090 }
+---
+# Source: midgard/templates/workload.yaml
+# Who may reach bifrost-fleet, port by port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-bifrost-fleet-ingress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: bifrost-fleet
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 7740 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["fleet-agent","fleet-operator"]
+    - ports:
+        - { protocol: TCP, port: 9090 }
+---
+# Source: midgard/templates/workload.yaml
+# Who may reach heimdall-feed, port by port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-heimdall-feed-ingress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: heimdall-feed
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 7730 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["feed-source","picture-analyst"]
+    - ports:
+        - { protocol: TCP, port: 9090 }
+---
+# Source: midgard/templates/workload.yaml
+# Who may reach forge-worker, port by port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-forge-worker-ingress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: forge-worker
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 9090 }
+---
+# Source: midgard/templates/workload.yaml
+# The service ports forge-worker may reach.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-forge-worker-egress
+  namespace: midgard-enclosure
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: forge-worker
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: http-gateway
+      ports:
+        - { protocol: TCP, port: 7711 }
+---
+# Source: midgard/templates/enclosure.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: enclosure-quota
+  namespace: midgard-enclosure
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 4Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    pods: "50"
+---
+# Source: midgard/templates/enclosure.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: midgard-release-trust
+  namespace: midgard-enclosure
+data:
+  release-trust.pub: |
+    # Populated by the key ceremony (RT-35) from deploy/trust/release-trust.pub
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-gateway
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: http-gateway
+spec:
+  selector:
+    app.kubernetes.io/name: http-gateway
+  ports:
+    - name: http
+      port: 7710
+      targetPort: 7710
+    - name: mesh
+      port: 7711
+      targetPort: 7711
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mimir-server
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: mimir-server
+spec:
+  selector:
+    app.kubernetes.io/name: mimir-server
+  ports:
+    - name: mesh
+      port: 7720
+      targetPort: 7720
+    - name: health
+      port: 9090
+      targetPort: 9090
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: bifrost-fleet
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: bifrost-fleet
+spec:
+  selector:
+    app.kubernetes.io/name: bifrost-fleet
+  ports:
+    - name: mesh
+      port: 7740
+      targetPort: 7740
+    - name: health
+      port: 9090
+      targetPort: 9090
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: heimdall-feed
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: heimdall-feed
+spec:
+  selector:
+    app.kubernetes.io/name: heimdall-feed
+  ports:
+    - name: mesh
+      port: 7730
+      targetPort: 7730
+    - name: health
+      port: 9090
+      targetPort: 9090
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-worker
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: forge-worker
+spec:
+  selector:
+    app.kubernetes.io/name: forge-worker
+  ports:
+    - name: health
+      port: 9090
+      targetPort: 9090
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: http-gateway
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: http-gateway
+    app.kubernetes.io/part-of: midgard
+spec:
+  serviceName: http-gateway
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: http-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: http-gateway
+        app.kubernetes.io/part-of: midgard
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # First start only: unpack the provisioned state (keys, policy, ledger) into the
+        # volume. Later starts keep what the service has written.
+        - name: seed
+          image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone.
+          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: state, mountPath: /state }
+            - { name: seed, mountPath: /seed, readOnly: true }
+      containers:
+        - name: http-gateway
+          image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MIDGARD_SERVICE
+              value: http-gateway
+          args: ["--state-dir","/state","--bind","0.0.0.0:7710","--mesh-bind","0.0.0.0:7711","--mesh-identity-dir","/identity"]
+          ports:
+            - name: http
+              containerPort: 7710
+            - name: mesh
+              containerPort: 7711
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet: { path: /api/v1/health, port: 7710 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /api/v1/health, port: 7710 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /state }
+            - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: trust, mountPath: /trust, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: identity
+          secret: { secretName: http-gateway-identity, defaultMode: 288 }
+        - name: seed
+          secret: { secretName: http-gateway-seed, defaultMode: 288 }
+        - name: trust
+          configMap: { name: midgard-release-trust }
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 256Mi
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mimir-server
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: mimir-server
+    app.kubernetes.io/part-of: midgard
+spec:
+  serviceName: mimir-server
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mimir-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mimir-server
+        app.kubernetes.io/part-of: midgard
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # First start only: unpack the provisioned state (keys, policy, ledger) into the
+        # volume. Later starts keep what the service has written.
+        - name: seed
+          image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone.
+          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: state, mountPath: /state }
+            - { name: seed, mountPath: /seed, readOnly: true }
+      containers:
+        - name: mimir-server
+          image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MIDGARD_SERVICE
+              value: mimir-server
+          args: ["--identity-dir","/identity","--state-dir","/state","--purposes","investigation","--bind","0.0.0.0:7720","--health-bind","0.0.0.0:9090"]
+          ports:
+            - name: mesh
+              containerPort: 7720
+            - name: health
+              containerPort: 9090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /state }
+            - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: trust, mountPath: /trust, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: identity
+          secret: { secretName: mimir-server-identity, defaultMode: 288 }
+        - name: seed
+          secret: { secretName: mimir-server-seed, defaultMode: 288 }
+        - name: trust
+          configMap: { name: midgard-release-trust }
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 64Mi
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bifrost-fleet
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: bifrost-fleet
+    app.kubernetes.io/part-of: midgard
+spec:
+  serviceName: bifrost-fleet
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bifrost-fleet
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bifrost-fleet
+        app.kubernetes.io/part-of: midgard
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # First start only: unpack the provisioned state (keys, policy, ledger) into the
+        # volume. Later starts keep what the service has written.
+        - name: seed
+          image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone.
+          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: state, mountPath: /state }
+            - { name: seed, mountPath: /seed, readOnly: true }
+      containers:
+        - name: bifrost-fleet
+          image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MIDGARD_SERVICE
+              value: bifrost-fleet
+          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7740","--health-bind","0.0.0.0:9090"]
+          ports:
+            - name: mesh
+              containerPort: 7740
+            - name: health
+              containerPort: 9090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /state }
+            - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: trust, mountPath: /trust, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: identity
+          secret: { secretName: bifrost-fleet-identity, defaultMode: 288 }
+        - name: seed
+          secret: { secretName: bifrost-fleet-seed, defaultMode: 288 }
+        - name: trust
+          configMap: { name: midgard-release-trust }
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 64Mi
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: heimdall-feed
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: heimdall-feed
+    app.kubernetes.io/part-of: midgard
+spec:
+  serviceName: heimdall-feed
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: heimdall-feed
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: heimdall-feed
+        app.kubernetes.io/part-of: midgard
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # First start only: unpack the provisioned state (keys, policy, ledger) into the
+        # volume. Later starts keep what the service has written.
+        - name: seed
+          image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone.
+          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: state, mountPath: /state }
+            - { name: seed, mountPath: /seed, readOnly: true }
+      containers:
+        - name: heimdall-feed
+          image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MIDGARD_SERVICE
+              value: heimdall-feed
+          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7730","--health-bind","0.0.0.0:9090"]
+          ports:
+            - name: mesh
+              containerPort: 7730
+            - name: health
+              containerPort: 9090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /state }
+            - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: trust, mountPath: /trust, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: identity
+          secret: { secretName: heimdall-feed-identity, defaultMode: 288 }
+        - name: seed
+          secret: { secretName: heimdall-feed-seed, defaultMode: 288 }
+        - name: trust
+          configMap: { name: midgard-release-trust }
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 64Mi
+---
+# Source: midgard/templates/workload.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: forge-worker
+  namespace: midgard-enclosure
+  labels:
+    app.kubernetes.io/name: forge-worker
+    app.kubernetes.io/part-of: midgard
+spec:
+  serviceName: forge-worker
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: forge-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: forge-worker
+        app.kubernetes.io/part-of: midgard
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: forge-worker
+          image: registry.enclosure.local/midgard/forge-worker:0.1.0-rc.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MIDGARD_SERVICE
+              value: forge-worker
+          args: ["--identity-dir","/identity","--state-dir","/state","--jobs","/jobs/jobs.json","--gateway","http-gateway:7711","--health-bind","0.0.0.0:9090"]
+          ports:
+            - name: health
+              containerPort: 9090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /readyz, port: 9090 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /state }
+            - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: jobs, mountPath: /jobs, readOnly: true }
+            - { name: trust, mountPath: /trust, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: identity
+          secret: { secretName: forge-worker-identity, defaultMode: 288 }
+        - name: jobs
+          configMap: { name: forge-jobs }
+        - name: trust
+          configMap: { name: midgard-release-trust }
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 128Mi

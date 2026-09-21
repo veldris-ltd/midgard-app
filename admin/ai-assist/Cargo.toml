@@ -1,0 +1,25 @@
+[package]
+name = "admin-ai-assist"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The admin panel's three ADVISORY AI touchpoints — A.AD1 copilot (proposes, never executes), A.AD2 sim explainer, A.AD3 read-only audit assistant — each behind an inference seam with a deterministic mock and an EV-AD eval suite. [FR-AD-10] [AC-AD-11]"
+
+[dependencies]
+# The verbatim A.AD1/A.AD2/A.AD3 system prompts.
+mimir-prompts = { path = "../../mimir/prompts" }
+# The live inference transport (PQ-mTLS to the Mimir gateway) behind the seam. The
+# Mock/Unavailable copilots keep working with no bridge configured. [RT-45]
+mimir-bridge = { path = "../../mimir/bridge" }
+
+[dev-dependencies]
+# AC-AD-11: a copilot-proposed change still traverses the dual-control guarded path.
+admin-privilege = { path = "../privilege" }
+admin-identity = { path = "../identity" }
+audit-writer = { path = "../../crypto/audit-writer", features = ["backend-fips"] }
+# A real WebAuthn assertion is needed to build an authenticated admin session. [RC-30]
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

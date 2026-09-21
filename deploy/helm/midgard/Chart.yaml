@@ -1,0 +1,9 @@
+apiVersion: v2
+name: midgard
+description: >-
+  Midgard enclosure: hardened, verify-before-run Deployments for the core services
+  and product edges, in a default-deny, egress-denied namespace with PQ-mTLS on
+  every internal hop. [NFR-SEC-1] [NFR-PRV-1] [AC-B-1]
+type: application
+version: 0.1.0-rc.1
+appVersion: "0.1.0-rc.1"

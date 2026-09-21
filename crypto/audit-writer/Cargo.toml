@@ -1,0 +1,22 @@
+[package]
+name = "audit-writer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "PQ-signed, append-only, tamper-evident audit ledger. [NFR-PQ-3]"
+
+[features]
+default = []
+test-backend = ["pqc-agility/test-backend"]
+backend-fips = ["pqc-agility/backend-fips"]
+
+[dependencies]
+pqc-agility = { path = "../pqc-agility" }
+
+[dev-dependencies]
+# Enable the deterministic backend for the crate's own tests.
+pqc-agility = { path = "../pqc-agility", features = ["test-backend"] }
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,29 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    padmin["Platform admin"]:::actor
+    secadmin["Security officer"]:::actor
+    auditor["Auditor (read-only)"]:::actor
+    subgraph panel["Admin Control Panel"]
+        console["Unified console\n(web + desktop)"]:::system
+    end
+    subgraph enc["Midgard enclosure — managed subsystems"]
+        iam["Identity & Access"]:::system
+        gov["Governance & Audit"]:::system
+        kms["Crypto & KMS"]:::system
+        fabric["Object Fabric"]:::system
+        mimir["Mimir (agents, model registry, Evals)"]:::system
+        bifrost["Bifrost (releases, fleet)"]:::system
+        obs["Observability"]:::system
+    end
+    padmin --> console
+    secadmin --> console
+    auditor --> console
+    console -->|"PQ-mTLS, admin-scoped, dual-control"| iam
+    console --> gov
+    console --> kms
+    console --> fabric
+    console --> mimir
+    console --> bifrost
+    console --> obs
+    classDef actor fill:#08427B,color:#fff,stroke:#052E56
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884

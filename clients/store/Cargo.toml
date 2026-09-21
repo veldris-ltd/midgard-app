@@ -1,0 +1,28 @@
+[package]
+name = "midgard-client-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Client local encrypted object cache: AES-256-GCM under an ML-KEM-1024 data key wrapped by the non-exportable platform keystore, policy-scoped so above-clearance data is never cached or rendered. [FR-C-2] [NFR-PQ-2] [NFR-SEC-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "kms/backend-fips",
+    "pqc-agility/backend-fips",
+    "midgard-client-keystore/backend-fips",
+]
+
+[dependencies]
+# At-rest sealing (AES-256-GCM under an ML-KEM-1024-wrapped key), reused unchanged
+# with the platform keystore as the trust root. [NFR-PQ-2] [KDD-1]
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The keystore custody that backs the seal and declares its security floor.
+midgard-client-keystore = { path = "../keystore" }
+# Bell–LaPadula dominance for clearance scoping. [NFR-SEC-2]
+policy = { path = "../../crypto/policy" }
+
+[lib]
+path = "src/lib.rs"

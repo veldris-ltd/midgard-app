@@ -1,0 +1,139 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="Contact, DPO, and security disclosure channels" name="midgard.eu/contact" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Contact Veldris</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, Button, Badge, StatusPill, SectionLabel, Terminal, Input, Select, Card } = NS;
+
+/* Contact form: same local-only pattern as early access; persists to
+   localStorage('mg-contact'), issues a sealed receipt, nothing leaves the page. */
+function ContactForm() {
+  const KEY = 'mg-contact';
+  const [form, setForm] = React.useState({ name: '', email: '', topic: 'general', message: '' });
+  const [done, setDone] = React.useState(null);
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+  const submit = () => {
+    if (!form.email.trim() || !/.+@.+\..+/.test(form.email)) { setDone({ error: 'A valid email is required.' }); return; }
+    if (!form.message.trim()) { setDone({ error: 'A message is required.' }); return; }
+    const list = JSON.parse(localStorage.getItem(KEY) || '[]');
+    const id = 'CT-' + String(1000 + list.length + 1);
+    const rec = { ...form, id, ts: new Date().toISOString() };
+    list.push(rec);
+    localStorage.setItem(KEY, JSON.stringify(list));
+    setDone(rec);
+  };
+  if (done && done.id) {
+    return (
+      <div style={{ background: 'var(--surface-card)', border: '1px solid var(--secure)', borderRadius: 'var(--radius-lg)', padding: 'clamp(18px, 3vw, 28px)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Icon name="shield-check" size={18} color="var(--secure)" />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.14em', color: 'var(--secure)' }}>MESSAGE SEALED · {done.id}</span>
+        </div>
+        <Terminal lines={[
+          '> midgard contact --verify',
+          'from       ' + (done.name || 'unnamed') + ' <' + done.email + '>',
+          'topic      ' + done.topic,
+          'stored     locally · nothing left this page',
+          '# we aim to reply within two working days',
+        ]} />
+      </div>
+    );
+  }
+  const taStyle = {
+    width: '100%', boxSizing: 'border-box', minHeight: 120, resize: 'vertical',
+    background: 'var(--surface-inset, var(--ink-850))', color: 'var(--text-body)',
+    border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+    padding: '10px 12px', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-sm)', lineHeight: 1.6,
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <Input label="Name" placeholder="Ada Lovelace" value={form.name} onChange={set('name')} style={{ flex: '1 1 200px' }} fullWidth />
+        <Input label="Email" placeholder="you@organisation.eu" value={form.email} onChange={set('email')} style={{ flex: '1 1 220px' }} fullWidth />
+      </div>
+      <Select label="Topic" value={form.topic} onChange={set('topic')} fullWidth
+        options={[
+          { value: 'general', label: 'General enquiry' },
+          { value: 'procurement', label: 'Procurement & licensing' },
+          { value: 'security', label: 'Security disclosure' },
+          { value: 'privacy', label: 'Privacy / GDPR request' },
+          { value: 'press', label: 'Press' },
+        ]} />
+      <div>
+        <label className="mg-label" style={{ display: 'block', color: 'var(--text-faint)', marginBottom: 6 }} htmlFor="ct-msg">MESSAGE</label>
+        <textarea id="ct-msg" style={taStyle} value={form.message} onChange={set('message')} placeholder="What can we help with?" />
+      </div>
+      {done && done.error && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--midgard-300)' }}>{done.error}</span>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <Button variant="primary" onClick={submit} iconRight={<Icon name="arrow-right" size={15} />}>Send message</Button>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>STORED LOCALLY · NO TRACKING · NO EGRESS</span>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const channels = [
+    ['mail', 'General', 'hello@veldris.io', 'Anything that does not fit below.'],
+    ['shield-check', 'Data protection (DPO)', 'privacy@veldris.io', 'GDPR requests: access, erasure, rectification, objection. See the privacy notice for your full rights.'],
+    ['lock', 'Security disclosure', 'security@veldris.io', 'Vulnerabilities in Midgard, this site, or our infrastructure. PGP key and safe-harbour policy published at /.well-known/security.txt.'],
+    ['boxes', 'Procurement', 'sales@veldris.io', 'Enterprise and Sovereign tiers, air-gap programmes, reference hardware.'],
+  ];
+  return (
+    <SiteShell active="midgard">
+      <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(60px, 9vw, 110px) clamp(16px, 4vw, 36px) clamp(40px, 6vw, 72px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div className="mg-label" style={{ marginBottom: 14 }}>01 // CONTACT US</div>
+          <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 3.6rem)', lineHeight: 1.06, maxWidth: 760, fontWeight: 800 }}>
+            Talk to an engineer.<br /><span style={{ color: 'var(--text-muted)' }}>Not a funnel.</span>
+          </h1>
+          <p style={{ margin: '20px 0 0', fontSize: 'var(--fs-body-lg)', color: 'var(--text-body)', maxWidth: 620, lineHeight: 1.7 }}>
+            Every channel below reaches a person at Veldris Ltd. We aim to reply within two working days; security disclosures are acknowledged within one.
+          </p>
+        </div>
+      </section>
+
+      <section id="security" style={{ padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <SectionLabel number={2}>CHANNELS</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 28px' }}>Four addresses, four purposes.</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 14 }}>
+            {channels.map(([icon, title, addr, body]) => (
+              <Card key={title} size="lg">
+                <Icon name={icon} size={22} color="var(--accent)" />
+                <h3 style={{ fontSize: 'var(--fs-h5)', margin: '12px 0 4px' }}>{title}</h3>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, letterSpacing: '0.04em', color: 'var(--accent-hover)', margin: '0 0 10px' }}>{addr}</div>
+                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65 }}>{body}</p>
+              </Card>
+            ))}
+          </div>
+          <p style={{ margin: '18px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>ADDRESSES ARE PLACEHOLDERS UNTIL LAUNCH · REGISTERED OFFICE ON THE LEGAL NOTICE PAGE</p>
+        </div>
+      </section>
+
+      <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          <SectionLabel number={3}>WRITE TO US</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 10px' }}>Or start here.</h2>
+          <p style={{ margin: '0 0 24px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65 }}>
+            In this preview the form stores your message locally in your browser and issues a sealed receipt; nothing is transmitted.
+          </p>
+          <ContactForm />
+        </div>
+      </section>
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

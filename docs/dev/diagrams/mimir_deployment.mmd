@@ -1,0 +1,15 @@
+flowchart TB
+    subgraph host["Sovereign deployment (GPU-enabled)"]
+        subgraph k8s["Kubernetes"]
+            agent["Agent Runtime pods"]
+            infer["GLM 5.2 inference (GPU nodes)\nvLLM/TensorRT-LLM"]
+            evals["Evals/Guardrail pods"]
+            heal["Self-Heal controller"]
+        end
+        vec[("Vector store")]
+        fabric[("Object Fabric")]
+    end
+    agent --> infer
+    agent --> evals --> heal
+    agent --> vec
+    agent --> fabric

@@ -1,0 +1,41 @@
+[package]
+name = "service-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The shared runtime Midgard's mesh services run on: a mesh identity loaded from files, a durable PQ-signed audit ledger, a PQ-mTLS accept loop, plain-HTTP health and metrics, strict options, the policy file, and the directory lock. std-only. [NFR-SEC-1] [RC-33] [RC-09]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "pq-mtls/backend-fips",
+    "gateway/backend-fips",
+    "audit-writer/backend-fips",
+    "attest/backend-fips",
+    "kms/backend-fips",
+]
+
+[dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The certificate and anchor files `mg-admin mesh issue` writes, verified on load.
+pq-mtls = { path = "../../crypto/pq-mtls" }
+# The discretionary rule set a service's policy file declares.
+policy = { path = "../../crypto/policy" }
+# PQ-mTLS termination and channel authorisation, served by the accept loop.
+gateway = { path = "../gateway" }
+# A service's own sealed, PQ-signed ledger, re-verified before it is appended to.
+audit-writer = { path = "../../crypto/audit-writer" }
+attest = { path = "../../crypto/attest" }
+kms = { path = "../kms" }
+# Liveness, readiness and metrics — zero-dependency, cannot egress. [NFR-PRV-1]
+telemetry = { path = "../telemetry" }
+
+[dev-dependencies]
+# Tests certify service identities with a real issuer, as `mg-admin mesh issue` does.
+iam = { path = "../iam" }
+governance = { path = "../governance" }
+
+[lib]
+path = "src/lib.rs"

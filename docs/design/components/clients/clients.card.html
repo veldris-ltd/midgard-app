@@ -1,0 +1,44 @@
+<!-- @dsCard group="Components" viewport="700x330" name="Clients — SyncStatus, TierBadge, KeyCustody" subtitle="Client-layer chips: offline-first sync, AI tiers, key custody" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;padding:22px;background:var(--bg-page)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .cap{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase;width:100%;margin:6px 0 2px}
+</style></head><body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { SyncStatus, TierBadge, KeyCustodyChip } = NS;
+function Demo(){
+  return (<>
+    <div className="cap">SyncStatus · offline-first (FR-C-4)</div>
+    <div className="row">
+      <SyncStatus state="offline" queued={7} />
+      <SyncStatus state="syncing" queued={7} />
+      <SyncStatus state="merged" />
+      <SyncStatus state="synced" />
+    </div>
+    <div className="cap">TierBadge · inference tiers (FR-C-6)</div>
+    <div className="row">
+      <TierBadge tier="on-device" model="GEMMA INT4" leaves={false} />
+      <TierBadge tier="remote" model="GLM 5.2" />
+      <TierBadge tier="hybrid" />
+      <TierBadge tier="disabled" />
+    </div>
+    <div className="cap">KeyCustodyChip · custody floors (FR-C-2)</div>
+    <div className="row">
+      <KeyCustodyChip platform="ios" />
+      <KeyCustodyChip platform="android" />
+      <KeyCustodyChip platform="windows" />
+      <KeyCustodyChip platform="web" />
+      <KeyCustodyChip platform="extension" />
+    </div>
+  </>);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
+</body></html>

@@ -1,0 +1,15 @@
+[package]
+name = "telemetry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "In-enclosure observability: structured logging, metrics (Prometheus text /metrics), distributed tracing, liveness/readiness probes, and SLO tracking. Zero dependencies (pure std) — it CANNOT egress, honouring the air-gap. [NFR-PRV-1] [RC-33]"
+
+# Deliberately NO dependencies: a pure-std telemetry stack has no network client and
+# therefore cannot exfiltrate telemetry from the enclosure. Sinks/exporters are traits;
+# the shipped implementations are all in-process (buffer / stdout). [NFR-PRV-1]
+[dependencies]
+
+[lib]
+path = "src/lib.rs"

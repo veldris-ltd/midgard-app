@@ -1,0 +1,103 @@
+<!-- @dsCard group="Heimdall" viewport="1440x820" subtitle="Human-gated decision workflows: queue, approvals, execution" name="Heimdall · Action Workflows" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Heimdall · Action Workflows</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-heimdall">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const WF = [
+  { id: 'W-0912', title: 'Re-task sensor feed NORTH-2 → E-0871', stage: 'awaiting authorisation', owner: 'k.osei', opts: 3, age: '4m', st: 'gated', stl: 'Human gate' },
+  { id: 'W-0911', title: 'Cross-cue maritime radar sweep', stage: 'executing', owner: 'j.benjamin', opts: 2, age: '18m', st: 'online', stl: 'Executing' },
+  { id: 'W-0910', title: 'Ground aircraft AC-1180', stage: 'complete', owner: 'k.osei', opts: 1, age: '2h', st: 'secure', stl: 'Complete' },
+];
+function App() {
+  const [sel, setSel] = React.useState(0);
+  const [authed, setAuthed] = React.useState(false);
+  const w = WF[sel];
+  return (
+    <ConsoleShell product="heimdall" active="workflows" context="DECIDE / ACTION WORKFLOWS"
+      toolbar={<Badge tone="warn">1 AWAITING AUTHORISATION</Badge>}
+      asideWidth={360}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="workflow" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, flex: 1, lineHeight: 1.3 }}>{w.title}</h2>
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>STAGES</div>
+          {[['Anomaly detected', true], ['Options generated · cited', true], ['Operator review', true], ['Human authorisation', w.stage !== 'awaiting authorisation' || (sel === 0 && authed)], ['Execution', w.stage === 'executing' || w.stage === 'complete'], ['Signed lineage', w.stage === 'complete']].map(([s, done], i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)' }}>
+              <Icon name={done ? 'check' : 'clock'} size={14} color={done ? 'var(--secure)' : 'var(--text-faint)'} />
+              <span style={{ fontSize: 'var(--fs-xs)', color: done ? 'var(--text-body)' : 'var(--text-faint)' }}>{s}</span>
+            </div>
+          ))}
+        </div>
+        {sel === 0 && !authed ? (
+          <div style={{ padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--warn)', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 8 }}>HUMAN AUTHORISATION REQUIRED · AI IS ADVISORY</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="primary" size="sm" fullWidth onClick={() => setAuthed(true)}>Authorise</Button>
+              <Button variant="ghost" size="sm">Reject</Button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--secure)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Icon name="shield-check" size={16} color="var(--secure)" />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--secure)' }}>{sel === 0 ? 'AUTHORISED · AUDIT #D-4472' : w.stage === 'complete' ? 'COMPLETE · AUDIT #D-4468' : 'AUTHORISED · EXECUTING'}</span>
+          </div>
+        )}
+        <Terminal title="DECISION RECORD" lines={[
+          'workflow  ' + w.id,
+          'authoriser ' + w.owner,
+          'basis     3 cited options · reviewed',
+          'sig       ML-DSA · decision lineage',
+        ]} style={{ marginTop: 'auto' }} />
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={3}>WORKFLOWS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Action workflows</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="2" label="ACTIVE" size="sm" />
+        <StatBlock value="100%" label="HUMAN-AUTHORISED" size="sm" accent />
+        <StatBlock value="0" label="AUTO-EXECUTED · EVER" size="sm" />
+      </div>
+      <Table
+        columns={[
+          { header: 'Workflow', cell: r => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--accent-hover)' }}>{r.id}</span>, width: 90 },
+          { header: 'Action', key: 'title' },
+          { header: 'Stage', key: 'stage', width: 190 },
+          { header: 'Owner', key: 'owner', mono: true, width: 110 },
+          { header: 'Options', key: 'opts', mono: true, align: 'right', width: 70 },
+          { header: 'Age', key: 'age', mono: true, width: 60 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={r.st === 'online'} label={r.stl} />, width: 130 },
+        ]}
+        rows={WF} selectedIndex={sel} onRowClick={setSel}
+      />
+      <div>
+        <SectionLabel number={4} muted>PRINCIPLE</SectionLabel>
+        <Card size="sm" style={{ marginTop: 8 }}>
+          <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.65 }}>AI generates and ranks options; it never executes. Every consequential action passes a named human, and the authorisation, the basis for it, and the outcome are one signed record.</p>
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+            <ProvenanceTag id="FR-H-5" title="Human-gated action workflows with full audit lineage" />
+            <ProvenanceTag id="NFR-AI-1" title="Traceable, evaluated, reversible or human-gated" />
+          </div>
+        </Card>
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

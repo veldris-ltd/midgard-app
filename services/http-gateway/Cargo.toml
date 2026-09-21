@@ -1,0 +1,66 @@
+[package]
+name = "http-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Browser-facing HTTP/JSON edge for the console UIs. Bridges the GatewayClient contract to the enclosure. std-only (no async/serde/http framework), mirroring the PQ-mTLS gateway's lean-std transport. [DD-6] [NFR-SEC-1]"
+
+# The JSON codec and HTTP/1.1 parsing are hand-rolled (no serde/async framework).
+# The edge now VERIFIES the PQ-signed IdP token and AUTHORISES + AUDITS every
+# request through the real enclosure crates. [RC-24]
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "pqc-agility/backend-fips",
+    "iam/backend-fips",
+    "governance/backend-fips",
+    "fabric/backend-fips",
+    "audit-writer/backend-fips",
+    "attest/backend-fips",
+    "kms/backend-fips",
+    "admin-identity/backend-fips",
+    "admin-privilege/backend-fips",
+    "service-runtime/backend-fips",
+    "gateway/backend-fips",
+    "pq-mtls/backend-fips",
+]
+
+[dependencies]
+# Verify the PQ-signed IdP bearer token on every request.
+iam = { path = "../iam" }
+# Authorise via the policy PDP and audit every decision through the governance spine.
+policy = { path = "../../crypto/policy" }
+governance = { path = "../governance" }
+# The object fabric the edge serves — typed queries, search-around, governed
+# actions — and the audit-writer primitives it re-verifies ledger rows with.
+fabric = { path = "../fabric" }
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# In-enclosure observability: /metrics, liveness/readiness, and the availability SLO
+# (zero-dependency, cannot egress). [NFR-PRV-1] [RC-33]
+telemetry = { path = "../telemetry" }
+# Serving from a state directory: the sealed keystores that hold the issuer and audit
+# keys, and the KMS sealers their custody roots seal the directory, ledger and store
+# under. [RC-09] [RC-10] [RC-29]
+attest = { path = "../../crypto/attest" }
+kms = { path = "../kms" }
+# Online enrolment under dual control: administrators' passkeys and role bindings, and
+# the privilege service that parks a request until a second administrator approves.
+# [FR-AD-5] [RC-29]
+admin-identity = { path = "../../admin/identity" }
+admin-privilege = { path = "../../admin/privilege" }
+# The JSON codec, strict readers, policy file and directory lock the mesh services
+# share. [NFR-SEC-2] [RC-09]
+service-runtime = { path = "../runtime" }
+# The optional mesh listener: certified workloads (the Forge worker) sync records into
+# the fabric over PQ-mTLS, authorised and audited in the one ledger. [FR-F-4] [NFR-SEC-1]
+gateway = { path = "../gateway" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+
+[[bin]]
+name = "http-gateway"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"

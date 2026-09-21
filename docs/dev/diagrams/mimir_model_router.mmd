@@ -1,0 +1,30 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    forge["Forge"]:::external
+    heim["Heimdall"]:::external
+    bif["Bifrost"]:::external
+    agent["Mimir agent runtime"]:::system
+    api["Inference API\n(unchanged contract)"]:::system
+    router["Model router\npolicy + hardware + workload class"]:::system
+    reg["Model Registry\n(approved artefacts)"]:::datastore
+    subgraph adapters["Model Abstraction Layer"]
+        glm["GLM adapter\ntemplate/tokenizer"]:::system
+        nem["Nemotron adapter"]:::system
+        gem["Gemma adapter"]:::system
+    end
+    rt["GPU inference runtime\n(verify-on-load)"]:::system
+    forge --> api
+    heim --> api
+    bif --> api
+    agent --> api
+    api --> router
+    router -->|"eligibility + policy"| reg
+    router --> glm
+    router --> nem
+    router --> gem
+    glm --> rt
+    nem --> rt
+    gem --> rt
+    classDef external fill:#999999,color:#fff,stroke:#6B6B6B
+    classDef system fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef datastore fill:#1168BD,color:#fff,stroke:#0B4884

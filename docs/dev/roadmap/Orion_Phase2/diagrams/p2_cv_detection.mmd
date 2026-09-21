@@ -1,0 +1,18 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart LR
+    fmv["FMV frame\n(geo-anchored)"]:::in
+    subgraph cv["Computer Vision Detection service (on-device, advisory)"]
+        det["Object detector\n(on-device model)"]:::orion
+        cls["Classifier\nAirplane / Vessel / Vehicle"]:::orion
+        conf["Confidence score\n+ uncertainty"]:::orion
+        track["Track association\n(persist across frames)"]:::orion
+    end
+    board["Target Board\n(human nominates)"]:::existing
+    human["Human analyst\nconfirms / rejects"]:::human
+    fmv --> det --> cls --> conf --> track
+    track -->|"detections + scores + citations"| human
+    human -->|"nominate (human action)"| board
+    classDef in fill:#5B6B7B,color:#fff,stroke:#3A4652
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef existing fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef human fill:#B23B3B,color:#fff,stroke:#7A2727

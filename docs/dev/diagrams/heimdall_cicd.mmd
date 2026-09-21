@@ -1,0 +1,8 @@
+flowchart LR
+    push["Git push"] --> test["Test"]
+    test --> sbom["SBOM (CycloneDX)"]
+    sbom --> scan["SAST + dep audit + PQ crypto lint"]
+    scan --> sign["Sign artefacts (ML-DSA)"]
+    sign --> stage["Deploy staging (Bifrost)"]
+    stage --> approve{"Manual approval"}
+    approve -->|yes| prod["Deploy prod (Bifrost, zero-downtime)"]

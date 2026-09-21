@@ -1,0 +1,93 @@
+# Midgard suite — Rust workspace root.
+# Phase 0.b scaffolded the supply-chain tools; Phase 0.c adds the cross-cutting
+# crypto primitives. Core services (services/*) join in Phase 1.
+
+[workspace]
+resolver = "2"
+members = [
+    "tools/mg-sign",
+    "tools/mg-sbom",
+    "tools/mg-verify",
+    "tools/mg-repro",
+    "tools/mg-bundle",
+    "tools/mg-scan",
+    "tools/mg-register",
+    "tools/mg-admin",
+    "tools/mg-model",
+    "crypto/pqc-agility",
+    "crypto/pq-mtls",
+    "crypto/audit-writer",
+    "crypto/policy",
+    "crypto/attest",
+    "services/iam",
+    "services/gateway",
+    "services/http-gateway",
+    "services/fabric",
+    "services/kms",
+    "services/governance",
+    "services/scheduler",
+    "services/telemetry",
+    "services/runtime",
+    "mimir/model-server",
+    "mimir/mimir-server",
+    "mimir/bridge",
+    "mimir/prompts",
+    "mimir/oag-retriever",
+    "mimir/agent-runtime",
+    "mimir/staging",
+    "forge/dataset-store",
+    "forge/connector-sdk",
+    "forge/engine",
+    "forge/pipeline",
+    "forge/health",
+    "forge/projection",
+    "forge/ai-assist",
+    "forge/worker",
+    "bifrost/artefact",
+    "bifrost/rollout",
+    "bifrost/fleet",
+    "bifrost/fleet-server",
+    "bifrost/bundle",
+    "bifrost/risk",
+    "heimdall/picture",
+    "heimdall/feed-gateway",
+    "heimdall/feed-server",
+    "heimdall/fusion",
+    "heimdall/classify",
+    "heimdall/picture-sync",
+    "heimdall/decision-support",
+    "heimdall/workflow",
+    "heimdall/store",
+    "admin/identity",
+    "admin/privilege",
+    "admin/audit",
+    "admin/sim",
+    "admin/config",
+    "admin/breakglass",
+    "admin/ai-assist",
+    "admin/service-identity",
+    "admin/orchestrator",
+    "clients/sync",
+    "clients/keystore",
+    "clients/store",
+    "clients/enclosure",
+    "clients/inference",
+    "clients/broker",
+    "clients/delivery",
+    "clients/core",
+]
+
+[workspace.package]
+version = "0.1.0-rc.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Veldris Ltd. <hello@veldris.io>"]
+repository = "https://github.com/veldris-ltd/midgard-app"
+homepage = "https://veldris.io"
+publish = false
+
+[profile.release]
+# Deterministic release profile — no incremental artefacts, stable codegen.
+# Supports bit-reproducible builds. [AC-M-6] [NFR-OSS-1]
+incremental = false
+codegen-units = 1

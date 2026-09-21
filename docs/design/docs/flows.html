@@ -1,0 +1,504 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · User flows</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section } = window.Docs;
+const { Icon, Badge, ProvenanceTag, ProductMark } = window.Docs.NS;
+
+/* step: { icon, title, sub, gate?: 'human'|'auto'|'crypto', actor } */
+const FLOWS = [
+  {
+    id: 'session', theme: 'midgard', product: 'midgard',
+    title: 'Establish a sovereign session',
+    who: 'Any user or service · every product',
+    prov: ['NFR-PQ-1', 'NFR-SEC-1'],
+    note: 'Fails closed if post-quantum negotiation is unavailable. No session exists without the hybrid handshake.',
+    steps: [
+      { icon: 'user', title: 'Connect', sub: 'Operator or workload reaches the gateway', actor: 'Human / service' },
+      { icon: 'key', title: 'Hybrid PQ handshake', sub: 'TLS 1.3 · X25519 + ML-KEM-768', actor: 'Gateway', gate: 'crypto' },
+      { icon: 'fingerprint', title: 'Identity assertion', sub: 'Argon2id + WebAuthn / workload identity', actor: 'Identity service' },
+      { icon: 'shield-check', title: 'PQ-signed token', sub: 'Roles, markings, purpose claims issued', actor: 'Identity service', gate: 'crypto' },
+      { icon: 'terminal', title: 'Session live', sub: 'Zero-trust: every call re-authorised', actor: 'Enclosure' },
+    ],
+  },
+  {
+    id: 'pipeline', theme: 'forge', product: 'forge',
+    title: 'From raw source to governed objects',
+    who: 'Data engineer · Forge',
+    prov: ['FR-F-1', 'FR-F-3', 'FR-F-6'],
+    note: 'Every dataset version is reproducible; the AI suggestion is preview-and-approve, never auto-commit.',
+    steps: [
+      { icon: 'database', title: 'Connect source', sub: 'Typed connector · inbound pull only', actor: 'Engineer' },
+      { icon: 'workflow', title: 'Build pipeline', sub: 'Low-code + pro-code over one contract', actor: 'Engineer' },
+      { icon: 'sparkles', title: 'Mimir assist', sub: 'NL→transform + quality suggestions', actor: 'Mimir', gate: 'human' },
+      { icon: 'activity', title: 'Expectations gate', sub: 'Health checks on every build', actor: 'Forge', gate: 'auto' },
+      { icon: 'lock', title: 'Seal & version', sub: 'AES-256-GCM · ML-KEM-1024 wrap · vN+1', actor: 'Forge', gate: 'crypto' },
+      { icon: 'boxes', title: 'Project to fabric', sub: 'Datasets become objects & links', actor: 'Forge → Midgard' },
+    ],
+  },
+  {
+    id: 'agent', theme: 'mimir', product: 'mimir',
+    title: 'A governed agentic answer',
+    who: 'Analyst · Mimir',
+    prov: ['FR-MI-2', 'FR-MI-7', 'NFR-AI-1'],
+    note: 'Retrieval is policy-scoped: the agent can only see what the asking human is cleared to see, for the declared purpose.',
+    steps: [
+      { icon: 'terminal', title: 'Prompt', sub: 'Question or task from the operator', actor: 'Human' },
+      { icon: 'shield', title: 'Guardrail screen', sub: 'Injection filter · tool scoping', actor: 'Mimir', gate: 'auto' },
+      { icon: 'boxes', title: 'OAG retrieval', sub: 'Objects, logic, actions, under policy', actor: 'Mimir → fabric' },
+      { icon: 'brain-circuit', title: 'Local inference', sub: 'GLM / Nemotron / Gemma · in-enclosure', actor: 'Model plane' },
+      { icon: 'file-text', title: 'Cited answer', sub: 'Every claim links a live object', actor: 'Mimir' },
+      { icon: 'zap', title: 'Action proposal', sub: 'State mutation requires authorisation', actor: 'Human', gate: 'human' },
+      { icon: 'scroll-text', title: 'Signed lineage', sub: 'ML-DSA audit record · reversible', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'release', theme: 'bifrost', product: 'bifrost',
+    title: 'Promote a release across the fleet',
+    who: 'Release engineer · Bifrost',
+    prov: ['FR-B-2', 'FR-B-4', 'FR-B-5'],
+    note: 'Verification fails closed; rollback is automatic on health-gate failure. Air-gapped sites receive the same release as a signed offline bundle.',
+    steps: [
+      { icon: 'package', title: 'Build artefact', sub: 'Reproducible · bit-identical 2/2', actor: 'CI' },
+      { icon: 'shield-check', title: 'Verify', sub: 'SBOM + ML-DSA signature · fail closed', actor: 'Bifrost', gate: 'crypto' },
+      { icon: 'rings', title: 'Ring rollout', sub: 'Canary → staging → prod, zero-downtime', actor: 'Bifrost', gate: 'auto' },
+      { icon: 'activity', title: 'Health gates', sub: 'p99, error rate, per-install checks', actor: 'Bifrost', gate: 'auto' },
+      { icon: 'download', title: 'Air-gap bundle', sub: 'Signed offline bundle for sealed sites', actor: 'Bifrost', gate: 'crypto' },
+      { icon: 'undo-2', title: 'Rollback path', sub: 'Automatic on failure · always ready', actor: 'Bifrost' },
+    ],
+  },
+  {
+    id: 'decide', theme: 'heimdall', product: 'heimdall',
+    title: 'From anomaly to authorised action',
+    who: 'Operations analyst · Heimdall',
+    prov: ['FR-H-1', 'FR-H-4', 'FR-H-5'],
+    note: 'AI is advisory throughout: options are explainable and cited; nothing consequential executes without a human authorisation, and the decision itself is signed lineage.',
+    steps: [
+      { icon: 'radio-tower', title: 'Feeds fuse', sub: '12 PQ-authenticated feeds · one picture', actor: 'Heimdall', gate: 'crypto' },
+      { icon: 'crosshair', title: 'Anomaly surfaces', sub: 'Track E-0871 · confidence 0.54', actor: 'Heimdall', gate: 'auto' },
+      { icon: 'sparkles', title: 'Ranked options', sub: 'Cited, explainable courses of action', actor: 'Mimir' },
+      { icon: 'eye', title: 'Operator reviews', sub: 'Evidence, citations, trade-offs', actor: 'Human' },
+      { icon: 'shield-check', title: 'Authorise', sub: 'Mandatory human gate', actor: 'Human', gate: 'human' },
+      { icon: 'scroll-text', title: 'Decision lineage', sub: 'ML-DSA-signed audit · #D-4471', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'model', theme: 'midgard', product: 'midgard',
+    title: 'Define an object type and its policy',
+    who: 'Platform admin · Midgard',
+    prov: ['DD-1', 'NFR-SEC-2'],
+    note: 'Nothing reaches the fabric ungoverned: a type without a marking and policy cannot be published, and the publication itself is signed lineage.',
+    steps: [
+      { icon: 'boxes', title: 'Draft schema', sub: 'Properties, links, interfaces', actor: 'Admin' },
+      { icon: 'lock', title: 'Attach marking', sub: 'Classification + compartments', actor: 'Admin', gate: 'auto' },
+      { icon: 'shield-check', title: 'Write policy', sub: 'Role · marking · purpose rules', actor: 'Admin' },
+      { icon: 'users', title: 'Change review', sub: 'Governed change management', actor: 'Second admin', gate: 'human' },
+      { icon: 'scroll-text', title: 'Publish + lineage', sub: 'Type live · ML-DSA audit record', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'health', theme: 'forge', product: 'forge',
+    title: 'Catch and fix silent data drift',
+    who: 'Data engineer · Forge',
+    prov: ['FR-F-6', 'NFR-AI-1'],
+    note: 'Failed expectations block projection, so drift never reaches the operational picture. The fix ships as a new dataset version with full lineage back to the incident.',
+    steps: [
+      { icon: 'activity', title: 'Expectation fails', sub: 'alt_ft bounds break on 0.4% of rows', actor: 'Forge', gate: 'auto' },
+      { icon: 'x', title: 'Projection blocked', sub: 'Fabric stays on v41 · fail closed', actor: 'Forge', gate: 'auto' },
+      { icon: 'sparkles', title: 'Mimir diagnosis', sub: 'Suggested bounds filter, previewable', actor: 'Mimir' },
+      { icon: 'git-branch', title: 'Fix on a branch', sub: 'Diffable transform change', actor: 'Engineer', gate: 'human' },
+      { icon: 'check', title: 'Rebuild + verify', sub: 'Expectations 12/12 · v42', actor: 'Forge', gate: 'auto' },
+      { icon: 'boxes', title: 'Projection resumes', sub: 'Lineage links incident to fix', actor: 'Forge → Midgard', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'learning', theme: 'mimir', product: 'mimir',
+    title: 'A self-learning update, governed',
+    who: 'Agent author · Mimir',
+    prov: ['FR-MI-5', 'NFR-AI-1'],
+    note: 'Self-learning is bounded autonomy: feedback can only change retrieval and prompt policy through the Evals gate, and every update is reversible.',
+    steps: [
+      { icon: 'users', title: 'Governed feedback', sub: 'Operator ratings + corrections', actor: 'Humans' },
+      { icon: 'refresh-cw', title: 'Candidate update', sub: 'Retrieval + prompt policy delta', actor: 'Mimir' },
+      { icon: 'gauge', title: 'Evals gate', sub: 'Full suite must not regress', actor: 'Evals harness', gate: 'auto' },
+      { icon: 'user', title: 'Author approves', sub: 'Diff reviewed before rollout', actor: 'Human', gate: 'human' },
+      { icon: 'bot', title: 'Policy applied', sub: 'Versioned · revertible', actor: 'Agent runtime' },
+      { icon: 'scroll-text', title: 'Update lineage', sub: 'Signed record of what changed', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'airgap', theme: 'bifrost', product: 'bifrost',
+    title: 'Update a fully disconnected site',
+    who: 'Site operator · Bifrost',
+    prov: ['FR-B-5', 'NFR-PRV-1'],
+    note: 'The bundle carries everything: artefacts, SBOMs, signatures, and model weights. The sealed site verifies offline and reports back on the next courier cycle.',
+    steps: [
+      { icon: 'package', title: 'Cut offline bundle', sub: 'Artefacts + SBOM + signed weights', actor: 'Bifrost', gate: 'crypto' },
+      { icon: 'download', title: 'Export + transfer', sub: 'Physical media · no network path', actor: 'Courier' },
+      { icon: 'shield-check', title: 'Verify in-enclave', sub: 'ML-DSA checks, fully offline', actor: 'Site Bifrost', gate: 'crypto' },
+      { icon: 'user', title: 'Operator applies', sub: 'Scheduled window, rollback staged', actor: 'Human', gate: 'human' },
+      { icon: 'rings', title: 'Local rolling upgrade', sub: 'Zero-downtime within the site', actor: 'Site Bifrost', gate: 'auto' },
+      { icon: 'upload', title: 'Receipt returns', sub: 'Signed apply report, next cycle', actor: 'Courier', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'agility', theme: 'midgard', product: 'midgard',
+    title: 'Hot-swap a cryptographic algorithm',
+    who: 'Security officer · Midgard KMS',
+    prov: ['NFR-PQ-4', 'AC-M-8'],
+    note: 'Crypto-agility is a platform property: algorithms are negotiated and versioned, so enabling a new PQ algorithm requires no data migration. Existing data re-wraps lazily on next touch.',
+    steps: [
+      { icon: 'key', title: 'Register algorithm', sub: 'New PQ algorithm added to the registry', actor: 'Security officer', gate: 'human' },
+      { icon: 'check', title: 'KAT verification', sub: 'FIPS known-answer tests must pass', actor: 'KMS', gate: 'auto' },
+      { icon: 'refresh-cw', title: 'Negotiate', sub: 'New sessions prefer the new algorithm; hybrid stays default', actor: 'Gateway', gate: 'crypto' },
+      { icon: 'database', title: 'No migration', sub: 'Stored data unaffected; keys re-wrap on rotation', actor: 'KMS' },
+      { icon: 'scroll-text', title: 'Registry lineage', sub: 'Version change signed and audited', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'healing', theme: 'mimir', product: 'mimir',
+    title: 'Self-healing: inference degrades, nobody notices',
+    who: 'Runtime supervisor · Mimir',
+    prov: ['FR-MI-6', 'NFR-AI-1'],
+    note: 'Self-healing is bounded autonomy: reroute, retry, and rollback are pre-authorised, non-mutating recoveries. Anything beyond them escalates to a human.',
+    steps: [
+      { icon: 'activity', title: 'Degradation sensed', sub: 'GLM latency p99 breaches SLO', actor: 'Supervisor', gate: 'auto' },
+      { icon: 'shield', title: 'Circuit breaker', sub: 'New requests held from the bad replica', actor: 'Supervisor', gate: 'auto' },
+      { icon: 'refresh-cw', title: 'Reroute', sub: 'Traffic shifts to Nemotron fallback', actor: 'Model plane' },
+      { icon: 'gauge', title: 'Canary evals', sub: 'Fallback answers spot-checked against suite', actor: 'Evals harness', gate: 'auto' },
+      { icon: 'undo-2', title: 'Recover + revert', sub: 'GPU replica restarts; traffic returns', actor: 'Supervisor' },
+      { icon: 'scroll-text', title: 'Signed record', sub: 'Every reroute logged with provenance', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'sync', theme: 'heimdall', product: 'heimdall',
+    title: 'Sync the picture across sites',
+    who: 'Picture sync · Heimdall',
+    prov: ['FR-H-6', 'NFR-PQ-1'],
+    note: 'Every site sees the same picture. Replication is marking-aware: an object never syncs to a site whose operators lack clearance for its marking.',
+    steps: [
+      { icon: 'crosshair', title: 'Picture updates', sub: 'Entity track changes at site A', actor: 'Fusion engine' },
+      { icon: 'lock', title: 'Marking filter', sub: 'Per-site clearance check on every object', actor: 'Policy point', gate: 'auto' },
+      { icon: 'network', title: 'PQ-mTLS replication', sub: 'Delta streams to sites B and C', actor: 'Picture sync', gate: 'crypto' },
+      { icon: 'layers', title: 'Converge', sub: 'Conflict-free merge; layers stay consistent', actor: 'Picture sync' },
+      { icon: 'eye', title: 'Shared picture', sub: 'All cleared operators see one truth', actor: 'Operators' },
+    ],
+  },
+  {
+    id: 'degraded', theme: 'midgard', product: 'midgard',
+    title: 'Standalone mode: Mimir goes down',
+    who: 'The whole suite · graceful degradation',
+    prov: ['DD-6', 'AC-M-9'],
+    note: 'Each product declares a hard dependency only on Midgard core; AI is an optional capability discovered at runtime. Losing Mimir loses suggestions and options, never core function.',
+    steps: [
+      { icon: 'cpu', title: 'Inference offline', sub: 'Model plane unavailable', actor: 'Mimir', gate: 'auto' },
+      { icon: 'workflow', title: 'Forge continues', sub: 'Authoring and builds run; AI assist hidden', actor: 'Forge' },
+      { icon: 'rocket', title: 'Bifrost continues', sub: 'Rule-based gates still enforce safe rollout', actor: 'Bifrost' },
+      { icon: 'radar', title: 'Heimdall continues', sub: 'Fusion + rules-only classification', actor: 'Heimdall' },
+      { icon: 'bell', title: 'Operators told', sub: 'Degraded-mode banner; no silent loss', actor: 'All consoles' },
+      { icon: 'check', title: 'Recovery', sub: 'AI capabilities rediscovered at runtime', actor: 'Suite' },
+    ],
+  },
+  {
+    id: 'spoof', theme: 'heimdall', product: 'heimdall',
+    title: 'Reject a spoofed feed',
+    who: 'Feed gateway · Heimdall',
+    prov: ['FR-H-3', 'AC-H-2'],
+    note: 'Nothing unauthenticated reaches fusion: verification happens per frame at the gateway, so a spoofed source is quarantined before it can touch a single track.',
+    steps: [
+      { icon: 'radio-tower', title: 'Rogue source connects', sub: 'Claims to be datalink bridge L16', actor: 'External' },
+      { icon: 'shield', title: 'Signature verify fails', sub: 'ML-DSA check per frame · fail closed', actor: 'Feed gateway', gate: 'crypto' },
+      { icon: 'x', title: 'Quarantined', sub: 'Feed excluded; picture unaffected', actor: 'Feed gateway', gate: 'auto' },
+      { icon: 'bell', title: 'Operator alerted', sub: 'Quarantine visible in Feed Manager', actor: 'Analyst' },
+      { icon: 'key', title: 'Re-key or reject', sub: 'Legitimate source re-keys; spoof stays out', actor: 'Integrator', gate: 'human' },
+      { icon: 'scroll-text', title: 'Attempt recorded', sub: 'Signed record of the rejection', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'defend', theme: 'mimir', product: 'mimir',
+    title: 'Self-defending: block a prompt injection',
+    who: 'Guardrail layer · Mimir',
+    prov: ['FR-MI-7', 'AC-MI-6'],
+    note: 'Detection happens before any tool executes; the blocked attempt feeds the red-team corpus, so the defence layer learns from every attack it stops.',
+    steps: [
+      { icon: 'file-text', title: 'Hostile input arrives', sub: 'Indirect injection inside a ticket body', actor: 'External content' },
+      { icon: 'shield', title: 'Guardrail detects', sub: 'Injection markers at input boundary', actor: 'Guardrail layer', gate: 'auto' },
+      { icon: 'x', title: 'Quarantine + block', sub: 'No tool call executes · session flagged', actor: 'Guardrail layer', gate: 'auto' },
+      { icon: 'scroll-text', title: 'Incident signed', sub: 'GuardrailEvent #G-1182 · ML-DSA', actor: 'Governance', gate: 'crypto' },
+      { icon: 'gauge', title: 'Red-team corpus grows', sub: 'Attempt becomes a permanent eval case', actor: 'Evals harness' },
+    ],
+  },
+  {
+    id: 'offline-sync', theme: 'midgard', product: 'midgard',
+    title: 'Client offline edit, conflict-free merge',
+    who: 'Field operator · any client',
+    prov: ['FR-C-4', 'AC-C-4'],
+    note: 'Offline is a first-class state on every client: edits are CRDT operations against the encrypted local cache, and reconnect merges without loss even against concurrent edits from other devices.',
+    steps: [
+      { icon: 'x', title: 'Connectivity lost', sub: 'App keeps working on the policy-scoped cache', actor: 'Client core', gate: 'auto' },
+      { icon: 'file-text', title: 'Local edits', sub: 'CRDT ops persist in the encrypted store', actor: 'Operator', gate: 'crypto' },
+      { icon: 'zap', title: 'Intents queue', sub: 'State-changing proposals wait for the governed path', actor: 'Client core' },
+      { icon: 'refresh-cw', title: 'Reconnect', sub: 'PQ-mTLS · sealed-sender relay · queue drains', actor: 'Sync engine', gate: 'crypto' },
+      { icon: 'check', title: 'Conflict-free merge', sub: 'Concurrent edits merge · zero loss', actor: 'Sync engine', gate: 'auto' },
+      { icon: 'scroll-text', title: 'Lineage lands', sub: 'Synced ops signed into the enclosure audit chain', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'tiering', theme: 'mimir', product: 'mimir',
+    title: 'Tier an AI request on device',
+    who: 'Inference adapter · client core',
+    prov: ['FR-C-6', 'AC-C-5'],
+    note: 'Correct, private, performant, in that order. If a tier would need data to leave the device, policy must permit it; otherwise the adapter chooses on-device or disables gracefully.',
+    steps: [
+      { icon: 'sparkles', title: 'AI requested', sub: 'User asks over cached objects', actor: 'Operator' },
+      { icon: 'cpu', title: 'Probe capability', sub: 'RAM, NPU, model availability, connectivity', actor: 'Inference adapter', gate: 'auto' },
+      { icon: 'shield-check', title: 'Policy check', sub: 'data_leaves_device permitted?', actor: 'Cached policy', gate: 'auto' },
+      { icon: 'gauge', title: 'Tier chosen', sub: 'on-device · remote · hybrid · disable', actor: 'Inference adapter' },
+      { icon: 'check', title: 'Answer badged', sub: 'TierBadge states where it ran and what left', actor: 'Client UI' },
+      { icon: 'scroll-text', title: 'Audit synced', sub: 'Tier decision + guardrail events land on reconnect', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'broker', theme: 'midgard', product: 'midgard',
+    title: 'Extension brokers a privileged operation',
+    who: 'Browser extension · least-capable surface',
+    prov: ['FR-C-8', 'AC-C-8'],
+    note: 'The extension holds no keys and performs no crypto. It captures explicitly shared intent, brokers it over the authenticated channel, and renders the enclosure result.',
+    steps: [
+      { icon: 'file-text', title: 'User shares selection', sub: 'Only the highlighted text · no scraping', actor: 'Operator' },
+      { icon: 'network', title: 'Brokered request', sub: 'Authenticated channel to enclosure / companion', actor: 'Extension', gate: 'crypto' },
+      { icon: 'boxes', title: 'Enclosure resolves', sub: 'OAG match against the fabric · policy applied', actor: 'Enclosure', gate: 'auto' },
+      { icon: 'check', title: 'Result rendered', sub: 'Cited objects · nothing cached above clearance', actor: 'Extension' },
+      { icon: 'scroll-text', title: 'Operation audited', sub: 'The brokered call is enclosure lineage', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'client-update', theme: 'bifrost', product: 'bifrost',
+    title: 'Verify and apply a signed client update',
+    who: 'Update engine · every install target',
+    prov: ['FR-C-7', 'AC-C-7'],
+    note: 'Distribution is Bifrost end-to-end: reproducible build, SBOM, PQ signature, store packaging. The device verifies before applying and fails closed on mismatch.',
+    steps: [
+      { icon: 'package', title: 'Update staged', sub: 'v2.5.0 via channel or store', actor: 'Bifrost' },
+      { icon: 'shield-check', title: 'Verify on device', sub: 'ML-DSA signature + reproducibility receipt', actor: 'Update engine', gate: 'crypto' },
+      { icon: 'x', title: 'Fail closed on mismatch', sub: 'Unverified artefact never applies', actor: 'Update engine', gate: 'auto' },
+      { icon: 'refresh-cw', title: 'Apply on restart', sub: 'Zero data migration · store re-keyed if needed', actor: 'Client core' },
+      { icon: 'scroll-text', title: 'Receipt', sub: 'Update event synced to lineage', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'biometric', theme: 'midgard', product: 'midgard',
+    title: 'Unlock with platform biometrics',
+    who: 'Any client · platform auth',
+    prov: ['FR-C-9', 'AC-C-9'],
+    note: 'Authentication uses the platform mechanism (Face ID, BiometricPrompt, Windows Hello, WebAuthn); no secret leaves the secure boundary, and the unlocked session is a short-lived PQ token.',
+    steps: [
+      { icon: 'user', title: 'App opens', sub: 'Local store sealed · nothing rendered yet', actor: 'Client core' },
+      { icon: 'fingerprint', title: 'Platform auth', sub: 'Biometric / WebAuthn · secret never leaves enclave', actor: 'OS', gate: 'human' },
+      { icon: 'key', title: 'Keystore releases', sub: 'Non-exportable key unwraps the local store', actor: 'Keystore', gate: 'crypto' },
+      { icon: 'check', title: 'Session minted', sub: 'Short-lived PQ-signed token · posture attested', actor: 'Client core', gate: 'crypto' },
+      { icon: 'eye', title: 'Cleared view renders', sub: 'Only policy-scoped cache is readable', actor: 'Client UI' },
+    ],
+  },
+  {
+    id: 'recovery', theme: 'midgard', product: 'midgard',
+    title: 'Recover the enclosure from snapshots',
+    who: 'Platform admin · Midgard',
+    prov: ['NFR-PQ-2', 'NFR-AVA-1'],
+    note: 'Backups are encrypted snapshots of the object, metadata, and audit stores; restores are rehearsed on schedule. Dataset versions are backups by construction, so Forge state rebuilds from lineage.',
+    steps: [
+      { icon: 'alert-triangle', title: 'Store fault', sub: 'Object-store volume degraded', actor: 'Observability', gate: 'auto' },
+      { icon: 'database', title: 'Select snapshot', sub: 'Encrypted · PQ-wrapped keys', actor: 'Admin', gate: 'human' },
+      { icon: 'key', title: 'Unseal', sub: 'Keys released via HSM/TPM trust root', actor: 'KMS', gate: 'crypto' },
+      { icon: 'refresh-cw', title: 'Restore + replay', sub: 'Snapshot + audit ledger replay to now', actor: 'Platform' },
+      { icon: 'check', title: 'Verify lineage', sub: 'Chain contiguous · signatures OK', actor: 'Governance', gate: 'crypto' },
+      { icon: 'scroll-text', title: 'Restore record', sub: 'The recovery itself is signed lineage', actor: 'Governance', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'guarded', theme: 'midgard', product: 'midgard',
+    title: 'Guarded action: rotate the root key',
+    who: 'Platform admin + KMS officer · Admin panel',
+    prov: ['FR-AD-5', 'AC-AD-3'],
+    note: 'The admin panel\u2019s core behaviour. Risk drives control automatically: a risk-5 action cannot execute without justification, a distinct second approver, fresh re-auth, and a time-boxed single-use token. The denial path is audited identically.',
+    steps: [
+      { icon: 'key', title: 'Action requested', sub: 'kms.rotate · classified risk 5', actor: 'Platform admin' },
+      { icon: 'file-text', title: 'Justification', sub: 'Written reason captured · mandatory', actor: 'Platform admin', gate: 'human' },
+      { icon: 'users', title: 'Second approver', sub: 'Routed out-of-band · separation verified', actor: 'KMS officer', gate: 'human' },
+      { icon: 'fingerprint', title: 'Step-up re-auth', sub: 'Fresh WebAuthn at the moment of approval', actor: 'KMS officer', gate: 'crypto' },
+      { icon: 'clock', title: 'Token issued', sub: 'Time-boxed · single-use', actor: 'Privilege service', gate: 'auto' },
+      { icon: 'server', title: 'Executed', sub: 'Least-privilege identity calls kms-admin', actor: 'Orchestrator', gate: 'crypto' },
+      { icon: 'scroll-text', title: 'Signed audit', sub: 'Who / what / why / approver · ML-DSA', actor: 'Ledger', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'simulate', theme: 'midgard', product: 'midgard',
+    title: 'Simulate a policy change before commit',
+    who: 'Platform admin · Config service',
+    prov: ['FR-AD-6', 'AC-AD-5'],
+    note: 'Safe by dry-run (KDD-3): the admin sees exactly what a change would grant before it exists, in plain language, with blast radius and reversibility flagged.',
+    steps: [
+      { icon: 'git-branch', title: 'Change drafted', sub: 'Versioned diff against config v481', actor: 'Platform admin' },
+      { icon: 'gauge', title: 'Simulation runs', sub: 'Sim engine computes the exact effect', actor: 'Sim engine', gate: 'auto' },
+      { icon: 'sparkles', title: 'Impact explained', sub: '"Grants 14 users read on marked data" · advisory', actor: 'Copilot' },
+      { icon: 'users', title: 'Review', sub: 'Dual-control where risk requires it', actor: 'Second admin', gate: 'human' },
+      { icon: 'check', title: 'Commit v482', sub: 'Signed · diffed · rollback one click away', actor: 'Config service', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'breakglass', theme: 'midgard', product: 'midgard',
+    title: 'Break-glass: open, act, review',
+    who: 'Security officers · emergency path',
+    prov: ['FR-AD-8', 'AC-AD-8'],
+    note: 'Emergency elevation exists, but it is the most watched path in the suite: dual-control to open, time-boxed, scope-minimal, alerted in real time, and closed by a forced review that is itself audited. Works fully offline.',
+    steps: [
+      { icon: 'alert-triangle', title: 'Emergency declared', sub: 'Written justification · scope requested', actor: 'Officer 1', gate: 'human' },
+      { icon: 'users', title: 'Dual-control open', sub: 'Second officer approves the elevation', actor: 'Officer 2', gate: 'human' },
+      { icon: 'clock', title: 'Time-boxed grant', sub: '60m hard stop · unwrap only · nothing wider', actor: 'Break-glass service', gate: 'auto' },
+      { icon: 'bell', title: 'Real-time alerts', sub: 'All security officers paged · acks tracked', actor: 'Alerting', gate: 'auto' },
+      { icon: 'scroll-text', title: 'Every call ledgered', sub: 'Session transcript · live · signed', actor: 'Ledger', gate: 'crypto' },
+      { icon: 'eye', title: 'Forced review', sub: 'Post-hoc · second officer · itself audited', actor: 'Officer 2', gate: 'human' },
+    ],
+  },
+  {
+    id: 'copilot-refusal', theme: 'midgard', product: 'midgard',
+    title: 'Copilot drafts; the guarded path decides',
+    who: 'Admin copilot · advisory only',
+    prov: ['FR-AD-10', 'AC-AD-11'],
+    note: 'The copilot can draft, explain, and simulate, and nothing else. Asked to bypass a control, it refuses with a machine-readable code and offers the fastest compliant path instead.',
+    steps: [
+      { icon: 'sparkles', title: 'Need stated', sub: '"Give incident-7 read on the sensor audit trail"', actor: 'Platform admin' },
+      { icon: 'file-text', title: 'Draft proposed', sub: 'Narrowest grant · 72h expiry · cited resources', actor: 'Copilot' },
+      { icon: 'x', title: 'Bypass refused', sub: '"Skip the approver" → CONTROL_BYPASS_REFUSED', actor: 'Copilot', gate: 'auto' },
+      { icon: 'gauge', title: 'Simulated', sub: 'Effect shown before commit', actor: 'Sim engine', gate: 'auto' },
+      { icon: 'users', title: 'Guarded commit', sub: 'Normal dual-control path · human decides', actor: 'Second admin', gate: 'human' },
+    ],
+  },
+  {
+    id: 'model-lifecycle', theme: 'midgard', product: 'midgard',
+    title: 'Model lifecycle: candidate to revocation',
+    who: 'Model steward + security officer · Admin registry',
+    prov: ['FR-AD-4', 'AC-MI-7'],
+    note: 'Models are governed artefacts, not downloads. Approval verifies signature, licence, hardware eligibility, and the Evals gate; revocation is dual-controlled and stops serving fleet-wide immediately, with the previous approved model taking over.',
+    steps: [
+      { icon: 'package', title: 'Candidate registered', sub: 'Weights arrive via Bifrost · digest pinned', actor: 'Bifrost', gate: 'crypto' },
+      { icon: 'shield-check', title: 'Verified', sub: 'ML-DSA signature · licence · hardware eligibility', actor: 'Registry', gate: 'crypto' },
+      { icon: 'gauge', title: 'Evals battery', sub: 'Capability + adversarial suites vs the gate', actor: 'Evals harness', gate: 'auto' },
+      { icon: 'users', title: 'Approve · dual-control', sub: 'Steward requests, security officer approves', actor: 'Admin panel', gate: 'human' },
+      { icon: 'cpu', title: 'Serving', sub: 'Model plane routes consumers to it', actor: 'Mimir' },
+      { icon: 'x', title: 'Revoke on CVE', sub: 'Dual-controlled · fleet stops serving immediately', actor: 'Admin panel', gate: 'human' },
+    ],
+  },
+  {
+    id: 'restore', theme: 'midgard', product: 'midgard',
+    title: 'Tested restore: the drill is the guarantee',
+    who: 'Platform admin · Resilience console',
+    prov: ['NFR-PQ-2', 'NFR-PRV-1'],
+    note: 'Backups are encrypted snapshots under PQ-wrapped keys, restored on schedule into staging so the recovery time is a measured fact, not an estimate. Nothing leaves the enclosure.',
+    steps: [
+      { icon: 'database', title: 'Snapshot', sub: 'Nightly · AES-256-GCM · integrity tags', actor: 'Storage layer', gate: 'crypto' },
+      { icon: 'key', title: 'Key unwrap', sub: 'DEKs recovered via ML-KEM-1024 chain', actor: 'KMS', gate: 'crypto' },
+      { icon: 'refresh-cw', title: 'Restore to staging', sub: 'Full replay · never over production', actor: 'Scheduler', gate: 'auto' },
+      { icon: 'check', title: 'Verify', sub: 'Row counts, index parity, query sample', actor: 'Drill harness', gate: 'auto' },
+      { icon: 'scroll-text', title: 'Signed drill record', sub: 'RTO becomes a measured, audited number', actor: 'Ledger', gate: 'crypto' },
+    ],
+  },
+  {
+    id: 'endtoend', theme: 'midgard', product: 'midgard',
+    title: 'End to end: raw feed to authorised action',
+    who: 'The whole suite · one journey',
+    prov: ['DD-6', 'NFR-SEC-2'],
+    note: 'The composability story: each product does one job and hands governed objects to the next. Every hop is PQ-mTLS inside the enclosure, and the decision at the end traces back to the raw source row.',
+    steps: [
+      { icon: 'database', title: 'Forge ingests', sub: 'Connector pulls · pipeline builds', actor: 'Forge' },
+      { icon: 'boxes', title: 'Fabric objects', sub: 'Typed, marked, sealed', actor: 'Midgard', gate: 'crypto' },
+      { icon: 'radio-tower', title: 'Heimdall fuses', sub: 'Objects join the live picture', actor: 'Heimdall' },
+      { icon: 'brain-circuit', title: 'Mimir advises', sub: 'Cited options on the anomaly', actor: 'Mimir' },
+      { icon: 'shield-check', title: 'Human authorises', sub: 'Signed decision lineage', actor: 'Operator', gate: 'human' },
+      { icon: 'rocket', title: 'Bifrost sustains', sub: 'The stack that did it stays updated', actor: 'Bifrost', gate: 'auto' },
+    ],
+  },
+];
+
+const GATE = {
+  human: { label: 'HUMAN GATE', color: 'var(--warn)' },
+  auto: { label: 'AUTO GATE', color: 'var(--info)' },
+  crypto: { label: 'PQ / SIGNED', color: 'var(--secure)' },
+};
+
+function Step({ s, last }) {
+  const g = s.gate ? GATE[s.gate] : null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'stretch', flex: '1 1 150px', minWidth: 150, maxWidth: 210 }}>
+      <div style={{ flex: 1, background: 'var(--surface-card)', border: '1px solid var(--border)', borderTop: g ? '2px solid ' + g.color : '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 13px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name={s.icon} size={15} color="var(--accent)" />
+          {g && <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.1em', color: g.color }}>{g.label}</span>}
+        </div>
+        <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-heading)', lineHeight: 1.3 }}>{s.title}</div>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.45 }}>{s.sub}</div>
+        <div style={{ marginTop: 'auto', fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.1em', color: 'var(--text-faint)', textTransform: 'uppercase' }}>{s.actor}</div>
+      </div>
+      {!last && (
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 3px', color: 'var(--text-faint)', flex: 'none' }}>
+          <Icon name="chevron-right" size={15} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Flow({ f, num }) {
+  return (
+    <section id={f.id} className={'theme-' + f.theme} style={{ marginBottom: 56, scrollMarginTop: 90 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--accent)', letterSpacing: '0.1em' }}>F{num} //</span>
+        <h2 style={{ fontSize: 'var(--fs-h3)' }}>{f.title}</h2>
+        <div style={{ flex: 1 }} />
+        <ProductMark product={f.product} size="sm" showDescriptor={false} />
+      </div>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-faint)', textTransform: 'uppercase' }}>{f.who}</span>
+        {f.prov.map(p => <ProvenanceTag key={p} id={p} />)}
+      </div>
+      <div className="mg-grid-bg" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 0', padding: 18, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-sunken)' }}>
+        {f.steps.map((s, i) => <Step key={i} s={s} last={i === f.steps.length - 1} />)}
+      </div>
+      <p style={{ margin: '12px 0 0', fontSize: 'var(--fs-xs)', lineHeight: 1.6, color: 'var(--text-muted)', maxWidth: 720 }}>{f.note}</p>
+    </section>
+  );
+}
+
+function App() {
+  return (
+    <DocsShell active="flows">
+      <PageIntro num={5} eyebrow="USER FLOWS" title="Governed journeys"
+        lead="Twenty-eight flows spanning every SAD, including the client layer and the admin control panel: product journeys, the session handshake, crypto-agility, self-healing and self-defending, spoofed-feed rejection, picture sync, degraded mode, enclosure recovery, offline sync, inference tiering, extension brokering, signed client updates, biometric unlock, guarded admin actions, policy simulation, break-glass, the advisory copilot, and the end-to-end composite. Gate markers show where each flow is held: amber = a human must authorise, blue = an automated policy/health gate, green = a cryptographic proof (PQ handshake, seal, or ML-DSA signature)." />
+      <div style={{ display: 'flex', gap: 16, marginBottom: 44, flexWrap: 'wrap' }}>
+        {Object.entries(GATE).map(([k, g]) => (
+          <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-muted)' }}>
+            <span style={{ width: 18, height: 3, borderRadius: 2, background: g.color }} />{g.label}
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 44 }}>
+        {FLOWS.map((f, i) => (
+          <a key={f.id} href={'#' + f.id} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: 'var(--text-muted)', textDecoration: 'none', background: 'var(--surface-card)' }}>F{i + 1} · {f.title}</a>
+        ))}
+      </div>
+      {FLOWS.map((f, i) => <Flow key={f.id} f={f} num={i + 1} />)}
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

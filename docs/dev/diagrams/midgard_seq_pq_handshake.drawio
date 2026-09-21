@@ -1,0 +1,22 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="midgard_seq_pq_handshake" id="midgard_seq_pq_handshake">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="c" value="Client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="gw" value="Object Gateway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="220" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="iam" value="Identity &amp; Access" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="420" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="kms" value="PQ Key Mgmt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="620" y="40" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="hybrid ClientHello" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="c" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="validate" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="gw" target="iam"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="ML-DSA assertion" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="iam" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="ServerHello" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="gw" target="c"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="request+purpose" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="c" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="unwrap ML-KEM" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="gw" target="kms"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="AES key" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="kms" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="sealed payload" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="gw" target="c"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

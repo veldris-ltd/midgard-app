@@ -1,0 +1,106 @@
+<!-- @dsCard group="Midgard Console" viewport="1440x820" subtitle="Users, service identities, roles, purpose grants" name="Midgard · Identity & Access" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Identity & Access</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const USERS = [
+  { name: 'j.benjamin', kind: 'human', roles: 'platform-admin', auth: 'WebAuthn + Argon2id', purpose: 'administration', last: '2m ago', st: 'online', stl: 'Active' },
+  { name: 'k.osei', kind: 'human', roles: 'ops-analyst', auth: 'WebAuthn + TOTP', purpose: 'maintenance', last: '18m ago', st: 'online', stl: 'Active' },
+  { name: 'svc:forge/projector', kind: 'service', roles: 'fabric-writer', auth: 'Workload identity', purpose: 'projection', last: '4s ago', st: 'secure', stl: 'Sealed' },
+  { name: 'agent:mimir/dispatch-01', kind: 'agent', roles: 'dispatch-scoped', auth: 'Delegated · human-gated', purpose: 'maintenance', last: '1m ago', st: 'gated', stl: 'Gated' },
+  { name: 'm.silva', kind: 'human', roles: 'release-engineer', auth: 'WebAuthn', purpose: 'delivery', last: '3h ago', st: 'offline', stl: 'Idle' },
+];
+function App() {
+  const [sel, setSel] = React.useState(3);
+  const u = USERS[sel];
+  return (
+    <ConsoleShell product="midgard" active="identity" context="ENCLOSURE / IDENTITY & ACCESS"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>New identity</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name={u.kind === 'human' ? 'user' : u.kind === 'service' ? 'server' : 'bot'} size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 'var(--fs-h4)', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</h2>
+          <StatusPill status={u.st} pulse={false} label={u.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={u.kind.toUpperCase()} label="KIND" size="sm" />
+            <StatBlock value={u.kind === 'agent' ? '3' : '0'} label="PENDING GATES" size="sm" accent={u.kind === 'agent'} />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>GRANTS · ROLE / MARKING / PURPOSE</div>
+          {[['Role', u.roles], ['Markings', u.kind === 'human' ? 'CONFIDENTIAL // OPS-N' : 'INTERNAL'], ['Purpose', u.purpose], ['Session', 'PQ token · 47m remaining']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 70, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <Terminal title="TOKEN" lines={['> midgard token inspect', 'alg     ML-DSA-65', 'purpose ' + u.purpose, '# zero-trust: re-authorised per call']} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+          <Button variant="secondary" size="sm" fullWidth>Edit grants</Button>
+          <Button variant="outline" size="sm" fullWidth>Revoke session</Button>
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={5}>IDENTITY</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Identities</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="1,418" label="IDENTITIES" size="sm" />
+        <StatBlock value="12" label="AGENT IDENTITIES" size="sm" />
+        <StatBlock value="0" label="STANDING PRIVILEGE" size="sm" accent />
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Input size="sm" mono placeholder="Search identities…" prefix={<Icon name="search" size={14} color="var(--text-faint)" />} style={{ width: 280 }} />
+        <Tag active>all kinds</Tag><Tag>humans</Tag><Tag>services</Tag><Tag>agents</Tag>
+      </div>
+      <Table
+        columns={[
+          { header: 'Identity', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name={r.kind === 'human' ? 'user' : r.kind === 'service' ? 'server' : 'bot'} size={14} color="var(--accent)" />{r.name}</span> },
+          { header: 'Kind', key: 'kind', mono: true, width: 90 },
+          { header: 'Role', key: 'roles', mono: true, width: 150 },
+          { header: 'Authentication', key: 'auth', width: 190 },
+          { header: 'Purpose', key: 'purpose', mono: true, width: 130 },
+          { header: 'Last seen', key: 'last', mono: true, width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 120 },
+        ]}
+        rows={USERS} selectedIndex={sel} onRowClick={setSel}
+      />
+      <div>
+        <SectionLabel number={6} muted>ACCESS DECISIONS · LIVE</SectionLabel>
+        <Table compact style={{ marginTop: 8 }}
+          columns={[
+            { header: 'Identity', key: 'i', mono: true },
+            { header: 'Resource', key: 'r', mono: true },
+            { header: 'Decision', cell: r => <Badge tone={r.ok ? 'secure' : 'danger'}>{r.ok ? 'PERMIT' : 'DENY'}</Badge>, width: 100 },
+            { header: 'Reason', key: 'why' },
+            { header: 'TS', key: 't', mono: true, width: 90 },
+          ]}
+          rows={[
+            { i: 'k.osei', r: 'aircraft/AC-2214', ok: true, why: 'identity + posture + purpose satisfied', t: '14:32:11' },
+            { i: 'agent:mimir/dispatch-01', r: 'action:schedule_maintenance', ok: false, why: 'human gate pending', t: '14:32:08' },
+            { i: 'svc:forge/projector', r: 'sensor_feed/*', ok: true, why: 'projection scope', t: '14:31:59' },
+          ]}
+        />
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

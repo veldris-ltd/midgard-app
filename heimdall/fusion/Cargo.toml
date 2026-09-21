@@ -1,0 +1,30 @@
+[package]
+name = "heimdall-fusion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall fusion engine: correlates verified observations into tracked entities over time, lays them across toggleable layers, classifies them, and projects them into the Midgard object fabric with markings. [FR-H-1] [FR-H-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = [
+    "fabric/backend-fips",
+    "heimdall-feed-gateway/backend-fips",
+]
+
+[dependencies]
+# The picture model, the verified-observation admission type, the classifier seam.
+heimdall-picture = { path = "../picture" }
+heimdall-feed-gateway = { path = "../feed-gateway" }
+heimdall-classify = { path = "../classify" }
+# The fabric write-back target + the markings propagated onto projected objects.
+fabric = { path = "../../services/fabric" }
+policy = { path = "../../crypto/policy" }
+
+[dev-dependencies]
+# The AC harness drives the whole verify -> fuse -> classify path with real PQ sigs.
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

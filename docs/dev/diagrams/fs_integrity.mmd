@@ -1,0 +1,28 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    proj["Gungnir projection\n(+ inputs, seed, world-snapshot)"]:::gung
+    subgraph mon["Projection-integrity monitor (independent model)"]
+        repro["Reproducibility check\n(re-run vs baseline)"]:::sent
+        evid["Evidence reconciliation\n(claims vs cited snapshot)"]:::sent
+        conf["Confidence calibration\n(is certainty earned?)"]:::sent
+        drift["Drift / anomaly detection\n(vs historical baseline)"]:::sent
+        tamper["Assumption-tamper check"]:::sent
+    end
+    verdict{"Integrity verdict"}:::gate
+    ok["PASS -> normal weight"]:::good
+    warn["SUSPECT -> down-weight + flag"]:::warn
+    halt["COMPROMISED -> HALT + alert human"]:::bad
+    proj --> repro --> verdict
+    proj --> evid --> verdict
+    proj --> conf --> verdict
+    proj --> drift --> verdict
+    proj --> tamper --> verdict
+    verdict --> ok
+    verdict --> warn
+    verdict --> halt
+    classDef gung fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B
+    classDef sent fill:#1E7A46,color:#fff,stroke:#125230
+    classDef gate fill:#0B4884,color:#fff,stroke:#052E56,stroke-width:2px
+    classDef good fill:#1E7A46,color:#fff,stroke:#125230
+    classDef warn fill:#B7791F,color:#fff,stroke:#7A5A15
+    classDef bad fill:#B23B3B,color:#fff,stroke:#7A2727

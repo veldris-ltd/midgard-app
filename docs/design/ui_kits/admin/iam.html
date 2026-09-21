@@ -1,0 +1,113 @@
+<!-- @dsCard group="Admin Panel" viewport="1440x820" subtitle="Role-separated admin RBAC: scoped, expiring, no super-admin" name="Admin · Identity & Roles" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Admin · Identity & Roles</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+const ROLES = [
+  { name: 'IAM-Admin', scope: 'users · groups · bindings', ceiling: 4, readonly: false, holders: 3, st: 'healthy', stl: 'Active' },
+  { name: 'KMS-Officer', scope: 'keys · rotation · HSM', ceiling: 5, readonly: false, holders: 2, st: 'secure', stl: 'Dual-control' },
+  { name: 'Model-Steward', scope: 'mimir registry · evals gates', ceiling: 4, readonly: false, holders: 2, st: 'healthy', stl: 'Active' },
+  { name: 'Release-Manager', scope: 'bifrost channels · fleet', ceiling: 5, readonly: false, holders: 2, st: 'healthy', stl: 'Active' },
+  { name: 'Auditor', scope: 'audit · config history · read only', ceiling: 1, readonly: true, holders: 4, st: 'online', stl: 'Read-only' },
+];
+const BINDINGS = [
+  { user: 'j.benjamin', role: 'IAM-Admin', scope: 'org/*', expires: '82d', mfa: 'WebAuthn', st: 'healthy' },
+  { user: 'k.osei', role: 'KMS-Officer', scope: 'enclosure/*', expires: '47d', mfa: 'WebAuthn + TOTP', st: 'secure' },
+  { user: 'm.silva', role: 'Release-Manager', scope: 'bifrost/stable', expires: '13d', mfa: 'WebAuthn', st: 'healthy' },
+  { user: 'r.dube', role: 'Auditor', scope: 'audit/*', expires: '180d', mfa: 'WebAuthn', st: 'online' },
+];
+function App() {
+  const [tab, setTab] = React.useState(0);
+  const [sel, setSel] = React.useState(1);
+  const r = ROLES[sel];
+  return (
+    <ConsoleShell product="admin" active="iam" context="ADMIN CONTROL PANEL / IDENTITY & ROLES"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>New binding</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="fingerprint" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{r.name}</h2>
+          {r.readonly ? <Badge tone="info">READ-ONLY</Badge> : <RiskBadge level={r.ceiling} />}
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={String(r.holders)} label="HOLDERS" size="sm" />
+            <StatBlock value={r.readonly ? 'NONE' : 'R' + r.ceiling} label="RISK CEILING" size="sm" accent={r.ceiling >= 5} />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>CAPABILITY SPLIT · NO SUPER-ADMIN</div>
+          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>No role administers more than its column. Cross-column actions require the other column's holder as second approver, so compromise of one admin never spans the suite.</p>
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>{r.name.toUpperCase()} · CAN / CANNOT</div>
+          {(r.readonly ? [['Read all audit + config history', true], ['Export evidence for review', true], ['Mutate any state', false]] : [['Administer ' + r.scope, true], ['Approve as second controller', true], ['Act outside scope', false], ['Self-approve own requests', false]]).map(([c, ok]) => (
+            <div key={c} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)', color: 'var(--text-body)' }}>
+              <Icon name={ok ? 'check' : 'x'} size={13} color={ok ? 'var(--secure)' : 'var(--danger)'} />{c}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-AD-3" title="Manage users, groups, roles, markings, purposes and policies with validation" /><ProvenanceTag id="FR-AD-2" title="Role separation, expiring bindings, read-only Auditor, no all-powerful role" />
+          <ProvenanceTag id="AC-AD-2" title="No single role grants all capabilities" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={4}>IDENTITY</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Admin RBAC</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="5" label="SEPARATED ROLES" size="sm" />
+        <StatBlock value="13" label="LIVE BINDINGS · ALL EXPIRING" size="sm" />
+        <StatBlock value="0" label="SUPER-ADMIN ROLES" size="sm" accent />
+      </div>
+      <Tabs tabs={[{ label: 'Roles', badge: '5' }, { label: 'Bindings', badge: '13' }]} active={tab} onChange={setTab} />
+      {tab === 0 ? (
+        <Table
+          columns={[
+            { header: 'Role', cell: x => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="shield-check" size={14} color="var(--accent)" />{x.name}</span> },
+            { header: 'Scope', key: 'scope', width: 240 },
+            { header: 'Risk ceiling', cell: x => x.readonly ? <Badge tone="info">READ-ONLY</Badge> : <RiskBadge level={x.ceiling} dualControl={false} />, width: 140 },
+            { header: 'Holders', key: 'holders', mono: true, align: 'right', width: 70 },
+            { header: 'State', cell: x => <StatusPill status={x.st} pulse={false} label={x.stl} />, width: 130 },
+          ]}
+          rows={ROLES} selectedIndex={sel} onRowClick={setSel}
+        />
+      ) : (
+        <Table
+          columns={[
+            { header: 'Admin', key: 'user', mono: true },
+            { header: 'Role', key: 'role', mono: true, width: 150 },
+            { header: 'Scope', key: 'scope', mono: true, width: 140 },
+            { header: 'Expires', key: 'expires', mono: true, align: 'right', width: 80 },
+            { header: 'MFA', key: 'mfa', mono: true, width: 150 },
+            { header: 'State', cell: x => <StatusPill status={x.st} pulse={false} label="Bound" />, width: 100 },
+          ]}
+          rows={BINDINGS}
+        />
+      )}
+      <Terminal title="STEP-UP · AC-AD-1" lines={[
+        '> session inspect j.benjamin',
+        'login      WebAuthn passkey ✓',
+        'admin scope entered → step-up re-auth ✓ (2m ago)',
+        'high-risk approval → fresh re-auth REQUIRED at moment of approval',
+      ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

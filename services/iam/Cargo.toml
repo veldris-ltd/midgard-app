@@ -1,0 +1,27 @@
+[package]
+name = "iam"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Identity & Access: self-contained, offline OIDC-style IdP issuing PQ-signed tokens and workload certs. [NFR-SEC-2] [NFR-PRV-1]"
+
+[features]
+# The IdP's identity and token crypto is real PQ (ML-DSA) — production only.
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips", "pq-mtls/backend-fips"]
+
+[dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+pq-mtls = { path = "../../crypto/pq-mtls" }
+policy = { path = "../../crypto/policy" }
+# The durable identity directory persists enrollments through the KMS-sealed
+# append-only journal, replaying on boot. [RC-29]
+audit-writer = { path = "../../crypto/audit-writer" }
+
+[dev-dependencies]
+# The RC-29 harness seals the directory with a real KMS trust root.
+kms = { path = "../kms" }
+
+[lib]
+path = "src/lib.rs"

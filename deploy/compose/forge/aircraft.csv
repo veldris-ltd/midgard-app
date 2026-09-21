@@ -1,0 +1,4 @@
+tail,status,hours,base
+MG-101,active,6412,FAC-NORTH
+MG-102,maintenance,8120,FAC-SOUTH
+MG-103,active,,FAC-NORTH

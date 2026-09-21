@@ -1,0 +1,82 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="Legal notice / imprint · company registration, trademarks, licences" name="midgard.eu/legal" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Legal notice</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { SectionLabel, Terminal, Table } = NS;
+
+function Block({ n, title, children }) {
+  return (
+    <div style={{ padding: '22px 0', borderBottom: '1px solid var(--divider)' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em', color: 'var(--accent)' }}>{String(n).padStart(2, '0')} //</span>
+        <h2 style={{ fontSize: 'var(--fs-h5)', margin: 0 }}>{title}</h2>
+      </div>
+      <div style={{ margin: '10px 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.75 }}>{children}</div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <SiteShell active="midgard">
+      <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(60px, 9vw, 110px) clamp(16px, 4vw, 36px) clamp(40px, 6vw, 72px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <div className="mg-label" style={{ marginBottom: 14 }}>01 // LEGAL NOTICE</div>
+          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3.2rem)', lineHeight: 1.08, maxWidth: 720, fontWeight: 800 }}>
+            On the record.
+          </h1>
+          <p style={{ margin: '20px 0 0', fontSize: 'var(--fs-body)', color: 'var(--text-body)', maxWidth: 640, lineHeight: 1.7 }}>
+            Provider identification for midgard.eu and its product subdomains, published to satisfy EU/UK provider-information requirements.
+          </p>
+        </div>
+      </section>
+
+      <section style={{ padding: 'clamp(32px, 5vw, 64px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <Block n={1} title="Service provider">
+            <Terminal lines={[
+              '> midgard legal --provider',
+              'company     Veldris Ltd',
+              'form        private company limited by shares',
+              'registry    Companies House · no. [to be supplied]',
+              'office      [registered office address · to be supplied]',
+              'vat         [VAT number · to be supplied]',
+              'directors   [to be supplied]',
+              'contact     hello@veldris.io',
+            ]} />
+            <p style={{ margin: '10px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>BRACKETED FIELDS ARE PLACEHOLDERS PENDING COMPANY DETAILS · MUST BE COMPLETED BEFORE LAUNCH</p>
+          </Block>
+          <Block n={2} title="Responsible for content">
+            Veldris Ltd is responsible for the content of these pages. Report errors or concerns via the <a href="contact.html" style={{ color: 'var(--accent-hover)' }}>contact page</a>; we correct verified errors promptly.
+          </Block>
+          <Block n={3} title="Trademarks">
+            "Midgard", "Forge", "Mimir", "Bifrost", and "Heimdall", as used for this platform suite, are marks of Veldris Ltd. Third-party names appearing on the site (including standards bodies and referenced products) belong to their respective owners and are used for identification only.
+          </Block>
+          <Block n={4} title="Open-source licences">
+            The core of each Midgard product ships under an OSI-approved licence; each repository's LICENSE file is authoritative, and each release ships a CycloneDX SBOM enumerating third-party components and their licences. This website itself uses the site's own design system plus React (MIT) and Lucide-derived icons (ISC).
+          </Block>
+          <Block n={5} title="Hosting & sub-processors">
+            The website is static and served without third-party analytics, CDIs, or tracking sub-processors. Hosting provider: [to be supplied]. A production sub-processor register, should any ever exist, will be published on this page.
+          </Block>
+          <Block n={6} title="Dispute resolution">
+            The European Commission's ODR platform is being retired; consumer disputes may be raised directly via the <a href="contact.html" style={{ color: 'var(--accent-hover)' }}>contact page</a>. We are not obliged to participate in consumer-arbitration proceedings and decide participation case by case.
+          </Block>
+        </div>
+      </section>
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

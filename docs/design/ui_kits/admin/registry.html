@@ -1,0 +1,145 @@
+<!-- @dsCard group="Admin Panel" viewport="1440x820" subtitle="Model registry, agent scopes, Evals gates, release administration (FR-AD-4)" name="Admin · Registry & Suite Governance" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Admin · Registry & Suite Governance</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs, RiskBadge, GuardedAction, BreakGlass } = NS;
+
+const MODELS = [
+  { name: 'glm-5.2.1', family: 'GLM', state: 'approved', sig: true, uses: 'primary · all consumers', risk: 4 },
+  { name: 'nemotron-4.1', family: 'Nemotron', state: 'approved', sig: true, uses: 'fallback · long context', risk: 4 },
+  { name: 'gemma-3-int4', family: 'Gemma', state: 'approved', sig: true, uses: 'edge · on-device tier', risk: 4 },
+  { name: 'glm-5.2.0', family: 'GLM', state: 'revoked', sig: true, uses: 'superseded · tokenizer CVE', risk: 4 },
+  { name: 'glm-5.3-rc1', family: 'GLM', state: 'pending', sig: true, uses: 'candidate · evals running', risk: 4 },
+];
+function App() {
+  const [tab, setTab] = React.useState(0);
+  const [sel, setSel] = React.useState(4);
+  const m = MODELS[sel];
+  const stTone = { approved: 'secure', revoked: 'danger', pending: 'warn' };
+  return (
+    <ConsoleShell product="admin" active="registry" context="ADMIN CONTROL PANEL / REGISTRY & SUITE GOVERNANCE"
+      toolbar={<Badge tone="warn">1 CANDIDATE IN EVALS</Badge>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="cpu" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{m.name}</h2>
+          <Badge tone={stTone[m.state]}>{m.state.toUpperCase()}</Badge>
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={m.family} label="FAMILY" size="sm" />
+            <StatBlock value={m.sig ? 'ML-DSA ✓' : 'FAILED'} label="WEIGHTS SIGNATURE" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>LIFECYCLE · ALL DUAL-CONTROL</div>
+          {[['Approve', 'evals gate + licence + hardware eligibility', m.state === 'pending'], ['Deprecate', 'consumers warned · grace window', m.state === 'approved'], ['Revoke', 'immediate · fleet stops serving it', m.state !== 'revoked']].map(([a, d, avail]) => (
+            <div key={a} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', opacity: avail ? 1 : 0.45 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--grey-100)', width: 76, flex: 'none' }}>{a.toUpperCase()}</span>
+              <span style={{ fontSize: 'var(--fs-micro)', fontFamily: 'var(--font-mono)', color: 'var(--text-faint)' }}>{d.toUpperCase()}</span>
+            </div>
+          ))}
+        </div>
+        {m.state === 'pending' ? (
+          <GuardedAction action={'Approve ' + m.name} subsystem="MIMIR REGISTRY" risk={4} state="awaiting"
+            requester="p.iwu" approver="j.benjamin"
+            justification="Evals 94.1% (gate 90%) · KAT + licence verified · hardware: GPU pool only"
+            onApprove={() => {}} onDeny={() => {}} />
+        ) : (
+          <Terminal title="VERIFICATION" lines={[
+            '> admin registry verify ' + m.name,
+            'weights   sha3 match · ML-DSA ✓',
+            'licence   policy OK',
+            'hardware  eligibility verified',
+            m.state === 'revoked' ? '# REVOKED · serving blocked fleet-wide' : '# approved for serving',
+          ]} />
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-AD-4" title="Administer the model registry, agent governance, Evals gates, releases and fleet" />
+          <ProvenanceTag id="AC-MI-7" title="Weights verified: signature, licence, hardware eligibility · fails closed" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <SectionLabel number={10}>REGISTRY</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Suite governance</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="3" label="MODELS APPROVED" size="sm" />
+        <StatBlock value="12" label="AGENT SCOPES" size="sm" />
+        <StatBlock value="90%" label="EVALS GATE · FLOOR" size="sm" accent />
+      </div>
+      <Tabs tabs={[{ label: 'Model registry', badge: '5' }, { label: 'Agent governance', badge: '12' }, { label: 'Evals gates' }, { label: 'Releases & fleet' }]} active={tab} onChange={setTab} />
+      {tab === 0 && (
+        <Table
+          columns={[
+            { header: 'Model', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="cpu" size={14} color="var(--accent)" />{r.name}</span> },
+            { header: 'Family', key: 'family', mono: true, width: 100 },
+            { header: 'Signature', cell: r => <Badge tone={r.sig ? 'secure' : 'danger'}>{r.sig ? 'ML-DSA ✓' : 'FAILED'}</Badge>, width: 100 },
+            { header: 'Use', key: 'uses', width: 220 },
+            { header: 'Lifecycle', cell: r => <Badge tone={stTone[r.state]}>{r.state.toUpperCase()}</Badge>, width: 110 },
+            { header: 'Risk', cell: r => <RiskBadge level={r.risk} dualControl={false} />, width: 110 },
+          ]}
+          rows={MODELS} selectedIndex={sel} onRowClick={setSel}
+        />
+      )}
+      {tab === 1 && (
+        <Table
+          columns={[
+            { header: 'Agent', key: 'a', mono: true },
+            { header: 'Tool scope', key: 's' },
+            { header: 'Gate', cell: r => <Badge tone={r.g === 'human' ? 'warn' : 'secure'}>{r.g === 'human' ? 'HUMAN GATE' : 'PRE-AUTH · NARROW'}</Badge>, width: 160 },
+            { header: 'Evals', key: 'e', mono: true, align: 'right', width: 80 },
+          ]}
+          rows={[
+            { a: 'dispatch-01', s: 'fabric read + schedule_maintenance action', g: 'human', e: '96%' },
+            { a: 'feed-triage', s: 'fabric read only', g: 'pre', e: '94%' },
+            { a: 'release-risk', s: 'artefact metadata read only', g: 'pre', e: '91%' },
+          ]}
+        />
+      )}
+      {tab === 2 && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {[['dispatch agents', '92%', 'raised from 90% · CFG-2209'], ['triage agents', '90%', 'floor'], ['advisory (risk, options)', '88%', 'advisory-only surfaces']].map(([g, v, d]) => (
+            <Card key={g} size="sm" style={{ flex: 1, minWidth: 220 }}>
+              <StatBlock value={v} label={('GATE · ' + g).toUpperCase()} size="sm" accent />
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 8 }}>{d.toUpperCase()}</div>
+            </Card>
+          ))}
+        </div>
+      )}
+      {tab === 3 && (
+        <Table
+          columns={[
+            { header: 'Surface', key: 's' },
+            { header: 'State', key: 'v', mono: true, width: 200 },
+            { header: 'Admin action', key: 'a', width: 240 },
+            { header: 'Control', cell: r => <Badge tone={r.dual ? 'warn' : 'neutral'}>{r.dual ? 'DUAL-CONTROL' : 'STANDARD'}</Badge>, width: 130 },
+          ]}
+          rows={[
+            { s: 'Channels', v: 'stable 2.4.1 · beta 2.5.0', a: 'Edit channel policy', dual: false },
+            { s: 'Rollout', v: 'v2.5.0 · ring 2 of 4', a: 'Pause / resume / rollback', dual: false },
+            { s: 'Fleet-wide release', v: '73 installations', a: 'Promote to all rings', dual: true },
+          ]}
+        />
+      )}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <ProvenanceTag id="FR-AD-4" /><ProvenanceTag id="FR-AD-5" title="Model revocation and fleet-wide release are dual-controlled" /><ProvenanceTag id="AC-AD-3" />
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

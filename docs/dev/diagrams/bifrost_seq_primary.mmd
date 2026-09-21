@@ -1,0 +1,17 @@
+sequenceDiagram
+    actor Op as Operator
+    participant BF as Bifrost Control
+    participant PLplan as Release Planner
+    participant MI as Mimir (risk/inference)
+    participant AG as Cluster Agent
+    participant TGT as Target Environment
+    Op->>BF: propose release (artefact + manifest)
+    BF->>PLplan: compute rollout plan
+    PLplan->>MI: predict risk / anomaly window
+    MI-->>PLplan: risk score + guardrails
+    PLplan-->>BF: staged plan (canary→prod)
+    BF->>AG: apply (signed, ML-DSA)
+    AG->>TGT: rolling update (zero-downtime)
+    TGT-->>AG: health signals
+    AG-->>BF: progress + auto-rollback if breach
+    BF-->>Op: status + audit

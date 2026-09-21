@@ -1,0 +1,1 @@
+RiskBadge shows an admin action\u2019s risk class 1\u20135 (KDD-2) as a rising-bar glyph; \u22654 red and dual-controlled, 3 amber, \u22642 green.\n\n```jsx\n<RiskBadge level={5} />\n<RiskBadge level={2} />\n```

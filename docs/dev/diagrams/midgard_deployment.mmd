@@ -1,0 +1,27 @@
+flowchart TB
+    subgraph host["Sovereign Deployment (on-prem / air-gapped / private cloud)"]
+        subgraph k8s["Kubernetes cluster"]
+            subgraph cp["Control-plane namespace"]
+                gw["Gateway pods"]
+                iam["IAM pods"]
+                oms["OMS pods"]
+                gov["Governance pods"]
+            end
+            subgraph data["Data namespace"]
+                objdb[("Object Store V2 StatefulSet")]
+                pg[("PostgreSQL")]
+                nats[["NATS JetStream"]]
+                minio[("MinIO PQ-sealed")]
+            end
+            subgraph ains["AI namespace (Mimir)"]
+                glm["GLM 5.2 inference pods (GPU)"]
+                vec[("Vector store")]
+            end
+        end
+        hsm["HSM / TPM appliance"]
+    end
+    ops((Operator)) -->|kubectl / Bifrost| k8s
+    iam --> hsm
+
+    classDef container fill:#1168BD,color:#fff
+    classDef datastore fill:#1168BD,color:#fff

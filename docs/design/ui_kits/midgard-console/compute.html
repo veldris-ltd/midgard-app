@@ -1,0 +1,108 @@
+<!-- @dsCard group="Midgard Console" viewport="1440x820" subtitle="Workload scheduler: services, jobs, GPU inference pool" name="Midgard · Compute" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Compute</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const WORK = [
+  { name: 'fabric-query-plane', kind: 'service', replicas: '6/6', cpu: '41%', mem: '58%', node: 'pool-a', st: 'healthy', stl: 'Healthy' },
+  { name: 'mimir-inference', kind: 'gpu service', replicas: '3/3', cpu: '88%', mem: '74%', node: 'gpu-pool', st: 'healthy', stl: 'Hot' },
+  { name: 'forge-build-42', kind: 'job', replicas: '1/1', cpu: '96%', mem: '61%', node: 'pool-b', st: 'online', stl: 'Running' },
+  { name: 'lineage-signer', kind: 'service', replicas: '2/2', cpu: '12%', mem: '22%', node: 'pool-a', st: 'healthy', stl: 'Healthy' },
+  { name: 'heimdall-fusion', kind: 'service', replicas: '4/4', cpu: '67%', mem: '70%', node: 'pool-b', st: 'warn', stl: 'Mem pressure' },
+];
+function Bar({ v }) {
+  const n = parseInt(v);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 60, height: 5, background: 'var(--surface-inset)', borderRadius: 3, overflow: 'hidden', display: 'inline-block' }}>
+        <span style={{ display: 'block', height: '100%', width: v, background: n > 85 ? 'var(--warn)' : 'var(--accent)', borderRadius: 3 }} />
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>{v}</span>
+    </span>
+  );
+}
+function App() {
+  const [sel, setSel] = React.useState(1);
+  const w = WORK[sel];
+  return (
+    <ConsoleShell product="midgard" active="compute" context="ENCLOSURE / COMPUTE"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>Schedule job</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="server" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{w.name}</h2>
+          <StatusPill status={w.st} pulse={false} label={w.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={w.replicas} label="REPLICAS" size="sm" />
+            <StatBlock value={w.cpu} label="CPU" size="sm" accent={parseInt(w.cpu) > 85} />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PLACEMENT</div>
+          {[['Node pool', w.node], ['Quota', w.kind === 'job' ? 'burst · priority P3' : 'guaranteed · priority P1'], ['Isolation', 'enclave · no host net'], ['Egress', 'none · enclosure only'], ['Attestation', 'measured boot ✓']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 84, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <Terminal title="SCHEDULER" lines={['> midgard compute describe ' + w.name, 'anti-affinity  zone-spread', 'restart        health-gated', '# self-healing: reroute on fault']} style={{ marginTop: 'auto' }} />
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={10}>COMPUTE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Workloads</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="42" label="WORKLOADS" size="sm" />
+        <StatBlock value="8×" label="GPU · INFERENCE POOL" size="sm" />
+        <StatBlock value="99.9%" label="CONTROL-PLANE SLO" size="sm" accent />
+      </div>
+      <Table
+        columns={[
+          { header: 'Workload', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name={r.kind === 'job' ? 'clock' : r.kind === 'gpu service' ? 'cpu' : 'server'} size={14} color="var(--accent)" />{r.name}</span> },
+          { header: 'Kind', key: 'kind', mono: true, width: 110 },
+          { header: 'Replicas', key: 'replicas', mono: true, width: 90 },
+          { header: 'CPU', cell: r => <Bar v={r.cpu} />, width: 140 },
+          { header: 'Memory', cell: r => <Bar v={r.mem} />, width: 140 },
+          { header: 'Pool', key: 'node', mono: true, width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 140 },
+        ]}
+        rows={WORK} selectedIndex={sel} onRowClick={setSel}
+      />
+      <div>
+        <SectionLabel number={11} muted>SELF-HEALING · LAST 24H</SectionLabel>
+        <Table compact style={{ marginTop: 8 }}
+          columns={[
+            { header: 'Event', key: 'e' },
+            { header: 'Workload', key: 'w', mono: true, width: 180 },
+            { header: 'Action', key: 'a', width: 220 },
+            { header: 'Outcome', cell: () => <Badge tone="secure">RECOVERED</Badge>, width: 110 },
+            { header: 'TS', key: 't', mono: true, width: 90 },
+          ]}
+          rows={[
+            { e: 'Node fault · pool-b/n7', w: 'heimdall-fusion', a: 'Rescheduled 2 replicas · zone-spread', t: '06:14:02' },
+            { e: 'OOM kill', w: 'forge-build-41', a: 'Retried with raised memory bound', t: '03:41:37' },
+          ]}
+        />
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

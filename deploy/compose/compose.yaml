@@ -1,0 +1,314 @@
+# Midgard on one machine: the enclosure's HTTP edge, the Mimir inference plane, the
+# Bifrost fleet manager, the Heimdall feed gateway and the Forge worker, each in its own
+# hardened container with its own state. [NFR-SEC-1] [NFR-PRV-1] [RC-33]
+#
+#   docker compose -f deploy/compose/compose.yaml up -d --build --wait
+#   docker compose -f deploy/compose/compose.yaml run --rm probe
+#   docker compose -f deploy/compose/compose.yaml run --rm fleet-agent
+#   docker compose -f deploy/compose/compose.yaml run --rm fleet-status
+#   docker compose -f deploy/compose/compose.yaml run --rm feed-source
+#   docker compose -f deploy/compose/compose.yaml run --rm picture
+#
+# `init` runs first: it creates the enclosure (issuer and audit keys) and issues every
+# mesh workload its identity. Each service mounts only its own volumes — no service
+# sees the enclosure's keys. The mesh network is internal: nothing on it can reach
+# outside the host, and no mesh service is published on a host port; each is reachable
+# only over PQ-mTLS by a certified workload.
+#
+# The image is built locally from source and is NOT the signed release image
+# (deploy/images/service.Dockerfile verifies a release signature before it runs).
+# Use this for development and evaluation, not production.
+
+name: midgard
+
+x-service: &service
+  image: midgard/dev:local
+  build:
+    context: ../..
+    dockerfile: deploy/compose/Dockerfile
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp"]
+
+services:
+  init:
+    <<: *service
+    entrypoint: ["midgard-init"]
+    network_mode: none
+    volumes:
+      - core-state:/vol/core-state
+      - mimir-identity:/vol/mimir-identity
+      - mimir-state:/vol/mimir-state
+      - probe-identity:/vol/probe-identity
+      - fleet-identity:/vol/fleet-identity
+      - fleet-state:/vol/fleet-state
+      - fleet-clients:/vol/fleet-clients
+      - heimdall-identity:/vol/heimdall-identity
+      - heimdall-state:/vol/heimdall-state
+      - heimdall-clients:/vol/heimdall-clients
+      - gateway-identity:/vol/gateway-identity
+      - forge-identity:/vol/forge-identity
+
+  # The edge on the host port, and on the mesh the door certified workloads sync
+  # records into the fabric through.
+  gateway:
+    <<: *service
+    entrypoint:
+      - http-gateway
+      - --state-dir
+      - /state
+      - --bind
+      - 0.0.0.0:7710
+      - --mesh-bind
+      - 0.0.0.0:7711
+      - --mesh-identity-dir
+      - /mesh-identity
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - core-state:/state
+      - gateway-identity:/mesh-identity:ro
+    networks: [edge, mesh]
+    ports:
+      - "127.0.0.1:7710:7710"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "midgard-ready", "7710", "/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  mimir-server:
+    <<: *service
+    entrypoint:
+      - mimir-server
+      - --identity-dir
+      - /identity
+      - --state-dir
+      - /state
+      - --purposes
+      - investigation
+      - --bind
+      - 0.0.0.0:7720
+      - --health-bind
+      - 0.0.0.0:9090
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - mimir-identity:/identity:ro
+      - mimir-state:/state
+    networks: [mesh]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "midgard-ready", "9090", "/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # One PQ-mTLS inference call as a certified consumer:
+  #   docker compose -f deploy/compose/compose.yaml run --rm probe
+  probe:
+    <<: *service
+    profiles: [probe]
+    entrypoint:
+      - mimir-probe
+      - --identity-dir
+      - /identity
+      - --addr
+      - mimir-server:7720
+      - --purpose
+      - investigation
+    depends_on:
+      mimir-server:
+        condition: service_healthy
+    volumes:
+      - probe-identity:/identity:ro
+    networks: [mesh]
+
+  bifrost-fleet:
+    <<: *service
+    entrypoint:
+      - bifrost-fleet
+      - --identity-dir
+      - /identity
+      - --state-dir
+      - /state
+      - --bind
+      - 0.0.0.0:7740
+      - --health-bind
+      - 0.0.0.0:9090
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - fleet-identity:/identity:ro
+      - fleet-state:/state
+    networks: [mesh]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "midgard-ready", "9090", "/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # An installation checking in. Pass other versions with
+  #   docker compose ... run --rm fleet-agent --channel stable --version 0.2.0
+  fleet-agent:
+    <<: *service
+    profiles: [fleet]
+    entrypoint:
+      - bifrost-agent
+      - --identity-dir
+      - /identity
+      - --service
+      - fleet-agent-1
+      - --addr
+      - bifrost-fleet:7740
+    command: ["--channel", "stable", "--version", "0.1.0"]
+    depends_on:
+      bifrost-fleet:
+        condition: service_healthy
+    volumes:
+      - fleet-clients:/identity:ro
+    networks: [mesh]
+
+  # The fleet as an operator sees it: versions, liveness, drift.
+  fleet-status:
+    <<: *service
+    profiles: [fleet]
+    entrypoint:
+      - bifrost-agent
+      - --identity-dir
+      - /identity
+      - --service
+      - fleet-operator
+      - --addr
+      - bifrost-fleet:7740
+      - --status
+    depends_on:
+      bifrost-fleet:
+        condition: service_healthy
+    volumes:
+      - fleet-clients:/identity:ro
+    networks: [mesh]
+
+  heimdall-feed:
+    <<: *service
+    entrypoint:
+      - heimdall-feed
+      - --identity-dir
+      - /identity
+      - --state-dir
+      - /state
+      - --bind
+      - 0.0.0.0:7730
+      - --health-bind
+      - 0.0.0.0:9090
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - heimdall-identity:/identity:ro
+      - heimdall-state:/state
+    networks: [mesh]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "midgard-ready", "9090", "/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # A feed source submitting one signed observation. Pass your own with
+  #   docker compose ... run --rm feed-source --kind air-track --entity AC-7 --attrs speed=410
+  feed-source:
+    <<: *service
+    profiles: [heimdall]
+    entrypoint:
+      - heimdall-source
+      - --identity-dir
+      - /identity
+      - --service
+      - feed-source-1
+      - --addr
+      - heimdall-feed:7730
+    command: ["--kind", "air-track", "--entity", "AC-1", "--attrs", "speed=420"]
+    depends_on:
+      heimdall-feed:
+        condition: service_healthy
+    volumes:
+      - heimdall-clients:/identity:ro
+    networks: [mesh]
+
+  # The fused picture as an analyst reads it.
+  picture:
+    <<: *service
+    profiles: [heimdall]
+    entrypoint:
+      - heimdall-source
+      - --identity-dir
+      - /identity
+      - --service
+      - picture-analyst
+      - --addr
+      - heimdall-feed:7730
+      - --picture
+    depends_on:
+      heimdall-feed:
+        condition: service_healthy
+    volumes:
+      - heimdall-clients:/identity:ro
+    networks: [mesh]
+
+  # Syncs the sample sources in deploy/compose/forge into versioned datasets and on
+  # into the enclosure's fabric through the gateway's mesh door, every job's interval.
+  forge-worker:
+    <<: *service
+    entrypoint:
+      - forge-worker
+      - --identity-dir
+      - /identity
+      - --state-dir
+      - /state
+      - --jobs
+      - /etc/midgard/forge/jobs.json
+      - --gateway
+      - gateway:7711
+      - --health-bind
+      - 0.0.0.0:9090
+    depends_on:
+      gateway:
+        condition: service_healthy
+    volumes:
+      - forge-identity:/identity:ro
+      - forge-state:/state
+    networks: [mesh]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "midgard-ready", "9090", "/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+networks:
+  edge: {}
+  mesh:
+    internal: true
+
+volumes:
+  core-state: {}
+  mimir-identity: {}
+  mimir-state: {}
+  probe-identity: {}
+  fleet-identity: {}
+  fleet-state: {}
+  fleet-clients: {}
+  heimdall-identity: {}
+  heimdall-state: {}
+  heimdall-clients: {}
+  gateway-identity: {}
+  forge-identity: {}
+  forge-state: {}

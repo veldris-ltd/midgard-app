@@ -1,0 +1,14 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Vendored crates are checksummed by cargo (each crate's .cargo-checksum.json is a
+# sha256 over its files). Git MUST NOT convert their line endings on checkout, or
+# the checksums fail and the offline/air-gap build breaks. Store and check out
+# byte-for-byte. [NFR-PRV-1] [NFR-OSS-1]
+vendor/** -text
+
+# Generated lockfile — keep LF for stable, platform-independent diffs.
+Cargo.lock text eol=lf
+
+# Shell scripts run inside Linux containers; a CRLF checkout would break them.
+*.sh text eol=lf

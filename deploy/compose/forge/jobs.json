@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "jobs": [
+    { "id": "facilities", "every": 300,
+      "source": { "file": "facilities.csv",
+                  "columns": [ { "name": "key", "type": "text" },
+                               { "name": "name", "type": "text" } ] },
+      "objects": { "type": "facility", "key": "key", "marking": "internal",
+                   "purposes": ["operations"], "properties": { "name": "name" } } },
+    { "id": "aircraft", "every": 30,
+      "source": { "file": "aircraft.csv",
+                  "columns": [ { "name": "tail", "type": "text" },
+                               { "name": "status", "type": "text" },
+                               { "name": "hours", "type": "int", "nullable": true },
+                               { "name": "base", "type": "text" } ] },
+      "objects": { "type": "aircraft", "key": "tail", "marking": "internal",
+                   "purposes": ["operations"],
+                   "properties": { "tail": "tail", "status": "status",
+                                   "flight_hours": "hours" } },
+      "links": [ { "type": "aircraft_base", "from": "tail", "to": "base" } ] }
+  ]
+}

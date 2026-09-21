@@ -1,0 +1,101 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="Open-core licensing tiers + early-access CTA" name="midgard.eu/pricing" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Open core, honest tiers</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, ProductMark, Button, Badge, StatusPill, SectionLabel, Terminal, StatBlock, Card, Tag, Table } = NS;
+
+const TIERS = [
+  {
+    name: 'Open Core', price: 'Free, forever', badge: 'OSI LICENCE',
+    line: 'The full sovereign platform, from source.',
+    items: ['Midgard core: identity, fabric, KMS, governance', 'All four products, open-source core', 'PQ crypto substrate · FIPS 203/204/205', 'Reproducible builds + SBOM per release', 'Community support'],
+    cta: ['Watch the repository', 'ghost'],
+  },
+  {
+    name: 'Enterprise', price: 'Per enclosure', badge: 'COMMERCIAL TIER', featured: true,
+    line: 'Advanced modules and someone to call at 03:00.',
+    items: ['Everything in Open Core', 'HA control plane + cross-site DR replication', 'Advanced governance: N-of-M approvals, compartments', 'Hardware guidance + PQ offload support', '24/7 support with response SLAs'],
+    cta: ['Request early access', 'primary'],
+  },
+  {
+    name: 'Sovereign', price: 'Per programme', badge: 'AIR-GAP + MISSION',
+    line: 'For estates where the internet is not an option.',
+    items: ['Everything in Enterprise', 'Air-gap delivery: signed offline bundles + courier workflow', 'On-site enclosure commissioning', 'Cleared-personnel support options', 'Custom evaluation suites for your mission'],
+    cta: ['Talk to the architecture team', 'outline'],
+  },
+];
+function App() {
+  return (
+    <SiteShell active="midgard">
+      <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(60px, 9vw, 110px) clamp(16px, 4vw, 36px) clamp(40px, 6vw, 72px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div className="mg-label" style={{ marginBottom: 14 }}>01 // LICENSING</div>
+          <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 3.6rem)', lineHeight: 1.06, maxWidth: 760, fontWeight: 800 }}>
+            The core is free.<br /><span style={{ color: 'var(--text-muted)' }}>The trust is built in.</span>
+          </h1>
+          <p style={{ margin: '20px 0 0', fontSize: 'var(--fs-body-lg)', color: 'var(--text-body)', maxWidth: 620, lineHeight: 1.7 }}>
+            Midgard is open-core: every product's core ships under an OSI-approved licence and builds reproducibly from source. The commercial version — the Enterprise and Sovereign tiers — is operated and maintained by Veldris Ltd. Commercial tiers add operational depth, not lock-in: your data model, your keys, and your deployment never depend on us.
+          </p>
+        </div>
+      </section>
+      <section style={{ padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(290px, 100%), 1fr))', gap: 16, alignItems: 'stretch' }}>
+          {TIERS.map(t => (
+            <Card key={t.name} size="lg" accentRule={t.featured} style={{ display: 'flex', flexDirection: 'column', borderColor: t.featured ? 'var(--accent)' : undefined }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <h2 style={{ fontSize: 'var(--fs-h4)' }}>{t.name}</h2>
+                <span style={{ marginLeft: 'auto' }}><Badge tone={t.featured ? 'accent' : 'neutral'}>{t.badge}</Badge></span>
+              </div>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 26, color: 'var(--text-heading)', margin: '14px 0 4px' }}>{t.price}</div>
+              <p style={{ margin: '0 0 16px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{t.line}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 20 }}>
+                {t.items.map(it => (
+                  <div key={it} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '7px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.5 }}>
+                    <Icon name="check" size={13} color="var(--secure)" style={{ marginTop: 2 }} />{it}
+                  </div>
+                ))}
+              </div>
+              <a href="#early-access" style={{ textDecoration: 'none', marginTop: 'auto' }}>
+                <Button variant={t.cta[1]} fullWidth>{t.cta[0]}</Button>
+              </a>
+            </Card>
+          ))}
+        </div>
+        <p style={{ maxWidth: 1200, margin: '18px auto 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>
+          NO PER-SEAT METERING INSIDE YOUR ENCLOSURE · NO TELEMETRY · LEAVING IS A CONFIG CHANGE, NOT A MIGRATION
+        </p>
+      </section>
+      <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', padding: 'clamp(40px, 6vw, 80px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <SectionLabel number={2}>STRAIGHT ANSWERS</SectionLabel>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 24px' }}>Questions we'd ask too.</h2>
+          {[
+            ['Is the open core actually usable, or a demo?', 'Usable. Identity, the object fabric, KMS, governance, and every product core are in the open tier. The commercial tiers add operational depth (HA, DR, advanced governance), not the ability to function.'],
+            ['What happens if we stop paying?', 'The platform keeps running. Commercial modules stop updating; nothing turns off, and nothing you built is held hostage. Your data was always in your enclosure.'],
+            ['Can we audit what we run?', 'Yes, bit for bit. Every release builds reproducibly from source and ships a CycloneDX SBOM and an ML-DSA signature. If your rebuild differs, that is a finding; tell us.'],
+            ['Do you see our data, ever?', 'No. No core function makes an outbound call, telemetry is in-enclosure only, and air-gapped estates get releases by signed offline bundle.'],
+          ].map(([q, a]) => (
+            <div key={q} style={{ padding: '16px 0', borderBottom: '1px solid var(--divider)' }}>
+              <h3 style={{ fontSize: 'var(--fs-body)', margin: '0 0 6px' }}>{q}</h3>
+              <p style={{ margin: 0, fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.7 }}>{a}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

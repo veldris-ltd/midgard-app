@@ -1,0 +1,14 @@
+# Helm values for a local kind cluster: every service runs its binary from the compose
+# image built from this checkout and loaded into the cluster (`kind load`). Nothing is
+# signature-verified before it runs — this is for development and evaluation, not a
+# release. [RC-33]
+image:
+  single: midgard/dev:local
+  pullPolicy: Never
+
+quota:
+  requestsCpu: "4"
+  requestsMemory: 4Gi
+  limitsCpu: "12"
+  limitsMemory: 12Gi
+  pods: "40"

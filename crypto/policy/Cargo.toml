@@ -1,0 +1,13 @@
+[package]
+name = "policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Role/marking/purpose policy-decision point, deny-by-default. [NFR-SEC-2]"
+
+[dependencies]
+# Zero dependencies — pure decision logic, decoupled from crypto and audit.
+
+[lib]
+path = "src/lib.rs"

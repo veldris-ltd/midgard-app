@@ -1,0 +1,16 @@
+[package]
+name = "bifrost-rollout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Bifrost rollout orchestrator: staged canary->broad rings with per-ring health gates and automatic zero-downtime rollback. [FR-B-2] [NFR-AVA-1]"
+
+[dev-dependencies]
+# The real deploy agent re-verifies the signed artefact before applying it
+# (verify-before-install) using the actual ML-DSA verifier. [AC-B-1]
+bifrost-artefact = { path = "../artefact" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

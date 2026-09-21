@@ -1,0 +1,30 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="admin_dual_control_seq" id="admin_dual_control_seq">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="A1" value="Admin (requester)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="150" height="45" as="geometry"/></mxCell>
+        <mxCell id="P" value="Admin panel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="210" y="40" width="130" height="45" as="geometry"/></mxCell>
+        <mxCell id="PR" value="Privilege service" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="360" y="40" width="150" height="45" as="geometry"/></mxCell>
+        <mxCell id="A2" value="Second approver" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="530" y="40" width="150" height="45" as="geometry"/></mxCell>
+        <mxCell id="O" value="Action orchestrator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="700" y="40" width="150" height="45" as="geometry"/></mxCell>
+        <mxCell id="S" value="Target subsystem" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="870" y="40" width="150" height="45" as="geometry"/></mxCell>
+        <mxCell id="L" value="Audit ledger" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="1040" y="40" width="130" height="45" as="geometry"/></mxCell>
+        <mxCell id="e0" value="request action" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="A1" target="P"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="classify" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="P" target="PR"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="needs dual-control" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="PR" target="P"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="prompt justification" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="P" target="A1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="justification" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="A1" target="P"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="request approval" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="P" target="A2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="approve/deny" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="A2" target="P"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="verify separation" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="P" target="PR"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="authorise" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="PR" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="execute" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="O" target="S"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="result" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="S" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="PQ audit" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="O" target="L"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e12" value="outcome" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="P" target="A1"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

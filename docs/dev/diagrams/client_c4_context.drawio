@@ -1,0 +1,30 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="client_c4_context" id="client_c4_context">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="b_cli" value="Midgard client surfaces" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="40" y="120" width="820" height="95" as="geometry"/></mxCell>
+        <mxCell id="b_enc" value="Midgard enclosure" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="140" y="260" width="420" height="175" as="geometry"/></mxCell>
+        <mxCell id="user" value="End user" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="380" y="30" width="140" height="50" as="geometry"/></mxCell>
+        <mxCell id="mob" value="Mobile (Android/iOS/Linux)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="60" y="140" width="180" height="55" as="geometry"/></mxCell>
+        <mxCell id="desk" value="Desktop (Win/macOS/Linux)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="260" y="140" width="180" height="55" as="geometry"/></mxCell>
+        <mxCell id="web" value="Web app (browser)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="460" y="140" width="180" height="55" as="geometry"/></mxCell>
+        <mxCell id="ext" value="Browser extension" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="660" y="140" width="180" height="55" as="geometry"/></mxCell>
+        <mxCell id="gw" value="Gateway (PQ-mTLS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="260" y="280" width="180" height="50" as="geometry"/></mxCell>
+        <mxCell id="fabric" value="Object Fabric" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="160" y="370" width="180" height="50" as="geometry"/></mxCell>
+        <mxCell id="mimir" value="Mimir inference" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="360" y="370" width="180" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="mob"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="desk"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="web"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="ext"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="PQ-mTLS" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="mob" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="PQ-mTLS" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="desk" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="PQ-mTLS" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="web" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="PQ-mTLS" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ext" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="gw" target="fabric"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="gw" target="mimir"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

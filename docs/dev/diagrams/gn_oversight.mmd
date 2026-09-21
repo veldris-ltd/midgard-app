@@ -1,0 +1,24 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph console["Oversight-operator console (meaningful human control)"]
+        monitor["Live projection monitor\n(what is being modelled + why)"]:::orion
+        explain["Explainability panel\n(assumptions, evidence, uncertainty)"]:::orion
+        intervene["Intervene\n(pause / adjust assumptions / re-scope)"]:::orion
+        halt["HALT\n(stop projection immediately)"]:::halt
+        dissent["Record dissent / override note\n(audited)"]:::orion
+    end
+    op["Oversight operator\n(on the ground)"]:::human
+    audit["PQ audit ledger"]:::ext
+    op --> monitor
+    op --> explain
+    op --> intervene
+    op --> halt
+    op --> dissent
+    monitor --> audit
+    intervene --> audit
+    halt --> audit
+    dissent --> audit
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef halt fill:#B23B3B,color:#fff,stroke:#7A2727,stroke-width:3px
+    classDef human fill:#1E7A46,color:#fff,stroke:#125230
+    classDef ext fill:#1168BD,color:#fff,stroke:#0B4884

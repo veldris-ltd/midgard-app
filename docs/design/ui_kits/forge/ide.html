@@ -1,0 +1,102 @@
+<!-- @dsCard group="Forge" viewport="1440x820" subtitle="Pro-code transforms over the same dataset contracts as the visual builder" name="Forge · Transform IDE" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Forge · Transform IDE</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-forge">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const FILES = ['fuse_positions.py', 'clean_flights.py', 'expectations.yml'];
+const CODE = [
+  'from forge import transform, Dataset, expect',
+  '',
+  '@transform(',
+  '    inputs={"raw": Dataset("sensor_stream")},',
+  '    output=Dataset("flight_tracks_eu"),',
+  ')',
+  'def fuse_positions(raw):',
+  '    df = raw.dataframe()',
+  '    df = df[df.alt_ft.between(0, 60000)]  # bounds [FR-F-6]',
+  '    return df.dedupe(on="icao24", keep="latest")',
+  '',
+  'expect(fuse_positions).rows_within(0.15).of_7d_mean()',
+];
+function App() {
+  const [file, setFile] = React.useState(0);
+  const [ran, setRan] = React.useState(false);
+  return (
+    <ConsoleShell product="forge" active="ide" context="DATA OPS / TRANSFORM IDE · DEV/FUSE-FIX"
+      toolbar={<>
+        <Badge tone="accent">BRANCH · DEV/FUSE-FIX</Badge>
+        <Button variant="secondary" size="sm" onClick={() => setRan(true)}>Preview run</Button>
+        <Button variant="primary" size="sm" iconLeft={<Icon name="git-commit" size={14} />}>Commit v43</Button>
+      </>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="code" size={17} color="var(--accent)" />
+          <h2 style={{ fontSize: 15, flex: 1 }}>Same contracts as the builder</h2>
+        </div>
+        <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>Pro-code transforms compile to the same typed execution plan as low-code graphs; a dataset can mix both in one pipeline. Type errors surface before run, not after.</p>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>CONTRACT CHECK</div>
+          {[['Input schema', 'sensor_stream v12 · 21 cols ✓'], ['Output schema', 'flight_tracks_eu · 18 cols ✓'], ['Expectations', '2 attached · run on build'], ['Marking flow', 'CONFIDENTIAL propagates ✓']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-faint)', width: 100, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--text-body)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        {ran && (
+          <Card size="sm" style={{ borderColor: 'var(--secure)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--secure)', marginBottom: 6 }}>PREVIEW · SANDBOXED</div>
+            <p style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.7 }}>rows in 48,112 → out 47,924<br />expectations 12/12 ✓ · 4.1s<br />nothing committed</p>
+          </Card>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+          <ProvenanceTag id="FR-F-1" title="Low-code builder and pro-code IDE over identical dataset contracts" />
+          <ProvenanceTag id="FR-F-3" title="Versioned with lineage; reproducible rebuilds" />
+        </div>
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={7}>PRO-CODE</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Transform IDE</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="3" label="FILES ON BRANCH" size="sm" />
+        <StatBlock value="12/12" label="EXPECTATIONS" size="sm" accent />
+        <StatBlock value="v43" label="NEXT VERSION" size="sm" />
+      </div>
+      <div style={{ flex: 1, display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', minHeight: 0 }}>
+        <div style={{ width: 200, flex: 'none', background: 'var(--bg-sunken)', borderRight: '1px solid var(--border)', padding: 10 }}>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', padding: '2px 6px 8px' }}>TRANSFORMS</div>
+          {FILES.map((f, i) => (
+            <button key={f} onClick={() => setFile(i)} style={{ all: 'unset', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: i === file ? 'var(--text-heading)' : 'var(--text-muted)', background: i === file ? 'var(--accent-tint)' : 'transparent', boxShadow: i === file ? 'inset 2px 0 0 var(--accent)' : 'none' }}>
+              <Icon name="file-text" size={13} />{f}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1, background: 'var(--bg-sunken)', padding: '14px 18px', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', lineHeight: 1.9, color: 'var(--grey-300)', overflow: 'auto' }}>
+          {CODE.map((l, i) => (
+            <div key={i} style={{ display: 'flex', gap: 14 }}>
+              <span style={{ color: 'var(--text-faint)', width: 18, textAlign: 'right', flex: 'none', userSelect: 'none' }}>{i + 1}</span>
+              <span style={{ whiteSpace: 'pre', color: l.trimStart().startsWith('#') || l.includes('# bounds') ? 'var(--text-faint)' : l.startsWith('@') ? 'var(--accent-hover)' : 'inherit' }}>{l}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

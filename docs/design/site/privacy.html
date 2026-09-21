@@ -1,0 +1,114 @@
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="GDPR privacy notice · controller, lawful bases, data-subject rights" name="midgard.eu/privacy" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · Privacy notice</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="../docs/mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script src="fabric-bg.js"></script>
+<script type="text/babel" src="site-shell.jsx"></script>
+<script type="text/babel">
+const { SiteShell, NS } = window.Site;
+const { Icon, SectionLabel, Card, Table } = NS;
+
+function Clause({ n, title, children, id }) {
+  return (
+    <div id={id} style={{ padding: '22px 0', borderBottom: '1px solid var(--divider)' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em', color: 'var(--accent)' }}>{String(n).padStart(2, '0')} //</span>
+        <h2 style={{ fontSize: 'var(--fs-h5)', margin: 0 }}>{title}</h2>
+      </div>
+      <div style={{ margin: '10px 0 0 0', fontSize: 'var(--fs-sm)', color: 'var(--text-body)', lineHeight: 1.75 }}>{children}</div>
+    </div>
+  );
+}
+
+function App() {
+  const rights = [
+    ['Access', 'Art. 15', 'A copy of any personal data we hold about you.'],
+    ['Rectification', 'Art. 16', 'Correction of inaccurate or incomplete data.'],
+    ['Erasure', 'Art. 17', 'Deletion of your data where no legal basis requires retention.'],
+    ['Restriction', 'Art. 18', 'Suspension of processing while a dispute is resolved.'],
+    ['Portability', 'Art. 20', 'Your data in a structured, machine-readable format.'],
+    ['Objection', 'Art. 21', 'Objection to processing based on legitimate interests.'],
+    ['Withdraw consent', 'Art. 7(3)', 'Where processing relies on consent, withdraw it at any time.'],
+    ['Complain', 'Art. 77', 'Lodge a complaint with your supervisory authority.'],
+  ];
+  const storage = [
+    ['mg-mode', 'Colour-mode preference (light / dark / system)', 'Until you clear it'],
+    ['mg-consent', 'That you dismissed the storage notice', 'Until you clear it'],
+    ['mg-early-access', 'Early-access requests you typed (this preview only)', 'Until you clear it'],
+    ['mg-contact', 'Contact messages you typed (this preview only)', 'Until you clear it'],
+  ];
+  return (
+    <SiteShell active="midgard">
+      <section className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', padding: 'clamp(60px, 9vw, 110px) clamp(16px, 4vw, 36px) clamp(40px, 6vw, 72px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <div className="mg-label" style={{ marginBottom: 14 }}>01 // PRIVACY NOTICE</div>
+          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3.2rem)', lineHeight: 1.08, maxWidth: 720, fontWeight: 800 }}>
+            The shortest privacy notice<br /><span style={{ color: 'var(--text-muted)' }}>we could honestly write.</span>
+          </h1>
+          <p style={{ margin: '20px 0 0', fontSize: 'var(--fs-body)', color: 'var(--text-body)', maxWidth: 640, lineHeight: 1.7 }}>
+            This notice covers midgard.eu and its product subdomains. It is written under the EU GDPR and the UK GDPR. Summary: this site sets no cookies, loads no analytics, and sends nothing you type to a server in this preview.
+          </p>
+          <p style={{ margin: '14px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>VERSION 1.0 · EFFECTIVE 2026-07-08 · APPLIES TO ALL *.MIDGARD.EU WEB PROPERTIES</p>
+        </div>
+      </section>
+
+      <section style={{ padding: 'clamp(32px, 5vw, 64px) clamp(16px, 4vw, 36px)' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <Clause n={1} title="Who is the controller">
+            Veldris Ltd is the data controller for this website. Registered office and company registration are on the <a href="legal.html" style={{ color: 'var(--accent-hover)' }}>legal notice</a> page. Data protection contact: <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.95em' }}>privacy@veldris.io</span>.
+          </Clause>
+          <Clause n={2} title="What we collect on this website">
+            Nothing server-side. The site is static: no cookies, no analytics, no fingerprinting, no third-party trackers, no advertising identifiers. Fonts and scripts are served with the site. Your browser's local storage holds functional state only:
+            <div style={{ marginTop: 14 }}>
+              <Table
+                columns={[{ key: 'k', label: 'KEY', mono: true }, { key: 'p', label: 'PURPOSE' }, { key: 'r', label: 'RETENTION' }]}
+                rows={storage.map(([k, p, r]) => ({ k, p, r }))}
+                compact
+              />
+            </div>
+            <p style={{ margin: '10px 0 0' }}>Local storage never leaves your device and is removable at any time via your browser settings.</p>
+          </Clause>
+          <Clause n={3} title="Early access and contact requests">
+            In this preview, form submissions are stored only in your own browser. In production, submitting a form will send us the data you typed (name, email, organisation, message). We will process it to respond to you: Art. 6(1)(b) GDPR where you are asking about a contract, otherwise Art. 6(1)(f) (our legitimate interest in answering people who write to us). It is retained for the life of the conversation plus 12 months, then deleted.
+          </Clause>
+          <Clause n={4} title="What we never do">
+            We do not sell personal data. We do not share it with third parties for marketing. We do not profile you. We do not enrich your record from data brokers. We do not transfer personal data outside the EU/UK; if that ever changes, this notice changes first and safeguards under Chapter V GDPR will apply.
+          </Clause>
+          <Clause n={5} title="Your rights" id="rights">
+            You have every right the GDPR grants, without charge:
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))', gap: 10, marginTop: 14 }}>
+              {rights.map(([name, art, body]) => (
+                <Card key={name} size="sm">
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <strong style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-heading)' }}>{name}</strong>
+                    <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.08em', color: 'var(--accent)' }}>{art}</span>
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.55 }}>{body}</p>
+                </Card>
+              ))}
+            </div>
+            <p style={{ margin: '14px 0 0' }}>
+              To exercise any of them, write to <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.95em' }}>privacy@veldris.io</span> or use the <a href="contact.html" style={{ color: 'var(--accent-hover)' }}>contact form</a> with topic "Privacy / GDPR request". We respond within one month (Art. 12(3)).
+            </p>
+          </Clause>
+          <Clause n={6} title="Supervisory authority">
+            You may complain to your local supervisory authority at any time. For the UK that is the Information Commissioner's Office (ico.org.uk); in the EU, the authority of your member state.
+          </Clause>
+          <Clause n={7} title="Changes">
+            Material changes to this notice are announced on this page with a new version number and effective date. We do not retroactively weaken anything.
+          </Clause>
+        </div>
+      </section>
+    </SiteShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

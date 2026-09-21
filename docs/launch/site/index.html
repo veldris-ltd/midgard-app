@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Midgard launch kit · demo deck and video</title>
+<meta name="description" content="The Midgard launch kit: the 18-slide launch deck and the recorded demo of the sovereign, post-quantum platform, in dark and light mode.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0a0b0d">
+<link rel="canonical" href="https://demo.midgard.dev/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://demo.midgard.dev/">
+<meta property="og:title" content="Midgard launch kit">
+<meta property="og:description" content="The launch deck and recorded demo of Midgard, the sovereign enclosure. Dark and light sets.">
+<meta property="og:image" content="https://demo.midgard.dev/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/SpaceGrotesk.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="preload" href="assets/fonts/Oxanium.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/mode.js"></script>
+</head>
+<body>
+<a class="skip" href="#video">Skip to the demo</a>
+
+<div class="marking" role="note">OPEN · PUBLIC LAUNCH MATERIAL · RELEASE CANDIDATE v0.1.0-rc.1</div>
+
+<header class="top">
+  <div class="wrap top-row">
+    <a class="brand" href="#top" aria-label="Midgard launch kit, top of page">
+      <span class="tile" aria-hidden="true">M</span>
+      <span class="brand-name">MIDGARD</span>
+      <span class="brand-ctx label">LAUNCH KIT</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#video">Demo video</a>
+      <a href="#deck">Deck</a>
+      <a href="#downloads">Downloads</a>
+      <a href="#honest">What is real</a>
+    </nav>
+    <div class="mode" role="group" aria-label="Colour mode of the page, deck and video">
+      <button type="button" class="mode-btn" data-mode="dark" aria-pressed="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>Dark
+      </button>
+      <button type="button" class="mode-btn" data-mode="light" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>Light
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero grid-bg">
+    <div class="wrap">
+      <div class="label accent">01 // LAUNCH KIT · SEPTEMBER 2026</div>
+      <h1>The sovereign enclosure<span class="dot">.</span></h1>
+      <p class="lede">Midgard is a post-quantum, air-gap-capable platform for your data, your models and your operations. This kit holds the launch deck and a recorded demo of the software running, each in the platform's two colour modes.</p>
+      <div class="seals">
+        <span class="seal"><i class="pulse" aria-hidden="true"></i>PQ-SEALED · ML-KEM-1024</span>
+        <span class="seal">NO EGRESS</span>
+        <span class="seal">AIR-GAP READY</span>
+      </div>
+      <div class="cta">
+        <a class="btn primary" href="#video">Watch the demo <span aria-hidden="true">↓</span></a>
+        <a class="btn" href="#deck">Open the deck <span aria-hidden="true">↓</span></a>
+      </div>
+      <p class="showing label" aria-live="polite">SHOWING THE <b data-bind="modeName">DARK</b> SET · <button type="button" class="link" data-action="flip">SWITCH TO <span data-bind="otherName">LIGHT</span></button></p>
+    </div>
+  </section>
+
+  <section id="video" class="band">
+    <div class="wrap">
+      <div class="label accent">02 // DEMO VIDEO</div>
+      <h2>The enclosure edge, end to end</h2>
+      <div class="video-grid">
+        <div>
+          <div class="frame">
+            <video id="demo" controls playsinline preload="metadata" aria-describedby="video-meta"></video>
+          </div>
+          <p id="video-meta" class="meta label"><span data-bind="videoMeta"></span> · <a data-bind="videoHref" download>DOWNLOAD MP4</a></p>
+        </div>
+        <ol class="steps" aria-label="What you will see">
+          <li><span class="num">01</span><p>The edge starts in a container. Login returns an ML-DSA-signed token, and a query returns only the objects the operator is cleared for, with the audit id that authorised it.</p></li>
+          <li><span class="num">02</span><p>Object fabric. “Ground aircraft” is refused until a person authorises it, then the authorisation itself is audited.</p></li>
+          <li><span class="num">03</span><p>Policy dry-run and audit lineage. Every entry from the session is already there, each one verified as ML-DSA-65.</p></li>
+          <li><span class="num">04</span><p>Forge, Mimir, Heimdall, Bifrost, Admin and the client shells, on built-in sample data.</p></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="deck" class="band sunken">
+    <div class="wrap">
+      <div class="label accent">03 // LAUNCH DECK</div>
+      <div class="deck-head">
+        <h2>Eighteen slides, about eighteen minutes</h2>
+        <a class="btn" data-bind="deckHref" download>Download the deck <span class="sub" data-bind="deckSize"></span></a>
+      </div>
+      <div class="viewer" id="viewer">
+        <div class="stage-col">
+          <div class="frame stage" id="stage" tabindex="0" role="group" aria-roledescription="slide viewer" aria-label="Launch deck. Use the left and right arrow keys to change slide.">
+            <img id="slide" alt="" width="1600" height="900" decoding="async">
+            <button type="button" class="nav-btn prev" data-action="prev" aria-label="Previous slide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+            <button type="button" class="nav-btn next" data-action="next" aria-label="Next slide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+          </div>
+          <div class="stage-bar">
+            <p class="label counter" aria-live="polite"><b data-bind="slideNo">01</b> / <span data-bind="slideCount">18</span> · <span data-bind="slideTitle"></span></p>
+            <button type="button" class="btn small" data-action="fullscreen">Full screen</button>
+          </div>
+          <div class="thumbs" id="thumbs" role="tablist" aria-label="Slides"></div>
+        </div>
+        <aside class="notes" aria-labelledby="notes-h">
+          <div class="label" id="notes-h">SPEAKER NOTES</div>
+          <p id="notes" class="notes-body"></p>
+          <p class="label faint">← → KEYS CHANGE SLIDE · NOTES ARE THE SAME IN BOTH SETS</p>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <section id="downloads" class="band">
+    <div class="wrap">
+      <div class="label accent">04 // DOWNLOADS</div>
+      <h2>Take the whole kit</h2>
+      <div class="table-scroll">
+        <table class="files">
+          <thead><tr><th scope="col">File</th><th scope="col">Dark set</th><th scope="col">Light set</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Launch deck<span class="sub">PowerPoint, 16:9, speaker notes, demo embedded on slide 14</span></th>
+              <td data-label="Dark set"><a data-file="dark.deck" download></a></td><td data-label="Light set"><a data-file="light.deck" download></a></td></tr>
+            <tr><th scope="row">Demo video<span class="sub">MP4, H.264, 1920×1080, silent, captioned</span></th>
+              <td data-label="Dark set"><a data-file="dark.video" download></a></td><td data-label="Light set"><a data-file="light.video" download></a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="meta">Both sets have the same slides, notes, beats and captions. The light video is shorter because its pages loaded faster during recording. Source, specification and the pipeline that produced this kit are in the <a href="https://github.com/veldris-ltd/midgard-app" rel="noopener">repository</a>.</p>
+    </div>
+  </section>
+
+  <section id="honest" class="band sunken">
+    <div class="wrap">
+      <div class="label accent">05 // WHAT IS REAL</div>
+      <h2>Measured, not promised</h2>
+      <div class="cards">
+        <article class="card">
+          <div class="label ok">REAL IN THE DEMO</div>
+          <p>The Midgard console talks to the actual Rust enclosure edge running in a container. The signed login token, the per-object marking checks, the human-gated action, the policy dry-run and every audit row are genuine.</p>
+        </article>
+        <article class="card">
+          <div class="label warn">SAMPLE DATA IN THE DEMO</div>
+          <p>The Forge, Mimir, Heimdall, Bifrost, Admin and client-shell consoles are the shipping builds on their built-in sample data. Their services do not expose console routes yet.</p>
+        </article>
+        <article class="card">
+          <div class="label accent">RELEASE STATUS</div>
+          <p>Version 0.1.0-rc.1 is a release candidate, not a supported release. General availability is gated on HSM key custody, GPU serving, FIPS 140-3 certification and a key ceremony. The deck's “Where we are” slide names every blocker.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-row">
+    <p><b>Veldris Ltd</b> · Apache-2.0 core · reproducible builds · CycloneDX SBOM per release</p>
+    <p class="label"><a href="mailto:hello@veldris.io">hello@veldris.io</a> · <a href="mailto:sales@veldris.io">sales@veldris.io</a> · <a href="mailto:security@veldris.io">security@veldris.io</a></p>
+    <p class="label faint">THIS PAGE LOADS NOTHING FROM OUTSIDE ITS OWN ORIGIN · NO COOKIES · NO ANALYTICS</p>
+  </div>
+</footer>
+
+<noscript><div class="noscript wrap">This page needs JavaScript for the slide viewer and the colour-mode switch. The files are under <a href="media/dark/">media/dark</a> and <a href="media/light/">media/light</a>.</div></noscript>
+<script src="assets/kit.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

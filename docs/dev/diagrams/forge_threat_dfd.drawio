@@ -1,0 +1,24 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="forge_threat_dfd" id="forge_threat_dfd">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="tb1" value="Trust Boundary: Client Edge" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="220" y="30" width="210" height="100" as="geometry"/></mxCell>
+        <mxCell id="tb2" value="Trust Boundary: Forge Service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="220" y="170" width="400" height="100" as="geometry"/></mxCell>
+        <mxCell id="tb3" value="Trust Boundary: Midgard Enclosure" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="220" y="310" width="380" height="100" as="geometry"/></mxCell>
+        <mxCell id="user" value="User" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="client" value="Forge client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="240" y="60" width="170" height="50" as="geometry"/></mxCell>
+        <mxCell id="api" value="Forge API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="240" y="200" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="svc" value="Domain services" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="430" y="200" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="fabric" value="Object fabric" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="240" y="340" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="seal" value="Seal (PQ keys)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="430" y="340" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="TLS (S,T,I)" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="user" target="client"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="mTLS (S,E)" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="client" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="authz (E,R)" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="api" target="svc"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="sealed (T,I)" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="svc" target="fabric"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="unwrap (I)" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="fabric" target="seal"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

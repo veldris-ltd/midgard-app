@@ -1,0 +1,15 @@
+{
+  "name": "midgard-suite",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Midgard — sovereign, post-quantum platform suite (JS/TS workspace root)",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test"
+  }
+}

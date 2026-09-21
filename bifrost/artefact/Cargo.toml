@@ -1,0 +1,23 @@
+[package]
+name = "bifrost-artefact"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Bifrost artefact registry: ML-DSA-signed versioned artefacts with CycloneDX SBOM attestation, verified fail-closed on ingest and before every deploy. [FR-B-1] [FR-B-4] [NFR-PQ-3]"
+
+[features]
+# Signing/verification is real ML-DSA (FIPS 204), so the FIPS backend is default —
+# a deploy gate that did not actually verify would be worthless.
+default = ["backend-fips"]
+backend-fips = ["pqc-agility/backend-fips", "attest/backend-fips"]
+
+[dependencies]
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The acceptance decision — shared with the CI release gate, the offline-bundle
+# import and Mimir's model load, so "acceptable" means one thing. Verification
+# needs no key custody, so `custody` (and with it `kms`) stays off. [AC-RF-SC-2d]
+attest = { path = "../../crypto/attest", default-features = false }
+
+[lib]
+path = "src/lib.rs"

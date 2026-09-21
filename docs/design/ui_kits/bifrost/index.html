@@ -1,0 +1,140 @@
+<!-- @dsCard group="Bifrost" viewport="1440x820" subtitle="Continuous delivery: channels, rings, fleet, release intelligence" name="Bifrost · Release Console" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Bifrost · Release Console</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-bifrost">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+
+const { Table, Card, StatusPill, Badge, Button, IconButton, Icon, SectionLabel, StatBlock, Select, ProvenanceTag, Terminal } = NS;
+
+const RINGS_INIT = [
+  { name: 'RING 0 · CANARY', total: 4, done: 4 },
+  { name: 'RING 1 · STAGING', total: 12, done: 12 },
+  { name: 'RING 2 · PROD-EU', total: 48, done: 21 },
+  { name: 'RING 3 · AIR-GAP SITES', total: 9, done: 0, bundle: true },
+];
+
+const FLEET = [
+  { inst: 'enclave-dub-01', ring: 'PROD-EU', ver: '2.4.1', target: '2.5.0', st: 'healthy', stl: 'Upgrading' },
+  { inst: 'enclave-fra-02', ring: 'PROD-EU', ver: '2.5.0', target: '2.5.0', st: 'secure', stl: 'Current' },
+  { inst: 'enclave-lon-01', ring: 'PROD-EU', ver: '2.5.0', target: '2.5.0', st: 'secure', stl: 'Current' },
+  { inst: 'site-north-ag', ring: 'AIR-GAP', ver: '2.4.0', target: '2.5.0', st: 'offline', stl: 'Bundle pending' },
+  { inst: 'enclave-ams-03', ring: 'PROD-EU', ver: '2.4.1', target: '2.5.0', st: 'warn', stl: 'Health gate' },
+];
+
+function Ring({ r, animate }) {
+  const pct = Math.round((r.done / r.total) * 100);
+  return (
+    <Card size="sm" style={{ flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-muted)' }}>{r.name}</span>
+        {r.bundle && <Badge>OFFLINE BUNDLE</Badge>}
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 11, color: pct === 100 ? 'var(--secure)' : 'var(--accent-hover)' }}>{r.done}/{r.total}</span>
+      </div>
+      <div style={{ height: 6, background: 'var(--surface-inset)', borderRadius: 3, marginTop: 10, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: pct + '%', background: pct === 100 ? 'var(--secure)' : 'var(--accent)', borderRadius: 3, transition: 'width 900ms var(--ease-out)' }} />
+      </div>
+    </Card>
+  );
+}
+
+function App() {
+  const [rings, setRings] = React.useState(RINGS_INIT);
+  const [promoting, setPromoting] = React.useState(false);
+  const [sel, setSel] = React.useState(0);
+
+  const promote = () => {
+    if (promoting) return;
+    setPromoting(true);
+    let step = 0;
+    const t = setInterval(() => {
+      step++;
+      setRings(rs => rs.map((r, i) => i === 2 ? { ...r, done: Math.min(r.total, r.done + 7) } : r));
+      if (step >= 4) { clearInterval(t); setPromoting(false); }
+    }, 700);
+  };
+
+  return (
+    <ConsoleShell product="bifrost" active="releases" context="RELEASES / MIDGARD-SUITE"
+      toolbar={<>
+        <Badge tone="accent">v2.5.0</Badge>
+        <Select size="sm" options={['stable', 'beta', 'canary']} value="stable" onChange={() => {}} />
+        <Button variant="primary" size="sm" iconLeft={<Icon name="rocket" size={14} />} onClick={promote} disabled={promoting}>{promoting ? 'Promoting…' : 'Promote to Ring 2'}</Button>
+      </>}
+      aside={<>
+        <SectionLabel number={3} muted>RELEASE INTELLIGENCE</SectionLabel>
+        <Card size="sm" accentRule>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <StatBlock value="LOW" label="RISK SCORE · MIMIR" size="sm" accent />
+            <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>LOCAL · GLM 5.2</span>
+          </div>
+          <p style={{ margin: '10px 0 0', fontSize: 'var(--fs-xs)', lineHeight: 1.6, color: 'var(--text-body)' }}>
+            Diff surface is 84% config, 16% code; no schema migrations. Historical anomaly match: none. Advisory by default; configurable to gate the rollout. Rule-based health gates always apply, with or without Mimir.
+          </p>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>HEALTH GATES</div>
+          {[['p99 latency < 250ms', 'secure'], ['error rate < 0.1%', 'secure'], ['enclave-ams-03 CPU', 'warn']].map(([g, s], i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-body)' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: s === 'secure' ? 'var(--secure)' : 'var(--warn)', flex: 'none' }} />{g}
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PROVENANCE</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <ProvenanceTag id="FR-B-6" title="AI release intelligence: risk scoring, anomaly detection via Mimir" /><ProvenanceTag id="FR-B-2" title="Zero-downtime rolling upgrades, health-gated rollback" />
+            <ProvenanceTag id="NFR-PQ-3" title="ML-DSA / SLH-DSA artefact signing" />
+            <ProvenanceTag id="FR-B-5" title="Signed offline bundles for air-gapped sites" />
+          </div>
+        </div>
+        <Button variant="secondary" size="sm" style={{ marginTop: 'auto' }} iconLeft={<Icon name="undo-2" size={14} />}>Prepare rollback plan</Button>
+      </>}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
+            <div>
+              <SectionLabel number={1}>ROLLOUT, v2.5.0</SectionLabel>
+              <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Zero-downtime rollout</h1>
+            </div>
+            <div style={{ flex: 1 }} />
+            <StatBlock value="37/73" label="INSTALLATIONS" size="sm" />
+            <StatBlock value="0" label="FAILED REQUESTS" size="sm" accent />
+            <StatBlock value="AUTO" label="ROLLBACK GATE" size="sm" />
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {rings.map((r, i) => <Ring key={i} r={r} />)}
+          </div>
+          <div>
+            <SectionLabel number={2} muted>FLEET</SectionLabel>
+            <Table style={{ marginTop: 8 }}
+              columns={[
+                { header: 'Installation', cell: (r) => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="server" size={14} color="var(--accent)" />{r.inst}</span> },
+                { header: 'Ring', key: 'ring', mono: true, width: 110 },
+                { header: 'Version', key: 'ver', mono: true, width: 90 },
+                { header: 'Target', key: 'target', mono: true, width: 90 },
+                { header: 'State', cell: (r) => <StatusPill status={r.st} pulse={false} label={r.stl} />, width: 150 },
+              ]}
+              rows={FLEET} selectedIndex={sel} onRowClick={setSel}
+            />
+          </div>
+          <Terminal title="SUPPLY CHAIN, v2.5.0" lines={[
+            '> bifrost verify midgard-suite:2.5.0',
+            'build      reproducible ✓ (bit-identical 2/2)',
+            'sbom       CycloneDX attached · 0 critical CVEs',
+            'signature  ML-DSA verified · key enclosure-root-03',
+            '# verified, promotion permitted [FR-B-4]',
+          ]} />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

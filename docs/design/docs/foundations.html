@@ -1,0 +1,366 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Midgard Design System · Foundations</title>
+<link rel="stylesheet" href="../styles.css">
+<script src="mode.js"></script>
+<style>body{margin:0}</style></head>
+<body class="theme-midgard">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../ds-loader.js"></script>
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel">
+const { DocsShell, PageIntro, Section, SubHead, Demo, Code, DoDont } = window.Docs;
+const { Icon, Badge, Button, SectionLabel, StatBlock, Terminal, ProvenanceTag, MarkingChip, ClassificationBanner, ProductMark } = window.Docs.NS;
+const ICON_NAMES = window.Docs.NS.ICON_NAMES || [];
+
+function Swatch({ v, name, note, fg }) {
+  return (
+    <div style={{ flex: '1 1 90px', minWidth: 90 }}>
+      <div style={{ height: 64, borderRadius: 'var(--radius-sm)', background: v, border: '1px solid var(--border)' }} />
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-body)', marginTop: 7 }}>{name}</div>
+      {note && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', marginTop: 2 }}>{note}</div>}
+    </div>
+  );
+}
+
+function AccentRow({ id, name, hex, meaning }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '11px 0', borderBottom: '1px solid var(--divider)' }}>
+      <span style={{ width: 90, display: 'flex', gap: 3 }}>
+        <span style={{ flex: 1, height: 26, borderRadius: '4px 0 0 4px', background: 'var(--' + id + '-300)' }} />
+        <span style={{ flex: 1, height: 26, background: 'var(--' + id + '-500)' }} />
+        <span style={{ flex: 1, height: 26, borderRadius: '0 4px 4px 0', background: 'var(--' + id + '-600)' }} />
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em', color: 'var(--text-heading)', width: 92 }}>{name}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', width: 76 }}>{hex}</span>
+      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', flex: 1 }}>{meaning}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>.theme-{id}</span>
+    </div>
+  );
+}
+
+function TypeRow({ token, px, sample, family, weight }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, padding: '9px 0', borderBottom: '1px solid var(--divider)' }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', width: 130, flex: 'none' }}>{token} · {px}</span>
+      <span style={{ fontFamily: family || 'var(--font-display)', fontWeight: weight || 700, fontSize: px, letterSpacing: family ? 0 : '-0.02em', color: 'var(--text-heading)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.15 }}>{sample}</span>
+    </div>
+  );
+}
+
+function MotionDemo() {
+  const [on, setOn] = React.useState(false);
+  return (
+    <div style={{ display: 'flex', gap: 22, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Button variant="secondary" size="sm" onClick={() => setOn(o => !o)}>Trigger entrance</Button>
+      {['--dur-fast · 120ms', '--dur-base · 200ms', '--dur-slow · 360ms'].map((d, i) => (
+        <div key={d + on} style={{
+          padding: '12px 18px', background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+          fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-body)',
+          animation: 'mgIn ' + [120, 200, 360][i] + 'ms var(--ease-out) both',
+        }}>{d}</div>
+      ))}
+      <style>{'@keyframes mgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}'}</style>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DocsShell active="foundations">
+      <PageIntro num={1} eyebrow="FOUNDATIONS" title="The raw material"
+        lead="Every value here is a CSS custom property in tokens/, the contract between design and engineering. Style against var(--*); never write hex literals in product code. Use the platform selector in the header to re-scope every accent-driven specimen to Midgard, Forge, Mimir, Bifrost, or Heimdall." />
+
+      <Section id="color" num={1} title="Colour" lead="A ruthlessly narrow system: an ink ramp (dark) or paper ramp (light) for surfaces, a grey text ramp, one accent hue per product, and functional colours reserved for state.">
+        <SubHead>Surfaces · dark (default)</SubHead>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Swatch v="#050506" name="--ink-950" note="sunken" />
+          <Swatch v="#0a0b0d" name="--ink-900" note="page" />
+          <Swatch v="#101114" name="--ink-850" note="inset" />
+          <Swatch v="#16181c" name="--ink-800" note="card" />
+          <Swatch v="#1e2126" name="--ink-700" note="raised" />
+          <Swatch v="#2a2d34" name="--ink-600" note="border" />
+          <Swatch v="#3a3e46" name="--ink-500" note="strong" />
+        </div>
+        <SubHead>Surfaces · light (.mode-light)</SubHead>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Swatch v="#e6e8ec" name="--bg-sunken" />
+          <Swatch v="#eff0f3" name="--bg-page" />
+          <Swatch v="#e9ebef" name="--surface-inset" />
+          <Swatch v="#ffffff" name="--surface-card" />
+          <Swatch v="#f6f7f9" name="--surface-raised" />
+          <Swatch v="#d6d9de" name="--border" />
+          <Swatch v="#bfc4cb" name="--border-strong" />
+        </div>
+        <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-faint)', margin: '10px 0 0' }}>Semantic aliases (--bg-page, --surface-card, --border, …) re-point per mode, components reference only the aliases and adapt unmodified.</p>
+
+        <SubHead>Product accents · one hue per product, one accent per screen</SubHead>
+        <div style={{ marginBottom: 14 }}>
+          <AccentRow id="midgard" name="MIDGARD" hex="#CA1D25" meaning="Enclosure red, the Veldris house red. Core platform, identity, governance." />
+          <AccentRow id="forge" name="FORGE" hex="#D96E1E" meaning="Ember orange, heat, transformation. Data operations." />
+          <AccentRow id="mimir" name="MIMIR" hex="#23A8B6" meaning="Well teal, the well of wisdom. Local agentic AI." />
+          <AccentRow id="bifrost" name="BIFROST" hex="#7D5CE6" meaning="Bridge violet, the crossing. Continuous delivery." />
+          <AccentRow id="heimdall" name="HEIMDALL" hex="#C99A22" meaning="Watchman gold, the keenest eye. Operational fusion." />
+        </div>
+        <SubHead>Applying the accent, per platform</SubHead>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
+            <thead><tr style={{ background: 'var(--surface-inset)' }}>
+              {['Surface', 'Midgard', 'Forge', 'Mimir', 'Bifrost', 'Heimdall'].map(h => <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-faint)', borderBottom: '1px solid var(--border)' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                ['Primary action', 'Seal / publish', 'Run build', 'Send / authorise', 'Promote release', 'Authorise option'],
+                ['Selection rail', 'Object row', 'DAG node', 'Agent card', 'Fleet row', 'Entity / option'],
+                ['Accent numeral', 'Lineage %', 'Version count', 'Eval pass %', 'Rollout count', 'Anomaly count'],
+                ['Glow (rare)', 'Primary CTA', 'Selected node', 'Send button', 'Promote button', 'Selected entity'],
+              ].map((r, i) => (
+                <tr key={i}>{r.map((c, j) => <td key={j} style={{ padding: '7px 12px', color: j === 0 ? 'var(--text-faint)' : 'var(--text-body)', fontFamily: j === 0 ? 'var(--font-mono)' : 'var(--font-sans)', fontSize: j === 0 ? 10 : 'var(--fs-xs)', borderBottom: i < 3 ? '1px solid var(--divider)' : 'none' }}>{c}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <DoDont
+          dos={['Scope one theme class per surface and let --accent-* flow', 'Use the accent for the primary action, active states, section numerals', 'Keep status colours (secure/warn/danger/info) for state only']}
+          donts={['Mix two product accents on one screen', 'Use accent hues to encode data categories', 'Use --warn as a Heimdall accent substitute, markings and status keep fixed colours']}
+        />
+        <SubHead>Status & markings · fixed in every theme and mode</SubHead>
+        <Demo>
+          <Badge tone="secure">SEALED</Badge>
+          <Badge tone="warn">DEGRADED</Badge>
+          <Badge tone="danger">FAILED</Badge>
+          <Badge tone="info">ADVISORY</Badge>
+          <span style={{ width: 18 }} />
+          <MarkingChip level="confidential" compartment="OPS-N" />
+          <MarkingChip level="restricted" />
+          <MarkingChip level="internal" />
+          <MarkingChip level="open" />
+        </Demo>
+      </Section>
+
+      <Section id="platforms" num={2} title="Platform identities" lead="Five products, one grammar, one variable. Each identity is an accent hue, a vocabulary, and a voice sample; everything else is shared. The header selector re-scopes every accent-driven specimen in these docs.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14 }}>
+          {[
+            { id: 'midgard', hue: 'Enclosure red · #CA1D25', vocab: 'enclosure · object fabric · marking · purpose · lineage · seal', eyebrow: '02 // OBJECT FABRIC', headline: 'Nothing leaves Midgard.', cta: 'Explore the fabric →', seal: 'PQ-SEALED · ML-KEM-1024 · NO EGRESS', banner: 'CONFIDENTIAL' },
+            { id: 'forge', hue: 'Ember orange · #D96E1E', vocab: 'pipeline · dataset · branch · expectation · projection · build', eyebrow: '01 // DATA OPERATIONS', headline: 'Version data like source.', cta: 'Run the build →', seal: 'SEALED AT REST · LINEAGE SIGNED', banner: 'RESTRICTED · DATA PLANE' },
+            { id: 'mimir', hue: 'Well teal · #23A8B6', vocab: 'agent · OAG · eval · guardrail · human gate · self-*', eyebrow: '03 // LOCAL AGENTIC AI', headline: 'Grounded. Cited. Gated.', cta: 'Ask the fabric →', seal: 'INFERENCE LOCAL · NO EGRESS', banner: 'CONFIDENTIAL' },
+            { id: 'bifrost', hue: 'Bridge violet · #7D5CE6', vocab: 'artefact · channel · ring · bundle · health gate · rollback', eyebrow: '04 // CONTINUOUS DELIVERY', headline: 'Zero downtime. Every ring.', cta: 'Promote to Ring 2 →', seal: 'ARTEFACTS ML-DSA ✓', banner: 'INTERNAL · RELEASE CONTROL PLANE' },
+            { id: 'heimdall', hue: 'Watchman gold · #C99A22', vocab: 'feed · fused picture · entity · track · option · decision lineage', eyebrow: '05 // OPERATIONAL FUSION', headline: 'One picture. One authoriser.', cta: 'Open the picture →', seal: 'FEEDS PQ-AUTH ✓ · FUSED', banner: 'CONFIDENTIAL · OPERATIONAL PICTURE' },
+          ].map(p => (
+            <div key={p.id} className={'theme-' + p.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', overflow: 'hidden' }}>
+              <div style={{ height: 3, background: 'var(--accent)' }} />
+              <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 11 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <ProductMark product={p.id} size="sm" />
+                  <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>{p.hue}</span>
+                </div>
+                <div>
+                  <div className="mg-label">{p.eyebrow}</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em', color: 'var(--text-heading)', marginTop: 5 }}>{p.headline}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600 }}><a href={'#platforms'}>{p.cta}</a></span>
+                  <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>{p.seal}</span>
+                </div>
+                <div style={{ borderTop: '1px solid var(--divider)', paddingTop: 9, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>VOCABULARY · {p.vocab}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>BANNER · {p.banner}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section id="type" num={3} title="Typography" lead="Three families, three jobs. Oxanium for headings and big numerics; Space Grotesk for UI and body; JetBrains Mono for labels, prompts, readouts and provenance. All are Google-Fonts substitutions pending licensed brand faces.">
+        <div style={{ marginBottom: 18 }}>
+          <TypeRow token="--fs-display" px="72px" sample="Decisions, not data." />
+          <TypeRow token="--fs-h1" px="48px" sample="Object Fabric" />
+          <TypeRow token="--fs-h2" px="36px" sample="Object Fabric" />
+          <TypeRow token="--fs-h3" px="24px" sample="Object Fabric" />
+          <TypeRow token="--fs-body" px="16px" sample="Body copy, every read, write, and agent action is recorded in an append-only lineage." family="var(--font-sans)" weight={400} />
+          <TypeRow token="--fs-sm" px="14px" sample="Console body density, data tables, side navs, inspectors." family="var(--font-sans)" weight={400} />
+          <TypeRow token="--fs-micro" px="11px" sample="MONO LABEL · 0.14EM TRACKING · ALL CAPS" family="var(--font-mono)" weight={500} />
+        </div>
+        <DoDont
+          dos={['ALL-CAPS mono for eyebrows, table headers, stat labels, banners', 'Sentence case for body copy; Title Case for screen and product names', 'Tight tracking (-0.02em) on display sizes']}
+          donts={['Mono for running body copy', 'Font sizes below --fs-micro (11px)', 'Bold Space Grotesk where Oxanium display is the right tool']}
+        />
+      </Section>
+
+      <Section id="spacing" num={4} title="Spacing, layout & density" lead="A 4px base grid. Marketing surfaces breathe (--section-y 96px); operator consoles are dense and deliberate. Display sizes clamp responsively (72→40, 48→32, 36→26); console rails collapse: side nav to an icon rail, inspector fully, and both become overlay drawers below 900px.">
+        <Demo label="SCALE · 4PX BASE">
+          {[4, 8, 12, 16, 24, 32, 48, 64].map((s, i) => (
+            <div key={s} style={{ textAlign: 'center' }}>
+              <div style={{ width: 26, height: s, background: 'var(--accent)', margin: '0 auto', borderRadius: 2 }} />
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', marginTop: 6 }}>{i + 1}·{s}</div>
+            </div>
+          ))}
+          <div style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', lineHeight: 2, textAlign: 'right' }}>
+            --container 1200px<br />--row-h 40 · compact 32<br />--toolbar-h 52 · --sidenav-w 232<br />--banner-h 26
+          </div>
+        </Demo>
+        <SubHead>Console anatomy</SubHead>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 14 }}>
+          <div style={{ height: 18, background: 'var(--marking-confidential)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.18em', color: '#fff' }}>CLASSIFICATION BANNER · 26PX</div>
+          <div style={{ height: 34, background: 'var(--bg-sunken)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 12px', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>TOP BAR · 52PX · MARK · CONTEXT · SEARCH · SEALS</div>
+          <div style={{ display: 'flex', height: 150 }}>
+            <div style={{ width: 120, background: 'var(--bg-sunken)', borderRight: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>SIDENAV<br />232PX</div>
+            <div className="mg-grid-bg" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>WORK CANVAS</div>
+            <div style={{ width: 150, background: 'var(--bg-sunken)', borderLeft: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>INSPECTOR<br />300–360PX</div>
+          </div>
+        </div>
+      </Section>
+
+      <Section id="shape" num={5} title="Shape & elevation" lead="Crisp corners, hairline borders. On dark, elevation is a lighter surface plus a stronger border, drop shadows are reserved for true overlays. Pills belong to status chips and tags only.">
+        <Demo label="RADII">
+          {[['xs', 4], ['sm', 6], ['md', 10], ['lg', 16]].map(([n, r]) => (
+            <div key={n} style={{ width: 92, height: 66, borderRadius: r, background: 'var(--surface-card)', border: '1px solid var(--border-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>{n} · {r}</div>
+          ))}
+          <span style={{ padding: '6px 14px', borderRadius: 999, background: 'var(--secure-tint)', color: 'var(--secure)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>pill · status only</span>
+        </Demo>
+        <Demo label="ELEVATION · SURFACE + BORDER, NOT SHADOW">
+          {[['page', 'var(--bg-page)', 'var(--border)'], ['card', 'var(--surface-card)', 'var(--border)'], ['raised / hover', 'var(--surface-raised)', 'var(--border-strong)']].map(([n, bg, bd]) => (
+            <div key={n} style={{ flex: 1, minWidth: 130, height: 76, background: bg, border: '1px solid ' + bd, borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'flex-end', padding: 10, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>{n}</div>
+          ))}
+          <div style={{ flex: 1, minWidth: 130, height: 76, background: 'var(--surface-raised)', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', display: 'flex', alignItems: 'flex-end', padding: 10, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>overlay · +shadow-md</div>
+          <div style={{ flex: 1, minWidth: 130, height: 76, background: 'var(--surface-card)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-glow)', display: 'flex', alignItems: 'flex-end', padding: 10, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>glow · primary CTA / focus</div>
+        </Demo>
+      </Section>
+
+      <Section id="motion" num={6} title="Motion" lead="Precise and quick: decisive settles (--ease-out), 120–360ms, fades and short translate-ups. No bounce, no elastic, no playful overshoot. Respect prefers-reduced-motion.">
+        <Demo label="ENTRANCES · TRANSLATE-UP + FADE">
+          <MotionDemo />
+        </Demo>
+        <Code>{'transition: background var(--dur-fast) var(--ease-out);  /* hovers */\nanimation: in var(--dur-base) var(--ease-out) both;       /* entrances */\n/* --ease-out: cubic-bezier(0.16, 1, 0.3, 1), the default */'}</Code>
+        <DoDont
+          dos={['Fade + 8px translate-up for entrances', 'Accent-glow bloom on focus (--ring-focus)', 'Linear motion for marquee/ticker content']}
+          donts={['Bounce, elastic or overshoot easings', 'Scale-shrink on large pressed elements (icon buttons may scale 0.96)', 'Opacity-dim as a hover state']}
+        />
+      </Section>
+
+      <Section id="icons" num={7} title="Iconography" lead="Single-stroke line glyphs (~1.9px), no fills, Lucide-substituted pending a licensed set. Domain glyphs carry meaning; unicode accents (→ ↓ ↗ · // >) are on-brand micro-icons. Emoji: never.">
+        <Demo label={'ICON SET, ' + ICON_NAMES.length + ' GLYPHS'}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 10, width: '100%' }}>
+            {ICON_NAMES.map(n => (
+              <div key={n} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, padding: '12px 4px', background: 'var(--surface-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                <Icon name={n} size={19} color="var(--text-body)" />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)', textAlign: 'center' }}>{n}</span>
+              </div>
+            ))}
+          </div>
+        </Demo>
+      </Section>
+
+      <Section id="voice" num={8} title="Voice & tone" lead="Engineered, declarative, quietly intense, an architecture document that grew a UI. Every claim has provenance; every action has lineage.">
+        <Demo label="HOUSE DEVICES" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'center' }}>
+          <SectionLabel number={2}>OBJECT FABRIC</SectionLabel>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-body)' }}><span style={{ color: 'var(--accent)' }}>&gt;</span> midgard status --enclosure</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-muted)' }}>PQ-SEALED · ML-KEM-1024 · NO EGRESS</span>
+          <span style={{ display: 'flex', gap: 6 }}><ProvenanceTag id="DD-4" /><ProvenanceTag id="NFR-PQ-2" /><ProvenanceTag id="STD:NIST FIPS 203" /></span>
+          <span style={{ fontSize: 14 }}><a href="#voice">Explore the fabric →</a></span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}><span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 24, color: 'var(--text-heading)' }}>99.9%</span><span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>CONTROL-PLANE SLO</span></span>
+        </Demo>
+        <DoDont
+          dos={['"Artefact verified. Promotion permitted.", short, verifiable, declarative', '"Your conversations stay yours. No logs, no exceptions."', 'Middots for meta (v2.5.0 · stable · ML-DSA ✓); arrows for actions']}
+          donts={['Exclamation marks, hype adjectives, marketing superlatives', 'Emoji, the accent vocabulary is mono glyphs and arrows', '"Oops! Something went wrong :)", errors state cause and next step']}
+        />
+      </Section>
+
+      <Section id="states" num={9} title="Interaction states" lead="Six states, one recipe everywhere: surfaces lighten on hover, accents deepen on press, focus gets the accent halo, disabled drops to faint on inset. Rendered below as forced states.">
+        <Demo label="THE STATE RECIPE · FORCED FOR DISPLAY">
+          {[
+            ['Default', { background: 'var(--surface-card)', border: '1px solid var(--border)', color: 'var(--text-heading)' }],
+            ['Hover', { background: 'var(--surface-raised)', border: '1px solid var(--border-strong)', color: 'var(--text-heading)' }],
+            ['Press', { background: 'var(--surface-raised)', border: '1px solid var(--border-strong)', color: 'var(--text-heading)', transform: 'translateY(1px)' }],
+            ['Focus', { background: 'var(--surface-card)', border: '1px solid var(--accent)', color: 'var(--text-heading)', boxShadow: 'var(--ring-focus)' }],
+            ['Selected', { background: 'var(--accent-tint)', border: '1px solid var(--border)', color: 'var(--text-heading)', boxShadow: 'inset 2px 0 0 var(--accent)' }],
+            ['Disabled', { background: 'var(--surface-inset)', border: '1px solid var(--border)', color: 'var(--text-faint)', cursor: 'not-allowed' }],
+          ].map(([n, s]) => (
+            <div key={n} style={{ width: 130, height: 64, borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 'var(--fs-sm)', fontWeight: 500, ...s }}>
+              {n}
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>{n.toUpperCase()}</span>
+            </div>
+          ))}
+        </Demo>
+        <Demo label="PRIMARY ACTION STATES · ACCENT">
+          {[
+            ['Rest', 'var(--accent)', 'none'],
+            ['Hover', 'var(--accent-hover)', 'var(--shadow-glow)'],
+            ['Press', 'var(--accent-press)', 'none'],
+          ].map(([n, bg, sh]) => (
+            <span key={n} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 38, padding: '9px 18px', borderRadius: 'var(--radius-sm)', background: bg, color: '#fff', fontSize: 'var(--fs-sm)', fontWeight: 600, boxShadow: sh, transform: n === 'Press' ? 'translateY(1px)' : 'none' }}>{n}</span>
+          ))}
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>500 → 300 (hover) → 600 (press) in dark; hover uses 600 in light</span>
+        </Demo>
+        <DoDont
+          dos={['Lighten the surface one ink step on hover', 'Deepen the accent + 1px downward nudge on press', 'Accent-tint fill + 2px rail for selection']}
+          donts={['Opacity-dim as a hover state', 'Scale-shrink large elements on press', 'Colour-only state changes on rows (pair tint with the rail)']}
+        />
+      </Section>
+
+      <Section id="a11y" num={10} title="Accessibility" lead="Operator consoles carry consequential decisions; legibility and predictability are safety features, not polish.">
+        <SubHead>Contrast rules</SubHead>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
+            <thead><tr style={{ background: 'var(--surface-inset)' }}>
+              {['Token pair', 'Use', 'Rule'].map(h => <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-faint)', borderBottom: '1px solid var(--border)' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                ['--text-heading / --text-body on any surface', 'Headings, body, table cells', 'Always passes AA; no restrictions'],
+                ['--text-muted on --surface-card', 'Secondary copy, descriptions', 'AA at 14px+; avoid below --fs-xs'],
+                ['--text-faint on any surface', 'Captions, mono meta, disabled', 'Decorative and non-essential text only'],
+                ['--accent (500) on dark surfaces', 'Fills, rails, numerals, glyphs', 'Non-text and large numerals only'],
+                ['--accent-hover on dark · --accent-press on light', 'Text links, cited references', 'The text-safe accent step per mode'],
+                ['Status dot + label', 'StatusPill, health lists', 'Never colour alone; always pair with text'],
+              ].map((r, i) => (
+                <tr key={i}>{r.map((c, j) => <td key={j} style={{ padding: '7px 12px', fontFamily: j === 0 ? 'var(--font-mono)' : 'var(--font-sans)', fontSize: j === 0 ? 10 : 'var(--fs-xs)', color: j === 0 ? 'var(--accent-hover)' : 'var(--text-body)', borderBottom: i < 5 ? '1px solid var(--divider)' : 'none' }}>{c}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <SubHead>Interaction & motion</SubHead>
+        <DoDont
+          dos={['36px minimum pointer targets in consoles; 44px where touch is expected', 'Visible focus ring (--ring-focus) on every interactive element; never outline: none without it', 'Honour prefers-reduced-motion: pulses and entrances collapse to static', 'aria-label on every icon-only control (IconButton requires it)']}
+          donts={['Encode state in hue alone (pair dot + text, tint + rail)', 'Trap keyboard focus inside the inspector rail', 'Auto-dismiss receipts that carry an audit id']}
+        />
+      </Section>
+
+      <Section id="traceability" num={11} title="Requirement traceability" lead="The SADs' own discipline, promoted to UI law: every claim has a source, every screen names the requirements it implements. The chip colour keys off the id prefix.">
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-xs)' }}>
+            <thead><tr style={{ background: 'var(--surface-inset)' }}>
+              {['Prefix', 'Meaning', 'Chip', 'Example'].map(h => <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-faint)', borderBottom: '1px solid var(--border)' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                ['DD-n', 'Design driver (business goal)', 'DD-4', 'Local AI processing via the Mimir layer'],
+                ['FR-x-n', 'Functional requirement, per product', 'FR-H-5', 'Human-gated action workflows with audit lineage'],
+                ['NFR-x-n', 'Cross-cutting quality requirement', 'NFR-PQ-2', 'AES-256-GCM under ML-KEM-1024-wrapped keys'],
+                ['STD:…', 'External standard', 'STD:NIST FIPS 203', 'ML-KEM key encapsulation'],
+                ['AC-x-n', 'Acceptance criterion (given/when/then)', 'AC-M-5', 'Full air-gap: every core function works offline'],
+              ].map((r, i, arr) => (
+                <tr key={r[0]}>
+                  <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-heading)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{r[0]}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-body)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{r[1]}</td>
+                  <td style={{ padding: '8px 12px', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}><ProvenanceTag id={r[2]} title={r[3]} /></td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', borderBottom: i < arr.length - 1 ? '1px solid var(--divider)' : 'none' }}>{r[3]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <DoDont
+          dos={['Tag every screen with the FRs it implements (inspector rail, bottom)', 'Tooltip carries the full requirement statement', 'Cite acceptance criteria in receipts ("promotion permitted [FR-B-4]")']}
+          donts={['Invent requirement ids that are not in a SAD', 'Use provenance chips decoratively on unrelated copy', 'Restyle chip colours per theme (they are fixed, like markings)']}
+        />
+      </Section>
+    </DocsShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

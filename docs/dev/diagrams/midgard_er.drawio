@@ -1,0 +1,21 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="midgard_er" id="midgard_er">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="ot" value="OBJECT_TYPE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="o" value="OBJECT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="260" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="lt" value="LINK_TYPE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="480" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="at" value="ACTION_TYPE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="700" y="40" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="al" value="ACTION_LOG" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="700" y="180" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="m" value="MARKING" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="40" y="180" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="instantiates" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ot" target="o"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="types" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ot" target="lt"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="mutated by" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ot" target="at"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="records" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="at" target="al"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="classifies" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="m" target="o"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

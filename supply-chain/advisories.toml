@@ -1,0 +1,36 @@
+# Accepted vulnerability exposure.
+#
+# `mg-scan` fails the release on any CRITICAL or HIGH advisory affecting a
+# component in the SBOM. An entry here suppresses one specific advisory for one
+# specific crate — nothing broader.
+#
+# Every entry MUST carry an owner, a reason, a compensating control, and an
+# expiry. An expired exception FAILS the gate, which is the point: accepted risk
+# has to be re-argued on a schedule, or it silently becomes permanent.
+# [AC-RF-SC-4d]
+#
+# An exception is not a way to make a red build green. It is a record that a
+# named person looked at a specific advisory, decided the exposure was tolerable
+# for a stated reason, and put something in place to limit it.
+#
+# Format:
+#   [advisories."RUSTSEC-YYYY-NNNN"]
+#   crate       = "<affected crate>"
+#   owner       = "<a person, not a team>"
+#   reason      = "<why this exposure is tolerable HERE — reachability, config,
+#                   deployment posture. 'Not exploitable' alone is not a reason>"
+#   compensating_control = "<what limits the exposure, with a link>"
+#   expires     = "YYYY-MM-DD"
+#
+# Example of the shape (commented out — this list is empty):
+#
+#   [advisories."RUSTSEC-2099-0001"]
+#   crate = "example"
+#   owner = "a.name"
+#   reason = "The vulnerable parser is only reachable from the CLI path, which \
+#             the enclosure never invokes; the service links the library only."
+#   compensating_control = "Egress broker denies the affected code path; see docs/dev/operations/runbooks/example.md"
+#   expires = "2026-12-31"
+
+[advisories]
+# (empty)

@@ -1,0 +1,12 @@
+flowchart TB
+    subgraph agent["Agent Runtime container"]
+        planner["Planner / Reasoner"]
+        memory["Memory (episodic/semantic)"]
+        router["Model router (k-LLM)"]
+        exec["Tool executor"]
+        tracer["Reasoning tracer"]
+    end
+    planner --> router
+    planner --> memory
+    planner --> exec
+    exec --> tracer

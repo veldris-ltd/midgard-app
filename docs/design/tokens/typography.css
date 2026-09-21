@@ -1,0 +1,37 @@
+:root {
+  /* ---- Families (Veldris house type) ---- */
+  --font-display: 'Oxanium', 'Space Grotesk', system-ui, sans-serif; /* headings, hero, numerics */
+  --font-sans:    'Space Grotesk', system-ui, -apple-system, sans-serif; /* UI + body */
+  --font-mono:    'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace; /* terminal, labels, code, readouts */
+
+  /* ---- Weights ---- */
+  --fw-regular: 400; /* @kind font */
+  --fw-medium:  500; /* @kind font */
+  --fw-semibold:600; /* @kind font */
+  --fw-bold:    700; /* @kind font */
+  --fw-black:   800; /* @kind font */
+
+  /* ---- Type scale ---- */
+  --fs-display: clamp(2.5rem, 6.5vw, 4.5rem);   /* 72, hero */
+  --fs-h1:      clamp(2rem, 4.5vw, 3rem);     /* 32–48 */
+  --fs-h2:      clamp(1.65rem, 3.5vw, 2.25rem);  /* 26–36 */
+  --fs-h3:      1.5rem;   /* 24 */
+  --fs-h4:      1.25rem;  /* 20 */
+  --fs-body-lg: 1.125rem; /* 18 */
+  --fs-body:    1rem;     /* 16 */
+  --fs-sm:      0.875rem; /* 14, console default body */
+  --fs-xs:      0.75rem;  /* 12, table meta, chips */
+  --fs-micro:   0.6875rem;/* 11, eyebrow / mono label */
+
+  /* ---- Line heights ---- */
+  --lh-tight:   1.05; /* @kind other */
+  --lh-snug:    1.2; /* @kind other */
+  --lh-normal:  1.5; /* @kind other */
+  --lh-relaxed: 1.7; /* @kind other */
+
+  /* ---- Tracking ---- */
+  --ls-tight:   -0.02em; /* @kind other */
+  --ls-normal:  0; /* @kind other */
+  --ls-wide:    0.04em; /* @kind other */
+  --ls-label:   0.14em; /* @kind other */
+}

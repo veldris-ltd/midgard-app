@@ -1,0 +1,26 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph yes["Forseti DOES (subject = asset / geometry / system)"]
+        y1["Monitor forecast integrity"]:::good
+        y2["Down-weight + flag suspect projections"]:::good
+        y3["Asset viewshed / who-can-see-the-asset"]:::good
+        y4["Proximity + closing-geometry alerts"]:::good
+        y5["Coverage / blind-spot mapping"]:::good
+        y6["Sensor/asset facing + field-of-regard"]:::good
+        y7["Tracked-object bearing (kinematics)"]:::good
+        y8["Role-level (situational) human-factors"]:::good
+    end
+    line{"THE LINE"}:::gate
+    subgraph no["Forseti NEVER does (subject = a person)"]
+        n1["Score any human as a threat"]:::bad
+        n2["Flag people for watch by behaviour"]:::bad
+        n3["Positional/individual behavioural profiling"]:::bad
+        n4["Human gaze / attention / intent inference"]:::bad
+        n5["Predict a specific operator's decisions"]:::bad
+        n6["Offensive cyber / any execution"]:::bad
+    end
+    yes --> line
+    line --> no
+    classDef good fill:#1E7A46,color:#fff,stroke:#125230
+    classDef bad fill:#B23B3B,color:#fff,stroke:#7A2727
+    classDef gate fill:#0B4884,color:#fff,stroke:#052E56,stroke-width:3px

@@ -1,0 +1,90 @@
+<!-- @dsCard group="Forge" viewport="1440x820" subtitle="Typed source connectors, inbound pull only, PQ-mTLS" name="Forge · Connector Catalogue" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Forge · Connector Catalogue</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../docs/mode.js"></script>
+<style>body{margin:0;overflow:hidden}</style></head>
+<body class="theme-forge">
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="../../ds-loader.js"></script>
+<script type="text/babel" src="../kit-shell.jsx"></script>
+<script type="text/babel">
+const NS = window.__mgNS();
+const { ConsoleShell } = window.KitShell;
+const { Card, Table, StatBlock, StatusPill, Badge, Button, IconButton, Input, Select, Switch, Icon, SectionLabel, Terminal, ProvenanceTag, MarkingChip, Tag, Tabs } = NS;
+
+const CONN = [
+  { name: 'flights_jdbc', kind: 'JDBC', dir: 'pull · 5m', datasets: 4, vol: '2.1 GB/d', st: 'healthy', stl: 'Healthy' },
+  { name: 'sensor_stream', kind: 'Stream', dir: 'pull · live', datasets: 1, vol: '14 GB/d', st: 'online', stl: 'Live' },
+  { name: 'maint_sftp', kind: 'SFTP drop', dir: 'pull · hourly', datasets: 2, vol: '120 MB/d', st: 'healthy', stl: 'Healthy' },
+  { name: 'legacy_soap', kind: 'SOAP bridge', dir: 'pull · daily', datasets: 1, vol: '8 MB/d', st: 'warn', stl: 'Cert expiring' },
+  { name: 'weather_edge', kind: 'Edge cache', dir: 'pull · 15m', datasets: 1, vol: '340 MB/d', st: 'offline', stl: 'Paused' },
+];
+function App() {
+  const [sel, setSel] = React.useState(3);
+  const c = CONN[sel];
+  return (
+    <ConsoleShell product="forge" active="connectors" context="DATA OPS / CONNECTORS"
+      toolbar={<Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />}>Add connector</Button>}
+      aside={<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="database" size={17} color="var(--accent)" />
+          <h2 style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, flex: 1 }}>{c.name}</h2>
+          <StatusPill status={c.st} pulse={false} label={c.stl} />
+        </div>
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <StatBlock value={String(c.datasets)} label="DATASETS FED" size="sm" />
+            <StatBlock value={c.vol} label="VOLUME" size="sm" />
+          </div>
+        </Card>
+        <div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>TRUST BOUNDARY</div>
+          {[['Direction', 'inbound pull only'], ['Transport', 'PQ-mTLS · X25519+ML-KEM-768'], ['Egress', 'none · air-gap compatible'], ['Schema', 'typed contract v3']].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
+              <span style={{ color: 'var(--text-faint)', width: 80, flex: 'none' }}>{k.toUpperCase()}</span>
+              <span style={{ color: 'var(--grey-100)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        {c.st === 'warn' && (
+          <Card size="sm" style={{ borderColor: 'var(--warn)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 6 }}>ACTION REQUIRED</div>
+            <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>Client certificate expires in 6 days. Rotation is zero-downtime.</p>
+            <Button variant="outline" size="sm" style={{ marginTop: 10 }}>Rotate certificate</Button>
+          </Card>
+        )}
+        <Terminal title="LAST PULL" lines={['> forge connector test ' + c.name, 'handshake  PQ-mTLS OK', 'rows       48,112 · schema OK', '# contract satisfied']} style={{ marginTop: 'auto' }} />
+      </>}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
+        <div>
+          <SectionLabel number={1}>CONNECTORS</SectionLabel>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Connector catalogue</h1>
+        </div>
+        <div style={{ flex: 1 }} />
+        <StatBlock value="9" label="CONNECTORS" size="sm" />
+        <StatBlock value="16.5 GB" label="DAILY VOLUME" size="sm" />
+        <StatBlock value="0" label="OUTBOUND PATHS" size="sm" accent />
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Tag active>all</Tag><Tag>streaming</Tag><Tag>batch</Tag><Tag>needs attention</Tag>
+      </div>
+      <Table
+        columns={[
+          { header: 'Connector', cell: r => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name={r.kind === 'Stream' ? 'radio-tower' : 'database'} size={14} color="var(--accent)" />{r.name}</span> },
+          { header: 'Kind', key: 'kind', width: 110 },
+          { header: 'Cadence', key: 'dir', mono: true, width: 120 },
+          { header: 'Datasets', key: 'datasets', mono: true, align: 'right', width: 80 },
+          { header: 'Volume', key: 'vol', mono: true, align: 'right', width: 100 },
+          { header: 'State', cell: r => <StatusPill status={r.st} pulse={r.st === 'online'} label={r.stl} />, width: 150 },
+        ]}
+        rows={CONN} selectedIndex={sel} onRowClick={setSel}
+      />
+    </ConsoleShell>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

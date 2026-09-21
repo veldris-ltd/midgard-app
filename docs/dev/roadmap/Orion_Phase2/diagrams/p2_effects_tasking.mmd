@@ -1,0 +1,23 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    prio["Target Board priority\n(human-nominated)"]:::existing
+    subgraph opt["Effects-Based Tasking Optimiser (advisory)"]
+        assets["Assets + capabilities\n+ munitions AVAIL/ALLOC/SPENT"]:::orion
+        compute["Compute per pair:\nMatch(Effect), Time-to-Target,\nDistance, Priority"]:::orion
+        weights["Operator weights:\nTime on Station x Fuel x Munitions"]:::orion
+        rank["Ranked 'Top Match' options\n+ cited rationale"]:::orion
+    end
+    sim["LIVE vs SIMULATION\n(model before commit)"]:::orion
+    human["Human tasking authority\napprove / modify / reject"]:::human
+    audit["PQ audit lineage"]:::existing
+    prio --> compute
+    assets --> compute
+    weights --> rank
+    compute --> rank
+    rank --> sim
+    sim --> human
+    human --> audit
+    rank --> audit
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef existing fill:#1168BD,color:#fff,stroke:#0B4884
+    classDef human fill:#B23B3B,color:#fff,stroke:#7A2727

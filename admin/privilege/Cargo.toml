@@ -1,0 +1,26 @@
+[package]
+name = "admin-privilege"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Admin privilege & dual-control service: risk classification (1..=5) mapped to required controls, a second-distinct-approver dual-control broker with a separation-of-duties check, and security-officer dual-control for panel privilege-logic changes; every decision sealed into a PQ-signed audit chain. [FR-AD-5] [AC-AD-3] [AC-AD-4] [AC-AD-13]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["audit-writer/backend-fips", "pqc-agility/backend-fips"]
+
+[dependencies]
+# RBAC, scoped/expiring bindings, and MFA/step-up sessions this service composes.
+admin-identity = { path = "../identity" }
+# The tamper-evident, PQ-signed ledger every dual-control decision is sealed into.
+audit-writer = { path = "../../crypto/audit-writer" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+
+[dev-dependencies]
+kms = { path = "../../services/kms" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+audit-writer = { path = "../../crypto/audit-writer", features = ["backend-fips"] }
+
+[lib]
+path = "src/lib.rs"

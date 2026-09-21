@@ -1,0 +1,29 @@
+[package]
+name = "mg-verify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Verify a release artefact's ML-DSA signature, CycloneDX SBOM and in-toto provenance before publish or deploy. Fails closed. [NFR-PQ-3] [AC-B-1] [AC-B-4]"
+
+[[bin]]
+name = "mg-verify"
+path = "src/main.rs"
+
+[features]
+# Real ML-DSA (FIPS 204). A gate that did not actually verify would be worse than
+# no gate, so the production backend is the default.
+default = ["backend-fips"]
+backend-fips = ["attest/backend-fips"]
+
+[dependencies]
+# The decision itself lives in attest, shared with mg-sign, Bifrost
+# pre-deploy and Mimir model-load. This binary adds only argument handling and an
+# exit code. Verification needs no key custody, so `custody` stays off.
+attest = { path = "../../crypto/attest", default-features = false }
+
+[dev-dependencies]
+# Building fixtures needs the signing side, so tests pull the custody feature in.
+attest = { path = "../../crypto/attest" }
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
+kms = { path = "../../services/kms" }

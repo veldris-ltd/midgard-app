@@ -1,0 +1,33 @@
+erDiagram
+    SOURCE ||--o{ SYNC : has
+    SYNC ||--o{ DATASET : produces
+    DATASET ||--o{ DATASET_VERSION : versions
+    PIPELINE ||--o{ TRANSFORM : contains
+    TRANSFORM ||--o{ DATASET : reads
+    TRANSFORM ||--o{ DATASET : writes
+    DATASET ||--o{ HEALTH_CHECK : validated_by
+    DATASET ||--o{ OBJECT_TYPE : "promoted to"
+    SOURCE {
+        uuid id PK
+        string type
+        jsonb config
+        bool pq_sealed
+    }
+    DATASET {
+        uuid id PK
+        string name
+        uuid schema_id
+        uuid marking_id
+    }
+    DATASET_VERSION {
+        uuid id PK
+        uuid dataset_id FK
+        string commit_hash
+        timestamp built_at
+    }
+    TRANSFORM {
+        uuid id PK
+        uuid pipeline_id FK
+        string engine
+        jsonb ir
+    }

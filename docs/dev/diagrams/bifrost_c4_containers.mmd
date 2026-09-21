@@ -1,0 +1,29 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    user["fa:fa-user Operator"]:::actor
+    subgraph bifrost["BIFROST"]
+        console["Delivery Console (Web)\n[React/TS]"]:::container
+        planner["Release Planner\n(staged rollout)\n[Rust]"]:::container
+        registry["Artefact Registry\n(signed, ML-DSA)\n[Rust]"]:::container
+        orchestrator["Rollout Orchestrator\n(zero-downtime)\n[Rust]"]:::container
+        agents["Cluster Agents\n(pull-based)\n[Rust]"]:::container
+        risk["Risk Engine\n(via Mimir)\n[Python]"]:::container
+        state[("Desired-State Store")]:::datastore
+    end
+    mimir["Mimir (risk/anomaly inference)"]:::external
+    envs["Target environments\n(dev/stage/prod, edge)"]:::external
+    fabric["Midgard (identity, Seal)"]:::external
+    user -->|HTTPS+PQ| console
+    console --> planner
+    planner --> registry
+    planner --> risk
+    risk --> mimir
+    planner --> orchestrator
+    orchestrator --> agents
+    agents --> envs
+    orchestrator --> state
+    registry --> fabric
+    classDef actor fill:#08427B,color:#fff
+    classDef container fill:#1168BD,color:#fff
+    classDef datastore fill:#1168BD,color:#fff
+    classDef external fill:#999999,color:#fff

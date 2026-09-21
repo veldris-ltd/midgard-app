@@ -1,0 +1,10 @@
+[package]
+name = "heimdall-picture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Heimdall common-operating-picture model: feeds, observations, tracked entities, classifications, and layered picture with per-layer toggles, plus a canonical codec for feed-signing and cross-node replication. [FR-H-1] [FR-H-2]"
+
+[lib]
+path = "src/lib.rs"

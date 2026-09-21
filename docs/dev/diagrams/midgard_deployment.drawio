@@ -1,0 +1,28 @@
+<mxfile host="imhotep" agent="imhotep-skill" version="1.0">
+  <diagram name="midgard_deployment" id="midgard_deployment">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="host" value="Sovereign Deployment (on-prem / air-gapped / private cloud)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="260" y="80" width="760" height="400" as="geometry"/></mxCell>
+        <mxCell id="cp" value="Control-plane namespace" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="280" y="100" width="710" height="90" as="geometry"/></mxCell>
+        <mxCell id="data" value="Data namespace" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="280" y="240" width="730" height="90" as="geometry"/></mxCell>
+        <mxCell id="ains" value="AI namespace (Mimir)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#C0392B;dashed=1;verticalAlign=top;fontColor=#C0392B;fontStyle=2" vertex="1" parent="1"><mxGeometry x="280" y="380" width="430" height="90" as="geometry"/></mxCell>
+        <mxCell id="ops" value="Operator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;fontColor=#ffffff;strokeColor=#052E56" vertex="1" parent="1"><mxGeometry x="40" y="40" width="120" height="50" as="geometry"/></mxCell>
+        <mxCell id="gw" value="Gateway pods" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="120" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="iam" value="IAM pods" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="470" y="120" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="oms" value="OMS pods" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="640" y="120" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="gov" value="Governance pods" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="810" y="120" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="objdb" value="Object Store V2" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="260" width="170" height="50" as="geometry"/></mxCell>
+        <mxCell id="pg" value="PostgreSQL" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="490" y="260" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="nats" value="NATS JetStream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="660" y="260" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="minio" value="MinIO PQ-sealed" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="830" y="260" width="160" height="50" as="geometry"/></mxCell>
+        <mxCell id="glm" value="GLM 5.2 inference (GPU)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="300" y="400" width="220" height="50" as="geometry"/></mxCell>
+        <mxCell id="vec" value="Vector store" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#1168BD;fontColor=#ffffff;strokeColor=#0B4884" vertex="1" parent="1"><mxGeometry x="540" y="400" width="150" height="50" as="geometry"/></mxCell>
+        <mxCell id="hsm" value="HSM / TPM appliance" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B" vertex="1" parent="1"><mxGeometry x="760" y="400" width="180" height="50" as="geometry"/></mxCell>
+        <mxCell id="e0" value="kubectl / Bifrost" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="ops" target="gw"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e1" value="seal" style="endArrow=classic;html=1;rounded=0;fontColor=#1A1A1A" edge="1" parent="1" source="iam" target="hsm"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,26 @@
+[package]
+name = "forge-ai-assist"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Forge AI-assist adapter: A.6 NL-to-transform via Mimir, always a preview diff requiring human approval — never auto-committed. [FR-F-7] [NFR-AI-1]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["forge-dataset-store/backend-fips", "pqc-agility/backend-fips"]
+
+[dependencies]
+# The dataset schema authored against, and the transform IR + type system used to
+# type-check a suggestion into a preview diff.
+forge-dataset-store = { path = "../dataset-store" }
+forge-engine = { path = "../engine" }
+# The verbatim A.6 system prompt (authoritative text lives in the prompt library).
+mimir-prompts = { path = "../../mimir/prompts" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+# The live inference transport (PQ-mTLS to the Mimir gateway) behind the seam. The
+# Mock/Unavailable suggesters keep working with no bridge configured. [RT-45]
+mimir-bridge = { path = "../../mimir/bridge" }
+
+[lib]
+path = "src/lib.rs"

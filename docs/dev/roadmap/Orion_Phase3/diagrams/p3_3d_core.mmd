@@ -1,0 +1,32 @@
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+    subgraph inputs["Inputs"]
+        terrain["Terrain / DEM"]:::in
+        struct["Structures / 3D models"]:::in
+        pic["Networked picture\n(entities + tracks)"]:::in
+        fmv["FMV / sensor feeds"]:::in
+    end
+    subgraph core["Shared 3D scene core (Rust, one implementation)"]
+        scene["Scene graph\n(terrain+structures+entities)"]:::orion
+        los["Line-of-sight / viewshed\nengine"]:::orion
+        reg["Sensor-feed registration\n(video onto geometry)"]:::orion
+        sim["Environment simulation\n(movement, time, lighting)"]:::orion
+    end
+    subgraph clients["Client shells (reuse SAD_06 shared-core pattern)"]
+        desk["Desktop command-post\n3D console"]:::client
+        mob["Mobile / wearable\noperator client"]:::client
+    end
+    terrain --> scene
+    struct --> scene
+    pic --> scene
+    fmv --> reg
+    scene --> los
+    scene --> sim
+    reg --> scene
+    scene --> desk
+    scene --> mob
+    los --> desk
+    los --> mob
+    classDef in fill:#5B6B7B,color:#fff,stroke:#3A4652
+    classDef orion fill:#C9A227,color:#1A1A1A,stroke:#8A6F1B,stroke-width:2px
+    classDef client fill:#1168BD,color:#fff,stroke:#0B4884

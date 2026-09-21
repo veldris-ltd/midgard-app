@@ -1,0 +1,24 @@
+{
+  "name": "@midgard/design-system",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Midgard design system — tokens, 28 components, Icon set, theme/mode (ported from docs/design)",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens/styles.css"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.6.3"
+  }
+}
