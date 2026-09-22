@@ -8,7 +8,7 @@ Midgard is a **Veldris Ltd** project. This repository holds three things that fi
 2. **The design system** — a complete, branded UI system (the "how it looks and behaves").
 3. **The implementation** — a post-quantum, air-gap-capable platform built from the spec: a 62-crate Rust workspace (core services, Mimir, Forge, Bifrost, Heimdall, admin, clients) plus the console UIs and gateway edge.
 
-The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md); its git history maps one commit per playbook prompt.
+The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md); in the full working history, one commit maps to each playbook prompt. This public repository begins from a squashed initial import of that verified state.
 
 - **Just want to see it?** → [Run the design system](#run-the-design-system) (static files, no toolchain).
 - **Want to run it?** → [Run the platform locally](#run-the-platform-locally) (gateway edge + console, step by step).
