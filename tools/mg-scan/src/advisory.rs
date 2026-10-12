@@ -137,10 +137,13 @@ impl Database {
                 }
                 let text = std::fs::read_to_string(&path)
                     .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-                if let Some(a) = parse_advisory(&text) {
-                    db.count += 1;
-                    db.by_crate.entry(a.package.clone()).or_default().push(a);
-                }
+                // An advisory this build cannot read is a refusal, not a skip:
+                // a database that loads all but one file reports clean about
+                // exactly the crate that file covers.
+                let a = parse_advisory(&text)
+                    .ok_or_else(|| format!("cannot parse advisory {}", path.display()))?;
+                db.count += 1;
+                db.by_crate.entry(a.package.clone()).or_default().push(a);
             }
         }
         Ok(db)
@@ -158,20 +161,44 @@ fn scalar(block: &str, key: &str) -> Option<String> {
 }
 
 /// Pull a string array, e.g. `patched = [">= 0.9.1"]`.
+///
+/// Each **quoted string** is one element. A comma inside the quotes belongs to
+/// the element: `">= 0.8.26, < 1.0.0"` is one requirement with two comparators,
+/// both of which must hold. Splitting the array on every comma instead turns
+/// that into two independent ranges, and `< 1.0.0` on its own then clears every
+/// vulnerable version below the fix.
 fn array(block: &str, key: &str) -> Vec<String> {
-    let Some(start) = block.find(&format!("{key} = [")) else {
+    // The key must start a line, so `patched` cannot match inside another key.
+    let mut offset = 0;
+    let start = block.split_inclusive('\n').find_map(|line| {
+        let here = offset;
+        offset += line.len();
+        let rest = line.trim_start().strip_prefix(key)?.trim_start();
+        rest.strip_prefix('=')?
+            .trim_start()
+            .starts_with('[')
+            .then_some(here)
+    });
+    let Some(start) = start else {
         return Vec::new();
     };
-    let after = &block[start..];
-    let Some(open) = after.find('[') else {
+    let Some(open) = block[start..].find('[') else {
         return Vec::new();
     };
-    let Some(close) = after[open..].find(']') else {
-        return Vec::new();
-    };
-    after[open + 1..open + close]
-        .split(',')
-        .map(|s| s.trim().trim_matches('"').to_string())
+
+    let mut out = Vec::new();
+    let mut current: Option<String> = None;
+    for c in block[start + open + 1..].chars() {
+        match (&mut current, c) {
+            (Some(_), '"') => out.extend(current.take()),
+            (Some(s), c) => s.push(c),
+            (None, '"') => current = Some(String::new()),
+            (None, ']') => break,
+            (None, _) => {}
+        }
+    }
+    out.into_iter()
+        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
 }
@@ -283,8 +310,23 @@ pub fn cvss_v3_base_score(vector: &str) -> Option<f64> {
     } else {
         (impact + exploitability).min(10.0)
     };
-    // CVSS rounds UP to one decimal.
-    Some((raw * 10.0).ceil() / 10.0)
+    Some(roundup(raw))
+}
+
+/// CVSS v3.1 `Roundup` (specification, Appendix A): the smallest number with one
+/// decimal place that is not less than the input.
+///
+/// Done in integers, as the specification prescribes, because a plain
+/// `ceil(x * 10) / 10` rounds a value that floating point stores as
+/// `4.000000000000001` up to 4.1 — one notch high, and across a band edge that
+/// is a different severity.
+fn roundup(x: f64) -> f64 {
+    let scaled = (x * 100_000.0).round() as i64;
+    if scaled % 10_000 == 0 {
+        scaled as f64 / 100_000.0
+    } else {
+        ((scaled / 10_000) as f64 + 1.0) / 10.0
+    }
 }
 
 #[cfg(test)]
@@ -328,6 +370,54 @@ patched = [">= 0.9.1"]
             !a.affects(&Version::parse("1.0.0").unwrap()),
             "after the fix"
         );
+    }
+
+    #[test]
+    fn a_compound_range_is_one_requirement_not_two() {
+        // RUSTSEC-2025-0073's shape: a backported fix on the 0.8 line and a fix
+        // on the 1.x line. Everything below 0.8.26, and 1.0.0 up to 1.4.1, is
+        // vulnerable. Split on the comma, `< 1.0.0` alone would clear 0.8.0.
+        let text = SAMPLE.replace(
+            "patched = [\">= 0.9.1\"]",
+            "patched = [\">=0.8.26, <1.0.0\", \">=1.4.1\"]",
+        );
+        let a = parse_advisory(&text).unwrap();
+        assert_eq!(a.patched, [">=0.8.26, <1.0.0", ">=1.4.1"]);
+
+        for vulnerable in ["0.1.0", "0.8.0", "0.8.25", "1.0.0", "1.2.0", "1.4.0"] {
+            assert!(
+                a.affects(&Version::parse(vulnerable).unwrap()),
+                "{vulnerable} is vulnerable"
+            );
+        }
+        for fixed in ["0.8.26", "0.9.0", "1.4.1", "2.0.0"] {
+            assert!(
+                !a.affects(&Version::parse(fixed).unwrap()),
+                "{fixed} carries the fix"
+            );
+        }
+    }
+
+    #[test]
+    fn arrays_are_read_by_element_across_lines_and_keys() {
+        let block = "unaffected = [\"< 0.5.0\"]\npatched = [\n  \">= 1.2.3, < 2.0.0\",\n  \">= 2.1.0\",\n]\n";
+        assert_eq!(array(block, "patched"), [">= 1.2.3, < 2.0.0", ">= 2.1.0"]);
+        assert_eq!(array(block, "unaffected"), ["< 0.5.0"]);
+        assert!(array(block, "missing").is_empty());
+        assert!(array("patched = []\n", "patched").is_empty());
+        // `patched` must not be found inside a longer key.
+        assert!(array("unpatched = [\"x\"]\n", "patched").is_empty());
+    }
+
+    #[test]
+    fn roundup_follows_the_specification_not_floating_point() {
+        assert_eq!(roundup(4.02), 4.1);
+        assert_eq!(roundup(4.0), 4.0);
+        // Stored a hair above 4.0; a plain ceil would say 4.1.
+        assert_eq!(roundup(4.000_000_000_000_001), 4.0);
+        assert_eq!(roundup(6.9), 6.9);
+        assert_eq!(roundup(8.999_999), 9.0);
+        assert_eq!(roundup(0.0), 0.0);
     }
 
     #[test]

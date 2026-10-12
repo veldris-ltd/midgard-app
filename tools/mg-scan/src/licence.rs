@@ -10,6 +10,11 @@
 //! both, `WITH` is an exception modifier that relaxes the licence it attaches to.
 //! `MIT/Apache-2.0` — a legacy slash form still in the wild — is read as `OR`.
 //!
+//! Licences and `WITH` modifiers are separate lists (`[allowed]` and
+//! `[modifiers]`). A modifier such as `LLVM-exception` is not a licence: it is
+//! accepted only to the right of `WITH`, never as the whole of a component's
+//! terms.
+//!
 //! Anything that fails to parse is a refusal, never a pass.
 
 use std::collections::BTreeMap;
@@ -18,6 +23,8 @@ use std::collections::BTreeMap;
 #[derive(Debug, Default)]
 pub struct Policy {
     allowed: Vec<String>,
+    /// Exception modifiers accepted to the right of `WITH`.
+    modifiers: Vec<String>,
     /// crate name -> (permitted expression, owner, expiry)
     exceptions: BTreeMap<String, Exception>,
 }
@@ -59,20 +66,41 @@ impl Policy {
             let key = key.trim().trim_matches('"').to_string();
             let value = value.trim().trim_matches('"').to_string();
 
-            if section == "allowed" {
-                policy.allowed.push(key);
+            if section == "allowed" || section == "modifiers" {
+                // Each entry carries a one-line justification. An identifier
+                // nobody could say why they allowed is not a decision.
+                if value.trim().is_empty() {
+                    return Err(format!("line {}: {key} has no justification", n + 1));
+                }
+                if section == "allowed" {
+                    policy.allowed.push(key);
+                } else {
+                    policy.modifiers.push(key);
+                }
             } else if let Some(c) = &current_exception {
                 pending.entry(c.clone()).or_default().insert(key, value);
+            } else {
+                return Err(format!(
+                    "line {}: `{key}` is not inside [allowed], [modifiers] or an \
+                     [exceptions.\"<crate>\"] table",
+                    n + 1
+                ));
             }
         }
 
         for (crate_name, fields) in pending {
+            // Present AND saying something: an empty owner or reason is not a
+            // decision anyone made.
             let need = |k: &str| -> Result<String, String> {
-                fields
-                    .get(k)
-                    .cloned()
-                    .ok_or_else(|| format!("licence exception for {crate_name} has no `{k}`"))
+                match fields.get(k).map(|v| v.trim()) {
+                    None => Err(format!("licence exception for {crate_name} has no `{k}`")),
+                    Some("") => Err(format!(
+                        "licence exception for {crate_name} has an empty `{k}`"
+                    )),
+                    Some(v) => Ok(v.to_string()),
+                }
             };
+            need("reason")?;
             policy.exceptions.insert(
                 crate_name.clone(),
                 Exception {
@@ -90,9 +118,16 @@ impl Policy {
         self.allowed.iter().any(|a| a.eq_ignore_ascii_case(id))
     }
 
+    /// Whether an identifier is an accepted `WITH` modifier.
+    fn allows_modifier(&self, id: &str) -> bool {
+        self.modifiers.iter().any(|a| a.eq_ignore_ascii_case(id))
+    }
+
     /// Whether an SPDX expression is satisfiable under this policy.
     pub fn allows(&self, expression: &str) -> bool {
-        evaluate(expression, &|id| self.allows_id(id))
+        evaluate(expression, &|id| self.allows_id(id), &|id| {
+            self.allows_modifier(id)
+        })
     }
 
     /// A recorded exception for a crate, if any.
@@ -122,31 +157,36 @@ fn strip_comment(line: &str) -> &str {
     }
 }
 
-/// Evaluate an SPDX expression with `allowed` deciding single identifiers.
+/// Evaluate an SPDX expression, with `allowed` deciding licence identifiers and
+/// `modifier` deciding what may follow `WITH`.
 ///
 /// Precedence: `OR` binds loosest, then `AND`, then `WITH`. Parentheses group.
-pub fn evaluate(expr: &str, allowed: &dyn Fn(&str) -> bool) -> bool {
+pub fn evaluate(
+    expr: &str,
+    allowed: &dyn Fn(&str) -> bool,
+    modifier: &dyn Fn(&str) -> bool,
+) -> bool {
     let e = expr.trim();
     if e.is_empty() {
         return false;
     }
     if let Some(inner) = strip_outer_parens(e) {
-        return evaluate(inner, allowed);
+        return evaluate(inner, allowed, modifier);
     }
     // The legacy `MIT/Apache-2.0` form means OR.
     if let Some(parts) = split_top_level(e, &["/"]) {
         if parts.len() > 1 {
-            return parts.iter().any(|p| evaluate(p, allowed));
+            return parts.iter().any(|p| evaluate(p, allowed, modifier));
         }
     }
     if let Some(parts) = split_top_level(e, &[" OR "]) {
         if parts.len() > 1 {
-            return parts.iter().any(|p| evaluate(p, allowed));
+            return parts.iter().any(|p| evaluate(p, allowed, modifier));
         }
     }
     if let Some(parts) = split_top_level(e, &[" AND "]) {
         if parts.len() > 1 {
-            return parts.iter().all(|p| evaluate(p, allowed));
+            return parts.iter().all(|p| evaluate(p, allowed, modifier));
         }
     }
     if let Some(parts) = split_top_level(e, &[" WITH "]) {
@@ -154,7 +194,7 @@ pub fn evaluate(expr: &str, allowed: &dyn Fn(&str) -> bool) -> bool {
             // An exception only ever relaxes the licence it modifies, so the
             // pair is acceptable if the base licence is — provided the exception
             // itself is one we recognise.
-            return evaluate(parts[0], allowed) && allowed(parts[1].trim());
+            return evaluate(parts[0], allowed, modifier) && modifier(parts[1].trim());
         }
     }
     allowed(e)
@@ -219,6 +259,8 @@ mod tests {
 "MIT" = "permissive"
 "BSD-3-Clause" = "permissive"
 "Unicode-3.0" = "data"
+
+[modifiers]
 "LLVM-exception" = "relaxes Apache-2.0"
 
 [exceptions]
@@ -289,9 +331,9 @@ mod tests {
     }
 
     #[test]
-    fn exceptions_require_owner_and_expiry() {
+    fn exceptions_require_owner_reason_and_expiry() {
         let with_exception = format!(
-            "{POLICY}\n[exceptions.\"crate-x\"]\nlicence = \"MPL-2.0\"\nowner = \"a.name\"\nexpires = \"2026-12-31\"\n"
+            "{POLICY}\n[exceptions.\"crate-x\"]\nlicence = \"MPL-2.0\"\nowner = \"a.name\"\nreason = \"file-level copyleft, unmodified\"\nexpires = \"2026-12-31\"\n"
         );
         let p = Policy::parse(&with_exception).expect("parses");
         let e = p.exception("crate-x").expect("recorded");
@@ -299,12 +341,54 @@ mod tests {
         assert_eq!(e.owner, "a.name");
         assert_eq!(e.expires, "2026-12-31");
 
-        let missing_owner = format!(
-            "{POLICY}\n[exceptions.\"crate-y\"]\nlicence = \"MPL-2.0\"\nexpires = \"2026-12-31\"\n"
+        // Each field must be present and must say something.
+        for (tag, from, to) in [
+            ("no owner", "owner = \"a.name\"\n", ""),
+            ("an empty owner", "\"a.name\"", "\"\""),
+            (
+                "no reason",
+                "reason = \"file-level copyleft, unmodified\"\n",
+                "",
+            ),
+            (
+                "a blank reason",
+                "\"file-level copyleft, unmodified\"",
+                "\"  \"",
+            ),
+            ("no expiry", "expires = \"2026-12-31\"\n", ""),
+        ] {
+            assert!(
+                Policy::parse(&with_exception.replace(from, to)).is_err(),
+                "an exception with {tag} is not a decision anyone made"
+            );
+        }
+    }
+
+    #[test]
+    fn a_with_modifier_is_not_a_licence() {
+        let p = policy();
+        assert!(p.allows("Apache-2.0 WITH LLVM-exception"));
+        assert!(
+            !p.allows("LLVM-exception"),
+            "a modifier alone is not terms anyone can ship under"
         );
         assert!(
-            Policy::parse(&missing_owner).is_err(),
-            "an exception with no owner is not a decision anyone made"
+            !p.allows("LLVM-exception OR GPL-3.0"),
+            "nor is it a satisfiable alternative"
+        );
+        assert!(
+            !p.allows("Apache-2.0 WITH MIT"),
+            "and a licence is not a modifier"
+        );
+    }
+
+    #[test]
+    fn every_allowed_identifier_must_be_justified() {
+        assert!(Policy::parse("[allowed]\n\"MIT\" = \"\"\n").is_err());
+        assert!(Policy::parse("[modifiers]\n\"LLVM-exception\" = \"  \"\n").is_err());
+        assert!(
+            Policy::parse("\"MIT\" = \"stray\"\n").is_err(),
+            "an entry outside any table is a mistake, not something to ignore"
         );
     }
 
