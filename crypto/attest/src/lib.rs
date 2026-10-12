@@ -20,12 +20,15 @@
 //! All three digests are bound into one signing preimage
 //! ([`preimage`]), so any tamper — to the binary, to its bill of materials, or to
 //! its provenance — is the same single signature failure. There is no way to swap
-//! content under a valid signature, and no verification decision that depends on
-//! parsing attacker-controlled JSON.
+//! content under a valid signature, and the acceptance decision never depends on
+//! parsing the attestation. The SBOM *is* parsed — strictly, by [`json`] — because
+//! "is this a bill of materials" is a structural question a digest cannot answer.
 //!
 //! ## Fail closed
-//! [`sign_artefact`] writes nothing until every step has succeeded, so a failed
-//! run leaves no `.sig` behind for a later step to mistake for success.
+//! [`sign_artefact`] writes nothing until every step has succeeded — including
+//! verifying its own signature under the release rules — so a failed run leaves
+//! no `.sig` behind for a later step to mistake for success, and a successful one
+//! never leaves a `.sig` that [`verify_artefact`] would refuse.
 //! [`verify_artefact`] returns `Result<Verdict, VerifyError>` — never a boolean,
 //! never a warning tier — and refuses when trust anchors are absent, when the key
 //! is not among them, when the algorithm is not approved for release signing, and
@@ -43,6 +46,7 @@ pub mod backend;
 pub mod envelope;
 pub mod error;
 pub mod hex;
+pub mod json;
 #[cfg(feature = "custody")]
 pub mod keystore;
 pub mod preimage;
@@ -134,6 +138,16 @@ pub fn sign_artefact(
     signer: &dyn SigningBackend,
     prov: &Provenance,
 ) -> Result<SignOutputs, SignError> {
+    // 0. The key must be one a verifier will accept. Signing under any other
+    //    algorithm would exit successfully and produce a bundle that can never
+    //    pass the gate.
+    let alg = signer.verifying_key().alg();
+    if !APPROVED_RELEASE_ALGS.contains(&alg) {
+        return Err(SignError::UnapprovedAlgorithm {
+            alg: alg.as_str().to_string(),
+        });
+    }
+
     // 1. The artefact itself.
     let bytes = std::fs::read(artefact).map_err(|e| SignError::ArtefactUnreadable {
         path: artefact.to_path_buf(),
@@ -179,7 +193,6 @@ pub fn sign_artefact(
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| artefact.to_string_lossy().into_owned());
-    let alg = signer.verifying_key().alg();
     let att = attestation::render(
         &attestation::Subject {
             name: &name,
@@ -198,6 +211,20 @@ pub fn sign_artefact(
         &sbom_sha256,
         &attestation_sha256,
     ))?;
+
+    //    Then check it exactly as a verifier will, against the key this signer
+    //    advertises. That catches a custodian whose signing key does not match
+    //    its published verifying key — which would otherwise sign "successfully"
+    //    under an anchor nobody can verify against — and a faulted signature,
+    //    before either reaches disk.
+    accept::accept(
+        &accept::RELEASE_ARTEFACT,
+        &preimage::body(&artefact_sha256, &sbom_sha256, &attestation_sha256),
+        signer.verifying_key(),
+        &signature,
+        &APPROVED_RELEASE_ALGS,
+    )
+    .map_err(|e| SignError::SelfVerifyFailed(e.to_string()))?;
 
     // 5. Only now write anything. Everything above can fail without leaving a
     //    partial bundle a later gate stage might treat as success. [AC-RF-SC-1c]
