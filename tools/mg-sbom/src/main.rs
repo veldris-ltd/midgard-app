@@ -124,34 +124,87 @@ pub struct Component {
     /// digest of the downloaded `.crate`). `None` for path/workspace members, which
     /// are built from source, not fetched. Emitted as `components[].hashes`. [RT-41]
     pub checksum: Option<String>,
+    /// Where Cargo resolved this package from, as recorded in `Cargo.lock`.
+    /// Emitted as the `midgard:source` property so `mg-scan` can tell our own
+    /// code from a registry crate that merely shares its name — on a positive
+    /// statement, not by inferring it from a missing hash. [RT-41]
+    pub source: Source,
 }
 
-/// Extract `(name, version)` for every `[[package]]` in a Cargo.lock, sorted and
-/// deduplicated for determinism.
-fn parse_lockfile(s: &str) -> Vec<(String, String, Option<String>)> {
+/// A locked package's origin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Source {
+    /// No `source` line: a path dependency, i.e. a workspace member.
+    Workspace,
+    /// A registry (crates.io or a mirror of it).
+    Registry,
+    /// A git repository.
+    Git,
+    /// Anything else Cargo may record.
+    Other,
+}
+
+impl Source {
+    fn from_lock(source: Option<&str>) -> Self {
+        match source {
+            None => Source::Workspace,
+            Some(s) if s.starts_with("registry+") || s.starts_with("sparse+") => Source::Registry,
+            Some(s) if s.starts_with("git+") => Source::Git,
+            Some(_) => Source::Other,
+        }
+    }
+
+    /// The value written to the SBOM.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Source::Workspace => "workspace",
+            Source::Registry => "registry",
+            Source::Git => "git",
+            Source::Other => "other",
+        }
+    }
+}
+
+/// One `[[package]]` of a Cargo.lock: name, version, integrity checksum, origin.
+type Locked = (String, String, Option<String>, Source);
+
+/// Extract every `[[package]]` in a Cargo.lock, sorted and deduplicated for
+/// determinism.
+fn parse_lockfile(s: &str) -> Vec<Locked> {
     let mut out = Vec::new();
     let mut name: Option<String> = None;
     let mut version: Option<String> = None;
     let mut checksum: Option<String> = None;
+    let mut source: Option<String> = None;
     // Flush the accumulated package at each new `[[package]]` and at EOF, so a
     // `checksum` line that follows the version is captured with it. [RT-41]
-    let flush = |out: &mut Vec<(String, String, Option<String>)>,
+    let flush = |out: &mut Vec<Locked>,
                  name: &mut Option<String>,
                  version: &mut Option<String>,
-                 checksum: &mut Option<String>| {
+                 checksum: &mut Option<String>,
+                 source: &mut Option<String>| {
         if let (Some(n), Some(v)) = (name.take(), version.take()) {
-            out.push((n, v, checksum.take()));
+            out.push((n, v, checksum.take(), Source::from_lock(source.as_deref())));
         }
         *checksum = None;
+        *source = None;
     };
     for line in s.lines() {
         let line = line.trim();
         if line == "[[package]]" {
-            flush(&mut out, &mut name, &mut version, &mut checksum);
+            flush(
+                &mut out,
+                &mut name,
+                &mut version,
+                &mut checksum,
+                &mut source,
+            );
         } else if let Some(v) = line.strip_prefix("name = \"") {
             name = Some(v.trim_end_matches('"').to_string());
         } else if let Some(v) = line.strip_prefix("version = \"") {
             version = Some(v.trim_end_matches('"').to_string());
+        } else if let Some(v) = line.strip_prefix("source = \"") {
+            source = Some(v.trim_end_matches('"').to_string());
         } else if let Some(v) = line.strip_prefix("checksum = \"") {
             let c = v.trim_end_matches('"').to_string();
             // Only accept a well-formed 64-hex SHA-256; ignore anything else.
@@ -160,7 +213,13 @@ fn parse_lockfile(s: &str) -> Vec<(String, String, Option<String>)> {
             }
         }
     }
-    flush(&mut out, &mut name, &mut version, &mut checksum);
+    flush(
+        &mut out,
+        &mut name,
+        &mut version,
+        &mut checksum,
+        &mut source,
+    );
     out.sort();
     out.dedup();
     out
@@ -188,14 +247,14 @@ fn licence_from_manifest(text: &str, workspace_licence: Option<&str>) -> Option<
 /// code, and the workspace member's manifest for first-party code. A package
 /// found in neither gets `None` rather than a default.
 fn resolve_licences(
-    packages: &[(String, String, Option<String>)],
+    packages: &[Locked],
     vendor_dir: &Path,
     members: &BTreeMap<String, PathBuf>,
     workspace_licence: Option<&str>,
 ) -> Vec<Component> {
     packages
         .iter()
-        .map(|(name, version, checksum)| {
+        .map(|(name, version, checksum, source)| {
             let vendored = vendor_dir
                 .join(format!("{name}-{version}"))
                 .join("Cargo.toml");
@@ -213,6 +272,7 @@ fn resolve_licences(
                 version: version.clone(),
                 licence,
                 checksum: checksum.clone(),
+                source: *source,
             }
         })
         .collect()
@@ -329,6 +389,11 @@ fn render_cyclonedx(
                 ", \"hashes\": [ {{ \"alg\": \"SHA-256\", \"content\": \"{cs}\" }} ]"
             ));
         }
+        // Where the package came from, so the scanner need not guess. [RT-41]
+        s.push_str(&format!(
+            ", \"properties\": [ {{ \"name\": \"midgard:source\", \"value\": \"{}\" }} ]",
+            c.source.as_str()
+        ));
         s.push_str(" }");
         if i + 1 < components.len() {
             s.push(',');
@@ -380,11 +445,57 @@ dependencies = [
                 (
                     "aes-gcm".to_string(),
                     "0.10.3".to_string(),
-                    Some(CK.to_string())
+                    Some(CK.to_string()),
+                    Source::Registry
                 ),
-                ("fabric".to_string(), "0.0.0".to_string(), None),
+                (
+                    "fabric".to_string(),
+                    "0.0.0".to_string(),
+                    None,
+                    Source::Workspace
+                ),
             ]
         );
+    }
+
+    #[test]
+    fn a_packages_origin_comes_from_its_lockfile_source() {
+        let lock = "[[package]]\nname = \"ours\"\nversion = \"0.1.0\"\n\n\
+                    [[package]]\nname = \"from-git\"\nversion = \"1.0.0\"\n\
+                    source = \"git+https://example.invalid/repo#abc\"\n\n\
+                    [[package]]\nname = \"odd\"\nversion = \"1.0.0\"\nsource = \"path+file:///x\"\n";
+        let got: Vec<(String, Source)> = parse_lockfile(lock)
+            .into_iter()
+            .map(|(n, _, _, s)| (n, s))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("from-git".to_string(), Source::Git),
+                ("odd".to_string(), Source::Other),
+                ("ours".to_string(), Source::Workspace),
+            ]
+        );
+        // A source line must not leak from one package into the next.
+        assert_eq!(parse_lockfile(SAMPLE)[1].3, Source::Workspace);
+    }
+
+    #[test]
+    fn every_component_states_its_origin() {
+        let sbom = render_cyclonedx(
+            "x",
+            &[
+                comp_ck("aes-gcm", "0.10.3", Some("MIT"), CK),
+                comp("fabric", "0.0.0", Some("Apache-2.0")),
+            ],
+            None,
+        );
+        assert!(sbom.contains(
+            "\"properties\": [ { \"name\": \"midgard:source\", \"value\": \"registry\" } ]"
+        ));
+        assert!(sbom.contains(
+            "\"properties\": [ { \"name\": \"midgard:source\", \"value\": \"workspace\" } ]"
+        ));
     }
 
     #[test]
@@ -402,11 +513,13 @@ dependencies = [
             version: version.into(),
             licence: licence.map(|s| s.to_string()),
             checksum: None,
+            source: Source::Workspace,
         }
     }
     fn comp_ck(name: &str, version: &str, licence: Option<&str>, checksum: &str) -> Component {
         Component {
             checksum: Some(checksum.into()),
+            source: Source::Registry,
             ..comp(name, version, licence)
         }
     }

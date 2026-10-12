@@ -11,7 +11,12 @@ name = "mg-scan"
 path = "src/main.rs"
 
 [dependencies]
-# No dependencies at all: the SBOM reader, the SPDX expression evaluator, the
-# semver comparator, the CVSS scorer and the date arithmetic are all in-crate.
-# This runs inside the release gate on an air-gapped runner, so every input is a
-# local file. [NFR-PRV-1] [NFR-OSS-1]
+# No external crates: the SPDX expression evaluator, the semver comparator, the
+# CVSS scorer and the date arithmetic are all in-crate. This runs inside the
+# release gate on an air-gapped runner, so every input is a local file.
+# [NFR-PRV-1] [NFR-OSS-1]
+#
+# The SBOM is read through `attest` — the strict JSON parser and the structural
+# SBOM gate mg-sign and mg-verify use — so the scanner and the verifier cannot
+# disagree about what a bill of materials contains. No key custody is needed.
+attest = { path = "../../crypto/attest", default-features = false, features = ["backend-fips"] }

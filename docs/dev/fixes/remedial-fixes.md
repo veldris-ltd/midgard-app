@@ -653,7 +653,7 @@ tracking item — the allow-list must be empty at GA.
 > **Scope change:** Steps and criteria written against `ci.yml` / `release.yml` cannot hold until those workflows are published (RF-CA-4); until then target the committed scripts (`tools/ci/*.sh`, `justfile`).
 >
 > **Still to do:**
-> - Add CLI-level tests with fixture SBOM/database: critical advisory blocks, missing licence blocks, stale snapshot fails naming the date
+> - ~~Add CLI-level tests with fixture SBOM/database: critical advisory blocks, missing licence blocks, stale snapshot fails naming the date~~ — done in `tools/mg-scan/tests/cli.rs`; see "Audit against the prompt" at the end of the As-built note
 > - Add a gate-level test or script step proving a failed scan leaves no .sig
 > - Wire the PR-time `--advisory-only` scan into a CI workflow that exists in the tree
 > - Vendor OSV records for the JS/TS workspace and scan the pnpm lockfile
@@ -745,15 +745,62 @@ Implement the release-time scan stage as a real, air-gap-capable gate.
 > disallowed-licence paths all refuse. The whole scan runs under
 > `docker --network none`.
 >
-> PR-time exposure runs in `ci.yml` via `--advisory-only`: reports everything,
-> blocks only on CRITICAL, so an unrelated MEDIUM does not stall a change while a
-> critical one still cannot be merged past.
+> PR-time exposure is the `--advisory-only` mode (`just scan-advisory`): reports
+> everything, blocks only on CRITICAL, so an unrelated MEDIUM does not stall a
+> change while a critical one still cannot be merged past. Nothing in this tree
+> invokes it on a PR — there is no CI configuration here (RF-CA-4).
 >
 > **Known limits, deliberately.** CVSS 4.0 vectors are not scored — the v4
 > macrovector lookup is a much larger algorithm — so those advisories escalate to
 > `UNSCORED` and block rather than being silently mis-ranked. None currently
 > affects this dependency graph. The JS/TS workspace has no OSV records vendored
 > yet; that lands with RF-UI-10's dependency gating.
+>
+> **Audit against the prompt.** A later read of the tool found twelve gaps, two
+> of them serious. All are closed, and `tools/mg-scan/tests/cli.rs` now drives
+> the real binary against fixture databases for every criterion.
+>
+> * **Compound version ranges were split on the comma, so vulnerable versions
+>   scanned clean.** `">=0.8.26, <1.0.0"` is one requirement; read as two
+>   independent "patched" ranges, `<1.0.0` alone cleared everything below the
+>   fix. 98 of the 1206 vendored advisories carry one. Reproduced with
+>   RUSTSEC-2025-0073: `alloy-dyn-abi` 0.8.0 and 1.2.0, both vulnerable, both
+>   reported "0 findings". Arrays are now read by quoted element. Re-checking this
+>   tree's 41 registry crates under the corrected rule finds nothing that had
+>   been hidden.
+> * **`SOURCE_DATE_EPOCH` stood in for today.** Reproducible-build shells export
+>   it as a fixed instant years in the past, which made every database fresh and
+>   every exception unexpired. Age and expiry are now judged by the system clock
+>   only, and a snapshot dated after "today" is refused.
+> * **`--help` exited 0 from any position.** It is now help only as the sole
+>   argument.
+> * **The SBOM was read by substring**, and only `"type": "library"` in that exact
+>   spacing was seen: a compact document, another component type or a nested
+>   component went unscanned while `mg-verify` counted it. The scanner now applies
+>   `attest::sbom::validate` and walks the parsed document, every component and
+>   every licence entry.
+> * **Advisory matching was skipped for any component without a `hashes` block**,
+>   silently — which also exempted git dependencies and any SBOM from another
+>   tool. `mg-sbom` now records each component's origin (`midgard:source`, from
+>   `Cargo.lock`), only a declared workspace member is exempt, and the scan prints
+>   how many components were matched and how many were exempt.
+> * **PR mode blocked an *excepted* CRITICAL and printed "OK" over release
+>   blockers.** It now fails only on an unexcused CRITICAL and otherwise prints
+>   `PASSED (advisory-only)` with the count that would block a release.
+> * **Exceptions did not have to say anything.** A licence exception needed no
+>   `reason`; an advisory exception accepted empty fields and a compensating
+>   control with no link. Every field must now be present and non-empty, and the
+>   control must contain a URL or a path to a document.
+> * **Smaller:** CVSS scores use the specification's integer `Roundup`; the
+>   database must load exactly the number of advisories its manifest declares and
+>   an unparseable advisory file is a refusal; the findings report is fully
+>   JSON-escaped; `WITH` modifiers moved to their own `[modifiers]` table, so
+>   `LLVM-exception` alone is not a licence; and a staleness limit that is written
+>   but unreadable is an error rather than a default.
+>
+> Still open after the audit: the gate-level proof that a failed scan leaves no
+> `.sig`, PR-time wiring (RF-CA-4), OSV data for the JS/TS workspace, and a
+> refresh of the advisory snapshot, which is past its 30-day warning.
 
 ---
 
