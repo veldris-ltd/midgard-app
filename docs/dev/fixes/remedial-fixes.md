@@ -492,16 +492,16 @@ CycloneDX, empty component list. Each must exit non-zero. One positive test.
 >
 > **Still to do:**
 > - Add the CI workflow (or a committed script step) that runs `just repro` over the whole workspace and uploads repro.json; none exists in this tree
-> - Add an automated regression fixture that injects non-determinism and asserts mg-repro exits 1 and names the package (AC 3c is only a manual claim)
-> - Correct the As-built note: it states CI invokes and uploads, which is not true of the public tree
+>
+> **Done since this status was written:** the regression fixture exists (`tools/mg-repro/tests/regression.rs` builds a throwaway workspace whose build script stamps the wall clock, and asserts exit 1 with the package named), which automates criterion c at the tool level; and the As-built note no longer claims CI invokes or uploads anything. See "Audit against the prompt" at the end of the As-built note.
 >
 > Checked: `tools/mg-repro/src/main.rs:185` · `tools/mg-repro/src/main.rs:219` · `tools/mg-repro/src/main.rs:629` · `tools/mg-sign/src/main.rs:427` · `supply-chain/repro-exceptions.txt:15`
 
 **Evidence.** [`tools/mg-repro/src/main.rs`](../../../tools/mg-repro/src/main.rs) special-cases the argument `workspace`: it prints "`'workspace' is a placeholder`" and returns `ExitCode::SUCCESS` without building anything. [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) invokes exactly `nix develop --command just repro workspace`. The `AC-M-6` reproducibility smoke check therefore never builds and never compares. (The two-build comparison logic itself, for a concrete package, is correct.)
 
 > **As built.** The `workspace` short-circuit is gone: `mg-repro` with no
-> argument (or `workspace`) now checks the **whole workspace**, and CI calls it
-> that way. Rather than 2N builds it does **two**, comparing every emitted
+> argument (or `workspace`) now checks the **whole workspace**. Rather than 2N
+> builds it does **two**, comparing every emitted
 > artefact — binaries *and* library `.rlib`s — so a reproducibility regression in
 > a library is caught before it reaches a binary. Measured on this tree:
 > **57 artefacts, 57 reproducible, 0 differing.** Verified non-vacuous by injecting
@@ -521,8 +521,8 @@ CycloneDX, empty component list. Each must exit non-zero. One positive test.
 > pinning them would imply a guarantee the tool does not make.
 >
 > `supply-chain/repro-exceptions.txt` exists and is **empty**, as `AC-RF-SC-3e`
-> requires. `repro.json` is emitted, uploaded by CI, and embedded into the
-> provenance attestation by `mg-sign`.
+> requires. `repro.json` is emitted and embedded into the provenance attestation
+> by `mg-sign`. Nothing uploads it: this tree has no CI configuration (RF-CA-4).
 >
 > **One correctness fix beyond the item.** `repro` proved a *normalised* build
 > reproducible while the gate signed a separately built binary from
@@ -551,15 +551,56 @@ CycloneDX, empty component list. Each must exit non-zero. One positive test.
 >   it would mean choosing a toolchain layout, and a `PATH` resolving different
 >   binaries is a different build rather than a formatting difference. The
 >   hermetic Nix shell is what makes `PATH` reproducible for the run that matters.
-> * **CI now pins `--jobs 4`** — build parallelism can change codegen-unit
->   partitioning, so a fixed value keeps the two builds comparable and the job
->   inside the time budget.
+> * **Parallelism is pinned** — build parallelism can change codegen-unit
+>   partitioning, so a fixed value keeps the two builds comparable. (This first
+>   read "CI now pins `--jobs 4`"; there is no CI in this tree, and the tool only
+>   pinned it when `--jobs` was passed. See the audit below.)
 >
 > The coverage-hole failure path is unit-tested rather than exercised against a
 > real build: every crate in this workspace emits an artefact, so producing a
 > genuine hole would mean adding a target-less member.
 >
 > Still open: the release matrix is hand-maintained (RF-SC-5).
+>
+> **Audit against the prompt.** A later read of the tool found ten further gaps,
+> all now closed. Measured afterwards on this tree: **138 artefacts across all 70
+> members, 138 reproducible, 0 differing** (18 executables, 60 `.rlib`, 60 `.rmeta`).
+>
+> * **`--help` exited 0 from any position**, so `mg-repro workspace --help`
+>   "passed" without building — a breach of `AC-RF-SC-3a`. It is now help only as
+>   the sole argument and an error otherwise.
+> * **Artefacts were read from a directory listing.** The two build directories
+>   were fixed names in the system temp folder and never cleaned, so a file left
+>   by an earlier run — older source, a removed package, a wider scope — was
+>   reported as reproducible, counted as coverage, and handed out by `--emit`.
+>   The tool now asks Cargo what it produced (`--message-format=json`) and
+>   compares exactly those files; the directories moved to the checkout's own
+>   `target/mg-repro/`.
+> * **Artefacts were attributed to packages by file name.** Six binaries are not
+>   named after their package, and `bifrost-fleet` — built by
+>   `bifrost-fleet-server` — is also the name of an unrelated library, so the
+>   report, the attestation, the exception list and the coverage check all
+>   credited it to the wrong package. Attribution now follows the manifest that
+>   declares the target, and members come from `cargo metadata` rather than a
+>   hand-parse of the root `Cargo.toml`.
+> * **`CARGO_BUILD_JOBS` was pinned only when `--jobs` was passed**, which
+>   `just gate` never does. It is now always pinned (default 4).
+> * **A pass by exception printed "every artefact is bit-reproducible".** It now
+>   prints `OK WITH EXCEPTIONS` and counts them; `--emit` reports them too.
+> * **An ambient `CARGO_ENCODED_RUSTFLAGS` silently replaced the path
+>   remapping.** The tool now sets that variable itself, which outranks every
+>   other source of flags, and clears `RUSTFLAGS` and `CARGO_BUILD_RUSTFLAGS`.
+> * **`.rmeta` was not compared**, though the prompt asks for it. It is now, and
+>   a static library's `.lib` is compared on MSVC.
+> * **`repro.json` was written without JSON escaping.**
+> * **`AC-RF-SC-3c` had no test, and its example could not work**: `HOSTNAME` is
+>   pinned to the same value in both builds, so embedding it changes nothing.
+>   `tools/mg-repro/tests/regression.rs` now builds a throwaway workspace whose
+>   build script stamps the wall clock and asserts exit 1 with the package named;
+>   the criterion's example is corrected.
+>
+> What remains is the CI half: nothing in this tree runs `just repro` over the
+> workspace on a schedule or uploads `repro.json` (RF-CA-4).
 
 **Prompt**
 
@@ -594,7 +635,7 @@ tracking item — the allow-list must be empty at GA.
 
 - **AC-RF-SC-3a — No vacuous argument.** *Given* any invocation of `mg-repro`, *when* it exits 0, *then* at least one package was built twice and compared. No argument value produces a success without a comparison.
 - **AC-RF-SC-3b — Workspace coverage.** *Given* `mg-repro` with no argument, *when* it runs, *then* every workspace member appears in the report with a reproducible verdict.
-- **AC-RF-SC-3c — Regression is caught.** *Given* a deliberately injected non-determinism (e.g. embedding `env!("HOSTNAME")` into a binary), *when* CI runs, *then* the reproducibility job fails and names the package.
+- **AC-RF-SC-3c — Regression is caught.** *Given* a deliberately injected non-determinism (e.g. a build script that stamps the wall clock into a binary — not `env!("HOSTNAME")`, which is pinned to the same value in both builds and so cannot differ), *when* the check runs, *then* it fails and names the package.
 - **AC-RF-SC-3d — Report feeds provenance.** *Given* a passing run, *when* `mg-sign` executes afterwards, *then* the DSSE predicate contains the per-package digests from `repro.json`.
 - **AC-RF-SC-3e — Allow-list is empty.** *Given* the GA release tag, *when* the allow-list is inspected, *then* it contains no entries.
 
