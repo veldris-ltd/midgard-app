@@ -1,6 +1,7 @@
 # Midgard Suite — Remedial Fixes & Completion Plan
 
 **Status:** Draft 1 · **Compiled:** 2026-08-25 · **Branch audited:** `dev` @ `71e2a58`
+**Revision 2:** 2026-10-12 · public `main` @ `9ec8659` · adds [Workstream Y — Claim alignment & public release](#y--claim-alignment--public-release) (`RF-CA-1..13`). Every item in A–X was re-audited against that commit and now opens with a dated Status note; see [§1a](#1a-current-position--audit-of-2026-10-12).
 **Scope:** the entire repository — core services, Mimir, model supply, Forge, Bifrost, Heimdall, Admin Control Panel, Client Platforms, the SDK, the design system, every console UI, the CI/release gate, deployment, documentation, and the end-to-end user flows that cross them.
 
 ---
@@ -58,6 +59,89 @@ These carry forward from the playbook and are **not restated** in each prompt. A
 
 **Sizing.** 169 remedial items across 24 workstreams, carrying roughly 800 acceptance criteria. If sequenced as written — supply chain and runtime first, then persistence and transport, then product depth and UI wiring, then clients, operations and assurance — this is on the order of a 6–8 quarter programme for a team of 10–14. The dependency graph in §3 is the critical path; the phased plan in §4 is the suggested cut.
 
+**Revision 2 note (2026-10-12).** Workstream Y adds 13 items and 57 acceptance criteria, for 182 items and 881 criteria across 25 workstreams. It was written against public `main` @ `9ec8659`, which has moved a long way from the tree audited above: the workspace is 70 crates, not 56; five services run as processes (`http-gateway`, `mimir-server`, `bifrost-fleet`, `heimdall-feed`, `forge-worker`); state and the audit ledger are durable and sealed; `mg-sign` and `mg-verify` are real; a real model has been served on CPU. Absences 1, 2, 3 and 5 in the table above are therefore partly closed; absences 4 and 6 stand. The summary above is kept as the record of 2026-08-25. **The current position is §1a**, and each item's Status note; where a Status note and the Evidence beneath it disagree, the Status note is current.
+
+---
+
+## 1a. Current position — audit of 2026-10-12
+
+Every item was re-checked against public `main` @ `9ec8659` on 2026-10-12, by reading the tree. Each item now opens with a **Status** note giving what exists, which acceptance criteria are met, and what is still to do; the original Evidence paragraph beneath it is kept as the record of 2026-08-25 and is no longer the current position where the two differ. Nothing was built or run for this audit (Appendix 5), so *Done* means an implementation and a covering test were found for every criterion, not that the test was observed to pass.
+
+| # | Workstream | Items | Done | Partial | Open | Criteria met |
+|---|---|---|---|---|---|---|
+| **A** | Supply chain & release integrity | 8 | 2 | 5 | 1 | 17 / 40 |
+| **B** | Runtime & process model | 7 | 0 | 4 | 3 | 1 / 35 |
+| **C** | Persistence & durability | 8 | 0 | 4 | 4 | 5 / 45 |
+| **D** | Transport & API surface | 7 | 0 | 5 | 2 | 0 / 34 |
+| **E** | Identity, authentication & session | 6 | 0 | 6 | 0 | 0 / 30 |
+| **F** | Observability & operations telemetry | 5 | 0 | 4 | 1 | 1 / 23 |
+| **G** | Mimir: real inference | 8 | 0 | 5 | 3 | 5 / 44 |
+| **H** | Model supply chain | 5 | 0 | 1 | 4 | 3 / 22 |
+| **I** | Forge: execution depth | 7 | 0 | 6 | 1 | 4 / 36 |
+| **J** | Bifrost: delivery reality | 6 | 0 | 3 | 3 | 1 / 32 |
+| **K** | Heimdall: fusion reality | 6 | 0 | 3 | 3 | 0 / 31 |
+| **L** | Admin Control Panel depth | 7 | 0 | 4 | 3 | 2 / 37 |
+| **M** | UI platform foundations | 10 | 0 | 2 | 8 | 0 / 56 |
+| **N** | UI data wiring | 7 | 0 | 2 | 5 | 0 / 33 |
+| **O** | End-to-end user flows | 12 | 0 | 9 | 3 | 0 / 61 |
+| **P** | Client platforms | 9 | 0 | 2 | 7 | 1 / 44 |
+| **Q** | SDKs & developer experience | 5 | 0 | 3 | 2 | 1 / 21 |
+| **R** | Deployment & topology | 7 | 0 | 5 | 2 | 0 / 32 |
+| **S** | Resilience, backup & disaster recovery | 5 | 0 | 5 | 0 | 2 / 23 |
+| **T** | Security assurance | 8 | 0 | 6 | 2 | 1 / 36 |
+| **U** | Test strategy & coverage | 8 | 0 | 2 | 6 | 1 / 33 |
+| **V** | Compliance & assurance artefacts | 6 | 0 | 4 | 2 | 1 / 25 |
+| **W** | Multi-tenancy, scale & performance | 5 | 0 | 1 | 4 | 0 / 21 |
+| **X** | Documentation, design system & drift | 7 | 0 | 4 | 3 | 0 / 30 |
+| **Y** | Claim alignment & public release | 13 | 0 | 2 | 11 | 0 / 57 |
+| | **Total** | **182** | **2** | **97** | **83** | **46 / 881** |
+
+A criterion counts as met only where both the implementation and a test exercising it were found. Criteria that need a run, hardware or an outside party are listed per item as not verifiable by reading and are not counted as met. The full per-item list is in [Appendix 1](#appendix-1--complete-item-register-182).
+
+**Why so few criteria are met when so much has landed.** The work since August was done against the earlier backlog ([`remedial-tasks.md`](../remedial/remedial-tasks.md), ids `RT-nn` / `RC-nn`), not against this document. Almost no source file cites an `AC-RF-*` id, and `deploy/acceptance/verify-remedial.sh` (Appendix 3) does not exist. Most items are therefore *Partial*: the capability is partly or largely built, but the specific criteria written here have no named test. Closing an item now usually means writing those tests and the remaining pieces listed under *Still to do*, not starting over.
+
+**Scope changes.** 85 items carry a *Scope change* note where the tree has moved past the item's premise. Read the note before the prompt: the prompt is kept as written, and the note says how to read it now.
+
+### Findings that cut across items
+
+1. **There is no CI configuration in the tree.** Every criterion of the form "when CI runs, it fails" is open, and several items cite workflows as evidence that a reader cannot find. RF-CA-4 is a prerequisite for all of them.
+2. **The acceptance gate has not been re-run on any public commit**, and a fresh clone lacks the cargo configuration the offline build needs (RF-CA-3, RF-CA-5).
+3. **Six consoles have no backend route.** `forge-worker`, `mimir-server`, `bifrost-fleet` and `heimdall-feed` are mesh-only services; the browser edge serves only the Midgard core surface and admin enrolment. Every criterion that names a Forge, Mimir, Bifrost, Heimdall, Admin or Clients screen is open for that reason (RF-UID-1).
+4. **No TypeScript test runner exists** in any `package.json`, so no frontend criterion is met (RF-TST-2).
+5. **Document paths in the prompts are wrong.** Operations documents live in `docs/ops/` and compliance documents in `docs/compliance/`, not under `docs/dev/operations/` or `docs/dev/compliance/`.
+
+### Decisions to make before more is built
+
+Each of these is a place where the tree took a different design from the one this document prescribes. The items affected cannot be closed, or sensibly rewritten, until the choice is recorded in an ADR (RF-DOC-4).
+
+| Decision | The plan says | The tree does | Items affected |
+|---|---|---|---|
+| Persistence | A storage engine behind key-value, log and blob traits | KMS-sealed append-only journals replayed into in-memory stores | RF-PER-1, RF-PER-3, RF-PER-8, RF-SCL-2 |
+| Process model | One process per service, the edge forwarding over RPC | Five binaries; iam, fabric, kms and governance composed inside the gateway | RF-RT-1, RF-API-3, RF-PER-7 |
+| Inter-service contract | Proto per subsystem with generated stubs | A hand-written PQ-mTLS codec typed in Rust; protos govern the client edge only | RF-API-1, RF-API-2, RF-SDK-1..3 |
+| Human second factor | WebAuthn / FIDO2 security keys | Password plus TOTP for users; ML-DSA passkeys in keystore files for administrators, which no browser can produce | RF-IAM-1, RF-UI-1, RF-UX-1, RF-UX-2, RF-AD-1 |
+| Replication | Multi-replica HA with zero-downtime upgrades | A locked single-writer state directory per service; one replica each | RF-DEP-2, RF-RES-2, RF-RES-3, RF-CA-9 |
+| Configuration store | A Git repository with signed commits | A signed, hash-chained store with a drift reconciler | RF-AD-3, RF-DEP-6 |
+| Tenancy | To be decided before the storage keyspace is set | Undecided; the storage design has since landed | RF-SCL-1, RF-SCL-5 |
+| Go and Python | SDKs and services in both | No Go or Python code; build recipes and documents still refer to them | RF-SDK-3, RF-SDK-4, RF-DOC-1 |
+
+### Defects found while auditing
+
+These are faults in code or documents that exist today, as distinct from missing work. Each was confirmed by opening the file.
+
+| Defect | Where | Item |
+|---|---|---|
+| Picture merge does not converge: on equal `last_seen` each side adopts the other's entity | `heimdall/picture/src/delta.rs:47` | RF-H-3 |
+| A non-consequential action executes from `Proposed` with no recorded human decision | `heimdall/workflow/src/engine.rs:162` | RF-H-4 |
+| Ungrounded options are returned with a flag, not rejected | `heimdall/decision-support/src/adapter.rs:62` | RF-H-4, RF-CA-10 |
+| The human gate accepts any non-empty token | `services/http-gateway/src/enclosure.rs:375` | RF-UID-3 |
+| The observability view returns literal SLO figures ("QUERY P95 38ms") | `services/http-gateway/src/data.rs:226` | RF-UID-3, RF-SCL-4 |
+| The console login form has no TOTP field, so users enrolled with `--totp` cannot sign in from it | `ui/shared/src/AuthGate.tsx` | RF-UI-1 |
+| The DR plan states a 60-second RPO through journal shipping to a warm replica, which is not implemented | `docs/ops/DR_PLAN.md:16` | RF-RES-2 |
+| A doc comment relies on a `just check-backends` gate that is not in the `justfile` | `crypto/pqc-agility/src/backend/mod.rs:8` | RF-SEC-3 |
+
+Further defects reported by the item reviews and not separately re-confirmed are recorded in the status note of the item concerned — among them: mesh certificates issued by `mg-admin` never expire (RF-IAM-6), `/metrics` is served on the public port with the raw request path as a label (RF-OBS-1), the federation bridge copies roles from the upstream assertion (RF-IAM-4), and a test asserts the opposite of AC-RF-AD-4c (RF-AD-4).
+
 ---
 
 ## 2. Severity model
@@ -101,6 +185,7 @@ These carry forward from the playbook and are **not restated** in each prompt. A
 | **V** | [Compliance & assurance artefacts](#v--compliance--assurance-artefacts) | RF-CMP-1..6 | High | Control mappings evidenced from CI, not prose |
 | **W** | [Multi-tenancy, scale & performance](#w--multi-tenancy-scale--performance) | RF-SCL-1..5 | High | Tenant isolation proven; published performance envelope |
 | **X** | [Documentation, design system & drift](#x--documentation-design-system--drift) | RF-DOC-1..7 | Medium | No statement in the repo is contradicted by the repo |
+| **Y** | [Claim alignment & public release](#y--claim-alignment--public-release) | RF-CA-1..13 | Critical | Every published claim is checkable from one signed, tagged public commit |
 
 ### Critical path
 
@@ -125,6 +210,8 @@ B (runtime)       ──┼──▶ C (persistence) ──▶ D (transport) ─
 
 **Sequencing rule.** Do not start Workstream N (UI wiring) before D and E: pointing a console at an unauthenticated, contractless edge produces a second thing to rewrite. Do not start P (clients) before Q's UniFFI/wasm surface is stable. T, U and V run continuously alongside everything from B onward, not as a phase at the end.
 
+**Workstream Y sits outside this graph.** Its truth track (RF-CA-1..7, RF-CA-13) depends on nothing above and comes first: it changes what is said, not what is built. Its capability track (RF-CA-8..12) wires libraries that A–X already produced into the services that now run, and each item names the A–X items it extends.
+
 ---
 # A — Supply chain & release integrity
 
@@ -135,6 +222,11 @@ B (runtime)       ──┼──▶ C (persistence) ──▶ D (transport) ─
 ### RF-SC-1 · Implement `mg-sign` — ML-DSA detached signature + DSSE attestation
 
 **Severity:** Critical · **Area:** Supply chain · **Depends on:** — · **Blocks:** RF-SC-2, RF-SC-5, RF-DEP-4, RF-B-2
+
+> **Status at 2026-10-12 — Done, by reading the tree; not run.** `mg-sign` is a real CLI over `crypto/attest` (`sign_artefact`), with a sealed-keystore `KmsSigner` path and an env-gated `FileSigner`; the stub is gone. `crypto/attest/tests/ac_rf_sc_1.rs` has one or more tests per criterion a-f and `just test` runs `-p attest` and `-p mg-sign`. The As-built note matches the code.
+> Criteria met 6 of 6 (a, b, c, d, e, f). Confidence: high.
+>
+> Checked: `tools/mg-sign/src/main.rs:231` · `tools/mg-sign/src/main.rs:502` · `crypto/attest/tests/ac_rf_sc_1.rs:106` · `crypto/attest/tests/ac_rf_sc_1.rs:409` · `justfile:198`
 
 **Evidence.** [`tools/mg-sign/src/main.rs:17`](../../../tools/mg-sign/src/main.rs) prints `mg-sign STUB (Phase 0.b): would ML-DSA-sign …` and returns `ExitCode::SUCCESS`. It has no dependency on `pqc-agility` and no inline tests. It is invoked by `just sign`, by `just gate`, and by the **PQ-sign (ML-DSA)** step of [`.github/workflows/release.yml`](../../../.github/workflows/release.yml). Any artefact — including one that was never signed — passes.
 
@@ -225,6 +317,11 @@ the file-signing refusal without the env var. Add the crate to `just test`.
 ### RF-SC-2 · Implement `mg-verify` — fail-closed signature, SBOM and provenance verification
 
 **Severity:** Critical · **Area:** Supply chain · **Depends on:** RF-SC-1 · **Blocks:** RF-B-2, RF-MS-2, RF-DEP-4
+
+> **Status at 2026-10-12 — Done, by reading the tree; not run.** `mg-verify` is a thin CLI over `attest::verify_artefact`, requires explicit trust anchors and prints a one-line verdict. `tools/mg-verify/tests/ac_rf_sc_2.rs` runs the real binary with a rejection table, an untrusted-key test, a verdict test and a source-inspection test for 2d; Bifrost artefact/bundle and Mimir model load all call `attest::accept::accept`. The shared function is `attest::accept`, not `mg_verify::verify` as the criterion text says (the As-built note records this).
+> Criteria met 5 of 5 (a, b, c, d, e). Confidence: high.
+>
+> Checked: `tools/mg-verify/src/main.rs:141` · `tools/mg-verify/tests/ac_rf_sc_2.rs:159` · `tools/mg-verify/tests/ac_rf_sc_2.rs:361` · `bifrost/artefact/src/signed.rs:90` · `mimir/model-server/src/artifact.rs:310`
 
 **Evidence.** [`tools/mg-verify/src/main.rs:16`](../../../tools/mg-verify/src/main.rs) prints `mg-verify STUB (Phase 0.b)` and returns `ExitCode::SUCCESS`. Its own doc comment states the real verifier "returns a non-zero exit on any missing/invalid signature, SBOM, or attestation — never a soft pass" — the code does the opposite. It is the pre-publish gate in `release.yml` **and** the documented pre-deploy check for `AC-B-1` and the model-load check for `AC-MS-2`.
 
@@ -330,6 +427,18 @@ CycloneDX, empty component list. Each must exit non-zero. One positive test.
 ### RF-SC-3 · Make the reproducibility check non-vacuous in CI
 
 **Severity:** Critical · **Area:** Supply chain · **Depends on:** — · **Blocks:** RF-SC-5
+
+> **Status at 2026-10-12 — Partial.** `mg-repro` no longer short-circuits `workspace`: it always builds twice, compares every artefact, fails on zero artefacts or an uncovered member, writes `repro.json` with both digests, and `mg-sign --repro` embeds it. The exception list is empty. The CI half of the item cannot be confirmed: this tree has no `.github/` directory, so the As-built claims that CI calls it and uploads `repro.json` have no workflow behind them here, and the injected-non-determinism check was a manual run with no test or script step.
+> Criteria met 3 of 5 (b, d, e); open: c; not verifiable by reading: a. Confidence: medium.
+>
+> **Scope change:** The tool side is built, but the As-built note's CI steps (`just repro` in CI, the `repro.json` upload) have nothing behind them: the tree has no CI configuration (RF-CA-4). Criterion c was a manual run with no test.
+>
+> **Still to do:**
+> - Add the CI workflow (or a committed script step) that runs `just repro` over the whole workspace and uploads repro.json; none exists in this tree
+> - Add an automated regression fixture that injects non-determinism and asserts mg-repro exits 1 and names the package (AC 3c is only a manual claim)
+> - Correct the As-built note: it states CI invokes and uploads, which is not true of the public tree
+>
+> Checked: `tools/mg-repro/src/main.rs:185` · `tools/mg-repro/src/main.rs:219` · `tools/mg-repro/src/main.rs:629` · `tools/mg-sign/src/main.rs:427` · `supply-chain/repro-exceptions.txt:15`
 
 **Evidence.** [`tools/mg-repro/src/main.rs`](../../../tools/mg-repro/src/main.rs) special-cases the argument `workspace`: it prints "`'workspace' is a placeholder`" and returns `ExitCode::SUCCESS` without building anything. [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) invokes exactly `nix develop --command just repro workspace`. The `AC-M-6` reproducibility smoke check therefore never builds and never compares. (The two-build comparison logic itself, for a concrete package, is correct.)
 
@@ -440,6 +549,20 @@ tracking item — the allow-list must be empty at GA.
 
 **Severity:** Critical · **Area:** Supply chain · **Depends on:** RF-SC-2 · **Blocks:** RF-CMP-2
 
+> **Status at 2026-10-12 — Partial.** `tools/mg-scan` exists with an in-crate SPDX evaluator, CVSS v3.1 scorer, staleness check against `vendor/advisory-db/snapshot.toml` and expiring exception tables in `supply-chain/`; `just gate` runs scan between sbom and sign. Tests are unit-level only (licence refusal, expiry, unscored-blocks); there is no test that drives `run()` for the missing-licence, stale-database or critical-advisory-blocks-the-gate paths, no PR-time CI wiring in this tree, and no OSV data for the JS/TS workspace. The snapshot is dated 2026-08-27, so it is already past the 30-day warn threshold today.
+> Criteria met 2 of 6 (b, d); open: a, c, f; not verifiable by reading: e. Confidence: high.
+>
+> **Scope change:** Steps and criteria written against `ci.yml` / `release.yml` cannot hold until those workflows are published (RF-CA-4); until then target the committed scripts (`tools/ci/*.sh`, `justfile`).
+>
+> **Still to do:**
+> - Add CLI-level tests with fixture SBOM/database: critical advisory blocks, missing licence blocks, stale snapshot fails naming the date
+> - Add a gate-level test or script step proving a failed scan leaves no .sig
+> - Wire the PR-time `--advisory-only` scan into a CI workflow that exists in the tree
+> - Vendor OSV records for the JS/TS workspace and scan the pnpm lockfile
+> - Refresh the advisory snapshot (47 days old on 2026-10-12)
+>
+> Checked: `tools/mg-scan/src/main.rs:244` · `tools/mg-scan/src/main.rs:468` · `tools/mg-scan/src/licence.rs:250` · `justfile:364` · `vendor/advisory-db/snapshot.toml:20`
+
 **Evidence.** [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) step *Scan SBOM (CVE + licence allow-list)* is two `echo "TODO(Phase 1)"` lines. The suite's open-source posture claim (`[FR-MS-6]`, "no non-OSI deps/weights in the OSS core") is unenforced. There is no `deny.toml`, no `cargo-audit` configuration, and no advisory database vendored for offline scanning.
 
 **Prompt**
@@ -540,6 +663,20 @@ Implement the release-time scan stage as a real, air-gap-capable gate.
 
 **Severity:** High · **Area:** Supply chain · **Depends on:** RF-SC-1..4
 
+> **Status at 2026-10-12 — Partial.** Coverage now extends to all 18 workspace binaries via `supply-chain/release-artefacts.txt`, and `tools/ci/release-artefacts.sh --check/--matrix` fails if the list and the workspace's binaries differ and emits the matrix JSON; `mg-register` admits a gated artefact to the Bifrost registry and `deploy/images/build.sh` builds verify-before-run images. The list is still hand-maintained (checked, not derived), only Rust binaries are covered (no UI bundles, npm tarball, client shells, or signed image artefacts), and there is no release workflow in this tree, so dry-run and publish-set comparison do not exist here.
+> Criteria met 0 of 5; open: b, c, e; not verifiable by reading: a, d. Confidence: medium.
+>
+> **Scope change:** The Evidence ("four artefacts in the matrix") is superseded: `supply-chain/release-artefacts.txt` lists 18 binaries and `tools/ci/release-artefacts.sh --check` enforces it. The list is checked, not derived, so criterion a needs rewording; non-Rust artefacts remain ungated.
+>
+> **Still to do:**
+> - Gate non-Rust artefacts (UI bundles, @midgard/sdk tarball, container images, client shells) through repro/SBOM/scan/sign/verify
+> - Commit the release workflow with a dry-run mode, or drop the workflow-shaped criteria; `.github/` is absent from this tree
+> - Enforce published-set equals gated-set as a failing check
+> - Add a test for release-artefacts.sh --check (new binary not listed fails) and for mg-register recording digest, SBOM digest, key id and provenance
+> - Decide whether a checked list satisfies 'derived, not listed' and reword AC 5a accordingly
+>
+> Checked: `supply-chain/release-artefacts.txt:14` · `tools/ci/release-artefacts.sh:63` · `tools/ci/release-artefacts.sh:91` · `tools/mg-register/src/main.rs:26` · `justfile:344`
+
 **Evidence.** [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) matrix lists four artefacts: `tools/mg-sign`, `tools/mg-sbom`, `tools/mg-verify`, `tools/mg-repro`. The workspace has 56 crates, one runnable service (`http-gateway`), seven UI applications, a TypeScript SDK, and (per Workstream P) six client shells — none of which pass the gate. The final step is `echo "TODO(Phase 5): hand the verified bundle to Bifrost"`.
 
 **Prompt**
@@ -586,6 +723,19 @@ Generalise the release gate so "every buildable artefact" is literally true.
 ### RF-SC-6 · Implement the provenance-tag lint
 
 **Severity:** Medium · **Area:** Supply chain · **Depends on:** —
+
+> **Status at 2026-10-12 — Partial.** A diff-scoped provenance lint exists as `tools/ci/provenance-lint.sh` (not `mg-trace`), failing on changed `.rs/.ts/.tsx` files without a tag, but it governs only `services mimir products clients`, accepts `[RC-*]` and not `[KDD-*]`, and has no committed exclusion list or tag suggestion. There is no `matrix` mode, no `traceability.md`, no test of the script, and no CI workflow in the tree to run it. The plan's 'Partially delivered' note saying the lint is still an echo is stale.
+> Criteria met 0 of 4; open: b, c, d; not verifiable by reading: a. Confidence: high.
+>
+> **Scope change:** `tools/ci/provenance-lint.sh` exists with a narrower scope. Read this item as: extend that script and add the traceability matrix.
+>
+> **Still to do:**
+> - Extend the governed trees to forge, bifrost, heimdall, admin, crypto, ui, sdk and tools, and accept [KDD-*]
+> - Implement the requirement-to-citation matrix (orphan id and invented id both fail) and generate traceability.md
+> - Wire the lint into a CI workflow present in the tree and add a fixture test for the untagged-file failure
+> - Update the plan note that still calls the lint an echo placeholder
+>
+> Checked: `tools/ci/provenance-lint.sh:31` · `tools/ci/provenance-lint.sh:39` · `tools/ci/provenance-lint.sh:81` · `justfile:129`
 
 **Evidence.** [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) *Provenance-tag lint* prints `TODO(Phase 1): fail if a changed source file … lacks a provenance tag. Scaffold placeholder for now.` Traceability is currently maintained by convention alone. It happens to be near-complete today (66 of 67 `FR-*` ids are cited in source) — which makes this cheap to enforce and easy to lose.
 
@@ -654,6 +804,19 @@ that opens a PR when the generated table changes.
 
 **Severity:** Medium · **Area:** Supply chain · **Depends on:** RF-SC-4
 
+> **Status at 2026-10-12 — Open.** Nothing asked for exists: no `supply-chain/VENDORING.md`, no `mg-vendor-check`, no `vendor-manifest.toml`, no scheduled update report. `vendor/` is populated, but the `.cargo/config.toml` the Evidence (and README/BUILD_ENV) relies on to redirect cargo to it is not in this tree; the only refresh notes are a few lines in `docs/dev/BUILD_ENV.md`.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** The first task is now RF-CA-3: `.cargo/config.toml`, which redirects cargo to `vendor/`, is not in the public tree.
+>
+> **Still to do:**
+> - Restore or commit `.cargo/config.toml` source replacement so the vendored build is actually selected in this tree
+> - Write supply-chain/VENDORING.md and supply-chain/vendor-manifest.toml
+> - Build mg-vendor-check (lockfile checksum match, no local modification, no missing or undeclared crate) with tests
+> - Run the check in CI and add the scheduled upstream/advisory report
+>
+> Checked: `docs/dev/BUILD_ENV.md:16` · `docs/dev/BUILD_ENV.md:26` · `deploy/acceptance/run-airgapped.sh:10` · `README.md:119`
+
 **Evidence.** `vendor/` holds the offline dependency graph (including `zeroize`, `fips20x`, `x25519-dalek`, `aes-gcm`) and `.cargo/config.toml` redirects to it, which is what makes the air-gapped build work. There is no documented procedure for refreshing it, no check that the vendored sources match the upstream `Cargo.lock` hashes, and no policy governing what may be added.
 
 **Prompt**
@@ -692,6 +855,18 @@ Govern the vendor/ directory.
 ### RF-SC-8 · Key management for release signing: rotation, revocation, trust distribution
 
 **Severity:** High · **Area:** Supply chain · **Depends on:** RF-SC-1, RF-SC-2
+
+> **Status at 2026-10-12 — Partial.** Verification fails closed without anchors and against an unpinned key, and `docs/ops/PKI.md` plus `deploy/trust/README.md` describe a ceremony and append-a-line rotation for flat `<alg> <key-id> <hex>` anchor files. There is no `supply-chain/KEYS.md`, no SLH-DSA root, no signed versioned `trust-anchors.json`, no `mg-keys`, no validity windows or revocation in `attest`, no Bifrost quarantine on revocation, and the pinned `.pub` files are not committed.
+> Criteria met 1 of 5 (a); open: b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Define the root/release key hierarchy (KEYS.md) and implement a root-signed, versioned trust bundle that mg-verify consumes
+> - Implement rotation with overlapping validity and a test that K1-signed artefacts still verify after K2 becomes current
+> - Implement revocation in the acceptor plus Bifrost quarantine flagging, with tests
+> - Carry the trust bundle through the Bifrost bundle path for offline anchor update, verified against the previous root
+> - Audit ceremonies, rotations and revocations in the governance ledger
+>
+> Checked: `tools/mg-verify/src/main.rs:132` · `tools/mg-verify/tests/ac_rf_sc_2.rs:301` · `deploy/trust/README.md:32` · `docs/ops/PKI.md:130` · `tools/ci/release-preflight.sh:91`
 
 **Evidence.** `release.yml` targets a `[self-hosted, kms]` runner and uses OIDC for a signing identity, but there is no defined key hierarchy, no rotation procedure, no revocation mechanism, and no way for an air-gapped site to learn the current trust anchor set. `mg-verify` (RF-SC-2) needs a trust anchor input that today has no source.
 
@@ -742,6 +917,20 @@ Define and implement release key management end to end.
 ### RF-RT-1 · Give every service a process: binary, configuration, lifecycle
 
 **Severity:** Critical · **Area:** Runtime · **Depends on:** — · **Blocks:** RF-PER-*, RF-API-*, RF-OBS-*, RF-DEP-*
+
+> **Status at 2026-10-12 — Partial.** `services/runtime` exists and five service binaries run on it (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-worker), with strict CLI args, a file-loaded mesh identity that refuses to load unless it verifies, and a separate `/healthz` `/readyz` `/metrics` port. There is no layered config loader or `--check-config`, no lifecycle state machine or signal-driven drain (`serve_mesh` loops forever), no panic boundary, no binaries for iam/fabric/kms/governance/scheduler/admin as separate processes, no generated config docs, and no clippy lint against unwrap/expect.
+> Criteria met 1 of 7 (e); open: b, d, f, g; not verifiable by reading: a, c. Confidence: high.
+>
+> **Scope change:** Five server binaries run on `services/runtime`; iam, fabric, kms and governance are composed inside `http-gateway`. Decide whether those four stay embedded or become processes before working the "one binary per service" list.
+>
+> **Still to do:**
+> - Add typed, validated, layered configuration with `--check-config` and structural secret redaction
+> - Add lifecycle states with SIGTERM bounded drain and SIGINT stop to serve_mesh and the HTTP edge
+> - Decide whether iam/fabric/kms/governance/scheduler/admin become separate processes or stay embedded in http-gateway, and rewrite the binary list to match
+> - Add a panic boundary on request paths and fail-fast for background tasks
+> - Complete the unwrap/expect/panic audit and add the denying clippy lint
+>
+> Checked: `services/runtime/src/lib.rs:20` · `services/runtime/src/serve.rs:14` · `services/runtime/src/args.rs:17` · `services/runtime/src/identity.rs:33` · `services/runtime/tests/identity.rs:89`
 
 **Evidence.** `find . -name main.rs` returns five files: `services/http-gateway` and the four `tools/*`. `services/iam`, `services/fabric`, `services/kms`, `services/governance`, `services/scheduler`, `services/gateway`, every `mimir/*`, `forge/*`, `bifrost/*`, `heimdall/*` and `admin/*` crate is a library only. There is no configuration mechanism anywhere in the tree — no config file format, no environment schema, no defaults, no validation.
 
@@ -802,6 +991,18 @@ library-first design.
 
 **Severity:** High · **Area:** Runtime · **Depends on:** RF-RT-1
 
+> **Status at 2026-10-12 — Partial.** Still thread-per-connection with no ADR. The mesh `gateway` has an opt-in per-identity token-bucket limiter and per-connection request quota, and the health port has a 5 s read timeout and 8 KiB head cap. The browser edge parser in `services/http-gateway/src/http.rs` is unchanged in kind: no connection limit, no deadlines, no header count/size cap, allocates `Content-Length` bytes unbounded, and does not reject Transfer-Encoding conflicts or bare LF; no fuzz target exists.
+> Criteria met 0 of 5; open: a, b, c, d; not verifiable by reading: e. Confidence: high.
+>
+> **Still to do:**
+> - Write the concurrency ADR and record the decision
+> - Add bounded connection limits, per-peer caps and read/write/total deadlines in services/runtime and apply them to serve_mesh and http-gateway
+> - Harden the HTTP/1.1 parser: header and body limits, CL/TE conflict, obs-fold and bare-LF rejection, path normalisation, with tests
+> - Add a parser fuzz target and a nightly job
+> - Load-test and publish the envelope
+>
+> Checked: `services/http-gateway/src/http.rs:46` · `services/http-gateway/src/http.rs:93` · `services/gateway/src/lib.rs:167` · `services/runtime/src/health_http.rs:45` · `services/runtime/src/serve.rs:30`
+
 **Evidence.** `services/gateway` and `services/http-gateway` both use thread-per-connection `TcpListener` with a hand-rolled HTTP/1.1 parser, deliberately (the module docs state "No async runtime and no external HTTP framework"). Only 4 files in the entire non-test tree use `Mutex`/`RwLock`. That posture is defensible for a reference implementation and untenable at fleet scale: thread-per-connection caps concurrency at the thread limit and offers no backpressure, no timeouts, and no connection limits.
 
 **Prompt**
@@ -846,6 +1047,20 @@ Decide and implement the concurrency model, explicitly and once.
 ### RF-RT-3 · Structured, correlated, redacting logging
 
 **Severity:** High · **Area:** Runtime · **Depends on:** RF-RT-1 · **Blocks:** RF-OBS-3
+
+> **Status at 2026-10-12 — Partial.** A structured logger exists in `services/telemetry` (levels, JSON-lines stdout sink, buffer sink, optional trace/span ids, W3C traceparent propagation tested) and `serve_mesh` uses it. It lives in `telemetry`, not `runtime::log`; records are not shown to carry version or a request id, there is no `Secret<T>`/`Marked<T>` logging wrapper beyond `pqc_agility` key types with redacting Debug, no file or forwarding sink, and service mains and `http-gateway/src/lib.rs` still use `eprintln!` (33 print macros across 11 non-test files).
+> Criteria met 0 of 5; open: b, d, e; not verifiable by reading: a, c. Confidence: medium.
+>
+> **Scope change:** The logger exists in `services/telemetry`, not `runtime::log`. Read this item as adoption across services, request ids and redaction types.
+>
+> **Still to do:**
+> - Replace remaining eprintln!/println! diagnostics in service code with the logger and add a lint enforcing it
+> - Assign and propagate a request id across HTTP, PQ-mTLS hops, audit records and agent-runtime steps, with a four-hop test
+> - Add Secret<T>/Marked<T> wrappers with clearance-aware sinks, including a compile-fail test
+> - Add service version to every record, plus file-rotation and opt-in forwarding sinks
+> - Retarget the item at services/telemetry rather than a new runtime::log module
+>
+> Checked: `services/telemetry/src/log.rs:132` · `services/telemetry/tests/telemetry.rs:119` · `services/runtime/src/serve.rs:31` · `services/http-gateway/src/lib.rs:770` · `crypto/pqc-agility/src/secret.rs:111`
 
 **Evidence.** Diagnostics across the tree are `eprintln!` (e.g. `services/http-gateway/src/lib.rs` connection and accept errors). There is no log level, no structure, no correlation id, no redaction, and no way to route logs anywhere.
 
@@ -892,6 +1107,17 @@ Introduce structured logging as a first-class, governed output.
 
 **Severity:** Medium · **Area:** Runtime · **Depends on:** RF-RT-1
 
+> **Status at 2026-10-12 — Open.** No platform `Clock` seam exists: `services/runtime` exposes only `unix_seconds()` over `SystemTime::now`, and the one `Clock` trait in the tree is local to `mimir/model-server`. Most domain logic takes an injected `now: u64` (for example break-glass grants), which gives deterministic expiry tests, but there is no monotonic guard, no backward-jump refusal, no untrusted-clock state, no anomaly auditing and no air-gap time policy.
+> Criteria met 0 of 5; open: a, c, d, e; not verifiable by reading: b. Confidence: medium.
+>
+> **Still to do:**
+> - Add Clock, TestClock and MonotonicGuardClock to services/runtime and route the 13 direct OS-clock call sites through it
+> - Document, per time-dependent security decision, monotonic versus wall-clock use
+> - Implement untrusted-clock state that refuses token issue and time-boxed grants, with audit of anomalies
+> - Define the air-gapped trusted time source and skew detection
+>
+> Checked: `services/runtime/src/lib.rs:39` · `mimir/model-server/src/handler.rs:26` · `mimir/mimir-server/src/main.rs:65` · `admin/breakglass/tests/durable_restart.rs:84`
+
 **Evidence.** The reference implementation is deliberately clock-free (`forge/engine/src/reference.rs`: "No threads, no I/O, no clock"), and `audit-writer` takes an injected `Timestamp`. Real services need time — token expiry, break-glass windows, time-boxed grants, retention, rotation, rate limits — and an air-gapped enclosure has no NTP. There is currently no time source abstraction and no policy for what happens when the clock is wrong.
 
 **Prompt**
@@ -936,6 +1162,17 @@ Define the platform's relationship with time.
 
 **Severity:** High · **Area:** Runtime · **Depends on:** RF-RT-1
 
+> **Status at 2026-10-12 — Partial.** `pqc-agility` now has two compile guards (test-backend with backend-fips, and test-backend in any release profile) and `OsRng::try_new`/`try_fill` return errors on entropy failure, with tests in `rc_51.rs`. The pq-mtls record layer uses a sequence-number nonce with `checked_add` and fails on exhaustion. Nothing calls the entropy probe at service start-up or gates readiness on it, the `just check-backends` gate named in the code comment does not exist in the justfile, there is no release-artefact symbol scan, no `nonce-policy.md`, KMS envelope nonces are random 96-bit with no per-key counter or limit, and there are no long-run nonce-uniqueness or limit tests.
+> Criteria met 0 of 5; open: a, c, d, e; not verifiable by reading: b. Confidence: medium.
+>
+> **Still to do:**
+> - Call OsRng::try_new in the runtime start-up path and gate readiness on it, with a test using a failing RNG
+> - Add the `check-backends` recipe the code cites and a release-artefact scan for the deterministic RNG
+> - Write the nonce policy and state the bound for random-nonce KMS sealing (or add counters and rekey triggers)
+> - Add nonce non-repetition and sequence-limit tests for pq-mtls, KMS and the client store
+>
+> Checked: `crypto/pqc-agility/src/backend/mod.rs:22` · `crypto/pqc-agility/src/rng.rs:60` · `crypto/pqc-agility/tests/rc_51.rs:22` · `crypto/pq-mtls/src/record.rs:62` · `services/kms/src/lib.rs:239`
+
 **Evidence.** `pqc-agility` correctly injects `&mut dyn Rng` and offers `OsRng` (getrandom) under `backend-fips` and a deterministic `SeedRng` under `test-backend`. There is no start-up entropy health check, no policy preventing a test RNG reaching a production build path beyond feature gating, and no documented nonce-uniqueness argument for the AES-GCM usage in `kms` and `pq-mtls`.
 
 **Prompt**
@@ -979,6 +1216,18 @@ Harden randomness end to end.
 
 **Severity:** Medium · **Area:** Runtime · **Depends on:** RF-RT-2
 
+> **Status at 2026-10-12 — Open.** No resource inventory document, no configurable bounds or eviction/spill policy, no fd or thread accounting, no memory-pressure handling and no soak test were found. Durable stores (FileLedger, SealedJournal, DurableObjectStore) still load and hold every record in memory, so persistence has not bounded resident memory; a few fixed caps exist at the HTTP edge (challenge table, search-around node cap).
+> Criteria met 0 of 4; open: a, b, d; not verifiable by reading: c. Confidence: medium.
+>
+> **Still to do:**
+> - Write the resource inventory of growable structures
+> - Give each structure a configured bound and policy; make ledgers and journals page from disk rather than hold all entries in memory
+> - Add thread/fd accounting and limits to the runtime (thread-per-connection is currently unbounded)
+> - Define and implement high-water shed behaviour
+> - Add a 24-hour soak job
+>
+> Checked: `crypto/audit-writer/src/file.rs:60` · `services/fabric/src/durable.rs:32` · `services/http-gateway/src/admin_api.rs:42` · `services/runtime/src/serve.rs:30`
+
 **Evidence.** No crate imposes any bound on collection growth. `services/fabric`'s object store, `audit-writer`'s `InMemoryLedger`, `heimdall/picture`'s layers and `mimir/model-server`'s KV-cache accounting all grow with input. Combined with the absence of persistence (RF-PER-1), a long-running enclosure has an unbounded memory profile and an OOM as its only limit.
 
 **Prompt**
@@ -1017,6 +1266,18 @@ Give every unbounded structure a bound and a policy.
 ### RF-RT-7 · Feature flags, safe defaults and a documented hardening baseline
 
 **Severity:** Medium · **Area:** Runtime · **Depends on:** RF-RT-1
+
+> **Status at 2026-10-12 — Open.** No runtime feature-flag facility, no `hardening-baseline.md`, and no `mg-posture` exist. Some opt-outs are explicit at the CLI or env level (for example `MIDGARD_ALLOW_FILE_SIGNING_KEY`), but there is no effective-config dump to compare against a baseline and no dual-controlled expiring relaxation mechanism.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Still to do:**
+> - Depends on RF-RT-1 config: add an effective-configuration dump per service
+> - Write the hardening baseline document
+> - Add typed runtime flags with audit, dual control and expiry for relaxations
+> - Build mg-posture and wire it as a deployment gate
+> - Emit a start-up warning for every relaxed control
+>
+> Checked: `services/runtime/src/lib.rs:20` · `services/runtime/src/args.rs:17` · `tools/mg-sign/src/main.rs:247`
 
 **Evidence.** The workspace has meaningful feature gates (`test-backend` vs `backend-fips`, `default-features = false` across clients), but there is no runtime feature-flag mechanism, no single statement of the secure default configuration, and no way to verify a deployed instance matches the hardened baseline.
 
@@ -1060,6 +1321,20 @@ Make the secure configuration explicit, checkable, and hard to leave.
 ### RF-PER-1 · Choose and implement the storage substrate
 
 **Severity:** Critical · **Area:** Persistence · **Depends on:** RF-RT-1 · **Blocks:** RF-PER-2..8, RF-RES-*, RF-SCL-*
+
+> **Status at 2026-10-12 — Partial.** The Evidence is stale: durable, KMS-sealed, fsync-per-record persistence now exists as `audit_writer::FileLedger` and the generic `SealedJournal`, with per-crate `durable.rs` stores replaying into the existing in-memory types (fabric, governance, iam directory, admin stores, bifrost fleet/artefact, heimdall store, forge dataset-store). Restart, ciphertext-at-rest, wrong-root and root-rotation tests exist. What was asked for architecturally does not: no ADR, no KeyValueStore/AppendOnlyLog/BlobStore seam, no storage-layout document, in-memory backends are not feature-gated out of production, and there is no process-kill test.
+> Criteria met 2 of 7 (c, d); open: e, f; not verifiable by reading: a, b, g. Confidence: medium.
+>
+> **Scope change:** The design that landed is a KMS-sealed append-only journal replayed into in-memory stores (`audit_writer::SealedJournal`, `FileLedger`, per-crate `durable.rs`), not a storage engine behind three traits. Criteria e and f no longer fit that design; record the decision in an ADR and rewrite them.
+>
+> **Still to do:**
+> - Write the storage ADR recording the journal-replay design actually adopted, and rewrite the item around it instead of an engine behind three traits
+> - Add a kill-and-restart (SIGKILL) test at process level and an all-services restart test
+> - Document the on-disk layout, permissions and disk-space model
+> - Decide and enforce whether production binaries may link in-memory stores
+> - Address the load-everything-into-memory model (see RF-RT-6)
+>
+> Checked: `crypto/audit-writer/src/journal.rs:90` · `services/fabric/tests/durable.rs:151` · `services/fabric/tests/rc_42.rs:82` · `services/kms/tests/rc_28.rs:113` · `services/http-gateway/tests/state_dir_boot.rs:114`
 
 **Evidence.** Grepping `std::fs` and `File::` across every product and service crate returns nothing. `audit_writer::InMemoryLedger` is the only ledger implementation. `services/iam` documents itself as having "No database … identities live in an in-memory store". `fabric::store::ObjectStore` is described as "horizontally-scalable" and is a `BTreeMap`.
 
@@ -1117,6 +1392,20 @@ Introduce the storage substrate the enclosure has never had.
 
 **Severity:** Critical · **Area:** Persistence · **Depends on:** RF-PER-1
 
+> **Status at 2026-10-12 — Partial.** `FileLedger` is the durable ledger: KMS-sealed, length-framed, O_APPEND with fsync before acknowledging, behind the unchanged `LedgerStore`/`AuditWriter` API, and `verify_chain` names the first bad sequence; restart-and-reverify and on-disk-tamper tests exist. Missing: segments and sealed segment summaries, any `mg-audit` tool (verify or export), torn-write recovery (a truncated final frame makes `open` fail rather than truncate-and-audit), retention/archival and legal hold.
+> Criteria met 1 of 7 (e); open: d, f, g; not verifiable by reading: a, b, c. Confidence: medium.
+>
+> **Scope change:** `FileLedger` is durable with fsync before acknowledgement. The remaining gaps are `mg-audit`, torn-write recovery (it currently fails closed instead of truncating), segmenting and legal hold.
+>
+> **Still to do:**
+> - Build mg-audit verify and export as offline tools over the sealed ledger file
+> - Implement torn-final-write recovery that truncates to the last verified entry and audits the truncation
+> - Add segment roll with signed, chained segment summaries
+> - Add on-disk tamper tests for delete, reorder and insert that assert the reported sequence number, and a SIGKILL durability test
+> - Implement archival and legal hold under dual control
+>
+> Checked: `crypto/audit-writer/src/file.rs:159` · `crypto/audit-writer/src/file.rs:136` · `services/kms/tests/file_ledger_restart.rs:79` · `services/kms/tests/file_ledger_restart.rs:148` · `crypto/audit-writer/tests/chain_break.rs:33`
+
 **Evidence.** `crypto/audit-writer` (383 lines) implements a PQ-signed chained ledger correctly — over `InMemoryLedger`. `services/governance` writes every authorisation decision into it. On restart the chain is gone, which makes `AC-M-3` (append-only, tamper-evident audit) true only within a single process lifetime, and makes `AC-AD-6`/`AC-AD-12` unfalsifiable in operation.
 
 **Prompt**
@@ -1168,6 +1457,20 @@ Make the audit ledger durable and independently verifiable.
 
 **Severity:** High · **Area:** Persistence · **Depends on:** RF-PER-1
 
+> **Status at 2026-10-12 — Partial.** `DurableObjectStore` persists objects and links to a sealed write-ahead journal and rebuilds type, inverted-property and adjacency indexes by replay on open; a restart test asserts identical query results and the HTTP edge runs over it with per-node authorisation during search-around and fixed root/node/hop caps. Indexes are in-memory and rebuilt every start (not persisted through a key-value seam), and there is no keyspace document, query planner or EXPLAIN, published benchmark, or CI regression gate; whether a truncation marker is returned when a cap is hit was not confirmed.
+> Criteria met 1 of 6 (a); open: e; not verifiable by reading: b, c, d, f. Confidence: medium.
+>
+> **Scope change:** Indexes are rebuilt by journal replay on every open, which conflicts with this item's persisted incremental indexes and with criterion a ("without a rebuild"). Resolve with the RF-PER-1 decision.
+>
+> **Still to do:**
+> - Rewrite the item for the journal-replay store: decide whether persisted incremental indexes are still wanted or start-up replay is the accepted design
+> - Add an explicit truncation marker to search-around results and test it
+> - Add a test that an above-clearance branch is not traversed and leaks nothing
+> - Build the 10^6-object benchmark and publish and gate the envelope
+> - Add query planning and an EXPLAIN surface, or drop them
+>
+> Checked: `services/fabric/src/durable.rs:3` · `services/fabric/tests/durable.rs:151` · `services/http-gateway/src/enclosure.rs:438` · `services/http-gateway/src/enclosure.rs:541` · `services/http-gateway/tests/durable_enclosure.rs:144`
+
 **Evidence.** `services/fabric` (990 lines) implements the type registry, instances, inverted-property indexing, typed queries, search-around and the action/function runtime — all over in-memory maps. The module doc calls the store "horizontally-scalable"; nothing about the implementation is. Search-around and per-object authorisation are O(n) scans.
 
 **Prompt**
@@ -1217,6 +1520,20 @@ Give the object fabric a real storage and indexing layer.
 
 **Severity:** High · **Area:** Persistence · **Depends on:** RF-PER-1
 
+> **Status at 2026-10-12 — Partial.** Most listed registries are now durable with restart tests: admin config, identity, privilege (including in-flight state) and break-glass (absolute expiry recomputed from the injected clock), bifrost fleet state and artefact registry (re-verified on open), forge dataset-store and worker checkpoints, heimdall picture and in-flight workflows, and a signed on-disk model directory. Not found: versioned schema with refuse-newer and audited forward migration, a documented restart-semantics table, deterministic rollout resume-or-rollback, an interrupted-pipeline-run-marked-failed path, and persistence for staging intake records or client delivery records.
+> Criteria met 1 of 6 (b); open: d, e, f; not verifiable by reading: a, c. Confidence: medium.
+>
+> **Scope change:** The Evidence is superseded for the admin, Bifrost, Forge and Heimdall stores. What remains is schema versioning, rollout resume, interrupted pipeline runs and the restart-semantics table.
+>
+> **Still to do:**
+> - Add a schema version to every journal record format, refuse newer data, and audit forward migrations
+> - Define and test rollout behaviour when the controller restarts mid-ring
+> - Record pipeline runs durably and mark an interrupted run failed on restart
+> - Write the restart-semantics table and add one test per row, including kill-after-grant
+> - Persist the remaining stores (staging intake, client delivery install records) or strike them from the list
+>
+> Checked: `admin/breakglass/tests/durable_restart.rs:57` · `admin/privilege/tests/durable_restart.rs:122` · `bifrost/fleet/tests/durable_restart.rs:57` · `bifrost/artefact/src/durable.rs:1` · `forge/worker/src/lib.rs:678`
+
 **Evidence.** `mimir/model-server/src/model_registry.rs` and `registry.rs`, `bifrost/artefact/src/registry.rs`, `forge/dataset-store`, `admin/config/src/store.rs` and `admin/identity/src/session.rs` are all in-memory. A restart loses every registered model, every recorded artefact, every dataset version and every admin session — including, critically, any in-flight dual-control approval or break-glass window.
 
 **Prompt**
@@ -1263,6 +1580,18 @@ install records:
 ### RF-PER-5 · Client-side persistence: offline store, keystore, sync queue
 
 **Severity:** High · **Area:** Persistence · **Depends on:** RF-PER-1
+
+> **Status at 2026-10-12 — Open.** Unchanged from the Evidence: no file or storage I/O exists anywhere under `clients/**/src` (a grep for `std::fs`, `File::` and `OpenOptions` returns nothing), so the client store, keystore and sync queue remain in-memory. `verify-clients.sh` exists but nothing in it can prove durability across a restart.
+> Criteria met 0 of 6; open: a, b, c, e, f; not verifiable by reading: d. Confidence: medium.
+>
+> **Still to do:**
+> - Persist the client object store, pending-operation queue and CRDT metadata, sealed under the platform keystore
+> - Define per-platform storage locations and floors
+> - Bound the pending queue and make replay after restart deterministic, with cross-restart convergence tests
+> - Implement wipe and storage-exhaustion handling
+> - Extend verify-clients.sh with seed, kill, restart, converge
+>
+> Checked: `justfile:250`
 
 **Evidence.** `clients/store` (297 lines), `clients/keystore` (490), `clients/sync` (311) implement sealed storage, key custody and CRDT convergence — in memory. An "offline-first" client that loses everything on process exit is not offline-first. `AC-C-4` (offline CRDT sync) is proven within a process.
 
@@ -1311,6 +1640,17 @@ Make the client core genuinely offline-first.
 
 **Severity:** High · **Area:** Persistence · **Depends on:** RF-PER-1, RF-PER-2 · **Blocks:** RF-CMP-4
 
+> **Status at 2026-10-12 — Open.** No data-lifecycle document, retention policy object, archival export, crypto-shredding or legal-hold mechanism was found in source; `docs/dev/design/` does not exist. `docs/ops/BACKUP_RESTORE.md` and `docs/compliance/DATA_RESIDENCY.md` exist but were not opened and are not implementations.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: low.
+>
+> **Still to do:**
+> - Write the data-lifecycle design per data class
+> - Implement retention as a governed, simulatable policy object
+> - Implement per-subject sealed audit payloads and crypto-shredding with a post-shred chain verification test
+> - Implement signed archival with restore, and legal hold that blocks archival and shredding
+>
+> Checked: `crypto/audit-writer/src/file.rs:149` · `crypto/audit-writer/src/journal.rs:90`
+
 **Evidence.** No retention policy, archival mechanism, or deletion path exists anywhere. The audit ledger is append-only by design, which is correct — but there is no reconciliation between "never delete audit" and any obligation to erase personal data, and no lifecycle for objects, datasets, model artefacts, or logs.
 
 **Prompt**
@@ -1357,6 +1697,19 @@ Design and implement the data lifecycle, including the audit/erasure tension.
 
 **Severity:** High · **Area:** Persistence · **Depends on:** RF-PER-1, RF-API-1
 
+> **Status at 2026-10-12 — Open.** No consistency-model document, idempotency keys on mutating APIs, outbox, or audit-versus-state reconciliation job was found. The premise has also shifted: the core services (fabric, governance, kms, iam) still run in one `http-gateway` process rather than as separate processes with separate stores, so the cross-process problem the item anticipates only exists between the five server binaries. `admin/config/src/reconcile.rs` is GitOps config reconciliation, not this.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: low.
+>
+> **Scope change:** Written for one process and one store per service. The core services share one process; scope this to the five-binary topology that exists.
+>
+> **Still to do:**
+> - Enumerate the operations that actually cross a process boundary in today's five-binary topology and write the consistency model for those
+> - Add idempotency keys to mutating edge and mesh APIs with replay tests
+> - Order journal and audit writes so the audit entry is the commit point, and test crash points between them
+> - Add a reconciliation job that surfaces audit/state divergence
+>
+> Checked: `services/http-gateway/tests/durable_enclosure.rs:1` · `services/runtime/src/lib.rs:7` · `supply-chain/release-artefacts.txt:14`
+
 **Evidence.** A single logical operation today spans several crates in one process (e.g. an action apply touches `fabric`, `governance`, `audit-writer`). Once these are separate processes with separate stores (RF-RT-1, RF-PER-1), there is no defined consistency model, no distributed transaction story, and no idempotency mechanism — which will produce duplicated mutations and audit entries that do not match reality.
 
 **Prompt**
@@ -1400,6 +1753,18 @@ Define and implement the consistency model for multi-service operations.
 
 **Severity:** Medium · **Area:** Persistence · **Depends on:** RF-PER-1
 
+> **Status at 2026-10-12 — Open.** No `mg-store`, no capacity metrics or hard-limit refusal, no compaction (journals are append-only and replayed whole), and no background scrubber exist. Integrity is checked only at open, where a bad frame fails the whole store closed. The item has no Evidence paragraph in the plan.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Still to do:**
+> - Build mg-store with offline stat and verify over sealed journals and ledgers
+> - Expose per-store size and growth metrics and refuse writes at a hard limit
+> - Add journal compaction or snapshotting so replay time and memory stay bounded
+> - Add a scheduled scrubber that audits and alerts on corruption
+> - Document the disk layout and backup set
+>
+> Checked: `crypto/audit-writer/src/journal.rs:50` · `services/fabric/src/durable.rs:62` · `bifrost/artefact/src/durable.rs:6`
+
 **Prompt**
 
 ```
@@ -1442,6 +1807,20 @@ Make the storage tier operable.
 ### RF-API-1 · Complete the proto contract for every subsystem
 
 **Severity:** High · **Area:** API · **Depends on:** RF-RT-1 · **Blocks:** RF-API-2..7, RF-UID-*, RF-SDK-*
+
+> **Status at 2026-10-12 — Partial.** `contracts/proto/midgard/v1/` now has three files: `common.proto`, `object_fabric.proto` and a new `gateway.proto` (13 Gateway RPCs for the Midgard-core edge). `contracts/README.md` explicitly rescopes the protos to the client SDK edge only and says inter-service traffic is a hand-rolled pq-mtls codec typed by Rust, so there are no per-subsystem packages, no typed error enum, no HUMAN_GATE_REQUIRED, no pagination model. `check-conformance.sh` only checks that each `GatewayClient` method name has an RPC of the same name; `buf.gen.yaml` uses remote buf.build plugins and there is no CI to run `buf breaking`.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Scope change:** `contracts/README.md` records a decision that the protos govern only the client edge and that inter-service traffic is a hand-written PQ-mTLS codec typed in Rust. That contradicts this item's proto-per-subsystem design; decide which stands. `buf breaking` is not wired into any CI, because there is none.
+>
+> **Still to do:**
+> - Decide whether the README's rescope (protos govern the client edge only) stands, then either author the eleven missing subsystem packages or rewrite this item to match
+> - Add the governance envelope to every response message (markings, audit sequence, redaction indicator) and a shared typed error enum including HUMAN_GATE_REQUIRED
+> - Replace the name-only conformance script with a type-level conformance test between `sdk/ts/src/types.ts` and generated types
+> - Vendor the buf toolchain and plugins so `just gen` runs with no network (buf.gen.yaml pulls remote plugins today)
+> - Create a CI runner that executes `just proto-breaking`; none exists in the tree
+>
+> Checked: `contracts/proto/midgard/v1/gateway.proto:16` · `contracts/README.md:15` · `contracts/check-conformance.sh:15` · `contracts/buf.gen.yaml:6` · `justfile:19`
 
 **Evidence.** `contracts/proto/midgard/v1/` contains exactly `common.proto` and `object_fabric.proto`. `contracts/buf.yaml` and `buf.gen.yaml` exist and `just gen` runs `buf lint` + `buf generate`, but there is nothing to generate for IAM, KMS, governance, scheduler, Mimir, model supply, Forge, Bifrost, Heimdall, admin, or clients. The `SdkScreen` in the Midgard console renders an "RPC surface" that has no proto behind it.
 
@@ -1497,6 +1876,20 @@ Define the full contract surface, and make it the single source of truth.
 
 **Severity:** High · **Area:** API · **Depends on:** RF-API-1, RF-RT-1, RF-RT-2
 
+> **Status at 2026-10-12 — Partial.** `services/gateway` now has a method `Router`, a per-identity token-bucket `RateLimiter`, a per-connection quota and PQ-mTLS session resumption, and `services/runtime/src/client.rs` gives a one-shot `call(identity, addr, purpose, method, payload)` that four server binaries and their clients use across processes. Dispatch is still hand-written over `&[u8]` with a method string; there is no request id, deadline, idempotency key, correlation id, retry, circuit breaker, connection pool, interceptor chain or generated stub, and no `rpc-protocol.md`. Authorisation is per channel at handshake by each service's `policy.json`, not a method-level allow-matrix.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Scope change:** See RF-API-1: the inter-service layer that exists is `services/runtime` over `pq-mtls`, not generated stubs. Rewrite once the contract decision is made.
+>
+> **Still to do:**
+> - Specify the wire envelope above pq-mtls frames (request id, deadline, policy context, idempotency key, correlation id, typed status) and write it down
+> - Add deadline propagation and an idempotency-key store; the client has only a fixed 30 s read timeout
+> - Add a uniform server interceptor chain (authz per method, audit, log, metrics) so handlers cannot skip it, with a test that proves it
+> - Add client retries for idempotent methods, per-peer circuit breaking and pooling
+> - Define and enforce a reviewed service-to-method allow-matrix and audit refused callers in the ledger (refusals are only logged and counted today)
+>
+> Checked: `services/gateway/src/lib.rs:116` · `services/gateway/src/lib.rs:167` · `services/runtime/src/client.rs:25` · `services/gateway/tests/gateway.rs:183` · `services/gateway/tests/session.rs:395`
+
 **Evidence.** `crypto/pq-mtls` (1 371 lines) implements a real handshake and framed records, and `services/gateway` authenticates and authorises a peer then hands `&[u8]` to a `RequestHandler` returning `Vec<u8>`. There is no request/response framing above that, no method dispatch, no serialisation, no deadlines, no retries, no circuit breaking — every service-to-service call in the tree today is a direct Rust function call within one process.
 
 **Prompt**
@@ -1547,6 +1940,20 @@ Build the RPC layer that turns the PQ-mTLS channel into a service mesh.
 ### RF-API-3 · Complete the browser edge for all six products
 
 **Severity:** High · **Area:** API · **Depends on:** RF-API-1, RF-API-2, RF-IAM-3 · **Blocks:** RF-UID-*
+
+> **Status at 2026-10-12 — Partial.** The Evidence is stale: `SecuredGateway` verifies a PQ-signed bearer token on every data route, authorises and audits through the real `fabric` + `governance` crates, has a login endpoint and locks CORS to an origin allowlist. It still serves only Midgard-core routes, composes the services in-process rather than forwarding over RPC, keeps fixed platform views in `data.rs`, sends no CSP/HSTS/other security headers, has no streaming, no body-size or rate limit, and the other six consoles are mock-only. `/metrics` and `/api/v1/ready` are served unauthenticated on the public port.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Scope change:** The edge is authenticated, CORS is allow-listed, and it serves the real fabric and governance crates in-process. "Forward every route over RPC; the edge holds no state" conflicts with that design. The concrete gap is that the edge has no routes for Forge, Mimir, Bifrost, Heimdall or admin.
+>
+> **Still to do:**
+> - Add routes for the six product gateway interfaces in `sdk/ts/src/products/*.ts` (none exist; five services have no HTTP path at all)
+> - Replace the fixed identities/keys/compute/observability/resilience/sdk-surface views in `data.rs` with real sources and delete the module
+> - Add the browser security header set (CSP, HSTS, nosniff, Referrer-Policy, COOP/COEP/CORP) and an automated scan
+> - Enforce a request body cap, content-type check and per-session rate limit in `http.rs` (Content-Length is trusted unbounded today)
+> - Move `/metrics` and `/api/v1/ready` off the public listener or authenticate them, and add SSE streaming for audit and the other live surfaces
+>
+> Checked: `services/http-gateway/src/lib.rs:543` · `services/http-gateway/src/lib.rs:640` · `services/http-gateway/src/http.rs:164` · `services/http-gateway/src/data.rs:1` · `services/http-gateway/tests/secured_edge.rs:107`
 
 **Evidence.** [`services/http-gateway/src/lib.rs:64-129`](../../../services/http-gateway/src/lib.rs) routes 15 paths, all Midgard-core (`object-types`, `query`, `actions`, `search-around`, `audit`, `policies`, `policy/simulate`, `identities`, `keys`, `compute`, `observability`, `resilience`, `sdk-surface`, health). The `data.rs` module seeds enclosure state directly rather than calling services. CORS is unconditionally permissive. There is no authentication on any route.
 
@@ -1599,6 +2006,17 @@ consoles.
 
 **Severity:** Medium · **Area:** API · **Depends on:** RF-API-1
 
+> **Status at 2026-10-12 — Open.** No versioning policy document, no version negotiation, no deprecation telemetry and no generated changelog exist. Routes are fixed under `/api/v1` and the only compatibility control is the `buf breaking` recipe in the justfile, which nothing runs.
+> Criteria met 0 of 3; open: a, b, c. Confidence: high.
+>
+> **Still to do:**
+> - Write the API versioning and deprecation policy (the plan's target path docs/dev/design/ does not exist; pick a location)
+> - Implement client/server version negotiation with a distinguishable too-old refusal
+> - Count calls to deprecated methods per caller identity and expose them
+> - Generate a proto-diff changelog and include it in the release bundle
+>
+> Checked: `justfile:19` · `services/http-gateway/src/lib.rs:896` · `contracts/buf.yaml:13`
+
 **Prompt**
 
 ```
@@ -1633,6 +2051,17 @@ Write and enforce the API lifecycle policy.
 ### RF-API-5 · API documentation and an offline explorer
 
 **Severity:** Medium · **Area:** API · **Depends on:** RF-API-1
+
+> **Status at 2026-10-12 — Open.** There is no generated API reference and no `docs/dev/api/`. `SdkScreen` now calls `getContractSurface()` on the edge instead of reading UI fixtures, but the edge answers from a fixed list in `data.rs`, not from reflection, and there is no try-it.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Generate reference docs from the protos with a build that fails on undocumented methods
+> - Serve the contract surface from the real route table or proto descriptors instead of the fixed list in `data.rs`
+> - Add an audited try-it path in SdkScreen that shows the resulting audit entry
+> - Add compile-checked examples and ship the docs in the air-gap bundle
+>
+> Checked: `products/midgard/ui/src/screens/SdkScreen.tsx:48` · `services/http-gateway/src/data.rs:252` · `services/http-gateway/src/lib.rs:920` · `contracts/README.md:1`
 
 **Evidence.** `products/midgard/ui/src/screens/SdkScreen.tsx` renders an RPC surface from fixtures. There is no generated reference for any API, and `contracts/README.md` is the only contract documentation.
 
@@ -1670,6 +2099,18 @@ Generate the API reference and make the SdkScreen real.
 ### RF-API-6 · Webhooks, egress control and outbound integration policy
 
 **Severity:** Medium · **Area:** API · **Depends on:** RF-API-2, RF-RT-7
+
+> **Status at 2026-10-12 — Partial.** An egress broker now exists for one purpose: `forge-egress` renders an HAProxy sidecar config from a routes file so the Forge worker reaches declared S3/Kafka upstreams over TLS 1.3 with a pinned CA, and the worker refuses jobs that would bypass it; the Helm chart opens only the declared upstream ports. It is a per-pod TLS-originating proxy, not a policy-authorised, audited, marking-aware broker service, and there are no outbound or inbound webhooks, no ML-DSA payload signing, no Admin view and no source scan for outbound I/O.
+> Criteria met 0 of 5; open: a, b, c, e; not verifiable by reading: d. Confidence: medium.
+>
+> **Still to do:**
+> - Decide whether the HAProxy sidecar is the sanctioned broker or a dedicated broker service replaces it, and rewrite the item accordingly
+> - Add PDP authorisation, ledger audit and a marking ceiling to every outbound route
+> - Implement signed outbound webhooks and hardened inbound webhooks (none exist)
+> - Add a scan that fails when any crate other than the broker and connector runtime opens outbound sockets
+> - Test the broker-absent case so egress-dependent features report an explicit unavailable state
+>
+> Checked: `forge/worker/src/egress.rs:17` · `deploy/helm/midgard/values.yaml:60` · `deploy/helm/midgard/templates/enclosure.yaml:79` · `README.md:646`
 
 **Evidence.** The platform is default-deny egress by design, and nothing today makes an outbound call. Real deployments will need notifications (approval requests, break-glass alerts, incident escalation, Heimdall alerts) and Forge connectors to external sources. There is currently no framework, which means the first such need will be met with an ad-hoc HTTP call that bypasses every control.
 
@@ -1715,6 +2156,18 @@ Build the one sanctioned egress path, before anyone builds an unsanctioned one.
 
 **Severity:** Medium · **Area:** API · **Depends on:** RF-API-2, RF-API-3
 
+> **Status at 2026-10-12 — Partial.** The PQ-mTLS mesh gateway has a per-identity token bucket and a per-connection request quota, tested, which drop the connection when exceeded. The HTTP edge has no rate limit, no quota, no login throttle or lockout, no retry-after and no cost accounting, and limiter rejections are not metered.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Add per-account and per-source throttling and lockout to `/api/v1/login`, with an audited unlock path
+> - Add per-identity and per-route limits on the HTTP edge returning a typed 429 with retry-after, and meter rejections
+> - Make mesh limiter rejections return a typed error and a metric instead of silently dropping the connection
+> - Add cost-weighted budgets for query size, search-around hops and inference tokens
+> - Add a test that rate-limited responses for existing and unknown accounts are indistinguishable
+>
+> Checked: `services/gateway/src/lib.rs:167` · `services/gateway/tests/session.rs:395` · `services/http-gateway/src/lib.rs:247` · `services/http-gateway/src/http.rs:65`
+
 **Prompt**
 
 ```
@@ -1756,6 +2209,20 @@ Add quota and abuse controls at every boundary.
 ### RF-IAM-1 · Human authentication: credentials, MFA and enrolment
 
 **Severity:** Critical · **Area:** Identity · **Depends on:** RF-PER-4 · **Blocks:** RF-IAM-2..6, RF-UI-1, RF-API-3
+
+> **Status at 2026-10-12 — Partial.** The Evidence is stale: operators log in at `POST /api/v1/login` with a PBKDF2-hashed password plus optional TOTP against a durable KMS-sealed directory, every attempt is written to the ledger, and enrolment while the gateway runs is dual-controlled by two administrators who sign challenges with ML-DSA passkeys held in keystore files. Operators cannot use a security key, browsers cannot produce the ML-DSA passkey assertions, there is no step-up at the point of action on the edge, no recovery flow, and `mg-admin user add` enrols offline as a single actor. Break-glass exists as a library with alerting and time-boxing but is not wired to authentication.
+> Criteria met 0 of 6; open: a, b, c, f; not verifiable by reading: d, e. Confidence: high.
+>
+> **Scope change:** Password plus TOTP login and dual-controlled enrolment exist. The WebAuthn/FIDO2 premise conflicts with the tree's ML-DSA passkeys held in keystore files, which no browser or FIDO2 authenticator can produce. Decide the human second-factor story before rewriting; the console login form has no TOTP field, so TOTP users cannot sign in from it.
+>
+> **Still to do:**
+> - Decide the primary factor: the tree uses ML-DSA passkeys in files, which no FIDO2 authenticator or browser produces; either add standard WebAuthn/COSE verification or rewrite the item
+> - Enforce step-up on the edge for high-risk actions (only the admin library models it today)
+> - Design a dual-controlled recovery flow and close the single-actor offline `mg-admin user add` path for privileged roles
+> - Wire break-glass into the login path and mark actions inside a window in the ledger
+> - Add mechanism, source address and correlation id to authentication audit events, and move the hasher to Argon2id
+>
+> Checked: `services/http-gateway/src/lib.rs:247` · `services/iam/src/auth.rs:82` · `services/http-gateway/tests/login_directory.rs:102` · `services/http-gateway/tests/admin_enrolment.rs:185` · `admin/breakglass/tests/ac_ad_8.rs:20`
 
 **Evidence.** `grep -rln "login\|signIn\|authenticat"` across `products/*/ui/src` matches two files, both of which merely *display* identity data. `services/iam` issues tokens but has no credential verification path. `clients/keystore/src/auth.rs` implements assertion verification for device biometrics — that is the only authentication primitive in the tree, and it is client-side.
 
@@ -1805,6 +2272,18 @@ phishing-resistant by default.
 
 **Severity:** Critical · **Area:** Identity · **Depends on:** RF-IAM-1, RF-PER-4
 
+> **Status at 2026-10-12 — Partial.** A login mints a stateless ML-DSA-signed bearer token with a fixed one-hour lifetime; expiry is checked on every request. There is no server-side session record, no refresh, no revocation, no idle timeout, no logout, no session listing and no step-up state, and the console stores the token in `sessionStorage`.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Still to do:**
+> - Add durable server-side session records referenced by the token, with idle and absolute timeouts
+> - Add revocation of sessions, credentials and identities checked on every request within a configured staleness bound
+> - Add rotating refresh tokens with reuse detection over an HttpOnly cookie, and remove the token from `sessionStorage`
+> - Add logout, session listing and per-session termination
+> - Add a step-up state with its own expiry
+>
+> Checked: `services/http-gateway/src/lib.rs:58` · `services/http-gateway/src/lib.rs:648` · `services/iam/src/token.rs:215` · `ui/shared/src/AuthGate.tsx:61`
+
 **Prompt**
 
 ```
@@ -1847,6 +2326,19 @@ Implement the session lifecycle.
 
 **Severity:** Critical · **Area:** Identity · **Depends on:** RF-IAM-2, RF-API-3
 
+> **Status at 2026-10-12 — Partial.** The server-trust half of the Evidence is stale: the edge builds the policy context only from verified token claims and no handler reads a context from the body, and the SDK no longer sends one on the wire. The SDK still exposes a settable `policy` option whose default is a hard-coded demo operator, the purpose is fixed to `operations` at login with no selection flow, the console chrome does not show subject, clearance or purpose, and there is no forged-context regression test or security event.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** The edge now derives policy context from token claims only. What remains is SDK cleanup, purpose selection, displaying the context in the console chrome, and a regression test.
+>
+> **Still to do:**
+> - Add the regression test: a body asserting higher clearance changes nothing, and record the attempt as a security event
+> - Remove `policy` from `HttpGatewayOptions` and make `policy()` return what the server reports (add a whoami route)
+> - Let a client request a purpose at login, validate it against entitlements and audit the selection
+> - Show subject, clearance and purpose in the shared console chrome from the server's view
+>
+> Checked: `services/http-gateway/src/lib.rs:824` · `services/http-gateway/src/lib.rs:60` · `sdk/ts/src/http/HttpGateway.ts:41` · `sdk/ts/src/http/HttpGateway.ts:62`
+
 **Evidence.** `sdk/ts/src/http/HttpGateway.ts` accepts an optional `token` and a `policy` context that "defaults to the demo operator" — the browser supplies its own policy context, which the server trusts. That is an authorisation bypass by construction.
 
 **Prompt**
@@ -1885,6 +2377,20 @@ Make the server the sole source of policy context.
 ### RF-IAM-4 · Optional federation: OIDC, SAML and SCIM provisioning
 
 **Severity:** Medium · **Area:** Identity · **Depends on:** RF-IAM-1, RF-API-6
+
+> **Status at 2026-10-12 — Partial.** `services/iam/src/federation.rs` has a `FederatedIdp` trait and a reference bridge that trusts an upstream signing ML-DSA assertions, with one positive test; nothing wires it into the gateway. There is no OIDC or SAML relying-party code, no SCIM, and `oidc.rs` explicitly rules the authorize/PKCE leg out of scope. The reference assertion carries roles and clearance from the upstream into the local token, which is the opposite of criterion a.
+> Criteria met 0 of 5; open: a, b, c, d; not verifiable by reading: e. Confidence: high.
+>
+> **Scope change:** `iam/oidc.rs` rules the authorize/PKCE leg out of scope, and the existing federation bridge copies roles and clearance from the upstream assertion into the local token — the opposite of criterion a.
+>
+> **Still to do:**
+> - Change federation so an upstream assertion establishes identity only and roles and clearance are always looked up locally
+> - Implement OIDC (state, nonce, PKCE, issuer and redirect allow-lists) and SAML with a negative-test suite, or drop them from scope as `oidc.rs` already does
+> - Implement SCIM deactivation and tie it to session revocation (which RF-IAM-2 must provide first)
+> - Add dual-controlled, simulatable attribute-to-role mapping
+> - Add a test that a fresh install has federation disabled
+>
+> Checked: `services/iam/src/federation.rs:23` · `services/iam/src/federation.rs:70` · `services/iam/src/oidc.rs:9` · `services/iam/tests/rc_29.rs:200`
 
 **Prompt**
 
@@ -1925,6 +2431,18 @@ Add optional enterprise federation without weakening the offline posture.
 ### RF-IAM-5 · Role model, least privilege and separation of duties at scale
 
 **Severity:** High · **Area:** Identity · **Depends on:** RF-IAM-1
+
+> **Status at 2026-10-12 — Partial.** Unchanged in substance from the Evidence: `admin/identity` holds a five-role admin catalogue defined in Rust code with scoped, expiring bindings, and `admin/privilege` enforces dual control and no self-approval, all tested. There is no platform-wide catalogue file, no role-conflict matrix, no delegated-administration scope check on grants, no recertification campaign and no drift or dormancy report.
+> Criteria met 0 of 5; open: a, c, d, e; not verifiable by reading: b. Confidence: medium.
+>
+> **Still to do:**
+> - Move the role catalogue to a reviewed data file covering every subsystem, with a test that fails when enforced capabilities diverge from it
+> - Add a separation-of-duties conflict matrix and refuse and audit conflicting grants
+> - Add tests proving a scoped administrator cannot grant beyond scope or to themselves
+> - Implement recertification campaigns with auto-revocation at the deadline
+> - Implement continuous drift and dormancy detection
+>
+> Checked: `admin/identity/src/role.rs:72` · `admin/identity/tests/ac_ad_1_2.rs:79` · `admin/privilege/tests/ac_ad_3_4_13.rs:202` · `services/http-gateway/src/boot.rs:14`
 
 **Evidence.** `admin/identity` (601 lines) implements roles, capabilities and the no-super-admin separation; `admin/privilege` (612 lines) implements risk-tiered dual control and time-boxed grants; `crypto/policy` implements the PDP. What is missing is the operational layer: role definitions for the whole platform (not just admin), delegated administration, entitlement review, and drift detection.
 
@@ -1969,6 +2487,20 @@ Extend the role model from the admin panel to the whole platform.
 
 **Severity:** High · **Area:** Identity · **Depends on:** RF-API-2
 
+> **Status at 2026-10-12 — Partial.** `iam::MeshCa` now implements issue, renew and revoke with a CRL carried in the trust anchor, and a test shows a revoked certificate fails its next handshake. The path deployments actually use, `mg-admin mesh issue`, writes a certificate that never expires, with no renewal, no CRL distribution and no attestation; an operator with the state directory issues identities directly. Per-service `policy.json` files are hand-written, not derived from declared dependencies.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** `MeshCa` issue, renew and revoke with a CRL exist and are tested. The gap is that `mg-admin mesh issue` bypasses it and issues certificates that never expire.
+>
+> **Still to do:**
+> - Issue short-lived certificates from `mg-admin mesh issue` (via `MeshCa`) and add automatic renewal in `services/runtime`
+> - Make a service drain and stop before its certificate expires when renewal fails
+> - Distribute the CRL to running services and to air-gapped sites through the bundle path, with a stated staleness bound
+> - Add attested or one-time-token enrolment that fails closed when policy requires attestation
+> - Generate each workload's method allow-list from declared dependencies
+>
+> Checked: `services/iam/src/mesh_ca.rs:106` · `services/iam/tests/rc_35.rs:128` · `tools/mg-admin/src/mesh.rs:115` · `README.md:572`
+
 **Evidence.** `admin/service-identity` (145 lines) and `services/iam` issue and verify workload identities for PQ-mTLS. There is no issuance ceremony for a new node, no certificate rotation, no revocation distribution, and no attestation of what a workload is before it is certified.
 
 **Prompt**
@@ -2012,6 +2544,20 @@ Complete the workload identity lifecycle.
 ### RF-OBS-1 · Metrics: instrument every service and every governed decision
 
 **Severity:** High · **Area:** Observability · **Depends on:** RF-RT-1, RF-RT-3
+
+> **Status at 2026-10-12 — Partial.** The workstream premise is stale: `services/telemetry` provides a Prometheus-text metrics registry, and the HTTP edge counts and times every request in one wrapper while the four mesh services export a connection counter on a separate health port. The edge labels metrics with the raw request path (unbounded, caller-controlled), there is no label allow-list, no per-method mesh metrics, no governed-path metrics (policy decisions, audit writes, guardrails, gates), `/metrics` is unauthenticated, there is no SLO document, and the Observability screen still reads fixed data.
+> Criteria met 0 of 6; open: a, b, c, e, f; not verifiable by reading: d. Confidence: high.
+>
+> **Scope change:** Metrics, logs and a tracing module exist in `services/telemetry` (tracing is unused); the item's `services/runtime::metrics` path is wrong. Two defects to fix here: the edge uses the raw request path as a metric label, and `/metrics` is served on the public port.
+>
+> **Still to do:**
+> - Stop using the raw request path as a label; map to the matched route and add a per-metric label allow-list with a test
+> - Add per-method rate, error and latency metrics to the mesh `Router` so handlers are instrumented without their own code
+> - Instrument policy decisions, audit writes and verification failures, human gates, break-glass, guardrails and inference
+> - Authenticate the metrics endpoint and take it off the edge's public port
+> - Write the SLO definitions and feed the Observability route from the registry instead of `data.rs`
+>
+> Checked: `services/http-gateway/src/lib.rs:517` · `services/http-gateway/src/lib.rs:563` · `services/runtime/src/serve.rs:20` · `services/telemetry/tests/telemetry.rs:79` · `services/http-gateway/src/data.rs:215`
 
 **Prompt**
 
@@ -2062,6 +2608,18 @@ Instrument the platform.
 
 **Severity:** High · **Area:** Observability · **Depends on:** RF-RT-3, RF-API-2
 
+> **Status at 2026-10-12 — Partial.** `services/telemetry/src/trace.rs` implements span contexts, W3C `traceparent` encode/parse and a buffered exporter, with a unit test. No service, client or SDK creates or propagates a span: the module has no users outside its own tests, so nothing is traced.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Read and emit `traceparent` on the HTTP edge and carry it in the mesh request envelope (depends on RF-API-2)
+> - Create spans for edge, PDP decision, storage and audit write, and put the trace id on audit entries and log lines
+> - Span the Mimir agent loop stages with invariant-check attributes
+> - Add always-on sampling for errors, denials and gates
+> - Provide an offline trace viewer and a redaction guard for span attributes
+>
+> Checked: `services/telemetry/src/trace.rs:1` · `services/telemetry/tests/telemetry.rs:136` · `services/runtime/src/client.rs:25` · `services/http-gateway/src/http.rs:64`
+
 **Prompt**
 
 ```
@@ -2103,6 +2661,17 @@ Implement end-to-end tracing, including the AI path.
 
 **Severity:** Medium · **Area:** Observability · **Depends on:** RF-RT-3, RF-PER-6
 
+> **Status at 2026-10-12 — Open.** Services write structured JSON log lines to stdout through `telemetry::Logger` and nothing else: there is no in-enclosure collector, no buffering or disk spill, no governed or audited telemetry query path, no retention policy and no forwarding.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Build or adopt an in-enclosure collector with buffering, backpressure and disk spill
+> - Add an authorised, marking-aware, audited query path for logs
+> - Define telemetry retention and erasure as policy
+> - Add default-off, marking-aware forwarding through the egress path
+>
+> Checked: `services/telemetry/src/log.rs:1` · `services/runtime/src/serve.rs:33` · `services/telemetry/src/lib.rs:3`
+
 **Prompt**
 
 ```
@@ -2138,6 +2707,20 @@ Make telemetry a governed data class, not an escape hatch.
 ### RF-OBS-4 · Alerting, on-call and incident response integration
 
 **Severity:** High · **Area:** Observability · **Depends on:** RF-OBS-1, RF-API-6
+
+> **Status at 2026-10-12 — Partial.** What exists is documentation and two signals: `docs/ops/INCIDENT_RESPONSE.md` (severities, on-call, escalation), `docs/ops/RUNBOOKS.md` (RB-1..RB-7), an SLO-breach gauge in `/metrics`, and a break-glass alert bus in `admin/breakglass` with tests. There is no alert catalogue, no alert rules or evaluator, no routing, acknowledgement or suppression, no local alert surface and no check tying alerts to runbooks.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Scope change:** The doc paths this item targets (`docs/dev/operations/`) do not exist; operations documents live in `docs/ops/`.
+>
+> **Still to do:**
+> - Write the alert catalogue with condition, severity, response and runbook per alert, and a script that fails when one lacks a runbook
+> - Implement an in-enclosure alert evaluator over the metrics and ledger for the listed security conditions, with a test that induces each
+> - Add a local alert surface (console banner or local notifier) that needs no egress
+> - Add time-boxed, dual-controlled, audited suppression
+> - Write the missing runbooks for security alerts (existing RB-1..7 cover operations only)
+>
+> Checked: `docs/ops/RUNBOOKS.md:14` · `docs/ops/INCIDENT_RESPONSE.md:15` · `admin/breakglass/tests/rc_32.rs:79` · `services/telemetry/tests/telemetry.rs:79`
 
 **Prompt**
 
@@ -2176,6 +2759,20 @@ Turn signals into a response.
 ### RF-OBS-5 · Health, dependency and readiness surfaces per service
 
 **Severity:** Medium · **Area:** Observability · **Depends on:** RF-RT-1
+
+> **Status at 2026-10-12 — Partial.** The four mesh services serve `/healthz`, `/readyz` and `/metrics` on a separate port through `services/runtime`, and the edge serves `/api/v1/health` and `/api/v1/ready`; readiness names each failing dependency and a test proves liveness stays 200 while readiness is 503. There is no `/startupz`, readiness checks are in-process toggles (the trait forbids I/O) apart from Mimir's sidecar health, there is no last-checked time or latency, no version or build provenance on the surface, and the Resilience view is fixed data.
+> Criteria met 1 of 4 (a); open: b, c, d. Confidence: high.
+>
+> **Scope change:** Criterion c needs an Admin console view, and the Admin console has no backend (RF-CA-11, RF-AD-1).
+>
+> **Still to do:**
+> - Add `/startupz` and wire a startupProbe in the chart
+> - Make dependency checks real round trips with a timeout and a bounded cached result, reporting last-checked time and latency
+> - Give the HTTP edge real readiness checks (it registers one always-true toggle)
+> - Expose version, git revision, build digest and signing key id on the health surface
+> - Replace the fixed Resilience view with an aggregate of live probes
+>
+> Checked: `services/runtime/src/health_http.rs:59` · `services/runtime/tests/health_port.rs:29` · `services/telemetry/src/health.rs:20` · `mimir/mimir-server/src/main.rs:86` · `services/http-gateway/src/lib.rs:154`
 
 **Prompt**
 
@@ -2218,6 +2815,20 @@ Make health machine-checkable and honest.
 ### RF-MI-1 · Launch and supervise the GPU serving sidecar
 
 **Severity:** High · **Area:** Mimir · **Depends on:** RF-RT-1, RF-DEP-1 · **Blocks:** RF-MI-2..6
+
+> **Status at 2026-10-12 — Partial.** A real sidecar client exists: `SidecarBackend` streams OpenAI-compatible completions from llama.cpp or vLLM over a loopback-only address, fails closed on any error, and `mimir-server --engine llama-cpp|vllm` gates readiness on the sidecar's /health. IBM Granite on llama.cpp (CPU) is wired through compose and a smoke script; vLLM on a GPU has never been run. `GpuDockerBackend::launch` only spawns `docker run` after a digest-pin check: there is no supervision, restart, shutdown, cancellation, VRAM accounting or image-signature verification, and the caller receives one whole completion, not a token stream.
+> Criteria met 2 of 6 (b, c); open: d, e, f; not verifiable by reading: a. Confidence: high.
+>
+> **Scope change:** The sidecar client, loopback-only refusal and fail-closed paths exist, and Granite runs on llama.cpp on CPU. What remains is supervision, cancellation, image-signature verification and an actual GPU run.
+>
+> **Still to do:**
+> - Add sidecar supervision to GpuDockerBackend: readiness wait, restart with backoff, clean shutdown (launch() today only spawns the child)
+> - Implement request cancellation that frees the engine slot, with a bounded-time test
+> - Verify the sidecar image's signed bundle before launch and audit refusals (today only an '@sha256:' pin check)
+> - Run vLLM on a GPU node and pass RC-40.4 (first token under 800 ms); stream tokens to the caller instead of returning one completion
+> - Add VRAM accounting/eviction and surface the recorded Selection reason in the Model Plane screen (UI is MimirMock only)
+>
+> Checked: `mimir/model-server/src/backends/openai_compat.rs:80` · `mimir/model-server/src/backends/openai_compat.rs:938` · `mimir/model-server/src/backends/gpu_docker.rs:90` · `mimir/mimir-server/tests/serve.rs:370` · `deploy/acceptance/deployment/run-deployment-tier.sh:212`
 
 **Prompt**
 
@@ -2262,6 +2873,20 @@ Make GpuDockerBackend actually serve.
 ### RF-MI-2 · Model loading, tokenizers and per-family adapters
 
 **Severity:** High · **Area:** Mimir · **Depends on:** RF-MI-1, RF-MS-1
+
+> **Status at 2026-10-12 — Partial.** Weights are now really read: a model directory loads only if its ML-DSA-signed manifest verifies and the weights file streams to the signed size, SHA-256 and a GGUF/safetensors magic sniff, and `mimir-server` refuses to start otherwise. Chat templates exist for GLM, Nemotron, Gemma and Granite and are applied by the sidecar client. There is still no tokenizer (assembly budgets use `WordCounter`), no header/tensor-inventory parse, no byte-exact golden template tests, no sampling parameters and no Eval run against a real model.
+> Criteria met 1 of 6 (a); open: b, c, d, e, f. Confidence: high.
+>
+> **Scope change:** Signed-manifest and weight verification now gate serving. Narrow this to tokenizer handling, byte-exact golden templates, sampling and header parsing, and add Granite as a fourth family.
+>
+> **Still to do:**
+> - Implement a real per-family tokenizer and exact token counter and replace WordCounter in the assembly pipeline
+> - Add byte-exact golden template tests per family (current tests only assert substrings) and verify templates against the upstream chat templates
+> - Add a test that scans mimir/prompts for family-specific tokens (the crate has no tests)
+> - Add sampling parameters (temperature, top-p, top-k, repetition penalty, seed) to the request contract and the sidecar call, with a seeded-determinism test
+> - Parse GGUF/safetensors headers (tensor inventory, quantisation detection), audit refused loads, and run the Eval suite against real models per family
+>
+> Checked: `mimir/model-server/src/artifact.rs:346` · `mimir/model-server/src/artifact.rs:437` · `mimir/model-server/tests/model_dir.rs:105` · `mimir/model-server/src/adapter.rs:55` · `mimir/agent-runtime/src/assembly.rs:46`
 
 **Evidence.** `mimir/model-server/src/adapter.rs`, `quant.rs`, `artifact.rs` and `model_registry.rs` model families, quantisations and artefacts as metadata. There is no tokenizer, no weight file reader, and no chat-template application — the "Model Abstraction Layer" that makes prompts portable across GLM/Nemotron/Gemma exists as a type-level seam only.
 
@@ -2309,6 +2934,18 @@ Implement the Model Abstraction Layer for real.
 
 **Severity:** Medium · **Area:** Mimir · **Depends on:** RF-MI-1, RF-MI-2
 
+> **Status at 2026-10-12 — Partial.** The sidecar client measures first-token latency at the boundary and reads real token usage and llama.cpp's prompt-cache hit from the stream, so a real engine reports measured values. Nothing else has moved: the reference engine still carries unlabelled synthetic constants (`BASE_MS`, `PER_TOKEN_MS`), there is no admission control, priority, deadline or fairness logic, no benchmark, no docs/dev/operations/performance.md, and no CI configuration in the tree. The Model Plane screen is backed by `MimirMock`.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Add a bounded admission queue with priority classes, per-tenant fair sharing and deadline-aware refusal in front of Server::infer
+> - Mark reference-engine latencies as synthetic in the Completion contract so they cannot be reported as measurements
+> - Benchmark TTFT and tokens/s per family, quantisation and hardware profile; publish docs/dev/operations/performance.md and gate regressions
+> - Measure prefix-cache gain against a no-cache baseline on a real engine
+> - Feed measured occupancy, cache-hit and latency to a live Model Plane screen (currently mock data)
+>
+> Checked: `mimir/model-server/src/backends/openai_compat.rs:294` · `mimir/model-server/src/backends/openai_compat.rs:309` · `mimir/model-server/src/backends/local.rs:23` · `mimir/model-server/tests/serving.rs:51` · `sdk/ts/src/products/mimir.ts:439`
+
 **Evidence.** `mimir/model-server/src/serve.rs`, `handler.rs` and `router.rs` model continuous batching and KV-cache accounting; `backends/local.rs` computes synthetic latencies (`BASE_MS = 12.0`, `PER_TOKEN_MS = 0.4`). No real scheduling exists.
 
 **Prompt**
@@ -2350,6 +2987,20 @@ Make the serving plane real and measured.
 ### RF-MI-4 · Real tool execution in the governed loop
 
 **Severity:** High · **Area:** Mimir · **Depends on:** RF-API-2, RF-MI-1
+
+> **Status at 2026-10-12 — Partial.** The governed loop's `ActionExecutor` is implemented for the real `fabric::Fabric` and tests show a human-approved action changing fabric state with gate and execution audited, and an irreversible action forcing a human gate even when pre-authorised. That is in-process only: `agent-runtime` is a library that no service runs, there are no Forge or Bifrost executors, no per-turn tool injection (an unknown action type is treated as irreversible and human-gated, not refused), no undo/compensation, only a proposed-action-count budget with no test, and no sandbox.
+> Criteria met 2 of 6 (a, c); open: b, d, e, f. Confidence: medium.
+>
+> **Scope change:** `ActionExecutor` is implemented for the real `fabric::Fabric` and tested. The gap is that no service hosts the governed loop, and there are no Forge or Bifrost executors.
+>
+> **Still to do:**
+> - Derive the per-turn tool set from policy and refuse (not human-gate) any action type the turn did not inject, with a test
+> - Add executors for Forge runs and Bifrost promotions over the mesh, carrying the agent's scoped identity, and host the loop in a running service
+> - Declare a compensating action per reversible action and implement audited undo
+> - Add wall-clock, token and cost budgets and a test that step-budget exhaustion leaves nothing half-applied (HaltReason::StepBudgetExhausted is untested)
+> - Sandbox code-executing tools (no network, file allow-list, limits, timeout) and raise a security event on escape; make the human decision record name the irreversibility
+>
+> Checked: `mimir/agent-runtime/src/govloop.rs:60` · `mimir/agent-runtime/src/govloop.rs:626` · `mimir/agent-runtime/src/govloop.rs:645` · `mimir/agent-runtime/tests/ac_mi_3.rs:215` · `mimir/agent-runtime/tests/ac_mi_3.rs:260`
 
 **Evidence.** `mimir/agent-runtime/src/govloop.rs` (the governed loop) is thorough — gating, pre-authorisation, human decisions, healing, audit sequences, step budgets. `ActionExecutor` is a trait; the concrete executors are test doubles. The agent can propose and be gated, but there is no production executor invoking real subsystem operations.
 
@@ -2398,6 +3049,18 @@ Connect the governed loop to real capabilities.
 
 **Severity:** Medium · **Area:** Mimir · **Depends on:** RF-PER-1, RF-MI-2
 
+> **Status at 2026-10-12 — Open.** No session store or memory store exists. Assembly layers 4 (memory) and 6 (history) are still plain `Vec<String>` inputs the caller supplies, and the A.5 distiller's `LearningState` is an in-memory struct with no persistence, clearance marking, expiry or tenant scoping.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Build a durable, sealed session store keyed by (tenant, subject, agent, session) with expiry, listing and audited deletion, feeding layer 6
+> - Build a durable, sealed memory store with provenance, clearance marking and expiry, filtered by the reader's clearance before assembly
+> - Make the A.5 distiller the only write path into memory and test that a direct write fails
+> - Add cross-subject and cross-tenant isolation tests
+> - Expose memory provenance and revocation through a live Feedback screen (currently mock data)
+>
+> Checked: `mimir/agent-runtime/src/assembly.rs:64` · `mimir/agent-runtime/src/assembly.rs:253` · `mimir/agent-runtime/src/learn.rs:215` · `mimir/agent-runtime/tests/self_learning.rs:16`
+
 **Evidence.** Assembly layer 4 is "Agent memory — scoped prior facts" from a "Memory store (PQ)" and layer 6 is "Task history" from a "Session store". Neither store exists; both are inputs the caller supplies.
 
 **Prompt**
@@ -2440,6 +3103,18 @@ Implement the memory and session stores the assembly pipeline assumes.
 ### RF-MI-6 · Evals as a continuous, gating governance system
 
 **Severity:** High · **Area:** Mimir · **Depends on:** RF-MI-2, RF-OBS-1
+
+> **Status at 2026-10-12 — Open.** Evals are still unit tests over deterministic stand-ins. A `FamilyEvalReport` now records each (eval, family) cell separately and is tested with three distinct mock family models, but no Eval has run against a real model, there is no Eval service, result store, baseline, regression detection or promotion gate in `ModelRegistry`, the repository holds no CI configuration, and the Evals screen is mock-backed.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Still to do:**
+> - Build an Eval runner that drives the suites through mimir-server against a real model and persists results with model, family, quantisation, prompt and adapter versions
+> - Make ModelRegistry refuse promotion to a loadable state unless critical Evals passed for every routed family
+> - Add a CI job that runs the affected Evals per family on any change under mimir/prompts
+> - Record baselines and block promotion on regression beyond a documented tolerance, with an alert
+> - Grow the adversarial and benign corpora, set a false-positive budget per guardrail (only A.3 has one, over five inputs), and make the Evals screen live
+>
+> Checked: `mimir/agent-runtime/src/evals.rs:511` · `mimir/agent-runtime/tests/eval_matrix.rs:82` · `mimir/agent-runtime/src/evals.rs:287` · `mimir/model-server/src/model_registry.rs:32` · `deploy/acceptance/verify-mimir.sh:116`
 
 **Evidence.** `mimir/agent-runtime/src/evals.rs` implements the A.1–A.5 starter suites with `per_family` execution and `MODEL_FAMILIES`; `admin/ai-assist/src/evals.rs` and `clients/inference/src/evals.rs` add theirs. They run as unit tests against deterministic doubles. There is no continuous execution against real models, no result store, no trend, and no gate on promotion.
 
@@ -2488,6 +3163,18 @@ Turn Evals from a test suite into the governance mechanism the SADs describe.
 
 **Severity:** High · **Area:** Mimir · **Depends on:** RF-MI-6
 
+> **Status at 2026-10-12 — Partial.** The input guardrail has a deterministic pre-filter with de-obfuscation plus a `ModelBackedGuardrail` that combines it with a `Classifier` seam, and tests cover a handful of obfuscated and paraphrased injections and a real sanitise rewrite. The classifier behind the seam is still a test double (no model-plane classifier), the corpora are a few hand-written strings with no block-rate target, there is no indirect-injection test over grounded content, no pre-act intent check, and citation validity is an Eval (`ev_a1_ground`) whose loop-level halt has no test.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: medium.
+>
+> **Still to do:**
+> - Implement a Classifier that calls the local model plane and define the agreement rules (deterministic block wins, disagreement sanitises)
+> - Create adversarial (obfuscated, translated, multi-turn) and benign corpora with a stated block-rate target and false-positive budget, run in the acceptance script
+> - Add an indirect-injection test where grounded fabric content carries instructions and assert the layer boundary holds
+> - Add a loop-level test that an output citing an id outside the injected grounding is rejected, and a pre-act check that escalates over-broad actions
+> - Give the Guardrails screen a real probe path (currently MimirMock)
+>
+> Checked: `mimir/agent-runtime/src/defend.rs:317` · `mimir/agent-runtime/tests/guardrail_paraphrase.rs:18` · `mimir/agent-runtime/tests/guardrail_paraphrase.rs:101` · `mimir/agent-runtime/src/evals.rs:85` · `mimir/agent-runtime/src/evals.rs:287`
+
 **Evidence.** `defend.rs` (self-defending input guardrail, A.3), `guardrail.rs` (the interception trait), `heal.rs` (A.4 supervisor) and `learn.rs` (A.5 distiller) implement the four interception points with deterministic classifiers. Real adversarial resistance requires a real classifier and a real corpus.
 
 **Prompt**
@@ -2535,6 +3222,17 @@ Deepen the guardrails to production strength.
 
 **Severity:** Medium · **Area:** Mimir · **Depends on:** RF-MI-3, RF-API-7
 
+> **Status at 2026-10-12 — Open.** Each inference call writes one PQ-signed audit entry naming subject, action, resource and purpose, and the completion carries token counts back to the caller, but nothing persists usage: there is no accounting store, no tenant or product attribution, no budgets or thresholds, no capacity forecast and no console surface.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Persist a usage record per call (tokens in/out, wall time, model, family, quantisation, subject, tenant, purpose, calling product)
+> - Add the calling product/feature to the inference request contract so touchpoints can be attributed
+> - Enforce soft and hard budgets per subject, tenant, product and purpose in InferenceHandler with a typed refusal and no model downgrade
+> - Expose consumption, remaining budget and GPU headroom in the Admin console and console chrome
+>
+> Checked: `mimir/model-server/src/handler.rs:108` · `mimir/model-server/src/handler.rs:158` · `mimir/model-server/src/backends/openai_compat.rs:326` · `mimir/model-server/tests/inference_pqmtls.rs:191`
+
 **Prompt**
 
 ```
@@ -2574,6 +3272,20 @@ Account for and govern AI consumption.
 ### RF-MS-1 · End-to-end intake of a real upstream model
 
 **Severity:** High · **Area:** Model supply · **Depends on:** RF-SC-1, RF-SC-2, RF-PER-4
+
+> **Status at 2026-10-12 — Partial.** One real model (IBM Granite 3.3 2B GGUF) has made a shortened journey: `mg-model sign` checks the upstream-published SHA-256, signs a manifest with an ML-DSA key, `mimir-server` re-verifies manifest and weights before serving on CPU, and `mg-model pack`/`unpack` carry a verified model across the air gap as a signed bundle. That path bypasses `mimir/staging` (still driven by an in-memory `ReferenceFetcher`), runs no malware scan, no A.9 assessment, no human approval record, no ModelRegistry entry and no Eval certification, uses a development signing key, and has not run on a GPU.
+> Criteria met 3 of 6 (c, e, f); open: a, b, d. Confidence: medium.
+>
+> **Scope change:** A real model has been signed, verified, served and bundled — but through `mg-model`, bypassing `mimir/staging`, the registry and Evals. This item is now about joining those two paths.
+>
+> **Still to do:**
+> - Join the two halves: make staging intake read a real distribution from disk (weights, tokenizer, config, licence, model card) and emit the manifest mg-model/mimir-server load
+> - Add the enclave scan to intake: refuse pickle and other executable formats at intake with an audit entry (today refusal happens at sign/load, unaudited), plus tensor-inventory sanity and malware scan
+> - Carry the unverifiable-upstream risk, SBOM and human approval onto the registry entry and surface them at promotion
+> - Have mimir-server load through ModelRegistry with Eval-certification status, and run the journey on a GPU node
+> - Write the intake-to-serving runbook and replace the development model-signing key flow
+>
+> Checked: `deploy/compose/stage-model.sh:61` · `tools/mg-model/tests/bundle.rs:87` · `mimir/model-server/tests/model_dir.rs:171` · `mimir/staging/tests/ac_ms_1.rs:185` · `mimir/staging/tests/ev_a9.rs:93`
 
 **Prompt**
 
@@ -2619,6 +3331,18 @@ Take a real upstream model all the way through staging to serving.
 
 **Severity:** High · **Area:** Model supply · **Depends on:** RF-MS-1, RF-CMP-5
 
+> **Status at 2026-10-12 — Open.** The only licence data is three manifest fields (name, OSI-approved, redistribution-ok) and the only enforcement is the pre-existing load-time `require_redistribution_ok` switch, which defaults to off; a comment in `artifact.rs` defers the rest to this item. There are no machine-readable purpose or jurisdiction restrictions, no routing-time check, `mg-model pack` does not refuse a non-redistributable model, and the Model Plane screen is mock-backed.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Extend the signed manifest with machine-readable restrictions (permitted/prohibited purposes, attribution, redistribution, jurisdiction)
+> - Refuse at serving time a request whose purpose the served model prohibits, naming the restriction
+> - Make mg-model pack refuse and record a model whose licence forbids redistribution
+> - Return required attribution with completions and show restrictions on a live Model Plane screen
+> - Tie export-restricted models into the cross-jurisdiction transit controls (RF-CMP-5)
+>
+> Checked: `mimir/model-server/src/artifact.rs:35` · `mimir/model-server/src/artifact.rs:177` · `mimir/model-server/tests/model_registry.rs:215` · `tools/mg-model/src/main.rs:271`
+
 **Prompt**
 
 ```
@@ -2656,6 +3380,18 @@ Make recorded restrictions actually constrain use.
 
 **Severity:** Medium · **Area:** Model supply · **Depends on:** RF-MS-1, RF-MI-6
 
+> **Status at 2026-10-12 — Open.** A signed manifest binds id, version and weights digest, and `mimir-server` serves exactly the one model directory it verified and logs its SHA-256, but that is the whole lifecycle. `ModelRegistry` has a `Deprecated` state that is only a flag; there is no canary, automatic rollback, usage-evidenced removal, or recording of model/prompt/adapter version and sampling parameters on agent actions.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Define an immutable model version identifier (family, base version, quantisation, adapter version) and require serving/routing config to name it
+> - Record model, prompt and adapter versions and sampling parameters on every audited agent action and add a replay path
+> - Add canary promotion with automatic rollback on Eval/quality regression, reusing Bifrost's ring mechanics
+> - Block removal of a deprecated version until recorded usage is zero for a documented window
+> - Show versions, canary state and rollback history on a live Model Plane screen
+>
+> Checked: `mimir/model-server/src/artifact.rs:111` · `mimir/model-server/src/model_registry.rs:32` · `mimir/mimir-server/src/main.rs:186` · `mimir/model-server/src/router.rs:94`
+
 **Prompt**
 
 ```
@@ -2691,6 +3427,20 @@ Give models the same lifecycle discipline as code artefacts.
 ### RF-MS-4 · Fine-tuning, adapters and derived-model governance
 
 **Severity:** Medium · **Area:** Model supply · **Depends on:** RF-MS-1, RF-MS-2
+
+> **Status at 2026-10-12 — Open.** Nothing for derived models exists: no tuning-run record, no dataset-marking propagation to a model, no lineage fields for base model, dataset digests or hyperparameters, no memorisation check, and no adapter (LoRA) artefact type. The A.5 distiller structurally excludes weight changes, which is the opposite path.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Scope change:** No training or fine-tuning capability exists anywhere in the tree. Defer this item until one is proposed.
+>
+> **Still to do:**
+> - Decide whether in-enclosure fine-tuning is in scope at all before building this (no training capability exists in the tree)
+> - Add a derived-model manifest: base model id, dataset content ids from forge/dataset-store, hyperparameters, code version, approver
+> - Propagate the highest tuning-dataset marking onto the derived model and enforce it at serving
+> - Refuse registration without a recorded approval and add a memorisation/leakage check that blocks promotion
+> - Treat LoRA-class adapters as signed, registered, version-pinned artefacts
+>
+> Checked: `mimir/model-server/src/artifact.rs:111` · `mimir/model-server/src/model_registry.rs:54` · `mimir/agent-runtime/src/learn.rs:14`
 
 **Prompt**
 
@@ -2729,6 +3479,20 @@ Govern models the enclosure produces, not only those it receives.
 ### RF-MS-5 · Multi-family routing policy and portability certification
 
 **Severity:** Medium · **Area:** Model supply · **Depends on:** RF-MI-2, RF-MI-6
+
+> **Status at 2026-10-12 — Open.** The `Router` is unchanged from the plan's evidence and is not in the serving path: `mimir-server` serves one backend and never constructs a Router or ModelRegistry. Family preference per workload class is still hard-coded in `ideal_family`, degradation picks the next permitted family alphabetically with no certification check, there is no prompt-by-family certification matrix, and FR-MS-9 is cited nowhere in source.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** `mimir-server` never constructs `Router` or `ModelRegistry`. Routing policy and certification are moot until RF-CA-8 lands.
+>
+> **Still to do:**
+> - Decide whether mimir-server will host several models; if so wire Router and ModelRegistry into it, otherwise re-scope this item to the single-model case
+> - Move routing rules (purpose, product, clearance, hardware to family) into a policy file and remove the hard-coded ideal_family mapping
+> - Generate a prompt-by-family certification matrix from real Eval results and refuse uncertified routes and substitutions
+> - Cite FR-MS-9 in the certification code and add its verifying test; fail the build on a stale matrix
+> - Audit every cross-family substitution and show the matrix on live Model Plane and Evals screens
+>
+> Checked: `mimir/model-server/src/router.rs:67` · `mimir/model-server/src/router.rs:78` · `mimir/mimir-server/src/main.rs:268` · `mimir/model-server/tests/router.rs:228`
 
 **Evidence.** `mimir/model-server/src/router.rs` and `select.rs` implement routing and hardware-aware selection. `FR-MS-9` (the model-portability consequence for the prompt library) is the one requirement id in the SADs with no citation in source — it is tagged `-DESIGN`, but the portability property it describes is exactly what needs a test.
 
@@ -2774,6 +3538,20 @@ Prove portability, and make routing policy explicit.
 
 **Severity:** High · **Area:** Forge · **Depends on:** RF-PER-1, RF-RT-2
 
+> **Status at 2026-10-12 — Partial.** A second backend exists behind the seam: `PartitionedBackend` runs partitions on worker threads with a hash shuffle and a spill-to-disk round-trip, and tests assert its output equals the reference engine for one filter-join-aggregate-sort pipeline across worker counts. It is bespoke and in-process: there is no ADR (no docs/dev/adr directory), `products/README.md` still claims DataFusion, the spill writes a partition and reads it straight back so memory is not bounded below dataset size, there is no incremental or partition-aware execution, no progress reporting and no benchmark. The running forge-worker applies no transforms at all.
+> Criteria met 2 of 5 (a, c); open: b, d, e. Confidence: high.
+>
+> **Scope change:** A `PartitionedBackend` with an equivalence test already sits behind the seam, so the ADR is retrospective. `products/README.md` still claims DataFusion, and the spill is a write-then-read round trip, not out-of-core execution.
+>
+> **Still to do:**
+> - Write ADR 0003 choosing the engine (the bespoke PartitionedBackend is the de facto answer) and correct the DataFusion claim in products/README.md
+> - Make execution truly out-of-core: streamed input, bounded memory, real spill and progress reporting, tested on data larger than RAM
+> - Widen the equivalence suite to every Transform and edge case (nulls, empty inputs, left joins, windows) rather than one pipeline
+> - Add partitioned/incremental execution with late-arriving data and a test that it equals a full recompute
+> - Benchmark at 10^6 to 10^9 rows, publish the envelope and gate regressions; wire pipelines into forge-worker so transforms actually run
+>
+> Checked: `forge/engine/src/partitioned.rs:56` · `forge/engine/src/partitioned.rs:254` · `forge/engine/tests/partitioned.rs:93` · `forge/engine/tests/execution.rs:73` · `products/README.md:9`
+
 **Prompt**
 
 ```
@@ -2816,6 +3594,20 @@ Land a real execution engine behind the existing seam without disturbing it.
 ### RF-F-2 · Real connectors and ingestion
 
 **Severity:** High · **Area:** Forge · **Depends on:** RF-F-1, RF-API-6
+
+> **Status at 2026-10-12 — Partial.** Concrete connectors now exist and run in a service: delimited files, PostgreSQL (hand-rolled v3 client, SCRAM, read-only, watermark), S3-compatible stores (SigV4, incremental by last-modified) and Kafka (bounded resumable reads), each checked against the sandbox's exact host:port and resuming from a checkpoint; `forge-worker` syncs them into a sealed versioned store with ingest lineage and on into the fabric. PostgreSQL and S3 have live-server tests behind a script, Kafka only a fake broker. Missing: Parquet/JSON/NDJSON, a real HTTP source, schema inference, drift as a governed decision (drift fails the sync), per-record quarantine (one bad record fails the whole sync), filesystem/memory sandboxing, declared delivery semantics and SDK docs/template.
+> Criteria met 1 of 6 (f); open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** File, PostgreSQL, S3 and Kafka connectors run in `forge-worker`. Narrow this to further formats, HTTP, quarantine, governed schema drift and a real Kafka broker. Media ingest is RF-CA-12.
+>
+> **Still to do:**
+> - Add Parquet, JSON and NDJSON parsing and a real HTTP/REST connector routed through the egress broker; test Kafka against a real broker
+> - Route failing records to a quarantine dataset with reasons and report partial success instead of failing the whole sync
+> - Turn schema drift into a paused, human-decided event (accept/reject/quarantine) rather than a hard failure, and add schema discovery
+> - Add a test that no credential appears in logs, errors, metrics or datasets (only Secret's Debug redaction is tested), and raise a security event on sandbox denial; add file allow-list and resource limits
+> - Declare delivery semantics per connector, give PostgreSQL TLS, and publish SDK docs with a connector template
+>
+> Checked: `forge/connector-sdk/tests/live.rs:40` · `forge/connector-sdk/tests/kafka.rs:456` · `forge/connector-sdk/tests/postgres.rs:434` · `forge/connector-sdk/src/connector.rs:64` · `forge/worker/tests/sync.rs:173`
 
 **Evidence.** `forge/connector-sdk` (528 lines) defines the connector contract and credential handling via KMS. No concrete connector exists. `ConnectorsScreen` lists fixtures.
 
@@ -2864,6 +3656,20 @@ Ship a real connector set and the runtime that hosts them.
 
 **Severity:** High · **Area:** Forge · **Depends on:** RF-F-1, RF-PER-4
 
+> **Status at 2026-10-12 — Partial.** There is now a running `forge-worker` that executes jobs on a fixed interval in file order, retries a failed run after at most ten seconds, keeps durable per-job checkpoints recorded only after the gateway accepts the records, and audits each run. It is an interval loop, not an orchestrator: no DAG or dependency resolution, cycle detection, backfill, concurrency limits, transient-versus-data failure distinction, cancellation, SLA/freshness, column-level lineage or versioned pipeline definitions. `forge/pipeline`'s `Scheduler` still only sorts pipelines into batch, stream and manual lists.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Scope change:** `forge-worker` is an interval job runner with durable checkpoints and audit. Read this item as growing it into a DAG orchestrator.
+>
+> **Still to do:**
+> - Add job dependencies with cycle detection at load and run a job only after its upstreams succeed (today order is file order)
+> - Classify failures so data-quality failures are never retried and transient ones retry within a bounded backoff policy
+> - Add a kill-mid-run test proving a re-run equals a clean run and partial output is never visible
+> - Add bounded, pausable backfill and per-pipeline/global concurrency limits, timeouts and cancellation
+> - Record column-level lineage as a queryable graph, declare freshness SLAs with alerts, and version pipeline definitions with approval
+>
+> Checked: `forge/worker/src/main.rs:51` · `forge/worker/src/main.rs:197` · `forge/pipeline/src/scheduler.rs:55` · `forge/pipeline/tests/build.rs:207` · `forge/worker/tests/sync.rs:173`
+
 **Evidence.** `forge/pipeline` compiles pipelines; `SchedulesScreen` renders fixtures; `services/scheduler` is a replica rolling-upgrade state machine, not a job scheduler. There is no orchestrator.
 
 **Prompt**
@@ -2909,6 +3715,18 @@ Build the pipeline orchestrator.
 
 **Severity:** Medium · **Area:** Forge · **Depends on:** RF-F-3
 
+> **Status at 2026-10-12 — Open.** Unchanged from the plan's evidence: `forge/health` has five expectations (not-null, unique, row-count min/max, int range) and a gate that blocks a build's commit to the promotion branch when one fails. There is no profiling, drift detection, per-expectation enforcement policy, quarantine or scorecard, the forge-worker does not run the health gate before projecting, and `DataHealthScreen` is backed by `ForgeMock`.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Run a health suite in forge-worker before projection and refuse to project a dataset that fails a blocking expectation, recording the reason
+> - Add per-expectation policy (warn, quarantine, fail) and a first-class quarantine dataset that can be inspected and re-processed
+> - Compute and store column statistics on every run and flag drift against the historical profile
+> - Expand the library: schema conformance, referential integrity, distribution, freshness, volume anomaly, custom expressions
+> - Publish a per-dataset quality scorecard and surface it on a live Data Health screen and in consumers
+>
+> Checked: `forge/health/src/expectation.rs:10` · `forge/health/tests/ac_f_3.rs:71` · `forge/worker/src/lib.rs:1` · `sdk/ts/src/products/forge.ts:539`
+
 **Evidence.** `forge/health` (300 lines) implements expectations; `DataHealthScreen` renders fixtures.
 
 **Prompt**
@@ -2945,6 +3763,20 @@ Make data quality operational.
 ### RF-F-5 · Dataset versioning, branching and time travel at scale
 
 **Severity:** Medium · **Area:** Forge · **Depends on:** RF-PER-1, RF-F-1
+
+> **Status at 2026-10-12 — Partial.** The plan's premise that the store is in memory is stale: `DurableDatasetStore` persists every sealed, content-addressed version blob and atomic branch refs under a directory, reloads them on open, and fails closed on a tampered blob; forge-worker uses it. Deduplication is only whole-snapshot (identical content shares one blob), every blob is loaded into memory at open, it writes to the local filesystem rather than a BlobStore seam, and there is no merge, diff, branch delete, garbage collection, legal hold, timestamp time travel or clearance check on reads.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** `DurableDatasetStore` persists versions and refs and is restart-tested. What remains is chunk-level deduplication, merge, garbage collection, hold and time-travel authorisation.
+>
+> **Still to do:**
+> - Chunk datasets by partition so an unchanged partition is stored once across versions, and stop loading every blob at open
+> - Add merge with conflict detection, schema/statistical diff and branch delete
+> - Add garbage collection of unreferenced versions that skips and records versions under legal hold, plus a retention policy
+> - Add read-as-of version/timestamp authorised at the reader's current clearance, with a downgrade test
+> - Report deduplication ratio and footprint per dataset; move persistence behind the BlobStore seam
+>
+> Checked: `forge/dataset-store/src/durable.rs:43` · `forge/dataset-store/src/durable.rs:99` · `forge/dataset-store/tests/durable_restart.rs:101` · `forge/dataset-store/tests/durable_restart.rs:170` · `forge/dataset-store/src/store.rs:55`
 
 **Evidence.** `forge/dataset-store` (785 lines) implements content-addressed versioning and branches, in memory.
 
@@ -2983,6 +3815,20 @@ Make versioning durable and practical at data scale.
 ### RF-F-6 · Projection to the fabric: incremental, consistent, reversible
 
 **Severity:** High · **Area:** Forge · **Depends on:** RF-PER-3, RF-F-3
+
+> **Status at 2026-10-12 — Partial.** Projection now reaches a real fabric: forge-worker projects rows to object and link instances carrying the job's marking and purposes and sends them over PQ-mTLS to the gateway, which authorises, audits and upserts them; a re-run leaves the fabric unchanged and a changed source row is updated. The marking is one per mapping (no column markings), the gateway does not check the worker may write at the declared marking, a sync never deletes, and there is no atomic visibility, simulation, rollback, cross-dataset conflict detection or scale measurement.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Scope change:** `forge-worker` projects into the real fabric through the gateway. The concrete gaps: no deletes, markings only at mapping level, and no gateway check on the marking a job declares.
+>
+> **Still to do:**
+> - Propagate deletes and removed links, then assert a sequence of incremental syncs equals a full re-projection
+> - Add column-level markings carried onto properties, refuse mapping a marked column to an unmarked property, and have the gateway check the worker may write at the declared marking
+> - Make a projection atomic to fabric readers (stage then swap) and define the visibility semantics
+> - Add dry-run simulation with create/update/delete counts and samples, and audited rollback to the prior fabric state
+> - Define precedence and contradiction detection when two datasets project to one type; measure a 10^8-row envelope
+>
+> Checked: `forge/projection/tests/ac_f_4.rs:53` · `forge/worker/tests/sync.rs:173` · `forge/worker/src/lib.rs:11` · `forge/projection/src/mapping.rs:1` · `README.md:564`
 
 **Evidence.** `forge/projection` (306 lines) maps dataset columns to object types.
 
@@ -3026,6 +3872,20 @@ operational picture, and where a mistake becomes operationally visible.
 ### RF-F-7 · Transform IDE and NL-to-transform, made real
 
 **Severity:** Medium · **Area:** Forge · **Depends on:** RF-MI-4, RF-UID-2
+
+> **Status at 2026-10-12 — Partial.** `forge/ai-assist` now has a live `MimirSuggester` that sends the A.6 prompt to Mimir over PQ-mTLS, alongside the unchanged proposal-only adapter whose tests show a suggestion is only ever a preview and an invented column is flagged and blocked. Nothing runs it: no service hosts the assistant, the gateway does not route to mimir-server, and the Transform IDE and Pipeline Builder screens are still served by `ForgeMock`, with no node editing, real preview execution, versioned save or approval flow.
+> Criteria met 1 of 5 (d); open: a, b, c, e. Confidence: high.
+>
+> **Scope change:** A live `MimirSuggester` bridge exists but nothing hosts it, and the screens run on `ForgeMock`.
+>
+> **Still to do:**
+> - Expose Forge pipeline, preview and assist operations through the gateway and add a non-mock ForgeGateway implementation
+> - Execute transform preview on a bounded real sample through the engine and return real rows and errors
+> - Make the Pipeline Builder an editor (add, remove, connect, configure nodes; live validation; versioned save)
+> - Host the A.6 assistant against mimir-server with the real dataset schema, and audit the operator's commit with the prompt and proposal
+> - Add definition history, diff and an approval gate before a production pipeline change takes effect
+>
+> Checked: `forge/ai-assist/src/mimir_bridge.rs:16` · `forge/ai-assist/tests/ac_f_5.rs:54` · `forge/ai-assist/tests/ac_f_5.rs:86` · `sdk/ts/src/products/forge.ts:634` · `products/forge/ui/src/screens/TransformIdeScreen.tsx:46`
 
 **Evidence.** `forge/ai-assist` (859 lines) implements the A.6 NL-to-transform prompt with its proposal-only contract and Evals. `TransformIdeScreen` (168 lines) and `PipelineBuilderScreen` (220 lines) render DAGs and editors from fixtures — the "builder" cannot add, remove or connect nodes.
 
@@ -3074,6 +3934,20 @@ Make the authoring experience real.
 
 **Severity:** High · **Area:** Bifrost · **Depends on:** RF-SC-1, RF-SC-2, RF-PER-4
 
+> **Status at 2026-10-12 — Partial.** `bifrost/artefact` keeps each artefact's payload, SBOM and ML-DSA signature together in one file per (id, version), verifies on ingest, re-verifies every file on open and again in `verify_for_deploy`, and `tools/mg-register` admits gate-verified binaries into it. It trusts a single fixed key with no revocation input, stores no attestation, has no content-addressed blob store, no component/advisory/deployment index, no promotion states and no garbage collection. Nothing calls `verify_for_deploy` outside its own test.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Payload, SBOM and signature are stored together and re-verified on ingest, on open and at the deploy gate. The real gaps are revocation, attestation, indexes, promotion states and garbage collection.
+>
+> **Still to do:**
+> - Add key revocation to the registry trust model so retrieval of an artefact signed by a revoked key fails, with a test (AC b)
+> - Store the release attestation alongside payload, SBOM and signature, index by digest, and add a durable-registry test that all four are returned consistent (AC a)
+> - Build a component-version index over stored SBOMs joined to fleet deployments, and a query for advisory impact (AC c)
+> - Add promotion states with dual-controlled, audited transitions (AC d)
+> - Add garbage collection that retains anything deployed or under legal hold (AC e)
+>
+> Checked: `bifrost/artefact/src/durable.rs:129` · `bifrost/artefact/src/registry.rs:49` · `bifrost/artefact/src/signed.rs:77` · `bifrost/artefact/tests/registry.rs:105` · `tools/mg-register/src/main.rs:177`
+
 **Prompt**
 
 ```
@@ -3110,6 +3984,20 @@ Make the artefact registry the system of record for what exists and what may run
 ### RF-B-2 · Fleet agent: installation, reporting and rollback on the target
 
 **Severity:** High · **Area:** Bifrost · **Depends on:** RF-B-1, RF-IAM-6
+
+> **Status at 2026-10-12 — Partial.** `bifrost-agent` is a one-shot CLI that checks an installation in over PQ-mTLS with a version string and a health flag, or reads fleet status; `bifrost-fleet-server` authorises, audits and journals check-ins, refuses a check-in for another installation, and reports version drift and stale nodes. The agent installs nothing, verifies nothing, receives no assignments, reports no digests and has no rollback; the `DeployAgent` trait in `bifrost/rollout` has no implementation anywhere.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Scope change:** A `bifrost-agent` CLI and `bifrost-fleet-server` do authenticated, audited check-ins with drift and staleness. Read this item as extending the agent to receive assignments, verify, install and roll back.
+>
+> **Still to do:**
+> - Implement a long-running agent that receives signed, replay-protected assignments and implements `DeployAgent` (AC a, f)
+> - Have the agent verify the artefact locally against its own trust anchor before install and report refusals (AC b)
+> - Implement staged-then-switched install with a retained prior version, local rollback without the controller, and defined power-loss behaviour (AC c, d)
+> - Extend `AgentReport` with installed artefact digests and add on-node digest drift detection with a configurable policy (AC e)
+> - Add acceptance of assignments from a verified transit bundle for disconnected nodes
+>
+> Checked: `bifrost/fleet-server/src/bin/bifrost-agent.rs:55` · `bifrost/fleet-server/src/lib.rs:104` · `bifrost/fleet/src/agent.rs:15` · `bifrost/rollout/src/orchestrator.rs:37` · `bifrost/fleet-server/tests/serve.rs:182`
 
 **Evidence.** `bifrost/fleet` is 134 lines modelling installations; `bifrost/rollout` (203 lines) is a state machine. Nothing installs. `clients/delivery` (160 lines) models client install records similarly.
 
@@ -3155,6 +4043,18 @@ Build the agent that makes a rollout real.
 
 **Severity:** High · **Area:** Bifrost · **Depends on:** RF-B-2, RF-OBS-1
 
+> **Status at 2026-10-12 — Open.** `bifrost/rollout` is still a library: a plan of named rings sized by install count (canary then broad), a boolean `HealthGate` per ring, and automatic revert of promoted rings when a gate fails. Nothing drives it from the fleet manager, and there is no ring membership by node attributes, soak time, signal-driven abort, concurrency or failure limit, kill switch, freeze window or dependency ordering.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Still to do:**
+> - Wire the fleet manager to drive `Orchestrator::roll_out_live` against real agents (depends on RF-B-2)
+> - Define rings as configuration by node attribute with soak times and promotion criteria, refusing promotion with the unmet criterion named (AC a)
+> - Feed error-rate, latency and SLO-burn signals into the gate and record the abort evidence (AC b)
+> - Add concurrency and failure-threshold limits and a dual-controlled global kill switch (AC c, d)
+> - Add freeze periods with an audited emergency override, and dependency-ordered sequencing (AC e, f)
+>
+> Checked: `bifrost/rollout/src/plan.rs:56` · `bifrost/rollout/src/orchestrator.rs:152` · `bifrost/rollout/tests/rollout.rs:50` · `bifrost/fleet/src/lib.rs:227`
+
 **Prompt**
 
 ```
@@ -3195,6 +4095,20 @@ Make progressive delivery operational.
 ### RF-B-4 · Air-gapped bundle workflow, end to end
 
 **Severity:** High · **Area:** Bifrost · **Depends on:** RF-B-1, RF-SC-8
+
+> **Status at 2026-10-12 — Partial.** `mg-bundle pack` and `mg-bundle import` (not `create`/`apply`) produce and verify a signed bundle offline, streaming in 16 MiB chunks with per-chunk digests, staging the output so a refused import leaves nothing; `deploy/air-gap-bundle/` now exists with a README, `produce.sh` and `install.sh` (verify, build images, helm deploy). A bundle is a single file: there is no differential bundle, no splitting across media, no signed receipt, no report-back or staleness in the fleet view, and no outbound evidence path.
+> Criteria met 1 of 6 (b); open: a, c, d, e, f. Confidence: high.
+>
+> **Scope change:** `deploy/air-gap-bundle/` exists and the verbs are `mg-bundle pack` / `import`. Step 6 is done; what remains is receipts, differential bundles, media splitting and the outbound path.
+>
+> **Still to do:**
+> - Emit a signed receipt on import and ingest it at the origin to update the fleet view with an explicit age (AC a, d)
+> - Add differential bundles against a stated site baseline with a test that the result equals a full bundle (AC c)
+> - Split a bundle across size-limited media with per-part integrity and resumable reassembly (AC f)
+> - Add the outbound path for audit, telemetry and evidence with marking-based withholding (AC e)
+> - Carry trust anchors and configuration in the bundle, and write the physical-media runbook after a demonstrated round trip
+>
+> Checked: `tools/mg-bundle/src/main.rs:181` · `bifrost/bundle/src/stream.rs:151` · `bifrost/bundle/tests/streaming.rs:131` · `tools/mg-bundle/tests/cli.rs:45` · `deploy/air-gap-bundle/install.sh:75`
 
 **Evidence.** `bifrost/bundle` (228 lines) and `tests/ac_b_3.rs` implement and prove the bundle format and offline verification. `deploy/README.md` promises a `deploy/air-gap-bundle/` directory that does not exist. The operational workflow — produce, transport, ingest, apply, report back — is undefined.
 
@@ -3242,6 +4156,17 @@ Turn the bundle format into an operational workflow.
 
 **Severity:** Medium · **Area:** Bifrost · **Depends on:** RF-SC-4, RF-MI-4
 
+> **Status at 2026-10-12 — Open.** `bifrost/risk` is unchanged in substance: `ReleaseContext` is five caller-supplied fields (a summary string, a tests flag, two counts and a ring string), the gate is a fixed set of booleans plus one score threshold, and `EV-A7-evidence` exists only as an eval function called from tests. A live `MimirAdvisor` bridge exists, but nothing constructs a context from a real SBOM diff, scan results or history, and nothing calls the crate outside its tests.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Build `ReleaseContext` from the real SBOM diff, scan findings, change set and test results, and record those inputs with the assessment (AC a)
+> - Reject an assessment with any uncited factor inside `assess`, not only in an eval run by tests (AC b)
+> - Make the gate a configurable policy mapping risk level to required approvals, and record overrides with who, why and what was shown (AC c)
+> - Record predicted risk against observed outcome and report calibration on the Release Console (AC d)
+>
+> Checked: `bifrost/risk/src/context.rs:7` · `bifrost/risk/src/engine.rs:15` · `bifrost/risk/src/gate.rs:13` · `bifrost/risk/src/evals.rs:73` · `bifrost/risk/src/mimir_bridge.rs:44`
+
 **Evidence.** `bifrost/risk` (780 lines) implements the A.7 release-risk prompt, the advisor and a gate. Its evidence today is supplied by the caller.
 
 **Prompt**
@@ -3280,6 +4205,18 @@ Ground the release-risk analysis in real evidence.
 ### RF-B-6 · Configuration and secret delivery
 
 **Severity:** High · **Area:** Bifrost · **Depends on:** RF-B-2, RF-PER-4
+
+> **Status at 2026-10-12 — Open.** Bifrost has no notion of a configuration artefact: bundles carry only service, tool, client, model-bundle and attestation components, and the fleet records versions only. `admin/config` has a signed, versioned config store and a drift reconciler, but as an unwired library unrelated to ring delivery; no `--check-config` dry run exists in the tree and there is no automated secrets-in-artefacts check.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: medium.
+>
+> **Still to do:**
+> - Define configuration as a signed, versioned artefact type delivered through the same rings and rollback as code (AC a; depends on RF-B-2 and RF-B-3)
+> - Add on-node schema validation and a dry run before apply, keeping the current config on failure (AC b)
+> - Add an automated check that no secret value appears in any config artefact, bundle, log or UI, with references resolved from KMS on the node (AC c)
+> - Declare hot-reload versus restart per setting and drive restarts through the rollout mechanism (AC d)
+> - Report effective-versus-intended config drift per node with the differing keys (AC e)
+>
+> Checked: `tools/mg-bundle/src/main.rs:42` · `bifrost/fleet/src/agent.rs:15` · `admin/config/src/reconcile.rs:46` · `bifrost/rollout/src/orchestrator.rs:37`
 
 **Prompt**
 
@@ -3324,6 +4261,20 @@ Deliver configuration and secrets with the same rigour as code.
 
 **Severity:** High · **Area:** Heimdall · **Depends on:** RF-API-6, RF-RT-2
 
+> **Status at 2026-10-12 — Partial.** `heimdall-feed-server` runs as a mesh service: a source submits a signed observation over PQ-mTLS, the feed id must equal the certificate's identity, the signature is verified, the observation is fused and the picture is sealed at rest; `heimdall-source` is the CLI client. There is one generic observation format and no per-class adapters, no watermarks, no duplicate suppression (a resubmitted observation increments the track count), no marking on observations or entities (every reader is treated as UNCLASSIFIED against one resource), and no feed-health, staleness or degraded indication.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** `heimdall-feed-server` is a running PQ-mTLS service with signed, identity-bound ingest and a sealed picture, so feed authentication is largely there. What remains is markings, deduplication, feed health and adapters.
+>
+> **Still to do:**
+> - Add a marking to feeds and observations, propagate it to entities, and filter `ReadPicture` by the reader's clearance without leaking existence (AC c)
+> - Track per-feed last-arrival, raise an alert past a staleness threshold and mark affected entities degraded in the picture (AC d)
+> - Suppress duplicates by observation id and add a test that out-of-order ingestion equals in-order ingestion (AC b, e)
+> - Implement adapters for each feed class that normalise to the observation model and retain lineage to the source message (AC a)
+> - Add backpressure, bounded buffering and per-feed quality metrics
+>
+> Checked: `heimdall/feed-server/src/lib.rs:166` · `heimdall/feed-server/src/lib.rs:308` · `heimdall/fusion/src/engine.rs:55` · `heimdall/picture/src/observation.rs:29` · `heimdall/feed-server/tests/serve.rs:187`
+
 **Evidence.** `heimdall/feed-gateway` is 234 lines; `FeedsScreen` (106 lines) renders fixtures.
 
 **Prompt**
@@ -3366,6 +4317,20 @@ Ingest real operational feeds.
 ### RF-H-2 · Entity resolution, tracking and correlation at scale
 
 **Severity:** High · **Area:** Heimdall · **Depends on:** RF-H-1, RF-PER-3
+
+> **Status at 2026-10-12 — Open.** Fusion still correlates by exact `entity_key` equality and keeps only first-seen, last-seen, a count and the latest attributes; there is no probabilistic matching, confidence, merge or split, state estimation or coasting. `heimdall/classify` assigns descriptive labels by rule, not security classification, so no aggregation rule exists, and the running feed server attaches no classifier at all. An entity records only the set of feed names that contributed, not which reports support which attribute.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** `heimdall/classify` assigns descriptive labels by rule; it does not do security classification, and the running feed server attaches no classifier. The aggregation-classification criterion needs markings from RF-H-1 first.
+>
+> **Still to do:**
+> - Implement recorded, reversible merge and split of entities with audit entries (AC a)
+> - Add a tracking filter with exposed uncertainty and coasting, and define the observed-versus-inferred visual language in the design system (AC b)
+> - Record per-attribute provenance to source reports and expose it for drill-down (AC c)
+> - Implement the aggregation classification rule and enforce the aggregate marking (AC d; depends on RF-H-1 markings)
+> - Publish and gate a 10^5-track latency envelope with a benchmark (AC e)
+>
+> Checked: `heimdall/fusion/src/engine.rs:57` · `heimdall/picture/src/entity.rs:89` · `heimdall/classify/src/rules.rs:1` · `heimdall/feed-server/src/lib.rs:71`
 
 **Evidence.** `heimdall/fusion` (312 lines) and `heimdall/classify` (237 lines) implement correlation and classification.
 
@@ -3411,6 +4376,20 @@ Make fusion algorithmically real and operationally honest.
 
 **Severity:** High · **Area:** Heimdall · **Depends on:** RF-API-3, RF-PER-5
 
+> **Status at 2026-10-12 — Partial.** `heimdall/picture-sync` exports a full-picture snapshot as a signed delta, verifies the peer's signature before a last-write-wins merge, and can carry it over a PQ-mTLS session; tests show two nodes converging after one exchange. It is not used by the feed server or any binary, there is no push to clients, no incremental delta, resume, clearance or area filtering, degraded scoping or clock model, and the merge is not convergent when two nodes hold different states with equal `last_seen` (each side takes the other's).
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Add a merge fix as the first step. The last-write-wins merge at `heimdall/picture/src/delta.rs:47` takes the incoming entity whenever it is at least as recent, so two nodes holding different state with equal `last_seen` each adopt the other's and do not converge.
+>
+> **Still to do:**
+> - Define a deterministic tie-break so equal-timestamp conflicts converge, and add a reordering-and-partition convergence test (AC a)
+> - Wire replication into the running feed server with push of incremental deltas and sequence-based resume or bounded resync (AC d)
+> - Filter deltas server-side by the recipient's clearance and verify on the wire (AC c; depends on RF-H-1 markings)
+> - Mark the picture degraded with the exact stale sources when a peer link is lost (AC b)
+> - Add area-of-interest filtering and rate adaptation for constrained links (AC e)
+>
+> Checked: `heimdall/picture/src/delta.rs:47` · `heimdall/picture-sync/src/replicator.rs:35` · `heimdall/picture-sync/tests/ac_h_5.rs:76` · `heimdall/picture-sync/tests/rc_26.rs:182` · `heimdall/feed-server/src/lib.rs:153`
+
 **Evidence.** `heimdall/picture-sync` (218 lines) implements sync; `PictureSyncScreen` (127 lines) renders fixtures.
 
 **Prompt**
@@ -3452,6 +4431,20 @@ Make one picture, everywhere, provably.
 ### RF-H-4 · Decision workflows and course-of-action support
 
 **Severity:** High · **Area:** Heimdall · **Depends on:** RF-MI-4, RF-H-2
+
+> **Status at 2026-10-12 — Partial.** `heimdall/workflow` is a single-step propose, authorise or deny, execute engine with a signed audit chain and a real actuator seam, with durable in-flight state in `heimdall/store`; `heimdall/decision-support` parses A.8 options, computes grounding of citations against the picture and has a live Mimir bridge. Neither is used by the feed server or any service. Ungrounded options are flagged but still returned, a non-consequential action can execute from `Proposed` with no human decision, and there are no multi-step definitions, deadlines, escalation, versioning, latency budget or full decision-lineage record.
+> Criteria met 0 of 6; open: a, b, d, e, f; not verifiable by reading: c. Confidence: high.
+>
+> **Scope change:** Two code changes are needed before the tests this item asks for can pass. `heimdall/workflow/src/engine.rs:162` lets a non-consequential action execute from `Proposed` with no recorded human decision (criterion a), and `request_options` (`heimdall/decision-support/src/adapter.rs:62`) returns ungrounded options flagged, not rejected (criterion b). Serving options from the running service is RF-CA-10.
+>
+> **Still to do:**
+> - Reject, rather than flag, any option set containing an uncited or ungrounded option inside `request_options` (AC b)
+> - Close the path that lets a non-consequential action execute from `Proposed`, or scope it out explicitly, and add a test asserting no route from option generation to execution without a recorded human decision (AC a)
+> - Record picture state, options shown, evidence, and model and prompt versions with each decision so it can be reconstructed (AC d)
+> - Add workflow definitions with roles, deadlines, escalation on timeout and versioning (AC e)
+> - Enforce an option-generation latency budget that reports when it cannot be met, and expose the whole flow from a running service (AC f)
+>
+> Checked: `heimdall/workflow/src/engine.rs:162` · `heimdall/decision-support/src/adapter.rs:88` · `heimdall/workflow/tests/ac_h_4.rs:96` · `heimdall/decision-support/tests/ac_h_3.rs:134` · `heimdall/decision-support/src/mimir_bridge.rs:27`
 
 **Evidence.** `heimdall/workflow` (358 lines) and `heimdall/decision-support` (871 lines) implement workflows and the A.8 option generator with six Evals (`EV-A8-cited/-grounded/-ranked/-neutral/-insuff/-advisory`).
 
@@ -3500,6 +4493,18 @@ Make decision support operational and provably advisory.
 
 **Severity:** Medium · **Area:** Heimdall · **Depends on:** RF-H-2
 
+> **Status at 2026-10-12 — Open.** There is still no geospatial or temporal machinery: an observation is a kind, a correlation key, free-form attributes and one `observed_at` timestamp, with no position type, reference frame, spatial index or event-versus-observation time. The picture store keeps only current state, and the Heimdall console runs on `HeimdallMock` with no map renderer or tile source.
+> Criteria met 0 of 5; open: a, b, d, e; not verifiable by reading: c. Confidence: high.
+>
+> **Still to do:**
+> - Add a position type that always carries its coordinate reference system and accuracy (AC a)
+> - Add a spatial index with bounding-box, radius, polygon and nearest-neighbour queries and a published bound at 10^5 entities (AC b)
+> - Retain picture history and separate event time from observation time to support as-of queries and replay (AC d)
+> - Render the map in the console from in-enclosure vector tiles with a test that no request leaves the enclosure (AC c)
+> - Make the picture keyboard-operable and not colour-dependent, and audit it (AC e)
+>
+> Checked: `heimdall/picture/src/observation.rs:29` · `heimdall/picture/src/entity.rs:14` · `heimdall/feed-server/src/lib.rs:348` · `products/heimdall/ui/src/main.tsx:17`
+
 **Evidence.** No geospatial machinery exists anywhere: no coordinate systems, no projections, no spatial indexing, no map rendering. `OperatingPictureScreen` draws an abstract layout.
 
 **Prompt**
@@ -3541,6 +4546,18 @@ Add the geospatial and temporal capability a common operating picture requires.
 ### RF-H-6 · Alerting, watch conditions and operator attention management
 
 **Severity:** Medium · **Area:** Heimdall · **Depends on:** RF-H-2, RF-OBS-4
+
+> **Status at 2026-10-12 — Open.** Nothing in `heimdall/` implements watch conditions, alerts, acknowledgement, suppression, handover or operator presence; the classify rules engine evaluates conditions over an entity only to produce a label. The feed server exposes just `Ingest` and `ReadPicture`.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Implement operator-defined watch conditions evaluated on each picture change with a stated latency (AC a)
+> - Add alert deduplication, grouping and acknowledgement, and report acknowledgement rate and time-to-acknowledge per alert type (AC b)
+> - Add time-boxed, audited suppression with automatic expiry and a visible indicator (AC c)
+> - Produce and retain an auditable shift-handover record (AC d)
+> - Push acknowledgements and decisions to other operators on the same area without a refresh (AC e)
+>
+> Checked: `heimdall/classify/src/rules.rs:13` · `heimdall/feed-server/src/lib.rs:153` · `heimdall/fusion/src/engine.rs:92`
 
 **Prompt**
 
@@ -3585,6 +4602,20 @@ Manage operator attention as a first-class concern.
 
 **Severity:** High · **Area:** Admin · **Depends on:** RF-API-3, RF-IAM-3 · **Blocks:** RF-AD-2..7
 
+> **Status at 2026-10-12 — Partial.** The admin console still constructs `AdminMock` and every screen reads fixtures from `sdk/ts/src/products/admin.ts`. No admin crate has a binary; the only reachable admin surface is the http-gateway's `/api/v1/admin/` enrolment API (challenge, request, approve, list), which enforces passkey proof and dual control and is driven by the `mg-admin` CLI. Only `admin-identity` and `admin-privilege` are linked into a service; break-glass, config, sim, audit, orchestrator and ai-assist are libraries exercised by tests alone.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** The http-gateway serves `/api/v1/admin/` enrolment under passkey and dual control, driven by `mg-admin`. Step 1 is to decide between extending that API and a separate admin service (RF-CA-11 assumes the latter for alerts). The console is still on `AdminMock`.
+>
+> **Still to do:**
+> - Expose the full AdminGateway surface from a running service (extend the gateway's admin API or stand up an admin service) through the guarded orchestrator
+> - Replace `AdminMock` with an HTTP-backed client and make all eight screens read and write real state (AC a)
+> - Make dual-controlled actions submittable and approvable from the console, not only from `mg-admin` (AC c)
+> - Add the no-privileged-bypass test comparing the admin service's capabilities with the subsystem APIs (AC b)
+> - Delete the admin fixtures and verify the build bundles none, and that every console action lands in the ledger (AC d, e)
+>
+> Checked: `products/admin/ui/src/main.tsx:17` · `sdk/ts/src/products/admin.ts:397` · `services/http-gateway/src/lib.rs:355` · `services/http-gateway/src/admin_api.rs:274` · `tools/mg-admin/tests/enrol.rs:96`
+
 **Evidence.** [`products/admin/ui/src/main.tsx:17`](../../../products/admin/ui/src/main.tsx) — `const gateway: AdminGateway = new AdminMock();`. [`sdk/ts/src/products/admin.ts`](../../../sdk/ts/src/products/admin.ts) is 623 lines of interface plus fixtures. The admin crates have no binary.
 
 **Prompt**
@@ -3622,6 +4653,20 @@ Make the Admin console operate the real enclosure.
 ### RF-AD-2 · Break-glass: end-to-end operational flow
 
 **Severity:** High · **Area:** Admin · **Depends on:** RF-AD-1, RF-IAM-1, RF-OBS-4
+
+> **Status at 2026-10-12 — Partial.** `admin/breakglass` now has a `DurableAlerter` that retains and retries undelivered alerts, a controller that issues a scoped, time-boxed capability, revokes it on expiry and audits grant, expiry and review, and a sealed store that preserves the original expiry across restart. The only alert bus is the in-memory `SecurityOfficerBus` stand-in, there is no escalation or multiple channels, no early closure, actions taken inside a window are not marked, the crate is linked into no service, and the console screen is fixtures.
+> Criteria met 1 of 6 (c); open: a, b, d, e, f. Confidence: high.
+>
+> **Scope change:** A `DurableAlerter` with retry, a scoped-capability controller with audited expiry, and restart-safe expiry exist; step 4 is done. Step 1 reduces to implementing a real `AlertBus` — the only one is a test stand-in. See RF-CA-11.
+>
+> **Still to do:**
+> - Implement a real `AlertBus` to the alerting path with every configured channel and escalation on delivery failure, and persist the pending queue (AC a)
+> - Run the controller inside a service and have subsystem authorisation consult it, auditing out-of-scope attempts as denials (AC b)
+> - Mark every action taken under a window with the window id in the ledger (AC e)
+> - Build the console flow on real state: request, second approver, scope, countdown, early closure and a review that cannot be dismissed (AC d)
+> - Schedule the break-glass drill including alert delivery and record its first run (AC f)
+>
+> Checked: `admin/breakglass/src/alert.rs:146` · `admin/breakglass/src/controller.rs:42` · `admin/breakglass/tests/rc_32.rs:79` · `admin/breakglass/tests/durable_restart.rs:57` · `admin/breakglass/src/service.rs:109`
 
 **Evidence.** `admin/breakglass` (352 lines) implements windows and an in-memory alerter (`alert.rs:33` — "A deterministic in-memory alerter (tests / dev)"). `BreakGlassScreen` is 186 lines of fixtures.
 
@@ -3664,6 +4709,20 @@ Make break-glass a complete, exercised operational capability.
 
 **Severity:** Medium · **Area:** Admin · **Depends on:** RF-AD-1, RF-B-6
 
+> **Status at 2026-10-12 — Partial.** `admin/config` is a signed, hash-chained, append-only config store of its own (not a Git repository) with diff and rollback, plus a `Reconciler` that detects per-subsystem drift with the differing keys and converges it through a `Subsystem` trait that has only in-memory test implementations. `admin/orchestrator` refuses a commit that was not simulated, but no test exercises that refusal. There is no Git integration, no drift classes or policy, no air-gapped mirror, and none of it is linked into a service.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** The tree has its own signed, hash-chained configuration store and a drift `Reconciler`, not a Git repository with commit signatures. Decide between Git and the existing store before working criterion a.
+>
+> **Still to do:**
+> - Decide whether desired state comes from a signed Git repository or the existing signed store, then make reconciliation refuse and alert on an unsigned or invalid commit (AC a)
+> - Implement real `Subsystem` adapters and classify drift so safe classes auto-reconcile and security-relevant ones are propose-only (AC b)
+> - Add a test that a commit without a simulation is refused, and show the simulated effect to the approver (AC c)
+> - Route rollback through the guarded orchestrator flow with a recorded reason (AC d)
+> - Carry configuration by bundle to a local mirror so a disconnected site reconciles offline (AC e; depends on RF-B-6)
+>
+> Checked: `admin/config/src/reconcile.rs:206` · `admin/config/src/store.rs:106` · `admin/orchestrator/src/lib.rs:134` · `admin/config/tests/ac_ad_7.rs:104` · `admin/config/src/reconcile.rs:347`
+
 **Evidence.** `admin/config` (372 lines) implements a config store with signing. `ConfigScreen` (166 lines) is fixtures. There is no repository integration.
 
 **Prompt**
@@ -3703,6 +4762,20 @@ Complete the GitOps loop.
 ### RF-AD-4 · Approvals, delegation and the operator's work queue
 
 **Severity:** High · **Area:** Admin · **Depends on:** RF-AD-1, RF-IAM-5
+
+> **Status at 2026-10-12 — Open.** The backend still enforces dual control and refuses self-approval, now also reachable for principal enrolment through the gateway and `mg-admin`, but a refused self-approval is deliberately not written to the audit chain. There is no unified work queue, no approval context with simulated effect, no delegation, and no request expiry, escalation or notification; `ApprovalsScreen` renders fixtures.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: medium.
+>
+> **Scope change:** Criterion c ("refused and audited") contradicts tested behaviour: `admin/privilege/tests/ac_ad_3_4_13.rs:222` asserts that a refused self-approval seals no audit entry. One of the two must change.
+>
+> **Still to do:**
+> - Audit refused self-approval attempts; today the test asserts no entry is sealed (AC c)
+> - Build one prioritised queue of approvals, break-glass reviews, drift items and expiring grants on real state (AC a; depends on RF-AD-1)
+> - Bind approval to a displayed simulation result so approving without it is impossible (AC b)
+> - Add time-boxed, scoped, revocable delegation with both delegate and delegator recorded (AC d)
+> - Add request deadlines with escalation and an explicit expired state that notifies the requester (AC e)
+>
+> Checked: `admin/privilege/tests/ac_ad_3_4_13.rs:222` · `tools/mg-admin/tests/enrol.rs:189` · `services/http-gateway/src/admin_api.rs:338` · `products/admin/ui/src/main.tsx:17`
 
 **Evidence.** `admin/privilege` implements risk tiers, dual control and time-boxed tokens. `ApprovalsScreen` (155 lines) renders fixtures.
 
@@ -3745,6 +4818,18 @@ Build the approval experience the dual-control machinery deserves.
 
 **Severity:** High · **Area:** Admin · **Depends on:** RF-AD-1, RF-PER-6
 
+> **Status at 2026-10-12 — Open.** No authoring surface exists: `admin/sim` still simulates a proposed policy against the real PDP and flags `HIGH_BLAST_GRANTS`, and `sim_explainer` produces a summary, but there is no rule conflict detection, no marking-lattice, purpose or retention administration, and the console screens are fixtures. The orchestrator does not depend on `admin/ai-assist`, so the explainer cannot influence authorisation, but no test asserts that.
+> Criteria met 0 of 5; open: a, b, c, e; not verifiable by reading: d. Confidence: medium.
+>
+> **Still to do:**
+> - Implement policy rule validation with detection of unreachable and contradictory rules before commit (AC a)
+> - Surface the high-blast flag in the console with a required explicit acknowledgement (AC b; depends on RF-AD-1)
+> - Add marking-lattice administration with well-formedness validation and simulation (AC c)
+> - Add purpose, retention and legal-hold administration under simulation and dual control (AC e)
+> - Add a test that the A.AD2 explainer has no input to the authorisation decision and label its output as explanation (AC d)
+>
+> Checked: `admin/sim/src/simulate.rs:11` · `admin/sim/src/report.rs:29` · `admin/ai-assist/src/sim_explainer.rs:95` · `admin/orchestrator/src/lib.rs:31`
+
 **Evidence.** `crypto/policy` implements the PDP; `admin/sim` simulates changes against it. `PoliciesScreen` (230 lines, Midgard console) and `RegistryScreen` (208 lines, Admin) render fixtures. There is no authoring experience.
 
 **Prompt**
@@ -3786,6 +4871,18 @@ Give governance a first-class authoring and administration surface.
 
 **Severity:** High · **Area:** Admin · **Depends on:** RF-OBS-1, RF-OBS-5, RF-RT-7
 
+> **Status at 2026-10-12 — Open.** `OverviewScreen` still renders `AdminMock` fixtures and no backend composes health, SLO, posture, audit-chain, capacity, expiry or break-glass signals into one ranked view. Individual sources exist in places (for example fleet status and break-glass pending reviews) but nothing aggregates them or serves them to the console.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: medium.
+>
+> **Still to do:**
+> - Build a backend endpoint that composes the live signals named in the prompt (depends on RF-AD-1 and the observability items)
+> - Rank items by urgency with a recommended action first (AC b)
+> - Add drill-through to the resolving screen with a runbook link per item (AC c)
+> - Compute and show time horizons for certificate and key expiry and storage exhaustion (AC d)
+> - Show the age of every bundle-derived element for air-gapped sites (AC e; depends on RF-B-4 receipts)
+>
+> Checked: `products/admin/ui/src/main.tsx:17` · `sdk/ts/src/products/admin.ts:263` · `bifrost/fleet-server/src/lib.rs:167` · `admin/breakglass/src/service.rs:109`
+
 **Evidence.** `OverviewScreen` (134 lines) renders fixtures.
 
 **Prompt**
@@ -3825,6 +4922,18 @@ Make the Overview screen the enclosure's true operational picture.
 ### RF-AD-7 · Admin copilot and audit investigation, on real data
 
 **Severity:** Medium · **Area:** Admin · **Depends on:** RF-AD-1, RF-MI-4, RF-PER-2
+
+> **Status at 2026-10-12 — Partial.** `admin/ai-assist` has the three touchpoints as prompt-assemble-and-parse functions with a live Mimir bridge, response types that can express only proposals, refusals and cited findings, and the EV-AD evals; a test shows a copilot proposal must still pass dual control. Nothing connects them to a running service, the real enclosure state or the real ledger: context is caller-supplied strings, evals run only in tests against mock responses, prompts and responses are not audited, there is no clearance filtering and no evidence export, and the console screens are fixtures.
+> Criteria met 1 of 6 (b); open: a, c, d, e, f. Confidence: high.
+>
+> **Still to do:**
+> - Serve the copilot and investigator from a running service grounded in real state and the real ledger (depends on RF-AD-1)
+> - Run the EV-AD1 checks on every production response and audit each prompt, response, draft and refused bypass (AC a)
+> - Give the investigator a read-only ledger handle, verify cited sequence numbers against the ledger, and add a test that a write attempt fails (AC c, d)
+> - Filter ledger and state context by the operator's clearance and purpose before it reaches the model (AC e)
+> - Add export of a signed investigation bundle that verifies on an unrelated machine (AC f)
+>
+> Checked: `admin/ai-assist/src/copilot.rs:267` · `admin/ai-assist/src/audit_assistant.rs:168` · `admin/ai-assist/tests/ac_ad_11.rs:98` · `admin/ai-assist/src/evals.rs:68` · `admin/ai-assist/src/evals.rs:150`
 
 **Evidence.** `admin/ai-assist` (1 133 lines) implements A.AD1 (copilot), A.AD2 (simulation explainer) and A.AD3 (audit investigator) with their Evals; `copilot.rs:18` notes "A deterministic copilot returning a fixed JSON response (the Mimir stand-in)". `CopilotScreen` (143 lines) and `LedgerScreen` (148 lines) render fixtures.
 
@@ -3873,6 +4982,20 @@ Wire the three admin AI touchpoints to the real model plane and real data.
 
 **Severity:** Critical · **Area:** UI · **Depends on:** RF-IAM-1, RF-IAM-2, RF-IAM-3 · **Blocks:** every other UI item
 
+> **Status at 2026-10-12 — Partial.** The Evidence is stale: the Midgard core console now sits behind `ui/shared/src/AuthGate.tsx`, which posts username and password to `/api/v1/login` and keeps the ML-DSA-signed bearer in sessionStorage. That is all there is: no TOTP field (so a user enrolled with `--totp` cannot sign in from the console), no WebAuthn, no purpose selection, no identity or clearance in the shell chrome, no idle warning, no step-up, no sign-out, and the other six consoles have no gate at all. The server side returns one uniform 401 for unknown user, wrong password and wrong second factor, and that is tested.
+> Criteria met 0 of 7; open: a, b, c, e, f, g; not verifiable by reading: d. Confidence: high.
+>
+> **Scope change:** The Midgard console has `AuthGate` with password login for an ML-DSA-signed bearer token. Rewrite around password plus TOTP instead of WebAuthn-first (see RF-IAM-1); the login form has no TOTP field.
+>
+> **Still to do:**
+> - Add a TOTP field to AuthGate and pass it through the SDK `login`, since the edge already accepts `totp` and enrolled users cannot otherwise use the console
+> - Add sign-out that clears the stored token and client state, and handle 401 and token expiry (the edge issues a 1 hour token with no refresh or revoke route)
+> - Show the server's view of subject, roles, clearance and purpose in ConsoleShell instead of the hard-coded DEFAULT_POLICY in HttpGateway
+> - Decide the primary factor: the plan says WebAuthn, the tree ships password plus TOTP for users and file-held ML-DSA passkeys for administrators, and rewrite the item accordingly
+> - Gate the other six consoles and add a TypeScript test runner so any of these criteria can be tested
+>
+> Checked: `ui/shared/src/AuthGate.tsx:54` · `products/midgard/ui/src/main.tsx:29` · `sdk/ts/src/http/HttpGateway.ts:44` · `services/http-gateway/src/lib.rs:264` · `services/http-gateway/tests/login_directory.rs:150`
+
 **Evidence.** No console has a login route, a session, a logout, or a token. `products/*/ui/src/app/routes.tsx` route straight into the console. `ConsoleShell.tsx` (262 lines) renders navigation with no identity concept.
 
 **Prompt**
@@ -3920,6 +5043,18 @@ Add the authentication layer every console currently lacks.
 ### RF-UI-2 · Error, loading, empty and degraded states across every screen
 
 **Severity:** High · **Area:** UI · **Depends on:** RF-UI-1
+
+> **Status at 2026-10-12 — Open.** Unchanged from the Evidence. `useAsync` exposes loading and error, but there is no error boundary anywhere under `ui/` or `products/`, screens read `loading` at most and never `error`, and `docs/dev/design/ui-states.md` does not exist. The edge returns no correlation id or retryability flag for the UI to show.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Still to do:**
+> - Add app, route and panel error boundaries in ui/shared and wire them into every console's router
+> - Make HttpGateway throw typed errors (401, 403 policy denial, 404, 5xx) instead of a generic Error, and stop mapping every 403 to HumanGateRequiredError
+> - Write docs/dev/design/ui-states.md and implement loading, empty, error, partial and degraded states per screen
+> - Add a correlation id to edge responses so the error state has something to quote
+> - Add a component test runner; none exists
+>
+> Checked: `ui/shared/src/DataProvider.tsx:35` · `products/midgard/ui/src/screens/ObjectFabricScreen.tsx:26` · `sdk/ts/src/http/HttpGateway.ts:74` · `services/http-gateway/src/http.rs:164`
 
 **Evidence.** `useAsync` in `ui/shared/src/DataProvider.tsx` exposes `{data, loading, error, reload}`, but no `ErrorBoundary` exists anywhere in the tree, and screens render assuming data arrives.
 
@@ -3970,6 +5105,18 @@ Give every screen a complete state model.
 ### RF-UI-3 · Accessibility to WCAG 2.2 AA across all six consoles
 
 **Severity:** High · **Area:** UI · **Depends on:** RF-UI-2 · **Blocks:** RF-CMP-6
+
+> **Status at 2026-10-12 — Open.** Marginally better than the Evidence (12 files now carry an aria or role attribute, 17 occurrences in total) but structurally the same: clickable divs remain in the pipeline builder, session traces and logic builder, and there are no landmarks beyond the shell's nav, main and aside, no skip link and no live regions. No console package depends on axe-core or any test runner. `clients/shells/web/a11y/axe-audit.mjs` targets the client shells, not the consoles, and the workflow it names does not exist because the tree has no `.github` directory.
+> Criteria met 0 of 7; open: a, b, f, g; not verifiable by reading: c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Replace every clickable div with a button or give it role, name and keyboard handling
+> - Add an axe-core run over every console screen in both modes and a place to run it (there is no CI configuration in the tree)
+> - Add skip-to-content, focus management on route change and drawer close, and live regions for refresh, gate and sync changes
+> - Give the pipeline builder and picture layers a non-drag, keyboard path
+> - Run the NVDA, JAWS and VoiceOver audits and publish the conformance report
+>
+> Checked: `products/forge/ui/src/screens/PipelineBuilderScreen.tsx:33` · `products/mimir/ui/src/screens/SessionTracesScreen.tsx:93` · `ui/shared/src/ConsoleShell.tsx:113` · `clients/shells/web/a11y/axe-audit.mjs:7` · `products/midgard/ui/package.json:7`
 
 **Evidence.** Across ~7 200 lines of console TSX and the shared packages, only 7 files contain any `aria-` attribute or `role=` — `OperatingPictureScreen`, `IconButton`, `Tag`, `Switch`, `ConsoleShell`, `ModeToggle`, `responsive`. Interactive elements are frequently `<div onClick>` (e.g. the pipeline builder's `Node`), which is neither focusable nor announced. The `accessibility.toml` files declare conformance for the *shells*; nothing declares or verifies it for the consoles.
 
@@ -4027,6 +5174,18 @@ Make the consoles accessible, and keep them that way automatically.
 
 **Severity:** Medium · **Area:** UI · **Depends on:** RF-UI-2
 
+> **Status at 2026-10-12 — Open.** Unchanged from the Evidence. No package.json in the workspace depends on an i18n library, no source file uses the Intl APIs, and screen strings are hard-coded English literals including the upper-case mono labels.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Still to do:**
+> - Choose a message-catalogue library and extract all strings with stable keys
+> - Move upper-casing of mono labels into CSS
+> - Add locale-aware date, number and list formatting
+> - Record the do-not-translate policy for markings and enforce it
+> - Ship one non-English locale plus a pseudo-locale and a hard-coded-string check
+>
+> Checked: `products/midgard/ui/package.json:13` · `products/midgard/ui/src/screens/ObjectFabricScreen.tsx:146` · `products/midgard/ui/src/screens/AuditScreen.tsx:162` · `ui/shared/src/AuthGate.tsx:98`
+
 **Evidence.** Zero i18n infrastructure. Every string in all 45 screens is hard-coded English, including the ALL-CAPS mono labels the design system mandates.
 
 **Prompt**
@@ -4070,6 +5229,17 @@ Externalise every string and support locale properly.
 
 **Severity:** Medium · **Area:** UI · **Depends on:** RF-UI-1
 
+> **Status at 2026-10-12 — Open.** Unchanged from the Evidence. Each console is still its own Vite app with a hash router of fixed paths; `nav.ts` holds only in-console hrefs, the toolbar search box is an uncontrolled input wired to nothing, and no screen state is in the URL. There is no product switcher, breadcrumb, global search or command palette.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Add a product switcher to ConsoleShell (needs a shared session first, see RF-UI-1)
+> - Put selection, filter and tab state in the URL for each screen
+> - Add a search route at the edge scoped by the caller's clearance, then wire the toolbar search and a command palette to it
+> - Define table selection, filter, sort and pagination once in the design-system Table
+>
+> Checked: `products/midgard/ui/src/app/routes.tsx:15` · `products/midgard/ui/src/app/ConsoleToolbar.tsx:10` · `ui/shared/src/nav.ts:41` · `ui/shared/src/ConsoleShell.tsx:92`
+
 **Evidence.** `ui/shared/src/nav.ts` defines the navigation model and each product has its own `routes.tsx`. Six consoles are separate Vite applications; there is no cross-console navigation, no unified search, no breadcrumbs, and no deep-linking convention.
 
 **Prompt**
@@ -4109,6 +5279,18 @@ Make six consoles feel like one platform.
 ### RF-UI-6 · Forms, validation and data entry
 
 **Severity:** Medium · **Area:** UI · **Depends on:** RF-UI-2, RF-UI-3
+
+> **Status at 2026-10-12 — Open.** Unchanged from the Evidence. The design system's form components are still only Input, Select and Switch; there is no form or validation layer, no dirty tracking and no unsaved-change guard. The console-side human gate is a button that mints its own token string, and the edge accepts any non-empty value.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Add a form layer to the design system with field and form errors, focus-to-first-error and announcements
+> - Derive client validation from the edge's contract (the ontology and policy file schemas are the only real ones today)
+> - Add dirty tracking, navigation guards and draft recovery
+> - Add typed confirmation for destructive actions and carry the acknowledgement in the audited request
+> - Replace the self-minted human-gate token with a real approval before treating gated mutations as pending-until-confirmed
+>
+> Checked: `ui/design-system/src/components/forms/Input.tsx:1` · `products/midgard/ui/src/screens/ObjectFabricScreen.tsx:60` · `services/http-gateway/src/enclosure.rs:375` · `products/midgard/ui/src/screens/PoliciesScreen.tsx:194`
 
 **Evidence.** The design system has `Input`, `Select` and `Switch`. There is no form framework, no validation model, no dirty-state tracking and no unsaved-change protection — and several screens (Config, Policies, Pipeline Builder, Registry) are fundamentally editing surfaces.
 
@@ -4156,6 +5338,17 @@ Build the form layer these editing surfaces need.
 
 **Severity:** Medium · **Area:** UI · **Depends on:** RF-UID-1
 
+> **Status at 2026-10-12 — Open.** Unchanged from the Evidence. Routes import every screen eagerly, there is no virtualisation library or budget, and no real-user timing. The only bound is server-side: the audit route clamps its limit to 500 rows and queries take a maxResults, with no cursor or truncation marker.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Lazy-load routes and set a bundle-size budget checked at build
+> - Add cursor pagination and a truncation marker to the edge's list routes, then virtualise the audit and object tables with keyboard and screen-reader support
+> - Give the audit stream an explicit paused or buffered state instead of silently keeping the newest 40 to 60
+> - Report browser timings to the in-enclosure metrics
+>
+> Checked: `products/midgard/ui/src/app/routes.tsx:2` · `products/midgard/ui/package.json:13` · `services/http-gateway/src/enclosure.rs:585` · `ui/shared/src/DataProvider.tsx:84`
+
 **Evidence.** No code splitting, no virtualisation, no memoisation strategy and no performance budget. Screens render full result sets from fixtures; against real data (10⁶ objects, 10⁵ tracks, long audit ledgers) they will not hold.
 
 **Prompt**
@@ -4200,6 +5393,20 @@ Make the consoles fast with real data volumes.
 
 **Severity:** Medium · **Area:** UI · **Depends on:** RF-API-3
 
+> **Status at 2026-10-12 — Open.** Inline styles are everywhere (about 1,300 `style={{` occurrences across 90 files) and every console's index.html carries an inline script, so a strict CSP cannot hold; the edge sends no CSP header in any case. The two token copies are in fact identical today for base, colors, effects, spacing and typography and differ only in fonts.css, but nothing checks that, and there is no lint configuration of any kind.
+> Criteria met 0 of 4; open: a, b, c; not verifiable by reading: d. Confidence: high.
+>
+> **Scope change:** Five of the six token files are byte-identical between the two copies; only `fonts.css` differs. Step 3 becomes a drift check. The CSP steps need a decision on what serves the built consoles: the edge serves JSON only, and each `index.html` has an inline script.
+>
+> **Still to do:**
+> - Decide how the built consoles are served and with what CSP; today only the Vite dev server serves them and the edge serves JSON only
+> - Move presentation out of inline style objects and the inline index.html script into stylesheets
+> - Generate one token copy from the other and add a drift check (currently only fonts.css differs)
+> - Add a lint rule against raw colour, spacing, radius and font literals
+> - Add high-contrast and forced-colors modes and verify contrast
+>
+> Checked: `products/forge/ui/src/screens/PipelineBuilderScreen.tsx:29` · `products/midgard/ui/index.html:7` · `services/http-gateway/src/http.rs:164` · `ui/design-system/src/tokens/colors.css:1` · `tools/ci/provenance-lint.sh:1`
+
 **Evidence.** Screens are written with large inline `style={{…}}` objects (e.g. `PipelineBuilderScreen`'s `Node` component). This blocks a strict CSP (`style-src` without `unsafe-inline`), makes the design system's tokens bypassable, and makes theming and high-contrast modes hard to guarantee.
 
 **Prompt**
@@ -4241,6 +5448,18 @@ Fix the styling architecture before the CSP forces it.
 
 **Severity:** Medium · **Area:** UI · **Depends on:** RF-API-3, RF-UI-2
 
+> **Status at 2026-10-12 — Open.** Nothing exists. No code reads connectivity state, the HTTP audit stream is a 4.2 second poll that swallows errors silently, and no screen shows data age. A gateway restart in development mode invalidates the token and the console has no handling for the resulting 401s.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Add connectivity state to ConsoleShell and surface poll failures instead of swallowing them
+> - Make the audit poll resume from the last sequence seen, with backoff and a visible reconnecting state
+> - Record fetch time in useAsync and mark stale data
+> - Distinguish a network failure from a 401 so a blip does not look like sign-out and an expired token does
+> - Decide whether any offline read cache is wanted at all; none exists to clear today
+>
+> Checked: `sdk/ts/src/http/HttpGateway.ts:116` · `sdk/ts/src/http/HttpGateway.ts:129` · `ui/shared/src/DataProvider.tsx:42` · `ui/shared/src/AuthGate.tsx:31`
+
 **Prompt**
 
 ```
@@ -4276,6 +5495,20 @@ Make the consoles behave correctly on imperfect networks.
 ### RF-UI-10 · Frontend security hardening
 
 **Severity:** High · **Area:** UI · **Depends on:** RF-UI-1, RF-API-3
+
+> **Status at 2026-10-12 — Partial.** Some of the posture is there by default: the only raw-HTML injection is the design-system Icon, fed from a static path table, console index.html files load no third-party assets, and the edge has an origin-locked CORS allowlist with a test. Nothing is enforced or tested beyond that: no lint or scan, no frame-ancestors or CSP header, the bearer token is kept in sessionStorage (which point 7 forbids), and the supply-chain tools (mg-sbom, mg-scan) cover Cargo only, not the pnpm graph.
+> Criteria met 0 of 6; open: a, b, c, d, f; not verifiable by reading: e. Confidence: medium.
+>
+> **Scope change:** Step 7 (no token in browser storage) contradicts the shipped design, which keeps the bearer token in `sessionStorage`. Change the design or the step. Step 5's "same gate as Rust" needs new tooling: nothing in `tools/` handles npm or pnpm packages.
+>
+> **Still to do:**
+> - Move the session token out of browser storage (cookie bound to the edge, or memory only) or rewrite point 7 to match the bearer design
+> - Add a rendering test that a script payload in an object property or audit field displays as text
+> - Send frame-ancestors none and a CSP from whatever serves the built consoles
+> - Bring pnpm-lock.yaml into the SBOM, advisory and licence gate and forbid post-install scripts
+> - Add a built-bundle scan for secrets, third-party URLs and published source maps
+>
+> Checked: `ui/design-system/src/components/media/Icon.tsx:112` · `ui/shared/src/AuthGate.tsx:61` · `services/http-gateway/src/http.rs:178` · `services/http-gateway/tests/secured_edge.rs:135` · `products/midgard/ui/index.html:23`
 
 **Prompt**
 
@@ -4329,6 +5562,20 @@ Harden the browser tier.
 
 **Severity:** High · **Area:** UI data · **Depends on:** RF-API-3, RF-IAM-3 · **Blocks:** RF-UID-2..7, RF-UX-*
 
+> **Status at 2026-10-12 — Partial.** One console is wired: the Midgard core console defaults to the real HTTP edge behind a login, with the mock only under `VITE_GATEWAY=mock`. The other six `main.tsx` files still construct their mock directly, the edge serves no routes for them, and the mocks and fixtures are still exported from the SDK barrel that the Midgard bundle imports. The stale 'a stub' comment in `sdk/ts/src/index.ts` is still there.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** The blocker is upstream of the client: the edge has no routes for Forge, Mimir, Bifrost, Heimdall or admin. Split into edge routes per product, then a client per product.
+>
+> **Still to do:**
+> - Add browser-reachable edge routes for Forge, Mimir, Bifrost, Heimdall and admin (their services exist only behind PQ-mTLS, or as libraries) and an HTTP client per product gateway interface
+> - Move the mocks and fixtures to a package the production entry points cannot import; Midgard's main.tsx imports MockGateway unconditionally
+> - Write the per-screen field reconciliation before wiring; hard-coded figures such as the 312 object types sit in screens as well as fixtures
+> - Fix the index.ts comment and the six main.tsx comments
+> - Add a bundle check for fixture data and somewhere to run it
+>
+> Checked: `products/midgard/ui/src/main.tsx:24` · `products/forge/ui/src/main.tsx:19` · `products/admin/ui/src/main.tsx:17` · `sdk/ts/src/index.ts:5` · `services/http-gateway/src/lib.rs:598`
+
 **Evidence.** `products/{admin,bifrost,clients,forge,heimdall,mimir}/ui/src/main.tsx` each construct a `*Mock`. `sdk/ts/src/index.ts:5` describes `HttpGateway` as "a stub" (it is in fact a real client, but only for the core surface — the comment is stale, see RF-DOC-1).
 
 **Prompt**
@@ -4371,6 +5618,19 @@ Point every console at real data and remove the mocks from shipped builds.
 
 **Severity:** High · **Area:** UI data · **Depends on:** RF-UID-1, RF-F-1..7
 
+> **Status at 2026-10-12 — Open.** The Forge console still runs only on `ForgeMock`. A real Forge worker now exists as a service (file, PostgreSQL, S3 and Kafka sources into a versioned dataset store, projected and synced into the fabric over the mesh), but it is driven by a jobs file, applies no transforms, and nothing exposes datasets, runs, schedules or health to a browser.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Start from `forge-worker`, which exists but is mesh-only with no browser route.
+>
+> **Still to do:**
+> - Expose the worker's datasets, versions, job runs and connector state through the edge
+> - Add transform execution, preview, cancel and quality results to the running worker; jobs currently project rows as read
+> - Add projection simulation before sync
+> - Replace ForgeMock with a client for those routes
+>
+> Checked: `products/forge/ui/src/main.tsx:19` · `forge/worker/tests/sync.rs:173` · `deploy/compose/smoke.sh:50` · `README.md:563`
+
 **Prompt**
 
 ```
@@ -4409,6 +5669,20 @@ Every mutating action passes the real gates and shows its audit sequence.
 ### RF-UID-3 · Midgard core console on real platform state
 
 **Severity:** High · **Area:** UI data · **Depends on:** RF-UID-1, RF-OBS-1, RF-OBS-5
+
+> **Status at 2026-10-12 — Partial.** The Evidence is half stale. Object types, query, search-around, actions, policies, policy dry-run and audit are now served from the real fabric and governance crates with tests, so four or five of the screens read live data when pointed at the edge. Identities, keys, compute, observability, resilience and the SDK surface are still fixed data in `data.rs`, screens still carry hard-coded headline figures, and the human gate is not real: the console mints its own token and the edge accepts any non-empty string.
+> Criteria met 0 of 5; open: a, b, c, d; not verifiable by reading: e. Confidence: high.
+>
+> **Scope change:** Fabric queries, search-around, actions, policies, dry-run and audit are real and tested. Narrow this to the fixed views in `services/http-gateway/src/data.rs` (identities, keys, compute, observability, resilience, SDK surface) and the hard-coded figures in screens — `data.rs:226` returns literal SLO values. Also fix the human gate: the edge accepts any non-empty `humanGateToken` (`enclosure.rs:375`).
+>
+> **Still to do:**
+> - Serve identities from the durable directory, keys from the KMS and observability from the gateway's own metrics and SLO instead of data.rs
+> - Make the human gate a real second-party approval the edge verifies, not a client-supplied non-empty token
+> - Remove hard-coded figures from screens (object-type counts, chain breaks, signature and hash lines in the audit inspector)
+> - Add a whole-chain verification status to the audit route and show failures prominently; today each row gets a tick or a cross and the badge is always the secure tone
+> - Decide what Compute, Resilience and SDK show while the scheduler and Bifrost rollout are libraries, or hide them
+>
+> Checked: `services/http-gateway/src/data.rs:1` · `services/http-gateway/tests/fabric_edge.rs:123` · `services/http-gateway/src/enclosure.rs:375` · `products/midgard/ui/src/screens/ObjectFabricScreen.tsx:150` · `products/midgard/ui/src/screens/AuditScreen.tsx:117`
 
 **Evidence.** This console has 11 screens and is the only one with a real transport option, but `services/http-gateway/src/data.rs` serves seeded state and `ObservabilityScreen`/`ResilienceScreen` render `SloMetric` and `RolloutState` fixtures.
 
@@ -4451,6 +5725,19 @@ Make all 11 Midgard screens live.
 
 **Severity:** High · **Area:** UI data · **Depends on:** RF-UID-1, RF-MI-1..7
 
+> **Status at 2026-10-12 — Open.** The Mimir console still runs only on `MimirMock`. `mimir-server` is a real PQ-mTLS inference service that can serve Granite on llama.cpp, with audited calls, but only `mimir-probe` calls it: the gateway does not route AI requests, so no browser can reach it. Agents, guardrails, evals and traces exist as libraries only.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Start from `mimir-server`, which exists but is mesh-only with no browser route.
+>
+> **Still to do:**
+> - Route inference from the edge to mimir-server under the caller's identity
+> - Put the agent runtime, retriever and guardrail chain on that running path; today only raw completion is served
+> - Expose model, eval and trace state through the edge, with reference-engine figures labelled
+> - Replace MimirMock with a client for those routes
+>
+> Checked: `products/mimir/ui/src/main.tsx:18` · `mimir/mimir-server/tests/serve.rs:177` · `README.md:570` · `deploy/compose/smoke.sh:19`
+
 **Prompt**
 
 ```
@@ -4492,6 +5779,19 @@ Make the seven Mimir screens operate the real AI plane.
 
 **Severity:** High · **Area:** UI data · **Depends on:** RF-UID-1, RF-B-1..6
 
+> **Status at 2026-10-12 — Open.** The Bifrost console still runs only on `BifrostMock`. A fleet manager service exists and is real (agents check in over PQ-mTLS, operators read versions, liveness, drift and convergence as JSON), but it only records: nothing drives the rollout orchestrator, and it has no browser route. Registry, risk, rollout and bundles are libraries and CLI tools.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Start from `bifrost-fleet`, which exists but is mesh-only with no browser route.
+>
+> **Still to do:**
+> - Expose the fleet status the manager already serves through the edge and wire the Fleet screen to it
+> - Drive the rollout orchestrator from the fleet manager so promotion and rollback exist as running operations
+> - Serve the artefact registry, risk assessment and bundle receipts from a service
+> - Put promotion and rollback under the dual control the admin enrolment path already implements
+>
+> Checked: `products/bifrost/ui/src/main.tsx:18` · `deploy/compose/smoke.sh:31` · `bifrost/rollout/tests/rollout.rs:50` · `README.md:568`
+
 **Prompt**
 
 ```
@@ -4526,6 +5826,19 @@ Every promotion, rollback and kill-switch action passes real dual control.
 ### RF-UID-6 · Heimdall console on real feeds and the real picture
 
 **Severity:** High · **Area:** UI data · **Depends on:** RF-UID-1, RF-H-1..6
+
+> **Status at 2026-10-12 — Open.** The Heimdall console still runs only on `HeimdallMock`. A feed gateway service is real (signed observations are policy-checked, fused into tracked entities, sealed and readable as JSON by a certified analyst), but the picture stays inside Heimdall, entities are unclassified, there is no per-reader clearance filtering of the picture, and no browser route.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Start from `heimdall-feed`, which exists but is mesh-only with no browser route.
+>
+> **Still to do:**
+> - Expose the fused picture and feed health through the edge, filtered by the caller's clearance
+> - Attach the classifier and staleness detection on the running path
+> - Put workflow, decision lineage and picture sync behind a service; they are libraries today
+> - Replace HeimdallMock with a client and a real in-enclosure map
+>
+> Checked: `products/heimdall/ui/src/main.tsx:17` · `deploy/compose/smoke.sh:42` · `README.md:566` · `heimdall/decision-support/tests/ac_h_3.rs:7`
 
 **Prompt**
 
@@ -4562,6 +5875,17 @@ Make the six Heimdall screens operate the real fusion system.
 ### RF-UID-7 · Clients console on the real client core
 
 **Severity:** Medium · **Area:** UI data · **Depends on:** RF-UID-1, RF-CL-1
+
+> **Status at 2026-10-12 — Open.** Unchanged. The clients app is still one `ClientApp` in device frames on `ClientMock`; its README describes it as 'the client platforms app' without saying it is a demonstration, and nothing in the UI labels it as one. No decision between web shell and demo harness is recorded. It is not in the release artefact list, but that list only covers Rust binaries, so its absence is not a control.
+> Criteria met 0 of 3; open: a, b; not verifiable by reading: c. Confidence: high.
+>
+> **Still to do:**
+> - Record the decision: web shell or demonstration harness
+> - If a demonstration, label it in the UI itself and state it in the README
+> - If a product, bind the real client core over wasm; no wasm build or shell code exists
+> - Make exclusion from shipped artefacts explicit once consoles are packaged at all
+>
+> Checked: `products/clients/ui/src/main.tsx:18` · `products/clients/ui/README.md:3` · `products/clients/ui/src/App.tsx:15` · `supply-chain/release-artefacts.txt:1`
 
 **Evidence.** `products/clients/ui` (1 074 lines) renders one `ClientApp` inside five device frames against `ClientMock`. It is a demonstration of the shared-core concept, not a client.
 
@@ -4604,6 +5928,20 @@ Decide what this console is, then make it honest.
 ### RF-UX-1 · First-run: enclosure bootstrap and initial administrator
 
 **Severity:** Critical · **Area:** User flows · **Depends on:** RF-DEP-1, RF-IAM-1, RF-AD-1
+
+> **Status at 2026-10-12 — Partial.** The Evidence ('there is no bootstrap path') is stale: `mg-admin init` creates a state directory with sealed issuer and audit keys, trust anchors, a starter policy and an empty ontology, `mg-admin user add` and `admin add` enrol the first people, and the gateway re-verifies the ledger and refuses to start on tampering. It is a single-person, command-line path, though: no ceremony record, no dual custody, no single-use bootstrap capability, and anyone with the state directory can run `user add` or `admin add` again while the gateway is stopped. It needs no network by construction.
+> Criteria met 0 of 6; open: a, b, c, e; not verifiable by reading: d, f. Confidence: high.
+>
+> **Scope change:** `mg-admin init`, `user add` and `admin add` are the bootstrap path. Read this item as hardening that CLI path (two-person control, a ceremony record in the ledger, closing the offline path), with the designed UI split out.
+>
+> **Still to do:**
+> - Require two people for init and the first administrators, and write a signed ceremony record as the ledger's first entries
+> - Close the offline path after bootstrap: today init, user add and admin add work for whoever holds the directory and its keys
+> - Add a posture check at the end (services healthy, chain verifies, anchors loaded) as one command
+> - Rewrite the item for the CLI and state-directory model, or scope the designed bootstrap UI as a separate later step
+> - Run the flow once under no network and record it
+>
+> Checked: `tools/mg-admin/src/main.rs:203` · `tools/mg-admin/tests/cli.rs:83` · `services/http-gateway/tests/state_dir_boot.rs:188` · `admin/identity/tests/ac_ad_1_2.rs:36` · `README.md:420`
 
 **Evidence.** There is no bootstrap path. An installed enclosure has no identities, no trust root, no policy, and no way to create the first one — and this is precisely the flow where a shortcut becomes a permanent backdoor.
 
@@ -4648,6 +5986,20 @@ back door.
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-UX-1, RF-IAM-1, RF-IAM-5
 
+> **Status at 2026-10-12 — Partial.** Request, dual-control approval and first login exist on a real path, command-line only: one IAM administrator runs `mg-admin enrol request`, a different one runs `enrol approve`, both sign single-use challenges with ML-DSA passkeys, the pending request survives a restart, and the new user can then log in at the edge or the Midgard console. There is no invitation (the requesting administrator chooses the user's password), no simulated-effect view for the approver, no expiry on user grants, no orientation, and no single correlation id.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Rewrite around the CLI dual-control enrolment that exists (`mg-admin enrol request` / `approve`). The WebAuthn invitation step does not fit: the requesting administrator sets the user's password, and a browser cannot produce the administrators' passkey assertions.
+>
+> **Still to do:**
+> - Let the enrolled person set their own credential; today the requesting administrator knows the password
+> - Show the approver what the grant will allow before approval
+> - Add time-boxed user grants with visible expiry and a renewal path
+> - Tie request, approval, first login and first action together in the ledger under one id
+> - Add first-sign-in orientation in the console and write the runbook
+>
+> Checked: `tools/mg-admin/tests/enrol.rs:96` · `services/http-gateway/tests/admin_enrolment.rs:185` · `services/http-gateway/src/admin_api.rs:499` · `tools/mg-admin/tests/cli.rs:232` · `README.md:421`
+
 **Prompt**
 
 ```
@@ -4688,6 +6040,18 @@ something useful", entirely inside the platform.
 ### RF-UX-3 · Analyst journey: question to grounded, cited, audited answer
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-UID-3, RF-UID-4, RF-MI-4
+
+> **Status at 2026-10-12 — Open.** No step of this journey runs. The Mimir console is mock-only, the gateway does not call `mimir-server`, and the inference service answers raw completions to a probe with no fabric grounding, citations, guardrails or sessions on the running path. Grounding, the agent runtime and guardrails exist as tested libraries only.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> **Still to do:**
+> - Route a question from the edge to mimir-server under the caller's clearance and purpose
+> - Run retrieval over the real fabric and return citations that resolve to object ids the edge serves
+> - Put guardrails and typed refusals on that path
+> - Turn proposed mutations into the edge's gated actions, once the human gate is a real approval
+> - Add a signed export of question, answer, citations and audit references
+>
+> Checked: `products/mimir/ui/src/main.tsx:18` · `README.md:570` · `deploy/compose/smoke.sh:19` · `services/http-gateway/src/lib.rs:598`
 
 **Prompt**
 
@@ -4734,6 +6098,18 @@ they can defend.
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-UID-2, RF-F-2, RF-F-6
 
+> **Status at 2026-10-12 — Partial.** A thin real path exists without any UI: declare sources in a jobs file, the Forge worker reads them (CSV in compose; PostgreSQL, S3 and Kafka connectors exist), commits versioned datasets, projects rows onto the ontology with the job's marking and purposes, and syncs objects and links into the fabric, where an enrolled operator sees them in the Midgard console. Missing are connection test and schema discovery, profiling and expectations, transforms, review, schedules beyond a fixed interval, projection simulation, quarantine, and alerts.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Add transforms and quality expectations with quarantine to the worker's run; rows are projected as read
+> - Add projection simulation with counts and samples before sync
+> - Carry markings per column and have the gateway check the worker may write at the marking its jobs file declares
+> - Expose runs, logs and lineage for diagnosis somewhere other than container logs
+> - Wire the Forge console to it (RF-UID-2)
+>
+> Checked: `forge/worker/tests/sync.rs:173` · `deploy/compose/smoke.sh:50` · `README.md:457` · `README.md:565` · `products/forge/ui/src/main.tsx:19`
+
 **Prompt**
 
 ```
@@ -4773,6 +6149,20 @@ Implement the journey from a raw source to objects an analyst can act on.
 ### RF-UX-5 · Release journey: commit to production, with rollback
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-SC-5, RF-UID-5, RF-B-3
+
+> **Status at 2026-10-12 — Partial.** The build half exists as commands: `just gate` reproduces, SBOMs, scans, signs and verifies a binary, and the image entrypoint re-verifies before running. The delivery half does not run: the fleet manager records check-ins and reports drift but pushes nothing, the rollout orchestrator with automatic rollback is a tested library that nothing drives, the Bifrost console is mock-only, no release has been cut, and the workflows the README names are not in this tree (there is no `.github` directory).
+> Criteria met 0 of 5; open: a, b, c, e; not verifiable by reading: d. Confidence: medium.
+>
+> **Scope change:** Assumes a CI and release pipeline; none is in the tree (RF-CA-4).
+>
+> **Still to do:**
+> - Drive the rollout orchestrator from the fleet manager so agents are told to install and roll back
+> - Add promotion under dual control as a running operation
+> - Join registry and fleet data so 'what runs where, signed by whom, containing what' can be answered
+> - Run the air-gap bundle path end to end against a disconnected install and return a receipt
+> - Restore or add CI and release workflows; none are in the repository
+>
+> Checked: `justfile:344` · `deploy/compose/smoke.sh:31` · `bifrost/rollout/tests/rollout.rs:50` · `bifrost/bundle/tests/ac_b_3.rs:65` · `README.md:568`
 
 **Prompt**
 
@@ -4816,6 +6206,18 @@ and back out of it.
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-AD-5, RF-AD-3, RF-AD-4
 
+> **Status at 2026-10-12 — Partial.** On the running path a policy change is: edit `policy.json` by hand and restart the gateway, which refuses an invalid file. The edge's policy dry-run is a real PDP decision for one probe against the current policy. Proposal, simulation of a change, second-approver review, versioned commit and revert exist only as tested admin libraries (`admin-sim`, `admin-config`) with no service, and the admin console is mock-only.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Serve policy change as an administration route under the same dual control as enrolment: propose, simulate, approve, commit
+> - Run the simulation against the gateway's real PDP and verify the committed effect equals it
+> - Version and sign policy.json changes and reload without a restart
+> - Add revert through the same route
+> - Add the plain-language explanation only after the above; nothing calls Mimir yet
+>
+> Checked: `services/http-gateway/tests/fabric_edge.rs:347` · `admin/sim/tests/ac_ad_5.rs:99` · `admin/config/tests/ac_ad_7.rs:45` · `products/admin/ui/src/main.tsx:17` · `README.md:419`
+
 **Prompt**
 
 ```
@@ -4854,6 +6256,18 @@ Implement the highest-blast-radius journey in the platform.
 ### RF-UX-7 · Incident journey: alert to resolution to evidence
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-OBS-4, RF-AD-2, RF-AD-7
+
+> **Status at 2026-10-12 — Open.** No incident journey runs. The gateway exposes health, readiness and Prometheus metrics with an SLO breach visible in a scrape, and `docs/ops` has incident-response and runbook documents, but there is no alerting, no correlation id, no investigator on a running path, and break-glass exists only as a tested library behind a mock admin console.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: medium.
+>
+> **Still to do:**
+> - Add alert rules over the existing metrics with runbook links
+> - Add a correlation id to requests, logs and ledger entries
+> - Serve break-glass as an administration route with alerting and mandatory review
+> - Derive an incident timeline from the ledger and export it as a signed bundle
+> - Run one drill end to end and record it
+>
+> Checked: `services/http-gateway/tests/rc_33.rs:30` · `admin/breakglass/tests/ac_ad_8.rs:20` · `products/admin/ui/src/main.tsx:17` · `services/http-gateway/src/lib.rs:563`
 
 **Prompt**
 
@@ -4896,6 +6310,17 @@ Implement the operational incident journey, including the break-glass branch.
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-UID-6, RF-H-4
 
+> **Status at 2026-10-12 — Partial.** Only the first sliver runs: a certified source submits signed observations, they are fused into tracked entities, and a certified analyst reads the picture as JSON from the command line. The Heimdall console is mock-only, there are no watch conditions or alerts, entity adjudication, handover or workflow on a running path, and decision support is a library tested against a deterministic mock provider.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Expose the picture and feed health to the console through the edge (RF-UID-6)
+> - Add watch conditions and alerts on the feed service
+> - Put the workflow engine and decision support behind a service, with decision support calling mimir-server
+> - Add reversible entity adjudication and shift handover
+>
+> Checked: `deploy/compose/smoke.sh:42` · `heimdall/decision-support/tests/ac_h_3.rs:7` · `heimdall/workflow/tests/ac_h_4.rs:96` · `products/heimdall/ui/src/main.tsx:17` · `README.md:566`
+
 **Prompt**
 
 ```
@@ -4934,6 +6359,20 @@ Implement the Heimdall operator journey.
 ### RF-UX-9 · Client journey: device enrolment, offline work, sync and revocation
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-CL-1..6, RF-PER-5
+
+> **Status at 2026-10-12 — Open.** No client exists to take the journey. `clients/shells` still holds manifests, accessibility declarations and audit tooling only, with no shell code, and the clients web app is a mock demonstration. Sync convergence, tier selection, sealed storage and verified install are tested at library level.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** Blocked on Workstream P: the client shells are still manifests only.
+>
+> **Still to do:**
+> - Build at least one real shell on the shared core (the web shell over wasm is the nearest)
+> - Add device enrolment and revocation to the edge; no device identity exists there
+> - Give the client a sync endpoint on the enclosure side
+> - Surface operationally significant conflicts for a human instead of auto-merging
+> - Treat this item as blocked on workstream P and say so in the plan
+>
+> Checked: `clients/shells/web/manifest.toml:1` · `products/clients/ui/src/main.tsx:18` · `clients/sync/tests/convergence.rs:36` · `clients/inference/tests/tiering.rs:188` · `clients/delivery/tests/install.rs:50`
 
 **Prompt**
 
@@ -4977,6 +6416,20 @@ Implement the end-to-end client lifecycle as a user journey.
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-PER-2, RF-AD-7, RF-CMP-1
 
+> **Status at 2026-10-12 — Partial.** The pieces are partly there but not joined. An `Auditor` administrator role exists, is proven read-only at library level and can be bound with `mg-admin admin add`, but the edge gives it no surface: the ledger is read through `GET /api/v1/audit` with an ordinary user's bearer token, each row re-verified. There is no `mg-audit` tool anywhere in the tree, no evidence export, no sampling, and ledger rows are not filtered by the reader's clearance.
+> Criteria met 0 of 5; open: b, c, d; not verifiable by reading: a, e. Confidence: medium.
+>
+> **Scope change:** Assumes an `mg-audit` verifier. No such tool exists; building it is the first step (see RF-PER-2).
+>
+> **Still to do:**
+> - Build the offline verifier the item assumes (`mg-audit` does not exist) and a signed ledger export for it to check against trust/audit.pub
+> - Give the Auditor role a read-only route to ledger, policy and configuration history, with a test that every mutation is refused at the edge
+> - Filter ledger rows by the reader's clearance and record the withholding
+> - Add control sampling over approvals and enrolments
+> - Confirm with a test that audit reads and exports are themselves recorded
+>
+> Checked: `admin/identity/tests/ac_ad_1_2.rs:58` · `services/http-gateway/src/enclosure.rs:577` · `tools/mg-admin/src/main.rs:87` · `services/http-gateway/src/lib.rs:624`
+
 **Prompt**
 
 ```
@@ -5016,6 +6469,18 @@ Implement the journey for someone whose job is to check, not to operate.
 
 **Severity:** High · **Area:** User flows · **Depends on:** RF-DEP-5, RF-B-4
 
+> **Status at 2026-10-12 — Partial.** Individual offline pieces exist: the acceptance suite runs under `--network none`, `mg-admin` bootstrap and import never touch the network, bundles are verified offline with tamper refused in tests, and there are produce and install scripts for an air-gap bundle and for model bundles. No site has been taken through install, operate, update and outbound report as one journey, no release has been cut to install from, and several of the journeys it must run offline (analyst, AI, admin) do not run at all yet.
+> Criteria met 0 of 5; open: b, c, d, e; not verifiable by reading: a. Confidence: medium.
+>
+> **Still to do:**
+> - Cut a signed bundle and install it on a host with no network, then bootstrap with mg-admin, and record the run
+> - Show a bundle's contents and intended changes before applying, and produce a receipt
+> - Add a marking-aware outbound export that lists what was withheld
+> - Ship the docs/ops runbooks inside the bundle and exercise one recovery from them
+> - Re-scope criterion b to the journeys that actually run
+>
+> Checked: `deploy/acceptance/run-airgapped.sh:1` · `deploy/air-gap-bundle/install.sh:1` · `bifrost/bundle/tests/ac_b_3.rs:77` · `tools/mg-admin/src/main.rs:4` · `README.md:36`
+
 **Prompt**
 
 ```
@@ -5051,6 +6516,18 @@ Implement the complete life of a disconnected site as one documented journey.
 ### RF-UX-12 · Developer journey: build on the platform
 
 **Severity:** Medium · **Area:** User flows · **Depends on:** RF-SDK-1..5, RF-API-5
+
+> **Status at 2026-10-12 — Partial.** A local enclosure does come up in one command: `just compose-up` builds and starts five services with a demonstration ontology and sample data, with a smoke script, after a one-time online toolchain image build; `just gateway-http` gives a seeded development edge. Beyond that the developer journey is thin: the only SDK is TypeScript with no tests or examples, its HTTP client reports every 403 as a human-gate error, the SDK screen's reflection data is fixed, there is no try-it, and there are no extension templates.
+> Criteria met 0 of 4; open: b, c, d; not verifiable by reading: a. Confidence: medium.
+>
+> **Still to do:**
+> - Distinguish policy denial from human-gate-required in the edge's 403 and in the SDK's typed errors, with a compiled example
+> - Add an extension template for at least a Forge connector, with a test that it cannot skip policy and audit
+> - Enrol a development user in compose so the seeded enclosure is usable without stopping the gateway
+> - Decide which SDK languages exist; only sdk/ts does
+> - Run compose-up with the network off after the image build and record it
+>
+> Checked: `justfile:51` · `deploy/compose/smoke.sh:13` · `sdk/ts/src/http/HttpGateway.ts:84` · `services/http-gateway/src/lib.rs:920` · `forge/connector-sdk/tests/connectors.rs:1`
 
 **Prompt**
 
@@ -5094,6 +6571,20 @@ Implement the journey for someone extending the platform rather than operating i
 
 **Severity:** High · **Area:** Clients · **Depends on:** RF-PER-5 · **Blocks:** RF-CL-2..6
 
+> **Status at 2026-10-12 — Partial.** No UniFFI or wasm-bindgen code exists: no .udl, no `#[uniffi::export]`, no `#[wasm_bindgen]`, and neither crate is vendored. The only step taken is an FFI-shaped opaque-blob surface on `ClientCore` (`drain_pending_encoded` / `merge_remote_encoded`, RT-58) with one Rust test; `clients/shells/SHELL_BUILD.md` states the real bindings are still to do.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** An FFI-shaped opaque-blob surface exists (`clients/core/src/lib.rs`) and `SHELL_BUILD.md` lists the remaining steps. Scope this to vendoring uniffi and wasm-bindgen, annotating, and widening the surface beyond sync blobs.
+>
+> **Still to do:**
+> - Vendor uniffi and wasm-bindgen and define one FFI definition covering session, sync state, object read/write, key custody/unlock, inference and events (today only edit/read/sync blobs are FFI-shaped)
+> - Generate Swift, Kotlin and wasm bindings from that definition and check the generated surface in
+> - Map CoreError classes to per-language errors preserving class and retryability, with a test per class
+> - Define the async/threading model for sync and inference and test that no UI thread blocks
+> - Add boundary leak / lifetime tests and a smoke app per language
+>
+> Checked: `clients/core/src/lib.rs:123` · `clients/core/src/lib.rs:146` · `clients/core/tests/one_core.rs:152` · `clients/shells/SHELL_BUILD.md:1` · `clients/shells/apple/manifest.toml:11`
+
 **Prompt**
 
 ```
@@ -5132,6 +6623,18 @@ Expose the shared Rust core to every shell language.
 ### RF-CL-2 · Apple shell (iOS, macOS)
 
 **Severity:** High · **Area:** Clients · **Depends on:** RF-CL-1
+
+> **Status at 2026-10-12 — Open.** `clients/shells/apple/` holds only `manifest.toml`, `accessibility.toml` and an empty `audits/` directory; there is no Swift, Xcode project or XCUITest code. Biometric assertion verification exists only in the Rust core (`clients/keystore/src/auth.rs`) as the original plan described.
+> Criteria met 0 of 5; open: a, c, d, e; not verifiable by reading: b. Confidence: high.
+>
+> **Still to do:**
+> - Land the SwiftUI app project linking the UniFFI Swift binding (blocked on RF-CL-1)
+> - Implement Secure Enclave custody and LocalAuthentication unlock with the assertion verified by the core
+> - Implement app-switcher snapshot protection, background sync, notifications and deep links
+> - Write the XCUITest accessibility suite and record an on-device audit under `clients/shells/apple/audits/`
+> - Produce signed iOS and macOS builds through the release gate
+>
+> Checked: `clients/shells/apple/manifest.toml:1` · `clients/shells/README.md:1` · `clients/keystore/tests/auth.rs:24`
 
 **Prompt**
 
@@ -5173,6 +6676,18 @@ Build the SwiftUI shell — presentation only, per KDD-1.
 
 **Severity:** High · **Area:** Clients · **Depends on:** RF-CL-1
 
+> **Status at 2026-10-12 — Open.** `clients/shells/android/` holds only two TOML declarations and an empty `audits/` directory; there is no Kotlin, Gradle or Espresso code anywhere in the tree.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Land the Jetpack Compose app project linking the UniFFI Kotlin binding (blocked on RF-CL-1)
+> - Implement StrongBox/TEE custody with honest floor reporting and below-floor enrolment refusal
+> - Apply FLAG_SECURE to governed content and handle process death / configuration change
+> - Write the Espresso accessibility suite and run the Accessibility Scanner across the device matrix
+> - Produce signed AAB and APK through the release gate
+>
+> Checked: `clients/shells/android/manifest.toml:1` · `clients/shells/README.md:1` · `clients/shells/SHELL_BUILD.md:1`
+
 **Prompt**
 
 ```
@@ -5210,6 +6725,18 @@ Build the Jetpack Compose shell — presentation only.
 ### RF-CL-4 · Web shell (SvelteKit + WASM)
 
 **Severity:** High · **Area:** Clients · **Depends on:** RF-CL-1, RF-UI-3
+
+> **Status at 2026-10-12 — Open.** `clients/shells/web/` has two TOML files, an empty `audits/` directory and a Playwright + axe-core audit script (`a11y/axe-audit.mjs`) with nothing to audit: there is still no `package.json`, no SvelteKit source and no wasm build, although `pnpm-workspace.yaml` still lists the directory.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Add `clients/shells/web/package.json` and the SvelteKit app binding the core via wasm-bindgen (blocked on RF-CL-1)
+> - Implement WebAuthn custody, sealed OPFS/IndexedDB storage and complete clearing on sign-out
+> - Add the service worker with offline operation and an explicit update flow
+> - Run the axe audit and strict-CSP checks against the built shell
+> - Decide whether `products/clients/ui` is this shell or a demo
+>
+> Checked: `pnpm-workspace.yaml:8` · `clients/shells/web/a11y/axe-audit.mjs:1` · `clients/shells/web/manifest.toml:1` · `clients/shells/SHELL_BUILD.md:1`
 
 **Evidence.** `pnpm-workspace.yaml` lists `clients/shells/web` as a workspace package; the directory contains two TOML files and no `package.json`, so `pnpm -r` silently skips it.
 
@@ -5250,6 +6777,18 @@ Build the enclosure-hosted web client.
 
 **Severity:** Medium · **Area:** Clients · **Depends on:** RF-CL-1
 
+> **Status at 2026-10-12 — Open.** `clients/shells/desktop-tauri/` holds only TOML declarations and an empty `audits/` directory, plus a helper script `clients/shells/tools/tauri-webview-axe.sh`; there is no Tauri project, no IPC allow-list and no installer packaging.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Land the Tauri 2 project linking the core natively with an allow-listed IPC surface and a test that only those commands are reachable
+> - Implement per-platform custody (TPM/Hello, Keychain/Secure Enclave, Secret Service) with floor reporting
+> - Deliver signed, verified, reversible updates through Bifrost rather than a third-party updater
+> - Verify the journey with Narrator, VoiceOver and Orca and record audits
+> - Build signed MSI, DMG and Linux packages through the release gate
+>
+> Checked: `clients/shells/desktop-tauri/manifest.toml:1` · `clients/shells/README.md:1` · `clients/shells/SHELL_BUILD.md:1`
+
 **Prompt**
 
 ```
@@ -5285,6 +6824,17 @@ Build the Tauri desktop shell.
 
 **Severity:** Medium · **Area:** Clients · **Depends on:** RF-CL-1
 
+> **Status at 2026-10-12 — Open.** `clients/shells/linux-gtk/` holds only TOML declarations and an empty `audits/` directory, plus a helper `clients/shells/tools/atspi-walk.sh`; there is no GTK4/libadwaita code and no Flatpak manifest.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Land the GTK4/libadwaita application linking `midgard-client-core` with adaptive phone/desktop layout
+> - Implement TPM / Secret Service custody with floor reporting and PAM/fprintd unlock verified by the core
+> - Write the Flatpak manifest with a justified minimal permission set
+> - Verify the journey under Orca / AT-SPI and record an audit
+>
+> Checked: `clients/shells/linux-gtk/manifest.toml:1` · `clients/shells/README.md:1` · `clients/shells/SHELL_BUILD.md:1`
+
 **Prompt**
 
 ```
@@ -5317,6 +6867,18 @@ Build the GTK4 shell for Linux mobile and desktop.
 ### RF-CL-7 · Browser extension (broker mode)
 
 **Severity:** Medium · **Area:** Clients · **Depends on:** RF-CL-1, RF-CL-4
+
+> **Status at 2026-10-12 — Open.** Unchanged from the plan's evidence: the Rust `clients/broker` crate and its tests (no key material, no-scrape and no-secret evals) exist, but `clients/shells/extension/` is two TOML files with no `package.json`, no Manifest V3 manifest, no content script and no wasm build.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Build the Manifest V3 extension (Chrome and Firefox) over a wasm build of the broker, with `package.json` so the workspace builds it
+> - Add a test that the extension wasm build cannot construct a sealing root (KDD-2 through the wasm boundary)
+> - Enforce the EV-AC3 no-scrape / no-secret guarantees in the shipped content script, tested against a page with credentials
+> - Implement origin-verified typed messaging and a hostile-page rejection test
+> - Document per-permission justification and audit brokered operations in the enclosure with the extension identity
+>
+> Checked: `clients/broker/tests/broker.rs:65` · `clients/broker/tests/broker.rs:80` · `clients/shells/extension/manifest.toml:1` · `pnpm-workspace.yaml:9`
 
 **Evidence.** `clients/broker` (348 lines) implements the broker and the A.C3 in-page assistant prompt; `clients/keystore` models `BrokeredKeystore` such that the type system forbids it backing a local seal (KDD-2). `products/clients/ui/src/ExtensionPopup.tsx` is 76 lines of demonstration. `pnpm-workspace.yaml` lists `clients/shells/extension`, which has no `package.json`.
 
@@ -5358,6 +6920,18 @@ Build the extension, preserving KDD-2 structurally.
 
 **Severity:** High · **Area:** Clients · **Depends on:** RF-B-2, RF-CL-2..7
 
+> **Status at 2026-10-12 — Open.** Unchanged from the plan's evidence: `clients/delivery` (160 lines) verifies a signed client artefact or offline bundle before returning an install record and has library tests for tamper, wrong key and offline bundle import, but nothing delivers, launches, self-verifies at runtime or enforces a minimum version. No minimum-client-version check was found anywhere in the Rust tree, and the only client fleet view is mock data in `sdk/ts/src/products/clients.ts`.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: medium.
+>
+> **Still to do:**
+> - Implement minimum-supported-version enforcement in the enclosure handshake with an actionable refusal and a test
+> - Implement launch-time self-verification and tamper refusal in each shell (blocked on RF-CL-2..7)
+> - Extend the offline bundle path to an end-to-end air-gapped install plus local enrolment test
+> - Build a real client-fleet view (version, custody floor, last seen, revoke, require update) backed by a service, not SDK fixtures
+> - Add per-store data-handling declarations and a release-time check that they match
+>
+> Checked: `clients/delivery/src/lib.rs:60` · `clients/delivery/src/lib.rs:99` · `clients/delivery/tests/install.rs:60` · `clients/delivery/tests/install.rs:113`
+
 **Evidence.** `clients/delivery` (160 lines) models install records and verification; nothing delivers.
 
 **Prompt**
@@ -5398,6 +6972,18 @@ Deliver and maintain clients as a first-class fleet.
 ### RF-CL-9 · On-device inference and tier selection, made real
 
 **Severity:** Medium · **Area:** Clients · **Depends on:** RF-MI-2, RF-CL-1
+
+> **Status at 2026-10-12 — Partial.** The tier logic, model signature check and a real PQ-mTLS remote bridge (RT-57, `remote_bridge.rs`) exist and are tested, but there is still no on-device runtime: `OnDeviceRuntime` is only implemented by `MockOnDeviceRuntime`, and parity is asserted between two mocks that share one answer function. Tier context is supplied by the caller, not probed from a device.
+> Criteria met 1 of 5 (e); open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Bind `OnDeviceRuntime` to a real quantised model runtime on at least one mobile and one desktop platform
+> - Prove the no-egress refusal at the network layer (today it is asserted only on the tier decision) including the case where local capability is insufficient
+> - Add an operator force-on-device control and surface tier plus reason to the shell
+> - Re-run EV-AC-parity against a real on-device model and the real enclosure instead of the two mocks
+> - Feed tier selection from real device capability, model availability and network probes; add resource and thermal limits
+>
+> Checked: `clients/inference/src/ondevice.rs:70` · `clients/inference/src/model.rs:39` · `clients/inference/tests/model_and_audit.rs:39` · `clients/inference/tests/tiering.rs:188` · `clients/inference/tests/rc_57.rs:120`
 
 **Evidence.** `clients/inference` (1 205 lines) implements the A.C1 assistant, the A.C2 tier reasoner, the adapter, the model seam and the Evals including `EV-AC-parity`. There is no on-device runtime.
 
@@ -5446,6 +7032,18 @@ Make on-device inference real, and make tier selection trustworthy.
 
 **Severity:** Medium · **Area:** SDK · **Depends on:** RF-API-1, RF-UID-1
 
+> **Status at 2026-10-12 — Open.** `sdk/ts` is still hand-written (no `src/gen`, `types.ts` is 212 hand-written lines) with a `private` 0.0.0 package, no test script and no examples. The only addition since the plan is `http/login.ts`; `HttpGateway` still takes a client-supplied `PolicyContext`, maps every 403 to `HumanGateRequiredError`, polls for audit instead of streaming, and the stale 'stub' / 'only implementation is MockGateway' comments are still there.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Generate types and clients from `contracts/proto` or add a conformance test that fails on drift from `types.ts`
+> - Add token refresh and typed auth / retryable errors; stop treating every 403 as a human gate and carry the approval requirements in a typed outcome
+> - Remove the client-supplied policy context from `HttpGatewayOptions`
+> - Replace polling `auditStream` with a resumable subscription; add pagination, cancellation and deadlines
+> - Fix the stale comments in `index.ts` and `client.ts`, version and package the SDK (ESM/CJS), add tests and compiled examples
+>
+> Checked: `sdk/ts/src/index.ts:4` · `sdk/ts/src/client.ts:26` · `sdk/ts/src/http/HttpGateway.ts:41` · `sdk/ts/src/http/HttpGateway.ts:84` · `sdk/ts/package.json:5`
+
 **Prompt**
 
 ```
@@ -5484,6 +7082,17 @@ Make the TypeScript SDK generated, complete and trustworthy.
 
 **Severity:** Medium · **Area:** SDK · **Depends on:** RF-API-2
 
+> **Status at 2026-10-12 — Open.** There is no `sdk/rust` directory and no generated Rust client; `sdk/` contains only `ts/` and a README. `contracts/buf.gen.yaml` names a prost/tonic output under `services/gen/rust` that does not exist in the tree.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Create the Rust SDK crate with clients generated from the contract over the PQ-mTLS RPC layer
+> - Require a workload identity before any request is sent and test the fail-closed path
+> - Add compiled examples and `#![deny(missing_docs)]`
+> - Document MSRV and the server compatibility matrix and gate the crate
+>
+> Checked: `sdk/README.md:1` · `contracts/buf.gen.yaml:13`
+
 **Prompt**
 
 ```
@@ -5511,6 +7120,19 @@ a documented MSRV and compatibility matrix. Gate the crate through RF-SC-5.
 ### RF-SDK-3 · Python SDK
 
 **Severity:** Medium · **Area:** SDK · **Depends on:** RF-API-3
+
+> **Status at 2026-10-12 — Partial.** The root `pyproject.toml` the plan cites has been removed, so the dishonest workspace declaration is gone, but no Python SDK exists. Stale Python references remain: `just build-py` still runs `uv sync --frozen`, and `sdk/README.md` and `contracts/buf.gen.yaml` still describe an `sdk/py` that is not there.
+> Criteria met 1 of 5 (e); open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** The root `pyproject.toml` is gone, so criterion e is satisfied. The stale promises are now `just build-py`, `sdk/README.md` and `contracts/buf.gen.yaml`, which still describe an `sdk/py` that does not exist.
+>
+> **Still to do:**
+> - Build the typed Python client over the HTTP edge with runtime validation and typed exceptions
+> - Add dataframe conversion that surfaces truncation and a notebook governance-context display
+> - Package a vendored wheel set and test offline install
+> - Remove or make real the `build-py` recipe and the `sdk/py` claims in `sdk/README.md` and `buf.gen.yaml`
+>
+> Checked: `justfile:34` · `sdk/README.md:8` · `contracts/buf.gen.yaml:9`
 
 **Evidence.** `pyproject.toml` declares a uv workspace whose members are `mimir/*` — which are Rust crates. `just build-py` runs `uv sync --frozen` against it. Either the Python workspace becomes real or the declaration is corrected (RF-DOC-1).
 
@@ -5547,6 +7169,20 @@ declaration.
 
 **Severity:** Low · **Area:** SDK · **Depends on:** RF-API-3
 
+> **Status at 2026-10-12 — Partial.** `go.work` has been deleted and there are no `.go` files, so the tree has effectively taken the removal option, but the removal is incomplete and unrecorded. Criterion b does not apply because no Go SDK was shipped. Go references remain in the justfile (including a comment saying go.work exists), `products/README.md`, `flake.nix` and `contracts/buf.gen.yaml`, and no ADR records the decision.
+> Criteria met 0 of 3; open: a, c; not verifiable by reading: b. Confidence: high.
+>
+> **Scope change:** `go.work` is deleted and there are no `.go` files. Finish the removal: the `build-go` recipe and its comment in the `justfile`, `products/README.md`, `flake.nix`, the Go plugins in `contracts/buf.gen.yaml`, and the ADR.
+>
+> **Still to do:**
+> - Remove `build-go` from the justfile `build` recipe and the `go test` line and its stale comment from `test`
+> - Correct `products/README.md` rows that say Bifrost and Admin backends are Go
+> - Remove the Go plugins from `contracts/buf.gen.yaml`, the Go toolchain from `flake.nix` and the Go block from `.gitignore`
+> - Fix README line describing `just build` as building Go/TS/Python members
+> - Record the removal decision in an ADR
+>
+> Checked: `justfile:28` · `justfile:202` · `products/README.md:10` · `flake.nix:47` · `contracts/buf.gen.yaml:17`
+
 **Evidence.** `go.work` declares a Go workspace with no modules and a comment promising "compute-scheduler, Bifrost controller, admin backend"; `products/README.md` states the Bifrost and admin backends are Go. All of them are Rust. `just build-go` prints "no go modules yet".
 
 **Prompt**
@@ -5574,6 +7210,18 @@ the tree contradicts. Record the decision in an ADR.
 ### RF-SDK-5 · Developer environment, samples and extension templates
 
 **Severity:** Medium · **Area:** SDK · **Depends on:** RF-DEP-1, RF-UX-12
+
+> **Status at 2026-10-12 — Partial.** A one-command local enclosure exists (`just compose-up`, torn down by `compose-down`; `deploy/compose/smoke.sh` exercises five real services on throwaway volumes) and `CONTRIBUTING.md` covers provenance tags and the offline build. There are no sample applications, no extension templates for any of the four extension points and no CI definition in the public tree.
+> Criteria met 0 of 4; open: b, c, d; not verifiable by reading: a. Confidence: medium.
+>
+> **Still to do:**
+> - Write one sample application per SDK exercising auth, purpose, clearance filtering, a human gate, a refusal and audit read-back
+> - Create the four extension templates (Forge connector, object action function, Heimdall feed adapter, agent tool) with bypass-attempt tests
+> - Demonstrate `compose-up` on a clean machine with no network and document reset
+> - Extend `CONTRIBUTING.md` with the extension invariants and how to run the acceptance suite locally
+> - Publish a CI definition that compiles and runs every sample and template
+>
+> Checked: `justfile:51` · `deploy/compose/compose.yaml:35` · `deploy/compose/smoke.sh:13` · `CONTRIBUTING.md:18`
 
 **Prompt**
 
@@ -5616,6 +7264,20 @@ Make it easy to build on Midgard, offline.
 
 **Severity:** Critical · **Area:** Deployment · **Depends on:** RF-RT-1 · **Blocks:** RF-DEP-2..7
 
+> **Status at 2026-10-12 — Partial.** The workstream status is stale: `deploy/images/service.Dockerfile` plus `build.sh` build one verify-before-run image per service from gate-verified binaries with no network, running as uid 10001, and `deploy/compose` runs all five services with a smoke script. The base is the full `rust:1.82` image pinned by digest (it has a shell and package manager), there is no multi-arch build, no image-level SBOM or digest reproducibility check, the release has never run (no pinned trust keys, no CI), and compose builds a different unsigned image from source rather than using the release images.
+> Criteria met 0 of 5; open: a, b, c, d; not verifiable by reading: e. Confidence: high.
+>
+> **Scope change:** Images, compose, a Helm chart and a kind cluster path exist. `deploy/README.md` still says parts of this are not present.
+>
+> **Still to do:**
+> - Switch the runtime base to distroless or scratch with a static binary (the Dockerfile itself notes this is pending)
+> - Run the release gate once so signed images exist; it needs the key ceremony and a runner
+> - Add arm64 and an image-digest reproducibility check
+> - Produce an SBOM for the whole image including OS components
+> - Make compose consume the release images instead of `deploy/compose/Dockerfile`
+>
+> Checked: `deploy/images/service.Dockerfile:21` · `deploy/images/service.Dockerfile:43` · `deploy/images/build.sh:75` · `deploy/compose/Dockerfile:1` · `deploy/trust/README.md:26`
+
 **Prompt**
 
 ```
@@ -5652,6 +7314,20 @@ Build reproducible, minimal, signed images for every service.
 ### RF-DEP-2 · Kubernetes deployment: charts, policies and the HA topology
 
 **Severity:** Critical · **Area:** Deployment · **Depends on:** RF-DEP-1, RF-DEP-3
+
+> **Status at 2026-10-12 — Partial.** A Helm chart exists at `deploy/helm/midgard` and has been run on a three-node kind cluster: one single-replica StatefulSet per service with non-root, read-only root, dropped capabilities, seccomp, resource limits, readiness and liveness probes, PVCs and secrets provisioned outside the chart. There is one release values file plus a kind override, no HA topology (services hold a single-writer locked state directory), no PodDisruptionBudget, anti-affinity, startup probe or priority class, no policy tests, no chart signing and no CI.
+> Criteria met 0 of 5; open: a, b, c; not verifiable by reading: d, e. Confidence: high.
+>
+> **Scope change:** High availability, anti-affinity and zero-downtime cannot be chart tasks yet: every service holds a locked single-writer state directory and the chart pins one replica by design. The replication decision in RF-CA-9 comes first.
+>
+> **Still to do:**
+> - Rewrite the HA and zero-downtime requirements: every service is single-writer, so replicas need a replication design (RF-RES-3) before the chart can offer them
+> - Add values files for the single-node and air-gapped topologies and install each on a cluster
+> - Add policy tests over the rendered manifests and a secret scan of chart and values
+> - Add PodDisruptionBudgets and startup probes
+> - Sign and gate the chart, and create a runner for lint, render check and dry-run install
+>
+> Checked: `deploy/helm/midgard/templates/workload.yaml:47` · `deploy/helm/midgard/templates/workload.yaml:9` · `deploy/helm/midgard/values.yaml:36` · `deploy/k8s/render.sh:6` · `deploy/acceptance/deployment/README.md:23`
 
 **Prompt**
 
@@ -5695,6 +7371,19 @@ Create the deployment artefacts deploy/README.md already promises.
 
 **Severity:** Critical · **Area:** Deployment · **Depends on:** RF-DEP-2, RF-API-2
 
+> **Status at 2026-10-12 — Partial.** The chart ships a namespace-wide default-deny NetworkPolicy for ingress and egress (DNS only), per-port ingress policies naming the allowed client pods, per-service egress policies, and an egress-broker exception limited to declared upstream ports. The kind smoke test checks one blocked path (an unlabelled pod cannot reach mimir-server). The policies come from hand-written `from` and `talksTo` lists in `values.yaml`, separate from each service's `policy.json`; no all-pairs or egress test exists and no mesh interaction is documented.
+> Criteria met 0 of 4; open: a, b, c; not verifiable by reading: d. Confidence: medium.
+>
+> **Scope change:** There is no RF-API-2 allow-matrix to generate policy from; the chart's `from` / `talksTo` lists are the source. The egress broker is an HAProxy sidecar per Forge pod, not one broker service, and compose has none.
+>
+> **Still to do:**
+> - Extend the cluster test to every service pair not allowed and to outbound attempts from every pod
+> - Derive the chart's network lists and the services' policy files from one allow-matrix source
+> - Restrict cross-namespace reachability to the edge and document ingress
+> - Document PQ-mTLS behaviour under a service mesh and test that no intermediary terminates it
+>
+> Checked: `deploy/helm/midgard/templates/enclosure.yaml:21` · `deploy/helm/midgard/values.yaml:60` · `deploy/kind/smoke.sh:11` · `deploy/helm/midgard/templates/enclosure.yaml:79`
+
 **Prompt**
 
 ```
@@ -5732,6 +7421,19 @@ Enforce the zero-trust posture at the network layer, not only in the application
 
 **Severity:** High · **Area:** Deployment · **Depends on:** RF-DEP-2, RF-SC-2
 
+> **Status at 2026-10-12 — Partial.** There is no `mg-install`, `mg-upgrade` or `mg-uninstall`. `deploy/air-gap-bundle/install.sh` is the only installer: it verifies the bundle offline with `mg-bundle import`, builds the images, runs `mg-verify` inside each, and runs `helm upgrade --install`, stopping at the first failure. It has no preflight, no posture report, no backup, migration, rollback or uninstall, and it is not covered by an automated test.
+> Criteria met 0 of 5; open: a, c, e; not verifiable by reading: b, d. Confidence: medium.
+>
+> **Scope change:** The installer that exists is `deploy/air-gap-bundle/install.sh` with `mg-bundle`, not `mg-install`. Rewrite around extending it.
+>
+> **Still to do:**
+> - Add preflight checks and a post-install posture report to the installer
+> - Build the upgrade path: compatibility check, verified backup first, staged rollout, tested rollback
+> - Build uninstall with an explicit retain-or-destroy choice and key-destruction evidence
+> - Add an automated test that a tampered artefact aborts install before any change and that a second run is a no-op
+>
+> Checked: `deploy/air-gap-bundle/install.sh:77` · `deploy/air-gap-bundle/install.sh:13` · `tools/mg-bundle/tests/cli.rs:45` · `deploy/images/build.sh:75`
+
 **Prompt**
 
 ```
@@ -5767,6 +7469,20 @@ Make installing and upgrading an enclosure a supported, verifiable procedure.
 ### RF-DEP-5 · Air-gapped installation bundle
 
 **Severity:** High · **Area:** Deployment · **Depends on:** RF-DEP-4, RF-B-4
+
+> **Status at 2026-10-12 — Partial.** `deploy/air-gap-bundle/` exists (the deploy README still says it does not): `mg-bundle` packs gate-verified binaries with their signatures and SBOMs into one ML-DSA-signed, chunked `.mgbundle`, imports it offline verifying every artefact, and models travel as their own signed bundle. The bundle carries binaries only: images are rebuilt on site from a base image the site must already have, and the chart, documentation, runbooks, advisory database and trust anchors come from a repository checkout. There is no completeness test, no isolated install run and no differential bundle.
+> Criteria met 0 of 5; open: a, b, d, e; not verifiable by reading: c. Confidence: medium.
+>
+> **Scope change:** `deploy/air-gap-bundle/` exists (README, `produce.sh`, `install.sh`).
+>
+> **Still to do:**
+> - Add the chart, base image, docs and runbooks, advisory snapshot and trust anchors to the bundle so a site needs no checkout
+> - Write a bundle specification and a completeness check that fails the build naming what is missing
+> - Run an install from the bundle alone in a network-isolated environment followed by the acceptance suite
+> - Implement differential bundles against a stated baseline
+> - Fix the stale 'Not yet present' line in `deploy/README.md`
+>
+> Checked: `deploy/air-gap-bundle/README.md:21` · `deploy/air-gap-bundle/install.sh:77` · `tools/mg-bundle/tests/cli.rs:45` · `deploy/README.md:46` · `supply-chain/release-artefacts.txt:15`
 
 **Prompt**
 
@@ -5806,6 +7522,17 @@ Produce the complete offline installation bundle deploy/README.md promises.
 
 **Severity:** Medium · **Area:** Deployment · **Depends on:** RF-DEP-2, RF-AD-3
 
+> **Status at 2026-10-12 — Open.** No environment strategy, promotion flow, digest-equality check or ephemeral environment tooling exists. The only environments in the tree are local compose and kind, both built from source, and a deployment-tier script that expects an unspecified staging cluster.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Document the environments with purpose, data policy and access model
+> - Add a promotion check that compares artefact digests (`images.lock`) across environments and refuses a rebuild
+> - Define per-environment approval requirements for configuration promotion
+> - Add ephemeral review environments with synthetic data and automatic teardown
+>
+> Checked: `deploy/README.md:19` · `deploy/acceptance/deployment/README.md:8` · `deploy/images/build.sh:19`
+
 **Prompt**
 
 ```
@@ -5840,6 +7567,17 @@ Define how a change reaches production safely.
 ### RF-DEP-7 · Capacity, sizing and deployment planning guidance
 
 **Severity:** Medium · **Area:** Deployment · **Depends on:** RF-SCL-4, RF-OBS-1
+
+> **Status at 2026-10-12 — Open.** No sizing guidance, calculator, bottleneck list or reference architecture exists. The chart carries untuned default resource requests and a namespace quota, and the README records one informal Granite-on-CPU timing.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Benchmark each service and publish sizing per topology from the results
+> - Write the scaling and bottleneck document (single-writer state directories and whole-picture re-seal are known limits)
+> - Build the sizing calculator
+> - Define and validate reference architectures
+>
+> Checked: `deploy/helm/midgard/values.yaml:22` · `README.md:546` · `README.md:566`
 
 **Prompt**
 
@@ -5879,6 +7617,20 @@ Tell operators what hardware they need.
 ### RF-RES-1 · Backup: complete, verified, restorable
 
 **Severity:** Critical · **Area:** Resilience · **Depends on:** RF-PER-1
+
+> **Status at 2026-10-12 — Partial.** `docs/ops/BACKUP_RESTORE.md` documents a manual file-copy backup of the KMS-sealed journals and a copy-and-replay restore, and `admin/config/tests/dr_drill.rs` exercises snapshot, loss, restore and tampered-backup rejection for the config store only. There is no `mg-backup` tool, no schedule, no automatic verification or alert, no cross-store consistency point, no partial restore and no full-enclosure restore test.
+> Criteria met 1 of 5 (c); open: a, b, d, e. Confidence: medium.
+>
+> **Scope change:** Durable sealed journals, `docs/ops/BACKUP_RESTORE.md` and a config-store restore drill exist.
+>
+> **Still to do:**
+> - Build `mg-backup create|verify|restore|list` over a gateway state directory and the mesh services' state directories
+> - Test a full restore into a clean environment with the audit chain verified from genesis
+> - Define a cross-store consistency point (the gateway holds a lock that currently blocks offline tools while it runs)
+> - Add scheduled backups with automatic test-restore and an escalating unverified alert
+> - Add single-store and time-range restore
+>
+> Checked: `docs/ops/BACKUP_RESTORE.md:25` · `docs/ops/BACKUP_RESTORE.md:57` · `admin/config/tests/dr_drill.rs:71` · `services/kms/tests/envelope.rs:59`
 
 **Prompt**
 
@@ -5920,6 +7672,20 @@ Implement backup as a verified capability, not a scheduled hope.
 
 **Severity:** Critical · **Area:** Resilience · **Depends on:** RF-RES-1, RF-DEP-4
 
+> **Status at 2026-10-12 — Partial.** `docs/ops/DR_PLAN.md` states one pair of RPO/RTO tiers (60 s or 5 min, 30 min), a ten-step node-loss restore runbook and a drill cadence, and says plainly that sealed journals cannot be opened without the trust root. The journal-shipping replica it relies on for the 60 s tier is not implemented, targets are not per data class or topology, only the node-loss scenario has a runbook, and the only exercised drill is the automated config-store test, not a site loss.
+> Criteria met 1 of 5 (d); open: a, b, c; not verifiable by reading: e. Confidence: medium.
+>
+> **Scope change:** `docs/ops/DR_PLAN.md` claims a 60-second RPO through journal shipping to a warm replica. That mechanism is not implemented; correct the document or build it.
+>
+> **Still to do:**
+> - Either implement journal shipping to a warm replica or remove the 60 s RPO tier from the plan
+> - Set and justify RPO and RTO per data class and per topology
+> - Write runbooks for storage corruption, key-material loss, destructive action, ransomware and a compromised administrator
+> - Run and record a full site-loss exercise with measured RPO and RTO and chain verification from genesis
+> - Add the communication plan including the air-gapped physical path
+>
+> Checked: `docs/ops/DR_PLAN.md:12` · `docs/ops/DR_PLAN.md:28` · `docs/ops/DR_PLAN.md:69` · `admin/config/tests/dr_drill.rs:71`
+
 **Prompt**
 
 ```
@@ -5956,6 +7722,20 @@ Define and prove disaster recovery.
 ### RF-RES-3 · High availability and graceful degradation
 
 **Severity:** High · **Area:** Resilience · **Depends on:** RF-DEP-2, RF-RT-2
+
+> **Status at 2026-10-12 — Partial.** Fail-closed behaviour is coded on the edge (an audit write failure returns 500 and no token or data leaves) and the fabric has a tested degraded mode without Mimir. Every service runs as a single replica over a locked single-writer state directory, so there is no redundancy, leader election or quorum; there is no dependency-and-degradation matrix, no chaos test, no test of an unavailable ledger, and the Resilience view is fixed data.
+> Criteria met 0 of 5; open: a, c, d, e; not verifiable by reading: b. Confidence: medium.
+>
+> **Scope change:** Blocked on the same replication decision as RF-DEP-2 and RF-CA-9.
+>
+> **Still to do:**
+> - Write the dependency-and-degradation matrix for the five services as they are deployed
+> - Add tests that inject an unavailable ledger and an unavailable PDP and assert refusal
+> - Decide the redundancy model for single-writer stores (replication and failover) before promising HA
+> - Add kill-each-component tests against compose or kind that assert the matrix
+> - Surface live degradation in the console in place of the fixed Resilience view
+>
+> Checked: `services/http-gateway/src/lib.rs:719` · `services/fabric/tests/degraded.rs:189` · `deploy/helm/midgard/values.yaml:36` · `services/http-gateway/src/data.rs:233`
 
 **Prompt**
 
@@ -5994,6 +7774,18 @@ Define what stays working when parts fail.
 
 **Severity:** High · **Area:** Resilience · **Depends on:** RF-PER-2, RF-PER-8
 
+> **Status at 2026-10-12 — Partial.** Integrity is checked at start only: every sealed store replays and re-verifies its signed chain on open, and the gateway refuses to boot on a tampered ledger, both tested; a manual procedure (RB-7) covers chain verification. Nothing runs on a schedule while a service is up: no scrubbing, no index or cross-store referential check, no derived-data rebuild, no corruption runbook per store class and no ledger record of a detection.
+> Criteria met 0 of 4; open: a, b, d; not verifiable by reading: c. Confidence: medium.
+>
+> **Still to do:**
+> - Add scheduled full and incremental chain verification and store scrubbing in running services, with results recorded and alerted
+> - Add cross-store referential checks (fabric objects against ledger entries)
+> - Add rebuild of derived data from authoritative sources, recorded in the ledger
+> - Write corruption runbooks per store class
+> - Add induced-corruption tests per store class with a stated detection interval
+>
+> Checked: `services/http-gateway/tests/state_dir_boot.rs:188` · `services/kms/tests/file_ledger_restart.rs:148` · `docs/ops/RUNBOOKS.md:81` · `README.md:368`
+
 **Prompt**
 
 ```
@@ -6027,6 +7819,17 @@ Detect corruption early and recover from it deliberately.
 ### RF-RES-5 · Business continuity for the air-gapped and degraded case
 
 **Severity:** Medium · **Area:** Resilience · **Depends on:** RF-RES-2, RF-UX-11
+
+> **Status at 2026-10-12 — Partial.** Only library-level pieces exist: `clients/sync` and `heimdall/picture-sync` have convergence tests for reconnecting replicas, and the platform runs with no network by design. There is no site-level isolation or rejoin test, no handling of expired credentials or superseded configuration at rejoin (mesh certificates do not expire at all), no on-site recovery kit in the bundle and no recorded manual-fallback drill.
+> Criteria met 0 of 4; open: b, c, d; not verifiable by reading: a. Confidence: low.
+>
+> **Still to do:**
+> - Define which components sync between sites at all; today no deployed service replicates to a peer site
+> - Add a rejoin test covering divergent state, expired credentials, revoked keys and superseded configuration (needs RF-IAM-6 expiry first)
+> - Ship runbooks, docs and spare artefacts in the bundle so a site can recover alone
+> - Document manual fallbacks and record a drill
+>
+> Checked: `clients/sync/tests/convergence.rs:80` · `clients/sync/tests/convergence.rs:36` · `tools/mg-admin/src/mesh.rs:115` · `deploy/air-gap-bundle/README.md:40`
 
 **Prompt**
 
@@ -6067,6 +7870,20 @@ Plan for continuity where there is no remote help.
 
 **Severity:** Critical · **Area:** Security · **Depends on:** RF-TST-3
 
+> **Status at 2026-10-12 — Partial.** A written STRIDE threat model now exists at `docs/security/THREAT_MODEL.md` naming controls and RT ids per category, but threats have no stable ids, no per-threat test mapping, and no test or source file cites a threat id. There is no traceability check and no PR template or CI in the public tree to enforce review.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** A written STRIDE model exists at `docs/security/THREAT_MODEL.md`. The gap is stable threat ids, an attack test per threat, and traceability.
+>
+> **Still to do:**
+> - Assign every threat a stable id and restructure the model per element and data flow with control and proving test
+> - Write the missing attack tests against a running multi-process environment (the compose enclosure can host them)
+> - Cite threat ids in mitigating code and fail a traceability check on any unmapped threat
+> - Reconcile the model with the built system (compose/Helm services, mesh flows, sidecars) and the seven DFDs
+> - Add a threat-model review check for PRs that add a service, flow or trust boundary
+>
+> Checked: `docs/security/THREAT_MODEL.md:34` · `docs/security/THREAT_MODEL.md:97` · `docs/security/THREAT_MODEL.md:106`
+
 **Evidence.** Seven STRIDE data-flow diagrams exist (`midgard_threat_dfd`, `mimir_`, `forge_`, `bifrost_`, `heimdall_`, `admin_`, `client_`). No test references a threat id.
 
 **Prompt**
@@ -6103,6 +7920,17 @@ Turn the threat models from diagrams into a tested contract.
 ### RF-SEC-2 · Fuzzing and property-based testing of every parser and boundary
 
 **Severity:** High · **Area:** Security · **Depends on:** RF-TST-4
+
+> **Status at 2026-10-12 — Open.** No fuzz target, corpus, `cargo fuzz` directory, proptest or quickcheck usage exists outside `vendor/`. The nearest things are example-based tests such as the exhaustive permutation test in `clients/sync/tests/convergence.rs` and a single empty-policy deny test in `crypto/policy/tests/pdp.rs`.
+> Criteria met 0 of 5; open: a, c, d, e; not verifiable by reading: b. Confidence: high.
+>
+> **Still to do:**
+> - Create coverage-guided fuzz targets with checked-in corpora for the HTTP/1.1 parser, JSON codec, PQ-mTLS handshake/record decoder, RPC frames, signature envelope/DSSE, bundle manifest, SBOM and model header parsers
+> - Add property suites for CRDT laws, deny-by-default over generated requests, audit-chain mutation detection, suite negotiation and seal/unseal
+> - Add differential tests for the two Forge engines and in-memory versus durable stores
+> - Run 24-hour campaigns per target and check in minimised reproducers as regression tests
+>
+> Checked: `clients/sync/tests/convergence.rs:36` · `crypto/policy/tests/pdp.rs:65` · `justfile:151`
 
 **Evidence.** The tree contains several hand-rolled parsers on trust boundaries: the HTTP/1.1 parser and JSON codec in `services/http-gateway`, the PQ-mTLS frame decoder in `crypto/pq-mtls`, the `Cargo.lock` parser in `mg-sbom`, and (once implemented) the signature envelope, DSSE, bundle, model-artefact and proto decoders. None is fuzzed.
 
@@ -6148,6 +7976,20 @@ Fuzz everything that parses untrusted input.
 
 **Severity:** High · **Area:** Security · **Depends on:** RF-SC-4
 
+> **Status at 2026-10-12 — Partial.** `just lint` runs clippy at `-D warnings` across the crates, `mg-scan` does an offline advisory and licence scan against a vendored RustSec snapshot, and `.gitleaks.toml` configures secret scanning. Only 9 of roughly 70 crates carry `#![forbid(unsafe_code)]`, there is no workspace lint table, no SAST, no DAST, no findings dashboard, and no CI workflow is published (the gitleaks config refers to a `.github/workflows/ci.yml` that is not in the tree).
+> Criteria met 0 of 5; open: a, b, c, e; not verifiable by reading: d. Confidence: medium.
+>
+> **Scope change:** The Evidence says CI runs `gitleaks`; there is no CI configuration in the tree (RF-CA-4).
+>
+> **Still to do:**
+> - Add `#![forbid(unsafe_code)]` to every crate that can take it and document the exception for `pqc-agility` (mlock in `secret.rs`); add a check that enforces it
+> - Publish the CI definition with a merge-blocking policy for new high-severity findings
+> - Add DAST (authenticated and unauthenticated) against the compose enclosure's HTTP edge
+> - Run a full-history secret scan and add a pre-commit hook
+> - Add TypeScript security lint and a single findings register with severity, owner and age
+>
+> Checked: `justfile:129` · `clients/core/src/lib.rs:23` · `crypto/pqc-agility/src/secret.rs:36` · `.gitleaks.toml:3` · `vendor/advisory-db/snapshot.toml:17`
+
 **Evidence.** CI runs `gitleaks` and a placeholder provenance lint. There is no SAST, no dependency policy enforcement beyond what RF-SC-4 adds, no unsafe-code audit (though `clients/keystore` uses `#![forbid(unsafe_code)]` — a good pattern not applied workspace-wide), and no DAST.
 
 **Prompt**
@@ -6190,6 +8032,18 @@ Add analysis depth to the pipeline.
 ### RF-SEC-4 · Cryptographic assurance and validation evidence
 
 **Severity:** High · **Area:** Security · **Depends on:** RF-RT-5
+
+> **Status at 2026-10-12 — Partial.** The compliance matrix and residual-risk register state that in-repo ACVP KATs are not a FIPS 140-3 module certificate, and `docs/ops/PKI.md` documents key ceremony, renewal, revocation and rotation cadence. There is no single cryptographic inventory, no side-channel document, no timing test, no independent review report, and algorithm retirement is exercised only at primitive level (`agility_fips.rs`, `agility_hotswap.rs`) with no documented end-to-end procedure. `ct_eq` is used in about ten files but no audit or test shows it is used at every secret comparison.
+> Criteria met 1 of 5 (b); open: a, c, e; not verifiable by reading: d. Confidence: medium.
+>
+> **Still to do:**
+> - Write the cryptographic inventory (algorithms, parameter sets, key types, lifetimes, protocols, validation status) and check it against the code
+> - Audit every comparison of secret material for `ct_eq` and add a test or lint that detects a variable-time comparison
+> - Document side-channel considerations per primitive and the full key lifecycle including archival and destruction
+> - Document and test an end-to-end algorithm retirement on sealed data and sessions, not only on a bare CryptoProvider
+> - Commission the independent cryptographic review and track its findings
+>
+> Checked: `docs/compliance/COMPLIANCE_MATRIX.md:5` · `docs/compliance/RESIDUAL_RISK_REGISTER.md:35` · `docs/ops/PKI.md:123` · `crypto/pqc-agility/src/hash.rs:276` · `crypto/pqc-agility/tests/agility_fips.rs:70`
 
 **Evidence.** `pqc-agility` uses ACVP-validated FIPS 203/204/205 implementations and has KAT tests (`fips_backend`, `aead_kat`, `agility_fips`), which is a strong base. What is missing is the assurance wrapper: no documented cryptographic inventory, no side-channel consideration, no formal review, and no statement of what "FIPS-validated" does and does not mean for this deployment.
 
@@ -6236,6 +8090,18 @@ Document and evidence the cryptographic posture.
 
 **Severity:** High · **Area:** Security · **Depends on:** RF-SEC-1, RF-DEP-2
 
+> **Status at 2026-10-12 — Open.** No penetration-test scope, report, findings register or finding-derived regression suite exists in the repository; the only matches for the term are in design SADs and a Mimir staging assessor. This item is an external activity that cannot be established from the tree.
+> Criteria met 0 of 4; open: c; not verifiable by reading: a, b, d. Confidence: medium.
+>
+> **Still to do:**
+> - Write and commit the penetration-test and AI red-team scope
+> - Commission the external test against a deployed enclosure
+> - Track findings with owners and deadlines and retest
+> - Add a regression test per finding in a dedicated suite
+> - Add the pen test to the GA readiness blockers list, which currently omits it
+>
+> Checked: `docs/compliance/GA_READINESS.md:74` · `docs/security/THREAT_MODEL.md:97`
+
 **Prompt**
 
 ```
@@ -6270,6 +8136,18 @@ Have the system attacked by people who want it to fail.
 ### RF-SEC-6 · Security monitoring, detection and response
 
 **Severity:** High · **Area:** Security · **Depends on:** RF-OBS-1, RF-OBS-4
+
+> **Status at 2026-10-12 — Partial.** Security alerting exists only for break-glass (`admin/breakglass/src/alert.rs`, tested in `ac_ad_8.rs`), alongside SLO breach telemetry and an incident-response document with severity levels. There is no detection catalogue, no behavioural baseline, no insider-threat detection, no per-detection playbook and no one-step containment action in a console.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Still to do:**
+> - Define and implement the detection set (auth anomalies, context forgery, clearance probing, access volume, signature and chain failures, revoked-key use, egress attempts) with a simulation test per detection
+> - Add insider-threat detections (enumeration, repeated denials, off-incident break-glass) with simulations
+> - Expose revoke / quarantine / isolate as single dual-controlled audited console actions
+> - Store security telemetry under the audit chain's append-only guarantee and test tamper detection
+> - Write a playbook per detection
+>
+> Checked: `admin/breakglass/src/alert.rs:7` · `admin/breakglass/tests/ac_ad_8.rs:20` · `docs/ops/INCIDENT_RESPONSE.md:7` · `services/http-gateway/tests/rc_33.rs:68`
 
 **Prompt**
 
@@ -6310,6 +8188,20 @@ Detect attacks, not only failures.
 
 **Severity:** Medium · **Area:** Security · **Depends on:** RF-SC-4
 
+> **Status at 2026-10-12 — Partial.** `SECURITY.md` now exists with a reporting address, acknowledgement and assessment times, a 90-day coordinated-disclosure default, safe-harbour terms and scope. Internal handling (SLAs by severity, backport decision), machine-readable advisories, the air-gapped notification path and an emergency re-vendoring procedure are not documented; `just advisory-db-refresh` only refreshes upstream RustSec data.
+> Criteria met 0 of 5; open: b, c, d, e; not verifiable by reading: a. Confidence: medium.
+>
+> **Scope change:** `SECURITY.md` exists with a contact, acknowledgement and disclosure timelines, safe harbour and scope. What remains is internal SLAs, machine-readable advisories, the air-gapped notification path and emergency re-vendoring. The vendored advisory snapshot is past `mg-scan`'s 30-day warning threshold.
+>
+> **Still to do:**
+> - Confirm the reporting mailbox, the security.txt key and private reporting are live and monitored
+> - Document triage, CVSS plus deployment-context severity, remediation SLAs and backport policy, and measure against them
+> - Publish Midgard advisories in a machine-readable format that `mg-scan` consumes
+> - Define the out-of-band advisory path for air-gapped sites (for example carried in the `.mgbundle`)
+> - Document and exercise the emergency re-vendoring process for a vulnerable vendored crate
+>
+> Checked: `SECURITY.md:11` · `SECURITY.md:23` · `SECURITY.md:66` · `vendor/advisory-db/snapshot.toml:1`
+
 **Evidence.** No `SECURITY.md`, no disclosure policy, no advisory process. `LICENSE` is present but untracked in git (it appears as `??` in status), which itself needs resolving (RF-DOC-2).
 
 **Prompt**
@@ -6349,6 +8241,18 @@ platform.
 ### RF-SEC-8 · Physical and supply-chain security for air-gapped operations
 
 **Severity:** Medium · **Area:** Security · **Depends on:** RF-B-4, RF-DEP-5
+
+> **Status at 2026-10-12 — Partial.** `docs/ops/PKI.md` documents the HSM key ceremony, two-officer witness sign-off and rotation, the KMS hardware trust-root seam has a root-attestation test (`rc_28.rs`, software stand-in), and the guarded-action orchestrator denies a single-author high-risk commit (`rc_31.rs`). Media handling is one sentence in the air-gap bundle README, node-enrolment attestation was not found, and site and hardware assumptions are not written down as a verifiable list.
+> Criteria met 0 of 4; open: a, b, d; not verifiable by reading: c. Confidence: medium.
+>
+> **Still to do:**
+> - Write the removable-media procedure (sourcing, sanitisation, chain of custody, tamper-evident packaging, receipt verification, destruction) and exercise it once
+> - Verify measured-boot / TPM attestation at node enrolment where hardware supports it
+> - Prove no single-person path exists for dual-custody operations across every route including break-glass, not only the orchestrator
+> - Document hardware-trust and site-security assumptions as an explicit checklist a deployer can verify
+> - Document break-glass credential sealing and the physical controls for each ceremony
+>
+> Checked: `docs/ops/PKI.md:106` · `services/kms/tests/rc_28.rs:81` · `admin/orchestrator/tests/rc_31.rs:150` · `deploy/air-gap-bundle/README.md:44` · `services/kms/src/hardware.rs:47`
 
 **Prompt**
 
@@ -6392,6 +8296,17 @@ Address the parts of the threat model that are not software.
 
 **Severity:** Medium · **Area:** Testing · **Depends on:** —
 
+> **Status at 2026-10-12 — Open.** There is no `docs/dev/testing/` directory or strategy document, no coverage tooling (no llvm-cov, tarpaulin or grcov reference outside vendor) and no flake-quarantine process. The only description of test levels is the three-tier table in `deploy/acceptance/deployment/README.md`.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Write `docs/dev/testing/strategy.md` covering levels, placement and naming, coverage targets, time budgets and gates
+> - Add Rust and TypeScript coverage measurement reported per component and gated on decrease
+> - Define the flake quarantine process with owner and deadline
+> - State and enforce the regression-test-with-every-fix rule
+>
+> Checked: `deploy/acceptance/deployment/README.md:3` · `justfile:151` · `CONTRIBUTING.md:26`
+
 **Prompt**
 
 ```
@@ -6425,6 +8340,18 @@ can improve incrementally without an arbitrary cliff.
 ### RF-TST-2 · Frontend testing from zero
 
 **Severity:** High · **Area:** Testing · **Depends on:** RF-UI-2, RF-UID-1
+
+> **Status at 2026-10-12 — Open.** No `*.test.*`, `*.spec.*`, vitest, playwright config or stories file exists, and none of the ten workspace `package.json` files defines a `test` script, so the root `pnpm -r test` still runs nothing. The only frontend test artefact is `clients/shells/web/a11y/axe-audit.mjs`, which targets a web shell that does not exist.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Add a test runner and a `test` script to every package under `ui/`, `products/*/ui` and `sdk/ts`
+> - Write component tests with axe assertions for the design system and screen tests for the consoles
+> - Add SDK contract tests against the real `http-gateway`
+> - Add Playwright end-to-end flows against the compose enclosure in three browsers and two viewports
+> - Add visual regression with a reviewed baseline
+>
+> Checked: `package.json:13` · `sdk/ts/package.json:11` · `clients/shells/web/a11y/axe-audit.mjs:1` · `pnpm-workspace.yaml:4`
 
 **Evidence.** No `*.test.*`, `*.spec.*`, `vitest*`, `playwright*` or `*.stories.*` file exists anywhere. No `package.json` in the workspace defines a `test` script, so the root `pnpm -r test` runs nothing.
 
@@ -6468,6 +8395,20 @@ Build the frontend test suite from nothing.
 
 **Severity:** High · **Area:** Testing · **Depends on:** RF-RT-1, RF-API-2
 
+> **Status at 2026-10-12 — Partial.** The plan's premise that there are no processes is no longer true: Rust tests spawn the real service binaries over real PQ-mTLS and durable state (`mimir-server`, `bifrost-fleet-server`, `heimdall-feed-server`, `forge-worker`), and `deploy/compose/smoke.sh`, `deploy/kind/smoke.sh` and the RC-40 deployment tier exercise the multi-process system. The acceptance suites (`verify-*.sh`) still run in-process library tests, failure coverage is limited to refusal and hard-kill restart, and there is no upgrade test.
+> Criteria met 1 of 4 (a); open: b, c, d. Confidence: medium.
+>
+> **Scope change:** Rust tests already spawn real service binaries over PQ-mTLS with durable state, and compose, kind and deployment-tier smokes exist; criterion a is met. Rewrite around re-running the acceptance criteria against that system, a failure matrix and upgrade testing.
+>
+> **Still to do:**
+> - Re-run the acceptance criteria against the multi-process enclosure and record any that fail
+> - Add integration tests for the cross-service operations not yet covered (action apply, policy commit, privilege grant, artefact promotion, agent run with tools)
+> - Build the failure matrix: dependency unavailable, timeout, partial failure, retry and idempotency per crash point
+> - Add a previous-release-to-current upgrade and migration test
+> - Update the item's AC count (it assumes 72) to the current acceptance matrix
+>
+> Checked: `mimir/mimir-server/tests/serve.rs:177` · `bifrost/fleet-server/tests/serve.rs:182` · `deploy/compose/smoke.sh:13` · `deploy/kind/smoke.sh:1` · `deploy/acceptance/run-airgapped.sh:35`
+
 **Prompt**
 
 ```
@@ -6506,6 +8447,18 @@ Test the system as a system, not as a set of libraries.
 
 **Severity:** High · **Area:** Testing · **Depends on:** RF-SEC-2
 
+> **Status at 2026-10-12 — Open.** No fuzzing infrastructure of any kind exists: no fuzz directories, targets, corpora, nightly job, triage or replay suite, and no documentation on adding a target.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Add target scaffolding and minimised checked-in corpora
+> - Add a scheduled job with per-target time budget and coverage reporting
+> - Add crash triage producing a minimised deterministic reproducer
+> - Add a regression suite replaying reproducers on every build and a check that flags a parser with no target
+> - Document how to add a target
+>
+> Checked: `justfile:151` · `CONTRIBUTING.md:26`
+
 **Prompt**
 
 ```
@@ -6531,6 +8484,17 @@ a target so a new parser is fuzzed by default.
 ### RF-TST-5 · Performance and load testing
 
 **Severity:** High · **Area:** Testing · **Depends on:** RF-SCL-4, RF-TST-3
+
+> **Status at 2026-10-12 — Open.** No workload models, data generators, load, stress, soak or spike tests, benchmarks or published performance envelope exist. The only performance assertion found is the 800 ms first-token check in the RC-40.4 deployment probe, which needs a GPU cluster.
+> Criteria met 0 of 4; open: a, d; not verifiable by reading: b, c. Confidence: high.
+>
+> **Still to do:**
+> - Build per-product and mixed workload models and realistic data generators
+> - Run load, stress and 24-hour soak against a deployed enclosure and record results per release
+> - Publish the performance envelope and record the breaking point and failure mode
+> - Gate performance regressions at a stated tolerance
+>
+> Checked: `deploy/acceptance/deployment/run-deployment-tier.sh:212` · `deploy/acceptance/deployment/README.md:25`
 
 **Prompt**
 
@@ -6568,6 +8532,18 @@ Measure the system under realistic load.
 
 **Severity:** Medium · **Area:** Testing · **Depends on:** RF-RT-6
 
+> **Status at 2026-10-12 — Open.** No multi-day stability run, resource-profile assertions or clock-crossing tests exist. Restart-recovery tests (`durable_restart.rs` in several crates) prove ledger recovery after a restart but not behaviour over time.
+> Criteria met 0 of 4; open: d; not verifiable by reading: a, b, c. Confidence: medium.
+>
+> **Still to do:**
+> - Build a long-run harness on the compose or kind enclosure with representative activity and memory, descriptor and latency sampling
+> - Trigger rotation, compaction, backup, certificate renewal, key rotation and token expiry during the run and assert SLOs
+> - Verify the audit chain from genesis at the end of the run
+> - Add clock-crossing tests (DST, leap second, month and year boundaries) for expiry, windows and retention
+> - Execute and record a 7-day run
+>
+> Checked: `services/governance/tests/durable_restart.rs:1` · `services/iam/tests/idp.rs:102`
+
 **Prompt**
 
 ```
@@ -6595,6 +8571,17 @@ month and year boundaries) because time bugs surface only in long runs.
 ### RF-TST-7 · Regression, benchmark and golden-output suites
 
 **Severity:** Medium · **Area:** Testing · **Depends on:** RF-TST-1
+
+> **Status at 2026-10-12 — Open.** No golden-output files or review-on-change mechanism, no benchmarks (no `[[bench]]`, criterion or trend reporting), no dedicated governance regression suite and no cross-version compatibility tests were found. Governance properties are covered piecemeal by per-crate acceptance tests run through `verify-*.sh`, with no published CI to run them per PR.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Still to do:**
+> - Add golden outputs with explicit accept-on-review for assembled prompts, chat templates, SBOM, DSSE attestation, audit record and wire encoding
+> - Collect the governance tests (deny-by-default, clearance, markings, gates, dual control, fail-closed) into one named suite run on every PR
+> - Add benchmarks with tolerances and trend reporting
+> - Add previous-SDK versus current-server and current-SDK versus previous-server tests
+>
+> Checked: `justfile:151` · `crypto/policy/tests/pdp.rs:65` · `admin/orchestrator/tests/rc_31.rs:150`
 
 **Prompt**
 
@@ -6629,6 +8616,20 @@ Protect the behaviours that must not change.
 ### RF-TST-8 · Chaos and fault-injection testing
 
 **Severity:** High · **Area:** Testing · **Depends on:** RF-RES-3, RF-TST-3
+
+> **Status at 2026-10-12 — Partial.** Process-level tests hard-kill services and assert they restart on the same sealed ledger, and individual fail-closed tests exist for expired tokens and tickets, but there is no chaos suite: no network partition, disk, clock, memory or CPU fault injection, no recorded hypotheses and no continuous run.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Scope change:** Hard-kill-and-recover tests exist in the process-level suites. Read this item as a fault-injection harness on the compose and kind enclosures.
+>
+> **Still to do:**
+> - Build a fault-injection harness on the compose or kind enclosure covering kill at step boundaries, partition, loss, latency, disk full/slow/error, clock skew, memory and CPU pressure
+> - Write each experiment with a hypothesis tied to the degradation matrix and record outcomes
+> - Assert audit-chain verification and store integrity after every fault
+> - Add security faults: unavailable audit ledger, key revoked mid-operation, compromised workload identity, expired credentials
+> - Run it continuously in a non-production environment and convert divergences into permanent tests
+>
+> Checked: `mimir/mimir-server/tests/serve.rs:177` · `heimdall/feed-server/tests/serve.rs:187` · `services/iam/tests/idp.rs:102` · `services/gateway/tests/session.rs:366` · `deploy/compose/smoke.sh:24`
 
 **Prompt**
 
@@ -6670,6 +8671,20 @@ Verify the failure behaviour the resilience model claims.
 
 **Severity:** High · **Area:** Compliance · **Depends on:** RF-OBS-1, RF-PER-2
 
+> **Status at 2026-10-12 — Partial.** The plan's status line (no control mapping anywhere) is stale: `docs/compliance/COMPLIANCE_MATRIX.md` is a 66-line self-attestation mapping about eight NIST 800-53 control groups, three OWASP ASVS chapters and a one-paragraph ISO 27001 summary to crates, and `docs/compliance/RESIDUAL_RISK_REGISTER.md` plus `GA_READINESS.md` record SAD residual risks and a NO-GO release decision. There is no SOC 2 mapping, no per-control test reference or shared-responsibility column, no baseline coverage (moderate/high, ASVS L2/L3, full Annex A), no generated evidence report, and no build check tying controls to tests. The files live in `docs/compliance/`, not the `docs/dev/compliance/` path the prompt names.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** `docs/compliance/COMPLIANCE_MATRIX.md`, `RESIDUAL_RISK_REGISTER.md` and `GA_READINESS.md` exist. Read this item as: extend the matrix, add SOC 2, generate evidence, and add a control-gap register. Settle the path (`docs/compliance/`, not `docs/dev/compliance/`).
+>
+> **Still to do:**
+> - Expand the matrix to complete per-control mappings for NIST 800-53 moderate/high, ISO 27001 Annex A, ASVS L2/L3 and add SOC 2 TSC, each with code location, proving test and shared-responsibility statement
+> - Build an evidence-report generator fed by test results, audit-ledger queries and configuration state, and regenerate it per release
+> - Create a control gap register with owner, plan and date per unimplemented or partial control (the residual-risk register tracks SAD risks, not controls, and has no owners or dates)
+> - Add a build check that fails and names the control when a control's evidence-generating test is removed
+> - Decide the canonical location (docs/compliance vs docs/dev/compliance) and update the item text
+>
+> Checked: `docs/compliance/COMPLIANCE_MATRIX.md:21` · `docs/compliance/COMPLIANCE_MATRIX.md:42` · `docs/compliance/RESIDUAL_RISK_REGISTER.md:99` · `docs/compliance/GA_READINESS.md:10`
+
 **Prompt**
 
 ```
@@ -6709,6 +8724,18 @@ automatically.
 
 **Severity:** High · **Area:** Compliance · **Depends on:** RF-SC-1..5
 
+> **Status at 2026-10-12 — Partial.** The provenance machinery exists: `crypto/attest` emits in-toto Statement v1 attestations, `mg-verify` fails closed against explicit trust anchors with a test suite, and the rc.1 notes give a one-line verify command per artefact. There is no SLSA level document, no VEX output (`supply-chain/advisories.toml` is an empty internal exception list, not VEX), no standalone consumer verification guide, and no third-party assessment. Nothing has been published: `deploy/trust/` holds only a README (no `.pub` anchors), there are no tags, and the release workflow is not in the public tree.
+> Criteria met 0 of 4; open: a, c; not verifiable by reading: b, d. Confidence: high.
+>
+> **Still to do:**
+> - Write the SLSA document: target level and a met/not-met statement per requirement (hermetic, provenance, isolated, parameterless, reproducible), including the software-key and unrun-workflow shortfalls
+> - Emit CycloneDX VEX statements alongside each SBOM for advisories judged not applicable
+> - Write a consumer verification guide covering artefact, SBOM and provenance using only published material
+> - Run the key ceremony, commit the trust anchors and publish a release so third-party verification can actually be attempted
+> - Commission the third-party pipeline assessment and record findings
+>
+> Checked: `crypto/attest/src/attestation.rs:17` · `tools/mg-verify/src/main.rs:13` · `deploy/trust/README.md:28` · `supply-chain/advisories.toml:35` · `docs/releases/v0.1.0-rc.1.md:78`
+
 **Prompt**
 
 ```
@@ -6746,6 +8773,18 @@ Make the supply-chain claims externally assessable.
 ### RF-CMP-3 · Privacy: data protection by design and by default
 
 **Severity:** High · **Area:** Compliance · **Depends on:** RF-PER-6
+
+> **Status at 2026-10-12 — Partial.** Purpose limitation is a real runtime control: the PDP has a purpose gate that denies before discretionary rules, and the HTTP edge binds one purpose to the session token, both with tests. `docs/compliance/DATA_RESIDENCY.md` describes residency as a structural no-egress property and assigns controller duties to the operator. No personal-data inventory, DPIA, data-subject-rights workflow, residency constraint in policy, or retention concept exists in code (no occurrence of retention, erasure, crypto-shredding or residency in any Rust source outside vendor).
+> Criteria met 1 of 5 (c); open: a, b, d, e. Confidence: medium.
+>
+> **Still to do:**
+> - Add a personal-data marker to the type registry and generate the data inventory and flow map from it
+> - Implement and audit the six data-subject-rights workflows (erasure depends on RF-PER-6 crypto-shredding, which does not exist)
+> - Add a residency constraint to policy and block violating transfers (bundle export, picture-sync, DR replication), with a test
+> - Introduce a retention setting with a conservative non-indefinite default for every data class
+> - Write the DPIA for cross-source fusion, AI-assisted decisions and behavioural audit
+>
+> Checked: `crypto/policy/src/pdp.rs:68` · `crypto/policy/tests/pdp.rs:153` · `services/http-gateway/tests/fabric_edge.rs:347` · `services/http-gateway/src/enclosure.rs:658` · `docs/compliance/DATA_RESIDENCY.md:35`
 
 **Prompt**
 
@@ -6788,6 +8827,18 @@ Address privacy as a design property, not a policy document.
 
 **Severity:** Medium · **Area:** Compliance · **Depends on:** RF-PER-6, RF-PER-2
 
+> **Status at 2026-10-12 — Open.** Nothing exists: there is no records schedule, legal-hold mechanism, disposal certificate, eDiscovery export or written reconciliation of the append-only ledger with erasure. No Rust source outside vendor mentions retention, legal hold, disposal or erasure; the only related statement is a passing reference to processor-side deletion paths in `docs/compliance/DATA_RESIDENCY.md`.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Write the records schedule (driver, period, disposal method, authority per record type) keyed to the RF-CMP-3 inventory
+> - Implement legal hold with dual control and audit that overrides every retention and erasure path, with tests
+> - Implement signed, independently verifiable disposal certificates
+> - Implement eDiscovery search/preserve/export with a chain-of-custody record
+> - Document how the append-only ledger coexists with erasure via crypto-shredding in docs/compliance
+>
+> Checked: `docs/compliance/DATA_RESIDENCY.md:56` · `docs/compliance/COMPLIANCE_MATRIX.md:27`
+
 **Prompt**
 
 ```
@@ -6825,6 +8876,17 @@ Complete the records-management story around the append-only ledger.
 
 **Severity:** Medium · **Area:** Compliance · **Depends on:** RF-MS-2, RF-API-6
 
+> **Status at 2026-10-12 — Open.** No export-control classification, distribution record, sanctions process or jurisdictional restriction on models or data exists; a search of the tree outside vendor for export control, ECCN, Wassenaar or sanctions finds nothing except this plan. The repository is already public under Apache-2.0 with pure-Rust FIPS 203/204/205 and AES implementations, so the classification question is live rather than hypothetical.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Still to do:**
+> - Document the export classification, its basis and distribution obligations (including any notification duty for publicly available cryptographic source) in docs/compliance
+> - Add jurisdiction restrictions to model and dataset manifests and refuse and audit restricted transit at bundle pack/import and egress
+> - Define what distribution records are kept, if any are required for the chosen distribution model
+> - Publish the deploying organisation's obligations and the responsibility boundary
+>
+> Checked: `NOTICE:1` · `docs/compliance/COMPLIANCE_MATRIX.md:9` · `docs/compliance/DATA_RESIDENCY.md:51`
+
 **Prompt**
 
 ```
@@ -6860,6 +8922,20 @@ Address the constraints a sovereign, cryptography-heavy platform inevitably meet
 ### RF-CMP-6 · Accessibility conformance reporting
 
 **Severity:** Medium · **Area:** Compliance · **Depends on:** RF-UI-3, RF-CL-2..7
+
+> **Status at 2026-10-12 — Partial.** The Evidence is partly stale: besides the declaration check there is now `deploy/acceptance/verify-shell-audits.sh`, a fail-closed per-release gate that requires a recorded on-device audit for each shell with every declared affordance measured as pass, plus `clients/shells/AUDIT_SCHEMA.md`, an axe script for the web shell and AT-SPI/Tauri helper scripts. No audit records exist (the `audits/` directories are empty), the workflow that would write them (`.github/workflows/shell-audit.yml`) is not in the public tree, there is no VPAT/ACR, and the seven consoles under `products/*/ui` have no accessibility tests or tooling at all.
+> Criteria met 0 of 4; open: a, b, c; not verifiable by reading: d. Confidence: medium.
+>
+> **Scope change:** `deploy/acceptance/verify-shell-audits.sh` is a fail-closed gate on recorded on-device audits. The gaps are that no audit records exist and the workflow that writes them is not in the tree. There are seven console packages, not six.
+>
+> **Still to do:**
+> - Run the on-device audits and commit records so the audit gate can pass for a release
+> - Make each accessibility.toml affordance name the test that demonstrates it and fail when a declaration has no test (the current gate matches recorded results, not tests)
+> - Add axe-core and keyboard/screen-reader tests to the consoles (there are seven console packages, not six) and include them in the report
+> - Publish a WCAG 2.2 AA ACR with per-criterion statements and named evidence
+> - Publish an accessibility feedback and remediation path with response commitments
+>
+> Checked: `deploy/acceptance/verify-shell-audits.sh:3` · `deploy/acceptance/verify-shells-accessibility.sh:47` · `clients/shells/web/accessibility.toml:11` · `docs/compliance/GA_READINESS.md:83`
 
 **Evidence.** `clients/shells/*/accessibility.toml` declares conformance for the six shells; `verify-shells-accessibility.sh` checks the declaration's completeness, not the behaviour. The six consoles have no accessibility claim, and would not currently support one.
 
@@ -6905,6 +8981,19 @@ Produce real accessibility conformance evidence.
 
 **Severity:** High · **Area:** Scale · **Depends on:** RF-PER-1, RF-IAM-5 · **Blocks:** RF-SCL-2..5
 
+> **Status at 2026-10-12 — Open.** No tenancy ADR exists (there is no ADR directory at all) and no document states the tenancy model. The premise that nothing models a tenant is slightly wrong: `services/scheduler` carries a `TenantId` label on every workload (documented as a label over a shared quota pool), and the Mimir system prompt tells the model it serves one tenant, so the tree currently half-implies both answers.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** `services/scheduler/src/admission.rs` carries a `TenantId` label while the Mimir prompt says "one tenant". Name that as the ambiguity the ADR resolves.
+>
+> **Still to do:**
+> - Write docs/dev/adr/0004-tenancy-model.md and decide the model
+> - If single-tenant per enclosure: say so in README, SADs and deploy docs, and rename or remove scheduler `TenantId` so nothing implies multi-tenancy
+> - If multi-tenant: implement isolation at every listed layer with a cross-tenant leakage suite and fault-injection variant
+> - Define enclosure/tenant deletion with cryptographic assurance and a certificate
+>
+> Checked: `services/scheduler/src/admission.rs:35` · `services/scheduler/tests/rc_43.rs:14` · `mimir/prompts/src/lib.rs:27` · `deploy/helm/midgard/values.yaml:36`
+
 **Prompt**
 
 ```
@@ -6943,6 +9032,18 @@ Decide tenancy before the storage layer sets in concrete.
 ### RF-SCL-2 · Horizontal scalability of the data plane
 
 **Severity:** High · **Area:** Scale · **Depends on:** RF-PER-3, RF-SCL-1
+
+> **Status at 2026-10-12 — Partial.** Only the claim-correction half has moved: the rc.1 notes and the Helm values now state one replica per service with a single-writer state directory, and `services/fabric/src/store.rs` describes `ObjectStore` as a seam for a future distributed backend with an in-memory reference (a `DurableObjectStore` also exists). The crate header still calls it a horizontally-scalable ObjectStore, and no partitioning, scatter-gather, rebalancing, consistency statement or scale test exists.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Reword `services/fabric/src/lib.rs` and store.rs so they say single-node today with a seam for a distributed backend, and add a scaling-limits section to the deploy docs
+> - Decide whether distributed fabric is in scope before GA; if so design partitioning and cross-partition traversal
+> - Implement scatter-gather with per-object authorisation at the partition and explicit partial-failure results
+> - Implement rebalancing and state the consistency model
+> - Run the 10^8 object / 10^9 link multi-node test with a node failure
+>
+> Checked: `services/fabric/src/lib.rs:11` · `services/fabric/src/store.rs:2` · `docs/releases/v0.1.0-rc.1.md:95` · `deploy/helm/midgard/values.yaml:36`
 
 **Evidence.** `services/fabric` describes a "horizontally-scalable ObjectStore" that is a single-process map.
 
@@ -6985,6 +9086,19 @@ Make the claim true, or correct the claim.
 
 **Severity:** Medium · **Area:** Scale · **Depends on:** RF-PER-3, RF-SCL-1
 
+> **Status at 2026-10-12 — Open.** There is no authorisation-result, query-result or policy-decision cache in the services, so nothing to key, invalidate or bound; no caching strategy document exists. The only server-side cache is the model server's KV/prefix cache, which the reference backend keys by a hash of the prompt prefix alone (no subject, clearance or purpose) and which changes first-token latency, so it is the one place the item's cross-principal and timing concerns already apply.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Scope change:** No authorisation or query cache exists. The only server-side cache is the model prefix cache, keyed by prompt prefix alone. Scope this to a caching strategy plus an assessment of that cache.
+>
+> **Still to do:**
+> - Write the caching strategy: what may be cached at which layer, key composition, staleness bound as a reviewed security parameter
+> - Assess the model KV/prefix cache for cross-principal reuse and timing leakage and either scope it by authorisation context or document why it is safe
+> - When any cache is introduced, add the cross-principal leakage test, revocation-invalidation test and not-found versus not-permitted timing test
+> - Bound and instrument every cache (size, eviction, hit-rate metrics)
+>
+> Checked: `mimir/model-server/src/backends/local.rs:34` · `mimir/model-server/src/backends/local.rs:116` · `mimir/model-server/tests/serving.rs:72` · `services/http-gateway/src/http.rs:168`
+
 **Prompt**
 
 ```
@@ -7023,6 +9137,20 @@ governed platform leaks.
 
 **Severity:** High · **Area:** Scale · **Depends on:** RF-TST-5
 
+> **Status at 2026-10-12 — Open.** No benchmark, criterion or load-test code exists anywhere in the workspace, and there is no performance requirements or envelope document and no stated non-goals. The only measurements are two first-token figures from manual smoke runs in the rc.1 notes against an 800 ms target that is itself declared unproven on GPU; the gateway's SLO view returns hard-coded figures such as a 38 ms query p95.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** The observability view returns hard-coded SLO figures (`services/http-gateway/src/data.rs:226`); no measured performance figure exists anywhere.
+>
+> **Still to do:**
+> - Write per-operation-class performance requirements and explicit non-goals
+> - Build the benchmark suite for the critical paths (query, search-around, action apply, policy decision, audit write/verify, inference, ingest, sync)
+> - Run it in CI with trend reporting and a regression gate (no CI definition is in the public tree)
+> - Replace or clearly label the hard-coded SLO figures served by `services/http-gateway/src/data.rs`
+> - Publish the measured envelope
+>
+> Checked: `docs/releases/v0.1.0-rc.1.md:50` · `docs/releases/v0.1.0-rc.1.md:90` · `services/http-gateway/src/data.rs:226` · `docs/compliance/RESIDUAL_RISK_REGISTER.md:31`
+
 **Prompt**
 
 ```
@@ -7056,6 +9184,20 @@ Establish performance as an engineered property.
 ### RF-SCL-5 · Cost model and resource efficiency
 
 **Severity:** Low · **Area:** Scale · **Depends on:** RF-SCL-4, RF-MI-8
+
+> **Status at 2026-10-12 — Open.** No cost model, per-product resource attribution, efficiency measurement or energy reporting exists in code, console or documentation; the only adjacent mechanism is the scheduler's CPU/memory/GPU quota admission. The criterion's per-tenant breakdown also presupposes an RF-SCL-1 decision that has not been made.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: medium.
+>
+> **Scope change:** Criterion b needs a per-tenant cost breakdown, which presupposes an RF-SCL-1 outcome that is undecided.
+>
+> **Still to do:**
+> - Build a cost model per topology and workload and validate it against measured consumption
+> - Instrument resource consumption per product and feature (and per tenant only if RF-SCL-1 chooses multi-tenancy)
+> - Surface cost and efficiency in the Admin console
+> - Report an energy/efficiency figure for the inference plane
+> - Record before/after measurements for each efficiency change
+>
+> Checked: `services/scheduler/src/admission.rs:107` · `services/http-gateway/src/data.rs:224`
 
 **Prompt**
 
@@ -7091,6 +9233,27 @@ asked about it.
 ### RF-DOC-1 · Reconcile every status claim with the tree
 
 **Severity:** Medium · **Area:** Documentation · **Depends on:** — (do this first; it is cheap and it is load-bearing)
+
+> **Status at 2026-10-12 — Partial.** Of the twelve rows, four are fixed: the crate count (70), `mg-sign`/`mg-verify` now return real exit codes with a fail-closed test suite, `LICENSE` is tracked and matches the workspace `license = Apache-2.0`, and `go.work` and `pyproject.toml` have been deleted. Three still hold unchanged: `products/README.md` still lists Forge as Rust (DataFusion) and Bifrost/Admin as Go and says scaffold only; the SDK comments still call `HttpGateway` a stub and `MockGateway` the only implementation although `HttpGateway.ts` is 182 lines; `clients/shells/web` and `extension` still have no `package.json` while listed in `pnpm-workspace.yaml`. Three have inverted or moved: `deploy/helm` and `deploy/air-gap-bundle` now exist but `deploy/README.md` still says the bundle directory is not yet present and several docs cite `.github/workflows/release.yml`, `ci.yml` and `.github/CODEOWNERS`, none of which is in the public tree; `ui/README.md` says the Midgard console is wired to the mock gateway when it now defaults to HTTP with `VITE_GATEWAY=mock` as the opt-in, while the other consoles are mock-only and README line 794 says consoles bind to the gateway edge; the justfile still has `build-go` and `build-py` recipes and `sdk/README.md` advertises a `py/` SDK that does not exist. The 72/72 claim sits under the headline Implementation: complete and verified, qualified by a caveat list but not by any status vocabulary, and `services/README.md` and `clients/README.md` still say scaffold only. Brand: both token copies now say Veldris, but Kryotech remains in SAD_00, SAD_01, SAD_06 and one diagram source, and Akuma Engineering Ltd. remains in `docs/dev/README.md`, the SADs, `BUILD_PLAYBOOK.md` and `docs/design/readme.md`; no Rust source carries a licence header and no mechanical drift check exists.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Scope change:** The Evidence table below is superseded; the status note above lists which rows are fixed and which hold. New drift to add: documents cite `.github/workflows/release.yml`, `ci.yml` and `CODEOWNERS`, none of which is in the tree; the `justfile` keeps `build-go` and `build-py`; `sdk/README.md` advertises a Python SDK that does not exist; `deploy/README.md` says the air-gap bundle is not present when it is; `ui/README.md` says the Midgard console uses the mock gateway; no `.rs` file carries a licence header. Headline numbers are RF-CA-2.
+>
+> **Still to do:**
+> - Rewrite `products/README.md`: all backends are Rust, no DataFusion, seven console packages exist, drop scaffold only; fix the same DataFusion and scaffold claims in `services/README.md` and `clients/README.md`
+> - Update the SDK comments in `sdk/ts/src/index.ts` and `client.ts` to describe `HttpGateway` as a real client, and fix `sdk/README.md` (no `py/`, no generated `src/gen`)
+> - Fix `ui/README.md` and README line 794 to state per console which data source it uses (Midgard: HTTP by default, others: mock)
+> - Fix `deploy/README.md` (air-gap-bundle exists; trust anchors absent) and every reference to `.github/` files that the public tree does not contain
+> - Remove `clients/shells/web` and `clients/shells/extension` from `pnpm-workspace.yaml` or give them a package.json; delete the `build-go` and `build-py` justfile recipes
+> - Remove the remaining Kryotech strings (SAD_00/01/06, `docs/dev/diagrams/midgard_c4_containers.mmd`, and the derived docx/png) and decide what to do about Akuma Engineering Ltd. branding
+> - Define the spec/reference/operable/production vocabulary and label every component README and the README status block with it, restating the 72/72 claim as reference-implementation, air-gapped
+> - Decide the licence-header policy (no .rs file has one) and record it so criterion d can be closed; note d is otherwise satisfied
+> - Add a mechanical drift check script under tools/ci (referenced directories exist, workspace members resolve, no Go claim without .go files) and wire it wherever CI is published
+> - Rewrite the Evidence table: rows 1, 3, 4, 5, 9 and 11 are superseded and rows 3 and 7 now drift in the opposite direction
+>
+> Checked: `products/README.md:9` · `products/README.md:18` · `deploy/README.md:52` · `sdk/ts/src/index.ts:4` · `sdk/ts/src/client.ts:25` · `ui/README.md:16` · `products/midgard/ui/src/main.tsx:24` · `pnpm-workspace.yaml:8` · `tools/mg-verify/src/main.rs:23` · `README.md:22` · `docs/dev/markdown/SAD_00_Midgard_Core.md:78` · `justfile:23`
+
+> **Revision 2.** The first row is superseded: the workspace has 70 members, and the README and GETTING_STARTED counts were corrected on `dev` on 2026-10-12. Every headline figure is now governed by [RF-CA-2](#rf-ca-2--one-numbers-sheet-generated-from-the-tag), whose CI check implements step 6 below for numbers. The other rows have not been rechecked.
 
 **Evidence.** Verified drift, each independently checked:
 
@@ -7152,6 +9315,20 @@ Reconcile every claim in the repository with the repository.
 
 **Severity:** High · **Area:** Documentation · **Depends on:** RF-OBS-4, RF-RES-2
 
+> **Status at 2026-10-12 — Partial.** The Evidence (no operations documentation of any kind) is stale: `docs/ops/` now holds seven runbooks (RB-1..7), a DR plan, backup/restore, incident response, a PKI lifecycle document and a GA-gate runbook, each with verification steps. Missing are install, upgrade, rollback, capacity, node-replacement and air-gap-transit procedures, an alert catalogue with one runbook per alert, symptom-organised troubleshooting, any generated configuration/metric/error reference, evidence of execution by a non-author, and inclusion of the docs in the air-gap bundle. The set lives in `docs/ops/`, not `docs/dev/operations/`, while `supply-chain/advisories.toml` points at the latter path.
+> Criteria met 0 of 5; open: a, c, d, e; not verifiable by reading: b. Confidence: high.
+>
+> **Scope change:** `docs/ops/` holds runbooks plus DR, backup, incident-response, PKI and GA-gate documents. Read this item as gap-filling, and use `docs/ops/`, not `docs/dev/operations/`.
+>
+> **Still to do:**
+> - Write the missing procedures: install, upgrade, rollback, capacity expansion, node replacement, air-gap transit
+> - Define the alert catalogue and add a check that every alert and listed procedure has a runbook
+> - Generate the configuration, metric, alert, error-code and CLI reference from source
+> - Add symptom-first troubleshooting guides
+> - Ship the operations set in the air-gap bundle and have a non-author execute each runbook
+>
+> Checked: `docs/ops/README.md:6` · `docs/ops/RUNBOOKS.md:7` · `docs/ops/PKI.md:47` · `deploy/air-gap-bundle/README.md:16` · `supply-chain/advisories.toml:32`
+
 **Evidence.** `docs/dev/` contains the SADs, diagrams and `BUILD_ENV.md`. There is no operations documentation of any kind: no runbooks, no troubleshooting, no procedures.
 
 **Prompt**
@@ -7194,6 +9371,18 @@ Write the documentation an operator needs, in docs/dev/operations/.
 
 **Severity:** Medium · **Area:** Documentation · **Depends on:** RF-UX-*
 
+> **Status at 2026-10-12 — Open.** No user documentation exists: there are no role guides, task guides, glossary or help content anywhere outside this plan, and the console READMEs under `products/*/ui` are developer run instructions. `docs/demo/` has a screenshot capture script for the launch deck, which is not wired to an E2E suite or to documentation. In-product refusal explanations were not examined screen by screen.
+> Criteria met 0 of 4; open: a, b, d; not verifiable by reading: c. Confidence: medium.
+>
+> **Still to do:**
+> - Write a role guide per persona explaining clearance, markings, purpose, human gates, break-glass and audit in operational terms
+> - Write a glossary of the governance terms of art
+> - Add contextual help and refusal explanations in the consoles and audit every refusal path
+> - Generate documentation screenshots from an E2E suite
+> - Make the documentation available offline in the bundle and accessible
+>
+> Checked: `products/forge/ui/README.md:1` · `ui/README.md:8` · `docs/dev/README.md:6`
+
 **Evidence.** There is no user documentation. `README.md` and `GETTING_STARTED.md` address builders; `docs/design/` addresses designers; the SADs address architects. Nobody has written for the analyst, the data engineer, the release manager, the operator or the auditor.
 
 **Prompt**
@@ -7231,6 +9420,20 @@ Write for the people who will use this.
 ### RF-DOC-4 · Architecture documentation currency and decision records
 
 **Severity:** Medium · **Area:** Documentation · **Depends on:** —
+
+> **Status at 2026-10-12 — Open.** There is no ADR directory, template or index. All SADs are still Version 1.0 dated 2026-07-02 with no changelog, and two more (SAD_08 Gungnir, SAD_08b Forseti) have been added without `docs/dev/README.md` being updated: it lists nine documents and 63 diagrams against eleven SADs and 76 diagram sources, and still says the set is not evidence of an implemented system. Every SAD published in this public repository is marked CONFIDENTIAL — RECIPIENT EYES ONLY, and the rc.1 notes list disclosure of the design documents as an undecided owner action.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Scope change:** `docs/dev/README.md` lists nine SADs and 63 diagrams; the tree has eleven SADs (with `SAD_08`, `SAD_08b`) and 76 diagram sources. Every published SAD is marked confidential (RF-CA-7).
+>
+> **Still to do:**
+> - Create docs/dev/adr/ with a template and index and write the retrospective ADRs (lean-std transport, pure-Rust FIPS backend, in-memory reference posture, no-external-dependency stance)
+> - Resolve the CONFIDENTIAL marking on publicly released SADs and the Kryotech/Akuma branding inside them
+> - Reconcile each SAD with the implementation (for example Go and DataFusion backends, GLM model choice, single-replica services) or record the divergence in an ADR
+> - Version the SADs with a changelog and update `docs/dev/README.md` to the current document and diagram set
+> - Add a diagram-currency check for new services and data flows
+>
+> Checked: `docs/dev/markdown/SAD_00_Midgard_Core.md:7` · `docs/dev/README.md:6` · `docs/dev/README.md:34` · `docs/dev/markdown/SAD_08_Gungnir.md:6` · `docs/releases/v0.1.0-rc.1.md:109`
 
 **Evidence.** The eight SADs are the design source of truth and are dated v1.0, 2026-07-02 — before the implementation. Every `.md` is currently modified in the working tree (the rebrand). There are no ADRs; this document alone calls for at least four.
 
@@ -7270,6 +9473,17 @@ Keep the architecture documents true as the system changes.
 
 **Severity:** Low · **Area:** Documentation · **Depends on:** —
 
+> **Status at 2026-10-12 — Partial.** `CONTRIBUTING.md` (ground rules, provenance tags, offline build and test, style, PRs, release and version policy), `SECURITY.md` and a Keep-a-Changelog `CHANGELOG.md` with Unreleased and 0.1.0-rc.1 sections exist at the root. `CODE_OF_CONDUCT.md`, `GOVERNANCE.md`, `MAINTAINERS.md`, issue and PR templates and a standalone release-process document (support window, deprecation policy, branching) do not, and `CONTRIBUTING.md` links to `.github/CODEOWNERS` and `.github/workflows/release.yml`, which are absent from the public tree.
+> Criteria met 0 of 3; open: a, b; not verifiable by reading: c. Confidence: high.
+>
+> **Still to do:**
+> - Add CODE_OF_CONDUCT.md, GOVERNANCE.md and MAINTAINERS.md
+> - Publish issue and PR templates with provenance-tag, test, threat-model and documentation checkboxes (requires a public .github directory)
+> - Publish CODEOWNERS or remove the link from CONTRIBUTING.md
+> - Extend the release section into a release-process document covering branching, support window and deprecation policy
+>
+> Checked: `CONTRIBUTING.md:60` · `CONTRIBUTING.md:69` · `CHANGELOG.md:10` · `SECURITY.md:72`
+
 **Prompt**
 
 ```
@@ -7297,6 +9511,18 @@ covering versioning, branching, the support window and deprecation policy.
 ### RF-DOC-6 · Design system: single source, coverage and governance patterns
 
 **Severity:** Medium · **Area:** Design system · **Depends on:** RF-UI-3, RF-UI-6, RF-UI-8
+
+> **Status at 2026-10-12 — Open.** Unchanged from the Evidence: the design system still exists twice, 28 JSX components under `docs/design/components` and 28 TSX ports under `ui/design-system/src/components`, with token CSS copied by hand per `PORTING.md` (five of six token files are byte-identical today; `fonts.css` has already diverged in its header comment). There is no generator, divergence check, test, component workshop or contribution process, and `ui/design-system/package.json` has only build and typecheck scripts. Of the governance patterns only ClassificationBanner, MarkingChip, HumanGate, BreakGlass, GuardedAction and ProvenanceTag exist.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> **Still to do:**
+> - Pick one token source and generate the other, with a check that fails on divergence (reconcile fonts.css first)
+> - Add a test runner to `ui/design-system` with behaviour and accessibility tests per component
+> - Build the missing governance components (clearance indicator, purpose selector, dual-control card, audit-reference chip, confidence, redaction and staleness indicators)
+> - Audit the consoles for locally defined components and move them into the design system; build the listed primitives (modal, drawer, toast, combobox, virtualised table and so on)
+> - Add an offline component workshop and a contribution process
+>
+> Checked: `ui/design-system/PORTING.md:3` · `ui/design-system/PORTING.md:9` · `ui/design-system/package.json:11` · `docs/design/tokens/fonts.css:7` · `ui/README.md:4`
 
 **Evidence.** The design system exists twice: `docs/design/` (the stated authority — tokens, 28 components as JSX with `.prompt.md` and `.d.ts` files, guidelines, UI kits, a marketing site) and `ui/design-system/` (the TypeScript port consumed by the apps, with `PORTING.md` describing the mapping). The token files are duplicated and both copies were edited independently in the current working tree. Neither has tests or a component workshop.
 
@@ -7346,6 +9572,20 @@ Make the design system one thing, complete and governed.
 
 **Severity:** Low · **Area:** Documentation · **Depends on:** RF-DOC-1
 
+> **Status at 2026-10-12 — Partial.** The rebrand half is done for the site and tokens: the 13 pages under `docs/design/site/` and both `colors.css` copies use Veldris, with no Kryotech string left in them. Nothing else has moved: the pricing page presents three tiers as offerings with no indicative marking, including an Enterprise HA control plane and cross-site DR replication while the rc.1 notes state one replica per service; the privacy page is a self-described preview dated 2026-07-08 with no sign of counsel review; no status vocabulary exists to audit claims against; and there is no site build, link or accessibility check.
+> Criteria met 0 of 4; open: a, b, d; not verifiable by reading: c. Confidence: medium.
+>
+> **Scope change:** The rebrand is complete in the site and tokens. What remains is claim accuracy — the pricing page sells an HA control plane while every service runs one replica — plus the site check.
+>
+> **Still to do:**
+> - Audit every site claim against the RF-DOC-1 status vocabulary once it exists; start with pricing tiers, the bit-for-bit rebuild and one-signature-per-release claims, and HA/DR
+> - Mark pricing as indicative or tie it to a deliverable offering
+> - Finish the brand clean-up outside the site (Kryotech in SADs and a diagram, Akuma Engineering Ltd. in docs) so criterion b can close
+> - Have counsel review privacy, terms and legal and align the privacy notice with RF-CMP-3
+> - Add a site check for build, internal links, accessibility and capability claims below operable
+>
+> Checked: `docs/design/site/pricing.html:28` · `docs/design/site/privacy.html:58` · `docs/design/site/github.html:42` · `docs/design/tokens/colors.css:28` · `docs/releases/v0.1.0-rc.1.md:95`
+
 **Evidence.** `docs/design/site/` contains a complete marketing site (index, architecture, four product pages, pricing, about, contact, legal, privacy, terms, github), all currently modified by the in-flight rebrand. `README.md` notes that no logos exist and `ProductMark` sets the name in plain type.
 
 **Prompt**
@@ -7378,207 +9618,981 @@ Ensure the public-facing material is accurate and consistent.
 **Done when:** claims match status, the rebrand is complete, and the CI check is green.
 
 ---
-# Appendix 1 — Complete item register (169)
+# Y — Claim alignment & public release
+
+> **Added in Revision 2 (2026-10-12).** An external assessment compared the statements made about Midgard in this repository's own documents and in the launch material with what a reader gets by cloning public `main`. It found two classes of problem. First, capabilities described as built that are absent from the public tree, or present only as tested libraries that no running service uses. Second, headline numbers that disagree with each other and with the tree. Both were re-verified against public `main` @ `9ec8659` before this workstream was written; the evidence in each item is that verification, not the assessment's wording.
+>
+> **Scope.** This workstream covers what this repository says about itself. Statements made elsewhere are managed separately and are out of scope; the claims ledger (RF-CA-1) and the numbers sheet (RF-CA-2) are what they should be drawn from.
+>
+> **Why this precedes everything else.** Readers clone the repository and check. A claim the tree contradicts costs more than the capability it describes would have earned, and the truth-in-status rule in §2 already forbids it. Nothing in this workstream requires new capability to close: every capability item has an honest wording that is true today.
+
+**Two tracks.**
+
+- **Truth track — RF-CA-1..7 and RF-CA-13.** No new capability. Every statement becomes checkable from one signed, tagged commit. Target: the tagged public release, due **Thursday 2026-10-22 18:00**.
+- **Capability track — RF-CA-8..12.** Each takes a capability from `reference` (or absent) to `operable`, using the status vocabulary of RF-DOC-1. Each item states the wording that is true until it lands.
+
+**Status at the start of this workstream**, each row verified on public `main` @ `9ec8659`:
+
+| Claim | Status | What exists | Item |
+|---|---|---|---|
+| Three model families hot-swapping | `reference` | Router, three family adapters and a hot-swap test on the deterministic engine. `mimir-server` serves one backend and does not use the router. One real model (Granite, CPU) has run. | RF-CA-8 |
+| Zero-downtime upgrades | `reference` | Rolling and blue-green upgrade logic tested in-process. The chart deploys one replica per service; nothing drives the rollout orchestrator. | RF-CA-9 |
+| Heimdall option generation | `reference` | Ranked, cited option generation with a Mimir bridge and `AC-H-3`. The running feed server does not depend on it. | RF-CA-10 |
+| Admin console alerts | `reference` | Durable break-glass alerter as a library. The admin console renders a hard-coded list and runs on mock data. | RF-CA-11 |
+| Multimodal ingest (georeferencing, captions, transcripts) | absent | No code and no requirement id. Forge reads CSV files, PostgreSQL, S3 and Kafka. | RF-CA-12 |
+| Likan | external | A separate, proprietary tool for data-structure ontologies. Not in this repository, by design; the tree does not yet say so. | RF-CA-13 |
+| OAG retriever | `reference` | `mimir/oag-retriever` (`plan.rs:67`, `ground.rs:82`), tests in `tests/grounding.rs`. Nothing routes requests to it. | cite as-is |
+| Agent runtime | `reference` | `mimir/agent-runtime`, tests `ac_mi_2.rs`, `ac_mi_3.rs`. Nothing routes requests to it. | cite as-is |
+| Ontology loading | `operable` | `services/http-gateway/src/ontology_file.rs:114`, `enclosure.rs:727`, registered at every gateway start. | cite as-is |
+| Checked import | `operable` | `tools/mg-admin/src/main.rs:376`, `services/http-gateway/src/import_file.rs`, tests in `tools/mg-admin/tests/import.rs`. | cite as-is |
+
+**Recommended cut for the tag.** RF-CA-1..7 and RF-CA-13 land in full. Of the capability track, RF-CA-10 and the read path of RF-CA-11 are the smallest (each wires an existing, tested library into an existing service) and are the only candidates for the tag. RF-CA-8, RF-CA-9 and RF-CA-12 will not land by 2026-10-22; their claims take the fallback wording in each item and name a delivery sprint in the claims ledger (RF-CA-1). A capability item that is attempted for the tag and is not green by the freeze takes its fallback wording — it does not ship half-wired.
+
+---
+
+### RF-CA-1 · Claims ledger — one row per published claim, with status and evidence
+
+**Severity:** Critical · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-6
+
+> **Status at 2026-10-12 — Open.** No claims ledger exists; `docs/compliance/` has no `CLAIMS.md` or `claims.toml`, and there is no `tools/ci/claims.sh`.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+
+**Evidence.** There is no single list of what has been claimed about the platform. The same capability is described differently in the README, [`GA_READINESS.md`](../../compliance/GA_READINESS.md), the launch deck ([`docs/launch/pipeline/build-deck.js`](../../launch/pipeline/build-deck.js)), and nothing ties a claim to the code or test that supports it. The status table at the head of this workstream had to be assembled by hand.
+
+**Prompt**
+
+```
+Create the claims ledger and make it the only source for capability statements.
+
+1. Add docs/compliance/CLAIMS.md, generated from a data file
+   docs/compliance/claims.toml. One entry per capability the repository states:
+   id, the claim as worded, status (spec | reference | operable | production —
+   the RF-DOC-1 vocabulary), evidence (source paths with line anchors, and the
+   named tests that exercise it), the acceptance criterion ids it maps to, and —
+   for anything below `operable` — the delivery milestone and the fallback
+   wording to use until then.
+2. Seed it with every row of the Workstream Y status table, then sweep the
+   README, GETTING_STARTED, GA_READINESS, CHANGELOG, the release notes, the
+   launch deck source and the public site for further capability statements and
+   add each.
+3. Wording rule, enforced in review: a claim may use "built", "delivers",
+   "supports" or the present tense only at `operable` or above. A `reference`
+   capability reads "implemented and tested as a library (<test>); not yet in a
+   running service". A `spec` capability reads "specified in <SAD>; not
+   implemented".
+4. Add tools/ci/claims.sh --check: every evidence path exists, every line anchor
+   is inside the file, every named test exists as a #[test] function, and
+   CLAIMS.md is exactly what claims.toml renders. A row at `operable` must name
+   a test that drives a running service (a compose or kind smoke step), not only
+   a library test.
+5. Reword every document in the repository so that each capability statement
+   matches its ledger row.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-1a — Every claim has a row.** *Given* the swept documents, *when* each capability statement is looked up, *then* it has a ledger row with a status and evidence.
+- **AC-RF-CA-1b — Evidence resolves.** *Given* `tools/ci/claims.sh --check`, *when* an evidence path, line anchor or test name does not exist, *then* the check fails and names the row.
+- **AC-RF-CA-1c — `operable` needs a service test.** *Given* a row marked `operable` whose only evidence is a library test, *when* the check runs, *then* it fails.
+- **AC-RF-CA-1d — Wording follows status.** *Given* any swept document, *when* a capability below `operable` is described, *then* it uses the fallback wording from its row.
+
+**Done when:** the ledger covers every published claim, the check is green in CI, and no swept document states a capability above its ledger status.
+
+---
+
+### RF-CA-2 · One numbers sheet, generated from the tag
+
+**Severity:** Critical · **Area:** Claim alignment · **Depends on:** RF-CA-5 · **Blocks:** RF-CA-6
+
+> **Status at 2026-10-12 — Partial.** The crate count in `README.md` and both `GETTING_STARTED.md` copies was corrected to 70 on `dev` on 2026-10-12. There is no numbers sheet and no check; the test and criteria figures still cite a commit that is not in public history.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> **Still to do:**
+> - Write `tools/ci/numbers.sh` and generate `docs/compliance/NUMBERS.md`
+> - Replace the remaining figures in `README.md`, `GA_READINESS.md`, this document's section 1 and the launch deck source
+>
+> Checked: `README.md:9` · `README.md:28` · `GETTING_STARTED.md:5` · `docs/compliance/GA_READINESS.md:44`
+
+**Evidence.** Several sets of figures are in circulation. Measured on public `main` @ `9ec8659`, excluding `vendor/`: **70** workspace crates, **97,041** raw Rust lines (about 75,100 excluding blank and comment lines) in 564 files, **771** `#[test]` functions, none ignored.
+
+| Figure | Tree | Stated elsewhere |
+|---|---|---|
+| Crates | 70 | 62 (`README.md:9`) · 56 (`GETTING_STARTED.md:5`, both copies) · 55 and 56 (this document, §1 and RF-DOC-1) · 44 (launch deck) |
+| Rust lines | 97,041 raw | ~30,000 (this document, §1) |
+| Tests | 771 functions | 248 passed (`README.md:29`) · 664 passed (`GA_READINESS.md:44`, launch deck) |
+| Acceptance criteria | not re-run | 72 / 72 (`README.md:28`) |
+
+A count of test functions and a count of tests passed in a run are different measures, and the documents do not say which they quote. The README and GETTING_STARTED crate counts were corrected to 70 on `dev` on 2026-10-12; the rest stands.
+
+**Prompt**
+
+```
+Generate every headline number from the tree, once, and use it everywhere.
+
+1. Add tools/ci/numbers.sh. It prints, and with --write renders to
+   docs/compliance/NUMBERS.md, for the commit it runs on:
+     - workspace crates: members of the root Cargo.toml
+     - Rust source: files, raw lines, and lines excluding blank and //-comment
+       lines, over tracked *.rs outside vendor/
+     - test functions: #[test] attributes outside vendor/, and how many are
+       #[ignore]
+     - tests executed and passed, and acceptance criteria passed: read from the
+       recorded gate run for that commit (RF-CA-5), never typed by hand
+     - server binaries and shipped binaries: from
+       supply-chain/release-artefacts.txt
+     - console packages, SAD documents and diagrams
+   State the counting rule beside each figure, so a reader can reproduce it with
+   one command.
+2. NUMBERS.md names the commit and tag it was generated from. A figure with no
+   recorded gate run prints "not run at this commit", never a stale value.
+3. Add numbers.sh --check to CI: it scans README.md, both GETTING_STARTED.md
+   copies, GA_READINESS.md, CHANGELOG.md, docs/releases/*, the launch deck
+   source and this document for crate, line, test and criteria counts, and fails
+   on any figure that differs from the sheet. Figures that are deliberately
+   historical must be written with their commit ("at <commit>: …") to pass.
+4. Replace every figure in those documents with the sheet's, and regenerate the
+   launch deck from its pipeline.
+5. Quote test functions and tests passed as two separately labelled figures
+   wherever either appears. The sheet is the single source for any statement
+   of these figures, inside or outside the repository.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-2a — The sheet reproduces.** *Given* a clean checkout of the tag, *when* `tools/ci/numbers.sh` runs, *then* its output equals `docs/compliance/NUMBERS.md` byte for byte.
+- **AC-RF-CA-2b — Drift fails CI.** *Given* a document edited to quote a different crate, line, test or criteria count, *when* `numbers.sh --check` runs, *then* it fails and names the file and line.
+- **AC-RF-CA-2c — No unlabelled run results.** *Given* any figure for tests passed or criteria passed, *when* read, *then* it names the commit of the gate run it came from, and that commit is in public history.
+- **AC-RF-CA-2d — One figure everywhere.** *Given* the swept documents at the tag, *when* searched for each headline figure, *then* every occurrence equals the sheet.
+
+**Done when:** the sheet is generated from the tag, `--check` is green, and every swept document quotes it unchanged.
+
+---
+
+### RF-CA-3 · Restore the hermetic build configuration to the public tree
+
+**Severity:** Critical · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-5
+
+> **Status at 2026-10-12 — Open.** `.cargo/config.toml` is absent from the tree. The offline build was not attempted.
+> Criteria met 0 of 3; open: a, b, c. Confidence: high.
+>
+> Checked: `README.md:119` · `deploy/acceptance/run-airgapped.sh:10`
+
+**Evidence.** `.cargo/config.toml` is not in public `main`. [`README.md:119`](../../../README.md) says dependencies are vendored through "`vendor/` + `.cargo/config.toml`", and [`deploy/acceptance/run-airgapped.sh:10`](../../../deploy/acceptance/run-airgapped.sh) relies on it ("see .cargo/config.toml"). No other file in the tree replaces the crates-io source. `.github/` is missing too (RF-CA-4), while dot-files at the root (`.gitignore`, `.gitattributes`, `.gitleaks.toml`) are present — consistent with the public export having dropped dot-directories. A fresh clone therefore may not build offline as documented; this was established by reading the tree, not by running the build.
+
+**Prompt**
+
+```
+Make a fresh public clone build and test offline, exactly as the README says.
+
+1. Add .cargo/config.toml replacing the crates-io source with the vendored
+   directory, so cargo never contacts a registry.
+2. Find why the public export dropped .cargo/ and .github/, fix the export so
+   dot-directories are carried, and add a check to the export that diffs the
+   exported file list against the source tree and fails on any unexplained
+   omission.
+3. Prove it from a fresh clone, in the pinned image, under --network none:
+   `cargo build --workspace --release --offline` and `just test` both succeed
+   with an empty cargo registry cache.
+4. Add a CI job that performs exactly that from a fresh clone with no cache, so
+   a missing vendored crate or missing configuration fails the build rather
+   than being masked by a warm cache.
+5. Verify vendor/ against Cargo.lock: every locked package is present at the
+   locked version and checksum, and vendor/ contains nothing the lock does not
+   name (RF-SC-7).
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-3a — A fresh clone builds offline.** *Given* a fresh clone of public `main` and an empty cargo cache, *when* the workspace is built under `--network none`, *then* it succeeds.
+- **AC-RF-CA-3b — A missing crate fails.** *Given* one crate removed from `vendor/`, *when* the offline build runs, *then* it fails naming that crate; it does not fetch.
+- **AC-RF-CA-3c — The export is complete.** *Given* the public export, *when* its file list is compared with the source tree, *then* every omission is listed in an explicit exclusions file with a reason.
+
+**Done when:** the fresh-clone offline job is green on public `main` and the export check is in place.
+
+---
+
+### RF-CA-4 · Publish the CI and release workflows the documents cite
+
+**Severity:** High · **Area:** Claim alignment · **Depends on:** RF-CA-3 · **Blocks:** RF-CA-6
+
+> **Status at 2026-10-12 — Open.** There is no `.github/` directory in the tree.
+> Criteria met 0 of 3; open: a, b, c. Confidence: high.
+>
+> Checked: `README.md:36` · `README.md:644` · `README.md:759`
+
+**Evidence.** Public `main` has no `.github/` directory. [`README.md:36`](../../../README.md) and `:759` cite `.github/workflows/release.yml`; `:644` says "CI fails if it is not exactly what the chart renders"; `:823` says what CI does and does not cover. This document cites the same workflow as evidence in RF-SC-1 and RF-SC-5. A reader cannot see, run or verify any of it.
+
+**Prompt**
+
+```
+Publish the workflows, or stop citing them.
+
+1. Restore .github/workflows/ to the public tree: the CI workflow (build, both
+   crypto-backend test invocations, the fresh-clone offline job from RF-CA-3,
+   the rendered-chart check, numbers.sh --check, claims.sh --check) and the
+   release workflow.
+2. Remove anything that cannot be public — runner labels that disclose
+   infrastructure, internal hostnames — by parameterising it, not by deleting
+   the step.
+3. Pin every third-party action by full commit digest and grant each job the
+   minimum token permissions.
+4. Make the workflows required status checks on `main`, alongside the existing
+   branch protection.
+5. Check every sentence in the README, GA_READINESS and this document that says
+   what CI does against the published workflow; correct any that the workflow
+   does not do.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-4a — Cited workflows exist.** *Given* every workflow path cited in the repository's documents, *when* resolved on public `main`, *then* the file exists.
+- **AC-RF-CA-4b — CI claims are true.** *Given* each documented statement of what CI checks, *when* compared with the published workflow, *then* a job performs that check.
+- **AC-RF-CA-4c — Checks gate `main`.** *Given* a pull request that fails the build, the offline job, the numbers check or the claims check, *when* a merge to `main` is attempted, *then* it is blocked.
+
+**Done when:** the workflows are public, green on `main`, and required.
+
+---
+
+### RF-CA-5 · Re-run the acceptance gate at the release commit and record it
+
+**Severity:** Critical · **Area:** Claim alignment · **Depends on:** RF-CA-3 · **Blocks:** RF-CA-2, RF-CA-6
+
+> **Status at 2026-10-12 — Open.** No gate run is recorded for any commit in public history; `docs/compliance/gate-runs/` does not exist.
+> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+>
+> Checked: `README.md:24`
+
+**Evidence.** [`README.md:24`](../../../README.md) attributes "72 / 72 pass" and "248 passed · 0 failed · 0 ignored" to commit `60091a9`. That commit is not in the public history, which has two commits. `GA_READINESS.md:44` reports 664 passed for `just test` at an unnamed commit. The tree now holds 771 test functions. No gate run is recorded for any commit a reader can check out, and neither audit behind this document ran the suite (Appendix 5).
+
+**Prompt**
+
+```
+Produce one gate run a reader can reproduce, and derive every status line from it.
+
+1. On the release candidate commit, run `bash deploy/acceptance/run-airgapped.sh`
+   in the pinned image under --network none, and `just test` likewise. Capture
+   the complete logs.
+2. Add tools/ci/gate-record.sh: it parses the logs into
+   docs/compliance/gate-runs/<commit>.md — commit, image digest, toolchain
+   version, per-criterion PASS/FAIL for all 72 ids, tests executed / passed /
+   failed / ignored per crate invocation and in total, both crypto backends, wall
+   time, and the SHA-256 of each raw log. Keep the raw logs as release assets.
+3. Fail the record, not just the run, if any criterion is missing from the log:
+   72 ids in, 72 results out, or the record is refused.
+4. Replace the README status table and the GA_READINESS sweep table with content
+   generated from the record, naming its commit. Remove the reference to
+   60091a9.
+5. If any criterion fails at the release commit, the README says so, with the id.
+   A failing criterion is fixed or reported; it is never omitted.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-5a — The cited commit exists.** *Given* any gate result quoted in the repository, *when* its commit is looked up in public history, *then* it resolves.
+- **AC-RF-CA-5b — The record matches the log.** *Given* the raw logs and the record, *when* compared, *then* every count and every per-criterion result agrees, and the log digests match.
+- **AC-RF-CA-5c — All 72 are accounted for.** *Given* a log from which one criterion id is absent, *when* `gate-record.sh` runs, *then* it refuses to write a record.
+- **AC-RF-CA-5d — The run reproduces.** *Given* the tag and the recorded image digest, *when* a third party runs the gate, *then* they obtain the same per-criterion results.
+
+**Done when:** a gate record exists for the tag's commit and the README and GA_READINESS tables are generated from it.
+
+---
+
+### RF-CA-6 · Signed, tagged public release
+
+**Severity:** Critical · **Area:** Claim alignment · **Depends on:** RF-CA-1..5, RF-SC-8 · **Blocks:** —
+
+> **Status at 2026-10-12 — Open.** No tag exists and the commits on public `main` are unsigned. The release signing key is not provisioned.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> Checked: `Cargo.toml:81` · `README.md:22`
+
+**Evidence.** Public `main` has no tags and neither of its two commits is signed. The workspace version is `0.1.0-rc.1` ([`Cargo.toml:81`](../../../Cargo.toml)) and [`README.md:22`](../../../README.md) reads "Release: not yet cut", because tagging "needs a key ceremony and a provisioned signing runner". The repository is configured to sign commits and tags, but the release signing key is not provisioned. Until a tag exists, no claim can be pinned to a commit.
+
+**Prompt**
+
+```
+Cut v0.1.0-rc.1 as a signed tag that everything else points at.
+
+1. Hold the key ceremony in docs/ops/PKI.md: generate the release signing key in
+   its custodian, record the ceremony, and publish the verifying material in the
+   repository (an allowed-signers file for git, the ML-DSA trust anchor for
+   artefacts) together with its fingerprint through a second channel.
+2. Require signed commits on `main` and `dev` in branch protection. From this
+   point every commit on the release path verifies.
+3. Freeze the release commit. On that exact commit: the gate record (RF-CA-5),
+   the numbers sheet (RF-CA-2) and the claims ledger (RF-CA-1) are generated and
+   committed, and CI (RF-CA-4) is green.
+4. Create the annotated, signed tag v0.1.0-rc.1 on that commit and push it. Run
+   the release workflow on the provisioned signing runner: gate every binary in
+   supply-chain/release-artefacts.txt, build the verify-before-run images, pack
+   the signed air-gap bundle, and publish a pre-release with the SBOMs,
+   signatures, attestations, gate logs and NUMBERS.md attached.
+5. State in the release notes what the tag is and is not: a release candidate,
+   with GA_READINESS still NO-GO and each blocker named. Do not soften that to
+   make the tag look like more than it is.
+6. Protect the tag against deletion and rewriting.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-6a — The tag verifies.** *Given* a fresh clone and the published allowed-signers file, *when* `git tag -v v0.1.0-rc.1` runs, *then* the signature is good and names the release key.
+- **AC-RF-CA-6b — One commit, three records.** *Given* the tag, *when* the gate record, the numbers sheet and the claims ledger are read, *then* each names the tag's commit.
+- **AC-RF-CA-6c — Artefacts verify offline.** *Given* any released binary with its signature, SBOM and attestation, *when* `mg-verify` runs under `--network none` with the published trust anchor, *then* it accepts; with one byte changed, it refuses.
+- **AC-RF-CA-6d — Unsigned commits cannot land.** *Given* an unsigned commit, *when* it is pushed toward `main`, *then* it is rejected.
+- **AC-RF-CA-6e — The tag is immutable.** *Given* the published tag, *when* a delete or force-update is attempted, *then* it is refused.
+
+**Done when:** `v0.1.0-rc.1` is public, signed and verifiable, and every claim, number and gate result in circulation points at it.
+
+---
+
+### RF-CA-7 · History, classification and publication statements
+
+**Severity:** High · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-6
+
+> **Status at 2026-10-12 — Partial.** `dev` was rebuilt on `main` on 2026-10-12 and GitHub now compares the two. This document carries per-item status. The history sentence in `GETTING_STARTED.md`, the confidentiality marking, the duplicated documents and `remedial-tasks.md` are unchanged.
+> Criteria met 0 of 4; open: a, b, c; not verifiable by reading: d. Confidence: high.
+>
+> **Still to do:**
+> - Reword the history sentence in both `GETTING_STARTED.md` copies
+> - Resolve the classification marking on the published SADs
+> - Keep one copy of `GETTING_STARTED.md` and `BUILD_PLAYBOOK.md`
+> - Bring `remedial-tasks.md` to current status or retire it
+> - Add a branch rule so `dev` cannot diverge from `main` again
+>
+> Checked: `GETTING_STARTED.md:5` · `README.md:842` · `docs/dev/remedial/remedial-tasks.md:1`
+
+**Evidence.**
+
+| Statement | Location | Reality |
+|---|---|---|
+| "its git history maps one commit per BUILD_PLAYBOOK.md prompt" | [`GETTING_STARTED.md:5`](../../../GETTING_STARTED.md) and `readme/GETTING_STARTED.md:5` | Public history is two commits. `README.md:11` on `main` was already reworded to say the public repository begins from a squashed import. |
+| "Classification of source SADs: CONFIDENTIAL — RECIPIENT EYES ONLY" | [`README.md:842`](../../../README.md) | Those SADs are published in `docs/dev/markdown/` in a public repository. |
+| `GETTING_STARTED.md` and `BUILD_PLAYBOOK.md` | root and `readme/` | Each exists twice, byte-identical, and has to be edited twice. |
+| This document and `docs/dev/remedial/remedial-tasks.md` | `docs/dev/` | Two gap analyses are public and stay public (decided 2026-10-12, with the repository). Both were written against an earlier tree and contain statements — "Almost nothing is runnable" — that are no longer true and will be read as current unless each item carries its present status. |
+| `dev` and `main` | GitHub | Shared no ancestor until 2026-10-12, when `dev` was rebuilt on `main`; GitHub could not compare or merge them. |
+
+**Prompt**
+
+```
+Make every statement about the repository itself true.
+
+1. Reword the GETTING_STARTED history sentence to match the README: the working
+   history maps one commit per playbook prompt; the public repository starts
+   from a squashed import of that state.
+2. Resolve the classification marking with the SADs' author. Either the SADs
+   are cleared for publication — replace the marking with the correct public
+   one in the README footer and in each SAD header — or they are not, in which
+   case remove them from the public tree and from its history, and state what
+   was withheld. Do not leave a confidentiality marking on published material.
+3. Keep one copy of GETTING_STARTED.md and BUILD_PLAYBOOK.md. Delete the other,
+   or generate it, and repoint every link.
+4. The repository and both gap analyses stay public. Each analysis therefore
+   opens with its audit date and commit and a plain statement of which tree it
+   describes, and each item carries its current status and what remains
+   (Appendix 4 step 8). This document was brought to that standard on
+   2026-10-12; do the same for docs/dev/remedial/remedial-tasks.md, or retire
+   it with a pointer here if every RT-nn task is covered by an RF-* item.
+5. Branch hygiene: `dev` always descends from `main`; unrelated-history pushes
+   are refused by a branch rule; the default branch and the branch evaluators
+   are pointed at are the same.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-7a — History claims are true.** *Given* each statement about git history in the repository, *when* compared with `git log` on public `main`, *then* it holds.
+- **AC-RF-CA-7b — No confidentiality marking on public material.** *Given* the public tree, *when* searched for classification markings, *then* none marks a published file as restricted.
+- **AC-RF-CA-7c — No duplicated documents.** *Given* the tree, *when* file contents are hashed, *then* no two tracked documents are identical unless one is declared generated and CI regenerates it.
+- **AC-RF-CA-7d — Branches merge.** *Given* `dev` and `main` on GitHub, *when* compared, *then* they share an ancestor and a pull request can be opened.
+
+**Done when:** every row above is resolved and both gap analyses carry current status.
+
+---
+
+### RF-CA-8 · Multi-family routing and hot-swap in the running inference plane
+
+**Severity:** High · **Area:** Claim alignment · Mimir · **Depends on:** RF-MI-2, RF-MS-1 · **Extends:** RF-MS-3, RF-MS-5
+
+> **Status at 2026-10-12 — Open.** As the Evidence below describes: the router and hot-swap are a tested library; `mimir-server` serves one backend.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> Checked: `mimir/mimir-server/src/main.rs:151` · `mimir/model-server/tests/router.rs:228`
+
+**Evidence.** The router and three family adapters exist: `GlmAdapter`, `NemotronAdapter`, `GemmaAdapter` ([`mimir/model-server/src/adapter.rs:136`](../../../mimir/model-server/src/adapter.rs)), `Router::serve` (`router.rs:248`) and `ModelRegistry::revoke` (`model_registry.rs:190`). The hot-swap test, `ac_ms_9_cross_family_swap_is_hot_swappable_without_contract_change` ([`tests/router.rs:228`](../../../mimir/model-server/tests/router.rs)), revokes one family in an in-memory registry and re-serves through `LocalReference`, the deterministic engine — no model is loaded or unloaded. The running service, [`mimir/mimir-server/src/main.rs:151`](../../../mimir/mimir-server/src/main.rs), constructs a single `SidecarBackend` and uses neither `Router` nor `ModelRegistry`. `README.md:569`: "One real model, on CPU"; the vLLM GPU path "has not been run". The one real model run is Granite, which is a fourth family and not one of the three (`artifact.rs:281` lists four; `adapter.rs:136` registers three).
+
+**Until this lands, the claim reads:** "Routing across model families and hot-swap between them are implemented and tested as a library against a deterministic engine (`AC-MS-9`). The running inference service serves one model; one real model, IBM Granite 3.3 2B on CPU, has been served end to end."
+
+**Prompt**
+
+```
+Put the router and registry into mimir-server and swap real models at run time.
+
+1. mimir-server owns a ModelRegistry and a Router. At start it loads every
+   staged model directory under its models volume, verifying each through the
+   existing load gate (signed manifest, digest, size, format, family, hardware,
+   licence). A directory that fails verification is not registered; the service
+   still starts if at least one model verifies and refuses otherwise.
+2. One engine per loaded model: each has its own sidecar on its own loopback
+   port, started and supervised by the service, with its own readiness. The
+   Router selects by workload class, hardware and routing policy; the request
+   and response types on the wire do not change.
+3. Add a governed control surface over PQ-mTLS: ListModels, SetModelState
+   (approve | deprecate | revoke) and ReloadModels. State changes need the
+   Model-Steward role and dual control, are authorised by policy.json and are
+   written to the service's ledger before they take effect.
+4. Hot-swap semantics. Revoking a model: requests already being served by it
+   complete; no new request is routed to it; its engine is stopped once idle or
+   after a bounded drain. Approving a newly staged model: it is verified,
+   its engine started, and it receives traffic only once ready. At no point does
+   a request fail because a swap is in progress, and a swap never falls back to
+   an unverified or unpermitted family — if no permitted family is eligible the
+   request is refused (RouteError), as the library already does.
+5. Every completion records the family and artefact id that served it in the
+   response metadata and the audit entry, so a swap is visible per call.
+6. Reconcile the family lists: one authoritative set used by the adapter set,
+   the licence policy and the routing policy.
+7. Extend mg-model with `list` and `set-state`, and add `just compose-swap-smoke`:
+   stage two real models from two different families whose licences the licence
+   policy admits, start the service, run a continuous stream of certified calls,
+   revoke the serving family, and assert that every call succeeded, that calls
+   after the swap were answered by the other family, and that re-approving
+   restores it.
+8. Claim discipline: the number of families described as "demonstrated" is the
+   number that have served a real model in a recorded smoke run. A third family
+   on GPU is demonstrated only once RC-40.4 passes on a GPU node.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-8a — The service routes.** *Given* `mimir-server` with two verified models from different families, *when* certified calls of different workload classes arrive, *then* each is served by the family the routing policy selects, and the audit entry names it.
+- **AC-RF-CA-8b — A swap drops no request.** *Given* a continuous stream of calls, *when* the serving family is revoked, *then* every call in the stream succeeds, and calls begun after the revocation are served by another permitted family.
+- **AC-RF-CA-8c — Swaps are governed.** *Given* a `SetModelState` request without the Model-Steward role, or with the same administrator as requester and approver, *when* it is submitted, *then* it is refused and the refusal is audited.
+- **AC-RF-CA-8d — No unverified fallback.** *Given* a revocation that leaves no permitted, verified family, *when* a call arrives, *then* it is refused; it is not answered by the deterministic engine or an unpermitted model.
+- **AC-RF-CA-8e — The contract is unchanged.** *Given* a client built before this item, *when* it calls the swapped service, *then* it works without recompilation.
+
+**Done when:** `just compose-swap-smoke` is green with two real families and is a step in the recorded gate run; the claims ledger row is `operable` and states how many families have been demonstrated.
+
+---
+
+### RF-CA-9 · Zero-downtime upgrade of a deployed service
+
+**Severity:** High · **Area:** Claim alignment · Deployment · **Depends on:** RF-DEP-2, RF-PER-7 · **Extends:** RF-B-3, RF-RES-3
+
+> **Status at 2026-10-12 — Open.** As the Evidence below describes: upgrade logic is a tested library; every deployed service runs one replica.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> Checked: `deploy/helm/midgard/templates/workload.yaml:47` · `services/scheduler/src/lib.rs:175`
+
+**Evidence.** `Scheduler::rolling_upgrade` and `drive_rolling_upgrade` ([`services/scheduler/src/lib.rs:175`](../../../services/scheduler/src/lib.rs), `:242`) are tested by `tests/rollout.rs` (`AC-M-7`) and `tests/rollout_real.rs:209`, whose "real" fleet is replicas inside the test process. `bifrost/rollout/src/orchestrator.rs` implements blue-green ring promotion against a trait. Neither crate has a binary. The chart sets `replicas: 1` ([`deploy/helm/midgard/templates/workload.yaml:47`](../../../deploy/helm/midgard/templates/workload.yaml)) for every service, and `README.md:594` explains why: "Each service holds a single-writer, locked state directory, so a second replica would be refused". `README.md:568`: the fleet manager "reports drift but does not push upgrades: nothing drives the rollout orchestrator from it yet". Upgrading any deployed service today means stopping its only replica.
+
+**Until this lands, the claim reads:** "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (`AC-M-7`, `AC-B-2`). Deployed services run one replica each and restart on their recovered state (`RC-40.1`); upgrading one interrupts it."
+
+**Prompt**
+
+```
+Upgrade a deployed service under load without failing a request.
+
+1. Write the replica-model ADR first. For each service state what is
+   single-writer and why, and choose per service: (a) stateless replicas over
+   shared state, (b) per-replica ledgers with a replica id that the verifier
+   merges into one verifiable history, or (c) leader with warm standby and
+   fenced failover. An unaudited or doubly-audited request is not an acceptable
+   outcome of any choice.
+2. Implement it for mimir-server first — the request path is closest to
+   stateless — then http-gateway. Record services that stay single-replica, and
+   exclude them by name from the zero-downtime claim.
+3. Chart: replicas >= 2 for covered services, a PodDisruptionBudget, a rolling
+   strategy with maxUnavailable 0, readiness that goes false before shutdown
+   and a preStop drain, so in-flight requests finish. PQ-mTLS clients retry on
+   another replica when a connection is refused during the roll.
+4. Health-gated rollback: an upgrade to an image that never becomes ready, or
+   that fails its post-roll probe, is rolled back automatically, and the old
+   version served throughout.
+5. Add `just kind-upgrade-smoke`: with a continuous stream of certified calls
+   running, upgrade the service from version N to N+1, then attempt an upgrade
+   to a deliberately broken image. Assert zero failed requests in both cases,
+   that the broken upgrade rolled back, and that the service ledger verifies
+   end to end afterwards with no gap and no duplicate sequence.
+6. Drive it from Bifrost: bifrost-fleet invokes the rollout orchestrator to move
+   a channel's desired version ring by ring, using the mechanism above for each
+   installation (RF-B-3).
+7. Add the smoke as a deployment-tier criterion alongside RC-40.1..4.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-9a — No request fails during an upgrade.** *Given* a covered service under continuous certified load on kind, *when* it is upgraded from N to N+1, *then* every request succeeds.
+- **AC-RF-CA-9b — A bad upgrade rolls back.** *Given* an upgrade to an image that never becomes ready, *when* it is applied, *then* it is rolled back automatically and no request fails.
+- **AC-RF-CA-9c — The audit history stays whole.** *Given* the ledger after an upgrade under load, *when* it is verified, *then* every served request has exactly one entry and the chain verifies.
+- **AC-RF-CA-9d — Bifrost drives it.** *Given* a channel whose desired version changes, *when* the fleet manager acts, *then* installations upgrade ring by ring and the fleet converges without a manual step.
+- **AC-RF-CA-9e — The claim names its scope.** *Given* the claims ledger row, *when* read, *then* it lists the services covered and the services that remain single-replica.
+
+**Done when:** `just kind-upgrade-smoke` is green for at least `mimir-server` and is recorded in a deployment-tier run; the ledger row is `operable` for the named services only.
+
+---
+
+### RF-CA-10 · Heimdall option generation in the running service
+
+**Severity:** High · **Area:** Claim alignment · Heimdall · **Depends on:** RF-MI-1, RF-H-1 · **Extends:** RF-H-4
+
+> **Status at 2026-10-12 — Open.** As the Evidence below describes: option generation is a tested library that the feed server does not use.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> Checked: `heimdall/decision-support/src/adapter.rs:62` · `heimdall/feed-server/Cargo.toml:25`
+
+**Evidence.** `request_options` ([`heimdall/decision-support/src/adapter.rs:62`](../../../heimdall/decision-support/src/adapter.rs)) parses a ranked option set and grounds every citation against the picture; `MimirOptionProvider` (`mimir_bridge.rs`) is a live provider over PQ-mTLS; `tests/ac_h_3.rs` and the six `EV-A8-*` Evals (`evals.rs`) cover it. The tests use `MockOptionProvider`, which returns a fixed string. `request_options` returns an ungrounded option flagged as such; it does not reject the response, so the rejection in step 3 below is new behaviour, not existing behaviour to expose. [`heimdall/feed-server/Cargo.toml`](../../../heimdall/feed-server/Cargo.toml) does not depend on `heimdall-decision-support` or `heimdall-workflow`. `README.md:570`: "Nothing calls Mimir yet… Only `mimir-probe` does"; `:566`: "no classifier is attached".
+
+**Until this lands, the claim reads:** "Advisory option generation — ranked options, each cited and grounded against the operating picture — is implemented and tested as a library (`AC-H-3`, `EV-A8`). The running feed gateway fuses and serves the picture; it does not yet generate options."
+
+**Prompt**
+
+```
+Serve advisory options from heimdall-feed, generated by the real inference plane.
+
+1. heimdall-feed gains a RequestOptions call over PQ-mTLS. The caller needs a
+   certificate from the enclosure's issuer and a policy grant for the
+   `RequestOptions` action; the request names a decision point and a purpose.
+   Permit and deny are both audited before anything else happens.
+2. The service assembles the A.8 prompt from the current sealed picture — only
+   entities the caller is cleared to read — and calls mimir-server through
+   MimirOptionProvider using its own mesh identity. Grant heimdall-feed `Infer`
+   in the compose and chart policy, and open exactly that one path in the
+   network policy.
+3. Enforce EV-A8 at run time, not only in tests: a response that does not parse,
+   an option with no citation, or a citation that does not resolve to an entity
+   in the picture the caller can read rejects the whole response. Insufficient
+   grounding returns an explicit "insufficient evidence" result with no options.
+4. Advisory is structural: the response type carries no executable action, and
+   heimdall-feed gains no path from an option to a fabric mutation. Add the test
+   that asserts this by construction (AC-RF-H-4a).
+5. Fail closed: Mimir unreachable, the call denied, or the latency budget
+   exceeded returns a typed "unavailable" result. Fusion, sealing and picture
+   reads are unaffected.
+6. Record lineage with each response: picture version, prompt id and version,
+   model family and artefact id, the Mimir audit sequence, the caller and the
+   time — in the Heimdall ledger, so a response can be reconstructed.
+7. Add the client binary heimdall-options and a compose step, run against the
+   Granite override: submit observations, request options, assert the options
+   are grounded in those observations; stop mimir-server and assert a typed
+   unavailable result while picture reads continue. Add it to
+   compose-granite-smoke and kind-smoke.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-10a — Options come from the real plane.** *Given* the compose enclosure serving a real model and a picture with fused entities, *when* a cleared analyst requests options, *then* ranked options are returned whose every citation resolves to an entity in that picture.
+- **AC-RF-CA-10b — Ungrounded output is rejected.** *Given* a model response with an uncited option or a citation to an unknown entity, *when* the service evaluates it, *then* no option is returned and the rejection is audited.
+- **AC-RF-CA-10c — Unavailable is explicit.** *Given* `mimir-server` stopped, *when* options are requested, *then* a typed unavailable result is returned and picture reads still succeed.
+- **AC-RF-CA-10d — Clearance bounds the prompt.** *Given* a picture holding an entity above the caller's clearance, *when* options are requested, *then* that entity appears in neither the prompt sent to Mimir nor any citation.
+- **AC-RF-CA-10e — Responses are reconstructible.** *Given* a past response, *when* its ledger entry is read, *then* picture version, prompt version, model artefact, caller and time are all present.
+
+**Done when:** the compose and kind smokes include an options request answered by a real model, and the ledger row is `operable`.
+
+---
+
+### RF-CA-11 · Admin console alerts on a real backend
+
+**Severity:** High · **Area:** Claim alignment · Admin · **Depends on:** RF-RT-1, RF-PER-4 · **Extends:** RF-AD-1, RF-AD-2, RF-OBS-4
+
+> **Status at 2026-10-12 — Open.** As the Evidence below describes: break-glass alerting is a tested library; the console renders a constant.
+> Criteria met 0 of 5; open: a, b, c, d, e. Confidence: high.
+>
+> Checked: `admin/breakglass/src/alert.rs:84` · `products/admin/ui/src/screens/BreakGlassScreen.tsx:33`
+
+**Evidence.** `AlertBus`, `DurableAlerter` and `SecurityOfficerBus` ([`admin/breakglass/src/alert.rs:73`](../../../admin/breakglass/src/alert.rs), `:84`, `:168`) implement at-least-once break-glass alert delivery, exercised by `admin/audit/tests/ac_ad_6_10_12.rs` with `RecordingAlerter`. No admin crate has a `main.rs`. The console's alert table is a constant: `const ALERTS = [` at [`products/admin/ui/src/screens/BreakGlassScreen.tsx:33`](../../../products/admin/ui/src/screens/BreakGlassScreen.tsx). `README.md:254`: the admin console runs "only against [its] in-browser `MockGateway` fixtures"; `:421`: "No administration console". The only alerting in the tree is break-glass; platform alerting (RF-OBS-4) does not exist.
+
+**Until this lands, the claim reads:** "Break-glass alerting with durable, at-least-once delivery is implemented and tested as a library (`AC-AD-8`). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
+
+**Prompt**
+
+```
+Show real alerts in the admin console, and nothing else under that name.
+
+1. Stand up the admin service: a binary on services/runtime composing
+   admin-breakglass, admin-audit and admin-privilege, with a sealed, durable
+   alert store. An alert is persisted before the action that raised it takes
+   effect; pending and delivered alerts survive restart.
+2. Implement AlertBus against that store. Opening, extending, expiring and
+   reviewing a break-glass window each raise an alert. A window cannot open if
+   its alert cannot be persisted.
+3. Expose two calls: ListAlerts (filter by kind, state, time) and
+   AcknowledgeAlert. Both require the Security-Officer or Auditor role, are
+   authorised by policy and audited. Acknowledgement records who and when and
+   never deletes the alert.
+4. Reach it from the browser through the gateway edge: GET /api/v1/admin/alerts
+   for a logged-in user holding the role, with the same per-request policy and
+   audit as every other route. Acknowledgement stays on mg-admin with a passkey
+   until the console can produce passkey assertions (RF-UI-1); say so in the UI.
+5. Console: in HTTP mode BreakGlassScreen reads ListAlerts and the ALERTS
+   constant is deleted. Add loading, empty, error and stale states (RF-UI-2).
+   The nav badge shows the real unacknowledged count. In mock mode the screen is
+   labelled as demonstration data.
+6. Add console-admin's origin to the gateway allowlist and a compose step: open
+   a break-glass window with mg-admin, read the alert through the edge as a
+   Security-Officer, restart the admin service, read it again.
+7. Scope the claim: this is break-glass alerting. General platform alerting —
+   service health, security detections, on-call routing — is RF-OBS-4 and is
+   not implied by it.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-11a — A real event shows in the console.** *Given* the compose enclosure, *when* a break-glass window is opened with `mg-admin`, *then* the admin console in HTTP mode lists that alert with its window id, requester and time.
+- **AC-RF-CA-11b — No window without an alert.** *Given* an alert store that refuses writes, *when* a break-glass window is requested, *then* it does not open.
+- **AC-RF-CA-11c — Alerts survive restart.** *Given* an unacknowledged alert, *when* the admin service restarts, *then* the alert is still listed and still unacknowledged.
+- **AC-RF-CA-11d — Reading is governed.** *Given* a logged-in user without the Security-Officer or Auditor role, *when* the alerts route is requested, *then* it is denied and the denial is audited.
+- **AC-RF-CA-11e — No fixture in the shipped path.** *Given* the admin console built for HTTP mode, *when* its bundle is searched, *then* the fixture alert list is absent.
+
+**Done when:** the compose step is green and recorded, the fixture is gone from the HTTP build, and the ledger row is `operable` and scoped to break-glass alerts.
+
+---
+
+### RF-CA-12 · Multimodal ingest — georeferencing, captions, transcripts
+
+**Severity:** High · **Area:** Claim alignment · Forge · **Depends on:** RF-F-2, RF-MI-1, RF-MS-1 · **Extends:** RF-H-5
+
+> **Status at 2026-10-12 — Open.** Nothing exists: no requirement id, no media or geometry type, no captioning or transcription code.
+> Criteria met 0 of 6; open: a, b, c, d, e, f. Confidence: high.
+>
+> Checked: `forge/connector-sdk/src/connectors/file.rs:1`
+
+**Evidence.** No file outside `vendor/` matches `multimodal`, and none implements georeferencing, captioning or transcription. Forge's connectors are the CSV file reader, PostgreSQL, S3 and Kafka (`forge/connector-sdk/src/connectors/`), all producing rows of scalar values. The ontology's property types are `text`, `int`, `float`, `bool` and `timestamp` (`README.md:316`) — there is no geometry type and no media type. No `FR-*` id in the SADs requires any of this. It is new scope, not an unfinished item.
+
+**Until this lands, the claim reads:** "Forge ingests tabular data from files, PostgreSQL, S3-compatible stores and Kafka. Ingest of imagery, audio and video — with georeferencing, captioning and transcription — is specified for delivery in <milestone>; it is not implemented."
+
+**Prompt**
+
+```
+Specify multimodal ingest, then build it under the same rules as everything else.
+
+Part 1 — specification, before any code.
+1. Raise a design change request against SAD_01 (Forge) and SAD_02 (Mimir):
+   requirement ids for media assets, georeferencing, captioning and
+   transcription, with their security requirements, and acceptance criteria
+   numbered to extend the 72. Until these ids exist nothing can cite them, and
+   rule 2 of §0 cannot be met.
+
+Part 2 — media as governed data.
+2. dataset-store gains a media asset: a content-addressed, sealed blob plus a
+   metadata record (media type detected from the bytes, never from the file name
+   or a declared header; size; digest; source lineage). Blobs stream; they are
+   never held whole in memory. Unknown or mismatched types are quarantined.
+3. Derived artefacts — a location, a caption, a transcript — are separate
+   records that carry lineage to the source blob's digest, the tool or model
+   that produced them, and its version. They inherit the source's marking,
+   compartments and purposes and can never be less restricted than it.
+
+Part 3 — georeferencing.
+4. Extract location from the asset itself: EXIF GPS tags, GeoTIFF tags, a
+   sidecar world file, or GeoJSON. Normalise to WGS 84, validate ranges, record
+   the original reference system and the stated accuracy. A missing or
+   implausible location is recorded as absent, never guessed.
+5. Add a `geopoint` (and `geoshape`) property type to the ontology file and the
+   fabric, with validation at import and at SyncRecords, so a georeferenced
+   asset projects onto objects Heimdall can place (RF-H-5).
+
+Part 4 — captions and transcripts, generated locally.
+6. Captions: a vision-capable model served by mimir-server through the governed
+   inference path — verified manifest, policy check, audit. A caption is stored
+   as model-generated, with the model's artefact id and digest, and is never
+   presented as a fact about the source.
+7. Transcripts: a local speech-recognition engine as a second sidecar type, its
+   model staged through mg-model with the same signed manifest and load gate.
+   Output carries segment timestamps, detected language and per-segment
+   confidence.
+8. Nothing leaves the enclosure: no hosted model, no network call. With no
+   suitable model staged, the derived artefact is absent and the asset is still
+   ingested.
+9. Evals for both: a fixed, licence-clean sample set with reference captions and
+   transcripts and a pass threshold, run in the Evals harness.
+
+Part 5 — proof.
+10. A compose job ingests a sample image with EXIF location, a GeoTIFF and an
+    audio clip, and syncs the resulting objects. Assert the stored locations,
+    that the caption and transcript exist with their lineage, and that a caller
+    without clearance for the source can read none of the derived artefacts.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-12a — Requirements exist first.** *Given* the SADs, *when* searched, *then* media, georeferencing, captioning and transcription each have requirement ids and acceptance criteria, and the implementation cites them.
+- **AC-RF-CA-12b — Location is extracted, not invented.** *Given* an image with EXIF GPS, a GeoTIFF and an image with no location, *when* ingested, *then* the first two project with the correct WGS 84 coordinates and the third has no location.
+- **AC-RF-CA-12c — Derived artefacts are local and attributed.** *Given* an ingest under `--network none`, *when* a caption and a transcript are produced, *then* each records the model artefact that produced it and is labelled model-generated.
+- **AC-RF-CA-12d — Markings propagate.** *Given* a source asset with a marking and compartment, *when* a caller without that clearance queries, *then* neither the asset nor its location, caption or transcript is returned.
+- **AC-RF-CA-12e — Type is determined from content.** *Given* a file whose name and declared type disagree with its bytes, *when* ingested, *then* it is quarantined.
+- **AC-RF-CA-12f — Absence degrades cleanly.** *Given* no captioning or transcription model staged, *when* media is ingested, *then* the asset is stored and georeferenced and the derived artefacts are recorded as not produced.
+
+**Done when:** the SAD change is accepted, the compose job is green under `--network none`, and the Evals meet their thresholds. Until then the ledger row is `spec`.
+
+---
+
+### RF-CA-13 · Likan — state the boundary with the proprietary tool, and prove the interchange
+
+**Severity:** High · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-1
+
+> **Status at 2026-10-12 — Open.** The tree does not mention Likan, and the ontology file format has no published schema.
+> Criteria met 0 of 4; open: a, b, c; not verifiable by reading: d. Confidence: high.
+>
+> Checked: `services/http-gateway/src/ontology_file.rs:114`
+
+**Evidence.** Likan is a separate, proprietary tool for data-structure ontologies. It is not part of this repository and is not meant to be: the name does not occur anywhere in the public tree — not in source, the workspace manifest, the SADs, the playbook, the design system or the launch deck's build script. Nothing in the tree says that it exists, that it is separate, or how an ontology produced with it reaches an enclosure. Midgard's own ontology support is public and `operable`: the gateway parses and registers `ontology.json` at every start ([`services/http-gateway/src/ontology_file.rs:114`](../../../services/http-gateway/src/ontology_file.rs), `enclosure.rs:727`) and `mg-admin import` checks every record against it. That file format is described only in prose in the README; it has no published schema, so there is no contract a separate tool can be shown to meet.
+
+**Until this lands, the wording is:** "Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format and needs no other tool to do so."
+
+**Prompt**
+
+```
+State where Midgard ends and Likan begins, and make the join testable.
+
+1. Add a short "Related proprietary tools" note to the README: what Likan is in
+   one sentence, that it is proprietary and separate, and that nothing in this
+   repository's licence, gate, SBOMs, numbers sheet or claims covers it. No
+   public document may describe a Likan capability as a Midgard capability.
+2. Give it a row in the claims ledger (RF-CA-1) with the status `external`: a
+   status for things that exist outside this repository and that this
+   repository makes no verifiable claim about. Add `external` to the status
+   vocabulary, with the rule that an `external` row carries no evidence paths
+   and may never be counted among Midgard's capabilities or figures.
+3. Publish the ontology file format as a contract: a versioned JSON Schema for
+   ontology.json under contracts/, generated from or checked against the parser
+   in services/http-gateway/src/ontology_file.rs so the two cannot drift, with
+   the README section reduced to a pointer plus one example. Do the same for
+   the JSON Lines import record.
+4. Record, in the ledger row, whether Likan exports that format. If it does,
+   add one export — cleared for publication — as a fixture, and a test that it
+   validates against the schema, registers in the gateway and accepts an
+   import. If it does not, say that the two are not integrated; do not imply a
+   pipeline that has not been run.
+5. Keep the core independent: an ontology can be written by hand against the
+   schema, and the whole acceptance gate passes with no Likan artefact present.
+   Add a check that nothing in the workspace depends on, downloads or requires
+   a proprietary tool.
+```
+
+**Acceptance criteria**
+
+- **AC-RF-CA-13a — The boundary is stated.** *Given* the README, *when* read, *then* it says Likan is a separate, proprietary tool that this repository does not contain or cover.
+- **AC-RF-CA-13b — Nothing is attributed across the boundary.** *Given* every document in the repository, *when* searched, *then* no Likan capability is described as part of Midgard, and the ledger row is `external` with no evidence paths.
+- **AC-RF-CA-13c — The interchange is a tested contract.** *Given* the published schema, *when* an ontology file violates it, *then* schema validation and the gateway both refuse it; *and* a change to the parser that the schema does not reflect fails CI.
+- **AC-RF-CA-13d — Midgard stands alone.** *Given* a fresh clone with no proprietary artefact present, *when* the acceptance gate runs, *then* it passes, and the dependency check finds no proprietary requirement.
+
+**Done when:** the README note and ledger row exist, the schema is published and checked against the parser, and the integration statement in step 4 is recorded either way.
+
+---
+# Appendix 1 — Complete item register (182)
 
 Severity: **C**ritical · **H**igh · **M**edium · **L**ow.
 
-| ID | Title | Sev | Depends on |
-|---|---|---|---|
+| ID | Title | Sev | Depends on | Status | Criteria met |
+|---|---|---|---|---|---|
 | **A — Supply chain & release integrity** |
-| RF-SC-1 | Implement `mg-sign` — ML-DSA signature + DSSE attestation | C | — |
-| RF-SC-2 | Implement `mg-verify` — fail-closed verification | C | SC-1 |
-| RF-SC-3 | Make the reproducibility check non-vacuous in CI | C | — |
-| RF-SC-4 | Vulnerability scanning and licence allow-list over the SBOM | C | SC-2 |
-| RF-SC-5 | Extend the release gate to every buildable artefact | H | SC-1..4 |
-| RF-SC-6 | Implement the provenance-tag lint | M | — |
-| RF-SC-7 | Vendored-dependency policy and integrity check | M | SC-4 |
-| RF-SC-8 | Release key rotation, revocation, trust distribution | H | SC-1, SC-2 |
+| RF-SC-1 | Implement `mg-sign` — ML-DSA signature + DSSE attestation | C | — | Done | 6/6 |
+| RF-SC-2 | Implement `mg-verify` — fail-closed verification | C | SC-1 | Done | 5/5 |
+| RF-SC-3 | Make the reproducibility check non-vacuous in CI | C | — | Partial | 3/5 |
+| RF-SC-4 | Vulnerability scanning and licence allow-list over the SBOM | C | SC-2 | Partial | 2/6 |
+| RF-SC-5 | Extend the release gate to every buildable artefact | H | SC-1..4 | Partial | 0/5 |
+| RF-SC-6 | Implement the provenance-tag lint | M | — | Partial | 0/4 |
+| RF-SC-7 | Vendored-dependency policy and integrity check | M | SC-4 | Open | 0/4 |
+| RF-SC-8 | Release key rotation, revocation, trust distribution | H | SC-1, SC-2 | Partial | 1/5 |
 | **B — Runtime & process model** |
-| RF-RT-1 | Give every service a process: binary, config, lifecycle | C | — |
-| RF-RT-2 | Concurrency and asynchrony model | H | RT-1 |
-| RF-RT-3 | Structured, correlated, redacting logging | H | RT-1 |
-| RF-RT-4 | Time, clocks and determinism | M | RT-1 |
-| RF-RT-5 | Randomness, entropy and nonce discipline | H | RT-1 |
-| RF-RT-6 | Resource governance: memory, descriptors, CPU | M | RT-2 |
-| RF-RT-7 | Feature flags, safe defaults, hardening baseline | M | RT-1 |
+| RF-RT-1 | Give every service a process: binary, config, lifecycle | C | — | Partial | 1/7 |
+| RF-RT-2 | Concurrency and asynchrony model | H | RT-1 | Partial | 0/5 |
+| RF-RT-3 | Structured, correlated, redacting logging | H | RT-1 | Partial | 0/5 |
+| RF-RT-4 | Time, clocks and determinism | M | RT-1 | Open | 0/5 |
+| RF-RT-5 | Randomness, entropy and nonce discipline | H | RT-1 | Partial | 0/5 |
+| RF-RT-6 | Resource governance: memory, descriptors, CPU | M | RT-2 | Open | 0/4 |
+| RF-RT-7 | Feature flags, safe defaults, hardening baseline | M | RT-1 | Open | 0/4 |
 | **C — Persistence & durability** |
-| RF-PER-1 | Choose and implement the storage substrate | C | RT-1 |
-| RF-PER-2 | Durable, tamper-evident audit ledger | C | PER-1 |
-| RF-PER-3 | Object fabric storage: indexes, scale, query performance | H | PER-1 |
-| RF-PER-4 | Durable registries: models, artefacts, datasets, config | H | PER-1 |
-| RF-PER-5 | Client-side persistence: store, keystore, sync queue | H | PER-1 |
-| RF-PER-6 | Data lifecycle: retention, archival, erasure | H | PER-1, PER-2 |
-| RF-PER-7 | Transactionality across service boundaries | H | PER-1, API-1 |
-| RF-PER-8 | Storage operations: capacity, compaction, scrubbing | M | PER-1 |
+| RF-PER-1 | Choose and implement the storage substrate | C | RT-1 | Partial | 2/7 |
+| RF-PER-2 | Durable, tamper-evident audit ledger | C | PER-1 | Partial | 1/7 |
+| RF-PER-3 | Object fabric storage: indexes, scale, query performance | H | PER-1 | Partial | 1/6 |
+| RF-PER-4 | Durable registries: models, artefacts, datasets, config | H | PER-1 | Partial | 1/6 |
+| RF-PER-5 | Client-side persistence: store, keystore, sync queue | H | PER-1 | Open | 0/6 |
+| RF-PER-6 | Data lifecycle: retention, archival, erasure | H | PER-1, PER-2 | Open | 0/5 |
+| RF-PER-7 | Transactionality across service boundaries | H | PER-1, API-1 | Open | 0/4 |
+| RF-PER-8 | Storage operations: capacity, compaction, scrubbing | M | PER-1 | Open | 0/4 |
 | **D — Transport & API surface** |
-| RF-API-1 | Complete the proto contract for every subsystem | H | RT-1 |
-| RF-API-2 | Implement the inter-service RPC layer over PQ-mTLS | H | API-1, RT-1, RT-2 |
-| RF-API-3 | Complete the browser edge for all six products | H | API-1, API-2, IAM-3 |
-| RF-API-4 | API versioning, deprecation, compatibility | M | API-1 |
-| RF-API-5 | API documentation and an offline explorer | M | API-1 |
-| RF-API-6 | Webhooks, egress control, outbound integration policy | M | API-2, RT-7 |
-| RF-API-7 | Rate limiting, quotas, abuse resistance | M | API-2, API-3 |
+| RF-API-1 | Complete the proto contract for every subsystem | H | RT-1 | Partial | 0/6 |
+| RF-API-2 | Implement the inter-service RPC layer over PQ-mTLS | H | API-1, RT-1, RT-2 | Partial | 0/6 |
+| RF-API-3 | Complete the browser edge for all six products | H | API-1, API-2, IAM-3 | Partial | 0/6 |
+| RF-API-4 | API versioning, deprecation, compatibility | M | API-1 | Open | 0/3 |
+| RF-API-5 | API documentation and an offline explorer | M | API-1 | Open | 0/4 |
+| RF-API-6 | Webhooks, egress control, outbound integration policy | M | API-2, RT-7 | Partial | 0/5 |
+| RF-API-7 | Rate limiting, quotas, abuse resistance | M | API-2, API-3 | Partial | 0/4 |
 | **E — Identity, authentication & session** |
-| RF-IAM-1 | Human authentication: credentials, MFA, enrolment | C | PER-4 |
-| RF-IAM-2 | Session management, token lifecycle, revocation | C | IAM-1, PER-4 |
-| RF-IAM-3 | Authorise the browser edge; server-owned policy context | C | IAM-2, API-3 |
-| RF-IAM-4 | Optional federation: OIDC, SAML, SCIM | M | IAM-1, API-6 |
-| RF-IAM-5 | Role model, least privilege, separation of duties | H | IAM-1 |
-| RF-IAM-6 | Service and machine identity lifecycle | H | API-2 |
+| RF-IAM-1 | Human authentication: credentials, MFA, enrolment | C | PER-4 | Partial | 0/6 |
+| RF-IAM-2 | Session management, token lifecycle, revocation | C | IAM-1, PER-4 | Partial | 0/6 |
+| RF-IAM-3 | Authorise the browser edge; server-owned policy context | C | IAM-2, API-3 | Partial | 0/4 |
+| RF-IAM-4 | Optional federation: OIDC, SAML, SCIM | M | IAM-1, API-6 | Partial | 0/5 |
+| RF-IAM-5 | Role model, least privilege, separation of duties | H | IAM-1 | Partial | 0/5 |
+| RF-IAM-6 | Service and machine identity lifecycle | H | API-2 | Partial | 0/4 |
 | **F — Observability & operations telemetry** |
-| RF-OBS-1 | Metrics for every service and every governed decision | H | RT-1, RT-3 |
-| RF-OBS-2 | Distributed tracing across services, agents and the UI | H | RT-3, API-2 |
-| RF-OBS-3 | Log and telemetry pipeline, retention, governed access | M | RT-3, PER-6 |
-| RF-OBS-4 | Alerting, on-call and incident response integration | H | OBS-1, API-6 |
-| RF-OBS-5 | Health, dependency and readiness surfaces | M | RT-1 |
+| RF-OBS-1 | Metrics for every service and every governed decision | H | RT-1, RT-3 | Partial | 0/6 |
+| RF-OBS-2 | Distributed tracing across services, agents and the UI | H | RT-3, API-2 | Partial | 0/5 |
+| RF-OBS-3 | Log and telemetry pipeline, retention, governed access | M | RT-3, PER-6 | Open | 0/4 |
+| RF-OBS-4 | Alerting, on-call and incident response integration | H | OBS-1, API-6 | Partial | 0/4 |
+| RF-OBS-5 | Health, dependency and readiness surfaces | M | RT-1 | Partial | 1/4 |
 | **G — Mimir: real inference** |
-| RF-MI-1 | Launch and supervise the GPU serving sidecar | H | RT-1, DEP-1 |
-| RF-MI-2 | Model loading, tokenizers, per-family adapters | H | MI-1, MS-1 |
-| RF-MI-3 | Serving performance: batching, KV-cache, admission | M | MI-1, MI-2 |
-| RF-MI-4 | Real tool execution in the governed loop | H | API-2, MI-1 |
-| RF-MI-5 | Memory, sessions and multi-turn context | M | PER-1, MI-2 |
-| RF-MI-6 | Evals as a continuous, gating governance system | H | MI-2, OBS-1 |
-| RF-MI-7 | Guardrail depth and adversarial resistance | H | MI-6 |
-| RF-MI-8 | Cost, quota and capacity governance for AI usage | M | MI-3, API-7 |
+| RF-MI-1 | Launch and supervise the GPU serving sidecar | H | RT-1, DEP-1 | Partial | 2/6 |
+| RF-MI-2 | Model loading, tokenizers, per-family adapters | H | MI-1, MS-1 | Partial | 1/6 |
+| RF-MI-3 | Serving performance: batching, KV-cache, admission | M | MI-1, MI-2 | Partial | 0/5 |
+| RF-MI-4 | Real tool execution in the governed loop | H | API-2, MI-1 | Partial | 2/6 |
+| RF-MI-5 | Memory, sessions and multi-turn context | M | PER-1, MI-2 | Open | 0/5 |
+| RF-MI-6 | Evals as a continuous, gating governance system | H | MI-2, OBS-1 | Open | 0/6 |
+| RF-MI-7 | Guardrail depth and adversarial resistance | H | MI-6 | Partial | 0/6 |
+| RF-MI-8 | Cost, quota and capacity governance for AI usage | M | MI-3, API-7 | Open | 0/4 |
 | **H — Model supply chain** |
-| RF-MS-1 | End-to-end intake of a real upstream model | H | SC-1, SC-2, PER-4 |
-| RF-MS-2 | Licence, restriction and export-control enforcement | H | MS-1, CMP-5 |
-| RF-MS-3 | Model versioning, rollback and deprecation | M | MS-1, MI-6 |
-| RF-MS-4 | Fine-tuning, adapters and derived-model governance | M | MS-1, MS-2 |
-| RF-MS-5 | Multi-family routing policy and portability certification | M | MI-2, MI-6 |
+| RF-MS-1 | End-to-end intake of a real upstream model | H | SC-1, SC-2, PER-4 | Partial | 3/6 |
+| RF-MS-2 | Licence, restriction and export-control enforcement | H | MS-1, CMP-5 | Open | 0/4 |
+| RF-MS-3 | Model versioning, rollback and deprecation | M | MS-1, MI-6 | Open | 0/4 |
+| RF-MS-4 | Fine-tuning, adapters and derived-model governance | M | MS-1, MS-2 | Open | 0/4 |
+| RF-MS-5 | Multi-family routing policy and portability certification | M | MI-2, MI-6 | Open | 0/4 |
 | **I — Forge: execution depth** |
-| RF-F-1 | A real execution backend behind the codegen seam | H | PER-1, RT-2 |
-| RF-F-2 | Real connectors and ingestion | H | F-1, API-6 |
-| RF-F-3 | Pipeline orchestration, scheduling, dependencies | H | F-1, PER-4 |
-| RF-F-4 | Data quality: expectations, profiling, quarantine | M | F-3 |
-| RF-F-5 | Dataset versioning, branching, time travel at scale | M | PER-1, F-1 |
-| RF-F-6 | Projection: incremental, consistent, reversible | H | PER-3, F-3 |
-| RF-F-7 | Transform IDE and NL-to-transform, made real | M | MI-4, UID-2 |
+| RF-F-1 | A real execution backend behind the codegen seam | H | PER-1, RT-2 | Partial | 2/5 |
+| RF-F-2 | Real connectors and ingestion | H | F-1, API-6 | Partial | 1/6 |
+| RF-F-3 | Pipeline orchestration, scheduling, dependencies | H | F-1, PER-4 | Partial | 0/6 |
+| RF-F-4 | Data quality: expectations, profiling, quarantine | M | F-3 | Open | 0/4 |
+| RF-F-5 | Dataset versioning, branching, time travel at scale | M | PER-1, F-1 | Partial | 0/4 |
+| RF-F-6 | Projection: incremental, consistent, reversible | H | PER-3, F-3 | Partial | 0/6 |
+| RF-F-7 | Transform IDE and NL-to-transform, made real | M | MI-4, UID-2 | Partial | 1/5 |
 | **J — Bifrost: delivery reality** |
-| RF-B-1 | Artefact registry with real content and verification | H | SC-1, SC-2, PER-4 |
-| RF-B-2 | Fleet agent: install, report, roll back on the target | H | B-1, IAM-6 |
-| RF-B-3 | Ring orchestration, progressive delivery, auto-abort | H | B-2, OBS-1 |
-| RF-B-4 | Air-gapped bundle workflow, end to end | H | B-1, SC-8 |
-| RF-B-5 | Release-risk intelligence wired to real evidence | M | SC-4, MI-4 |
-| RF-B-6 | Configuration and secret delivery | H | B-2, PER-4 |
+| RF-B-1 | Artefact registry with real content and verification | H | SC-1, SC-2, PER-4 | Partial | 0/5 |
+| RF-B-2 | Fleet agent: install, report, roll back on the target | H | B-1, IAM-6 | Partial | 0/6 |
+| RF-B-3 | Ring orchestration, progressive delivery, auto-abort | H | B-2, OBS-1 | Open | 0/6 |
+| RF-B-4 | Air-gapped bundle workflow, end to end | H | B-1, SC-8 | Partial | 1/6 |
+| RF-B-5 | Release-risk intelligence wired to real evidence | M | SC-4, MI-4 | Open | 0/4 |
+| RF-B-6 | Configuration and secret delivery | H | B-2, PER-4 | Open | 0/5 |
 | **K — Heimdall: fusion reality** |
-| RF-H-1 | Real feed ingestion and normalisation | H | API-6, RT-2 |
-| RF-H-2 | Entity resolution, tracking, correlation at scale | H | H-1, PER-3 |
-| RF-H-3 | Real-time picture synchronisation across sites | H | API-3, PER-5 |
-| RF-H-4 | Decision workflows and course-of-action support | H | MI-4, H-2 |
-| RF-H-5 | Geospatial and temporal capability | M | H-2 |
-| RF-H-6 | Alerting, watch conditions, attention management | M | H-2, OBS-4 |
+| RF-H-1 | Real feed ingestion and normalisation | H | API-6, RT-2 | Partial | 0/5 |
+| RF-H-2 | Entity resolution, tracking, correlation at scale | H | H-1, PER-3 | Open | 0/5 |
+| RF-H-3 | Real-time picture synchronisation across sites | H | API-3, PER-5 | Partial | 0/5 |
+| RF-H-4 | Decision workflows and course-of-action support | H | MI-4, H-2 | Partial | 0/6 |
+| RF-H-5 | Geospatial and temporal capability | M | H-2 | Open | 0/5 |
+| RF-H-6 | Alerting, watch conditions, attention management | M | H-2, OBS-4 | Open | 0/5 |
 | **L — Admin Control Panel depth** |
-| RF-AD-1 | Wire the Admin console to the real admin backend | H | API-3, IAM-3 |
-| RF-AD-2 | Break-glass: end-to-end operational flow | H | AD-1, IAM-1, OBS-4 |
-| RF-AD-3 | GitOps configuration and drift reconciliation | M | AD-1, B-6 |
-| RF-AD-4 | Approvals, delegation and the operator work queue | H | AD-1, IAM-5 |
-| RF-AD-5 | Governance surfaces: policy, markings, purposes, retention | H | AD-1, PER-6 |
-| RF-AD-6 | Operational overview: health, posture, integrity | H | OBS-1, OBS-5, RT-7 |
-| RF-AD-7 | Admin copilot and audit investigation on real data | M | AD-1, MI-4, PER-2 |
+| RF-AD-1 | Wire the Admin console to the real admin backend | H | API-3, IAM-3 | Partial | 0/5 |
+| RF-AD-2 | Break-glass: end-to-end operational flow | H | AD-1, IAM-1, OBS-4 | Partial | 1/6 |
+| RF-AD-3 | GitOps configuration and drift reconciliation | M | AD-1, B-6 | Partial | 0/5 |
+| RF-AD-4 | Approvals, delegation and the operator work queue | H | AD-1, IAM-5 | Open | 0/5 |
+| RF-AD-5 | Governance surfaces: policy, markings, purposes, retention | H | AD-1, PER-6 | Open | 0/5 |
+| RF-AD-6 | Operational overview: health, posture, integrity | H | OBS-1, OBS-5, RT-7 | Open | 0/5 |
+| RF-AD-7 | Admin copilot and audit investigation on real data | M | AD-1, MI-4, PER-2 | Partial | 1/6 |
 | **M — UI platform foundations** |
-| RF-UI-1 | Authentication, session and identity in the console shell | C | IAM-1..3 |
-| RF-UI-2 | Error, loading, empty and degraded states | H | UI-1 |
-| RF-UI-3 | Accessibility to WCAG 2.2 AA across all six consoles | H | UI-2 |
-| RF-UI-4 | Internationalisation and localisation | M | UI-2 |
-| RF-UI-5 | Navigation, information architecture, cross-console coherence | M | UI-1 |
-| RF-UI-6 | Forms, validation and data entry | M | UI-2, UI-3 |
-| RF-UI-7 | Performance, bundle discipline, rendering at scale | M | UID-1 |
-| RF-UI-8 | Styling architecture, CSP compatibility, theming | M | API-3 |
-| RF-UI-9 | Offline, connectivity and resilience in the browser | M | API-3, UI-2 |
-| RF-UI-10 | Frontend security hardening | H | UI-1, API-3 |
+| RF-UI-1 | Authentication, session and identity in the console shell | C | IAM-1..3 | Partial | 0/7 |
+| RF-UI-2 | Error, loading, empty and degraded states | H | UI-1 | Open | 0/6 |
+| RF-UI-3 | Accessibility to WCAG 2.2 AA across all six consoles | H | UI-2 | Open | 0/7 |
+| RF-UI-4 | Internationalisation and localisation | M | UI-2 | Open | 0/6 |
+| RF-UI-5 | Navigation, information architecture, cross-console coherence | M | UI-1 | Open | 0/5 |
+| RF-UI-6 | Forms, validation and data entry | M | UI-2, UI-3 | Open | 0/5 |
+| RF-UI-7 | Performance, bundle discipline, rendering at scale | M | UID-1 | Open | 0/5 |
+| RF-UI-8 | Styling architecture, CSP compatibility, theming | M | API-3 | Open | 0/4 |
+| RF-UI-9 | Offline, connectivity and resilience in the browser | M | API-3, UI-2 | Open | 0/5 |
+| RF-UI-10 | Frontend security hardening | H | UI-1, API-3 | Partial | 0/6 |
 | **N — UI data wiring** |
-| RF-UID-1 | Replace every mock gateway with a real client | H | API-3, IAM-3 |
-| RF-UID-2 | Forge console on real pipelines and data | H | UID-1, F-1..7 |
-| RF-UID-3 | Midgard core console on real platform state | H | UID-1, OBS-1, OBS-5 |
-| RF-UID-4 | Mimir console on the real model plane | H | UID-1, MI-1..7 |
-| RF-UID-5 | Bifrost console on the real fleet | H | UID-1, B-1..6 |
-| RF-UID-6 | Heimdall console on real feeds and the real picture | H | UID-1, H-1..6 |
-| RF-UID-7 | Clients console on the real client core | M | UID-1, CL-1 |
+| RF-UID-1 | Replace every mock gateway with a real client | H | API-3, IAM-3 | Partial | 0/5 |
+| RF-UID-2 | Forge console on real pipelines and data | H | UID-1, F-1..7 | Open | 0/5 |
+| RF-UID-3 | Midgard core console on real platform state | H | UID-1, OBS-1, OBS-5 | Partial | 0/5 |
+| RF-UID-4 | Mimir console on the real model plane | H | UID-1, MI-1..7 | Open | 0/5 |
+| RF-UID-5 | Bifrost console on the real fleet | H | UID-1, B-1..6 | Open | 0/5 |
+| RF-UID-6 | Heimdall console on real feeds and the real picture | H | UID-1, H-1..6 | Open | 0/5 |
+| RF-UID-7 | Clients console on the real client core | M | UID-1, CL-1 | Open | 0/3 |
 | **O — End-to-end user flows** |
-| RF-UX-1 | First-run: enclosure bootstrap and initial administrator | C | DEP-1, IAM-1, AD-1 |
-| RF-UX-2 | Operator onboarding: enrolment to first productive action | H | UX-1, IAM-1, IAM-5 |
-| RF-UX-3 | Analyst: question to grounded, cited, audited answer | H | UID-3, UID-4, MI-4 |
-| RF-UX-4 | Data engineer: source to governed operational objects | H | UID-2, F-2, F-6 |
-| RF-UX-5 | Release: commit to production, with rollback | H | SC-5, UID-5, B-3 |
-| RF-UX-6 | Governance: policy change from proposal to enforcement | H | AD-5, AD-3, AD-4 |
-| RF-UX-7 | Incident: alert to resolution to evidence | H | OBS-4, AD-2, AD-7 |
-| RF-UX-8 | Operator: monitor, decide, act on the operating picture | H | UID-6, H-4 |
-| RF-UX-9 | Client: enrolment, offline work, sync, revocation | H | CL-1..6, PER-5 |
-| RF-UX-10 | Auditor: independent verification without operational access | H | PER-2, AD-7, CMP-1 |
-| RF-UX-11 | Air-gapped site: install, operate, update, report | H | DEP-5, B-4 |
-| RF-UX-12 | Developer: build on the platform | M | SDK-1..5, API-5 |
+| RF-UX-1 | First-run: enclosure bootstrap and initial administrator | C | DEP-1, IAM-1, AD-1 | Partial | 0/6 |
+| RF-UX-2 | Operator onboarding: enrolment to first productive action | H | UX-1, IAM-1, IAM-5 | Partial | 0/5 |
+| RF-UX-3 | Analyst: question to grounded, cited, audited answer | H | UID-3, UID-4, MI-4 | Open | 0/6 |
+| RF-UX-4 | Data engineer: source to governed operational objects | H | UID-2, F-2, F-6 | Partial | 0/5 |
+| RF-UX-5 | Release: commit to production, with rollback | H | SC-5, UID-5, B-3 | Partial | 0/5 |
+| RF-UX-6 | Governance: policy change from proposal to enforcement | H | AD-5, AD-3, AD-4 | Partial | 0/5 |
+| RF-UX-7 | Incident: alert to resolution to evidence | H | OBS-4, AD-2, AD-7 | Open | 0/5 |
+| RF-UX-8 | Operator: monitor, decide, act on the operating picture | H | UID-6, H-4 | Partial | 0/5 |
+| RF-UX-9 | Client: enrolment, offline work, sync, revocation | H | CL-1..6, PER-5 | Open | 0/5 |
+| RF-UX-10 | Auditor: independent verification without operational access | H | PER-2, AD-7, CMP-1 | Partial | 0/5 |
+| RF-UX-11 | Air-gapped site: install, operate, update, report | H | DEP-5, B-4 | Partial | 0/5 |
+| RF-UX-12 | Developer: build on the platform | M | SDK-1..5, API-5 | Partial | 0/4 |
 | **P — Client platforms** |
-| RF-CL-1 | Language bindings: UniFFI and wasm-bindgen | H | PER-5 |
-| RF-CL-2 | Apple shell (iOS, macOS) | H | CL-1 |
-| RF-CL-3 | Android shell | H | CL-1 |
-| RF-CL-4 | Web shell (SvelteKit + WASM) | H | CL-1, UI-3 |
-| RF-CL-5 | Desktop shell (Tauri) | M | CL-1 |
-| RF-CL-6 | Linux GTK shell (mobile and desktop) | M | CL-1 |
-| RF-CL-7 | Browser extension (broker mode) | M | CL-1, CL-4 |
-| RF-CL-8 | Client delivery, update and integrity | H | B-2, CL-2..7 |
-| RF-CL-9 | On-device inference and tier selection | M | MI-2, CL-1 |
+| RF-CL-1 | Language bindings: UniFFI and wasm-bindgen | H | PER-5 | Partial | 0/5 |
+| RF-CL-2 | Apple shell (iOS, macOS) | H | CL-1 | Open | 0/5 |
+| RF-CL-3 | Android shell | H | CL-1 | Open | 0/5 |
+| RF-CL-4 | Web shell (SvelteKit + WASM) | H | CL-1, UI-3 | Open | 0/5 |
+| RF-CL-5 | Desktop shell (Tauri) | M | CL-1 | Open | 0/5 |
+| RF-CL-6 | Linux GTK shell (mobile and desktop) | M | CL-1 | Open | 0/4 |
+| RF-CL-7 | Browser extension (broker mode) | M | CL-1, CL-4 | Open | 0/5 |
+| RF-CL-8 | Client delivery, update and integrity | H | B-2, CL-2..7 | Open | 0/5 |
+| RF-CL-9 | On-device inference and tier selection | M | MI-2, CL-1 | Partial | 1/5 |
 | **Q — SDKs & developer experience** |
-| RF-SDK-1 | Generate and complete the TypeScript SDK | M | API-1, UID-1 |
-| RF-SDK-2 | Rust SDK | M | API-2 |
-| RF-SDK-3 | Python SDK | M | API-3 |
-| RF-SDK-4 | Go SDK, or an honest removal | L | API-3 |
-| RF-SDK-5 | Developer environment, samples, extension templates | M | DEP-1, UX-12 |
+| RF-SDK-1 | Generate and complete the TypeScript SDK | M | API-1, UID-1 | Open | 0/5 |
+| RF-SDK-2 | Rust SDK | M | API-2 | Open | 0/4 |
+| RF-SDK-3 | Python SDK | M | API-3 | Partial | 1/5 |
+| RF-SDK-4 | Go SDK, or an honest removal | L | API-3 | Partial | 0/3 |
+| RF-SDK-5 | Developer environment, samples, extension templates | M | DEP-1, UX-12 | Partial | 0/4 |
 | **R — Deployment & topology** |
-| RF-DEP-1 | Container images for every service | C | RT-1 |
-| RF-DEP-2 | Kubernetes deployment: charts, policies, HA topology | C | DEP-1, DEP-3 |
-| RF-DEP-3 | Network policy, mesh interaction, default-deny | C | DEP-2, API-2 |
-| RF-DEP-4 | Installer and upgrade tooling | H | DEP-2, SC-2 |
-| RF-DEP-5 | Air-gapped installation bundle | H | DEP-4, B-4 |
-| RF-DEP-6 | Environment strategy and configuration promotion | M | DEP-2, AD-3 |
-| RF-DEP-7 | Capacity, sizing and deployment planning guidance | M | SCL-4, OBS-1 |
+| RF-DEP-1 | Container images for every service | C | RT-1 | Partial | 0/5 |
+| RF-DEP-2 | Kubernetes deployment: charts, policies, HA topology | C | DEP-1, DEP-3 | Partial | 0/5 |
+| RF-DEP-3 | Network policy, mesh interaction, default-deny | C | DEP-2, API-2 | Partial | 0/4 |
+| RF-DEP-4 | Installer and upgrade tooling | H | DEP-2, SC-2 | Partial | 0/5 |
+| RF-DEP-5 | Air-gapped installation bundle | H | DEP-4, B-4 | Partial | 0/5 |
+| RF-DEP-6 | Environment strategy and configuration promotion | M | DEP-2, AD-3 | Open | 0/4 |
+| RF-DEP-7 | Capacity, sizing and deployment planning guidance | M | SCL-4, OBS-1 | Open | 0/4 |
 | **S — Resilience, backup & DR** |
-| RF-RES-1 | Backup: complete, verified, restorable | C | PER-1 |
-| RF-RES-2 | Disaster recovery: documented, exercised, measured | C | RES-1, DEP-4 |
-| RF-RES-3 | High availability and graceful degradation | H | DEP-2, RT-2 |
-| RF-RES-4 | Data integrity assurance and corruption recovery | H | PER-2, PER-8 |
-| RF-RES-5 | Business continuity for the air-gapped case | M | RES-2, UX-11 |
+| RF-RES-1 | Backup: complete, verified, restorable | C | PER-1 | Partial | 1/5 |
+| RF-RES-2 | Disaster recovery: documented, exercised, measured | C | RES-1, DEP-4 | Partial | 1/5 |
+| RF-RES-3 | High availability and graceful degradation | H | DEP-2, RT-2 | Partial | 0/5 |
+| RF-RES-4 | Data integrity assurance and corruption recovery | H | PER-2, PER-8 | Partial | 0/4 |
+| RF-RES-5 | Business continuity for the air-gapped case | M | RES-2, UX-11 | Partial | 0/4 |
 | **T — Security assurance** |
-| RF-SEC-1 | Validate the threat models with tests | C | TST-3 |
-| RF-SEC-2 | Fuzzing and property-based testing of every boundary | H | TST-4 |
-| RF-SEC-3 | Static and dynamic analysis in CI | H | SC-4 |
-| RF-SEC-4 | Cryptographic assurance and validation evidence | H | RT-5 |
-| RF-SEC-5 | Penetration testing and red teaming | H | SEC-1, DEP-2 |
-| RF-SEC-6 | Security monitoring, detection and response | H | OBS-1, OBS-4 |
-| RF-SEC-7 | Vulnerability management and disclosure | M | SC-4 |
-| RF-SEC-8 | Physical and supply-chain security for air-gap | M | B-4, DEP-5 |
+| RF-SEC-1 | Validate the threat models with tests | C | TST-3 | Partial | 0/4 |
+| RF-SEC-2 | Fuzzing and property-based testing of every boundary | H | TST-4 | Open | 0/5 |
+| RF-SEC-3 | Static and dynamic analysis in CI | H | SC-4 | Partial | 0/5 |
+| RF-SEC-4 | Cryptographic assurance and validation evidence | H | RT-5 | Partial | 1/5 |
+| RF-SEC-5 | Penetration testing and red teaming | H | SEC-1, DEP-2 | Open | 0/4 |
+| RF-SEC-6 | Security monitoring, detection and response | H | OBS-1, OBS-4 | Partial | 0/4 |
+| RF-SEC-7 | Vulnerability management and disclosure | M | SC-4 | Partial | 0/5 |
+| RF-SEC-8 | Physical and supply-chain security for air-gap | M | B-4, DEP-5 | Partial | 0/4 |
 | **U — Test strategy & coverage** |
-| RF-TST-1 | Test strategy, taxonomy and coverage targets | M | — |
-| RF-TST-2 | Frontend testing from zero | H | UI-2, UID-1 |
-| RF-TST-3 | Integration testing across process boundaries | H | RT-1, API-2 |
-| RF-TST-4 | Fuzzing infrastructure | H | SEC-2 |
-| RF-TST-5 | Performance and load testing | H | SCL-4, TST-3 |
-| RF-TST-6 | Long-running stability and resource testing | M | RT-6 |
-| RF-TST-7 | Regression, benchmark and golden-output suites | M | TST-1 |
-| RF-TST-8 | Chaos and fault-injection testing | H | RES-3, TST-3 |
+| RF-TST-1 | Test strategy, taxonomy and coverage targets | M | — | Open | 0/4 |
+| RF-TST-2 | Frontend testing from zero | H | UI-2, UID-1 | Open | 0/5 |
+| RF-TST-3 | Integration testing across process boundaries | H | RT-1, API-2 | Partial | 1/4 |
+| RF-TST-4 | Fuzzing infrastructure | H | SEC-2 | Open | 0/4 |
+| RF-TST-5 | Performance and load testing | H | SCL-4, TST-3 | Open | 0/4 |
+| RF-TST-6 | Long-running stability and resource testing | M | RT-6 | Open | 0/4 |
+| RF-TST-7 | Regression, benchmark and golden-output suites | M | TST-1 | Open | 0/4 |
+| RF-TST-8 | Chaos and fault-injection testing | H | RES-3, TST-3 | Partial | 0/4 |
 | **V — Compliance & assurance artefacts** |
-| RF-CMP-1 | Control framework mapping with automated evidence | H | OBS-1, PER-2 |
-| RF-CMP-2 | Supply-chain attestation (SLSA) and SBOM distribution | H | SC-1..5 |
-| RF-CMP-3 | Privacy: data protection by design and by default | H | PER-6 |
-| RF-CMP-4 | Records management, retention and legal hold | M | PER-6, PER-2 |
-| RF-CMP-5 | Export control, sanctions, jurisdictional constraints | M | MS-2, API-6 |
-| RF-CMP-6 | Accessibility conformance reporting | M | UI-3, CL-2..7 |
+| RF-CMP-1 | Control framework mapping with automated evidence | H | OBS-1, PER-2 | Partial | 0/4 |
+| RF-CMP-2 | Supply-chain attestation (SLSA) and SBOM distribution | H | SC-1..5 | Partial | 0/4 |
+| RF-CMP-3 | Privacy: data protection by design and by default | H | PER-6 | Partial | 1/5 |
+| RF-CMP-4 | Records management, retention and legal hold | M | PER-6, PER-2 | Open | 0/4 |
+| RF-CMP-5 | Export control, sanctions, jurisdictional constraints | M | MS-2, API-6 | Open | 0/4 |
+| RF-CMP-6 | Accessibility conformance reporting | M | UI-3, CL-2..7 | Partial | 0/4 |
 | **W — Multi-tenancy, scale & performance** |
-| RF-SCL-1 | Decide and implement the tenancy model | H | PER-1, IAM-5 |
-| RF-SCL-2 | Horizontal scalability of the data plane | H | PER-3, SCL-1 |
-| RF-SCL-3 | Caching strategy with governance correctness | M | PER-3, SCL-1 |
-| RF-SCL-4 | Performance engineering and the published envelope | H | TST-5 |
-| RF-SCL-5 | Cost model and resource efficiency | L | SCL-4, MI-8 |
+| RF-SCL-1 | Decide and implement the tenancy model | H | PER-1, IAM-5 | Open | 0/4 |
+| RF-SCL-2 | Horizontal scalability of the data plane | H | PER-3, SCL-1 | Partial | 0/5 |
+| RF-SCL-3 | Caching strategy with governance correctness | M | PER-3, SCL-1 | Open | 0/4 |
+| RF-SCL-4 | Performance engineering and the published envelope | H | TST-5 | Open | 0/4 |
+| RF-SCL-5 | Cost model and resource efficiency | L | SCL-4, MI-8 | Open | 0/4 |
 | **X — Documentation, design system & drift** |
-| RF-DOC-1 | Reconcile every status claim with the tree | M | — |
-| RF-DOC-2 | Operations documentation and runbooks | H | OBS-4, RES-2 |
-| RF-DOC-3 | User documentation and in-product help | M | UX-* |
-| RF-DOC-4 | Architecture documentation currency and ADRs | M | — |
-| RF-DOC-5 | Contribution, governance and project documentation | L | — |
-| RF-DOC-6 | Design system: single source, coverage, governance patterns | M | UI-3, UI-6, UI-8 |
-| RF-DOC-7 | Public-facing site accuracy and brand consistency | L | DOC-1 |
+| RF-DOC-1 | Reconcile every status claim with the tree | M | — | Partial | 0/5 |
+| RF-DOC-2 | Operations documentation and runbooks | H | OBS-4, RES-2 | Partial | 0/5 |
+| RF-DOC-3 | User documentation and in-product help | M | UX-* | Open | 0/4 |
+| RF-DOC-4 | Architecture documentation currency and ADRs | M | — | Open | 0/4 |
+| RF-DOC-5 | Contribution, governance and project documentation | L | — | Partial | 0/3 |
+| RF-DOC-6 | Design system: single source, coverage, governance patterns | M | UI-3, UI-6, UI-8 | Open | 0/5 |
+| RF-DOC-7 | Public-facing site accuracy and brand consistency | L | DOC-1 | Partial | 0/4 |
+| **Y — Claim alignment & public release** |
+| RF-CA-1 | Claims ledger: one row per published claim, with status and evidence | C | — | Open | 0/4 |
+| RF-CA-2 | One numbers sheet, generated from the tag | C | CA-5 | Partial | 0/4 |
+| RF-CA-3 | Restore the hermetic build configuration to the public tree | C | — | Open | 0/3 |
+| RF-CA-4 | Publish the CI and release workflows the documents cite | H | CA-3 | Open | 0/3 |
+| RF-CA-5 | Re-run the acceptance gate at the release commit and record it | C | CA-3 | Open | 0/4 |
+| RF-CA-6 | Signed, tagged public release | C | CA-1..5, SC-8 | Open | 0/5 |
+| RF-CA-7 | History, classification and publication statements | H | — | Partial | 0/4 |
+| RF-CA-8 | Multi-family routing and hot-swap in the running inference plane | H | MI-2, MS-1 | Open | 0/5 |
+| RF-CA-9 | Zero-downtime upgrade of a deployed service | H | DEP-2, PER-7 | Open | 0/5 |
+| RF-CA-10 | Heimdall option generation in the running service | H | MI-1, H-1 | Open | 0/5 |
+| RF-CA-11 | Admin console alerts on a real backend | H | RT-1, PER-4 | Open | 0/5 |
+| RF-CA-12 | Multimodal ingest: georeferencing, captions, transcripts | H | F-2, MI-1, MS-1 | Open | 0/6 |
+| RF-CA-13 | Likan: state the boundary with the proprietary tool, prove the interchange | H | — | Open | 0/4 |
 
-**Severity totals:** Critical 18 · High 88 · Medium 59 · Low 4 — 169 items, 824 acceptance criteria.
+**Severity totals:** Critical 23 · High 96 · Medium 59 · Low 4 — 182 items, 881 acceptance criteria.
 
 ---
 
@@ -7593,6 +10607,20 @@ The items where the repository currently asserts something that is not true. Che
 `RF-SC-1` · `RF-SC-2` · `RF-SC-3` · `RF-SC-6` · `RF-DOC-1` · `RF-DOC-5` · `RF-TST-1`
 
 **Gate:** `just gate <artefact>` fails on an unsigned, unverified or non-reproducible artefact; CI's reproducibility job actually builds; every status claim in the repository is true.
+
+### Phase RY — Say only what is true (now; tag due 2026-10-22 18:00)
+
+Added in Revision 2. It runs ahead of, and independently of, the phases below.
+
+`RF-CA-1` · `RF-CA-2` · `RF-CA-3` · `RF-CA-4` · `RF-CA-5` · `RF-CA-6` · `RF-CA-7` · `RF-CA-13`
+
+Suggested order: `RF-CA-3` (nothing can be gated until a fresh clone builds) → `RF-CA-4` and `RF-CA-7` in parallel → `RF-CA-1` and `RF-CA-13` → freeze → `RF-CA-5` → `RF-CA-2` → `RF-CA-6`. The gate takes about two hours from cold; leave room to run it twice.
+
+Optional for the tag, only if green before the freeze: `RF-CA-10`, and `RF-CA-11` through its read path. Otherwise they take their fallback wording.
+
+**Gate:** `v0.1.0-rc.1` is a signed tag on public `main`; a fresh clone builds and passes the gate offline; the gate record, the numbers sheet and the claims ledger all name the tag's commit; no document in circulation states a capability above its ledger status or a figure that differs from the sheet.
+
+**After the tag,** the capability track is delivered in the milestones the claims ledger names: `RF-CA-10` and `RF-CA-11` first (each wires an existing library into an existing service), then `RF-CA-8`, then `RF-CA-9` (which needs the replica-model decision), then `RF-CA-12` (which needs a SAD change first).
 
 ### Phase R1 — Make it run (months 2–5)
 
@@ -7670,9 +10698,16 @@ Stated so the gaps in the gap analysis are visible:
 - **SAD content not re-derived.** The eight SADs were used as the requirement source and checked for traceability, not re-reviewed for whether the design they describe is the right one. `RF-DOC-4` reconciles them with what was built.
 - **The working tree is mid-change.** 61 files are modified and uncommitted, including a Kryotech → Veldris rebrand across documentation and both token copies. Findings that touch those files were checked against the working tree, not `HEAD`.
 
+**Revision 2 (Workstream Y) has its own limits:**
+
+- **Nothing was built or run.** Counts were taken from the tracked files of public `main` @ `9ec8659`; capability status was established by reading source, manifests and tests. The offline build was not attempted, so RF-CA-3 states what the tree lacks, not an observed build failure. No test was executed; RF-CA-5 exists to establish the pass counts.
+- **Likan was not examined.** It is a separate, proprietary tool and is not in this repository; nothing here describes its behaviour.
+- **Workstreams A–X were re-audited by reading, item by item, in seven parallel reviews**, each classifying every acceptance criterion as met, open or not verifiable by reading. The reviews were not cross-checked against each other. The defects table in §1a was confirmed separately by opening each file; other findings rest on the single review that reported them, and each Status note gives the reviewer's confidence. Two items marked open on low confidence (RF-PER-6, RF-PER-7) rest on searches that found nothing, not on a file that proves absence.
+- **The launch deck was checked through its build script only**, not the rendered `.pptx` files.
+
 ---
 
-*Compiled against `dev` @ `71e2a58`, 2026-08-25. Companion to [BUILD_PLAYBOOK.md](../../../BUILD_PLAYBOOK.md) — the playbook builds the specification; this document completes the product. Source of truth for requirements remains [`docs/dev/markdown/`](../markdown/), chiefly [`SAD_05`](../markdown/SAD_05_Master_Prompt_and_Acceptance_Spec.md).*
+*Compiled against `dev` @ `71e2a58`, 2026-08-25; Workstream Y added against public `main` @ `9ec8659`, 2026-10-12. Companion to [BUILD_PLAYBOOK.md](../../../BUILD_PLAYBOOK.md) — the playbook builds the specification; this document completes the product. Source of truth for requirements remains [`docs/dev/markdown/`](../markdown/), chiefly [`SAD_05`](../markdown/SAD_05_Master_Prompt_and_Acceptance_Spec.md).*
 
 
 

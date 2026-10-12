@@ -6,7 +6,7 @@ Midgard is a **Veldris Ltd** project. This repository holds three things that fi
 
 1. **The specification** — the Solutions Architecture Documents (the "what and why").
 2. **The design system** — a complete, branded UI system (the "how it looks and behaves").
-3. **The implementation** — a post-quantum, air-gap-capable platform built from the spec: a 62-crate Rust workspace (core services, Mimir, Forge, Bifrost, Heimdall, admin, clients) plus the console UIs and gateway edge.
+3. **The implementation** — a post-quantum, air-gap-capable platform built from the spec: a 70-crate Rust workspace (core services, Mimir, Forge, Bifrost, Heimdall, admin, clients) plus the console UIs and gateway edge.
 
 The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md); in the full working history, one commit maps to each playbook prompt. This public repository begins from a squashed initial import of that verified state.
 
@@ -86,15 +86,15 @@ midgard/
 │
 ├── contracts/         ← proto contracts: the cross-SDK source of truth (buf)
 ├── crypto/            ← cross-cutting: pqc-agility, pq-mtls, audit-writer, policy, attest
-├── services/          ← Midgard core: gateway, http-gateway, iam, fabric, kms, governance, scheduler, telemetry
-├── mimir/             ← model-server, prompts, oag-retriever, agent-runtime, staging
-├── forge/             ← connector-sdk, dataset-store, engine, pipeline, health, projection, ai-assist
-├── bifrost/           ← artefact, rollout, fleet, bundle, risk
-├── heimdall/          ← feed-gateway, fusion, classify, picture, picture-sync, decision-support, workflow
-├── admin/             ← identity, privilege, sim, config, breakglass, audit, ai-assist, service-identity
+├── services/          ← Midgard core: gateway, http-gateway, iam, fabric, kms, governance, scheduler, telemetry, runtime
+├── mimir/             ← model-server, mimir-server, bridge, prompts, oag-retriever, agent-runtime, staging
+├── forge/             ← connector-sdk, dataset-store, engine, pipeline, health, projection, ai-assist, worker
+├── bifrost/           ← artefact, rollout, fleet, fleet-server, bundle, risk
+├── heimdall/          ← feed-gateway, feed-server, fusion, classify, picture, picture-sync, decision-support, workflow, store
+├── admin/             ← identity, privilege, sim, config, breakglass, audit, ai-assist, service-identity, orchestrator
 ├── clients/           ← shared core + sync, keystore, store, enclosure, inference, broker, delivery; shells/
 ├── sdk/ · products/ · ui/   ← generated SDKs, product surfaces, console UIs (Vite/React)
-├── tools/             ← supply-chain CLIs: mg-sign, mg-sbom, mg-scan, mg-verify, mg-repro, mg-bundle
+├── tools/             ← CLIs: mg-sign, mg-sbom, mg-scan, mg-verify, mg-repro, mg-bundle, mg-register, mg-admin, mg-model
 ├── deploy/            ← acceptance gates, container images, k8s + helm, air-gap bundle, trust anchors
 ├── vendor/            ← vendored crates → fully offline builds
 │
