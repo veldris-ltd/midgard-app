@@ -1,11 +1,13 @@
 //! mg-verify — verify an artefact's ML-DSA signature, SBOM, and provenance
 //! before publish or deploy. FAILS CLOSED. [NFR-PQ-3] [AC-B-1] [AC-B-4]
 //!
-//! The same verifier runs in CI (stage 7, pre-publish) and inside Bifrost
-//! (pre-deploy, AC-B-1) and at model load (AC-MS-2) — one implementation of
-//! "reject unless proven", in `attest`. This binary is argument handling and
-//! an exit code; the decision is [`attest::verify_artefact`], which is the
-//! same function those call sites use.
+//! This binary is argument handling and an exit code over
+//! [`attest::verify_artefact`], the file-level verifier. It runs in CI (stage 7,
+//! pre-publish) and in every image's entrypoint before the service starts.
+//! Bifrost's pre-deploy check (AC-B-1) and Mimir's model load (AC-MS-2) verify
+//! their own manifests rather than files, so they do not call this — but all of
+//! them reach the same signature decision, `attest::accept::accept`: one
+//! implementation of "reject unless proven".
 //!
 //! ```text
 //! mg-verify <artefact> --trust-anchor <path> [--trust-anchor <path>…] [--quiet]
@@ -40,7 +42,7 @@ Verifies, and refuses unless every one of these holds:
   * the anchor and the signature agree on the algorithm
   * the signature verifies over the artefact, SBOM and attestation digests
     recomputed from disk
-  * the SBOM is well-formed CycloneDX with at least one component, each
+  * the SBOM is well-formed CycloneDX 1.5 with at least one component, each
     carrying a purl
 
 Trust anchors are lines of `<alg> <key-id> <hex>`, as written by
@@ -63,7 +65,15 @@ fn main() -> ExitCode {
 }
 
 fn verify_main() -> ExitCode {
-    match run() {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    // Help is its own invocation. It exits 0, so it must never be reachable
+    // from a command line that also names an artefact: a caller that checks only
+    // the exit code would read that as "verified".
+    if matches!(argv.as_slice(), [only] if is_help(only)) {
+        print!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    match run(&argv) {
         Ok(line) => {
             // stdout carries ONLY the verdict, so callers can parse it.
             println!("{line}");
@@ -87,13 +97,11 @@ enum Failure {
     Refused(String),
 }
 
-fn run() -> Result<String, Failure> {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    if argv.iter().any(|a| a == "-h" || a == "--help") {
-        print!("{USAGE}");
-        std::process::exit(0);
-    }
+fn is_help(arg: &str) -> bool {
+    arg == "-h" || arg == "--help"
+}
 
+fn run(argv: &[String]) -> Result<String, Failure> {
     let mut artefact: Option<PathBuf> = None;
     let mut anchor_paths: Vec<PathBuf> = Vec::new();
     let mut quiet = false;
@@ -112,6 +120,11 @@ fn run() -> Result<String, Failure> {
             "--quiet" => {
                 quiet = true;
                 i += 1;
+            }
+            help if is_help(help) => {
+                return Err(Failure::Usage(format!(
+                    "{help} must be the only argument — it does not verify anything"
+                )))
             }
             other if other.starts_with("--") => {
                 return Err(Failure::Usage(format!("unknown flag {other}")))
@@ -162,7 +175,9 @@ fn load_anchors(paths: &[PathBuf]) -> Result<TrustAnchors, Failure> {
         })?;
         let parsed = TrustAnchors::parse(&text)
             .map_err(|e| Failure::Usage(format!("{}: {e}", p.display())))?;
-        merged.merge(parsed);
+        merged
+            .merge(parsed)
+            .map_err(|e| Failure::Usage(format!("{}: {e}", p.display())))?;
     }
     if merged.is_empty() {
         return Err(Failure::Usage(format!(
@@ -221,6 +236,39 @@ mod tests {
         assert!(merged.get("key-b").is_some());
         let _ = std::fs::remove_file(&a);
         let _ = std::fs::remove_file(&b);
+    }
+
+    #[test]
+    fn anchor_loading_refuses_one_key_id_anchored_to_two_keys() {
+        let a = std::env::temp_dir().join("mg-verify-anchors-conflict-a");
+        let b = std::env::temp_dir().join("mg-verify-anchors-conflict-b");
+        std::fs::write(&a, "ML-DSA-87 release-key-1 aabb\n").unwrap();
+        std::fs::write(&b, "ML-DSA-87 release-key-1 ccdd\n").unwrap();
+        // Which key is trusted must not depend on the order the files were named.
+        assert!(matches!(
+            load_anchors(&[a.clone(), b.clone()]),
+            Err(Failure::Usage(_))
+        ));
+        // The same anchor named twice is not a conflict.
+        assert!(load_anchors(&[a.clone(), a.clone()]).is_ok());
+        let _ = std::fs::remove_file(&a);
+        let _ = std::fs::remove_file(&b);
+    }
+
+    #[test]
+    fn help_alongside_other_arguments_is_a_usage_error() {
+        let argv =
+            |items: &[&str]| -> Vec<String> { items.iter().map(|s| s.to_string()).collect() };
+        for bad in [
+            vec!["artefact", "--trust-anchor", "anchors", "--help"],
+            vec!["--help", "artefact", "--trust-anchor", "anchors"],
+            vec!["artefact", "-h"],
+        ] {
+            assert!(
+                matches!(run(&argv(&bad)), Err(Failure::Usage(_))),
+                "{bad:?} must not be treated as a request for help"
+            );
+        }
     }
 
     #[test]

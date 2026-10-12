@@ -593,3 +593,52 @@ fn trust_anchor_parsing_rejects_malformed_lines() {
         "key must be hex"
     );
 }
+
+#[test]
+fn trust_anchors_refuse_one_key_id_bound_to_two_keys() {
+    // Within one file: listed twice is an error even when the lines agree,
+    // because the operator's intent is no longer readable from the file.
+    assert!(
+        TrustAnchors::parse("ML-DSA-87 key aabb\nML-DSA-87 key ccdd\n").is_err(),
+        "a repeated key id in one file must be refused"
+    );
+
+    // Across files: the same anchor twice is harmless, a conflicting one is not.
+    let mut anchors = TrustAnchors::parse("ML-DSA-87 key aabb\n").unwrap();
+    anchors
+        .merge(TrustAnchors::parse("ML-DSA-87 key aabb\n").unwrap())
+        .expect("an identical anchor merges");
+    anchors
+        .merge(TrustAnchors::parse("ML-DSA-87 other eeff\n").unwrap())
+        .expect("a different key id merges");
+    assert_eq!(anchors.len(), 2);
+
+    for conflicting in ["ML-DSA-87 key ccdd\n", "ML-DSA-65 key aabb\n"] {
+        let e = anchors
+            .merge(TrustAnchors::parse(conflicting).unwrap())
+            .expect_err("which key is trusted must not depend on merge order");
+        assert!(e.contains("two different keys"), "{e}");
+    }
+    assert_eq!(anchors.len(), 2, "a refused merge adds nothing for that id");
+}
+
+#[test]
+fn the_verdict_line_holds_each_field_exactly_once() {
+    let verdict = attest::Verdict {
+        artefact: "app key=evil alg=none".into(),
+        artefact_sha256: [0xab; 32],
+        key_id: "release key".into(),
+        alg: SigId::MlDsa87,
+        components: 3,
+    };
+    let line = verdict.line();
+    assert_eq!(
+        line,
+        format!(
+            "ok artefact=app%20key%3Devil%20alg%3Dnone digest={} key=release%20key \
+             alg=ML-DSA-87 components=3",
+            "ab".repeat(32)
+        )
+    );
+    assert_eq!(line.split_whitespace().count(), 6);
+}

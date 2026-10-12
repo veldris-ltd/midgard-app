@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use attest::{att_path, sig_path, Keystore, KmsSigner, Provenance};
+use attest::{att_path, sig_path, Keystore, KmsSigner, Provenance, SigningBackend};
 
 const EXE: &str = env!("CARGO_BIN_EXE_mg-verify");
 
@@ -44,13 +44,28 @@ impl Bundle {
     /// Build a bundle signed by `signing_key_id` but whose anchor file trusts
     /// only `trusted_key_id` — equal for the happy path, different for AC-2c.
     fn signed_by(tag: &str, signing_key_id: &str, trusted_key_id: &str) -> Self {
+        Self::build(tag, "mg-sbom", signing_key_id, trusted_key_id)
+    }
+
+    /// A fresh scratch directory holding an artefact called `name` and nothing else.
+    fn scratch(tag: &str, name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("mg-verify-test-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch dir");
 
-        let artefact = dir.join("mg-sbom");
+        let artefact = dir.join(name);
         std::fs::write(&artefact, b"deployable bytes").expect("write artefact");
-        std::fs::write(attest::sbom::sbom_path(&artefact), SBOM).expect("write sbom");
+        let anchors = dir.join("anchors.txt");
+        Self {
+            dir,
+            artefact,
+            anchors,
+        }
+    }
+
+    fn build(tag: &str, name: &str, signing_key_id: &str, trusted_key_id: &str) -> Self {
+        let b = Self::scratch(tag, name);
+        std::fs::write(b.sbom(), SBOM).expect("write sbom");
 
         let mut rng = pqc_agility::OsRng;
         let signing = Keystore::generate(signing_key_id, kms::RELEASE_SIG_ALG, &mut rng)
@@ -58,18 +73,17 @@ impl Bundle {
 
         // The anchor file trusts `trusted_key_id`: the same keystore when they
         // match, an unrelated one when they do not.
-        let anchors = dir.join("anchors.txt");
         if signing_key_id == trusted_key_id {
-            std::fs::write(&anchors, signing.export_verifying_key()).expect("write anchors");
+            std::fs::write(&b.anchors, signing.export_verifying_key()).expect("write anchors");
         } else {
             let other = Keystore::generate(trusted_key_id, kms::RELEASE_SIG_ALG, &mut rng)
                 .expect("generate other keystore");
-            std::fs::write(&anchors, other.export_verifying_key()).expect("write anchors");
+            std::fs::write(&b.anchors, other.export_verifying_key()).expect("write anchors");
         }
 
         let signer = KmsSigner::new(signing.into_signing_root().expect("unseal"));
         attest::sign_artefact(
-            &artefact,
+            &b.artefact,
             None,
             &signer,
             &Provenance {
@@ -80,12 +94,42 @@ impl Bundle {
             },
         )
         .expect("sign");
+        b
+    }
 
-        Self {
-            dir,
-            artefact,
-            anchors,
-        }
+    /// A bundle with a **genuine signature over whatever SBOM it is given**.
+    ///
+    /// `sign_artefact` refuses to sign an unusable SBOM, so this assembles the
+    /// bundle from the format's own parts instead. It is what lets a test show
+    /// that the verifier's SBOM gate refuses on its own account — that a valid
+    /// signature does not vouch for a bill of materials nobody could scan.
+    fn signed_over_sbom(tag: &str, sbom: &str) -> Self {
+        let b = Self::scratch(tag, "mg-sbom");
+        std::fs::write(b.sbom(), sbom).expect("write sbom");
+        let att = b"{}\n";
+        std::fs::write(att_path(&b.artefact), att).expect("write att");
+
+        let mut rng = pqc_agility::OsRng;
+        let keystore = Keystore::generate("release-key-1", kms::RELEASE_SIG_ALG, &mut rng)
+            .expect("generate keystore");
+        std::fs::write(&b.anchors, keystore.export_verifying_key()).expect("write anchors");
+        let signer = KmsSigner::new(keystore.into_signing_root().expect("unseal"));
+
+        let digest = attest::preimage::digest;
+        let signature = signer
+            .sign(&attest::preimage::preimage(
+                &digest(b"deployable bytes"),
+                &digest(sbom.as_bytes()),
+                &digest(att),
+            ))
+            .expect("sign");
+        let env = attest::envelope::SigEnvelope {
+            domain: attest::DOMAIN_LABEL.to_vec(),
+            key_id: "release-key-1".into(),
+            signature,
+        };
+        std::fs::write(sig_path(&b.artefact), env.encode()).expect("write sig");
+        b
     }
 
     fn verify(&self) -> Output {
@@ -149,6 +193,90 @@ fn ac_rf_sc_2e_valid_bundle_exits_zero_with_a_parseable_verdict() {
     let digest = fields.get("digest").expect("digest field");
     assert_eq!(digest.len(), 64, "sha256 as hex");
     assert!(digest.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+#[test]
+fn a_file_name_cannot_plant_a_field_in_the_verdict() {
+    // The artefact's name is whatever the file is called. Unencoded, this one
+    // would put a second `key=` in the line a script parses.
+    let b = Bundle::build(
+        "spoof",
+        "mg-sbom key=attacker-key",
+        "release-key-1",
+        "release-key-1",
+    );
+    let out = b.verify();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let fields: Vec<(&str, &str)> = line["ok ".len()..]
+        .split_whitespace()
+        .filter_map(|kv| kv.split_once('='))
+        .collect();
+    let names: Vec<&str> = fields.iter().map(|(k, _)| *k).collect();
+    assert_eq!(
+        names,
+        ["artefact", "digest", "key", "alg", "components"],
+        "each field exactly once, in order: {line:?}"
+    );
+    assert_eq!(fields[0].1, "mg-sbom%20key%3Dattacker-key");
+    assert_eq!(fields[2].1, "release-key-1");
+}
+
+// --- exit 0 means verified, and nothing else ---------------------------------
+
+#[test]
+fn help_cannot_turn_a_verification_into_a_success() {
+    // Unsigned: there is nothing here that could verify.
+    let b = Bundle::scratch("help", "mg-sbom");
+    for position in [0usize, 3] {
+        let mut args = vec![
+            b.artefact.to_string_lossy().into_owned(),
+            "--trust-anchor".to_string(),
+            b.anchors.to_string_lossy().into_owned(),
+        ];
+        args.insert(position, "--help".to_string());
+
+        let out = Command::new(EXE)
+            .args(&args)
+            .output()
+            .expect("run mg-verify");
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "--help beside an artefact is a usage error, not a pass: {args:?}"
+        );
+        assert!(out.stdout.is_empty(), "nothing on stdout: {args:?}");
+    }
+
+    // On its own it is still help.
+    let out = Command::new(EXE)
+        .arg("--help")
+        .output()
+        .expect("run mg-verify");
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("usage:"));
+}
+
+#[test]
+fn an_artefact_that_was_never_signed_is_refused() {
+    // The state the stub let through: a binary and its SBOM, straight from the
+    // build, with no signing stage ever having run.
+    let b = Bundle::scratch("unsigned", "mg-sbom");
+    std::fs::write(b.sbom(), SBOM).unwrap();
+    std::fs::write(&b.anchors, "ML-DSA-87 release-key-1 aabb\n").unwrap();
+
+    let out = b.verify();
+    assert!(
+        !out.status.success(),
+        "an unsigned artefact must not verify"
+    );
+    assert!(
+        stderr(&out).contains("missing required sidecar"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(out.stdout.is_empty());
 }
 
 // --- the rejection table -----------------------------------------------------
@@ -234,22 +362,30 @@ fn every_rejection_reason_exits_non_zero() {
             },
             "is not the artefact domain",
         ),
-        // Malformed and empty SBOMs.
+        // An algorithm that is not approved for release signing. The anchor file
+        // cannot name one, but the envelope's own algorithm tag can.
         (
-            "malformed-cyclonedx",
-            |b| std::fs::write(b.sbom(), r#"{"hello":"world"}"#).unwrap(),
-            "invalid CycloneDX SBOM",
-        ),
-        (
-            "empty-component-list",
+            "unapproved-algorithm",
             |b| {
-                std::fs::write(
-                    b.sbom(),
-                    r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[]}"#,
-                )
-                .unwrap()
+                let bytes = std::fs::read(sig_path(&b.artefact)).unwrap();
+                let env = attest::envelope::SigEnvelope::parse(&bytes).unwrap();
+                let forged = attest::envelope::SigEnvelope {
+                    signature: pqc_agility::Signature::new(
+                        pqc_agility::SigId::MlDsa44,
+                        env.signature.as_bytes().to_vec(),
+                    ),
+                    ..env
+                };
+                std::fs::write(sig_path(&b.artefact), forged.encode()).unwrap();
             },
-            "invalid CycloneDX SBOM",
+            "not an approved release-signing algorithm",
+        ),
+        // An SBOM swapped after signing is a signature failure whatever it
+        // contains: the verifier does not parse bytes it has not authenticated.
+        (
+            "sbom-replaced-after-signing",
+            |b| std::fs::write(b.sbom(), r#"{"hello":"world"}"#).unwrap(),
+            "signature does not verify",
         ),
     ];
 
@@ -277,6 +413,48 @@ fn every_rejection_reason_exits_non_zero() {
             out.stdout.is_empty(),
             "{tag}: nothing may be printed to stdout on refusal"
         );
+    }
+}
+
+// --- the SBOM gate refuses on its own account --------------------------------
+
+#[test]
+fn a_valid_signature_does_not_vouch_for_an_unusable_sbom() {
+    // Control: the hand-assembled bundle is a real one.
+    let ok = Bundle::signed_over_sbom("sbom-control", SBOM);
+    let out = ok.verify();
+    assert!(
+        out.status.success(),
+        "control must verify: {}",
+        stderr(&out)
+    );
+
+    let rows: [(&str, String); 6] = [
+        ("not-cyclonedx", r#"{"hello":"world"}"#.into()),
+        (
+            "empty-component-list",
+            r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[]}"#.into(),
+        ),
+        (
+            "component-without-a-purl",
+            r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
+                {"name":"a","purl":"pkg:cargo/a@1"},{"name":"b"}]}"#
+                .into(),
+        ),
+        ("not-cyclonedx-1.5", SBOM.replace("\"1.5\"", "\"1.4\"")),
+        ("truncated", SBOM[..SBOM.len() - 1].to_string()),
+        ("trailing-data", format!("{SBOM} {{}}")),
+    ];
+    for (tag, sbom) in rows {
+        let b = Bundle::signed_over_sbom(&format!("sbom-{tag}"), &sbom);
+        let out = b.verify();
+        let err = stderr(&out);
+        assert!(!out.status.success(), "{tag}: MUST exit non-zero");
+        assert!(
+            err.contains("invalid CycloneDX SBOM"),
+            "{tag}: the signature is genuine, so the refusal must be the SBOM's: {err}"
+        );
+        assert!(out.stdout.is_empty(), "{tag}: nothing on stdout on refusal");
     }
 }
 
@@ -357,33 +535,66 @@ fn a_missing_artefact_is_a_refusal() {
 
 // --- AC-RF-SC-2d — one implementation ---------------------------------------
 
+/// Every `.rs` file under `dir`, recursively.
+fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    for entry in entries {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            rust_sources(&path, out);
+        } else if path.extension().is_some_and(|x| x == "rs") {
+            out.push(path);
+        }
+    }
+}
+
 #[test]
 fn ac_rf_sc_2d_subsystems_hold_no_independent_acceptance_decision() {
-    // Bifrost's artefact verify, its offline-bundle import, and Mimir's
-    // verify-on-load must all route their signature check through
-    // `attest::accept`. A local `FipsSig::new(...).verify(...)` in any of
-    // them would be a second place for "acceptable" to be defined.
-    for (name, src) in [
-        (
-            "bifrost/artefact/src/signed.rs",
-            include_str!("../../../bifrost/artefact/src/signed.rs"),
-        ),
-        (
-            "bifrost/bundle/src/bundle.rs",
-            include_str!("../../../bifrost/bundle/src/bundle.rs"),
-        ),
-        (
-            "mimir/model-server/src/artifact.rs",
-            include_str!("../../../mimir/model-server/src/artifact.rs"),
-        ),
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+    // 1. Every place Bifrost and Mimir accept a signed thing routes the decision
+    //    through `attest::accept`.
+    for site in [
+        "bifrost/artefact/src/signed.rs",
+        "bifrost/bundle/src/bundle.rs",
+        "bifrost/bundle/src/stream.rs",
+        "mimir/model-server/src/artifact.rs",
     ] {
+        let src =
+            std::fs::read_to_string(root.join(site)).unwrap_or_else(|e| panic!("{site}: {e}"));
         assert!(
             src.contains("attest::accept::accept("),
-            "{name} must delegate its acceptance decision to attest::accept"
+            "{site} must delegate its acceptance decision to attest::accept"
         );
-        assert!(
-            !src.contains(".verify("),
-            "{name} still performs its own signature verification"
-        );
+    }
+
+    // 2. And nowhere in either subsystem's shipped source — not just in those
+    //    files — is a signature verified any other way. A raw scheme reached via
+    //    `sig_for(` or `FipsSig`, or a direct `.verify(` call, would be a second
+    //    place for "acceptable" to be defined, so a new one fails here by name.
+    let mut sources = Vec::new();
+    for subsystem in ["bifrost", "mimir"] {
+        let entries = std::fs::read_dir(root.join(subsystem)).expect("subsystem dir");
+        for entry in entries {
+            let src = entry.expect("dir entry").path().join("src");
+            if src.is_dir() {
+                rust_sources(&src, &mut sources);
+            }
+        }
+    }
+    assert!(
+        sources.len() > 20,
+        "the walk found only {} files — it is not looking where the code is",
+        sources.len()
+    );
+    for path in sources {
+        let src = std::fs::read_to_string(&path).expect("read source");
+        for needle in [".verify(", "sig_for(", "FipsSig"] {
+            assert!(
+                !src.contains(needle),
+                "{} contains `{needle}` — signature acceptance must go through attest::accept",
+                path.display()
+            );
+        }
     }
 }

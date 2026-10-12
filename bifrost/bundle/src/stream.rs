@@ -278,6 +278,10 @@ pub fn import_streaming(
             index,
             error: VerifyError::BadSignature,
         })?;
+        // The same structural SBOM gate `bifrost_artefact::verify` applies, now
+        // that the SBOM is known to be the signed one.
+        bifrost_artefact::check_sbom(&sbom)
+            .map_err(|error| BundleError::Artefact { index, error })?;
 
         if let Some(mut sink) = sink {
             sink.flush().map_err(io)?;
