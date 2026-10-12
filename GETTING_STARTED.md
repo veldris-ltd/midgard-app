@@ -2,7 +2,7 @@
 
 This guide describes the **specification-driven workflow** by which the Midgard suite is built with an AI coding agent: feed a complete architecture (`docs/dev/`) and a complete design system (`docs/design/`) to an agent, and turn them into software one requirement at a time.
 
-> **The suite is already implemented.** A 56-crate Rust workspace (plus console UIs and gateway edge) was produced from this exact workflow — its git history maps one commit per [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) prompt, and all 72 acceptance criteria pass air-gapped. To **build, test, or verify** what exists, see [README.md → Running locally](README.md#running-locally). This guide remains the reference for *how* it was built and for extending it — same loop, same gates.
+> **The suite is already implemented.** A 70-crate Rust workspace (plus console UIs and gateway edge) was produced from this exact workflow — its git history maps one commit per [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) prompt, and all 72 acceptance criteria pass air-gapped. To **build, test, or verify** what exists, see [README.md → Running locally](README.md#running-locally). This guide remains the reference for *how* it was built and for extending it — same loop, same gates.
 
 > **Looking for the exhaustive, in-sequence build reference?** [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) lists every build prompt, all 15 runtime AI prompts (verbatim), and all 72 acceptance criteria, phase-by-phase across the whole suite. This guide is the orientation; the playbook is the execution detail.
 
