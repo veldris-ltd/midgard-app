@@ -300,6 +300,31 @@ the file-signing refusal without the env var. Add the crate to `just test`.
 > RF-SC-2 subsequently moved the domain prefix into `attest::accept`, so the
 > release preimage is now `len(label) ‖ label ‖ artefact ‖ sbom ‖ attestation` —
 > the same shape every other signing construct in the suite uses.
+>
+> A later audit against the prompt above closed three gaps:
+> **(a)** the SBOM is now *parsed*, by a strict in-crate parser
+> (`crypto/attest/src/json.rs`: RFC 8259, no trailing data, no duplicate keys,
+> bounded nesting), rather than searched for substrings. `sbom::validate`
+> requires a top-level `bomFormat` of `CycloneDX`, a `specVersion`, and a
+> non-empty `components` array in which **every** entry carries a purl. Because
+> `verify_artefact` shares that function, verification is stricter by the same
+> amount;
+> **(b)** `sign_artefact` refuses a key whose algorithm is not in
+> `APPROVED_RELEASE_ALGS` and verifies its own signature against the signer's
+> advertised verifying key before writing anything (`SignError::UnapprovedAlgorithm`,
+> `SignError::SelfVerifyFailed`), so no successful run leaves a bundle
+> `verify_artefact` would refuse. `mg-sign keygen --alg` accepts only the
+> approved algorithms;
+> **(c)** `mg-sign --repro` records only rows `mg-repro` marked
+> `reproducible: true`, and refuses unless the report contains the digest of the
+> artefact being signed. A recorded exception still signs, with a warning, but
+> is not attested as reproducible; an unexcepted failure is refused.
+>
+> Still open from that audit: the `.att` is a bare in-toto Statement v1, not
+> wrapped in a DSSE envelope (it is bound through the preimage instead);
+> its top-level keys are in fixed rather than sorted order; `hermetic: true` is
+> asserted, not established; and the toolchain hash falls back to hashing the
+> rustc version string when `rust-toolchain.toml` is not in the working directory.
 
 **Acceptance criteria**
 

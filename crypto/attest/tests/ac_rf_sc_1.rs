@@ -155,6 +155,14 @@ fn ac_rf_sc_1b_unusable_sbom_fails_closed() {
             r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[]}"#,
         ),
         ("truncated-json", "{\"bomFormat\": \"CycloneDX\""),
+        // Carries every field a CycloneDX document needs and is still not one:
+        // the closing brace is gone. Only a real parse refuses this.
+        ("truncated-but-complete-looking", &SBOM[..SBOM.len() - 1]),
+        (
+            "one-component-without-a-purl",
+            r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
+                {"name":"a","purl":"pkg:cargo/a@1"},{"name":"b"}]}"#,
+        ),
     ] {
         let s = Scratch::new(&format!("1b-{tag}"));
         let art = s.artefact_without_sbom("mg-sbom", b"bytes");
@@ -226,6 +234,76 @@ fn ac_rf_sc_1c_unreachable_kms_fails_closed_leaving_no_signature() {
         !sig_path(&art).exists(),
         "no signature file may exist on disk afterwards"
     );
+}
+
+// --- no success path without a signature a verifier accepts ------------------
+
+#[test]
+fn signing_refuses_an_algorithm_no_verifier_accepts() {
+    let s = Scratch::new("unapproved-alg");
+    let art = s.artefact("mg-sbom", b"deployable bytes");
+
+    // ML-DSA-44 is a real, working algorithm — and not an approved release one,
+    // so a bundle signed under it could never pass `verify_artefact`.
+    let mut rng = pqc_agility::OsRng;
+    let root = kms::SoftwareSigningRoot::generate(
+        pqc_agility::backend::fips::provider(),
+        "weak-key",
+        SigId::MlDsa44,
+        &mut rng,
+    )
+    .expect("generate");
+    let err = attest::sign_artefact(&art, None, &KmsSigner::new(root), &provenance())
+        .expect_err("must refuse rather than emit an unverifiable bundle");
+
+    assert!(
+        matches!(err, SignError::UnapprovedAlgorithm { .. }),
+        "got {err:?}"
+    );
+    assert!(err.to_string().contains("ML-DSA-44"));
+    assert!(!sig_path(&art).exists(), "no .sig may be left behind");
+    assert!(!att_path(&art).exists(), "no .att may be left behind");
+}
+
+/// A custodian that signs with one key while advertising another's verifying
+/// key — a keystore whose public half was swapped or corrupted.
+struct MismatchedRoot {
+    signs: kms::SoftwareSigningRoot,
+    advertises: VerifyingKey,
+}
+
+impl SigningRoot for MismatchedRoot {
+    fn key_id(&self) -> &str {
+        "release-key-1"
+    }
+    fn algorithm(&self) -> SigId {
+        self.signs.algorithm()
+    }
+    fn verifying_key(&self) -> &VerifyingKey {
+        &self.advertises
+    }
+    fn sign(&self, msg: &[u8]) -> Result<Signature, KmsError> {
+        self.signs.sign(msg)
+    }
+}
+
+#[test]
+fn signing_refuses_when_the_signature_does_not_match_the_advertised_key() {
+    let s = Scratch::new("self-verify");
+    let art = s.artefact("mg-sbom", b"deployable bytes");
+
+    let signs = keystore("release-key-1")
+        .into_signing_root()
+        .expect("unseal");
+    let advertises = keystore("release-key-1").verifying_key.clone();
+    let signer = KmsSigner::new(MismatchedRoot { signs, advertises });
+
+    let err = attest::sign_artefact(&art, None, &signer, &provenance())
+        .expect_err("a signature its own anchor cannot verify must not be written");
+
+    assert!(matches!(err, SignError::SelfVerifyFailed(_)), "got {err:?}");
+    assert!(!sig_path(&art).exists(), "no .sig may be left behind");
+    assert!(!att_path(&art).exists(), "no .att may be left behind");
 }
 
 // --- AC-RF-SC-1d — no ambient key material -----------------------------------
