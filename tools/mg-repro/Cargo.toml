@@ -13,3 +13,6 @@ path = "src/main.rs"
 # Reuse the platform's KAT-tested SHA-256 (std-only, no crypto backend feature)
 # to digest the built artefacts. [AC-M-6] [NFR-OSS-1]
 pqc-agility = { path = "../../crypto/pqc-agility" }
+# The strict JSON parser, for Cargo's build messages and `cargo metadata` — the
+# same one mg-sign reads repro.json with. No key custody is needed here.
+attest = { path = "../../crypto/attest", default-features = false, features = ["backend-fips"] }
