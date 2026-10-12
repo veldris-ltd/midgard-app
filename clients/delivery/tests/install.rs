@@ -79,7 +79,12 @@ fn an_artefact_signed_by_an_untrusted_key_fails_closed() {
 fn a_non_client_artefact_is_refused() {
     let (vk, sk) = keys(4);
     // A model bundle, not a client app — the client must not install it.
-    let sbom = generate_sbom("glm-int4", "5.2", "model-bundle", vec![]);
+    let sbom = generate_sbom(
+        "glm-int4",
+        "5.2",
+        "model-bundle",
+        vec![SbomComponent::new("glm-int4", "5.2")],
+    );
     let art = build_and_sign(
         "glm-int4",
         "5.2",

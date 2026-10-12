@@ -19,6 +19,11 @@ use crate::json::{self, Json};
 /// The sidecar suffix for an artefact's SBOM.
 pub const SBOM_SUFFIX: &str = ".sbom.cdx.json";
 
+/// The one CycloneDX version this gate accepts — the one `mg-sbom` and Bifrost's
+/// generator emit. A document in any other version is refused rather than read
+/// under rules written for this one.
+pub const SPEC_VERSION: &str = "1.5";
+
 /// A loaded, structurally-valid SBOM.
 pub struct Sbom {
     /// Where it was read from.
@@ -51,12 +56,14 @@ pub fn validate(bytes: &[u8]) -> Result<usize, String> {
     if doc.get("bomFormat").and_then(Json::as_str) != Some("CycloneDX") {
         return Err("missing CycloneDX bomFormat".into());
     }
-    if !doc
-        .get("specVersion")
-        .and_then(Json::as_str)
-        .is_some_and(|v| !v.is_empty())
-    {
-        return Err("missing specVersion".into());
+    match doc.get("specVersion").and_then(Json::as_str) {
+        Some(SPEC_VERSION) => {}
+        Some(other) => {
+            return Err(format!(
+                "unsupported specVersion {other:?} (this gate accepts CycloneDX {SPEC_VERSION})"
+            ))
+        }
+        None => return Err("missing specVersion".into()),
     }
     let components = doc
         .get("components")
@@ -143,6 +150,17 @@ mod tests {
         let no_purl = r#"{"bomFormat":"CycloneDX","specVersion":"1.5",
             "components":[{"type":"library","name":"x","version":"1"}]}"#;
         assert!(validate(no_purl.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn rejects_any_other_cyclonedx_version() {
+        for v in ["1.4", "1.6", "", "1.5 "] {
+            let doc = GOOD.replace("\"1.5\"", &format!("\"{v}\""));
+            assert!(validate(doc.as_bytes()).is_err(), "{v:?} must be refused");
+        }
+        // A number is not the string the spec requires.
+        let doc = GOOD.replace("\"1.5\"", "1.5");
+        assert!(validate(doc.as_bytes()).is_err());
     }
 
     #[test]

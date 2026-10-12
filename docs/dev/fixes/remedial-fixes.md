@@ -413,10 +413,11 @@ CycloneDX, empty component list. Each must exit non-zero. One positive test.
 > merely to check a signature: `bifrost-artefact`, `bifrost-bundle` and
 > `model-server` depend on it with `default-features = false`.
 >
-> The `unapproved algorithm` row is covered at library level rather than through
-> the CLI: the anchor-file parser refuses a non-approved algorithm outright, so the
-> CLI cannot express that state — defence in depth ahead of the acceptor's own
-> check, and itself a test.
+> The `unapproved algorithm` row is covered twice. The anchor-file parser refuses
+> a non-approved algorithm outright — defence in depth ahead of the acceptor's own
+> check, and itself a test — and the CLI table forges the envelope's own algorithm
+> tag, which is the route by which an unapproved algorithm can actually reach the
+> acceptor.
 >
 > **Crate location.** The shared crate landed as `crypto/attest` (package
 > `attest`), alongside `pqc-agility`, `pq-mtls`, `policy` and `audit-writer` —
@@ -436,16 +437,47 @@ CycloneDX, empty component list. Each must exit non-zero. One positive test.
 > targets, which brings it to zero. The broader environment sweep
 > (`CARGO_BUILD_JOBS`, `RUSTC_WRAPPER`, `HOSTNAME`, `TZ`, `LC_ALL`, PATH ordering)
 > remains RF-SC-3.
+>
+> **A later audit against the prompt above closed the following:**
+> **(a)** `--help` is honoured only as the sole argument. Beside an artefact it is
+> a usage error (exit 2); it used to exit 0 from any position, which a caller
+> checking only the exit code would read as "verified".
+> **(b)** `attest::verify_artefact` is called by `mg-verify` only — in the gate and
+> in each image's entrypoint. Bifrost and Mimir share `attest::accept::accept`,
+> not that function, and the doc comments now say so. The structural SBOM gate
+> (step 5) was therefore missing from Bifrost: `bifrost_artefact::verify` and the
+> streaming bundle import now apply `attest::sbom::validate` after the signature
+> holds (`VerifyError::SbomInvalid`), Bifrost's `generate_sbom` emits a
+> `pkg:generic/…` purl on every component so its own output passes, and
+> `mg-bundle pack` refuses an SBOM that import would refuse. Mimir model manifests
+> carry no SBOM, so nothing changes there.
+> **(c)** The verdict line percent-encodes `artefact` and `key` outside
+> `[A-Za-z0-9._-]`, so a file name cannot plant a second field.
+> **(d)** The AC-RF-SC-2d test names all four acceptance call sites (it omitted
+> `bifrost/bundle/src/stream.rs`) and walks every source file under `bifrost/*/src`
+> and `mimir/*/src`, failing on any `.verify(`, `sig_for(` or `FipsSig`.
+> **(e)** The SBOM must declare `specVersion` exactly `1.5`.
+> **(f)** The SBOM is parsed only after the signature verifies, so a tampered SBOM
+> is always a signature failure and unauthenticated bytes never reach the parser.
+> **(g)** One key id anchored to two different keys is refused, within a file and
+> across `--trust-anchor` files; the last one used to win silently.
+> **(h)** The CLI table gained rows for an unapproved algorithm, a component
+> without a purl, a non-1.5 SBOM, truncated and trailing-data SBOMs, and an
+> artefact that was never signed.
+>
+> **Not implemented:** `--trust-anchor` takes a path only. The prompt's
+> `<path-or-kms-key-id>` form needs a key directory to resolve an id against, and
+> none exists until anchor distribution lands in RF-SC-8.
 
 **Acceptance criteria**
 
 - **AC-RF-SC-2a — Every tamper is caught.** *Given* a validly signed artefact set, *when* any single byte of the artefact, the SBOM, or the attestation is altered, *then* `mg-verify` exits non-zero for each case independently.
 - **AC-RF-SC-2b — Absence is rejection.** *Given* any one of the three sidecars is deleted, *when* `mg-verify` runs, *then* it exits non-zero and names the missing file.
 - **AC-RF-SC-2c — Untrusted key is rejection.** *Given* a signature made by a key id absent from the trust anchor set, *when* `mg-verify` runs, *then* it exits non-zero, even though the signature is cryptographically valid.
-- **AC-RF-SC-2d — One implementation.** *Given* the Bifrost pre-deploy check (`AC-B-1`) and the Mimir model-load check (`AC-MS-2`), *when* their code paths are inspected, *then* both call `mg_verify::verify` and neither contains an independent acceptance decision.
+- **AC-RF-SC-2d — One implementation.** *Given* the Bifrost pre-deploy check (`AC-B-1`) and the Mimir model-load check (`AC-MS-2`), *when* their code paths are inspected, *then* both call `attest::accept::accept` and neither contains an independent acceptance decision.
 - **AC-RF-SC-2e — Verdict is machine-readable.** *Given* a passing verification, *when* stdout is parsed, *then* it yields artefact name, digest, key id and component count, and exit code 0.
 
-**Done when:** the negative-test table is complete and green; `bifrost-artefact` and `model-server` no longer contain independent verification logic; `just gate <artefact>` fails on a deliberately unsigned artefact.
+**Done when:** the negative-test table is complete and green; `bifrost-artefact` and `model-server` no longer contain independent verification logic; `just verify <path>` fails on a deliberately unsigned artefact (`just gate` always signs before it verifies, so it cannot express that state).
 
 ---
 
