@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://midgard.dev/contracts/schema/import-record.v1.schema.json",
+  "title": "Midgard import record, version 1",
+  "description": "One line of a JSON Lines import file: an object or a link. `mg-admin import` checks every record against the enclosure's ontology and refuses the whole file on the first bad line. This schema states the shape of one record. The rules that depend on the ontology are checked by the importer and cannot be stated here: the object or link type is declared; every property is declared by its type and carries a value of that type (a string for text, an integer for int, a non-negative integer for timestamp, any number for float, true or false for bool); every required property is present; no object or link appears twice; and both ends of a link exist.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/objectRecord"
+    },
+    {
+      "$ref": "#/$defs/linkRecord"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "description": "Letters, digits, underscore and hyphen.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "text": {
+      "description": "A string with at least one character that is not white space.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "band": {
+      "enum": [
+        "open",
+        "internal",
+        "restricted",
+        "confidential"
+      ]
+    },
+    "objectRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object",
+        "key",
+        "marking",
+        "purposes"
+      ],
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/identifier"
+        },
+        "key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "marking": {
+          "$ref": "#/$defs/band"
+        },
+        "compartments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "purposes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "linkRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "link",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "link": {
+          "$ref": "#/$defs/identifier"
+        },
+        "from": {
+          "$ref": "#/$defs/identifier"
+        },
+        "to": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    }
+  }
+}

@@ -146,6 +146,8 @@ hygiene:
   script:
     - bash tools/ci/run.sh selftest
     - bash tools/ci/run.sh provenance
+    - bash tools/ci/run.sh vendor
+    - bash tools/ci/run.sh claims
     - bash tools/ci/run.sh secrets
     - bash tools/ci/run.sh k8s-render
 

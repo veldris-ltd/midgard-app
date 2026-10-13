@@ -689,7 +689,7 @@ AC-F-1..7 pass; A.6 wired with EV-A6-* passing; curated data is flowing into the
 
 **Prompt 5.a — Plan Bifrost**
 ```
-Read SAD_03 and docs/dev/diagrams/bifrost_c4_* and bifrost_cicd. Map FR-B-1..6
+Read SAD_03 and docs/dev/diagrams/bifrost_c4_* and product_cicd. Map FR-B-1..6
 to components (artefact/SBOM store, ring-rollout engine, health gate, channel/
 fleet manager, offline-bundle producer/consumer, release-intelligence adapter).
 Present the plan; do not code yet.

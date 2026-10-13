@@ -3,7 +3,7 @@
 *Computer-vision detection, sensor pose, effects-based tasking & simulation — advisory, human-gated, auditable*
 
 **Builds on:** Orion Phase 1 (FR-OR-1..8), Heimdall (FR-H-1..6) · **Source:** direct analysis of the supplied 112s video (28 frames + OCR)
-**New:** FR-P2-1..10, NFR-P2-1..4, AC-P2-1..16, prompts A.P2-1..3 · **v1.0** · CONFIDENTIAL — RECIPIENT EYES ONLY
+**New:** FR-P2-1..10, NFR-P2-1..4, AC-P2-1..16, prompts A.P2-1..3 · **v1.0** · PUBLIC, published with the Midgard repository
 
 > **Source — analysed, not assumed.** Built from frame-by-frame analysis: 28 frames @ 4s + OCR of on-screen text. Capabilities are evidenced by literal UI text (cited by frame). Audio was music; no ASR available.
 

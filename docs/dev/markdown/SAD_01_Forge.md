@@ -4,7 +4,7 @@
 
 **Competitor benchmark:** Palantir Foundry  
 **Author:** Akuma Engineering Ltd. — Architecture Practice — for JB Benjamin, CEO / Founder  
-**Version:** 1.0  ·  **Date:** 2026-07-02  ·  **Classification:** CONFIDENTIAL — RECIPIENT EYES ONLY  
+**Version:** 1.0  ·  **Date:** 2026-07-02  ·  **Classification:** PUBLIC, published with the Midgard repository  
 **Document type:** Forward-looking design specification (greenfield). Provenance tags: `[DD-*]` design driver, `[FR-*]/[NFR-*]` requirement, `[STD:*]` external standard.
 
 ---
@@ -247,7 +247,7 @@ Forge runs as stateless pipeline/connector workers plus stateful dataset stores 
 
 ### 10.2 CI/CD
 
-![Figure 10.2 — Forge build/test/sign/deploy pipeline (via Bifrost).](../../diagrams/forge_cicd.png)
+![Figure 10.2 — Forge build/test/sign/deploy pipeline (via Bifrost).](../../diagrams/product_cicd.png)
 *Figure 10.2 — Forge build/test/sign/deploy pipeline (via Bifrost).*
 
 
@@ -343,5 +343,5 @@ Pipeline and dataset operations authorised by role/marking/purpose; markings pro
 | Primary sequence | forge_seq_primary.mmd | forge_seq_primary.drawio |
 | Journey | forge_journey.mmd | forge_journey.drawio |
 | Deployment | forge_deployment.mmd | forge_deployment.drawio |
-| CI/CD | forge_cicd.mmd | forge_cicd.drawio |
+| CI/CD | product_cicd.mmd | product_cicd.drawio |
 | Threat DFD | forge_threat_dfd.mmd | forge_threat_dfd.drawio |

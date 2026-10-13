@@ -37,9 +37,9 @@ function Hero() {
         </div>
         <div style={{ display: 'flex', gap: 'clamp(24px, 5vw, 56px)', marginTop: 'clamp(40px, 6vw, 72px)', flexWrap: 'wrap' }}>
           <StatBlock value="0" label="OUTBOUND CALLS · CORE" />
-          <StatBlock value="100%" label="PQ COVERAGE · FIPS 203/204/205" />
-          <StatBlock value="99.9%" label="CONTROL-PLANE SLO" accent />
-          <StatBlock value="7" label="CLIENT TARGETS · ONE CORE" />
+          <StatBlock value="3" label="PQ STANDARDS · FIPS 203/204/205" />
+          <StatBlock value="5" label="SERVICES RUNNING · PQ-mTLS" accent />
+          <StatBlock value="1" label="CLIENT CORE · SHELLS SPECIFIED" />
         </div>
       </div>
     </section>
@@ -49,9 +49,9 @@ function Hero() {
 function Suite() {
   const items = [
     { id: 'forge', icon: 'hammer', line: 'Ingest, transform, and version data like source control, then project it into the object fabric.', domain: 'forge.midgard.eu' },
-    { id: 'mimir', icon: 'brain-circuit', line: 'Agentic AI served entirely in-enclosure. Grounded, cited, evaluated, and human-gated.', domain: 'mimir.midgard.eu' },
-    { id: 'bifrost', icon: 'rocket', line: 'Zero-downtime delivery with PQ-signed artefacts, staged rings, and air-gap bundles.', domain: 'bifrost.midgard.eu' },
-    { id: 'heimdall', icon: 'radar', line: 'Many feeds, one live picture. AI proposes options; your people authorise actions.', domain: 'heimdall.midgard.eu' },
+    { id: 'mimir', icon: 'brain-circuit', line: 'A signed model served entirely in-enclosure over PQ-mTLS. Grounding, evals and human gates are tested libraries.', domain: 'mimir.midgard.eu' },
+    { id: 'bifrost', icon: 'rocket', line: 'PQ-signed artefacts, a fleet manager and air-gap bundles. Staged ring rollout is a tested library.', domain: 'bifrost.midgard.eu' },
+    { id: 'heimdall', icon: 'radar', line: 'Many signed feeds, one fused picture. Option generation is a tested library, not yet served.', domain: 'heimdall.midgard.eu' },
   ];
   return (
     <section id="suite" style={{ padding: 'clamp(48px, 8vw, 96px) clamp(16px, 4vw, 36px)' }}>
@@ -80,7 +80,7 @@ function Principles() {
   const rows = [
     ['lock', 'Post-quantum by default', 'Hybrid X25519 + ML-KEM-768 in transit. AES-256-GCM under ML-KEM-1024-wrapped keys at rest. ML-DSA signatures on everything that moves. Not an add-on: the substrate.'],
     ['eye-off', 'Sovereign by construction', 'No core function makes an outbound call. Self-host it, air-gap it, or run it on a ship. Your data and your models never leave your walls.'],
-    ['brain-circuit', 'AI that answers to you', 'All inference is local. Every agent action is grounded in your data, cited to its evidence, scored against evaluation suites, and human-gated where it changes state.'],
+    ['brain-circuit', 'AI that answers to you', 'All inference is local. Grounding in your data, citation, evaluation suites and human gates are implemented and tested as libraries; the running service does not use them yet.'],
     ['code', 'Open-source core', 'Reproducible builds, a CycloneDX SBOM with every release, and an OSI-approved licence. Trust you can rebuild from source, bit for bit.'],
   ];
   return (
@@ -110,7 +110,7 @@ function Proof() {
           <SectionLabel number={3}>THE ENCLOSURE</SectionLabel>
           <h2 style={{ fontSize: 'clamp(1.7rem, 4vw, 2.6rem)', margin: '14px 0 12px' }}>Nothing leaves Midgard.</h2>
           <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-muted)', lineHeight: 1.7, maxWidth: 480 }}>
-            Identity, object fabric, storage, compute, governance, and cryptography live inside one defended boundary. Every read, write, and agent action lands in an append-only, PQ-signed lineage, so audit is a query, not an archaeology project.
+            Identity, object fabric, storage, compute, governance, and cryptography live inside one defended boundary. Every read, write, and action at the edge lands in an append-only, PQ-signed lineage, so audit is a query, not an archaeology project.
           </p>
         </div>
         <Terminal title="ENCLOSURE" style={{ flex: '1 1 360px' }} lines={[

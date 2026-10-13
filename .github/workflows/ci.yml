@@ -37,6 +37,8 @@ jobs:
           fetch-depth: 0
       - run: bash tools/ci/run.sh selftest
       - run: bash tools/ci/run.sh provenance
+      - run: bash tools/ci/run.sh vendor
+      - run: bash tools/ci/run.sh claims
       - run: bash tools/ci/run.sh secrets
       - run: bash tools/ci/run.sh k8s-render
 

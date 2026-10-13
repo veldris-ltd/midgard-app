@@ -4,7 +4,7 @@
 
 **Competitor benchmark:** Palantir AIP (k-LLM model plane)  
 **Author:** Akuma Engineering Ltd. — Architecture Practice — for JB Benjamin, CEO / Founder  
-**Version:** 1.0 · **Date:** 2026-07-02 · **Classification:** CONFIDENTIAL — RECIPIENT EYES ONLY  
+**Version:** 1.0 · **Date:** 2026-07-02 · **Classification:** PUBLIC, published with the Midgard repository  
 **Document type:** Forward-looking design-change record (greenfield). Provenance tags: `[DD-*]`, `[FR-*]/[NFR-*]`, `[STD:*]`.
 
 ---

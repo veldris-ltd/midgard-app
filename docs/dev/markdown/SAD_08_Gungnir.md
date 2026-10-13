@@ -3,7 +3,7 @@
 *The consequence-projection module — forward-simulation of human-authorised plans, with on-the-ground oversight control*
 
 **Module:** Gungnir · **Methodology:** Imhotep (arc42 + TOGAF + C4; NIST 800-53 / OWASP ASVS / ISO 27001)
-**New:** FR-G-1..14, NFR-G-1..8, AC-G-1..20, prompts A.G-1..3 · **v1.0.0** · CONFIDENTIAL — RECIPIENT EYES ONLY
+**New:** FR-G-1..14, NFR-G-1..8, AC-G-1..20, prompts A.G-1..3 · **v1.0.0** · PUBLIC, published with the Midgard repository
 **Document type:** Forward-looking design specification (greenfield). Provenance tags: [DD-*], [FR-*]/[NFR-*], [STD:*].
 
 > **WHAT GUNGNIR IS.** A consequence-projection engine. Given a human's intended plan (linear or branched, all human-authorised), it sandboxes the tree, models branch outcomes, computes probability-of-success across the campaign, and surfaces 2nd/3rd-order effects — so the human understands the SUM of a plan before authorising step one. Named for Odin's spear, guided by foresight.

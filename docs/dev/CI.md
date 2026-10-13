@@ -33,6 +33,8 @@ out which system it is running under from the variables that system always sets
 | `tools/ci/release-artefacts.sh` | the release manifest's Rust binaries, derived from the workspace |
 | `tools/ci/js-artefacts.sh` | its JavaScript artefacts, and their reproducible build |
 | `tools/ci/release-preflight.sh` | asserts a signing runner is provisioned |
+| `tools/ci/vendor-check.sh` | checks `/vendor` is exactly what `Cargo.lock` names, and that Cargo is pinned to it |
+| `tools/ci/claims.sh` | renders the claims ledger and checks every row against the files, lines and tests it cites |
 | `tools/ci/tests/*.test.sh` | tests for the scripts above |
 
 ### Keeping the two in step
@@ -75,6 +77,8 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 |---|---|---|
 | `selftest` | host | the CI scripts' own tests pass and both pipelines call the same jobs |
 | `provenance` | host | changed sources under governed trees cite a requirement |
+| `vendor` | host | `/vendor` is exactly the crates `Cargo.lock` names, and Cargo is pinned to it |
+| `claims` | host | every row of `docs/compliance/claims.toml` cites files, lines and tests that exist, and `CLAIMS.md` is what it renders |
 | `secrets` | host | no credential is committed (gitleaks, pinned by version and checksum) |
 | `k8s-render` | host | `deploy/k8s/enclosure.yaml` is what the Helm chart renders |
 | `toolchain` | host | builds or restores the toolchain image — the only online step |

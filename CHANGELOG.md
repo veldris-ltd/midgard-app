@@ -107,25 +107,30 @@ posture. Highlights:
   replay-on-boot and fail-closed-on-tamper (fabric, forge, bifrost, heimdall, admin,
   IAM directory, audit ledger).
 - **Transport & mesh:** PQ-mTLS session resumption, connection reuse, a method router,
-  and per-identity rate limiting on the gateway; real Heimdall feed ingest +
-  cross-node picture replication over PQ-mTLS.
+  and per-identity rate limiting on the gateway; Heimdall feed ingest over PQ-mTLS,
+  as a running service. Picture replication between nodes is a tested library that
+  no service runs yet.
 - **Data platform (Forge):** real sandboxed connectors with egress enforcement, a
   pure-Rust partitioned compute engine (hash shuffle + spill-to-disk), and IR breadth
   (join / aggregate / sort / window).
-- **Key custody:** hardware (HSM/TPM) trust-root architecture with attestation and an
-  operated key-rotation manager; documented software-only residual risk.
-- **Identity & admin:** real principal authentication (PBKDF2 + TOTP + WebAuthn), a
-  durable directory, JWKS, enterprise-IdP federation; real admin WebAuthn assertion
-  verification; the guarded-action orchestrator (authenticate → simulate →
-  dual-control → single-use token → commit → audit); break-glass with real alerts and
-  time-boxed capability elevation.
+- **Key custody:** a hardware (HSM/TPM) trust-root seam with attestation and key
+  rotation, tested against a software stand-in. Custody is software today: keystores
+  are files, and the residual risk is documented.
+- **Identity & admin:** principal authentication at the edge with a password and an
+  optional one-time code, and a durable directory. WebAuthn verification, JWKS and
+  federation are tested libraries with no browser flow. The guarded-action
+  orchestrator (authenticate, simulate, dual control, single-use token, commit, audit)
+  and break-glass with durable alerts and time-boxed elevation are tested libraries
+  that no service runs yet; dual control is live for principal enrolment.
 - **Operability:** in-enclosure telemetry (structured logs, Prometheus `/metrics`,
   tracing, liveness/readiness, SLOs — zero-dependency, cannot egress); operational
   runbooks, a DR plan with a **tested restore drill**, backup/restore procedures, and
   an incident-response / on-call policy.
-- **PKI:** operated CA lifecycle — workload cert issuance / renewal (downtime-free) /
-  revocation honoured at the next handshake; HSM key-ceremony + rotation docs; signing
-  runner provisioning.
+- **PKI:** a mesh certificate authority that issues, renews and revokes workload
+  certificates, with revocation honoured at the next handshake, tested as a library.
+  The certificates deployments use come from `mg-admin mesh issue`, which sets no
+  expiry and does not renew. HSM key-ceremony and rotation documents; signing runner
+  provisioning.
 - **Consoles:** the Midgard console authenticates against the edge (login → PQ-signed
   token) and renders enclosure data; MockGateway retained for offline demos.
 - **Governance:** LICENSE (Apache-2.0) + NOTICE, SECURITY.md, CONTRIBUTING, CODEOWNERS,

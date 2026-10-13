@@ -4,7 +4,7 @@
 
 **Competitor benchmark:** Palantir platform core (Ontology, Foundry substrate, Apollo-managed infrastructure)  
 **Author:** Akuma Engineering Ltd. — Architecture Practice — for JB Benjamin, CEO / Founder  
-**Version:** 1.0  ·  **Date:** 2026-07-02  ·  **Classification:** CONFIDENTIAL — RECIPIENT EYES ONLY  
+**Version:** 1.0  ·  **Date:** 2026-07-02  ·  **Classification:** PUBLIC, published with the Midgard repository  
 **Document type:** Forward-looking design specification (greenfield). Provenance tags: `[DD-*]` design driver, `[FR-*]/[NFR-*]` requirement, `[STD:*]` external standard.
 
 ---

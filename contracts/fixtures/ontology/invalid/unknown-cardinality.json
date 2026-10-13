@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "aircraft",
+      "title": "Aircraft",
+      "properties": [
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "id": "wing",
+      "name": "wingman of",
+      "from": "aircraft",
+      "to": "aircraft",
+      "cardinality": "many-to-one"
+    }
+  ]
+}

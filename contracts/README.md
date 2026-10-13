@@ -34,6 +34,34 @@ inter-service call" — that was never the built reality.
 - `buf.yaml` — lint + **breaking-change** policy (`buf breaking`, enforced in CI).
 - `buf.gen.yaml` — codegen config for the SDK wire types.
 
+## File formats
+
+Two files an operator or another tool writes have a published JSON Schema here:
+
+- `schema/ontology.v1.schema.json`: the ontology file, `ontology.json`, that the gateway
+  registers at every start.
+- `schema/import-record.v1.schema.json`: one line of the JSON Lines file that
+  `mg-admin import` reads.
+
+The gateway does not read these schemas; it has its own strict parsers. So that the two
+cannot drift, `services/http-gateway/tests/contract_schemas.rs` compares the keys each
+schema allows with the parser's own constants, checks every enumerated value against the
+parser, and runs every file under `fixtures/` through both:
+
+| Directory | The schema | The parser |
+|---|---|---|
+| `fixtures/*/valid` | accepts | accepts |
+| `fixtures/*/invalid` | refuses | refuses |
+| `fixtures/*/beyond-schema` | accepts | refuses |
+
+`beyond-schema` holds the rules a schema cannot state, each listed in the schema's
+description: an id used twice, a link or action naming a type that is not declared, a
+property that is not declared or holds the wrong kind of value. A file that meets the
+schema and breaks none of those rules is one the gateway accepts.
+
+An ontology can be written by hand against the schema. Nothing in this repository needs
+another tool to produce one.
+
 ## Gates (how the contract stays true)
 
 1. **Completeness (offline):** `bash contracts/check-conformance.sh` (also

@@ -90,8 +90,9 @@ What the host needs to do:
 
 The site weighs about 83 MB, nearly all of it the two videos and two decks. Those four
 files are committed once, at the top of this folder; their copies under `site/media/` are
-git-ignored. **After a fresh clone, run the builder before uploading `site/`**, or the
-video and the download links will 404. It also regenerates the slide images, posters,
+git-ignored, and so are the fonts under `site/assets/fonts/`, which the builder copies
+from `ui/design-system/src/fonts`. **After a fresh clone, run the builder before uploading `site/`**, or the
+video, the download links and the fonts will 404. It also regenerates the slide images, posters,
 fonts and `site/assets/kit.js`:
 
 ```bash

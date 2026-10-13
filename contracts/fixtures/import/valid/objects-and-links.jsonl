@@ -1,0 +1,4 @@
+{"object":"aircraft","key":"AC-2214","marking":"confidential","compartments":["OPS-N"],"purposes":["operations"],"properties":{"tail":"MG-404","status":"active","flight_hours":1200,"fuel_fraction":0.62,"airworthy":true,"last_seen":1791900000}}
+
+{"object":"facility","key":"FAC-NORTH","marking":"restricted","purposes":["operations","maintenance"],"properties":{"name":"Northern operating base"}}
+{"link":"aircraft_base","from":"AC-2214","to":"FAC-NORTH"}

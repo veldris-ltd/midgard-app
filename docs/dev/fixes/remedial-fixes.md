@@ -2,6 +2,7 @@
 
 **Status:** Draft 1 · **Compiled:** 2026-08-25 · **Branch audited:** `dev` @ `71e2a58`
 **Revision 2:** 2026-10-12 · public `main` @ `9ec8659` · adds [Workstream Y — Claim alignment & public release](#y--claim-alignment--public-release) (`RF-CA-1..13`). Every item in A–X was re-audited against that commit and now opens with a dated Status note; see [§1a](#1a-current-position--audit-of-2026-10-12).
+**Revision 2.1:** 2026-10-13 · the earlier backlog `remedial-tasks.md` (`RT-01`..`RT-59`) is retired; [Appendix 6](#appendix-6-retired-backlog-rt-to-rf-crosswalk) maps every task to an item here. This is the only backlog.
 **Scope:** the entire repository — core services, Mimir, model supply, Forge, Bifrost, Heimdall, Admin Control Panel, Client Platforms, the SDK, the design system, every console UI, the CI/release gate, deployment, documentation, and the end-to-end user flows that cross them.
 
 ---
@@ -93,18 +94,18 @@ Every item was re-checked against public `main` @ `9ec8659` on 2026-10-12, by re
 | **V** | Compliance & assurance artefacts | 6 | 0 | 4 | 2 | 1 / 25 |
 | **W** | Multi-tenancy, scale & performance | 5 | 0 | 1 | 4 | 0 / 21 |
 | **X** | Documentation, design system & drift | 7 | 0 | 4 | 3 | 0 / 30 |
-| **Y** | Claim alignment & public release | 13 | 0 | 2 | 11 | 0 / 57 |
-| | **Total** | **182** | **2** | **97** | **83** | **46 / 881** |
+| **Y** | Claim alignment & public release | 13 | 0 | 6 | 7 | 5 / 57 |
+| | **Total** | **182** | **2** | **101** | **79** | **51 / 881** |
 
 A criterion counts as met only where both the implementation and a test exercising it were found. Criteria that need a run, hardware or an outside party are listed per item as not verifiable by reading and are not counted as met. The full per-item list is in [Appendix 1](#appendix-1--complete-item-register-182).
 
-**Why so few criteria are met when so much has landed.** The work since August was done against the earlier backlog ([`remedial-tasks.md`](../remedial/remedial-tasks.md), ids `RT-nn` / `RC-nn`), not against this document. Almost no source file cites an `AC-RF-*` id, and `deploy/acceptance/verify-remedial.sh` (Appendix 3) does not exist. Most items are therefore *Partial*: the capability is partly or largely built, but the specific criteria written here have no named test. Closing an item now usually means writing those tests and the remaining pieces listed under *Still to do*, not starting over.
+**Why so few criteria are met when so much has landed.** The work since August was done against the earlier backlog (`remedial-tasks.md`, ids `RT-nn` / `RC-nn`), not against this document. That backlog was retired on 2026-10-13; [Appendix 6](#appendix-6-retired-backlog-rt-to-rf-crosswalk) maps each of its tasks to the item here that carries it. Almost no source file cites an `AC-RF-*` id, and `deploy/acceptance/verify-remedial.sh` (Appendix 3) does not exist. Most items are therefore *Partial*: the capability is partly or largely built, but the specific criteria written here have no named test. Closing an item now usually means writing those tests and the remaining pieces listed under *Still to do*, not starting over.
 
 **Scope changes.** 85 items carry a *Scope change* note where the tree has moved past the item's premise. Read the note before the prompt: the prompt is kept as written, and the note says how to read it now.
 
 ### Findings that cut across items
 
-1. **There is no CI configuration in the tree.** Every criterion of the form "when CI runs, it fails" is open, and several items cite workflows as evidence that a reader cannot find. RF-CA-4 is a prerequisite for all of them.
+1. **There is no CI configuration on public `main`.** It is on `dev` since 2026-10-13 (see RF-CA-4), so until that is merged the rest of this finding stands. Every criterion of the form "when CI runs, it fails" is open, and several items cite workflows as evidence that a reader cannot find. RF-CA-4 is a prerequisite for all of them.
 2. **The acceptance gate has not been re-run on any public commit**, and a fresh clone lacks the cargo configuration the offline build needs (RF-CA-3, RF-CA-5).
 3. **Six consoles have no backend route.** `forge-worker`, `mimir-server`, `bifrost-fleet` and `heimdall-feed` are mesh-only services; the browser edge serves only the Midgard core surface and admin enrolment. Every criterion that names a Forge, Mimir, Bifrost, Heimdall, Admin or Clients screen is open for that reason (RF-UID-1).
 4. **No TypeScript test runner exists** in any `package.json`, so no frontend criterion is met (RF-TST-2).
@@ -9885,7 +9886,7 @@ Ensure the public-facing material is accurate and consistent.
 | Heimdall option generation | `reference` | Ranked, cited option generation with a Mimir bridge and `AC-H-3`. The running feed server does not depend on it. | RF-CA-10 |
 | Admin console alerts | `reference` | Durable break-glass alerter as a library. The admin console renders a hard-coded list and runs on mock data. | RF-CA-11 |
 | Multimodal ingest (georeferencing, captions, transcripts) | absent | No code and no requirement id. Forge reads CSV files, PostgreSQL, S3 and Kafka. | RF-CA-12 |
-| Likan | external | A separate, proprietary tool for data-structure ontologies. Not in this repository, by design; the tree does not yet say so. | RF-CA-13 |
+| Likan | external | A separate, proprietary tool for data-structure ontologies. Not in this repository, by design. Since 2026-10-13 the README and the claims ledger say so. | RF-CA-13 |
 | OAG retriever | `reference` | `mimir/oag-retriever` (`plan.rs:67`, `ground.rs:82`), tests in `tests/grounding.rs`. Nothing routes requests to it. | cite as-is |
 | Agent runtime | `reference` | `mimir/agent-runtime`, tests `ac_mi_2.rs`, `ac_mi_3.rs`. Nothing routes requests to it. | cite as-is |
 | Ontology loading | `operable` | `services/http-gateway/src/ontology_file.rs:114`, `enclosure.rs:727`, registered at every gateway start. | cite as-is |
@@ -9899,8 +9900,20 @@ Ensure the public-facing material is accurate and consistent.
 
 **Severity:** Critical · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-6
 
-> **Status at 2026-10-12 — Open.** No claims ledger exists; `docs/compliance/` has no `CLAIMS.md` or `claims.toml`, and there is no `tools/ci/claims.sh`.
-> Criteria met 0 of 4; open: a, b, c, d. Confidence: high.
+> **Status at 2026-10-13: Partial.** The ledger and its check exist on `dev`, and the text sources were reworded to it. The rendered launch artefacts still carry the old wording.
+> - *Steps 1 and 3:* `docs/compliance/claims.toml` holds 46 rows (22 `operable`, 19 `reference`, 4 `spec`, 1 `external`, none `production`), and `docs/compliance/CLAIMS.md` is rendered from it with the status vocabulary and the wording rule. Every row below `operable` carries its fallback wording and a milestone.
+> - *Step 2:* seeded with every row of the Workstream Y table, then with the capability statements found in GETTING_STARTED, CHANGELOG, the release notes, GA_READINESS, the launch deck source, the launch site and the two marketing pages. The README was read for its status section and the claims those documents repeat, not line by line.
+> - *Step 4:* `tools/ci/claims.sh --check` runs as the `claims` job in both pipelines. It fails on an evidence path that does not exist, a line anchor outside its file, a test that is not a `#[test]` function, an unknown criterion id, an `operable` row with no service test, a row below `operable` with no fallback, and a `CLAIMS.md` that is not what the data renders. `tools/ci/tests/claims.test.sh` has 21 cases.
+> - *Step 5:* reworded to their rows: the README status lead, GETTING_STARTED, GA_READINESS, the launch deck source and its speaker notes (`build-deck.js`, `SPEAKER_NOTES.md`, the launch site's `kit.js`, the video end card), six marketing pages under `docs/design/site/` (home, architecture and the four product pages, whose invented figures were replaced with recorded ones and whose terminals are now labelled illustrative), and the 2026-09 CHANGELOG section. The ledger's `overstated_in` list is empty, and the CI job runs `--check --strict`.
+> Criteria met 2 of 4 (b, c, each with a named test); a and d are open as described below. Confidence: medium, because the sweep was done once and by reading.
+>
+> **Scope change:** a service test is taken to be either a step of a script that drives the running services (`deploy/compose/smoke.sh`, `deploy/kind/smoke.sh`) or a test that starts a service and talks to it over its own listener. The compose smoke covers the four mesh services and the edge's health route only, so the edge's own capabilities cite tests of the second kind.
+>
+> **Still to do:**
+> - Rebuild what is rendered from the reworded sources: both `.pptx` decks, the slide images under `docs/launch/slides*/` and `docs/launch/site/`, and the two demo videos, whose captions and end card were recorded with the old wording (AC d)
+> - Sweep the README line by line, and the remaining site pages (`about`, `pricing`, `github`, `contact`), which state commercial and process commitments the ledger has no rows for (AC a)
+>
+> Checked: `docs/compliance/claims.toml` · `docs/compliance/CLAIMS.md` · `tools/ci/claims.sh` · `tools/ci/tests/claims.test.sh` · `.github/workflows/ci.yml:41`
 
 **Evidence.** There is no single list of what has been claimed about the platform. The same capability is described differently in the README, [`GA_READINESS.md`](../../compliance/GA_READINESS.md), the launch deck ([`docs/launch/pipeline/build-deck.js`](../../launch/pipeline/build-deck.js)), and nothing ties a claim to the code or test that supports it. The status table at the head of this workstream had to be assembled by hand.
 
@@ -10017,10 +10030,21 @@ Generate every headline number from the tree, once, and use it everywhere.
 
 **Severity:** Critical · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-5
 
-> **Status at 2026-10-12 — Open.** `.cargo/config.toml` is absent from the tree. The offline build was not attempted.
-> Criteria met 0 of 3; open: a, b, c. Confidence: high.
+> **Status at 2026-10-13: Partial.** Everything the prompt asks for exists on `dev` and was observed there; what is left is the merge to public `main` and a recorded run on it.
+> - *Step 1:* `.cargo/config.toml` replaces crates-io with `vendor/` (commit `e432ba9`).
+> - *Step 2:* there is no export. Public `main` is produced by an ordinary merge of `dev` through a pull request, so nothing sits between the working tree and the published one. `CONTRIBUTING.md` states this.
+> - *Step 3:* run on 2026-10-13 from a fresh clone of `dev` @ `e432ba9`, in an image built from `deploy/acceptance/Dockerfile`, under `--network none`, with only the checkout mounted: `just build-rust` succeeded, and `just test` finished with 870 tests passed and none failed across 288 test binaries.
+> - *Step 4:* the CI `build` and `test` jobs run the same way, from a fresh checkout with no cargo cache.
+> - *Step 5:* the `vendor` job (`tools/ci/vendor-check.sh`, tested in `tools/ci/tests/vendor-check.test.sh`) fails by name on a locked crate missing from `vendor/`, a vendored crate the lock does not name, a package checksum that differs from the lock, or a Cargo configuration that could reach a registry. On the tree: 41 locked registry packages, 41 vendored.
+> Criteria met 0 of 3 as counted here (none is in an acceptance script yet). Observed: a, on `dev`, not on public `main`; b, with `vendor/zeroize-1.8.1` removed the offline build stopped with "no matching package named `zeroize` found" and fetched nothing; c, by there being no export.
 >
-> Checked: `README.md:119` · `deploy/acceptance/run-airgapped.sh:10`
+> **Scope change:** the Evidence below describes public `main` @ `9ec8659`, before the configuration was added. Criterion c was written for an export step that no longer exists.
+>
+> **Still to do:**
+> - Merge to public `main` and repeat step 3 on a fresh clone of it, recording the run (RF-CA-5)
+> - Done 2026-10-13: the `toolchain` job labels the image with the hash of `deploy/acceptance/Dockerfile` and rebuilds when the label differs, so an image built from an older Dockerfile no longer passes as current
+>
+> Checked: `.cargo/config.toml:18` · `tools/ci/in-toolchain.sh:24` · `tools/ci/vendor-check.sh` · `.github/workflows/ci.yml:40` · `CONTRIBUTING.md`
 
 **Evidence.** `.cargo/config.toml` is not in public `main`. [`README.md:119`](../../../README.md) says dependencies are vendored through "`vendor/` + `.cargo/config.toml`", and [`deploy/acceptance/run-airgapped.sh:10`](../../../deploy/acceptance/run-airgapped.sh) relies on it ("see .cargo/config.toml"). No other file in the tree replaces the crates-io source. `.github/` is missing too (RF-CA-4), while dot-files at the root (`.gitignore`, `.gitattributes`, `.gitleaks.toml`) are present — consistent with the public export having dropped dot-directories. A fresh clone therefore may not build offline as documented; this was established by reading the tree, not by running the build.
 
@@ -10060,10 +10084,20 @@ Make a fresh public clone build and test offline, exactly as the README says.
 
 **Severity:** High · **Area:** Claim alignment · **Depends on:** RF-CA-3 · **Blocks:** RF-CA-6
 
-> **Status at 2026-10-12 — Open.** There is no `.github/` directory in the tree.
-> Criteria met 0 of 3; open: a, b, c. Confidence: high.
+> **Status at 2026-10-13: Partial.** On `dev`, not yet on public `main` (commit `e432ba9`): `.github/workflows/ci.yml`, `release.yml` and `shell-audit.yml`, plus an equivalent `.gitlab-ci.yml`. Neither pipeline holds build logic; each step calls `tools/ci/run.sh <job>`, and `run.sh selftest` fails if the two call different jobs.
+> - *Step 2:* the only runner label is the generic `[self-hosted, kms]`; keystore and registry locations come from repository secrets, and no hostname appears.
+> - *Step 3:* every third-party action is pinned by full commit digest; each workflow grants `contents: read`, and only the publish job raises it to `contents: write`.
+> - *Step 5:* the README's statements (the rendered-chart check, the five release stages, the TypeScript tier not being gated) each match a job. `CONTRIBUTING.md` claimed a contract breaking-change gate and linked a `CODEOWNERS` file, neither of which existed; it now lists the real jobs, and `.github/CODEOWNERS` has been added. GA_READINESS and this document were not re-read line by line for CI claims.
+> - *Not done:* no `numbers.sh --check` or `claims.sh --check` jobs (RF-CA-1, RF-CA-2); the workflows have not been observed green on GitHub; and `main` has no required status checks. `main` requires one approving review from a code owner; the only code owner and the only account with write access is the maintainer, who cannot approve their own pull request, so a merge currently needs the administrator bypass. `main` is also locked (read-only).
+> Criteria met 0 of 3; open: a (until merged to `main`), b (two documents not re-read), c. Confidence: medium.
 >
-> Checked: `README.md:36` · `README.md:644` · `README.md:759`
+> **Still to do:**
+> - Merge to public `main` and observe the workflows green
+> - Then make the CI jobs required status checks on `main` (step 4; approved by the owner 2026-10-13, to apply once the checks have run there)
+> - Add the numbers and claims checks once RF-CA-1 and RF-CA-2 provide them
+> - Give a second maintainer write access and list them in `CODEOWNERS`, so a merge to `main` does not depend on the administrator bypass (RF-DOC-5)
+>
+> Checked: `.github/workflows/ci.yml:19` · `.github/workflows/release.yml:55` · `.github/workflows/release.yml:86` · `tools/ci/pipelines.sh:1` · `CONTRIBUTING.md:62`
 
 **Evidence.** Public `main` has no `.github/` directory. [`README.md:36`](../../../README.md) and `:759` cite `.github/workflows/release.yml`; `:644` says "CI fails if it is not exactly what the chart renders"; `:823` says what CI does and does not cover. This document cites the same workflow as evidence in RF-SC-1 and RF-SC-5. A reader cannot see, run or verify any of it.
 
@@ -10194,17 +10228,19 @@ Cut v0.1.0-rc.1 as a signed tag that everything else points at.
 
 **Severity:** High · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-6
 
-> **Status at 2026-10-12 — Partial.** `dev` was rebuilt on `main` on 2026-10-12 and GitHub now compares the two. This document carries per-item status. The history sentence in `GETTING_STARTED.md`, the confidentiality marking, the duplicated documents and `remedial-tasks.md` are unchanged.
-> Criteria met 0 of 4; open: a, b, c; not verifiable by reading: d. Confidence: high.
+> **Status at 2026-10-13: Partial.** Steps 1 to 4 are done on `dev`; step 5 is half done.
+> - *History (step 1):* `GETTING_STARTED.md` now says the public repository begins from a squashed import, as the README does.
+> - *Classification (step 2):* cleared for publication by the owner on 2026-10-13. The marking on the eleven SADs, the two roadmaps, the seven plain-text extractions and the README footer now reads "PUBLIC, published with the Midgard repository". The thirteen Word originals in `docs/dev/documents/` and `docs/dev/roadmap/` carry the same public marking in their body and footers; they were edited in place and four were checked against the schema. Design-system samples that show a `CONFIDENTIAL` banner are UI examples, not markings on a document, and are unchanged.
+> - *Duplicates (step 3):* `readme/GETTING_STARTED.md` and `readme/BUILD_PLAYBOOK.md` are deleted (nothing linked to them), and so are the seven SAD `.docx` copies in `docs/design/uploads/` and one duplicated screenshot there. The design tokens and fonts now have one tracked copy, in `ui/design-system/src`: `docs/design/styles.css` imports it, so those pages are served from the repository root, and the launch site's fonts are a git-ignored build output. The four identical product CI diagrams are one file set, `docs/dev/diagrams/product_cicd.*`, and the SADs point at it. What remains identical is configuration that has to exist once per package (`tsconfig.json`) and empty `.gitkeep` placeholders.
+> - *Gap analyses (step 4):* `remedial-tasks.md` was retired with every task mapped in Appendix 6.
+> - *Branches (step 5):* `dev` descends from `main`; a protection rule on `dev` now refuses force pushes and deletion, administrators included, so an unrelated history cannot be pushed. `main` already refused both. The default branch is `main`. `CONTRIBUTING.md` states the branch model.
+> Criteria met 0 of 4 (no named test); by reading: a, b and d hold on `dev`, and c holds for documents. Confidence: high.
 >
 > **Still to do:**
-> - Reword the history sentence in both `GETTING_STARTED.md` copies
-> - Resolve the classification marking on the published SADs
-> - Keep one copy of `GETTING_STARTED.md` and `BUILD_PLAYBOOK.md`
-> - Bring `remedial-tasks.md` to current status or retire it
-> - Add a branch rule so `dev` cannot diverge from `main` again
+> - Merge to public `main`
+> - Open the design-system pages from the repository root in a browser once, to confirm the repointed tokens and fonts load (checked by path only)
 >
-> Checked: `GETTING_STARTED.md:5` · `README.md:842` · `docs/dev/remedial/remedial-tasks.md:1`
+> Checked: `GETTING_STARTED.md:5` · `README.md:844` · `docs/dev/markdown/SAD_00_Midgard_Core.md:7` · `CONTRIBUTING.md` · Appendix 6 · GitHub branch protection for `dev` and `main`
 
 **Evidence.**
 
@@ -10212,8 +10248,8 @@ Cut v0.1.0-rc.1 as a signed tag that everything else points at.
 |---|---|---|
 | "its git history maps one commit per BUILD_PLAYBOOK.md prompt" | [`GETTING_STARTED.md:5`](../../../GETTING_STARTED.md) and `readme/GETTING_STARTED.md:5` | Public history is two commits. `README.md:11` on `main` was already reworded to say the public repository begins from a squashed import. |
 | "Classification of source SADs: CONFIDENTIAL — RECIPIENT EYES ONLY" | [`README.md:842`](../../../README.md) | Those SADs are published in `docs/dev/markdown/` in a public repository. |
-| `GETTING_STARTED.md` and `BUILD_PLAYBOOK.md` | root and `readme/` | Each exists twice, byte-identical, and has to be edited twice. |
-| This document and `docs/dev/remedial/remedial-tasks.md` | `docs/dev/` | Two gap analyses are public and stay public (decided 2026-10-12, with the repository). Both were written against an earlier tree and contain statements — "Almost nothing is runnable" — that are no longer true and will be read as current unless each item carries its present status. |
+| `GETTING_STARTED.md` and `BUILD_PLAYBOOK.md` | root and `readme/` | Each exists twice, byte-identical, and has to be edited twice. *Resolved 2026-10-13: the `readme/` copies are deleted.* |
+| This document and `docs/dev/remedial/remedial-tasks.md` | `docs/dev/` | Two gap analyses are public and stay public (decided 2026-10-12, with the repository). Both were written against an earlier tree and contain statements — "Almost nothing is runnable" — that are no longer true and will be read as current unless each item carries its present status. *Resolved 2026-10-13: the second was retired into Appendix 6 and remains in public history.* |
 | `dev` and `main` | GitHub | Shared no ancestor until 2026-10-12, when `dev` was rebuilt on `main`; GitHub could not compare or merge them. |
 
 **Prompt**
@@ -10574,10 +10610,22 @@ Part 5 — proof.
 
 **Severity:** High · **Area:** Claim alignment · **Depends on:** — · **Blocks:** RF-CA-1
 
-> **Status at 2026-10-12 — Open.** The tree does not mention Likan, and the ontology file format has no published schema.
-> Criteria met 0 of 4; open: a, b, c; not verifiable by reading: d. Confidence: high.
+> **Status at 2026-10-13: Partial.** Steps 1, 2, 3 and 5 are done on `dev`. Step 4 records the owner's statement of 2026-10-13: Likan is in active development and is intended to export this format, and no interchange has been run yet.
+> - *Step 1:* the README has a "Related proprietary tools" section with the boundary wording.
+> - *Step 2:* the ledger has the row `likan` with status `external`. The check refuses an `external` row that cites evidence, tests or criteria.
+> - *Step 3:* `contracts/schema/ontology.v1.schema.json` and `contracts/schema/import-record.v1.schema.json` are published. `services/http-gateway/tests/contract_schemas.rs` (8 tests) compares the keys each schema allows with constants the parsers now export, checks each enumerated value against the parser, and runs 56 fixtures through both: `valid` is accepted by both, `invalid` is refused by both, and `beyond-schema` holds the reference and uniqueness rules a schema cannot state. An unknown key on any object of a valid ontology is refused by both. The README section points to the schemas; its prose rules were left in place, not reduced to one example.
+> - *Step 4:* the ledger row says that no file produced by Likan has been validated against the format here and that no pipeline between the two has been run.
+> - *Step 5:* the check fails if the name of an `external` row occurs anywhere in the workspace's code, manifests, lockfiles or deployment files. It passes: the name occurs only in documents.
+> Criteria met 3 of 4 (a, b, c, with named tests for b and c); d needs a run of the acceptance gate (RF-CA-5). Confidence: high.
 >
-> Checked: `services/http-gateway/src/ontology_file.rs:114`
+> **Limit of criterion c:** a key added to a parser, or removed from it, fails the test. A new value accepted by a parser's `match` (a sixth property type, say) fails only if a fixture uses it, because the parser does not export its value lists.
+>
+> **Still to do:**
+> - When Likan can export this format, add one export cleared for publication as a fixture under `contracts/fixtures/ontology/valid/`; the existing test then covers it, and the ledger row can say the interchange has been run
+> - Reduce the README's ontology and import sections to a pointer and one example (step 3)
+> - Confirm criterion d from the recorded gate run (RF-CA-5)
+>
+> Checked: `README.md:850` · `docs/compliance/claims.toml` · `contracts/schema/ontology.v1.schema.json` · `services/http-gateway/tests/contract_schemas.rs` · `services/http-gateway/src/ontology_file.rs:68` · `tools/ci/claims.sh`
 
 **Evidence.** Likan is a separate, proprietary tool for data-structure ontologies. It is not part of this repository and is not meant to be: the name does not occur anywhere in the public tree — not in source, the workspace manifest, the SADs, the playbook, the design system or the launch deck's build script. Nothing in the tree says that it exists, that it is separate, or how an ontology produced with it reaches an enclosure. Midgard's own ontology support is public and `operable`: the gateway parses and registers `ontology.json` at every start ([`services/http-gateway/src/ontology_file.rs:114`](../../../services/http-gateway/src/ontology_file.rs), `enclosure.rs:727`) and `mg-admin import` checks every record against it. That file format is described only in prose in the README; it has no published schema, so there is no contract a separate tool can be shown to meet.
 
@@ -10823,10 +10871,10 @@ Severity: **C**ritical · **H**igh · **M**edium · **L**ow.
 | RF-DOC-6 | Design system: single source, coverage, governance patterns | M | UI-3, UI-6, UI-8 | Open | 0/5 |
 | RF-DOC-7 | Public-facing site accuracy and brand consistency | L | DOC-1 | Partial | 0/4 |
 | **Y — Claim alignment & public release** |
-| RF-CA-1 | Claims ledger: one row per published claim, with status and evidence | C | — | Open | 0/4 |
+| RF-CA-1 | Claims ledger: one row per published claim, with status and evidence | C | — | Partial | 2/4 |
 | RF-CA-2 | One numbers sheet, generated from the tag | C | CA-5 | Partial | 0/4 |
-| RF-CA-3 | Restore the hermetic build configuration to the public tree | C | — | Open | 0/3 |
-| RF-CA-4 | Publish the CI and release workflows the documents cite | H | CA-3 | Open | 0/3 |
+| RF-CA-3 | Restore the hermetic build configuration to the public tree | C | — | Partial | 0/3 |
+| RF-CA-4 | Publish the CI and release workflows the documents cite | H | CA-3 | Partial | 0/3 |
 | RF-CA-5 | Re-run the acceptance gate at the release commit and record it | C | CA-3 | Open | 0/4 |
 | RF-CA-6 | Signed, tagged public release | C | CA-1..5, SC-8 | Open | 0/5 |
 | RF-CA-7 | History, classification and publication statements | H | — | Partial | 0/4 |
@@ -10835,7 +10883,7 @@ Severity: **C**ritical · **H**igh · **M**edium · **L**ow.
 | RF-CA-10 | Heimdall option generation in the running service | H | MI-1, H-1 | Open | 0/5 |
 | RF-CA-11 | Admin console alerts on a real backend | H | RT-1, PER-4 | Open | 0/5 |
 | RF-CA-12 | Multimodal ingest: georeferencing, captions, transcripts | H | F-2, MI-1, MS-1 | Open | 0/6 |
-| RF-CA-13 | Likan: state the boundary with the proprietary tool, prove the interchange | H | — | Open | 0/4 |
+| RF-CA-13 | Likan: state the boundary with the proprietary tool, prove the interchange | H | — | Partial | 3/4 |
 
 **Severity totals:** Critical 23 · High 96 · Medium 59 · Low 4 — 182 items, 881 acceptance criteria.
 
@@ -10949,6 +10997,81 @@ Stated so the gaps in the gap analysis are visible:
 - **Likan was not examined.** It is a separate, proprietary tool and is not in this repository; nothing here describes its behaviour.
 - **Workstreams A–X were re-audited by reading, item by item, in seven parallel reviews**, each classifying every acceptance criterion as met, open or not verifiable by reading. The reviews were not cross-checked against each other. The defects table in §1a was confirmed separately by opening each file; other findings rest on the single review that reported them, and each Status note gives the reviewer's confidence. Two items marked open on low confidence (RF-PER-6, RF-PER-7) rest on searches that found nothing, not on a file that proves absence.
 - **The launch deck was checked through its build script only**, not the rendered `.pptx` files.
+
+---
+
+# Appendix 6: Retired backlog, RT to RF crosswalk
+
+The earlier backlog, *Launch-Readiness Remedial Tasks* (`docs/dev/remedial/remedial-tasks.md`, audit of 2026-07-12, tasks `RT-01`..`RT-59` with criteria `RC-01`..`RC-59`), was retired on 2026-10-13 under RF-CA-7. It was worked through between July and September, but not every task was finished, so it could not be left standing as a second register and could not be described as complete. This document is now the only backlog. Every task is mapped below to the item or items here that carry what remains of it.
+
+- **The ids stay valid.** Source files, tests, operations documents and the compliance records cite `RT-nn` and `RC-nn`; those citations are not rewritten. This table is where a reader resolves one.
+- **The original text is in history:** `git show 92a26ad:docs/dev/remedial/remedial-tasks.md`.
+- **State.** *Closed* means the task's own criterion was found satisfied in the tree on 2026-10-13, by opening the files named; nothing is carried. *Carried* means work remains, and the Status note of the listed item is the current position. As with the rest of this document, nothing was built or run to establish either (Appendix 5).
+- Its §6 (SAD-declared residual risks) lives on in [`RESIDUAL_RISK_REGISTER.md`](../../compliance/RESIDUAL_RISK_REGISTER.md); its §8 (what is already production-grade) is restated in §1 above.
+
+| RT | Task | State | Carried by | What remains |
+|---|---|---|---|---|
+| RT-01 | `mg-sign` signs nothing | Closed | RF-SC-1 | Nothing |
+| RT-02 | `mg-verify` fails open | Closed | RF-SC-2 | Nothing |
+| RT-03 | Release workflow cannot run its first stage | Carried | RF-SC-5, RF-CA-4 | The workflow has not run on a release runner |
+| RT-04 | No `flake.lock`; hermetic build unpinned | Carried | RF-SC-3, RF-CA-3 | `flake.nix` is marked blocked and has no lock; the Docker path is the authoritative one and a fresh clone lacks its cargo configuration |
+| RT-05 | CI reproducibility check is a no-op | Carried | RF-SC-3 | `mg-repro workspace` now builds twice and compares; the CI criteria are open |
+| RT-06 | Release scan, provenance and bundle stages are `echo TODO` | Carried | RF-SC-4, RF-SC-6, RF-CMP-2 | Scan depth, enforced tag lint, SLSA distribution |
+| RT-07 | Release matrix covers only the four tools | Carried | RF-SC-5 | Coverage check exists (RC-07); gate criteria for every artefact are open |
+| RT-08 | No "real backend required" compile guard | Carried | RF-RT-5, RF-RT-7, RF-SEC-3 | Guards exist; the `just check-backends` gate a doc comment relies on does not |
+| RT-09 | Durable audit ledger | Carried | RF-PER-2 | Named tests for the remaining ledger criteria |
+| RT-10 | Durable, sealed object store | Carried | RF-PER-1, RF-PER-3 | Storage-substrate decision; indexes and query performance |
+| RT-11 | Durable dataset and version store | Carried | RF-PER-4, RF-F-5 | Versioning at scale |
+| RT-12 | Durable artefact registry and fleet state | Carried | RF-PER-4, RF-B-1, RF-B-2 | Registry content and verification criteria |
+| RT-13 | Durable picture, feed and workflow store | Carried | RF-PER-1, RF-H-3 | Picture merge does not converge on equal `last_seen` |
+| RT-14 | Durable admin governance stores | Carried | RF-PER-4, RF-PER-2, RF-AD-3 | Named tests per store |
+| RT-15 | Real cluster rolling upgrade and auto-rollback | Carried | RF-CA-9, RF-DEP-2, RF-RES-3 | Services run one replica each; upgrading one interrupts it. Needs the replica-model decision |
+| RT-16 | Bifrost rollout deploys, health-checks, rolls back | Carried | RF-B-3, RF-B-2 | Ring orchestration against a real fleet |
+| RT-17 | Real fleet agents | Carried | RF-B-2 | Install and roll back on the target |
+| RT-18 | Container images and Helm | Carried | RF-DEP-1, RF-DEP-2 | HA topology, policies |
+| RT-19 | On-disk signed air-gap bundle | Carried | RF-B-4, RF-DEP-5 | End-to-end workflow criteria |
+| RT-20 | Real model backend, weights, latency | Carried | RF-MI-1, RF-MI-2 | RC-20 is open: vLLM has not run on a GPU, so the 800 ms first-token objective is unvalidated (RC-40.4); no token streaming to the caller |
+| RT-21 | Real upstream fetch and provenance verification | Carried | RF-MS-1 | No network fetcher (`ReferenceFetcher` is the only one) and no vendor-signature verifier; unchecked signatures correctly report `Unverifiable` |
+| RT-22 | Real guardrail classifier and sanitiser | Carried | RF-MI-7 | Adversarial depth |
+| RT-23 | Evals against each real model family | Carried | RF-MI-6, RF-MS-5 | Continuous, gating evals; three distinct families |
+| RT-24 | Secure the HTTP/JSON edge | Carried | RF-IAM-3, RF-API-3, RF-UI-10 | The human gate accepts any non-empty token; edge covers the core surface only |
+| RT-25 | Gateway sessions, resumption, routing, rate limiting | Carried | RF-API-2, RF-API-7 | Named tests; quotas |
+| RT-26 | Real feed transport and cross-node picture sync | Carried | RF-H-1, RF-H-3 | Normalisation; convergence defect above |
+| RT-27 | Real Forge connectors, compute backend, IR breadth | Carried | RF-F-1, RF-F-2 | Execution at scale |
+| RT-28 | Hardware KMS trust root and key rotation | Carried | RF-SEC-8, RF-SC-8, RF-SEC-4 | `HardwareTrustRoot` is tested against a software stand-in; no run on a real HSM (RC-40.3) |
+| RT-29 | Real IAM: credentials, MFA, OIDC, directory, federation | Carried | RF-IAM-1, RF-IAM-2, RF-IAM-4 | Second-factor decision; the federation bridge copies roles from the upstream assertion |
+| RT-30 | Admin WebAuthn verification | Carried | RF-IAM-1, RF-AD-1, RF-UI-1 | Administrator passkeys are ML-DSA keystore files no browser can produce |
+| RT-31 | Guarded-action orchestrator | Carried | RF-AD-4, RF-IAM-5 | Approvals queue, delegation |
+| RT-32 | Break-glass alerts and enforced grants | Carried | RF-AD-2, RF-CA-11 | Operational flow; alerts on a real backend |
+| RT-33 | Logging, metrics, tracing, health | Carried | RF-OBS-1, RF-OBS-2, RF-OBS-5, RF-RT-3 | `/metrics` is on the public port with the raw path as a label; the observability view returns literal SLO figures |
+| RT-34 | Backup, restore, DR, runbooks, on-call | Carried | RF-RES-1, RF-RES-2, RF-DOC-2, RF-OBS-4 | The DR plan states a 60-second RPO that is not implemented |
+| RT-35 | CA / PKI / certificate lifecycle | Carried | RF-IAM-6, RF-SC-8 | Mesh certificates issued by `mg-admin` never expire; no key ceremony has been held |
+| RT-36 | Complete the contract surface | Carried | RF-API-1, RF-API-4 | Inter-service contract decision |
+| RT-37 | Consoles on a real backend by default | Carried | RF-UID-1..7, RF-UI-1 | Six consoles have no backend route |
+| RT-38 | Repository governance and legal hygiene | Carried | RF-DOC-5, RF-SEC-7, RF-SEC-1, RF-CMP-1 | `LICENSE`, `NOTICE`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md` and a threat model exist; there is no `CODEOWNERS`, and threat-model tests and control evidence are open |
+| RT-39 | Key-material zeroization | Closed | RF-SEC-3, RF-SEC-4 | Nothing: `secret.rs` uses `zeroize` and best-effort `mlock` |
+| RT-40 | Deployment-tier acceptance | Carried | RF-TST-3, RF-MI-1, RF-SEC-8, RF-CA-9 | RC-40.1 and RC-40.2 passed on kind on 2026-09-15; RC-40.3 (HSM) and RC-40.4 (GPU) were skipped |
+| RT-41 | SBOM component integrity data | Closed | RF-SC-4, RF-CMP-2 | Nothing: `mg-sbom` emits `components[].hashes` |
+| RT-42 | Objects sealed at rest through KMS | Carried | RF-PER-1 | AC-RF-PER-1c |
+| RT-43 | Scheduler quotas and priority | Carried | RF-RT-6, RF-MI-8, RF-SCL-1 | `scheduler::admission` exists as a library; resource governance in the running services is open |
+| RT-44 | Heimdall workflow actuator | Carried | RF-H-4 | A non-consequential action executes from `Proposed` with no recorded human decision |
+| RT-45 | Mimir bridges for product AI-assist | Carried | RF-F-7, RF-B-5, RF-H-4, RF-AD-7, RF-CA-10 | Bridges exist behind the advisory seams; Heimdall option generation is not in the running service (RF-CA-10) |
+| RT-46 | Member-less `go.work` / `pyproject.toml` | Carried | RF-SDK-3, RF-SDK-4, RF-DOC-1 | Both files are gone; build recipes and documents still refer to Go and Python |
+| RT-47 | BUILD_ENV and CI disagree (Nix vs Docker) | Carried | RF-CA-3, RF-DOC-1 | As RT-04 |
+| RT-48 | Provenance-tag lint enforced in CI | Carried | RF-SC-6 | Enforcement criteria |
+| RT-49 | On-device shell accessibility audits | Carried | RF-CMP-6, RF-CL-2..7 | The audit drivers fail closed: there is no shell app to audit |
+| RT-50 | Fallible constructors on keygen and sign paths | Carried | RF-RT-1 | `.expect("ml-dsa signing")` remains in `bifrost/artefact/src/signed.rs` and `bifrost/bundle/src/bundle.rs` |
+| RT-51 | `OsRng` Result variant | Closed | RF-RT-5 | Nothing: `try_new` and `try_fill` exist |
+| RT-52 | `http-gateway` lock poisoning | Closed | RF-RT-1 | Nothing: no `lock().unwrap()` is left in the crate |
+| RT-53 | Stale "Phase-1 seam" comments | Closed | RF-DOC-1 | Nothing: none is left in the Rust sources |
+| RT-54 | Dead `unreachable!()` in the Forge engine | Closed | RF-F-1 | Nothing |
+| RT-55 | Connector `SandboxPolicy` unused | Closed | RF-F-2, RF-API-6 | Nothing: the ingest funnel calls `check_egress` for every connector |
+| RT-56 | `.exe` suffix in `mg-repro` | Carried | RF-SC-3 | `mg-repro` was rewritten around whole-workspace comparison; cross-platform behaviour was not re-checked |
+| RT-57 | Client remote-inference bridge | Carried | RF-CL-9 | The bridge exists; there is no on-device runtime |
+| RT-58 | Client shells are scaffolds | Carried | RF-CL-1..7 | No shell app and no UniFFI or wasm-bindgen bindings exist; RC-58 is unmet |
+| RT-59 | Config-drift reconciler | Carried | RF-AD-3, RF-DEP-6 | Configuration-store decision; see the RF-AD-3 Status note |
+
+**Totals:** 59 tasks: 9 closed, 50 carried. Every task has an item here.
 
 ---
 
