@@ -28,7 +28,7 @@ pub mod registry;
 pub use error::{RegistryError, VerifyError};
 pub use manifest::{ArtefactManifest, ArtefactRef, BIFROST_SIG_ALG};
 pub use sbom::{generate_sbom, SbomComponent};
-pub use signed::{check_sbom, SignedArtefact};
+pub use signed::{build_with_signer, check_sbom, SignedArtefact};
 
 #[cfg(feature = "backend-fips")]
 pub use durable::DurableArtefactRegistry;

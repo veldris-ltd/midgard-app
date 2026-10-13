@@ -62,6 +62,13 @@ impl ArtefactRegistry {
         Ok(artefact)
     }
 
+    /// Every registered artefact's reference, sorted. This is what makes "what
+    /// did the release actually publish?" answerable from the registry itself,
+    /// so the published set can be compared with the gated set. [AC-RF-SC-5c]
+    pub fn refs(&self) -> Vec<ArtefactRef> {
+        self.artefacts.keys().cloned().collect()
+    }
+
     /// Number of registered artefacts.
     pub fn len(&self) -> usize {
         self.artefacts.len()
