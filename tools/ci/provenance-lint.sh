@@ -92,6 +92,9 @@ for f in "${missing[@]}"; do
     # Rendered as an inline annotation on the offending file where the CI
     # system supports one.
     ci_error "No provenance tag. Cite the requirement this realises, e.g. [FR-B-1], [NFR-PQ-3], [DD-1], [AC-B-1]." "$f"
+    # An annotation is attached to the file and its name does not appear in the
+    # job's log, so the name is printed as well.
+    echo "  $f"
 done
 echo
 echo "Every changed source under ${GOVERNED[*]} must cite at least one of:"
