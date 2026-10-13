@@ -1,0 +1,21 @@
+# Every external crate resolves from /vendor, never from the network.
+# [NFR-PRV-1] [NFR-OSS-1] [AC-M-5]
+#
+# This is what lets the whole workspace build inside `docker run --network none`
+# (tools/ci/in-toolchain.sh) and on an air-gapped machine: Cargo is told that
+# crates.io *is* the vendored directory, so a build that would need a crate not
+# committed there fails instead of fetching it.
+#
+# To add or update a dependency, see docs/dev/BUILD_ENV.md ("Offline / vendored
+# dependencies"): comment out the block below, update, re-run
+# `cargo vendor --versioned-dirs vendor`, restore the block, and commit /vendor
+# with Cargo.lock.
+#
+# vendor/advisory-db is not a crate and Cargo ignores it: it is the RustSec
+# database `mg-scan` reads.
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

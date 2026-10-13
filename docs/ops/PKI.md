@@ -159,8 +159,9 @@ here if any is missing:
    and pull the service image base `deploy/images/service.Dockerfile` names. Do both
    while connected. Every build and signing step runs in that image with
    `--network none`. The runner itself only reaches GitHub.
-2. **Offline advisory database.** `supply-chain/advisories.toml` is vendored, and the
-   scan stage (`mg-scan`) reads nothing else.
+2. **Offline advisory database.** The RustSec database is vendored at
+   `vendor/advisory-db`, with the licence policy and exception tables in
+   `supply-chain/`. The scan stage (`mg-scan`) reads nothing else.
 3. **Key material, as runner secrets naming files outside the checkout:**
    - `MIDGARD_SIGNING_KEYSTORE_PATH`: the release keystore (ML-DSA-87);
    - `MIDGARD_BIFROST_KEYSTORE_PATH`: the Bifrost admission keystore (ML-DSA-65), for

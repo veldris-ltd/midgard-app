@@ -34,7 +34,7 @@ overall="pass"; issues=0
     echo "[audit]"
     echo "shell        = \"$shell\""
     echo "release      = \"$release\""
-    echo "commit       = \"${GITHUB_SHA:-unknown}\""
+    echo "commit       = \"${MIDGARD_CI_COMMIT:-${GITHUB_SHA:-${CI_COMMIT_SHA:-unknown}}}\""
     echo "runner       = \"$runner\""
     echo "device       = \"$device\""
     echo "tool         = \"$tool\""

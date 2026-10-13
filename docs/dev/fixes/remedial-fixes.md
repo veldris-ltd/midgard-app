@@ -657,7 +657,7 @@ tracking item — the allow-list must be empty at GA.
 > - Add a gate-level test or script step proving a failed scan leaves no .sig
 > - Wire the PR-time `--advisory-only` scan into a CI workflow that exists in the tree
 > - Vendor OSV records for the JS/TS workspace and scan the pnpm lockfile
-> - Refresh the advisory snapshot (47 days old on 2026-10-12)
+> - ~~Refresh the advisory snapshot (47 days old on 2026-10-12)~~ — refreshed 2026-10-12 to upstream `25a288f6`: 1279 advisories, up from 1206
 >
 > Checked: `tools/mg-scan/src/main.rs:244` · `tools/mg-scan/src/main.rs:468` · `tools/mg-scan/src/licence.rs:250` · `justfile:364` · `vendor/advisory-db/snapshot.toml:20`
 
@@ -799,8 +799,12 @@ Implement the release-time scan stage as a real, air-gap-capable gate.
 >   but unreadable is an error rather than a default.
 >
 > Still open after the audit: the gate-level proof that a failed scan leaves no
-> `.sig`, PR-time wiring (RF-CA-4), OSV data for the JS/TS workspace, and a
-> refresh of the advisory snapshot, which is past its 30-day warning.
+> `.sig`, and a first run of the PR-time wiring on a forge (the pipelines now exist;
+> see RF-SC-5). OSV data for the JS/TS workspace is now vendored at
+> `vendor/advisory-db-npm` and `mg-scan` matches each component against its own
+> ecosystem's advisories; see RF-SC-5's As-built note. The
+> advisory snapshot was refreshed on 2026-10-12 (1279 advisories); the counts
+> quoted above are from the 2026-08-27 snapshot the audit ran against.
 
 ---
 
@@ -862,6 +866,102 @@ Generalise the release gate so "every buildable artefact" is literally true.
 - **AC-RF-SC-5e — Dry run.** *Given* `release-dry-run`, *when* dispatched on a branch, *then* the full gate executes and nothing is published.
 
 **Done when:** the matrix is generated; a UI bundle and a container image both carry a valid `.sig`/`.att`; the publish/gate set comparison is enforced.
+
+> **As built (2026-10-12, after the status above).** The Rust half of this item is
+> now complete and the pipelines exist; the non-Rust half is still open.
+>
+> **The matrix is derived (5a).** `tools/ci/release-artefacts.sh` builds the manifest
+> from the workspace's own manifests — declared `[[bin]]` targets, the implicit
+> `src/main.rs`, `src/bin/<name>.rs` and `src/bin/<name>/main.rs` — and
+> `supply-chain/release-artefacts.txt` only *annotates* it with a component kind and
+> an image. A binary the list does not mention is gated as a bare `tool`, with a
+> warning. The list can no longer hide a binary, and a stale or malformed entry, or
+> one binary name built by two packages, fails `--check`. `just release-manifest`
+> prints the JSON matrix. `tools/ci/tests/release-artefacts.test.sh` covers each case
+> against throwaway workspaces.
+>
+> **Nothing ships ungated (5c).** Two defects made this false before. `mg-register`
+> signed and admitted whatever binary it was handed without ever reading the release
+> signature; it now runs `attest::verify_artefact` against the pinned release anchor
+> first, and re-checks the signature over the exact bytes it stores. And each
+> `just gate` began with `rm -rf target/verified`, so gating the binaries in turn
+> left only the last one's bundle; a gate now clears only its own binary's files and
+> writes `<bin>.repro.json` and `<bin>.scan-findings.json` beside it.
+> `tools/ci/release.sh` then asks the registry what it holds for the version
+> (`mg-register list`) and fails unless that equals the gated set, each with its
+> signature, provenance and reproducibility report.
+>
+> **Bundles reach Bifrost (5d).** `mg-register` admits the binary and, beside it as
+> `attestation` artefacts, its `.sig`, its `.att` and its repro report, and prints the
+> digest, SBOM digest and release key id. The admission keystore must be the key
+> pinned in the admission anchor file, and signing goes through the custodian rather
+> than taking the key out of it. `tools/mg-register/tests/cli.rs` drives the binary
+> through the refusals: never signed, changed after signing, SBOM or provenance
+> swapped, signed by the wrong key, admission key not pinned.
+>
+> **Dry run (5e).** `just release-dry-run` (`tools/ci/release.sh --dry-run`) runs the
+> whole release — manifest, gate, admission, set comparison — with throwaway keys and
+> a throwaway registry outside the checkout, and publishes nothing. Run here for two
+> binaries end to end.
+>
+> **Pipelines.** `.github/workflows/{ci,release,shell-audit}.yml` and `.gitlab-ci.yml`
+> now exist. Neither contains build logic: every step is `bash tools/ci/run.sh <job>`,
+> and `tools/ci/pipelines.sh --check` fails if the two call different jobs. See
+> [`docs/dev/CI.md`](../CI.md). They parse and pass the parity check; **they have not
+> yet run on either forge.**
+>
+> **One prerequisite was missing from the tree.** `.cargo/config.toml`, which the
+> build documentation cites as what makes every crate resolve from `/vendor`, had
+> never been committed. Without it nothing builds under `--network none`. It is added,
+> and the workspace was confirmed to resolve and build offline with an empty Cargo
+> cache.
+>
+> **Non-Rust artefacts are gated identically (5b).** The seven UI bundles and the
+> `@midgard/sdk` package go through the same five stages and the same release run:
+>
+> - *Derived.* `tools/ci/js-artefacts.sh` reads `pnpm-workspace.yaml`: a member with a
+>   Vite config is a `ui-bundle`, one under `sdk/` an `npm-package`; internal libraries
+>   ship inside the bundles that import them.
+> - *Reproducible build.* Each is built twice and the results must be bit-identical —
+>   a deterministic tar of `dist/`, or the packed tarball. All eight are, with no
+>   change to their build configuration. A fixture that stamps the clock into a
+>   package fails the build and is named.
+> - *SBOM.* `mg-sbom --pnpm-lock` lists the importer's production closure from
+>   `pnpm-lock.yaml`, with the SHA-512 integrity the lockfile pins and each package's
+>   own licence. Workspace packages are marked as such.
+> - *Scan.* `mg-scan` now matches a component only against its own ecosystem's
+>   advisories, read from its purl — before this it would have matched an npm package
+>   against RustSec by name. npm components are matched against a vendored OSV
+>   snapshot (`vendor/advisory-db-npm`: 83 advisories for the 119 packages the lockfile
+>   pins, built by `just advisory-db-npm-refresh`). An npm package the snapshot was not
+>   filtered for, or an ecosystem with no database, is a blocking finding.
+> - *Sign, verify, admit.* `mg-sign`, `mg-verify` and `mg-register`, unchanged.
+>
+> A dry run across one Rust binary, the SDK package and all seven UI bundles passed
+> here: nine artefacts gated, admitted and accounted for. The scan reports three
+> MEDIUM advisories against `react-router` 6.30.4 as notes; nothing blocks.
+>
+> **The image build is reproducible by construction, not yet by proof.**
+> `deploy/images/build.sh` builds each image twice, uncached, with a fixed
+> `SOURCE_DATE_EPOCH` and rewritten file times, and refuses unless the two digests are
+> equal; the service account is written directly rather than with `useradd`, which
+> stamps the date into `/etc/shadow`. The mechanism was checked on a stand-in base
+> image. It has not run on the real one, which is not present here.
+>
+> **Still open.**
+> - **The client shells** have no buildable projects, so there is nothing to gate.
+> - **The image build** has not been proven on the real base image.
+> - **Build tooling is not in the bill of materials.** A UI bundle's SBOM lists what
+>   ships, not the bundler and compiler that produced it; those are pinned by the
+>   lockfile's integrity hashes.
+> - **`just advisory-db-npm-refresh` is written for Linux.** On Windows, the antivirus
+>   quarantines some of the export's malware reports as they are unpacked, and the
+>   import refuses a file it cannot read. The snapshot here was built from the same
+>   export read in memory.
+> - `release-images`, `release-bundle` and `release-publish` have never run: they need
+>   the signing runner, the service base image and real keys.
+> - The client shell audits fail closed until each shell has a buildable project, and
+>   a release waits on them.
 
 ---
 

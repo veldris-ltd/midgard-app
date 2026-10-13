@@ -15,11 +15,12 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/../.."
+. tools/ci/lib.sh
 TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE:-midgard-acceptance:1.82.0}"
 problems=0
 ok() { echo "preflight: ok — $*"; }
 bad() {
-    echo "::error::preflight: $* (see docs/ops/PKI.md, \"Signing runner\")"
+    ci_error "preflight: $* (see docs/ops/PKI.md, \"Signing runner\")"
     problems=$((problems + 1))
 }
 
@@ -46,11 +47,28 @@ else
     fi
 fi
 
-# 2. The offline advisory database the scan stage reads.
-if [ -s supply-chain/advisories.toml ]; then
-    ok "offline advisory database"
+# 2. What the scan stage reads, all of it local: the vendored advisory database, and
+#    the licence policy and exception tables. (The exception table is not the database:
+#    a runner with only that would pass a check that looked no further.)
+declared="$(tr -d '\r' < vendor/advisory-db/snapshot.toml 2>/dev/null | sed -n 's/^advisory_count *= *\([0-9]*\).*/\1/p' | head -1)"
+present="$(find vendor/advisory-db/crates -name 'RUSTSEC-*.md' 2>/dev/null | wc -l | tr -d ' ')"
+if [ -z "$declared" ]; then
+    bad "vendor/advisory-db/snapshot.toml is missing or declares no advisory_count; run \`just advisory-db-refresh\` while connected"
+elif [ "$present" != "$declared" ]; then
+    bad "vendor/advisory-db holds $present advisories but its snapshot declares $declared"
 else
-    bad "supply-chain/advisories.toml is missing"
+    ok "offline advisory database ($present advisories)"
+fi
+for policy in supply-chain/licences.toml supply-chain/advisories.toml; do
+    [ -s "$policy" ] && ok "$policy" || bad "$policy is missing"
+done
+
+# 2b. The JavaScript artefacts are built on the runner itself (the toolchain image
+#     carries no node), from a package store filled while connected.
+if command -v node >/dev/null 2>&1 && { command -v pnpm >/dev/null 2>&1 || command -v corepack >/dev/null 2>&1; }; then
+    ok "node $(node --version) with pnpm, for the JavaScript artefacts"
+else
+    bad "node and pnpm (or corepack) are not installed; the UI bundles and the SDK package cannot be built"
 fi
 
 # 3. Key material: named explicitly, readable, and never inside the checkout.

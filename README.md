@@ -756,13 +756,15 @@ just gate forge-worker forge-egress           # a package that builds several bi
 
 `just gate` builds the package **twice** under a normalised environment, proves the outputs bit-identical, and then SBOMs, signs and verifies *that proven artefact* — signing anything else would produce a signature over a binary nobody can reproduce from source. `supply-chain/repro-exceptions.txt` must be empty at GA; it is.
 
-`supply-chain/release-artefacts.txt` lists every binary the workspace builds and how it ships. `bash tools/ci/release-artefacts.sh --check` fails if any binary is missing from the list, so none can skip the gate. On a provisioned signing runner, the release workflow (`.github/workflows/release.yml`) does the following:
+The set of artefacts to release is derived from the workspace (`just release-manifest` for the binaries, `tools/ci/js-artefacts.sh --rows` for the UI bundles and the SDK package), so a new one cannot skip the gate; `supply-chain/release-artefacts.txt` only records how each one ships. `just release-dry-run` runs the whole release with throwaway keys and publishes nothing. On a provisioned signing runner, the release pipeline (`.github/workflows/release.yml`, or `.gitlab-ci.yml` on a GitLab mirror) does the following:
 
-1. Gates each binary.
-2. Admits each binary to the Bifrost registry.
+1. Gates each artefact — every Rust binary, UI bundle and npm package — through the same five stages.
+2. Admits each to the Bifrost registry, and fails unless the registry then holds exactly the gated set.
 3. Builds the verify-before-run images.
 4. Packs the signed air-gap bundle.
 5. Publishes at most a draft pre-release.
+
+Both pipelines call the same jobs in `tools/ci/run.sh`; see [docs/dev/CI.md](docs/dev/CI.md).
 
 See [the release candidate notes](docs/releases/v0.1.0-rc.1.md) and `docs/ops/PKI.md`.
 

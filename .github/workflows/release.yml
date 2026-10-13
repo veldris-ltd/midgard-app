@@ -1,0 +1,137 @@
+# The release. [RC-07] [AC-B-1] [NFR-PQ-3] [AC-RF-SC-5a] [AC-RF-SC-5c] [AC-RF-SC-5e]
+#
+# This file contains no build logic: every step is `bash tools/ci/run.sh <job>`, shared
+# with the GitLab pipeline (.gitlab-ci.yml). See tools/ci/run.sh and tools/ci/release.sh.
+#
+# Three ways in:
+#   - a pull request that touches the release machinery, or a manual run in `dry-run`
+#     mode: the WHOLE gate runs for every binary with throwaway keys on a hosted
+#     runner, and nothing is published;
+#   - a `v*` tag, or a manual run in `release` mode: the release itself, on the
+#     self-hosted signing runners (docs/ops/PKI.md, "Signing runner");
+#   - a manual run in `release` mode with `publish` set to a tag: the same, then a
+#     DRAFT pre-release. Nothing here makes a release public.
+#
+# The set of binaries is derived from the workspace (`just release-manifest`), so a new
+# binary is gated with no edit to this file. tools/ci/release.sh fails the run if what
+# reached the Bifrost registry is not exactly what was gated.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'crypto/attest/**'
+      - 'bifrost/artefact/**'
+      - 'bifrost/bundle/**'
+      - 'supply-chain/**'
+      - 'vendor/advisory-db/snapshot.toml'
+      - 'deploy/images/**'
+      - 'deploy/air-gap-bundle/**'
+      - 'deploy/acceptance/Dockerfile'
+      - 'justfile'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'sdk/**'
+      - 'ui/**'
+      - 'products/*/ui/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run gates everything and publishes nothing; release runs on the signing runners'
+        type: choice
+        options: [dry-run, release]
+        default: dry-run
+      publish:
+        description: 'release mode only: the tag to attach a DRAFT pre-release to (empty = none)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dry-run:
+    name: release gate, dry run
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ci-cache
+          key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
+      - run: bash tools/ci/run.sh toolchain
+      # The JavaScript artefacts are built on the runner, where node is; the release
+      # then gates them inside the toolchain image with everything else.
+      - run: bash tools/ci/run.sh js-build
+      - run: bash tools/ci/run.sh release-dry-run
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-dry-run-manifest
+          path: target/release-out/release-manifest.txt
+
+  preflight:
+    name: signing-runner preflight
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+    runs-on: [self-hosted, kms]
+    env:
+      MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
+      MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
+      MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: bash tools/ci/run.sh release-preflight
+
+  shell-audits:
+    name: client shell audits
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+    uses: ./.github/workflows/shell-audit.yml
+
+  release:
+    name: gate, admit, account
+    needs: [preflight, shell-audits]
+    runs-on: [self-hosted, kms]
+    env:
+      MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
+      MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
+      MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: bash tools/ci/run.sh js-build
+      - run: bash tools/ci/run.sh release
+      - run: bash tools/ci/run.sh release-images
+      - run: bash tools/ci/run.sh release-bundle
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          path: target/release-out
+          if-no-files-found: error
+
+  publish:
+    name: draft pre-release
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'release' && inputs.publish != ''
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Passed as data, never interpolated into a command line.
+      MIDGARD_PUBLISH_TAG: ${{ inputs.publish }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: target/release-out
+      - run: bash tools/ci/run.sh release-publish

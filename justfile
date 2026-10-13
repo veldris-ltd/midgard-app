@@ -257,8 +257,7 @@ verify-clients:
 #   <pkg>  a workspace package, e.g. `mg-sbom`   — what `repro` builds
 #   <path> the built deployable, e.g. `target/release/mg-sbom` — what `sbom`,
 #          `sign` and `verify` operate on, because they hash actual bytes.
-# `gate` takes a package and derives the path. Unifying artefact identity across
-# the whole gate is RF-SC-5.
+# `gate` takes a package and derives the path.
 
 # 1+2. Reproducibility: build twice, assert every artefact is bit-identical.
 # No argument checks the WHOLE workspace (two builds, not two per package) and
@@ -306,6 +305,31 @@ advisory-db-refresh:
     rm -f vendor/advisory-db/snapshot.toml.bak
     echo "advisory-db: $n advisories at $rev ($date)"
 
+# Refresh the vendored npm advisory snapshot (vendor/advisory-db-npm). ONLINE, like
+# `advisory-db-refresh`. Downloads the osv.dev export of every npm advisory and keeps
+# the ones that affect a package pnpm-lock.yaml pins, so the snapshot is small enough
+# to review and knows which packages it speaks for: `mg-scan` refuses an npm package
+# it was not filtered for. Run it again whenever the lockfile gains a package. Commit
+# the result and review the diff. [FR-MS-6] [AC-RF-SC-5b]
+advisory-db-npm-refresh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source=https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fsSL -o "$tmp/npm.zip" "$source"
+    mkdir "$tmp/osv"
+    unzip -q "$tmp/npm.zip" -d "$tmp/osv"
+    cargo run -q --release -p mg-sbom -- --pnpm-lock pnpm-lock.yaml --list-packages > "$tmp/packages.txt"
+    cargo run -q --release -p mg-scan -- import-osv --from "$tmp/osv" --packages "$tmp/packages.txt" \
+        --out vendor/advisory-db-npm --date "$(date -u +%F)" --source "$source"
+
+# Build every JavaScript artefact twice and require the two to be bit-identical: the
+# UI bundles and the SDK package. Needs the workspace installed for the UI bundles
+# (`pnpm install --frozen-lockfile`). `only` narrows it to named artefacts. [AC-M-6]
+js-build *only:
+    bash tools/ci/js-artefacts.sh build {{ if only == "" { "--all" } else { only } }} --out target/js-out
+
 # 5. PQ-sign an artefact with ML-DSA (detached sig + DSSE attestation). [NFR-PQ-3]
 #
 # The signing key is named explicitly and is never searched for: set
@@ -337,10 +361,15 @@ verify path:
     cargo run -q --release -p mg-verify -- "{{path}}" --trust-anchor "$MIDGARD_TRUST_ANCHORS"
 
 # Full per-artefact gate, in order, for one binary. `pkg` is a workspace package and
-# `bin` the binary it builds, by default the package's own name: the deployable is
-# target/verified/<bin> (plus `.exe` on Windows). A package that builds several binaries
-# (supply-chain/release-artefacts.txt) is gated once per binary. Every stage fails
+# `bin` the binary it builds, by default the package's own name. Every stage fails
 # closed, so the first refusal stops the chain and nothing downstream runs.
+#
+# Everything the gate produces for a binary lands beside it in one directory —
+# target/verified, or MIDGARD_GATE_OUT — under the binary's own name:
+#   <bin>  <bin>.sbom.cdx.json  <bin>.sig  <bin>.att
+#   <bin>.repro.json  <bin>.scan-findings.json
+# so gating one binary never disturbs another's results, and a release that gates
+# every binary in turn (tools/ci/release.sh) ends with all of them in that directory.
 gate pkg bin="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -349,10 +378,17 @@ gate pkg bin="":
     # verifies that one — not a separately built copy. Signing anything else would
     # produce a signature over a binary a third party cannot reproduce from
     # source, which is the whole point of proving it. [AC-M-6] [AC-B-1]
-    out=target/verified
-    rm -rf "$out"
-    cargo run -q --release -p mg-repro -- {{pkg}} --out repro.json --emit "$out"
+    out="${MIDGARD_GATE_OUT:-target/verified}"
     name="{{ if bin == "" { pkg } else { bin } }}"
+    mkdir -p "$out"
+    # Clear this binary's previous results, and only this binary's. A stale
+    # signature beside a fresh binary must never survive a failed stage; another
+    # binary's results are not this run's to remove.
+    for stem in "$out/$name" "$out/$name.exe"; do
+        rm -f "$stem" "$stem.sbom.cdx.json" "$stem.sig" "$stem.att" \
+              "$stem.repro.json" "$stem.scan-findings.json"
+    done
+    cargo run -q --release -p mg-repro -- {{pkg}} --out "$out/$name.repro.json" --emit "$out"
     bin="$out/$name"
     # Prefer the .exe when one exists. Checking the extension-less path first
     # does not work: MSYS's `test -f` transparently resolves `foo` to `foo.exe`,
@@ -361,7 +397,27 @@ gate pkg bin="":
     [ -f "$bin.exe" ] && bin="$bin.exe"
     [ -f "$bin" ] || { echo "gate: {{pkg}} produced no verified binary $name" >&2; exit 1; }
     just sbom "$bin"
-    just scan "$bin"
-    MIDGARD_REPRO_REPORT=repro.json just sign "$bin"
+    cargo run -q --release -p mg-scan -- "$bin.sbom.cdx.json" --out "$out/$name.scan-findings.json"
+    MIDGARD_REPRO_REPORT="$out/$name.repro.json" just sign "$bin"
     just verify "$bin"
     echo "gate passed: {{pkg}} $name ($bin)"
+
+# The release manifest: every binary the workspace builds, as the JSON matrix the
+# pipelines fan out over. Derived from the workspace, annotated by
+# supply-chain/release-artefacts.txt. [AC-RF-SC-5a]
+release-manifest:
+    @bash tools/ci/release-artefacts.sh --matrix
+
+# The whole release, without publishing: gate every binary, admit each to a
+# throwaway registry under throwaway keys, and check the admitted set equals the
+# gated set. `only` narrows it to a comma-separated list of binaries. [AC-RF-SC-5e]
+release-dry-run only="":
+    bash tools/ci/release.sh --dry-run {{ if only == "" { "" } else { "--only " + only } }}
+
+# The release itself, on a provisioned signing runner (docs/ops/PKI.md).
+release:
+    bash tools/ci/release.sh
+
+# Run one CI job exactly as the pipelines do (`just ci list` names them).
+ci job *args:
+    bash tools/ci/run.sh {{job}} {{args}}
