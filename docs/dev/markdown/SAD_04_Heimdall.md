@@ -234,7 +234,7 @@ Heimdall runs streaming fusion workers and a picture store on the mesh; supports
 
 ### 10.2 CI/CD
 
-![Figure 10.2 — Heimdall build/test/sign/deploy pipeline (via Bifrost).](../../diagrams/heimdall_cicd.png)
+![Figure 10.2 — Heimdall build/test/sign/deploy pipeline (via Bifrost).](../../diagrams/product_cicd.png)
 *Figure 10.2 — Heimdall build/test/sign/deploy pipeline (via Bifrost).*
 
 
@@ -329,5 +329,5 @@ Heimdall runs streaming fusion workers and a picture store on the mesh; supports
 | Primary sequence | heimdall_seq_primary.mmd | heimdall_seq_primary.drawio |
 | Journey | heimdall_journey.mmd | heimdall_journey.drawio |
 | Deployment | heimdall_deployment.mmd | heimdall_deployment.drawio |
-| CI/CD | heimdall_cicd.mmd | heimdall_cicd.drawio |
+| CI/CD | product_cicd.mmd | product_cicd.drawio |
 | Threat DFD | heimdall_threat_dfd.mmd | heimdall_threat_dfd.drawio |

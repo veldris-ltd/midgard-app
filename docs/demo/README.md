@@ -92,7 +92,7 @@ What a capture guarantees:
 - **No network.** Every hostname fails to resolve inside the browser; the page
   reaches only the static server the script runs on `127.0.0.1`. The consoles
   and the site need nothing else, because their fonts are self-hosted in
-  `ui/design-system/src/fonts` and `docs/design/fonts`. The site pages reference
+  `ui/design-system/src/fonts`. The site pages reference
   React and Babel on unpkg; those requests are answered from `vendor/`.
 - **The right mode.** The consoles and the site read `localStorage('mg-mode')`
   before first paint, so the script sets it before any page script runs. It

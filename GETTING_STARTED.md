@@ -2,7 +2,7 @@
 
 This guide describes the **specification-driven workflow** by which the Midgard suite is built with an AI coding agent: feed a complete architecture (`docs/dev/`) and a complete design system (`docs/design/`) to an agent, and turn them into software one requirement at a time.
 
-> **The suite is already implemented.** A 70-crate Rust workspace (plus console UIs and gateway edge) was produced from this exact workflow — its git history maps one commit per [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) prompt, and all 72 acceptance criteria pass air-gapped. To **build, test, or verify** what exists, see [README.md → Running locally](README.md#running-locally). This guide remains the reference for *how* it was built and for extending it — same loop, same gates.
+> **The suite is already implemented.** A 70-crate Rust workspace (plus console UIs and gateway edge) was produced from this exact workflow. In the full working history, one commit maps to each [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) prompt; this public repository begins from a squashed initial import of that state. Each of the 72 acceptance criteria maps to a test that runs air-gapped; no run of that gate is recorded yet against a public commit (see [GA_READINESS.md](docs/compliance/GA_READINESS.md)). To **build, test, or verify** what exists, see [README.md → Running locally](README.md#running-locally). This guide remains the reference for *how* it was built and for extending it — same loop, same gates.
 
 > **Looking for the exhaustive, in-sequence build reference?** [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) lists every build prompt, all 15 runtime AI prompts (verbatim), and all 72 acceptance criteria, phase-by-phase across the whole suite. This guide is the orientation; the playbook is the execution detail.
 
@@ -114,7 +114,7 @@ Otherwise, point the agent at the skill's instructions manually:
 
 ```
 Read docs/design/SKILL.md and docs/design/readme.md, then load the tokens in
-docs/design/tokens/ and the component contracts in docs/design/components/**/*.d.ts
+ui/design-system/src/tokens/ and the component contracts in docs/design/components/**/*.d.ts
 and **/*.prompt.md. You are now the Midgard design authority. Confirm the rules
 you must never break (one accent per screen, never emoji, ALL-CAPS mono labels,
 provenance tags as chips, ProductMark instead of invented logos).
@@ -161,25 +161,24 @@ From here you loop Prompts 3–4 across requirements, then move to the next prod
 
 ## 5. Running the design system locally
 
-The design system is the fastest thing in the repo to see working. Serve `docs/design/` and open it in a browser.
+The design system is the fastest thing in the repo to see working. Serve the repository root and open the design system in a browser. Its pages load their tokens and fonts from `ui/design-system/src`, so the root has to be the repository.
 
 ```bash
 # from the repo root
-cd docs/design
 python -m http.server 8080
-#   → open http://localhost:8080/docs/index.html   (the documentation site)
+#   → open http://localhost:8080/docs/design/docs/index.html   (the documentation site)
 ```
 
 Or with Node:
 
 ```bash
-npx serve docs/design -l 8080
-#   → http://localhost:8080/docs/index.html
+npx serve . -l 8080
+#   → http://localhost:8080/docs/design/docs/index.html
 ```
 
 **Where to look:**
 
-| URL (under the served `docs/design/` root) | What it is |
+| URL (under `/docs/design/`) | What it is |
 |---|---|
 | `docs/index.html` | Design-system home — overview & principles |
 | `docs/foundations.html` | Colour (all three modes), type, spacing, shape, motion, icon grid, voice |
@@ -281,7 +280,7 @@ Global conventions apply to every prompt (Part A.0):
 - **Fail visible, not silent** — return a structured refusal with a reason code, never a fabricated result.
 - **No secrets, no PII echo** — never emit data above the caller's clearance.
 
-Prompts are **model-portable** across the three supported families (Mistral / Nemotron / Gemma / Granite); family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author (`SAD_02b` covers model supply & resolution). When you implement an AI feature, implement its prompt *and* its Evals together — the Evals are your regression suite for behaviour.
+Prompts are written to be **model-portable** across three model families (Mistral / Nemotron / Gemma / Granite), which is tested against a deterministic engine and not yet against those models; family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author (`SAD_02b` covers model supply & resolution). When you implement an AI feature, implement its prompt *and* its Evals together — the Evals are your regression suite for behaviour.
 
 ---
 

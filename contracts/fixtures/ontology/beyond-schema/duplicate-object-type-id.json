@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "aircraft",
+      "title": "Aircraft",
+      "properties": [
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "aircraft",
+      "title": "Aircraft again",
+      "properties": [
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    }
+  ]
+}

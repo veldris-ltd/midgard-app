@@ -19,9 +19,11 @@ The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_
 
 ## Status
 
-**Implementation: complete and verified. Release: not yet cut.**
+**Implementation: five services run and are tested; most other subsystems are tested libraries. Release: not yet cut.**
 
-The code is finished and the acceptance gate passes end to end. Most recent full run, at commit `60091a9`, inside the pinned `rust:1.82` container under `docker run --network none`:
+The status of each capability is in the [claims ledger](docs/compliance/CLAIMS.md). A CI check holds every row to the source, tests and service tests it cites. On 2026-10-13, on a fresh clone of `dev` in the pinned toolchain image under `docker run --network none`, the workspace built and `just test` passed: 870 tests, none failed.
+
+The acceptance gate has not been run against a commit in this repository's public history. The figures below come from the private working history, at commit `60091a9`, which is not in this repository. They will be replaced by a recorded run at the release commit:
 
 | | |
 |---|---|
@@ -295,7 +297,7 @@ This writes:
 
 ### Declare an ontology
 
-Edit `ontology.json` before serving; the gateway registers it on every start and refuses to start if it is invalid:
+Edit `ontology.json` before serving; the gateway registers it on every start and refuses to start if it is invalid. The format is published as a JSON Schema, [`contracts/schema/ontology.v1.schema.json`](contracts/schema/ontology.v1.schema.json), and the records `mg-admin import` reads as [`contracts/schema/import-record.v1.schema.json`](contracts/schema/import-record.v1.schema.json). A test holds both schemas to the gateway's parsers, with worked examples under `contracts/fixtures/`.
 
 ```json
 {
@@ -777,12 +779,14 @@ At run time, `deploy/images/entrypoint.sh` re-verifies the signature, SBOM and p
 Static HTML/CSS/JSX — any static file server works. React/Babel load from CDN on first paint, then cache.
 
 ```bash
-cd docs/design
+# from the repository root
 python -m http.server 8099        # or: npx serve -l 8099 .
-# open http://localhost:8099/docs/index.html
+# open http://localhost:8099/docs/design/docs/index.html
 ```
 
-| Surface | URL (server root = `docs/design`) |
+The pages take their tokens and fonts from `ui/design-system/src`, the one tracked copy, so the server root must be the repository root.
+
+| Surface | URL (under `/docs/design`) |
 |---|---|
 | **Design-system docs** (foundations, 28 components, patterns, screens, flows) | `/docs/index.html` |
 | **Midgard console** — Object Explorer | `/ui_kits/midgard-console/index.html` |
@@ -791,7 +795,7 @@ python -m http.server 8099        # or: npx serve -l 8099 .
 | **Clients** — mobile / desktop / web | `/ui_kits/clients/mobile.html` · `desktop.html` · `web.html` |
 | **Marketing site** | `/site/index.html` |
 
-> **Troubleshooting.** Blank page / "Failed to fetch" → you opened `file://`; serve over `http://`. 404 on `styles.css` → your server root isn't `docs/design`. Fully offline → vendor `react`, `react-dom` and `babel` locally and repoint the three `unpkg` `<script>` tags.
+> **Troubleshooting.** Blank page / "Failed to fetch" → you opened `file://`; serve over `http://`. 404 on a token or font file → your server root isn't the repository root. Fully offline → vendor `react`, `react-dom` and `babel` locally and repoint the three `unpkg` `<script>` tags.
 
 These UI kits are **reference designs**. The shipping console UIs live under `ui/` and `products/` and bind to the gateway edge.
 
@@ -835,9 +839,19 @@ The same documents ship as branded `.docx` in `docs/dev/documents/`; the 76 diag
 
 ➡️ **[docs/compliance/GA_READINESS.md](docs/compliance/GA_READINESS.md)** — the release go/no-go record and its outstanding gates.
 
+➡️ **[docs/compliance/CLAIMS.md](docs/compliance/CLAIMS.md)**: the claims ledger, with the status of every capability and the evidence for it.
+
 ➡️ **[docs/design/readme.md](docs/design/readme.md)** — the complete design-system reference.
 
 ➡️ **[SECURITY.md](SECURITY.md)** · **[CONTRIBUTING.md](CONTRIBUTING.md)** · **[CHANGELOG.md](CHANGELOG.md)**
+
+---
+
+## Related proprietary tools
+
+Likan is a separate, proprietary tool for data-structure ontologies. It is not part of this repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Nothing here depends on it, downloads it or needs it.
+
+Midgard loads an ontology from a documented file format, [`contracts/schema/ontology.v1.schema.json`](contracts/schema/ontology.v1.schema.json), which can be written by hand or produced by any tool. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here.
 
 ---
 

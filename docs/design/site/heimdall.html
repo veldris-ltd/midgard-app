@@ -87,32 +87,32 @@ function App() {
       <Hero
         eyebrow="01 // HEIMDALL · OPERATIONAL FUSION"
         headline={<>One picture. Every feed.<br /><span style={{ color: 'var(--text-muted)' }}>Humans decide.</span></>}
-        sub="Heimdall fuses live feeds into a single shared operating picture: entities tracked and classified over time, ranked options generated locally by Mimir, and every consequential action gated by a named human with a signed decision record."
+        sub="Heimdall accepts signed observations from certified feeds and fuses them into one shared picture, sealed at rest. Ranked options from Mimir, human-gated decision workflows and replication between sites are tested libraries that the running service does not use yet."
         seals={<><StatusPill status="online" label="FEEDS · FUSED LIVE" /><StatusPill status="secure" label="FEEDS PQ-AUTH ✓" pulse={false} /></>}
-        stats={<><StatBlock value="0.4s" label="FUSION LATENCY" /><StatBlock value="100%" label="DECISIONS SIGNED + REPLAYABLE" accent /><StatBlock value="0" label="ACTIONS AUTO-EXECUTED" /></>}
+        stats={<><StatBlock value="4" label="CHECKS BEFORE AN OBSERVATION IS FUSED" /><StatBlock value="1" label="FUSED PICTURE · SEALED AT REST" accent /><StatBlock value="0" label="UNSIGNED OBSERVATIONS ACCEPTED" /></>}
       />
       <Capabilities num={2} title="See everything. Trust what you see."
         items={[
-          ['radar', 'Multi-feed fusion', 'Radar, transponder, satellite, maritime, ground: correlated into one live picture with per-layer control.'],
-          ['shield-check', 'Spoof-proof feeds', 'Every source signs every frame. Unverified feeds are quarantined before they can touch the picture.'],
-          ['crosshair', 'Entity tracking', 'Entities tracked and classified over time against the object fabric, with confidence you can see and interrogate.'],
-          ['sparkles', 'Ranked options, cited', 'Mimir proposes courses of action with the evidence attached. Advisory always; executing never.'],
-          ['workflow', 'Human-gated workflows', 'From anomaly to authorised action in one governed flow, with the human gate built into the workflow engine itself.'],
-          ['network', 'Multi-site sync', 'The picture replicates across sites over PQ-mTLS, marking-aware, so every cleared operator sees one truth.'],
+          ['radar', 'Multi-feed fusion', 'Observations that share an entity key fuse into one tracked entity, with its contributing feeds and its first and last sighting. There is one generic observation format today.'],
+          ['shield-check', 'Authenticated feeds', 'An observation is fused only if it arrives over PQ-mTLS from the feed whose certified identity it carries, with a valid signature. Refusals are audited.'],
+          ['crosshair', 'Entity tracking', 'Entities are tracked over time in the picture. Rules-based classification is a tested library.'],
+          ['sparkles', 'Ranked options, cited', 'Ranked courses of action, each cited against the picture, are a tested library. The running service does not generate options yet.'],
+          ['workflow', 'Human-gated workflows', 'Propose, authorise, execute with a signed audit chain is a tested library, not yet in the running service.'],
+          ['network', 'Multi-site sync', 'Replication of the picture between nodes over PQ-mTLS is a tested library. The running service does not replicate.'],
         ]} />
       <Showcase num={3} title="From anomaly to authorised action." reverse
-        body="A track goes anomalous. Options arrive ranked and cited. An operator picks one, authorises it with a hardware key, and the entire chain, evidence, options, decision, outcome, is one replayable signed record."
-        terminal={<Terminal title="DECISION" style={{ flex: '1 1 360px' }} lines={[
+        body="As a tested library: a track goes anomalous, options arrive ranked and cited, an operator authorises one, and the evidence, the decision and the outcome become one signed record. The running service fuses and serves the picture; this flow is not served yet."
+        terminal={<Terminal title="ILLUSTRATIVE · DECISION (LIBRARY)" style={{ flex: '1 1 360px' }} lines={[
           '> heimdall workflow W-0912',
           'anomaly    E-0871 · conf 54% · flagged',
           'options    3 ranked · cited · advisory',
-          'authorise  k.osei · option 01 · WebAuthn ✓',
+          'authorise  k.osei · option 01 · recorded',
           'action     re-task NORTH-2 → E-0871',
           'outcome    conf 54% → 86% · 12 min',
-          '# decision #D-4472 · signed · replayable',
+          '# illustrative: decision support is a tested library',
         ]} />}
       />
-      <Standalone num={4} line="Midgard + Heimdall delivers fusion and a common operating picture on its own, rules-based classification included. Add Mimir for AI options, Forge for curated object feeds." />
+      <Standalone num={4} line="Heimdall runs today as the feed service beside the Midgard edge: signed ingest and one fused picture. Options from Mimir and curated object feeds from Forge are not wired yet." />
     </SiteShell>
   );
 }

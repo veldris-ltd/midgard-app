@@ -59,6 +59,36 @@ use crate::strict_json::{
 /// The one ontology file format version this build reads.
 pub const ONTOLOGY_FILE_VERSION: i64 = 1;
 
+// The keys each object in the file may carry. They are public so that the published
+// schema (`contracts/schema/ontology.v1.schema.json`) can be checked against them: a
+// key added here and not there, or the reverse, fails
+// `tests/contract_schemas.rs`. [AC-RF-CA-13c]
+
+/// Keys of the file itself.
+pub const ROOT_KEYS: &[&str] = &["version", "objectTypes", "linkTypes", "actions"];
+/// Keys of an object type.
+pub const OBJECT_TYPE_KEYS: &[&str] = &["id", "title", "properties"];
+/// Keys of a property.
+pub const PROPERTY_KEYS: &[&str] = &["name", "type", "required"];
+/// Keys of a link type.
+pub const LINK_TYPE_KEYS: &[&str] = &["id", "name", "from", "to", "cardinality"];
+/// Keys of an action.
+pub const ACTION_KEYS: &[&str] = &[
+    "id",
+    "name",
+    "title",
+    "objectType",
+    "humanGated",
+    "marking",
+    "compartments",
+    "purposes",
+    "effect",
+];
+/// Keys of a `set-property` effect.
+pub const SET_PROPERTY_KEYS: &[&str] = &["kind", "property", "value"];
+/// Keys of a `cycle-property` effect.
+pub const CYCLE_PROPERTY_KEYS: &[&str] = &["kind", "property", "values"];
+
 /// A parsed ontology, ready to register.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ontology {
@@ -118,11 +148,7 @@ pub fn parse_ontology(text: &str) -> Result<Ontology, String> {
 fn parse_document(text: &str) -> Result<Ontology, String> {
     let doc = parse(text).map_err(|e| format!("not valid JSON: {e}"))?;
     let here = "the ontology file";
-    only_keys(
-        object(&doc, here)?,
-        here,
-        &["version", "objectTypes", "linkTypes", "actions"],
-    )?;
+    only_keys(object(&doc, here)?, here, ROOT_KEYS)?;
     match doc.get("version") {
         Some(Json::Int(v)) if *v == ONTOLOGY_FILE_VERSION => {}
         Some(Json::Num(v)) if *v == ONTOLOGY_FILE_VERSION as f64 => {}
@@ -166,7 +192,7 @@ fn parse_document(text: &str) -> Result<Ontology, String> {
 
 fn object_type(index: usize, item: &Json) -> Result<ObjectType, String> {
     let at = format!("objectTypes[{index}]");
-    only_keys(object(item, &at)?, &at, &["id", "title", "properties"])?;
+    only_keys(object(item, &at)?, &at, OBJECT_TYPE_KEYS)?;
     let id = identifier(item, &at, "id")?;
     let at = format!("object type \"{id}\"");
     let properties = array(item, &at, "properties")?
@@ -189,7 +215,7 @@ fn object_type(index: usize, item: &Json) -> Result<ObjectType, String> {
 
 fn property(owner: &str, index: usize, item: &Json) -> Result<PropertyType, String> {
     let at = format!("{owner}: properties[{index}]");
-    only_keys(object(item, &at)?, &at, &["name", "type", "required"])?;
+    only_keys(object(item, &at)?, &at, PROPERTY_KEYS)?;
     let name = identifier(item, &at, "name")?;
     let at = format!("{owner}: property \"{name}\"");
     let value_type = match text(item, &at, "type")? {
@@ -210,11 +236,7 @@ fn property(owner: &str, index: usize, item: &Json) -> Result<PropertyType, Stri
 
 fn link_type(index: usize, item: &Json, object_types: &[ObjectType]) -> Result<LinkType, String> {
     let at = format!("linkTypes[{index}]");
-    only_keys(
-        object(item, &at)?,
-        &at,
-        &["id", "name", "from", "to", "cardinality"],
-    )?;
+    only_keys(object(item, &at)?, &at, LINK_TYPE_KEYS)?;
     let id = identifier(item, &at, "id")?;
     let at = format!("link type \"{id}\"");
     let end = |key: &str| -> Result<String, String> {
@@ -248,21 +270,7 @@ fn link_type(index: usize, item: &Json, object_types: &[ObjectType]) -> Result<L
 
 fn action(index: usize, item: &Json, object_types: &[ObjectType]) -> Result<ActionDecl, String> {
     let at = format!("actions[{index}]");
-    only_keys(
-        object(item, &at)?,
-        &at,
-        &[
-            "id",
-            "name",
-            "title",
-            "objectType",
-            "humanGated",
-            "marking",
-            "compartments",
-            "purposes",
-            "effect",
-        ],
-    )?;
+    only_keys(object(item, &at)?, &at, ACTION_KEYS)?;
     let id = identifier(item, &at, "id")?;
     let at = format!("action \"{id}\"");
 
@@ -329,14 +337,14 @@ fn effect(owner: &str, item: Option<&Json>, target: &ObjectType) -> Result<Actio
     };
     match text(item, &at, "kind")? {
         "set-property" => {
-            only_keys(object(item, &at)?, &at, &["kind", "property", "value"])?;
+            only_keys(object(item, &at)?, &at, SET_PROPERTY_KEYS)?;
             Ok(ActionEffect::SetProperty {
                 property: text_property("property")?,
                 value: text(item, &at, "value")?.to_string(),
             })
         }
         "cycle-property" => {
-            only_keys(object(item, &at)?, &at, &["kind", "property", "values"])?;
+            only_keys(object(item, &at)?, &at, CYCLE_PROPERTY_KEYS)?;
             let values = strings(item, &at, "values")?;
             if values.len() < 2 {
                 return Err(format!(

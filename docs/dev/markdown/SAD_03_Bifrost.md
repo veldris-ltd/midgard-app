@@ -226,7 +226,7 @@ Bifrost runs a control plane in the enclosure and a PQ-authenticated agent on ea
 
 ### 10.2 CI/CD
 
-![Figure 10.2 — Bifrost's own build/sign/publish pipeline.](../../diagrams/bifrost_cicd.png)
+![Figure 10.2 — Bifrost's own build/sign/publish pipeline.](../../diagrams/product_cicd.png)
 *Figure 10.2 — Bifrost's own build/sign/publish pipeline.*
 
 
@@ -318,5 +318,5 @@ Bifrost runs a control plane in the enclosure and a PQ-authenticated agent on ea
 | Primary sequence | bifrost_seq_primary.mmd | bifrost_seq_primary.drawio |
 | Journey | bifrost_journey.mmd | bifrost_journey.drawio |
 | Deployment | bifrost_deployment.mmd | bifrost_deployment.drawio |
-| CI/CD | bifrost_cicd.mmd | bifrost_cicd.drawio |
+| CI/CD | product_cicd.mmd | product_cicd.drawio |
 | Threat DFD | bifrost_threat_dfd.mmd | bifrost_threat_dfd.drawio |

@@ -87,32 +87,32 @@ function App() {
       <Hero
         eyebrow="01 // MIMIR · LOCAL AGENTIC AI"
         headline={<>AI that never phones home.<br /><span style={{ color: 'var(--text-muted)' }}>Because it can't.</span></>}
-        sub="Mimir serves Mistral, Nemotron, Gemma and Granite entirely inside your enclosure. Agents are grounded in your object fabric, cite their evidence, score against evaluation suites, and stop at a human gate before anything changes state."
+        sub="Mimir serves a signed model entirely inside your enclosure, to certified callers over PQ-mTLS, with every call audited. One model has been served: Granite 3.3 2B on CPU. Grounding in the object fabric, the agent loop, evaluation suites and the human gate are tested libraries that no service runs yet."
         seals={<><StatusPill status="online" label="INFERENCE · LOCAL" /><StatusPill status="secure" label="NO EGRESS" pulse={false} /></>}
-        stats={<><StatBlock value="3" label="MODEL FAMILIES · IN-ENCLOSURE" /><StatBlock value="0.42s" label="FIRST TOKEN" accent /><StatBlock value="0" label="HOSTED-LLM DEPENDENCIES" /></>}
+        stats={<><StatBlock value="1" label="MODEL SERVED · GRANITE 3.3 2B · CPU" /><StatBlock value="325 ms" label="FIRST TOKEN · 12-CORE CPU" accent /><StatBlock value="0" label="HOSTED-LLM DEPENDENCIES" /></>}
       />
       <Capabilities num={2} title="Agentic, grounded, governed. In that order."
         items={[
-          ['brain-circuit', 'Ontology-augmented generation', 'Answers are retrieved from your object fabric under your policy, and every claim carries a live citation.'],
-          ['bot', 'Agent runtime', 'Plan–act–observe loops with typed tools, memory, and per-step evaluation. Session traces show every decision.'],
-          ['gauge', 'Evals as gates', 'Capability, grounding, adversarial, and calibration suites gate every agent and model change. Below the gate, nothing ships.'],
-          ['shield-check', 'Self-defending', 'Prompt-injection filtering, least-privilege tool scoping, and exfiltration blocks screen every input and tool call.'],
-          ['refresh-cw', 'Self-learning & self-healing', 'Governed feedback improves retrieval; degraded inference reroutes, retries, or rolls back. Every loop is bounded and audited.'],
-          ['workflow', 'No-code to pro-code', 'Build AI functions and agents visually or in code; a mandatory human gate guards every state mutation.'],
+          ['brain-circuit', 'Ontology-augmented generation', 'Retrieval from the object fabric under policy, with every claim bound to a citation, is a tested library. The running service answers a prompt without retrieval.'],
+          ['bot', 'Agent runtime', 'A governed plan, act, observe loop with typed tools and a human gate is a tested library. No service runs it yet.'],
+          ['gauge', 'Evals as gates', 'Grounding, adversarial and policy suites run as tests against stand-in models. No evaluation has run against a real model, and nothing gates on them yet.'],
+          ['shield-check', 'Self-defending', 'An injection filter with de-obfuscation and a prompt rewriter are tested libraries; the classifier behind them is a test double.'],
+          ['refresh-cw', 'Self-learning & self-healing', 'Bounded feedback and recovery loops are tested libraries, not yet in a running service.'],
+          ['workflow', 'No-code to pro-code', 'Building AI functions and agents visually or in code is designed; the studio screens run on sample data.'],
         ]} />
       <Showcase num={3} title="The gate is not a feature. It's the design." reverse
-        body="An agent can find the problem, draft the fix, and queue the action, and then it waits. A named human authorises; the decision, its evidence, and its outcome become one signed record."
-        terminal={<Terminal title="AGENT TURN" style={{ flex: '1 1 360px' }} lines={[
+        body="In the agent loop, a tested library, an agent can find the problem, draft the fix and queue the action, and then it waits: a consequential action runs only after a recorded human decision. No deployed service runs that loop yet."
+        terminal={<Terminal title="ILLUSTRATIVE · AGENT TURN (LIBRARY)" style={{ flex: '1 1 360px' }} lines={[
           '> mimir agent run dispatch-01',
           'retrieve   OAG · policy-scoped · 3 citations',
           'plan       schedule maintenance · AC-2214',
           'guard      injection ✓ · tool scope ✓',
           'action     STATE MUTATION → HUMAN GATE',
-          'authorise  k.osei · WebAuthn ✓',
-          '# executed · lineage #A-77123 · ML-DSA',
+          'authorise  k.osei · recorded decision',
+          '# illustrative: the agent loop is a tested library',
         ]} />}
       />
-      <Standalone num={4} line="Midgard + Mimir is a complete local-AI platform on its own. It is also the shared inference plane: Forge, Bifrost, and Heimdall all reason through it, and degrade gracefully without it." />
+      <Standalone num={4} line="Mimir runs today as the inference service beside the Midgard edge. The bridges that let Forge, Bifrost and Heimdall reason through it are tested libraries, and each product falls back to its non-AI path without it." />
     </SiteShell>
   );
 }

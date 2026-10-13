@@ -22,6 +22,7 @@ cd "$(dirname "$0")/../.."
 
 IMAGE="${TOOLCHAIN_IMAGE:-midgard-acceptance:1.82.0}"
 export TOOLCHAIN_IMAGE="$IMAGE"
+TOOLCHAIN_LABEL=dev.midgard.toolchain.dockerfile
 # Where a saved copy of the toolchain image is kept between jobs, when the CI system
 # caches this directory.
 CACHE_DIR="${MIDGARD_CI_CACHE:-.ci-cache}"
@@ -37,6 +38,8 @@ GITLEAKS_SHA256_darwin_arm64=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13
 JOBS='
 selftest|host|the CI scripts test themselves, and both pipelines call the same jobs
 provenance|host|changed sources under governed trees cite a requirement
+vendor|host|/vendor is exactly the crates Cargo.lock names, and Cargo is pinned to it
+claims|host|every row of the claims ledger cites files, lines and tests that exist
 secrets|host|no credential is committed (gitleaks)
 k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders (needs helm)
 toolchain|host|build or restore the digest-pinned toolchain image (the only online step)
@@ -106,6 +109,10 @@ job_selftest() {
 
 job_provenance() { bash tools/ci/provenance-lint.sh; }
 
+job_vendor() { bash tools/ci/vendor-check.sh; }
+
+job_claims() { bash tools/ci/claims.sh --check --strict; }
+
 job_secrets() {
     local bin=gitleaks os arch want got dir
     if ! command -v gitleaks >/dev/null 2>&1; then
@@ -139,22 +146,34 @@ job_k8s_render() {
 
 # Restore the toolchain image from the cache directory when the CI system kept one for
 # this Dockerfile; build it, and save it for next time, when it did not.
+# The Dockerfile an image was built from, as recorded in its label; empty when the
+# image is absent or carries no label.
+toolchain_built_from() {
+    docker image inspect --format "{{ index .Config.Labels \"$TOOLCHAIN_LABEL\" }}" "$IMAGE" 2>/dev/null || true
+}
+
 job_toolchain() {
     local key tarball
     need docker "toolchain: docker is not available"
-    if docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        echo "toolchain: $IMAGE is already present"
+    # The tag names the Rust version and says nothing about the rest of the Dockerfile,
+    # so an image built before the Dockerfile last changed still answers to it. The
+    # label does say: an image is current only when it records this Dockerfile.
+    key="$( (sha256sum deploy/acceptance/Dockerfile 2>/dev/null || shasum -a 256 deploy/acceptance/Dockerfile) | cut -c1-16)"
+    if [ "$(toolchain_built_from)" = "$key" ]; then
+        echo "toolchain: $IMAGE is already present and current"
         return
     fi
-    key="$( (sha256sum deploy/acceptance/Dockerfile 2>/dev/null || shasum -a 256 deploy/acceptance/Dockerfile) | cut -c1-16)"
+    if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        echo "toolchain: $IMAGE was built from another Dockerfile; replacing it"
+    fi
     tarball="$CACHE_DIR/toolchain-$key.tar"
     if [ -f "$tarball" ]; then
         docker load -i "$tarball"
     fi
-    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    if [ "$(toolchain_built_from)" != "$key" ]; then
         # No COPY in the Dockerfile, so the build context is empty: nothing of the
         # checkout is sent to the daemon.
-        docker build -t "$IMAGE" - < deploy/acceptance/Dockerfile
+        docker build --label "$TOOLCHAIN_LABEL=$key" -t "$IMAGE" - < deploy/acceptance/Dockerfile
         if [ "${MIDGARD_CI_SAVE_TOOLCHAIN:-1}" = 1 ]; then
             mkdir -p "$CACHE_DIR"
             rm -f "$CACHE_DIR"/toolchain-*.tar

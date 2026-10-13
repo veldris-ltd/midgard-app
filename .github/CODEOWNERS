@@ -1,0 +1,20 @@
+# Code owners for Midgard. [NFR-OSS-1]
+#
+# Midgard is an open-source project of Veldris Ltd, licensed under Apache-2.0 (see
+# LICENSE and NOTICE). JB Webb-Benjamin (@jbb-kryo) maintains it on behalf of Veldris
+# Ltd and is the primary code owner of every path. @phillips1707 is the second
+# maintainer, so a change by either can be reviewed by the other.
+#
+# Being a code owner means being asked to review a change. It does not mean being the
+# only person who may make one: contributions from anyone are welcome through a pull
+# request, as CONTRIBUTING.md describes, and contributors keep the credit for their
+# commits.
+#
+# GitHub accepts users and teams here, never a bare organisation, so Veldris Ltd is
+# represented by its maintainer. When the veldris-ltd organisation has a maintainers
+# team, add it beside the user on the line below.
+#
+# Later lines take precedence over earlier ones. Add a narrower rule under the default
+# when an area gains its own maintainer.
+
+*       @jbb-kryo @phillips1707
