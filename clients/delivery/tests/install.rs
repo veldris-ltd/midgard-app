@@ -1,5 +1,6 @@
 //! AC-C-7 — a client artefact is verified before install/update and fails closed on
 //! tamper — and AC-C-12 — air-gapped install from a signed offline bundle, offline.
+//! [AC-C-7] [AC-C-12]
 #![cfg(feature = "backend-fips")]
 
 use bifrost_artefact::{build_and_sign, generate_sbom, SbomComponent, SignedArtefact};
