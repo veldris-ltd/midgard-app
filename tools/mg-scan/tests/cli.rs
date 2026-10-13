@@ -561,6 +561,295 @@ fn a_database_that_is_not_what_its_manifest_says_is_refused() {
     assert!(stderr(&out).contains("fail_after_days"), "{}", stderr(&out));
 }
 
+// --- AC-RF-SC-5b — npm components, and one database per ecosystem ------------
+
+/// An OSV advisory for one npm package, CRITICAL, fixed in `fixed`.
+fn osv(id: &str, package: &str, fixed: &str) -> String {
+    format!(
+        r#"{{ "id": "{id}", "affected": [ {{ "package": {{ "ecosystem": "npm", "name": "{package}" }},
+            "ranges": [ {{ "type": "SEMVER", "events": [ {{ "introduced": "0" }}, {{ "fixed": "{fixed}" }} ] }} ] }} ],
+            "severity": [ {{ "type": "CVSS_V3", "score": "{CRITICAL}" }} ],
+            "references": [ {{ "type": "ADVISORY", "url": "https://example.invalid/{id}" }} ] }}"#
+    )
+}
+
+impl Fixture {
+    /// Write an npm advisory snapshot covering `packages`, holding `advisories`.
+    fn npm_db(&self, packages: &[&str], advisories: &[(&str, String)]) {
+        let dir = self.dir.join("npm-db");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("advisories")).unwrap();
+        for (id, doc) in advisories {
+            std::fs::write(dir.join(format!("advisories/{id}.json")), doc).unwrap();
+        }
+        std::fs::write(dir.join("packages.txt"), packages.join("\n")).unwrap();
+        std::fs::write(
+            dir.join("snapshot.toml"),
+            format!(
+                "[snapshot]\necosystem = \"npm\"\ndate = \"2026-10-01\"\nadvisory_count = {}\n",
+                advisories.len()
+            ),
+        )
+        .unwrap();
+    }
+
+    /// An SBOM of `(purl-type, name, version, source)` components, all MIT.
+    fn mixed_sbom(&self, components: &[(&str, &str, &str, &str)]) -> PathBuf {
+        let rows: Vec<String> = components
+            .iter()
+            .map(|(kind, n, v, source)| {
+                let purl_name = n.replacen('@', "%40", 1);
+                format!(
+                    "    {{ \"type\": \"library\", \"name\": \"{n}\", \"version\": \"{v}\", \
+                     \"purl\": \"pkg:{kind}/{purl_name}@{v}\", \
+                     \"licenses\": [ {{ \"expression\": \"MIT\" }} ], \
+                     \"properties\": [ {{ \"name\": \"midgard:source\", \"value\": \"{source}\" }} ] }}"
+                )
+            })
+            .collect();
+        self.raw_sbom(&format!(
+            "{{\n  \"bomFormat\": \"CycloneDX\",\n  \"specVersion\": \"1.5\",\n  \
+             \"components\": [\n{}\n  ]\n}}\n",
+            rows.join(",\n")
+        ))
+    }
+
+    fn scan_npm(&self, sbom: &Path, extra: &[&str]) -> Output {
+        self.command(sbom)
+            .arg("--npm-advisory-db")
+            .arg(self.dir.join("npm-db"))
+            .args(extra)
+            .output()
+            .expect("run mg-scan")
+    }
+}
+
+#[test]
+fn ac_rf_sc_5b_an_npm_component_is_matched_against_npm_advisories() {
+    let mut f = Fixture::new("npm");
+    f.advisory("RUSTSEC-2026-0001", "unrelated", MEDIUM, "\">= 1.0.0\"");
+    f.snapshot();
+    f.npm_db(
+        &["@scope/widget", "react"],
+        &[(
+            "GHSA-1111-2222-3333",
+            osv("GHSA-1111-2222-3333", "@scope/widget", "2.0.0"),
+        )],
+    );
+
+    let sbom = f.mixed_sbom(&[
+        ("npm", "@scope/widget", "1.4.0", "registry"),
+        ("npm", "react", "18.3.1", "registry"),
+    ]);
+    let out = f.scan_npm(&sbom, &[]);
+    let text = stdout(&out);
+    assert!(refused(&out), "{text}{}", stderr(&out));
+    assert!(
+        text.contains("BLOCK  @scope/widget@1.4.0  advisory-critical  GHSA-1111-2222-3333"),
+        "{text}"
+    );
+    assert!(!text.contains("react@18.3.1"), "{text}");
+    assert!(stderr(&out).contains("1 npm"), "{}", stderr(&out));
+
+    // The fixed version passes.
+    let sbom = f.mixed_sbom(&[("npm", "@scope/widget", "2.0.0", "registry")]);
+    let out = f.scan_npm(&sbom, &[]);
+    assert!(out.status.success(), "{}{}", stdout(&out), stderr(&out));
+}
+
+#[test]
+fn a_shared_name_does_not_cross_ecosystems() {
+    // `shared` is vulnerable as a crate (RustSec) and, separately, clean as an
+    // npm package; `twin` is the reverse. Matched by name alone, each would be
+    // judged by the other's advisory.
+    let mut f = Fixture::new("ecosystems");
+    f.advisory("RUSTSEC-2026-0001", "shared", CRITICAL, "\">= 9.0.0\"");
+    f.snapshot();
+    f.npm_db(
+        &["shared", "twin"],
+        &[(
+            "GHSA-4444-5555-6666",
+            osv("GHSA-4444-5555-6666", "twin", "9.0.0"),
+        )],
+    );
+
+    let clean = f.mixed_sbom(&[
+        ("npm", "shared", "1.0.0", "registry"),
+        ("cargo", "twin", "1.0.0", "registry"),
+    ]);
+    let out = f.scan_npm(&clean, &[]);
+    assert!(
+        out.status.success(),
+        "neither advisory is for these ecosystems: {}{}",
+        stdout(&out),
+        stderr(&out)
+    );
+
+    let vulnerable = f.mixed_sbom(&[
+        ("cargo", "shared", "1.0.0", "registry"),
+        ("npm", "twin", "1.0.0", "registry"),
+    ]);
+    let out = f.scan_npm(&vulnerable, &[]);
+    let text = stdout(&out);
+    assert!(refused(&out), "{text}");
+    assert!(
+        text.contains("shared@1.0.0  advisory-critical  RUSTSEC-2026-0001"),
+        "{text}"
+    );
+    assert!(
+        text.contains("twin@1.0.0  advisory-critical  GHSA-4444-5555-6666"),
+        "{text}"
+    );
+}
+
+#[test]
+fn nobody_looked_is_never_reported_as_clean() {
+    let mut f = Fixture::new("coverage");
+    f.advisory("RUSTSEC-2026-0001", "unrelated", MEDIUM, "\">= 1.0.0\"");
+    f.snapshot();
+    let sbom = f.mixed_sbom(&[("npm", "react", "18.3.1", "registry")]);
+
+    // npm packages, and no npm advisory database at all.
+    let out = f.scan_npm(&sbom, &[]);
+    assert!(refused(&out));
+    assert!(
+        stderr(&out).contains("the npm advisory database is not usable"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(stdout(&out).is_empty(), "no verdict without a database");
+
+    // A database that was not filtered for this package.
+    f.npm_db(&["something-else"], &[]);
+    let out = f.scan_npm(&sbom, &[]);
+    let text = stdout(&out);
+    assert!(refused(&out), "{text}");
+    assert!(
+        text.contains("BLOCK  react@18.3.1  advisory-uncovered"),
+        "{text}"
+    );
+
+    // Filtered for it, with nothing recorded against it: that is a real "clean".
+    f.npm_db(&["react"], &[]);
+    let out = f.scan_npm(&sbom, &[]);
+    assert!(out.status.success(), "{}{}", stdout(&out), stderr(&out));
+
+    // An ecosystem with no vendored database at all.
+    let sbom = f.mixed_sbom(&[("pypi", "requests", "2.0.0", "registry")]);
+    let out = f.scan_npm(&sbom, &[]);
+    let text = stdout(&out);
+    assert!(refused(&out), "{text}");
+    assert!(
+        text.contains("requests@2.0.0  ecosystem-unsupported"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_workspace_npm_package_needs_no_npm_database() {
+    // The SDK tarball's bill of materials is our own package and nothing else.
+    // It is licence-checked like anything, and it is not a registry package, so
+    // the scan neither matches it nor needs the npm snapshot to exist.
+    let mut f = Fixture::new("workspace-npm");
+    f.advisory("RUSTSEC-2026-0001", "unrelated", MEDIUM, "\">= 1.0.0\"");
+    f.snapshot();
+    let sbom = f.mixed_sbom(&[("npm", "@midgard/sdk", "0.0.0", "workspace")]);
+
+    let out = f.scan_npm(&sbom, &[]);
+    assert!(out.status.success(), "{}{}", stdout(&out), stderr(&out));
+    assert!(
+        stderr(&out).contains("1 workspace member(s) exempt"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn import_osv_builds_a_snapshot_the_scan_accepts() {
+    let mut f = Fixture::new("import");
+    f.advisory("RUSTSEC-2026-0001", "unrelated", MEDIUM, "\">= 1.0.0\"");
+    f.snapshot();
+
+    // An export: one advisory for a locked package, one for a package we do not
+    // use, one for another ecosystem, and one document with nothing in it.
+    let export = f.dir.join("export/nested");
+    std::fs::create_dir_all(&export).unwrap();
+    std::fs::write(
+        export.join("a.json"),
+        osv("GHSA-aaaa-aaaa-aaaa", "react", "19.0.0"),
+    )
+    .unwrap();
+    std::fs::write(
+        export.join("b.json"),
+        osv("GHSA-bbbb-bbbb-bbbb", "not-ours", "1.0.0"),
+    )
+    .unwrap();
+    std::fs::write(
+        export.join("c.json"),
+        osv("GHSA-cccc-cccc-cccc", "react", "1.0.0").replace("\"npm\"", "\"PyPI\""),
+    )
+    .unwrap();
+    std::fs::write(export.join("d.json"), r#"{ "id": "GHSA-dddd-dddd-dddd" }"#).unwrap();
+    std::fs::write(f.dir.join("packages.list"), "react\nscheduler\n").unwrap();
+
+    let import = |date: &str| {
+        Command::new(EXE)
+            .arg("import-osv")
+            .arg("--from")
+            .arg(f.dir.join("export"))
+            .arg("--packages")
+            .arg(f.dir.join("packages.list"))
+            .arg("--out")
+            .arg(f.dir.join("npm-db"))
+            .args(["--date", date, "--source", "https://example.invalid/osv"])
+            .output()
+            .expect("run mg-scan import-osv")
+    };
+    let out = import("2026-10-01");
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("imported 1 advisories affecting 2 locked npm package(s)"));
+    assert!(f
+        .dir
+        .join("npm-db/advisories/GHSA-aaaa-aaaa-aaaa.json")
+        .exists());
+    assert!(!f
+        .dir
+        .join("npm-db/advisories/GHSA-bbbb-bbbb-bbbb.json")
+        .exists());
+
+    // The snapshot it wrote is one the scan accepts, and it finds the advisory.
+    let sbom = f.mixed_sbom(&[
+        ("npm", "react", "18.3.1", "registry"),
+        ("npm", "scheduler", "0.23.2", "registry"),
+    ]);
+    let out = f.scan_npm(&sbom, &[]);
+    let text = stdout(&out);
+    assert!(refused(&out), "{text}{}", stderr(&out));
+    assert!(
+        text.contains("react@18.3.1  advisory-critical  GHSA-aaaa-aaaa-aaaa"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("scheduler"),
+        "covered, and nothing recorded: {text}"
+    );
+
+    // A document that names one of our packages and cannot be read is fatal.
+    std::fs::write(
+        export.join("e.json"),
+        r#"{ "id": "GHSA-eeee", "note": "react" "#,
+    )
+    .unwrap();
+    assert_eq!(import("2026-10-01").status.code(), Some(1));
+    std::fs::remove_file(export.join("e.json")).unwrap();
+
+    assert_eq!(
+        import("soon").status.code(),
+        Some(2),
+        "a date must be a date"
+    );
+}
+
 // --- modes and exit codes ----------------------------------------------------
 
 #[test]

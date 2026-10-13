@@ -12,9 +12,22 @@
 //!     the future, or older than its own staleness limit.
 //!
 //! ```text
-//! mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--policy-dir <dir>]
-//!         [--today YYYY-MM-DD] [--advisory-only] [--out findings.json]
+//! mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--npm-advisory-db <dir>]
+//!         [--policy-dir <dir>] [--today YYYY-MM-DD] [--advisory-only]
+//!         [--out findings.json]
+//! mg-scan import-osv --from <dir> --packages <file> --out <dir>
+//!         --date YYYY-MM-DD --source <url>
 //! ```
+//!
+//! ## One database per ecosystem
+//! A component is matched against the advisory database of **its own**
+//! ecosystem, read from its purl: `pkg:cargo/…` against RustSec
+//! (`vendor/advisory-db`), `pkg:npm/…` against the vendored OSV snapshot
+//! (`vendor/advisory-db-npm`). A crate and an npm package can share a name, and
+//! an advisory for one says nothing about the other. A component of an ecosystem
+//! with no vendored database, or an npm package the snapshot was not filtered
+//! for, is a blocking finding: "nobody looked" must never read as "clean".
+//! `import-osv` builds that snapshot from a directory of OSV documents.
 //!
 //! `--advisory-only` reports without failing on anything below CRITICAL — the PR
 //! mode, so exposure is discovered at review time rather than at release time.
@@ -58,8 +71,11 @@ use semver::Version;
 
 const USAGE: &str = "\
 usage:
-  mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--policy-dir <dir>]
-          [--today YYYY-MM-DD] [--advisory-only] [--out <findings.json>]
+  mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--npm-advisory-db <dir>]
+          [--policy-dir <dir>] [--today YYYY-MM-DD] [--advisory-only]
+          [--out <findings.json>]
+  mg-scan import-osv --from <dir> --packages <file> --out <dir>
+          --date YYYY-MM-DD --source <url>
 
 Refuses unless every component in the SBOM has an allowed licence and no
 blocking advisory. Exceptions live in supply-chain/{licences,advisories}.toml
@@ -81,7 +97,11 @@ fn main() -> ExitCode {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    match run(&argv) {
+    let result = match argv.first().map(String::as_str) {
+        Some("import-osv") => import_osv(&argv[1..]),
+        _ => run(&argv),
+    };
+    match result {
         Ok(code) => code,
         Err(Failure::Usage(m)) => {
             eprintln!("mg-scan: {m}\n");
@@ -111,6 +131,8 @@ struct Component {
     name: String,
     version: String,
     purl: String,
+    /// The package ecosystem, from the purl's type: `cargo`, `npm`, …
+    ecosystem: String,
     /// SPDX expression; `None` when the SBOM recorded no licence.
     licence: Option<String>,
     /// Whether the SBOM positively identifies this as a path/workspace member.
@@ -147,6 +169,7 @@ impl Finding {
 fn run(argv: &[String]) -> Result<ExitCode, Failure> {
     let mut sbom_path: Option<PathBuf> = None;
     let mut db_dir = PathBuf::from("vendor/advisory-db");
+    let mut npm_db_dir = PathBuf::from("vendor/advisory-db-npm");
     let mut policy_dir = PathBuf::from("supply-chain");
     let mut today: Option<String> = None;
     let mut advisory_only = false;
@@ -168,6 +191,10 @@ fn run(argv: &[String]) -> Result<ExitCode, Failure> {
             }
             "--advisory-db" => {
                 db_dir = PathBuf::from(need(i, "--advisory-db")?);
+                i += 2;
+            }
+            "--npm-advisory-db" => {
+                npm_db_dir = PathBuf::from(need(i, "--npm-advisory-db")?);
                 i += 2;
             }
             "--policy-dir" => {
@@ -238,7 +265,8 @@ fn run(argv: &[String]) -> Result<ExitCode, Failure> {
     let advisory_exceptions =
         load_advisory_exceptions(&policy_dir.join("advisories.toml")).map_err(Failure::Refused)?;
 
-    let expected_advisories = check_db_freshness(&db_dir, &today).map_err(Failure::Refused)?;
+    let expected_advisories =
+        check_db_freshness(&db_dir, &today, false).map_err(Failure::Refused)?;
     let db = Database::load(&db_dir).map_err(Failure::Refused)?;
 
     // The snapshot manifest records how many advisories it vendored, and the
@@ -256,13 +284,53 @@ fn run(argv: &[String]) -> Result<ExitCode, Failure> {
         )));
     }
 
+    // The npm snapshot is loaded only when the SBOM has npm components to match:
+    // a Rust artefact's scan does not depend on it. When it is needed it is held
+    // to the same rules as the RustSec database — fresh, complete, readable.
+    let npm_needed = components
+        .iter()
+        .any(|c| c.ecosystem == "npm" && !c.workspace_member);
+    let npm = if npm_needed {
+        let expected = check_db_freshness(&npm_db_dir, &today, true).map_err(|e| {
+            Failure::Refused(format!(
+                "the SBOM lists npm packages, and the npm advisory database is not usable: {e}"
+            ))
+        })?;
+        let db = Database::load_osv(&npm_db_dir, "npm").map_err(Failure::Refused)?;
+        if db.count != expected {
+            return Err(Failure::Refused(format!(
+                "npm advisory database declares {expected} advisories but {} loaded — \
+                 the directory is not the snapshot its manifest describes",
+                db.count
+            )));
+        }
+        let covered = std::fs::read_to_string(npm_db_dir.join("packages.txt"))
+            .map_err(|e| {
+                Failure::Refused(format!(
+                    "cannot read {}: {e}",
+                    npm_db_dir.join("packages.txt").display()
+                ))
+            })?
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect::<std::collections::BTreeSet<String>>();
+        Some((db, covered))
+    } else {
+        None
+    };
+
     let members = components.iter().filter(|c| c.workspace_member).count();
     eprintln!(
-        "mg-scan: {} component(s) — {} matched against {} advisories, {} workspace member(s) \
-         exempt from advisory matching; {} allowed licence id(s)",
+        "mg-scan: {} component(s) — {} matched against advisories ({} RustSec{}), {} workspace \
+         member(s) exempt from advisory matching; {} allowed licence id(s)",
         components.len(),
         components.len() - members,
         db.count,
+        match &npm {
+            Some((n, _)) => format!(", {} npm", n.count),
+            None => String::new(),
+        },
         members,
         policy.allowed_count()
     );
@@ -336,6 +404,41 @@ fn run(argv: &[String]) -> Result<ExitCode, Failure> {
             continue;
         }
 
+        // Its own ecosystem's database, and no other. [AC-RF-SC-5b]
+        let advisories: &Database = match (c.ecosystem.as_str(), &npm) {
+            ("cargo", _) => &db,
+            ("npm", Some((npm_db, covered))) => {
+                if !covered.contains(&c.name) {
+                    // The snapshot is filtered to the packages the lockfile named
+                    // when it was made. A package added since has no advisories
+                    // in it — which is absence of data, not absence of findings.
+                    findings.push(Finding {
+                        component: format!("{}@{}", c.name, c.version),
+                        purl: c.purl.clone(),
+                        kind: "advisory-uncovered".into(),
+                        detail: "the npm advisory snapshot was not filtered for this package; \
+                                 refresh it (just advisory-db-npm-refresh)"
+                            .into(),
+                        blocking: true,
+                    });
+                    continue;
+                }
+                npm_db
+            }
+            (other, _) => {
+                findings.push(Finding {
+                    component: format!("{}@{}", c.name, c.version),
+                    purl: c.purl.clone(),
+                    kind: "ecosystem-unsupported".into(),
+                    detail: format!(
+                        "no advisory database is vendored for {other} packages; it was not scanned"
+                    ),
+                    blocking: true,
+                });
+                continue;
+            }
+        };
+
         let Some(version) = Version::parse(&c.version) else {
             // A version we cannot parse cannot be matched against advisory
             // ranges, so it cannot be cleared either.
@@ -349,7 +452,7 @@ fn run(argv: &[String]) -> Result<ExitCode, Failure> {
             continue;
         };
 
-        for a in db.for_crate(&c.name) {
+        for a in advisories.for_crate(&c.name) {
             if !a.affects(&version) {
                 continue;
             }
@@ -474,7 +577,9 @@ fn parse_advisory_exceptions(text: &str) -> Result<Vec<AdvisoryException>, Strin
                  (a URL, or a path to a document in this repository)"
                 ));
             }
-            let (krate, owner, expires) = (need("crate")?, need("owner")?, need("expires")?);
+            // `crate` for a Rust advisory; `package` reads better for an npm one.
+            let krate = need("crate").or_else(|e| need("package").map_err(|_| e))?;
+            let (owner, expires) = (need("owner")?, need("expires")?);
             if civil_days(&expires).is_none() {
                 return Err(format!(
                     "advisory exception {id}: `expires` {expires:?} is not YYYY-MM-DD"
@@ -552,7 +657,12 @@ fn has_link(text: &str) -> bool {
 
 /// Refuse an advisory database that is missing, empty, or whose age cannot be
 /// trusted. Returns the advisory count the snapshot claims to contain.
-fn check_db_freshness(db_dir: &Path, today: &str) -> Result<usize, String> {
+///
+/// `filtered` says the snapshot is one cut down to the packages a lockfile names
+/// (the npm snapshot). Such a snapshot may honestly hold no advisories at all —
+/// its `packages.txt` is what shows the packages were looked up — whereas an
+/// unfiltered database with none in it is simply empty.
+fn check_db_freshness(db_dir: &Path, today: &str, filtered: bool) -> Result<usize, String> {
     let manifest = db_dir.join("snapshot.toml");
     let text = std::fs::read_to_string(&manifest).map_err(|e| {
         format!(
@@ -608,7 +718,7 @@ fn check_db_freshness(db_dir: &Path, today: &str) -> Result<usize, String> {
     let count: usize = field("advisory_count")
         .and_then(|v| v.parse().ok())
         .ok_or("snapshot.toml records no advisory_count")?;
-    if count == 0 {
+    if count == 0 && !filtered {
         return Err(
             "snapshot.toml declares zero advisories — an empty database \
                     reports every artefact clean"
@@ -704,7 +814,14 @@ fn collect_components(parent: &Json, out: &mut Vec<Component>) -> Result<(), Str
         let name = field("name")?;
         let version = field("version").map_err(|_| format!("component {name} has no `version`"))?;
         let purl = field("purl").map_err(|_| format!("component {name} has no `purl`"))?;
+        let ecosystem = purl
+            .strip_prefix("pkg:")
+            .and_then(|rest| rest.split_once('/'))
+            .map(|(kind, _)| kind.to_string())
+            .filter(|kind| !kind.is_empty())
+            .ok_or_else(|| format!("component {name}: {purl:?} is not a package URL"))?;
         out.push(Component {
+            ecosystem,
             licence: licence_of(c).map_err(|e| format!("component {name}: {e}"))?,
             workspace_member: source_of(c) == Some(SOURCE_WORKSPACE),
             name,
@@ -759,6 +876,164 @@ fn source_of(component: &Json) -> Option<&str> {
         .find(|p| p.get("name").and_then(Json::as_str) == Some(SOURCE_PROPERTY))?
         .get("value")?
         .as_str()
+}
+
+/// `mg-scan import-osv`: build the vendored npm advisory snapshot.
+///
+/// Reads every OSV document under `--from` (an unpacked osv.dev export), keeps
+/// those that affect a package named in `--packages` (one per line — the
+/// lockfile's packages, from `mg-sbom --pnpm-lock … --list-packages`), and writes
+/// `<out>/advisories/<id>.json`, `<out>/packages.txt` and `<out>/snapshot.toml`.
+/// The snapshot is therefore small and reviewable, and knows which packages it
+/// speaks for: a scan refuses an npm package that is not in `packages.txt`.
+fn import_osv(argv: &[String]) -> Result<ExitCode, Failure> {
+    let mut opts: std::collections::BTreeMap<&str, String> = std::collections::BTreeMap::new();
+    let known = ["--from", "--packages", "--out", "--date", "--source"];
+    let mut i = 0;
+    while i < argv.len() {
+        let flag = argv[i].as_str();
+        let Some(name) = known.iter().find(|k| **k == flag) else {
+            return Err(Failure::Usage(format!(
+                "import-osv: unknown argument {flag}"
+            )));
+        };
+        let value = argv
+            .get(i + 1)
+            .filter(|v| !v.starts_with("--"))
+            .ok_or_else(|| Failure::Usage(format!("{flag} requires a value")))?;
+        opts.insert(name, value.clone());
+        i += 2;
+    }
+    let get = |k: &str| {
+        opts.get(k)
+            .cloned()
+            .ok_or_else(|| Failure::Usage(format!("import-osv: {k} is required")))
+    };
+    let (from, out) = (PathBuf::from(get("--from")?), PathBuf::from(get("--out")?));
+    let (date, source) = (get("--date")?, get("--source")?);
+    if civil_days(&date).is_none() {
+        return Err(Failure::Usage(format!("--date {date:?} is not YYYY-MM-DD")));
+    }
+    let packages_path = get("--packages")?;
+    let packages: std::collections::BTreeSet<String> = std::fs::read_to_string(&packages_path)
+        .map_err(|e| Failure::Refused(format!("cannot read {packages_path}: {e}")))?
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if packages.is_empty() {
+        return Err(Failure::Refused(format!(
+            "{packages_path} names no packages"
+        )));
+    }
+
+    let mut files = Vec::new();
+    json_files(&from, &mut files).map_err(Failure::Refused)?;
+    if files.is_empty() {
+        return Err(Failure::Refused(format!(
+            "{} holds no OSV documents",
+            from.display()
+        )));
+    }
+    files.sort();
+
+    let advisories_dir = out.join("advisories");
+    // Replaced wholesale: an advisory withdrawn upstream must not linger here.
+    let _ = std::fs::remove_dir_all(&advisories_dir);
+    std::fs::create_dir_all(&advisories_dir).map_err(|e| {
+        Failure::Refused(format!("cannot create {}: {e}", advisories_dir.display()))
+    })?;
+
+    let mut kept = 0usize;
+    for path in &files {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| Failure::Refused(format!("cannot read {}: {e}", path.display())))?;
+        // An export also carries documents this reader has no use for (no
+        // affected list at all). Only a document that mentions one of OUR
+        // packages and still cannot be read is a failure.
+        let parsed = match advisory::parse_osv(&text, "npm") {
+            Ok(a) => a,
+            Err(e) => {
+                if packages.iter().any(|p| text.contains(&format!("\"{p}\""))) {
+                    return Err(Failure::Refused(format!(
+                        "cannot parse {}, which names a package in the lockfile: {e}",
+                        path.display()
+                    )));
+                }
+                continue;
+            }
+        };
+        let Some(first) = parsed.iter().find(|a| packages.contains(&a.package)) else {
+            continue;
+        };
+        let name: String = first
+            .id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        std::fs::write(advisories_dir.join(format!("{name}.json")), &text)
+            .map_err(|e| Failure::Refused(format!("cannot write advisory {name}: {e}")))?;
+        kept += 1;
+    }
+
+    let mut list = String::new();
+    for p in &packages {
+        list.push_str(p);
+        list.push('\n');
+    }
+    std::fs::write(out.join("packages.txt"), list)
+        .map_err(|e| Failure::Refused(format!("cannot write packages.txt: {e}")))?;
+    // A snapshot with no advisories is legitimate: it says these packages were
+    // looked up and nothing is recorded against them. packages.txt is the proof.
+    let manifest = format!(
+        "# Pinned snapshot of the OSV advisories for the npm packages this workspace locks.\n\
+         #\n\
+         # Written by `mg-scan import-osv` (just advisory-db-npm-refresh). Do not edit: the\n\
+         # scan refuses a directory that does not hold exactly `advisory_count` advisories,\n\
+         # and refuses an npm package that packages.txt does not list.\n\
+         [snapshot]\n\
+         source = \"{source}\"\n\
+         ecosystem = \"npm\"\n\
+         date = \"{date}\"\n\
+         advisory_count = {kept}\n\
+         package_count = {}\n\
+         \n\
+         [staleness]\n\
+         warn_after_days = 30\n\
+         fail_after_days = 180\n",
+        packages.len()
+    );
+    std::fs::write(out.join("snapshot.toml"), manifest)
+        .map_err(|e| Failure::Refused(format!("cannot write snapshot.toml: {e}")))?;
+
+    println!(
+        "mg-scan: imported {kept} advisories affecting {} locked npm package(s), from {} OSV document(s), into {}",
+        packages.len(),
+        files.len(),
+        out.display()
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Every `.json` file under `dir`, recursively.
+fn json_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))?;
+    for entry in entries {
+        let path = entry.map_err(|e| format!("cannot read entry: {e}"))?.path();
+        if path.is_dir() {
+            json_files(&path, out)?;
+        } else if path.extension().is_some_and(|x| x == "json") {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn write_findings(path: &Path, findings: &[Finding]) -> Result<(), String> {

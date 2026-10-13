@@ -1,9 +1,18 @@
 //! mg-sbom — emit a deterministic CycloneDX SBOM for an artefact. [NFR-OSS-1]
 //!
-//! Parses `Cargo.lock` and renders a CycloneDX 1.5 document listing every
-//! resolved component with a `pkg:cargo/...` purl. Output is **sorted and
+//! ```text
+//! mg-sbom [--out <path>] <artefact>                       a Rust artefact, from Cargo.lock
+//! mg-sbom --pnpm-lock <pnpm-lock.yaml> --importer <dir>
+//!         [--out <path>] <artefact>                       a JS artefact, from pnpm-lock.yaml
+//! ```
+//!
+//! Renders a CycloneDX 1.5 document listing every resolved component with its
+//! purl — `pkg:cargo/…` from `Cargo.lock`, or `pkg:npm/…` for the production
+//! closure of one pnpm importer (see [`pnpm`]). Output is **sorted and
 //! timestamp-free**, so the SBOM is itself bit-reproducible alongside the artefact
 //! it describes (AC-M-6, AC-B-4). No external crates — the sovereign posture.
+
+mod pnpm;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,6 +29,9 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut artefact: Option<String> = None;
     let mut out_override: Option<String> = None;
+    let mut pnpm_lock: Option<String> = None;
+    let mut importer: Option<String> = None;
+    let mut list_packages = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -33,6 +45,24 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             },
+            "--list-packages" => {
+                list_packages = true;
+                i += 1;
+            }
+            flag @ ("--pnpm-lock" | "--importer") => match args.get(i + 1) {
+                Some(v) if !v.starts_with("--") => {
+                    if flag == "--pnpm-lock" {
+                        pnpm_lock = Some(v.clone());
+                    } else {
+                        importer = Some(v.clone());
+                    }
+                    i += 2;
+                }
+                _ => {
+                    eprintln!("mg-sbom: {flag} requires a value");
+                    return ExitCode::from(2);
+                }
+            },
             other if other.starts_with("--") => {
                 eprintln!("mg-sbom: unknown flag {other}");
                 return ExitCode::from(2);
@@ -43,29 +73,86 @@ fn main() -> ExitCode {
             }
         }
     }
+    // `--pnpm-lock <file> --list-packages`: every registry package the lockfile
+    // pins, one per line. The npm advisory snapshot is filtered to exactly this
+    // set, so it has to come from the same reader the SBOM does.
+    if list_packages {
+        let Some(lock_path) = &pnpm_lock else {
+            eprintln!("mg-sbom: --list-packages needs --pnpm-lock <file>");
+            return ExitCode::from(2);
+        };
+        let names = std::fs::read_to_string(lock_path)
+            .map_err(|e| format!("cannot read {lock_path}: {e}"))
+            .and_then(|text| pnpm::Lock::parse(&text))
+            .map(|lock| lock.package_names());
+        return match names {
+            Ok(names) => {
+                for n in names {
+                    println!("{n}");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("mg-sbom: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let artefact = match artefact {
         Some(a) => a,
         None => {
-            eprintln!("usage: mg-sbom [--out <path>] <artefact-name>");
+            eprintln!(
+                "usage: mg-sbom [--pnpm-lock <pnpm-lock.yaml> --importer <dir>] [--out <path>] <artefact-name>"
+            );
             return ExitCode::from(2);
         }
     };
-    let lock = match std::fs::read_to_string("Cargo.lock") {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("mg-sbom: cannot read Cargo.lock: {e}");
-            return ExitCode::FAILURE;
+    let components = match (pnpm_lock, importer) {
+        (None, None) => {
+            let lock = match std::fs::read_to_string("Cargo.lock") {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("mg-sbom: cannot read Cargo.lock: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let packages = parse_lockfile(&lock);
+            let root = Path::new(".");
+            let (members, workspace_licence) = workspace_members(root);
+            resolve_licences(
+                &packages,
+                &root.join("vendor"),
+                &members,
+                workspace_licence.as_deref(),
+            )
+        }
+        (Some(lock_path), Some(importer)) => {
+            let text = match std::fs::read_to_string(&lock_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("mg-sbom: cannot read {lock_path}: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let root = match Path::new(&lock_path).parent() {
+                Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+                _ => PathBuf::from("."),
+            };
+            let resolved =
+                pnpm::Lock::parse(&text).and_then(|lock| pnpm::components(&lock, &importer, &root));
+            match resolved {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("mg-sbom: {e}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        _ => {
+            eprintln!("mg-sbom: --pnpm-lock and --importer go together");
+            return ExitCode::from(2);
         }
     };
-    let packages = parse_lockfile(&lock);
-    let root = Path::new(".");
-    let (members, workspace_licence) = workspace_members(root);
-    let components = resolve_licences(
-        &packages,
-        &root.join("vendor"),
-        &members,
-        workspace_licence.as_deref(),
-    );
     let unlicensed = components.iter().filter(|c| c.licence.is_none()).count();
     if unlicensed > 0 {
         // Not fatal here — mg-scan is the gate. But say so, because a silently
@@ -82,7 +169,10 @@ fn main() -> ExitCode {
         Ok(bytes) => Some(sha256(&bytes)),
         Err(_) => None,
     };
-    let hashed = components.iter().filter(|c| c.checksum.is_some()).count();
+    let hashed = components
+        .iter()
+        .filter(|c| c.checksum.is_some() || c.sha512.is_some())
+        .count();
     let sbom = render_cyclonedx(&artefact, &components, artefact_hash.as_ref());
     let out = out_override.unwrap_or_else(|| format!("{}.sbom.cdx.json", sanitize(&artefact)));
     match std::fs::write(&out, &sbom) {
@@ -124,11 +214,38 @@ pub struct Component {
     /// digest of the downloaded `.crate`). `None` for path/workspace members, which
     /// are built from source, not fetched. Emitted as `components[].hashes`. [RT-41]
     pub checksum: Option<String>,
+    /// The SHA-512 integrity hash pnpm pins for a registry package, as hex.
+    /// `None` for Cargo packages and for workspace packages.
+    pub sha512: Option<String>,
     /// Where Cargo resolved this package from, as recorded in `Cargo.lock`.
     /// Emitted as the `midgard:source` property so `mg-scan` can tell our own
     /// code from a registry crate that merely shares its name — on a positive
     /// statement, not by inferring it from a missing hash. [RT-41]
     pub source: Source,
+    /// Which package ecosystem this component belongs to. It decides the purl
+    /// type, and through that which advisory database `mg-scan` matches it
+    /// against — a crate and an npm package can share a name.
+    pub ecosystem: Ecosystem,
+}
+
+/// The package ecosystem a component comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Ecosystem {
+    /// crates.io packages, from `Cargo.lock`.
+    Cargo,
+    /// npm packages, from `pnpm-lock.yaml`.
+    Npm,
+}
+
+impl Ecosystem {
+    /// The package URL for a component of this ecosystem. An npm scope's `@` is
+    /// percent-encoded, as the purl specification requires.
+    fn purl(self, name: &str, version: &str) -> String {
+        match self {
+            Ecosystem::Cargo => format!("pkg:cargo/{name}@{version}"),
+            Ecosystem::Npm => format!("pkg:npm/{}@{version}", name.replacen('@', "%40", 1)),
+        }
+    }
 }
 
 /// A locked package's origin.
@@ -272,7 +389,9 @@ fn resolve_licences(
                 version: version.clone(),
                 licence,
                 checksum: checksum.clone(),
+                sha512: None,
                 source: *source,
+                ecosystem: Ecosystem::Cargo,
             }
         })
         .collect()
@@ -379,14 +498,20 @@ fn render_cyclonedx(
             Some(l) => format!("[ {{ \"expression\": \"{}\" }} ]", json_escape(l)),
             None => "[]".to_string(),
         };
+        let purl = json_escape(&c.ecosystem.purl(&c.name, &c.version));
         s.push_str(&format!(
-            "    {{ \"type\": \"library\", \"name\": \"{n}\", \"version\": \"{v}\", \"purl\": \"pkg:cargo/{n}@{v}\", \"licenses\": {licences}"
+            "    {{ \"type\": \"library\", \"name\": \"{n}\", \"version\": \"{v}\", \"purl\": \"{purl}\", \"licenses\": {licences}"
         ));
         // The registry SHA-256 Cargo pins — real, verifiable per-component
         // integrity data the whole-SBOM digest does not provide. [RT-41]
         if let Some(cs) = &c.checksum {
             s.push_str(&format!(
                 ", \"hashes\": [ {{ \"alg\": \"SHA-256\", \"content\": \"{cs}\" }} ]"
+            ));
+        } else if let Some(cs) = &c.sha512 {
+            // The registry SHA-512 pnpm pins for an npm package.
+            s.push_str(&format!(
+                ", \"hashes\": [ {{ \"alg\": \"SHA-512\", \"content\": \"{cs}\" }} ]"
             ));
         }
         // Where the package came from, so the scanner need not guess. [RT-41]
@@ -513,7 +638,9 @@ dependencies = [
             version: version.into(),
             licence: licence.map(|s| s.to_string()),
             checksum: None,
+            sha512: None,
             source: Source::Workspace,
+            ecosystem: Ecosystem::Cargo,
         }
     }
     fn comp_ck(name: &str, version: &str, licence: Option<&str>, checksum: &str) -> Component {
