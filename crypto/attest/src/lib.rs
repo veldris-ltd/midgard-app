@@ -349,6 +349,11 @@ impl TrustAnchors {
     pub fn get(&self, key_id: &str) -> Option<&VerifyingKey> {
         self.keys.get(key_id)
     }
+
+    /// Every anchor, by key id, in key-id order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &VerifyingKey)> {
+        self.keys.iter().map(|(id, key)| (id.as_str(), key))
+    }
 }
 
 /// What a passing verification established.
