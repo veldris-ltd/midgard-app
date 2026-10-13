@@ -1,0 +1,15 @@
+# Pinned snapshot of the OSV advisories for the npm packages this workspace locks.
+#
+# Written by `mg-scan import-osv` (just advisory-db-npm-refresh). Do not edit: the
+# scan refuses a directory that does not hold exactly `advisory_count` advisories,
+# and refuses an npm package that packages.txt does not list.
+[snapshot]
+source = "https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip"
+ecosystem = "npm"
+date = "2026-10-13"
+advisory_count = 83
+package_count = 119
+
+[staleness]
+warn_after_days = 30
+fail_after_days = 180
