@@ -724,6 +724,7 @@ dependencies = [
 name = "mg-sbom"
 version = "0.1.0-rc.1"
 dependencies = [
+ "attest",
  "pqc-agility",
 ]
 
