@@ -1,0 +1,62 @@
+# On-device accessibility audits for the client shells. [RC-49] [AC-C-11] [FR-C-3]
+#
+# This file contains no build logic: every step is `bash tools/ci/run.sh <job>`, shared
+# with the GitLab pipeline (.gitlab-ci.yml).
+#
+# Each shell is built and audited on the kind of runner its platform needs, and the
+# audit writes a record to clients/shells/<shell>/audits/<release>.toml (schema:
+# clients/shells/AUDIT_SCHEMA.md). The `gate` job then requires a fresh, passing record
+# from every shell. A shell with no buildable project FAILS its audit — a record is
+# never written for a UI that did not run — so this workflow is red until all six
+# shells exist. That is the gate working, not the workflow failing.
+#
+# Runs on its own from the Actions tab, and as part of a release (release.yml).
+name: shell-audit
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: ${{ matrix.shell }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shell: apple, runner: macos-14 }
+          - { shell: android, runner: ubuntu-24.04 }
+          - { shell: linux-gtk, runner: ubuntu-24.04 }
+          - { shell: desktop-tauri, runner: ubuntu-24.04 }
+          - { shell: web, runner: ubuntu-24.04 }
+          - { shell: extension, runner: ubuntu-24.04 }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: bash tools/ci/run.sh shell-audit ${{ matrix.shell }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: shell-audit-${{ matrix.shell }}
+          path: |
+            clients/shells/${{ matrix.shell }}/audits/
+            shell-audit/
+          if-no-files-found: ignore
+
+  gate:
+    name: every shell audited
+    # Runs even when an audit failed, so the gate reports every missing record at once.
+    if: always()
+    needs: audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: shell-audit-*
+          path: .
+          merge-multiple: true
+      - run: bash tools/ci/run.sh shell-audit-gate

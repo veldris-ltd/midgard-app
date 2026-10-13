@@ -10,14 +10,16 @@
 #      <bin>, <bin>.sig, <bin>.att and <bin>.sbom.cdx.json), the gate-verified
 #      mg-verify, the pinned trust key and the entrypoint;
 #   2. builds deploy/images/service.Dockerfile FROM its digest-pinned base, with no
-#      network;
+#      network, TWICE and uncached, and requires the two image digests to be equal —
+#      the image's reproducibility stage, as mg-repro is a binary's;
 #   3. runs mg-verify inside the built image against every binary it carries, exactly
 #      as the entrypoint will before it starts one — a binary that would not start is
 #      caught here, not on a cluster.
 #
-# It writes <out>/images.lock: one "<registry>/<image>:<version> <image id>" line per
-# image, sorted, which the release workflow signs like any other artefact. Nothing is
-# pushed. Default registry: registry.enclosure.local/midgard (the chart's default).
+# It writes <out>/<image>.oci.tar, the image as an OCI archive, and <out>/images.lock:
+# one "<registry>/<image>:<version> <image digest>" line per image, sorted, which the
+# release workflow signs like any other artefact. Nothing is pushed. Default registry:
+# registry.enclosure.local/midgard (the chart's default). Needs docker with buildx.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
@@ -43,6 +45,9 @@ done
 for f in mg-verify mg-verify.sig mg-verify.att mg-verify.sbom.cdx.json; do
     [ -f "$verified/$f" ] || { echo "build: $verified/$f is missing (mg-verify must pass the gate first)" >&2; exit 1; }
 done
+
+# The image's identity: the digest of its manifest, read from the archive's index.
+image_digest() { tar -xOf "$1" index.json | grep -o 'sha256:[0-9a-f]\{64\}' | head -1; }
 
 images="$(bash tools/ci/release-artefacts.sh --images | tr -d '[]"' | tr ',' ' ')"
 mkdir -p "$out"
@@ -72,8 +77,25 @@ for image in $images; do
 
     tag="$registry/$image:$version"
     echo "--- $tag ($(echo $bins))"
-    docker build --network none -f deploy/images/service.Dockerfile \
-        --build-arg SERVICE="$image" -t "$tag" "$(native "$ctx")"
+    # Twice, uncached, into OCI archives. SOURCE_DATE_EPOCH fixes the created time
+    # and, with rewrite-timestamp, every file time in every layer; what is left is
+    # content, and two builds of the same content must be the same image.
+    for run in 1 2; do
+        docker buildx build --network none --no-cache -f deploy/images/service.Dockerfile \
+            --build-arg SERVICE="$image" --build-arg SOURCE_DATE_EPOCH=1 \
+            --output "type=oci,dest=$(native "$work/$image.$run.tar"),name=$tag,rewrite-timestamp=true" \
+            "$(native "$ctx")"
+    done
+    digest="$(image_digest "$work/$image.1.tar")"
+    second="$(image_digest "$work/$image.2.tar")"
+    [ -n "$digest" ] || { echo "build: could not read the digest of $tag" >&2; exit 1; }
+    if [ "$digest" != "$second" ]; then
+        echo "build: $tag is NOT reproducible: two builds gave $digest and $second" >&2
+        exit 1
+    fi
+    echo "  reproducible: $digest"
+    cp "$work/$image.1.tar" "$out/$image.oci.tar"
+    docker load -i "$(native "$out/$image.oci.tar")" >/dev/null
     # Through the image's own entrypoint, exactly as a pod starts it: the entrypoint must
     # run, verify each binary it carries, and hand over to it. The binary is given
     # --help so it exits at once; only the entrypoint's verdict is checked.
@@ -86,9 +108,9 @@ for image in $images; do
         }
         echo "  $bin: verified before run"
     done
-    echo "$tag $(docker image inspect --format '{{.Id}}' "$tag")" >> "$lock.unsorted"
+    echo "$tag $digest" >> "$lock.unsorted"
 done
 
 sort "$lock.unsorted" > "$lock"
 rm -f "$lock.unsorted"
-echo "build: $(wc -l < "$lock" | tr -d ' ') image(s), each verified inside itself -> $lock"
+echo "build: $(wc -l < "$lock" | tr -d ' ') image(s), each built twice to the same digest and verified inside itself -> $lock"

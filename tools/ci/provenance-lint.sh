@@ -42,19 +42,15 @@ resolve_base() {
     if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
         echo "$1"; return
     fi
-    # Pull request: compare against the branch being merged into.
-    if [ -n "${GITHUB_BASE_REF:-}" ]; then
-        echo "origin/${GITHUB_BASE_REF}"; return
-    fi
-    # Push: compare against the commit the branch moved from. All-zeros means a
-    # new branch with no prior state.
-    if [ -n "${MIDGARD_DIFF_BASE:-}" ] &&
-       [ "${MIDGARD_DIFF_BASE}" != "0000000000000000000000000000000000000000" ]; then
-        echo "${MIDGARD_DIFF_BASE}"; return
-    fi
-    echo "HEAD~1"
+    # A pull or merge request compares against the branch being merged into; a
+    # push, against the commit the branch moved from. tools/ci/lib.sh knows where
+    # each CI system records those.
+    local base
+    base="$(ci_base_ref)"
+    echo "${base:-HEAD~1}"
 }
 
+. "$(dirname "$0")/lib.sh"
 BASE="$(resolve_base "$@")"
 
 if ! git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
@@ -93,9 +89,9 @@ echo
 echo "provenance-lint: ${#missing[@]} of $checked changed source file(s) cite no provenance id."
 echo
 for f in "${missing[@]}"; do
-    # GitHub renders this as an inline annotation on the offending file.
-    echo "::error file=$f::No provenance tag. Cite the requirement this realises, e.g. [FR-B-1], [NFR-PQ-3], [DD-1], [AC-B-1]."
-    echo "  $f"
+    # Rendered as an inline annotation on the offending file where the CI
+    # system supports one.
+    ci_error "No provenance tag. Cite the requirement this realises, e.g. [FR-B-1], [NFR-PQ-3], [DD-1], [AC-B-1]." "$f"
 done
 echo
 echo "Every changed source under ${GOVERNED[*]} must cite at least one of:"

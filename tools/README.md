@@ -6,10 +6,11 @@ Bifrost so build and delivery use one implementation of "reject unless proven".
 | Tool | Role | Provenance |
 |---|---|---|
 | `mg-repro` | Build an artefact twice; assert bit-identical digests | `[AC-M-6]` `[NFR-OSS-1]` |
-| `mg-sbom` | Emit a deterministic CycloneDX SBOM, with resolved licences | `[NFR-OSS-1]` `[AC-B-4]` |
-| `mg-scan` | Vulnerability + licence gate over the SBOM; **fails closed** | `[FR-MS-6]` `[NFR-OSS-1]` |
+| `mg-sbom` | Emit a deterministic CycloneDX SBOM, with resolved licences — from `Cargo.lock`, or from `pnpm-lock.yaml` for a JS artefact | `[NFR-OSS-1]` `[AC-B-4]` |
+| `mg-scan` | Vulnerability + licence gate over the SBOM, each component against its own ecosystem's advisories; **fails closed** | `[FR-MS-6]` `[NFR-OSS-1]` |
 | `mg-sign` | Detached ML-DSA signature + DSSE attestation, keys via KMS | `[NFR-PQ-3]` |
 | `mg-verify` | Verify signature + SBOM + provenance; **fails closed** | `[AC-B-1]` `[AC-B-4]` |
+| `mg-register` | Admit a gated artefact, with its signature and provenance, to the Bifrost registry; refuses anything that did not pass the gate | `[FR-B-1]` `[AC-B-1]` |
 
 `mg-sign` and `mg-verify` are thin CLIs over [`crypto/attest`](../crypto/attest),
 which holds the bundle format and **the** acceptance decision — the same one
