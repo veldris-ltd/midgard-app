@@ -19,6 +19,20 @@ fn json_escape(s: &str) -> String {
     o
 }
 
+/// Percent-encode a purl name or version segment: everything outside the
+/// unreserved set, so a `/`, `@` or `?` in a name cannot change the purl's shape.
+fn purl_segment(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'~') {
+            o.push(b as char);
+        } else {
+            o.push_str(&format!("%{b:02X}"));
+        }
+    }
+    o
+}
+
 /// One SBOM dependency component: a name and a version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SbomComponent {
@@ -78,8 +92,15 @@ pub fn generate_sbom(
         s.push_str("      \"type\": \"library\",\n");
         s.push_str(&format!("      \"name\": \"{}\",\n", json_escape(&c.name)));
         s.push_str(&format!(
-            "      \"version\": \"{}\"\n",
+            "      \"version\": \"{}\",\n",
             json_escape(&c.version)
+        ));
+        // Every component carries a purl, so a scanner can resolve it and the
+        // verifier's SBOM gate accepts the document. [AC-B-4]
+        s.push_str(&format!(
+            "      \"purl\": \"pkg:generic/{}@{}\"\n",
+            purl_segment(&c.name),
+            purl_segment(&c.version)
         ));
         s.push_str("    }");
         if i + 1 < components.len() {

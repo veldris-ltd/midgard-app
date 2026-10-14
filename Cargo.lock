@@ -716,6 +716,7 @@ dependencies = [
 name = "mg-repro"
 version = "0.1.0-rc.1"
 dependencies = [
+ "attest",
  "pqc-agility",
 ]
 
@@ -723,12 +724,16 @@ dependencies = [
 name = "mg-sbom"
 version = "0.1.0-rc.1"
 dependencies = [
+ "attest",
  "pqc-agility",
 ]
 
 [[package]]
 name = "mg-scan"
 version = "0.1.0-rc.1"
+dependencies = [
+ "attest",
+]
 
 [[package]]
 name = "mg-sign"

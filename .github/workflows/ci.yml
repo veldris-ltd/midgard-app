@@ -1,0 +1,113 @@
+# Continuous integration. [NFR-OSS-1] [NFR-PRV-1] [AC-M-6]
+#
+# This file contains no build logic. Every step is `bash tools/ci/run.sh <job>`, and
+# what a job does is written once, in tools/ci/run.sh, for every CI system. The GitLab
+# pipeline (.gitlab-ci.yml) calls the same jobs; `run.sh selftest` fails if the two
+# ever call different sets. To run a job locally: `just ci <job>`.
+#
+# The Rust jobs run inside the digest-pinned toolchain image with no network — the
+# same toolchain and posture as a developer's machine and the release runners. The
+# `toolchain` job builds that image, the only step that goes online; it is restored
+# from the cache when the Dockerfile has not changed.
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The commit a pushed branch moved from, for the jobs that judge a change set.
+  MIDGARD_DIFF_BASE: ${{ github.event.before }}
+
+jobs:
+  hygiene:
+    name: scripts, provenance, secrets, manifests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - run: bash tools/ci/run.sh selftest
+      - run: bash tools/ci/run.sh provenance
+      - run: bash tools/ci/run.sh vendor
+      - run: bash tools/ci/run.sh claims
+      - run: bash tools/ci/run.sh secrets
+      - run: bash tools/ci/run.sh k8s-render
+
+  lint:
+    name: format and lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ci-cache
+          key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
+      - run: bash tools/ci/run.sh toolchain
+      - run: bash tools/ci/run.sh fmt
+      - run: bash tools/ci/run.sh lint
+
+  test:
+    name: build and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ci-cache
+          key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
+      - run: bash tools/ci/run.sh toolchain
+      - run: bash tools/ci/run.sh build
+      - run: bash tools/ci/run.sh test
+
+  repro:
+    name: reproducible build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ci-cache
+          key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
+      - run: bash tools/ci/run.sh toolchain
+      - run: bash tools/ci/run.sh repro
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: repro-report
+          path: repro.json
+          if-no-files-found: warn
+
+  scan:
+    name: advisory and licence scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ci-cache
+          key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
+      - run: bash tools/ci/run.sh toolchain
+      - run: bash tools/ci/run.sh scan
+
+  acceptance:
+    name: acceptance suite, air-gapped
+    # The whole suite is long; it runs on the protected branches, not on every PR.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .ci-cache
+          key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
+      - run: bash tools/ci/run.sh toolchain
+      - run: bash tools/ci/run.sh acceptance

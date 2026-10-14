@@ -18,7 +18,7 @@ and names precisely what still blocks General Availability.
 
 | Dimension | Covered |
 |-----------|---------|
-| Remedial campaign | `docs/dev/remedial/remedial-tasks.md` — **RT-01 … RT-59** (all worked; RT-21 was found unfinished and corrected on 2026-09-14 — see its status there) |
+| Remedial campaign | **RT-01 … RT-59**, all worked. That backlog was retired on 2026-10-13 into [`remedial-fixes.md` Appendix 6](../dev/fixes/remedial-fixes.md#appendix-6-retired-backlog-rt-to-rf-crosswalk), which gives each task's state: 9 closed, 50 carried by `RF-*` items (among them RT-20, RT-21, RT-40, RT-49 and RT-58) |
 | Residual risks | `docs/compliance/RESIDUAL_RISK_REGISTER.md` — SAD §6 closure |
 | Compliance mapping | `docs/compliance/COMPLIANCE_MATRIX.md`, `DATA_RESIDENCY.md` |
 | Build/verification posture | `docs/dev/BUILD_ENV.md`, `justfile` |
@@ -54,7 +54,10 @@ not per-crate spot checks, is the gate that surfaced it.
 
 ## 3. Verified previously (in-repo, standing controls)
 
-Each maps to implemented, tested controls; see the register for the risk it closes.
+Each maps to implemented, tested controls; see the register for the risk it addresses.
+The register was re-graded on 2026-10-13: the autonomy-safety, admin self-governance
+and air-gap controls below are tested as libraries or in rehearsal, and their risk
+rows are now **PARTIAL**, not MITIGATED, until they run in the deployed services.
 
 - **Post-quantum crypto core** — pure-Rust FIPS 203/204/205 + X25519; ACVP KATs
   pass in-repo (`fips_backend`, `aead_kat`, `agility_fips`).
@@ -62,10 +65,13 @@ Each maps to implemented, tested controls; see the register for the risk it clos
   **fail-closed**) — reproducible build, deterministic CycloneDX SBOM with
   component integrity hashes (RT-41), offline CVE + licence scan between SBOM and
   signature (RT-06 / mg-scan), ML-DSA signing + provenance, verify-before-publish.
-- **Autonomy safety** — AI proposes, humans dispose; no consequential action
-  auto-executes (RT-44, register SAD_02/04/07).
-- **Admin self-governance** — dual-control guarded-action orchestrator; no
-  superuser identity minted (RT-31, AC-AD-9); config-drift reconciler (RT-59).
+- **Autonomy safety**: in the governed agent loop, tested as a library, a
+  consequential action runs only after a recorded human decision. No service runs the
+  loop (claims ledger: `agent-runtime`; register SAD_02/04/07).
+- **Admin self-governance**: a dual-control guarded-action orchestrator and a
+  config-drift reconciler, both tested as libraries and not yet in a running service;
+  no superuser identity is minted (claims ledger: `admin-guarded-actions`,
+  `config-reconciliation`).
 - **Air-gap release** — signed offline `.mgbundle` produce/import, verify-before-
   import over `--network none` (RT-19).
 
@@ -79,6 +85,7 @@ they must be run and shown green (or the two external items completed) before GA
 
 | # | Gate | Where | Blocking? |
 |---|------|-------|-----------|
+| 0 | The register's 15 **PARTIAL** rows, nine of them High severity | `RESIDUAL_RISK_REGISTER.md`, carried by `RF-*` items | **Yes** for the High-severity rows (added 2026-10-13) |
 | A | Acceptance suites (`verify-core`, `verify-mimir`, `verify-forge`, `verify-bifrost`, `verify-heimdall`, `verify-admin`, `verify-clients`) under `--network none` | `deploy/acceptance/verify-*.sh` | **Yes** — Definition-of-Done matrices AC-M/MI/F/B/H/AD/C |
 | B | Shell audits + accessibility (`verify-shell-audits`, `verify-shells-accessibility`) | `deploy/acceptance/` | **Yes** (RT-49) — fails closed until run on device |
 | C | Per-artefact release gate `just gate <pkg>` for each deployable | `justfile` | **Yes** — nothing ships unsigned/unverified |
@@ -128,10 +135,12 @@ not a release. Nothing was signed with a ceremony key, and nothing was published
 
 ## 5. Decision
 
-**NO-GO for GA at this commit** — not because of an unmet code obligation (there
-are none outstanding; RT-01…59 are complete — RT-21 only since its 2026-09-14
-correction — and the test sweep is green) but
-because the release-gate and acceptance runs (§4 A–C) have not been executed on
+**NO-GO for GA at this commit.** The test sweep is green, and every RT task was
+worked, but as assessed on 2026-09-10 this record overstated that as "complete":
+the 2026-10-13 crosswalk
+([`remedial-fixes.md` Appendix 6](../dev/fixes/remedial-fixes.md#appendix-6-retired-backlog-rt-to-rf-crosswalk))
+finds 50 of the 59 tasks with work still carried by `RF-*` items. Beyond that,
+GA is blocked because the release-gate and acceptance runs (§4 A–C) have not been executed on
 release infrastructure and the two external activities (§4 D–E) are incomplete.
 
 **Path to GO:** run §4 A–C green on release infra → complete §4 D (CMVP cert) and
@@ -149,5 +158,5 @@ satisfied, this record is updated to **GO** and signed below.
 | Compliance | | | |
 | Accountable executive | | | |
 
-> This document is code-side complete as of `9f4b49f`. Approvers sign only once
+> This document records the code-side assessment of `9f4b49f`, as amended above. Approvers sign only once
 > §4 is satisfied; an unsigned record is a NO-GO by default.

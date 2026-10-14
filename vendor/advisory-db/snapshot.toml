@@ -14,11 +14,11 @@
 # result. Review the diff: a shrinking advisory count means something went wrong.
 [snapshot]
 source = "https://github.com/rustsec/advisory-db"
-revision = "6420e39260b3d771b049954cf5d52b57e2118da4"
+revision = "25a288f68f2d5ebe658b243a334110c7217a2569"
 # Upstream commit date, not the date this file was written: what matters is how
 # old the DATA is.
-date = "2026-08-27"
-advisory_count = 1206
+date = "2026-10-12"
+advisory_count = 1279
 # CC0-1.0 (see LICENSE.txt) — public domain, so vendoring carries no obligation.
 license = "CC0-1.0"
 

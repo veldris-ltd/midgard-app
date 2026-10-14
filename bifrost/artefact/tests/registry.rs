@@ -102,6 +102,59 @@ fn ac_b_1_unsigned_or_tampered_artefact_is_rejected_fail_closed() {
 }
 
 #[test]
+fn ac_b_4_a_valid_signature_does_not_vouch_for_an_unusable_sbom() {
+    // Each of these is signed by the trusted key over exactly these bytes, so the
+    // digest and the signature both hold. It is still not a bill of materials a
+    // scanner could work from, and the same gate `mg-verify` applies refuses it.
+    let (vk, sk) = release_keys();
+    for (tag, sbom) in [
+        ("not cyclonedx", r#"{"hello":"world"}"#.to_string()),
+        (
+            "no components",
+            generate_sbom("x", "1.0", "service", vec![]),
+        ),
+        (
+            "a component without a purl",
+            r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[
+                {"name":"a","purl":"pkg:generic/a@1"},{"name":"b"}]}"#
+                .to_string(),
+        ),
+        (
+            "another cyclonedx version",
+            sample_sbom().replace("\"1.5\"", "\"1.4\""),
+        ),
+        ("truncated", {
+            let s = sample_sbom();
+            s[..s.len() - 3].to_string()
+        }),
+    ] {
+        let artefact = build_and_sign("x", "1.0", "service", b"payload".to_vec(), sbom, &sk);
+        assert_eq!(
+            verify(&vk, &artefact),
+            Err(VerifyError::SbomInvalid),
+            "{tag} must be refused"
+        );
+    }
+}
+
+#[test]
+fn generated_sboms_carry_a_purl_on_every_component() {
+    let sbom = generate_sbom(
+        "x",
+        "1.0",
+        "service",
+        vec![
+            SbomComponent::new("plain", "1.2.3"),
+            SbomComponent::new("scope/name@odd", "1 beta"),
+        ],
+    );
+    assert!(sbom.contains("\"purl\": \"pkg:generic/plain@1.2.3\""));
+    // Reserved characters in a name cannot change the purl's shape.
+    assert!(sbom.contains("\"purl\": \"pkg:generic/scope%2Fname%40odd@1%20beta\""));
+    assert_eq!(bifrost_artefact::check_sbom(&sbom), Ok(()));
+}
+
+#[test]
 fn registry_verifies_on_ingest_and_before_deploy() {
     let (vk, sk) = release_keys();
     let mut registry = ArtefactRegistry::new(vk);

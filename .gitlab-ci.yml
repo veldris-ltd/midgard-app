@@ -1,0 +1,326 @@
+# Continuous integration and release, for GitLab. [NFR-OSS-1] [NFR-PRV-1] [RC-07]
+#
+# This is the same pipeline as .github/workflows/*.yml, written for GitLab CI. Neither
+# contains build logic: every script line is `bash tools/ci/run.sh <job>`, and what a
+# job does is written once, in tools/ci/run.sh. `run.sh selftest` fails, on both
+# forges, if the two ever call different sets of jobs — so a mirror of this repository
+# needs no remodelling, here or there. To run a job locally: `just ci <job>`.
+#
+# What a GitLab instance has to provide:
+#   - a Docker executor with Docker-in-Docker allowed (privileged), for every job that
+#     `extends: .toolchain` or `.docker`. The Rust jobs run inside the digest-pinned
+#     toolchain image with no network; the `toolchain` job builds that image, the only
+#     step that goes online, and it is restored from the cache when its Dockerfile has
+#     not changed;
+#   - for a release: a runner tagged `kms`, provisioned as docs/ops/PKI.md describes,
+#     with a shell executor, docker, node and pnpm, and the CI/CD variables
+#     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH and
+#     MIDGARD_BIFROST_REGISTRY_PATH naming files on it;
+#   - for the apple shell audit: a runner tagged `macos`.
+#
+# Run a release dry run, a release, or the shell audits by hand from "Run pipeline",
+# setting MIDGARD_RELEASE_MODE to `dry-run`, `release` or `audit`.
+
+stages:
+  - hygiene
+  - verify
+  - audit
+  - release
+  - publish
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_TAG =~ /^v/
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+variables:
+  # Full history: the provenance lint and the secret scan read it.
+  GIT_DEPTH: "0"
+  MIDGARD_RELEASE_MODE:
+    value: ""
+    description: "Manual runs only. dry-run: gate everything, publish nothing. release: the release, on the kms runners. audit: the client shell audits."
+  MIDGARD_PUBLISH_TAG:
+    value: ""
+    description: "release mode only: upload the release files to the package registry under this tag."
+
+default:
+  interruptible: true
+
+# --- shared shapes -------------------------------------------------------------------
+
+.docker:
+  image: docker:27-cli
+  services:
+    - name: docker:27-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  before_script:
+    - apk add --no-cache bash git curl coreutils
+
+.toolchain:
+  extends: .docker
+  cache:
+    key:
+      files:
+        - deploy/acceptance/Dockerfile
+    paths:
+      - .ci-cache/
+  before_script:
+    - apk add --no-cache bash git curl coreutils
+    - bash tools/ci/run.sh toolchain
+
+.signing:
+  tags:
+    - kms
+  interruptible: false
+  variables:
+    MIDGARD_SIGNING_KEYSTORE: $MIDGARD_SIGNING_KEYSTORE_PATH
+    MIDGARD_BIFROST_KEYSTORE: $MIDGARD_BIFROST_KEYSTORE_PATH
+    MIDGARD_BIFROST_REGISTRY: $MIDGARD_BIFROST_REGISTRY_PATH
+
+.on-release:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release"
+
+.on-audit:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release"
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "audit"
+
+.on-dry-run:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "dry-run"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - tools/**/*
+        - crypto/attest/**/*
+        - bifrost/artefact/**/*
+        - bifrost/bundle/**/*
+        - supply-chain/**/*
+        - vendor/advisory-db/snapshot.toml
+        - deploy/images/**/*
+        - deploy/air-gap-bundle/**/*
+        - deploy/acceptance/Dockerfile
+        - justfile
+        - Cargo.toml
+        - Cargo.lock
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - sdk/**/*
+        - ui/**/*
+        - products/*/ui/**/*
+        - .gitlab-ci.yml
+
+.not-manual:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: never
+    - if: $CI_COMMIT_TAG
+      when: never
+    - when: on_success
+
+.shell-audit:
+  stage: audit
+  extends: .on-audit
+  artifacts:
+    when: always
+    paths:
+      - clients/shells/*/audits/
+      - shell-audit/
+
+# --- every change ----------------------------------------------------------------------
+
+hygiene:
+  stage: hygiene
+  extends: .not-manual
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache bash git curl coreutils sed gawk grep findutils helm
+  script:
+    - bash tools/ci/run.sh selftest
+    - bash tools/ci/run.sh provenance
+    - bash tools/ci/run.sh vendor
+    - bash tools/ci/run.sh claims
+    - bash tools/ci/run.sh secrets
+    - bash tools/ci/run.sh k8s-render
+
+lint:
+  stage: verify
+  extends: [.toolchain, .not-manual]
+  script:
+    - bash tools/ci/run.sh fmt
+    - bash tools/ci/run.sh lint
+
+test:
+  stage: verify
+  extends: [.toolchain, .not-manual]
+  script:
+    - bash tools/ci/run.sh build
+    - bash tools/ci/run.sh test
+
+repro:
+  stage: verify
+  extends: [.toolchain, .not-manual]
+  script:
+    - bash tools/ci/run.sh repro
+  artifacts:
+    when: always
+    paths:
+      - repro.json
+
+scan:
+  stage: verify
+  extends: [.toolchain, .not-manual]
+  script:
+    - bash tools/ci/run.sh scan
+
+acceptance:
+  stage: verify
+  extends: .toolchain
+  # The whole suite is long; it runs on the protected branches, not on every MR.
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev")
+  script:
+    - bash tools/ci/run.sh acceptance
+
+# --- the release gate, without publishing ----------------------------------------------
+
+# The JavaScript artefacts are built where node is — the Rust toolchain image has none —
+# and handed to the release, which gates them with everything else.
+js-build:
+  stage: hygiene
+  extends: .on-dry-run
+  image: node:22-bookworm
+  script:
+    - bash tools/ci/run.sh js-build
+  artifacts:
+    paths:
+      - target/js-out/
+
+release-dry-run:
+  stage: verify
+  extends: [.toolchain, .on-dry-run]
+  needs:
+    - job: js-build
+      artifacts: true
+  script:
+    - bash tools/ci/run.sh release-dry-run
+  artifacts:
+    paths:
+      - target/release-out/release-manifest.txt
+
+# --- client shell audits -----------------------------------------------------------------
+# A shell with no buildable project FAILS its audit — a record is never written for a UI
+# that did not run — so these are red until all six shells exist. That is the gate
+# working. See clients/shells/AUDIT_SCHEMA.md.
+
+shell-audit-apple:
+  extends: .shell-audit
+  tags:
+    - macos
+  script:
+    - bash tools/ci/run.sh shell-audit apple
+
+shell-audit-android:
+  extends: .shell-audit
+  image: eclipse-temurin:17-jdk
+  script:
+    - bash tools/ci/run.sh shell-audit android
+
+shell-audit-linux-gtk:
+  extends: .shell-audit
+  image: rust:1.82-bookworm
+  script:
+    - bash tools/ci/run.sh shell-audit linux-gtk
+
+shell-audit-desktop-tauri:
+  extends: .shell-audit
+  image: rust:1.82-bookworm
+  script:
+    - bash tools/ci/run.sh shell-audit desktop-tauri
+
+shell-audit-web:
+  extends: .shell-audit
+  image: node:22-bookworm
+  script:
+    - bash tools/ci/run.sh shell-audit web
+
+shell-audit-extension:
+  extends: .shell-audit
+  image: node:22-bookworm
+  script:
+    - bash tools/ci/run.sh shell-audit extension
+
+shell-audit-gate:
+  stage: audit
+  image: alpine:3.20
+  # Runs even when an audit failed, so the gate reports every missing record at once.
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release"
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "audit"
+      when: always
+  needs:
+    - job: shell-audit-apple
+      artifacts: true
+    - job: shell-audit-android
+      artifacts: true
+    - job: shell-audit-linux-gtk
+      artifacts: true
+    - job: shell-audit-desktop-tauri
+      artifacts: true
+    - job: shell-audit-web
+      artifacts: true
+    - job: shell-audit-extension
+      artifacts: true
+  before_script:
+    - apk add --no-cache bash git coreutils sed grep
+  script:
+    - bash tools/ci/run.sh shell-audit-gate
+
+# --- the release itself, on the signing runners -----------------------------------------
+
+release-preflight:
+  stage: release
+  extends: [.signing, .on-release]
+  script:
+    - bash tools/ci/run.sh release-preflight
+
+release:
+  stage: release
+  extends: [.signing, .on-release]
+  needs:
+    - job: release-preflight
+    - job: shell-audit-gate
+  script:
+    - bash tools/ci/run.sh js-build
+    - bash tools/ci/run.sh release
+    - bash tools/ci/run.sh release-images
+    - bash tools/ci/run.sh release-bundle
+  artifacts:
+    paths:
+      - target/release-out/
+
+# GitLab has no draft releases. The files are uploaded to the project's package registry
+# under the tag, and creating the release entry is left to a person.
+release-publish:
+  stage: publish
+  image: alpine:3.20
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release" && $MIDGARD_PUBLISH_TAG != ""
+  needs:
+    - job: release
+      artifacts: true
+  before_script:
+    - apk add --no-cache bash git curl coreutils findutils gawk
+  script:
+    - bash tools/ci/run.sh release-publish

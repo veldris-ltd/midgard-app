@@ -158,6 +158,15 @@ fn pack(args: &[String]) -> ExitCode {
         })
         .collect();
 
+    // Import refuses an artefact whose SBOM is not a usable bill of materials, so
+    // refuse it here too: a bundle that packs cleanly and can never be imported
+    // is discovered on the wrong side of the air gap.
+    for artefact in &artefacts {
+        if let Err(e) = bifrost_artefact::check_sbom(&artefact.sbom) {
+            return fail(&format!("{}: {e}", artefact.id));
+        }
+    }
+
     // A chunk at a time, so an artefact larger than memory — a model's weights — packs.
     match pack_streaming(
         &out,

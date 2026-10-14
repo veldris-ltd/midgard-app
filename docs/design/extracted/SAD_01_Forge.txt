@@ -364,8 +364,8 @@ Deployment
 forge_deployment.mmd
 forge_deployment.drawio
 CI/CD
-forge_cicd.mmd
-forge_cicd.drawio
+product_cicd.mmd
+product_cicd.drawio
 Threat DFD
 forge_threat_dfd.mmd
 forge_threat_dfd.drawio

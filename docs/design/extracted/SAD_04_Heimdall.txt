@@ -350,8 +350,8 @@ Deployment
 heimdall_deployment.mmd
 heimdall_deployment.drawio
 CI/CD
-heimdall_cicd.mmd
-heimdall_cicd.drawio
+product_cicd.mmd
+product_cicd.drawio
 Threat DFD
 heimdall_threat_dfd.mmd
 heimdall_threat_dfd.drawio

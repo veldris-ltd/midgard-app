@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "aircraft",
+      "title": "Aircraft",
+      "properties": [
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "ground",
+      "name": "ground",
+      "title": "Ground",
+      "objectType": "aircraft",
+      "marking": "open",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "grounded"
+      }
+    },
+    {
+      "id": "ground2",
+      "name": "ground",
+      "title": "Ground",
+      "objectType": "aircraft",
+      "marking": "open",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "grounded"
+      }
+    }
+  ]
+}

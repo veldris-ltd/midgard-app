@@ -70,9 +70,44 @@ pub fn build_and_sign(
     }
 }
 
+/// Assemble a signed artefact, signing **through a custodian**.
+///
+/// `sign` is handed the exact preimage [`verify`] reconstructs and returns the
+/// signature over it. The signing key never has to leave wherever it lives, so
+/// the same call works for a software key, a TPM and an HSM — unlike
+/// [`build_and_sign`], which needs the raw key in this process and is for tests
+/// and in-process signers only. [FR-B-1] [NFR-PQ-3]
+pub fn build_with_signer<E>(
+    id: impl Into<String>,
+    version: impl Into<String>,
+    component: impl Into<String>,
+    payload: Vec<u8>,
+    sbom: String,
+    sign: impl FnOnce(&[u8]) -> Result<pqc_agility::Signature, E>,
+) -> Result<SignedArtefact, E> {
+    let manifest = ArtefactManifest {
+        id: id.into(),
+        version: version.into(),
+        component: component.into(),
+        payload_sha256: sha256(&payload),
+        sbom_sha256: sha256(sbom.as_bytes()),
+    };
+    let signature = sign(&attest::accept::preimage(
+        &attest::accept::BIFROST_ARTEFACT,
+        &manifest.encode(),
+    ))?;
+    Ok(SignedArtefact {
+        manifest,
+        sbom,
+        payload,
+        signature,
+    })
+}
+
 /// Verify a signed artefact against a trusted release verifying key. Fails closed
-/// on a tampered payload, a tampered SBOM, or a bad/absent signature — the order
-/// checks content integrity first, then the signature. [FR-B-4] [AC-B-1]
+/// on a tampered payload, a tampered SBOM, a bad/absent signature, or an SBOM that
+/// is not a usable bill of materials — the order checks content integrity first,
+/// then the signature, then the SBOM's structure. [FR-B-4] [AC-B-1] [AC-B-4]
 #[cfg(feature = "backend-fips")]
 pub fn verify(
     trust_key: &pqc_agility::VerifyingKey,
@@ -94,5 +129,17 @@ pub fn verify(
         &artefact.signature,
         &[BIFROST_SIG_ALG],
     )
-    .map_err(|_| VerifyError::BadSignature)
+    .map_err(|_| VerifyError::BadSignature)?;
+    // 3. Usability: the SBOM is now known to be the signed one, so look inside.
+    check_sbom(&artefact.sbom)
+}
+
+/// The structural SBOM gate, shared with the CI release verifier: the same
+/// [`attest::sbom::validate`] `mg-verify` applies to a release bundle. Call it only
+/// on an SBOM whose digest and signature have already been checked — it parses.
+/// [AC-B-4] [AC-RF-SC-2d]
+pub fn check_sbom(sbom: &str) -> Result<(), VerifyError> {
+    attest::sbom::validate(sbom.as_bytes())
+        .map(|_| ())
+        .map_err(|_| VerifyError::SbomInvalid)
 }

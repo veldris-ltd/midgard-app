@@ -18,7 +18,7 @@ The visual language extends the **Veldris** house style; the suite shares Veldri
 
 ## Sources
 
-- **Seven Solutions Architecture Documents** (Veldris Ltd, v1.0, 2026-07-02, CONFIDENTIAL, greenfield design specs): `uploads/SAD_00_Midgard_Core.docx`, `SAD_01_Forge.docx`, `SAD_02_Mimir.docx`, `SAD_03_Bifrost.docx`, `SAD_04_Heimdall.docx`, `SAD_06_Client_Platforms.docx` (native mobile / desktop / web client layer), `SAD_07_Admin_Control_Panel.docx` (unified admin console: dual-control, break-glass, config-as-code, advisory copilot). Plain-text extractions live in `extracted/`.
+- **Seven Solutions Architecture Documents** (Veldris Ltd, v1.0, 2026-07-02, greenfield design specs, published with this repository; the Word originals are in `../dev/documents/`): `SAD_00_Midgard_Core.docx`, `SAD_01_Forge.docx`, `SAD_02_Mimir.docx`, `SAD_03_Bifrost.docx`, `SAD_04_Heimdall.docx`, `SAD_06_Client_Platforms.docx` (native mobile / desktop / web client layer), `SAD_07_Admin_Control_Panel.docx` (unified admin console: dual-control, break-glass, config-as-code, advisory copilot). Plain-text extractions live in `extracted/`.
 - **Veldris Design System** (bound to this project): the visual-style parent. Ink ramp, house red, Oxanium / Space Grotesk / JetBrains Mono, terminal + label devices.
 - No product UI exists yet (greenfield): the UI kits here are **proposed designs** derived from the SADs' functional requirements, not recreations.
 - **No logos were provided** for Midgard or any child product (Midgard is built by Veldris Ltd; the SAD documents were authored by Veldris Ltd). No marks were invented: wherever a logo would sit, the product name is set in plain type (see `ProductMark`, a purely typographic tile). Supply real marks and we'll wire them in.
@@ -102,7 +102,7 @@ The visual language extends the **Veldris** house style; the suite shares Veldri
 
 **`docs/`**: the multi-page documentation experience for designers & engineers, with a light/dark/system mode toggle. `index.html` (overview & principles), `foundations.html` (colour incl. both mode ramps, type, spacing, shape, motion, full icon grid, voice), `components.html` (all 28 components: live variants, states, props), `patterns.html` (console anatomy, theming, governance chrome, density, terminal/empty states), `screens.html` (the five consoles embedded), `flows.html` (twenty-eight governed user flows with gate markers). `mode.js` is the mode bootstrap; `shell.jsx` the shared docs chrome.
 
-**`tokens/`**: `fonts.css`, `colors.css` (ink ramp, 5 product accents + theme scopes, status, markings), `typography.css`, `spacing.css` (incl. console density), `effects.css`, `base.css` (helpers `.mg-label`, `.mg-grid-bg`).
+**Tokens** (in `ui/design-system/src/tokens/`, the one copy; `styles.css` here imports them): `fonts.css`, `colors.css` (ink ramp, 5 product accents + theme scopes, status, markings), `typography.css`, `spacing.css` (incl. console density), `effects.css`, `base.css` (helpers `.mg-label`, `.mg-grid-bg`).
 
 **`guidelines/`**: foundation specimen cards (Design System tab).
 

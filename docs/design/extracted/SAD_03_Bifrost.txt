@@ -336,8 +336,8 @@ Deployment
 bifrost_deployment.mmd
 bifrost_deployment.drawio
 CI/CD
-bifrost_cicd.mmd
-bifrost_cicd.drawio
+product_cicd.mmd
+product_cicd.drawio
 Threat DFD
 bifrost_threat_dfd.mmd
 bifrost_threat_dfd.drawio

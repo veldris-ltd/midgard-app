@@ -27,8 +27,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use attest::{
-    keystore::DevKeyFile, sign_artefact, FileSigner, Keystore, KmsSigner, Provenance, ReproEntry,
-    SignError,
+    json::Json, keystore::DevKeyFile, sign_artefact, FileSigner, Keystore, KmsSigner, Provenance,
+    ReproEntry, SignError,
 };
 use pqc_agility::SigId;
 
@@ -159,12 +159,14 @@ impl Args {
 }
 
 fn parse_alg(s: &str) -> Result<SigId, Failure> {
-    [SigId::MlDsa87, SigId::MlDsa65, SigId::MlDsa44]
+    // Only what a verifier accepts: a keystore for any other algorithm could
+    // never produce a bundle that passes the gate.
+    attest::APPROVED_RELEASE_ALGS
         .into_iter()
         .find(|a| a.as_str() == s)
         .ok_or_else(|| {
             Failure::Usage(format!(
-                "unknown signing algorithm {s:?} (expected ML-DSA-87, ML-DSA-65 or ML-DSA-44)"
+                "{s:?} is not a release-signing algorithm (expected ML-DSA-87 or ML-DSA-65)"
             ))
         })
 }
@@ -262,9 +264,45 @@ fn sign(argv: &[String]) -> Result<(), Failure> {
         }
     };
 
-    let prov = gather_provenance(&args)?;
+    // A reproducibility report is evidence about specific bytes. Establish that
+    // it covers *this* artefact before anything is signed; a report from some
+    // other build must not lend its digests to this attestation.
+    let (repro, covered_digest) = match args.get("repro") {
+        Some(p) => {
+            let rows = parse_repro(Path::new(p))?;
+            let bytes = std::fs::read(&artefact).map_err(|e| {
+                Failure::Fatal(format!("cannot read artefact {}: {e}", artefact.display()))
+            })?;
+            let digest = pqc_agility::hash::sha256(&bytes);
+            let proven = subject_in_report(&rows, &attest::hex::hex(&digest))
+                .map_err(|m| Failure::Fatal(format!("{p}: {m}")))?;
+            if !proven {
+                eprintln!(
+                    "mg-sign: WARNING — {} is a recorded reproducibility exception; \
+                     the attestation will not list it as reproducible",
+                    artefact.display()
+                );
+            }
+            (proven_entries(&rows), Some(digest))
+        }
+        None => (Vec::new(), None),
+    };
+
+    let prov = gather_provenance(&args, repro)?;
     let sbom_override = args.get("sbom").map(PathBuf::from);
     let out = sign_artefact(&artefact, sbom_override.as_deref(), signer.as_ref(), &prov)?;
+
+    // The report was checked against one read of the artefact and the signature
+    // covers another. If the file changed in between, the attestation vouches
+    // for bytes the report never saw — withdraw the bundle rather than keep it.
+    if covered_digest.is_some_and(|d| d != out.artefact_sha256) {
+        let _ = std::fs::remove_file(&out.sig_path);
+        let _ = std::fs::remove_file(&out.att_path);
+        return Err(Failure::Fatal(format!(
+            "{} changed while it was being signed",
+            artefact.display()
+        )));
+    }
 
     eprintln!(
         "mg-sign: signed {} ({}, key {}, {} SBOM components)",
@@ -284,7 +322,7 @@ fn sign(argv: &[String]) -> Result<(), Failure> {
 /// then a local discovery step. If a fact cannot be established, signing refuses
 /// rather than recording a placeholder — provenance that says "unknown" is
 /// provenance nobody can rely on.
-fn gather_provenance(args: &Args) -> Result<Provenance, Failure> {
+fn gather_provenance(args: &Args, repro: Vec<ReproEntry>) -> Result<Provenance, Failure> {
     let source_revision = resolve_source_revision(
         args.get("source-revision"),
         std::env::var("MIDGARD_SOURCE_REVISION").ok(),
@@ -309,11 +347,6 @@ fn gather_provenance(args: &Args) -> Result<Provenance, Failure> {
                 .unwrap_or_else(|_| rustc_version.as_bytes().to_vec());
             attest::hex::hex(&pqc_agility::hash::sha256(&material))
         }
-    };
-
-    let repro = match args.get("repro") {
-        Some(p) => parse_repro(Path::new(p))?,
-        None => Vec::new(),
     };
 
     Ok(Provenance {
@@ -418,39 +451,100 @@ fn capture(program: &str, args: &[&str]) -> Option<String> {
     (!s.is_empty()).then(|| s.to_string())
 }
 
-/// Read `mg-repro`'s report (RF-SC-3) into attestation entries.
+/// One row of `mg-repro`'s report (RF-SC-3): an artefact and what the two builds
+/// established about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReproRow {
+    package: String,
+    /// Digest of the emitted artefact (the first build's).
+    sha256: String,
+    /// Both builds produced it and the digests matched.
+    reproducible: bool,
+    /// Listed in the exception file, so a difference did not fail the run.
+    excepted: bool,
+}
+
+/// Read `mg-repro`'s report.
 ///
-/// The input is produced by our own tool, so this is a targeted extractor for
-/// `"package"` / `"sha256"` pairs rather than a general JSON parser — the
-/// attestation's integrity comes from being bound into the signature, not from
-/// how it was assembled.
-fn parse_repro(path: &Path) -> Result<Vec<ReproEntry>, Failure> {
+/// Parsed strictly, and every row must say whether it was reproducible: the
+/// report also lists artefacts that were *not* (recorded exceptions), so a row
+/// whose verdict is missing cannot be assumed to be a pass.
+fn parse_repro(path: &Path) -> Result<Vec<ReproRow>, Failure> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| Failure::Fatal(format!("cannot read {}: {e}", path.display())))?;
+    let bad = |m: String| Failure::Fatal(format!("{}: {m}", path.display()));
 
-    let field = |s: &str, name: &str| -> Option<String> {
-        let key = format!("\"{name}\"");
-        let at = s.find(&key)? + key.len();
-        let rest = &s[at..];
-        let start = rest.find('"')? + 1;
-        let end = rest[start..].find('"')? + start;
-        Some(rest[start..end].to_string())
-    };
+    let doc = attest::json::parse(&text).map_err(|e| bad(format!("not valid JSON: {e}")))?;
+    let rows = doc
+        .get("packages")
+        .and_then(Json::as_array)
+        .ok_or_else(|| bad("no \"packages\" array".into()))?;
 
     let mut out = Vec::new();
-    for chunk in text.split('{').skip(1) {
-        let chunk = chunk.split('}').next().unwrap_or(chunk);
-        if let (Some(package), Some(sha256)) = (field(chunk, "package"), field(chunk, "sha256")) {
-            out.push(ReproEntry { package, sha256 });
-        }
+    for (i, row) in rows.iter().enumerate() {
+        let string = |k: &str| {
+            row.get(k)
+                .and_then(Json::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| bad(format!("entry {i} has no string {k:?}")))
+        };
+        let boolean = |k: &str| {
+            row.get(k)
+                .and_then(Json::as_bool)
+                .ok_or_else(|| bad(format!("entry {i} has no boolean {k:?}")))
+        };
+        out.push(ReproRow {
+            package: string("package")?,
+            sha256: string("sha256")?,
+            reproducible: boolean("reproducible")?,
+            excepted: boolean("excepted")?,
+        });
     }
     if out.is_empty() {
-        return Err(Failure::Fatal(format!(
-            "{} contained no package/sha256 entries",
-            path.display()
-        )));
+        return Err(bad("contained no entries".into()));
     }
     Ok(out)
+}
+
+/// The rows the attestation may record under `reproducible`: only those both
+/// builds actually agreed on. An excepted artefact is in the report so that it is
+/// visible, not so that it can be attested as something it is not.
+fn proven_entries(rows: &[ReproRow]) -> Vec<ReproEntry> {
+    rows.iter()
+        .filter(|r| r.reproducible)
+        .map(|r| ReproEntry {
+            package: r.package.clone(),
+            sha256: r.sha256.clone(),
+        })
+        .collect()
+}
+
+/// Whether the artefact with this digest was proven reproducible by the report.
+///
+/// `Ok(true)` — proven. `Ok(false)` — present, but only as a recorded exception.
+/// `Err` — absent, or present as an unexcepted failure: the report describes
+/// some other build, or a run that did not pass, and neither may back a signature.
+fn subject_in_report(rows: &[ReproRow], digest_hex: &str) -> Result<bool, String> {
+    let mine: Vec<&ReproRow> = rows
+        .iter()
+        .filter(|r| r.sha256.eq_ignore_ascii_case(digest_hex))
+        .collect();
+    if mine.is_empty() {
+        return Err(format!(
+            "the reproducibility report does not cover this artefact (sha256 {digest_hex}) \
+             — it describes a different build"
+        ));
+    }
+    if mine.iter().any(|r| r.reproducible) {
+        return Ok(true);
+    }
+    if mine.iter().all(|r| r.excepted) {
+        return Ok(false);
+    }
+    Err(format!(
+        "the reproducibility report records this artefact (sha256 {digest_hex}) as NOT \
+         reproducible and it is not a recorded exception"
+    ))
 }
 
 #[cfg(test)]
@@ -549,32 +643,128 @@ mod tests {
         assert_eq!(parse_alg("ML-DSA-87").unwrap(), SigId::MlDsa87);
         assert_eq!(parse_alg("ML-DSA-65").unwrap(), SigId::MlDsa65);
         assert!(
+            parse_alg("ML-DSA-44").is_err(),
+            "no verifier accepts it for a release"
+        );
+        assert!(
             parse_alg("SLH-DSA-SHA2-128s").is_err(),
             "not for release signing"
         );
         assert!(parse_alg("Ed25519").is_err(), "not post-quantum");
     }
 
-    #[test]
-    fn parses_a_repro_report() {
-        let dir = std::env::temp_dir().join("mg-sign-repro-test");
+    /// A report in exactly the shape `mg-repro` writes.
+    fn report(rows: &[(&str, &str, bool, bool)]) -> String {
+        let body: Vec<String> = rows
+            .iter()
+            .map(|(package, sha256, reproducible, excepted)| {
+                format!(
+                    "    {{ \"package\": \"{package}\", \"artefact\": \"{package}\", \
+                     \"sha256\": \"{sha256}\", \"digest_run1\": \"{sha256}\", \
+                     \"digest_run2\": \"{sha256}\", \"reproducible\": {reproducible}, \
+                     \"excepted\": {excepted} }}"
+                )
+            })
+            .collect();
+        format!("{{\n  \"packages\": [\n{}\n  ]\n}}\n", body.join(",\n"))
+    }
+
+    fn parse_text(tag: &str, text: &str) -> Result<Vec<ReproRow>, Failure> {
+        let dir = std::env::temp_dir().join(format!("mg-sign-repro-test-{tag}"));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("repro.json");
-        std::fs::write(
-            &p,
-            r#"{"packages":[
-                 {"package":"mg-sbom","sha256":"aa"},
-                 {"package":"mg-sign","sha256":"bb"}]}"#,
-        )
-        .unwrap();
-
-        let entries = parse_repro(&p).expect("parses");
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].package, "mg-sbom");
-        assert_eq!(entries[1].sha256, "bb");
-
-        std::fs::write(&p, "{}").unwrap();
-        assert!(parse_repro(&p).is_err(), "an empty report is an error");
+        std::fs::write(&p, text).unwrap();
+        let r = parse_repro(&p);
         let _ = std::fs::remove_dir_all(&dir);
+        r
+    }
+
+    #[test]
+    fn parses_a_repro_report() {
+        let rows = parse_text(
+            "ok",
+            &report(&[
+                ("mg-sbom", "aa", true, false),
+                ("mg-sign", "bb", true, false),
+            ]),
+        )
+        .expect("parses");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].package, "mg-sbom");
+        assert_eq!(rows[1].sha256, "bb");
+        assert!(rows.iter().all(|r| r.reproducible && !r.excepted));
+    }
+
+    #[test]
+    fn refuses_a_repro_report_it_cannot_fully_read() {
+        for (tag, text) in [
+            ("empty", "{}".to_string()),
+            ("no-rows", r#"{"packages": []}"#.to_string()),
+            // A row with no verdict must not be assumed to be a pass.
+            (
+                "no-verdict",
+                r#"{"packages": [{"package": "mg-sbom", "sha256": "aa"}]}"#.to_string(),
+            ),
+            ("truncated", {
+                let full = report(&[("mg-sbom", "aa", true, false)]);
+                full[..full.len() - 3].to_string()
+            }),
+        ] {
+            assert!(parse_text(tag, &text).is_err(), "{tag} must be refused");
+        }
+    }
+
+    #[test]
+    fn only_proven_rows_are_attested_as_reproducible() {
+        let rows = parse_text(
+            "mixed",
+            &report(&[
+                ("mg-sbom", "aa", true, false),
+                ("flaky", "bb", false, true),
+                // Excepted, but the builds happened to agree this time.
+                ("lucky", "cc", true, true),
+            ]),
+        )
+        .expect("parses");
+
+        let proven = proven_entries(&rows);
+        let names: Vec<&str> = proven.iter().map(|e| e.package.as_str()).collect();
+        assert_eq!(
+            names,
+            ["mg-sbom", "lucky"],
+            "an artefact whose builds differed must not be listed as reproducible"
+        );
+    }
+
+    #[test]
+    fn the_report_must_cover_the_artefact_being_signed() {
+        let row = |package: &str, sha256: &str, reproducible, excepted| ReproRow {
+            package: package.into(),
+            sha256: sha256.into(),
+            reproducible,
+            excepted,
+        };
+        let rows = vec![
+            row("mg-sbom", "aa", true, false),
+            row("flaky", "bb", false, true),
+            row("broken", "cc", false, false),
+        ];
+        assert_eq!(subject_in_report(&rows, "aa"), Ok(true));
+        assert_eq!(
+            subject_in_report(&rows, "AA"),
+            Ok(true),
+            "hex case is not identity"
+        );
+        assert_eq!(
+            subject_in_report(&rows, "bb"),
+            Ok(false),
+            "a recorded exception is signable but not proven"
+        );
+        assert!(
+            subject_in_report(&rows, "cc").is_err(),
+            "an unexcepted failure must not be signed against"
+        );
+        let e = subject_in_report(&rows, "dd").unwrap_err();
+        assert!(e.contains("does not cover this artefact"), "{e}");
     }
 }

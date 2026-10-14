@@ -108,8 +108,8 @@ Runs the full fail-closed chain per deployable:
 (reproducible double-build → deterministic CycloneDX SBOM → offline CVE+licence
 scan → ML-DSA sign + provenance → verify-before-publish).
 
-**The deployables** (crates with a `[[bin]]`):
-`http-gateway, mg-bundle, mg-repro, mg-sbom, mg-scan, mg-sign, mg-verify`.
+**The deployables** are every binary the workspace builds. The list is derived, not
+maintained by hand: `just release-manifest` prints it.
 
 **C0 — key material.** `sign` refuses if `MIDGARD_SIGNING_KEYSTORE` is unset and
 `verify` refuses if `MIDGARD_TRUST_ANCHORS` is unset — "I forgot the key" and
@@ -121,29 +121,32 @@ scan → ML-DSA sign + provenance → verify-before-publish).
 > `just keygen` keystore is for a **mechanics dry-run only** and must never sign
 > a shipped artefact. Do C with the real release key, with security present.
 
-Dry-run key setup (mechanics only):
+**C1 — dry run (mechanics only).** One command gates every deployable, admits each
+to a throwaway Bifrost registry under throwaway keys, checks the admitted set equals
+the gated set, and removes the keys and the registry:
 ```bash
-just keygen mg.keystore mg.pub          # dev keystore + exported anchor
-export MIDGARD_SIGNING_KEYSTORE=$PWD/mg.keystore
-export MIDGARD_TRUST_ANCHORS=$PWD/mg.pub
+just release-dry-run
 ```
+`just release-dry-run mg-sbom,mg-verify` narrows it to some binaries.
 
-**C1 — run the gate for every deployable:**
+**C2 — the release.** On a provisioned signing runner (`docs/ops/PKI.md`), with
+`MIDGARD_SIGNING_KEYSTORE`, `MIDGARD_BIFROST_KEYSTORE` and `MIDGARD_BIFROST_REGISTRY`
+set and the public anchors committed under `deploy/trust/`:
 ```bash
-for pkg in http-gateway mg-bundle mg-repro mg-sbom mg-scan mg-sign mg-verify; do
-  echo "=== gate: $pkg ==="
-  just gate "$pkg" || { echo "GATE FAILED: $pkg"; break; }
-done
+just ci release
 ```
-Run inside the pinned toolchain (the `midgard-acceptance:1.82.0` image, offline)
-with the target volume mounted and the key files mounted read-only; set the two
-env vars to their in-container paths. Each `just gate` ends in
-`gate passed: <pkg> (<bin>)`.
+This runs `tools/ci/release.sh` inside the pinned toolchain image, offline, with the
+keystores mounted read-only. The release pipelines run exactly this; see
+`docs/dev/CI.md`.
 
-**Artifacts produced per package** (collect and archive with the release):
-`repro.json`, `<bin>.sbom.cdx.json`, `scan-findings.json`, and the detached
-signature + DSSE provenance attestation beside the verified binary in
-`target/verified/`.
+A single binary can still be gated on its own with `just gate <pkg> [<bin>]`, given
+`MIDGARD_SIGNING_KEYSTORE` and `MIDGARD_TRUST_ANCHORS`.
+
+**Artifacts produced per binary**, all beside it in `target/release-out/`
+(`target/verified/` for a lone `just gate`): `<bin>.sbom.cdx.json`, `<bin>.sig`,
+`<bin>.att`, `<bin>.repro.json`, `<bin>.scan-findings.json`. The release also writes
+`release-manifest.txt`: each binary with its version, component and digest, as read
+back from the registry.
 
 **Fail closed:** the first refusal in the chain stops that package and nothing
 downstream runs. A failing `scan` (a real CVE or a disallowed licence) can never

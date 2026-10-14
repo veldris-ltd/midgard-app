@@ -20,7 +20,13 @@
 "BSD-3-Clause" = "Permissive; the non-endorsement clause is satisfied by not using contributors' names in promotion."
 "BSD-1-Clause" = "Permissive, weaker than BSD-3. Appears only as an alternative in a dual/triple licence."
 "Unicode-3.0" = "The Unicode data licence, required by unicode-ident. Permissive, data-only."
-"LLVM-exception" = "An exception modifier on Apache-2.0 (`Apache-2.0 WITH LLVM-exception`), not a licence in its own right. It relaxes Apache-2.0, so anything it modifies stays acceptable."
+
+[modifiers]
+# Exception modifiers accepted to the right of `WITH`. These are not licences:
+# `Apache-2.0 WITH LLVM-exception` is acceptable, a component whose whole licence
+# is `LLVM-exception` is not. One line each on why the modifier is acceptable.
+
+"LLVM-exception" = "Relaxes Apache-2.0 for code compiled into another work; anything it modifies stays acceptable."
 
 # Deliberately NOT allowed, recorded so the omission reads as a decision rather
 # than an oversight:

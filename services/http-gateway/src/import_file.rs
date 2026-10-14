@@ -34,6 +34,22 @@ use crate::json::{parse, Json};
 use crate::ontology_file::Ontology;
 use crate::strict_json::{identifier, no_repeated_keys, object, only_keys, strings, text};
 
+// The keys each record may carry, public so the published schema
+// (`contracts/schema/import-record.v1.schema.json`) can be checked against them in
+// `tests/contract_schemas.rs`. [AC-RF-CA-13c]
+
+/// Keys of an object record.
+pub const OBJECT_RECORD_KEYS: &[&str] = &[
+    "object",
+    "key",
+    "properties",
+    "marking",
+    "compartments",
+    "purposes",
+];
+/// Keys of a link record.
+pub const LINK_RECORD_KEYS: &[&str] = &["link", "from", "to"];
+
 /// Objects and links read from an import file, checked against the ontology.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Import {
@@ -133,18 +149,7 @@ fn record(
 }
 
 fn object_record(at: &str, record: &Json, ontology: &Ontology) -> Result<ObjectInstance, String> {
-    only_keys(
-        object(record, at)?,
-        at,
-        &[
-            "object",
-            "key",
-            "properties",
-            "marking",
-            "compartments",
-            "purposes",
-        ],
-    )?;
+    only_keys(object(record, at)?, at, OBJECT_RECORD_KEYS)?;
     let type_id = identifier(record, at, "object")?;
     let ty = ontology
         .object_types
@@ -258,7 +263,7 @@ fn typed(at: &str, name: &str, value_type: ValueType, value: &Json) -> Result<Va
 }
 
 fn link_record(at: &str, record: &Json, ontology: &Ontology) -> Result<LinkInstance, String> {
-    only_keys(object(record, at)?, at, &["link", "from", "to"])?;
+    only_keys(object(record, at)?, at, LINK_RECORD_KEYS)?;
     let link_id = identifier(record, at, "link")?;
     let link_type = ontology
         .link_types

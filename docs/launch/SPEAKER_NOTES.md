@@ -4,7 +4,7 @@ Generated from the speaker notes in `Midgard-Launch.pptx`. Timings in brackets a
 
 ## 01 · The sovereign enclosure.
 
-Welcome. Midgard is a Veldris Ltd product: a sovereign, open-source, post-quantum data and decision platform, built and verified against a complete specification. Over the next twenty minutes I will show you what it is, watch it run end to end, and be precise about what is proven today and what still stands between this release candidate and general availability. (≈1 min)
+Welcome. Midgard is a Veldris Ltd product: a sovereign, open-source, post-quantum data and decision platform, built against a complete specification: five services run today and the rest is tested as libraries. Over the next twenty minutes I will show you what it is, watch it run end to end, and be precise about what is proven today and what still stands between this release candidate and general availability. (≈1 min)
 
 ## 02 · Twenty minutes, five parts
 
@@ -20,7 +20,7 @@ Midgard is the core platform: the enclosure. Identity, the object and ontology f
 
 ## 05 · Enforced by construction, not by policy document
 
-Six principles, and each one is enforced by construction rather than by policy document. Sovereign: no core function requires an outbound call, and the acceptance suite proves it under docker network none. Post-quantum by default: hybrid ML-KEM in transit, ML-KEM-wrapped keys at rest, ML-DSA signatures everywhere. The object fabric is the centre, not a bolt-on. Every product calls Mimir for AI, never a hosted model. Every claim has a source and every action has lineage. And the core is open: Apache-2.0, reproducible builds, a CycloneDX SBOM with every release. (≈1 min)
+Six principles, and each one is enforced by construction rather than by policy document. Sovereign: no core function requires an outbound call, and the build and the test suite run under docker network none. Post-quantum by default: hybrid ML-KEM in transit, ML-KEM-wrapped keys at rest, ML-DSA signatures everywhere. The object fabric is the centre, not a bolt-on. Every product calls Mimir for AI, never a hosted model. Every claim has a source and every action has lineage. And the core is open: Apache-2.0, reproducible builds, a CycloneDX SBOM with every release. (≈1 min)
 
 ## 06 · One boundary. Everything inside it.
 
@@ -32,7 +32,7 @@ This is the Midgard console against the real edge. The left panel is the object-
 
 ## 08 · Access is proven, not assumed
 
-Governance is the spine, not a report. Policy is deny by default: role, marking and purpose must all match a written rule, mandatory access control runs first, and anything not granted is denied. You can dry-run a decision for a subject, clearance and purpose before it goes live, and the decision itself is ML-DSA-signed. Every read, write, action and AI step lands in one append-only ledger, and the service re-verifies that ledger on every start: a tampered ledger, keystore or policy file stops it from starting. (≈1 min)
+Governance is the spine, not a report. Policy is deny by default: role, marking and purpose must all match a written rule, mandatory access control runs first, and anything not granted is denied. You can dry-run a decision for a subject, clearance and purpose before it goes live, and the decision itself is ML-DSA-signed. Every read, write and action at the edge lands in one append-only ledger, and the service re-verifies that ledger on every start: a tampered ledger, keystore or policy file stops it from starting. (≈1 min)
 
 ## 09 · Getting data in, without losing track of it
 
@@ -52,7 +52,7 @@ Bifrost is the continuous-delivery product, and it is also how Midgard itself sh
 
 ## 13 · No single person can do the dangerous things. And it works where the work happens.
 
-Two cross-cutting layers. The admin control panel governs itself: role-separated RBAC with no super-admin, dual control on every high-risk action, a self-approval attempt refused and recorded, time-boxed break-glass with real alerts, and one tamper-evident ledger over all seven subsystems. And the client platforms: one shared core behind native mobile, desktop and web shells, keys held in device hardware, offline-first with conflict-free sync when the connection returns. (≈0.75 min)
+Two cross-cutting layers. The admin control panel is designed to govern itself: role-separated RBAC with no super-admin, and dual control, which is live today for enrolling a principal. The guarded-action orchestrator, break-glass and its alerts are tested libraries, and the console runs on sample data. And the client platforms: one shared core, tested as a library, with offline-first, conflict-free sync. The native, desktop and web shells are specified and not built yet. (≈0.75 min)
 
 ## 14 · The enclosure edge, end to end
 
@@ -64,11 +64,11 @@ The cryptography, layer by layer. In transit, every hop is a hybrid handshake: c
 
 ## 16 · Measured, not promised
 
-These are measurements from the repository, not projections. The seventy-two acceptance criteria pass end to end inside the pinned toolchain container with networking disabled. The full test sweep runs both crypto backends. Every one of the eighteen binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)
+These are measurements, each with its run. On a fresh clone, in the pinned toolchain container with networking disabled, the workspace builds and eight hundred and seventy tests pass on both crypto backends. The seventy-two acceptance criteria each map to a test, and that gate has not yet been run against a public commit. Every one of the eighteen binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)
 
-## 17 · Code-complete and verified. Release candidate prepared. GA gated on named blockers.
+## 17 · Five services run and are tested. Release candidate prepared. GA gated on named blockers.
 
-Where we are, honestly. The implementation is complete and verified, and version 0.1.0-rc.1 is prepared: the edge on the real fabric, five services on one PQ-mTLS runtime, compose and Helm deployment, connectors, real model serving, and a release pipeline rehearsed end to end on the fifteenth of September. What blocks general availability is external or hardware-bound: HSM-backed key custody, GPU serving, FIPS 140-3 certification, and the key ceremony and signing runner that let us tag the release. The authoritative go/no-go record is GA_READINESS.md and it currently reads no-go, naming every blocker. The next ninety days are about closing those and putting live data through Forge into the fabric. (≈2 min)
+Where we are, honestly. Five services run and are tested, most other subsystems are tested libraries, and version 0.1.0-rc.1 is prepared: the edge on the real fabric, five services on one PQ-mTLS runtime, compose and Helm deployment, connectors, real model serving, and a release pipeline rehearsed end to end on the fifteenth of September. What blocks general availability is external or hardware-bound: HSM-backed key custody, GPU serving, FIPS 140-3 certification, and the key ceremony and signing runner that let us tag the release. The authoritative go/no-go record is GA_READINESS.md and it currently reads no-go, naming every blocker. The next ninety days are about closing those and putting live data through Forge into the fabric. (≈2 min)
 
 ## 18 · Run it on a laptop today. Run it in an air-gapped site tomorrow.
 

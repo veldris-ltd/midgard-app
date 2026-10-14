@@ -4,7 +4,8 @@ The design system's three typefaces, self-hosted so a console renders its own
 type with no network. `../tokens/fonts.css` declares them. Each is the
 unmodified variable-weight build from [google/fonts](https://github.com/google/fonts),
 redistributed under the SIL Open Font License 1.1 with its licence text beside it.
-`docs/design/fonts` holds byte-identical copies.
+This is the only tracked copy: the pages under `docs/design` load these files, and the
+launch site's builder copies them into `docs/launch/site/assets/fonts`.
 
 | File | Family | Weight axis | Licence |
 |---|---|---|---|

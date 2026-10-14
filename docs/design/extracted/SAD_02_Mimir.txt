@@ -379,8 +379,8 @@ Deployment
 mimir_deployment.mmd
 mimir_deployment.drawio
 CI/CD
-mimir_cicd.mmd
-mimir_cicd.drawio
+product_cicd.mmd
+product_cicd.drawio
 Threat DFD
 mimir_threat_dfd.mmd
 mimir_threat_dfd.drawio

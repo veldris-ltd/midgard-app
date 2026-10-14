@@ -1,5 +1,6 @@
 //! AC-C-7 — a client artefact is verified before install/update and fails closed on
 //! tamper — and AC-C-12 — air-gapped install from a signed offline bundle, offline.
+//! [AC-C-7] [AC-C-12]
 #![cfg(feature = "backend-fips")]
 
 use bifrost_artefact::{build_and_sign, generate_sbom, SbomComponent, SignedArtefact};
@@ -79,7 +80,12 @@ fn an_artefact_signed_by_an_untrusted_key_fails_closed() {
 fn a_non_client_artefact_is_refused() {
     let (vk, sk) = keys(4);
     // A model bundle, not a client app — the client must not install it.
-    let sbom = generate_sbom("mistral-int4", "5.2", "model-bundle", vec![]);
+    let sbom = generate_sbom(
+        "mistral-int4",
+        "5.2",
+        "model-bundle",
+        vec![SbomComponent::new("mistral-int4", "5.2")],
+    );
     let art = build_and_sign(
         "mistral-int4",
         "5.2",

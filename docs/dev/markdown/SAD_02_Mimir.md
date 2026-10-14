@@ -245,7 +245,7 @@ Inference runs on a GPU node pool; agent, guardrail, and eval services are horiz
 
 ### 10.2 CI/CD
 
-![Figure 10.2 — Mimir pipeline incl. model-artefact signing and Evals gate.](../../diagrams/mimir_cicd.png)
+![Figure 10.2 — Mimir pipeline incl. model-artefact signing and Evals gate.](../../diagrams/product_cicd.png)
 *Figure 10.2 — Mimir pipeline incl. model-artefact signing and Evals gate.*
 
 
@@ -342,5 +342,5 @@ Inference runs on a GPU node pool; agent, guardrail, and eval services are horiz
 | Primary sequence | mimir_seq_primary.mmd | mimir_seq_primary.drawio |
 | Journey | mimir_journey.mmd | mimir_journey.drawio |
 | Deployment | mimir_deployment.mmd | mimir_deployment.drawio |
-| CI/CD | mimir_cicd.mmd | mimir_cicd.drawio |
+| CI/CD | product_cicd.mmd | product_cicd.drawio |
 | Threat DFD | mimir_threat_dfd.mmd | mimir_threat_dfd.drawio |

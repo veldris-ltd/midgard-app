@@ -20,12 +20,15 @@
 //! All three digests are bound into one signing preimage
 //! ([`preimage`]), so any tamper — to the binary, to its bill of materials, or to
 //! its provenance — is the same single signature failure. There is no way to swap
-//! content under a valid signature, and no verification decision that depends on
-//! parsing attacker-controlled JSON.
+//! content under a valid signature, and the acceptance decision never depends on
+//! parsing the attestation. The SBOM *is* parsed — strictly, by [`json`] — because
+//! "is this a bill of materials" is a structural question a digest cannot answer.
 //!
 //! ## Fail closed
-//! [`sign_artefact`] writes nothing until every step has succeeded, so a failed
-//! run leaves no `.sig` behind for a later step to mistake for success.
+//! [`sign_artefact`] writes nothing until every step has succeeded — including
+//! verifying its own signature under the release rules — so a failed run leaves
+//! no `.sig` behind for a later step to mistake for success, and a successful one
+//! never leaves a `.sig` that [`verify_artefact`] would refuse.
 //! [`verify_artefact`] returns `Result<Verdict, VerifyError>` — never a boolean,
 //! never a warning tier — and refuses when trust anchors are absent, when the key
 //! is not among them, when the algorithm is not approved for release signing, and
@@ -43,6 +46,7 @@ pub mod backend;
 pub mod envelope;
 pub mod error;
 pub mod hex;
+pub mod json;
 #[cfg(feature = "custody")]
 pub mod keystore;
 pub mod preimage;
@@ -134,6 +138,16 @@ pub fn sign_artefact(
     signer: &dyn SigningBackend,
     prov: &Provenance,
 ) -> Result<SignOutputs, SignError> {
+    // 0. The key must be one a verifier will accept. Signing under any other
+    //    algorithm would exit successfully and produce a bundle that can never
+    //    pass the gate.
+    let alg = signer.verifying_key().alg();
+    if !APPROVED_RELEASE_ALGS.contains(&alg) {
+        return Err(SignError::UnapprovedAlgorithm {
+            alg: alg.as_str().to_string(),
+        });
+    }
+
     // 1. The artefact itself.
     let bytes = std::fs::read(artefact).map_err(|e| SignError::ArtefactUnreadable {
         path: artefact.to_path_buf(),
@@ -179,7 +193,6 @@ pub fn sign_artefact(
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| artefact.to_string_lossy().into_owned());
-    let alg = signer.verifying_key().alg();
     let att = attestation::render(
         &attestation::Subject {
             name: &name,
@@ -198,6 +211,20 @@ pub fn sign_artefact(
         &sbom_sha256,
         &attestation_sha256,
     ))?;
+
+    //    Then check it exactly as a verifier will, against the key this signer
+    //    advertises. That catches a custodian whose signing key does not match
+    //    its published verifying key — which would otherwise sign "successfully"
+    //    under an anchor nobody can verify against — and a faulted signature,
+    //    before either reaches disk.
+    accept::accept(
+        &accept::RELEASE_ARTEFACT,
+        &preimage::body(&artefact_sha256, &sbom_sha256, &attestation_sha256),
+        signer.verifying_key(),
+        &signature,
+        &APPROVED_RELEASE_ALGS,
+    )
+    .map_err(|e| SignError::SelfVerifyFailed(e.to_string()))?;
 
     // 5. Only now write anything. Everything above can fail without leaving a
     //    partial bundle a later gate stage might treat as success. [AC-RF-SC-1c]
@@ -278,16 +305,34 @@ impl TrustAnchors {
                 })?;
             let bytes = hex::unhex(parts[2])
                 .ok_or_else(|| format!("line {}: key is not valid hex", n + 1))?;
+            if out.get(parts[1]).is_some() {
+                return Err(format!(
+                    "line {}: key id {:?} is listed more than once",
+                    n + 1,
+                    parts[1]
+                ));
+            }
             out.insert(parts[1], VerifyingKey::new(alg, bytes));
         }
         Ok(out)
     }
 
-    /// Fold another anchor set into this one. A later anchor for the same key id
-    /// replaces the earlier one, so merge order is the caller's precedence.
-    pub fn merge(&mut self, other: TrustAnchors) -> &mut Self {
-        self.keys.extend(other.keys);
-        self
+    /// Fold another anchor set into this one.
+    ///
+    /// The same key id carrying the same key is harmless and is accepted. The
+    /// same key id carrying a *different* key is an error: which one a verifier
+    /// trusts must not depend on the order its anchor files were named in.
+    pub fn merge(&mut self, other: TrustAnchors) -> Result<&mut Self, String> {
+        for (id, key) in other.keys {
+            match self.keys.get(&id) {
+                Some(have) if have.alg() == key.alg() && have.as_bytes() == key.as_bytes() => {}
+                Some(_) => return Err(format!("key id {id:?} is anchored to two different keys")),
+                None => {
+                    self.keys.insert(id, key);
+                }
+            }
+        }
+        Ok(self)
     }
 
     /// Whether any anchor is present.
@@ -303,6 +348,11 @@ impl TrustAnchors {
     /// Look up an anchor.
     pub fn get(&self, key_id: &str) -> Option<&VerifyingKey> {
         self.keys.get(key_id)
+    }
+
+    /// Every anchor, by key id, in key-id order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &VerifyingKey)> {
+        self.keys.iter().map(|(id, key)| (id.as_str(), key))
     }
 }
 
@@ -321,14 +371,33 @@ pub struct Verdict {
     pub components: usize,
 }
 
+/// Encode a free-text verdict field so it cannot contain a space or an `=`.
+///
+/// The artefact name is a file name and the key id is operator-chosen; either
+/// could otherwise carry ` key=something` and plant a second field in the line a
+/// script parses. Anything outside `[A-Za-z0-9._-]` is percent-encoded.
+fn verdict_field(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-') {
+            o.push(b as char);
+        } else {
+            o.push_str(&format!("%{b:02X}"));
+        }
+    }
+    o
+}
+
 impl Verdict {
-    /// The one-line machine-readable form the CLI prints on stdout.
+    /// The one-line machine-readable form the CLI prints on stdout. Each field
+    /// appears exactly once and holds no whitespace: `artefact` and `key` are
+    /// percent-encoded outside `[A-Za-z0-9._-]`.
     pub fn line(&self) -> String {
         format!(
             "ok artefact={} digest={} key={} alg={} components={}",
-            self.artefact,
+            verdict_field(&self.artefact),
             hex::hex(&self.artefact_sha256),
-            self.key_id,
+            verdict_field(&self.key_id),
             self.alg.as_str(),
             self.components
         )
@@ -337,8 +406,11 @@ impl Verdict {
 
 /// Verify an artefact and its three sidecars. Fails closed on every path.
 ///
-/// This is the function CI, Bifrost pre-deploy and Mimir model-load all call, so
-/// "acceptable" means the same thing everywhere. `[AC-B-1]` `[AC-MS-2]`
+/// This is the file-level verifier: `mg-verify` calls it, in the CI release gate
+/// and in every image's entrypoint. Bifrost and Mimir do **not** call it — they
+/// verify their own in-memory manifests — but the signature decision inside it is
+/// [`accept::accept`], which is the one they call too, so "acceptable" is decided
+/// in one place. `[AC-B-1]` `[AC-MS-2]` `[AC-RF-SC-2d]`
 pub fn verify_artefact(artefact: &Path, anchors: &TrustAnchors) -> Result<Verdict, VerifyError> {
     if anchors.is_empty() {
         return Err(VerifyError::NoTrustAnchors);
@@ -364,10 +436,6 @@ pub fn verify_artefact(artefact: &Path, anchors: &TrustAnchors) -> Result<Verdic
     };
 
     let sbom_bytes = read_sidecar(sbom::sbom_path(artefact))?;
-    let components = sbom::validate(&sbom_bytes).map_err(|reason| VerifyError::SbomInvalid {
-        path: sbom::sbom_path(artefact),
-        reason,
-    })?;
     let att_bytes = read_sidecar(att_path(artefact))?;
     let sig_bytes = read_sidecar(sig_path(artefact))?;
 
@@ -396,6 +464,14 @@ pub fn verify_artefact(artefact: &Path, anchors: &TrustAnchors) -> Result<Verdic
         &env.signature,
         &APPROVED_RELEASE_ALGS,
     )?;
+
+    // Only now, with its bytes authenticated, is the SBOM parsed. Nothing is
+    // trusted enough to look inside until the signature holds, so a tampered
+    // SBOM is always the signature's failure and never the parser's input.
+    let components = sbom::validate(&sbom_bytes).map_err(|reason| VerifyError::SbomInvalid {
+        path: sbom::sbom_path(artefact),
+        reason,
+    })?;
 
     Ok(Verdict {
         artefact: artefact

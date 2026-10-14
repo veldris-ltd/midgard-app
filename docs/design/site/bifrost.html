@@ -86,33 +86,33 @@ function App() {
     <SiteShell active="bifrost">
       <Hero
         eyebrow="01 // BIFROST · CONTINUOUS DELIVERY"
-        headline={<>Ship without downtime.<br /><span style={{ color: 'var(--text-muted)' }}>Even where the internet can't reach.</span></>}
-        sub="Bifrost orchestrates zero-downtime rolling upgrades across your fleet: PQ-signed artefacts, staged rings with health gates, automatic rollback, and signed offline bundles for the sites that never connect."
+        headline={<>Ship only what verifies.<br /><span style={{ color: 'var(--text-muted)' }}>Even where the internet can't reach.</span></>}
+        sub="Bifrost gates every artefact (rebuilt bit for bit, SBOM, scanned, ML-DSA-signed, verified), records each installation in a fleet manager, and carries releases to disconnected sites as signed bundles. Staged ring rollout with health gates and automatic rollback is a tested library; services run one replica today, so an upgrade interrupts them."
         seals={<><StatusPill status="secure" label="ARTEFACTS ML-DSA ✓" pulse={false} /><Badge tone="accent">AIR-GAP NATIVE</Badge></>}
-        stats={<><StatBlock value="0" label="FAILED REQUESTS · ROLLOUT" accent /><StatBlock value="41s" label="ROLLBACK TO HEALTHY" /><StatBlock value="100%" label="RELEASES SIGNED + SBOM" /></>}
+        stats={<><StatBlock value="18 / 18" label="BINARIES GATED · REHEARSAL 2026-09-15" accent /><StatBlock value="54" label="ARTEFACTS IN ONE SIGNED BUNDLE" /><StatBlock value="0" label="UNSIGNED ARTEFACTS ADMITTED" /></>}
       />
       <Capabilities num={2} title="Trust is verified before anything deploys."
         items={[
-          ['package', 'Signed artefact registry', 'Reproducible builds, CycloneDX SBOMs, and ML-DSA signatures, verified on ingest and again before every deploy.'],
-          ['rings', 'Staged ring rollouts', 'Canary to broad, with health gates between rings. A bad release never reaches the whole fleet.'],
-          ['undo-2', 'Rollback as a rehearsed path', 'Standing rollback plans staged with every promotion, drilled on schedule, triggered automatically on gate failure.'],
-          ['git-branch', 'Declarative channels', 'Stable, beta, canary: fleet state is declared, reconciled, and drift-alerted.'],
-          ['download', 'Offline bundles', 'Signed release bundles travel by courier to air-gapped sites, verify offline, and return signed receipts.'],
-          ['sparkles', 'Release intelligence', 'Mimir scores release risk and spots anomalies locally. Advisory by default, gating when you say so.'],
+          ['package', 'Signed artefact registry', 'Reproducible builds, CycloneDX SBOMs and ML-DSA signatures. The registry admits only artefacts that passed the gate.'],
+          ['rings', 'Staged ring rollouts', 'Canary to broad, with health gates between rings: a tested library. Nothing drives it against a real fleet yet.'],
+          ['undo-2', 'Automatic rollback', 'Automatic revert of promoted rings on a gate failure is a tested library. The fleet agent cannot install or roll back yet.'],
+          ['git-branch', 'Declarative channels', 'Stable, beta, canary: the fleet manager records each installation, its version and its drift from its channel.'],
+          ['download', 'Offline bundles', 'One signed bundle on media. Every artefact is verified offline before install, and a refused import leaves nothing behind.'],
+          ['sparkles', 'Release intelligence', 'Release-risk scoring with Mimir is a tested library, advisory only, not yet in a running service.'],
         ]} />
       <Showcase num={3} title="Fail closed, roll forward."
-        body="No signature, no deploy. A tampered artefact is rejected before it moves; a failing health gate reverses the rollout automatically, with zero downtime either way."
-        terminal={<Terminal title="PROMOTION" style={{ flex: '1 1 360px' }} lines={[
+        body="No signature, no deploy. A tampered artefact is rejected before it moves, and an image with one changed byte refuses to start. Reverting a rollout on a failed health gate is a tested library."
+        terminal={<Terminal title="ILLUSTRATIVE · PROMOTION (LIBRARY)" style={{ flex: '1 1 360px' }} lines={[
           '> bifrost promote midgard-suite:2.5.0',
           'verify     reproducible ✓ · SBOM ✓ · ML-DSA ✓',
           'ring 0     canary 4/4 · gates green',
           'ring 1     staging 12/12 · gates green',
           'ring 2     prod-eu 48/48 · p99 OK',
           'ring 3     air-gap · bundle B-2050-07A cut',
-          '# zero downtime · rollback staged throughout',
+          '# illustrative: ring rollout is a tested library',
         ]} />}
       />
-      <Standalone num={4} line="Midgard + Bifrost delivers continuous deployment for the platform itself. It is also how everything else arrives: Forge, Mimir, Heimdall, and every client build ship through Bifrost." />
+      <Standalone num={4} line="Bifrost runs today as the fleet manager beside the Midgard edge, and its gate and bundle tools are how Midgard itself is released. Driving a rollout across a fleet is still to come." />
     </SiteShell>
   );
 }
