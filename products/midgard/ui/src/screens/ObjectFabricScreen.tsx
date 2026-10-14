@@ -159,7 +159,10 @@ export function ObjectFabricScreen() {
         onChange={setTab}
       />
 
-      <div style={{ overflowX: 'auto' }}>
+      {/* flexShrink 0: an overflow wrapper may otherwise be squeezed to zero height
+       * inside the shell's fixed-height <main> as the live audit list grows; the
+       * page scrolls instead. */}
+      <div style={{ overflowX: 'auto', flexShrink: 0 }}>
         <Table<ObjectType>
           columns={[
             { header: 'Object type', cell: (r) => <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="boxes" size={15} color="var(--accent)" />{r.name}</span> },
