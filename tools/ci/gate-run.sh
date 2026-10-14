@@ -42,7 +42,14 @@ done
 [ "${#parts[@]}" -gt 0 ] || parts=(acceptance test)
 
 command -v docker >/dev/null 2>&1 || { echo "gate-run: docker is not available" >&2; exit 2; }
-mkdir -p "$out"
+# The toolchain container runs as root, so a build step before this one leaves target/
+# owned by root, where the runner's user cannot make a directory. Make it there, as root,
+# and hand it back. A run whose log cannot be kept is no use to anyone, so if the
+# directory is still not writable this stops before running anything.
+if ! mkdir -p "$out" 2>/dev/null || [ ! -w "$out" ]; then
+    docker run --rm --network none -v "$PWD:/work" -w /work "$IMAGE" sh -c "mkdir -p '$out' && chown $(id -u):$(id -g) '$out'" >/dev/null 2>&1 || true
+fi
+[ -d "$out" ] && [ -w "$out" ] || { echo "gate-run: cannot write to $out; nothing was run" >&2; exit 2; }
 
 sha256_of() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | awk '{print $1}'; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -102,7 +109,10 @@ run_part() {
         echo "exit=$rc"
         echo "platform=$(ci_platform)"
         echo "run_url=$(ci_run_url)"
-    } > "$meta"
+    } > "$meta" || { echo "gate-run: could not write $meta" >&2; return 2; }
+    # tee failing does not change the run's exit status, so the log is checked here: a
+    # passing run with no log would be a pass nobody can show.
+    [ -s "$log" ] || { echo "gate-run: $part left no log in $log" >&2; return 2; }
     echo "gate-run: $part exited $rc after $((t1 - t0))s; log and metadata in $out/"
     return "$rc"
 }
