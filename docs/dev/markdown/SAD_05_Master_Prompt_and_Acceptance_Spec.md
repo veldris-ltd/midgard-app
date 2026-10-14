@@ -4,7 +4,7 @@
 
 **Competitor benchmark:** Palantir platform (AIP prompt/agent plane + suite-wide acceptance)  
 **Author:** Akuma Engineering Ltd. — Architecture Practice — for JB Benjamin, CEO / Founder  
-**Version:** 1.0 · **Date:** 2026-07-02 · **Classification:** CONFIDENTIAL — RECIPIENT EYES ONLY  
+**Version:** 1.0 · **Date:** 2026-07-02 · **Classification:** PUBLIC, published with the Midgard repository  
 **Document type:** Forward-looking design specification (greenfield).
 
 ---

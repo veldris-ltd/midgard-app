@@ -11,6 +11,10 @@ pub enum VerifyError {
     /// The attached SBOM does not hash to the digest in the signed manifest —
     /// the SBOM was tampered with after signing.
     SbomDigestMismatch,
+    /// The SBOM is authentic but is not a usable bill of materials: not
+    /// well-formed CycloneDX 1.5, no components, or a component with no purl.
+    /// A valid signature does not vouch for an SBOM nobody could scan. [AC-B-4]
+    SbomInvalid,
     /// The ML-DSA signature over the manifest did not verify (unsigned, wrong key,
     /// or tampered manifest).
     BadSignature,
@@ -23,6 +27,9 @@ impl std::fmt::Display for VerifyError {
                 "payload digest does not match the signed manifest"
             }
             VerifyError::SbomDigestMismatch => "SBOM digest does not match the signed manifest",
+            VerifyError::SbomInvalid => {
+                "SBOM is not well-formed CycloneDX 1.5 with a purl on every component"
+            }
             VerifyError::BadSignature => "ML-DSA signature did not verify",
         };
         write!(f, "{m}")

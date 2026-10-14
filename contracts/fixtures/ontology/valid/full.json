@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "aircraft",
+      "title": "Aircraft",
+      "properties": [
+        {
+          "name": "tail",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "flight_hours",
+          "type": "int"
+        },
+        {
+          "name": "fuel_fraction",
+          "type": "float"
+        },
+        {
+          "name": "airworthy",
+          "type": "bool"
+        },
+        {
+          "name": "last_seen",
+          "type": "timestamp"
+        }
+      ]
+    },
+    {
+      "id": "facility",
+      "title": "Facility",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "id": "aircraft_base",
+      "name": "based at",
+      "from": "aircraft",
+      "to": "facility",
+      "cardinality": "one-to-one"
+    }
+  ],
+  "actions": [
+    {
+      "id": "ground_aircraft",
+      "name": "groundAircraft",
+      "title": "Ground aircraft",
+      "objectType": "aircraft",
+      "humanGated": true,
+      "marking": "confidential",
+      "compartments": [
+        "OPS-N"
+      ],
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "grounded"
+      }
+    },
+    {
+      "id": "change_facility_status",
+      "name": "changeFacilityStatus",
+      "title": "Change status",
+      "objectType": "facility",
+      "humanGated": false,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "maintenance"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "operational",
+          "degraded"
+        ]
+      }
+    }
+  ]
+}

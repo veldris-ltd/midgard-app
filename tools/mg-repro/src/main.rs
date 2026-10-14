@@ -5,18 +5,35 @@
 //! [AC-M-6] [NFR-OSS-1]
 //!
 //! ```text
-//! mg-repro                     # the whole workspace (what CI runs)
+//! mg-repro                     # the whole workspace
 //! mg-repro workspace           # the same, spelled out
 //! mg-repro <package>           # one package
 //! mg-repro --only a,b,c        # a named subset
-//! mg-repro [--jobs N] [--out repro.json]
+//! mg-repro [--jobs N] [--out repro.json] [--emit <dir>]
 //! ```
 //!
 //! ## Why two whole-workspace builds, not two per package
 //! Comparing N packages by building each twice is 2N builds; building the
 //! workspace twice and comparing every artefact is 2, and covers strictly more —
-//! library `.rlib`s included, not just the binaries. A reproducibility regression
-//! in a library is caught before it reaches a binary.
+//! library `.rlib`s and `.rmeta`s included, not just the binaries. A
+//! reproducibility regression in a library is caught before it reaches a binary.
+//!
+//! ## What is compared
+//! Cargo is asked what it produced (`--message-format=json`), and exactly those
+//! files are compared: every output of every lib, bin and proc-macro target of a
+//! **workspace member**, attributed to the package whose manifest declares it.
+//! Nothing is inferred from a directory listing or from a file name, so
+//!
+//! - a file left in the build directory by an earlier run — older source, a
+//!   package since removed, a wider scope — is not an artefact of this run and is
+//!   neither reported, nor counted as coverage, nor handed out by `--emit`;
+//! - a binary whose name differs from its package (`bifrost-fleet` is built by
+//!   `bifrost-fleet-server`, and is also the name of an unrelated library) is
+//!   reported under the package that built it.
+//!
+//! The two build directories live under this workspace's own `target/mg-repro/`,
+//! so they are private to the checkout rather than shared through the system
+//! temp directory, and Cargo's own cache makes a re-run cheap.
 //!
 //! ## Normalisation
 //! Anything that can leak the build environment into the output is pinned or
@@ -27,13 +44,20 @@
 //! |---|---|
 //! | `--remap-path-prefix` source → `/src` | absolute source paths appear in debug info and panic messages |
 //! | `--remap-path-prefix` target → `/target` | ditto for generated and dependency paths |
+//! | flags passed as `CARGO_ENCODED_RUSTFLAGS`; `RUSTFLAGS` and `CARGO_BUILD_RUSTFLAGS` cleared | the encoded form outranks every other source of flags, so an ambient value cannot silently replace the remapping — and a workspace path containing a space cannot split it |
 //! | `SOURCE_DATE_EPOCH=1` | honoured by build scripts that stamp a date |
 //! | `-Clink-arg=/Brepro` (MSVC) | the MSVC linker stamps a wall-clock timestamp into the PE header and the debug directory, and derives the PDB signature GUID from it. Measured: 20 differing bytes without it, zero with |
 //! | `TZ=UTC`, `LC_ALL=C`, `LANG=C` | locale- and zone-dependent formatting in build scripts |
 //! | `RUSTC_WRAPPER`, `RUSTC_WORKSPACE_WRAPPER` cleared | sccache and friends can alter codegen inputs |
-//! | `CARGO_BUILD_JOBS` pinned | parallelism can change codegen-unit partitioning |
+//! | `CARGO_BUILD_JOBS` and `-j` pinned, always (`--jobs`, default 4) | parallelism can change codegen-unit partitioning, so it must not follow the core count of whichever machine runs the build |
 //! | `CARGO_INCREMENTAL=0` | incremental artefacts are not reproducible by design |
 //! | `HOSTNAME` pinned | build scripts that stamp the build host would otherwise differ per machine |
+//!
+//! Pinning makes a value the *same* in both builds, which is the point — and it
+//! means this check cannot see a leak of a pinned value. A binary that embeds
+//! `HOSTNAME` builds identically twice here. What the two builds do differ in is
+//! the wall clock, the target path, and anything random, and those are what a
+//! failure here reports.
 //!
 //! **`PATH` ordering is deliberately not normalised.** Pinning it would mean
 //! choosing a toolchain layout, which differs legitimately between the Nix CI
@@ -44,25 +68,35 @@
 //!
 //! ## The exception list
 //! `supply-chain/repro-exceptions.txt` names packages known to be
-//! non-reproducible, each with an owner and a reason. A listed artefact is
-//! reported and does **not** fail the run; anything else that differs does. The
-//! list must be empty at GA — it exists so a newly-discovered regression can be
-//! quarantined with a tracking item rather than silently weakening the check.
+//! non-reproducible, each with an owner and a reason. A listed package's artefact
+//! is reported and does **not** fail the run; anything else that differs does.
+//! It is still never called reproducible: the verdict and `--emit` both say which
+//! artefacts are exceptions. The list must be empty at GA — it exists so a
+//! newly-discovered regression can be quarantined with a tracking item rather
+//! than silently weakening the check.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 
+use attest::json::{self, Json};
 use pqc_agility::sha256;
 
 /// Where the exception list lives, relative to the workspace root.
 const EXCEPTIONS: &str = "supply-chain/repro-exceptions.txt";
 
+/// Build parallelism when `--jobs` is not given. A fixed number, not the host's
+/// core count, so the same source builds the same way on every machine.
+const DEFAULT_JOBS: &str = "4";
+
+const USAGE: &str =
+    "usage: mg-repro [<package> | workspace] [--only a,b] [--jobs N] [--out repro.json] [--emit <dir>]";
+
 /// One artefact's result across both builds.
 struct Entry {
-    /// File name as emitted, e.g. `mg-sbom.exe` or `libattest.rlib`.
+    /// The artefact's stable name, e.g. `mg-sbom.exe`, `libattest.rlib`.
     artefact: String,
-    /// The workspace package it belongs to.
+    /// The workspace package whose manifest declares the target that built it.
     package: String,
     /// Digest from the first build; empty if the build did not emit it.
     digest_run1: String,
@@ -70,12 +104,32 @@ struct Entry {
     digest_run2: String,
     /// Both builds emitted it and the digests match.
     reproducible: bool,
-    /// Listed in the exception file, so a difference does not fail the run.
+    /// Its package is in the exception file, so a difference does not fail the run.
     excepted: bool,
+    /// Where the first build left it, for `--emit`.
+    path_run1: Option<PathBuf>,
 }
 
+/// One file a build produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Built {
+    path: PathBuf,
+    digest: String,
+}
+
+/// Everything one build produced, keyed by `(artefact, package)`.
+type BuildOutputs = BTreeMap<(String, String), Built>;
+
 fn main() -> ExitCode {
-    match run() {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    // Help is its own invocation. It exits 0, so it must never be reachable from
+    // a command line that also asks for a check: no argument value may produce a
+    // success without a comparison. [AC-RF-SC-3a]
+    if matches!(argv.as_slice(), [only] if is_help(only)) {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    match parse_args(&argv).and_then(|opts| run(&opts)) {
         Ok(code) => code,
         Err(msg) => {
             eprintln!("mg-repro: {msg}");
@@ -84,31 +138,34 @@ fn main() -> ExitCode {
     }
 }
 
+fn is_help(arg: &str) -> bool {
+    arg == "-h" || arg == "--help"
+}
+
+#[derive(Debug)]
 struct Options {
     /// Packages to build; empty means the whole workspace.
     only: Vec<String>,
-    jobs: Option<String>,
+    jobs: String,
     out: Option<PathBuf>,
     /// Where to copy the verified artefacts, so the thing that gets signed is
     /// the thing that was proven reproducible.
     emit: Option<PathBuf>,
 }
 
-fn parse_args() -> Result<Options, String> {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
+fn parse_args(argv: &[String]) -> Result<Options, String> {
     let mut only: Vec<String> = Vec::new();
-    let mut jobs = None;
+    let mut jobs = DEFAULT_JOBS.to_string();
     let mut out = None;
     let mut emit = None;
 
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
-            "-h" | "--help" => {
-                println!(
-                    "usage: mg-repro [<package> | workspace] [--only a,b] [--jobs N] [--out repro.json]"
-                );
-                std::process::exit(0);
+            help if is_help(help) => {
+                return Err(format!(
+                    "{help} must be the only argument — it does not check anything"
+                ));
             }
             "--only" => {
                 let v = argv.get(i + 1).ok_or("--only requires a value")?;
@@ -120,7 +177,11 @@ fn parse_args() -> Result<Options, String> {
                 i += 2;
             }
             "--jobs" => {
-                jobs = Some(argv.get(i + 1).ok_or("--jobs requires a value")?.clone());
+                let v = argv.get(i + 1).ok_or("--jobs requires a value")?;
+                if !v.parse::<u32>().is_ok_and(|n| n > 0) {
+                    return Err(format!("--jobs must be a positive number, got {v:?}"));
+                }
+                jobs = v.clone();
                 i += 2;
             }
             "--out" => {
@@ -135,7 +196,7 @@ fn parse_args() -> Result<Options, String> {
                 ));
                 i += 2;
             }
-            other if other.starts_with("--") => {
+            other if other.starts_with('-') => {
                 return Err(format!("unknown flag {other}"));
             }
             // A bare argument names one package. `workspace` means "all of it",
@@ -156,8 +217,7 @@ fn parse_args() -> Result<Options, String> {
     })
 }
 
-fn run() -> Result<ExitCode, String> {
-    let opts = parse_args()?;
+fn run(opts: &Options) -> Result<ExitCode, String> {
     let cwd = std::env::current_dir().map_err(|e| format!("cannot read cwd: {e}"))?;
 
     let scope = if opts.only.is_empty() {
@@ -167,11 +227,12 @@ fn run() -> Result<ExitCode, String> {
     };
     eprintln!("mg-repro: checking {scope} — building twice");
 
-    let mut runs: Vec<BTreeMap<String, String>> = Vec::new();
+    let members = workspace_members(&cwd)?;
+
+    let mut runs: Vec<BuildOutputs> = Vec::new();
     for run in 1..=2u32 {
-        let target = std::env::temp_dir().join(format!("mg-repro-{run}"));
-        build(&cwd, &target, &opts, run)?;
-        runs.push(digest_artefacts(&target.join("release"))?);
+        let target = cwd.join("target").join("mg-repro").join(run.to_string());
+        runs.push(build(&cwd, &target, opts, run, &members)?);
     }
 
     let (first, second) = (&runs[0], &runs[1]);
@@ -179,36 +240,36 @@ fn run() -> Result<ExitCode, String> {
 
     // A differing *set* of artefacts is itself a reproducibility failure: the
     // build emitted something one time and not the other.
-    let mut names: Vec<&String> = first.keys().chain(second.keys()).collect();
-    names.sort();
-    names.dedup();
-    if names.is_empty() {
+    let keys: BTreeSet<&(String, String)> = first.keys().chain(second.keys()).collect();
+    if keys.is_empty() {
         return Err("no artefacts were produced — nothing was compared".into());
     }
 
     let mut report: Vec<Entry> = Vec::new();
     let (mut ok_count, mut bad, mut excepted) = (0usize, Vec::new(), Vec::new());
 
-    for name in names {
-        let a = first.get(name);
-        let b = second.get(name);
-        let matched = matches!((a, b), (Some(x), Some(y)) if x == y);
-        let package = package_of(name);
-        let is_excepted = exceptions.iter().any(|e| package == *e);
+    for key in keys {
+        let (artefact, package) = key;
+        let a = first.get(key);
+        let b = second.get(key);
+        let matched = matches!((a, b), (Some(x), Some(y)) if x.digest == y.digest);
+        let is_excepted = exceptions.iter().any(|e| e == package);
         report.push(Entry {
-            artefact: name.clone(),
-            package,
-            digest_run1: a.cloned().unwrap_or_default(),
-            digest_run2: b.cloned().unwrap_or_default(),
+            artefact: artefact.clone(),
+            package: package.clone(),
+            digest_run1: a.map(|x| x.digest.clone()).unwrap_or_default(),
+            digest_run2: b.map(|x| x.digest.clone()).unwrap_or_default(),
             reproducible: matched,
             excepted: is_excepted,
+            path_run1: a.map(|x| x.path.clone()),
         });
+        let name = format!("{artefact} ({package})");
         if matched {
             ok_count += 1;
         } else if is_excepted {
-            excepted.push(name.clone());
+            excepted.push(name);
         } else {
-            bad.push(name.clone());
+            bad.push(name);
         }
     }
 
@@ -216,7 +277,7 @@ fn run() -> Result<ExitCode, String> {
     // no artefact is not "reproducible by default" — it is a hole in the
     // coverage this check claims, and silence is exactly how such a hole
     // survives. [AC-RF-SC-3b]
-    let uncovered = uncovered_members(&cwd, &opts, &report)?;
+    let uncovered = uncovered_members(&members, opts, &report);
 
     for e in &report {
         let mark = match (e.reproducible, e.excepted) {
@@ -225,7 +286,8 @@ fn run() -> Result<ExitCode, String> {
             (false, false) => "DIFFERS ",
         };
         println!(
-            "{mark}  {}  {}",
+            "{mark}  {}  {}  {}",
+            e.package,
             e.artefact,
             &e.digest_run1[..e.digest_run1.len().min(16)]
         );
@@ -244,57 +306,139 @@ fn run() -> Result<ExitCode, String> {
         report
             .iter()
             .map(|e| e.package.as_str())
-            .collect::<std::collections::BTreeSet<_>>()
+            .collect::<BTreeSet<_>>()
             .len()
     );
 
     for name in &excepted {
-        eprintln!("mg-repro: WARNING — {name} is a recorded exception (see {EXCEPTIONS})");
+        eprintln!(
+            "mg-repro: WARNING — {name} is NOT reproducible; it is a recorded exception (see {EXCEPTIONS})"
+        );
     }
-
-    if !uncovered.is_empty() {
-        for pkg in &uncovered {
-            eprintln!("mg-repro: FAIL — {pkg} produced no comparable artefact (coverage hole)");
-        }
+    for pkg in &uncovered {
+        eprintln!("mg-repro: FAIL — {pkg} produced no comparable artefact (coverage hole)");
+    }
+    for name in &bad {
+        eprintln!("mg-repro: FAIL — {name} is NOT reproducible (digests differ)");
+    }
+    if !uncovered.is_empty() || !bad.is_empty() {
         return Ok(ExitCode::FAILURE);
     }
 
-    if bad.is_empty() {
-        // Hand out the artefacts that were actually proven, not a separately
-        // built copy. Signing anything else would produce a signature over a
-        // binary nobody can reproduce, which defeats the point of proving it.
-        if let Some(dir) = &opts.emit {
-            let from = std::env::temp_dir().join("mg-repro-1").join("release");
-            emit_verified(&from, dir, &report)?;
-            eprintln!(
-                "mg-repro: emitted {} verified artefact(s) to {}",
-                report.len(),
-                dir.display()
-            );
-        }
-        println!("mg-repro: OK — every artefact is bit-reproducible");
-        Ok(ExitCode::SUCCESS)
+    // Hand out the artefacts that were actually built and compared, not a
+    // separately built copy. Signing anything else would produce a signature
+    // over a binary nobody can reproduce, which defeats the point of proving it.
+    if let Some(dir) = &opts.emit {
+        emit_verified(dir, &report)?;
+        eprintln!(
+            "mg-repro: emitted {} artefact(s) to {} — {ok_count} proven reproducible, {} recorded exception(s)",
+            report.len(),
+            dir.display(),
+            excepted.len()
+        );
+    }
+    println!("mg-repro: {}", verdict(ok_count, excepted.len()));
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The passing verdict. It claims "every artefact" only when that is true: a run
+/// that passes because of the exception list says so in the line a reader — or a
+/// script grepping for it — sees last.
+fn verdict(reproducible: usize, excepted: usize) -> String {
+    if excepted == 0 {
+        "OK — every artefact is bit-reproducible".to_string()
     } else {
-        for name in &bad {
-            eprintln!("mg-repro: FAIL — {name} is NOT reproducible (digests differ)");
-        }
-        Ok(ExitCode::FAILURE)
+        format!(
+            "OK WITH EXCEPTIONS — {reproducible} artefact(s) are bit-reproducible; \
+             {excepted} are NOT and pass only as recorded exceptions"
+        )
     }
 }
 
-/// Run one normalised build into `target`.
-fn build(cwd: &Path, target: &Path, opts: &Options, run: u32) -> Result<(), String> {
-    let mut rustflags = format!(
-        "--remap-path-prefix={}=/src --remap-path-prefix={}=/target",
-        cwd.display(),
-        target.display()
-    );
+/// A workspace member, as Cargo reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Member {
+    name: String,
+    manifest: PathBuf,
+}
+
+/// Every package the workspace declares, from `cargo metadata`.
+///
+/// Cargo is the authority on what a member is — globs, excludes, renamed
+/// packages and all — so it is asked rather than the root manifest being read by
+/// hand. A member's directory name is frequently not its package name
+/// (`clients/sync` is `midgard-client-sync`), which is also why artefacts are
+/// attributed through the manifest path and never through a file name.
+fn workspace_members(cwd: &Path) -> Result<Vec<Member>, String> {
+    let out = Command::new("cargo")
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--offline",
+        ])
+        .current_dir(cwd)
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("cannot run cargo metadata: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("cargo metadata failed ({})", out.status));
+    }
+    let text = String::from_utf8(out.stdout)
+        .map_err(|_| "cargo metadata did not print UTF-8".to_string())?;
+    parse_members(&text)
+}
+
+fn parse_members(metadata: &str) -> Result<Vec<Member>, String> {
+    let doc = json::parse(metadata.trim()).map_err(|e| format!("cargo metadata: {e}"))?;
+    let packages = doc
+        .get("packages")
+        .and_then(Json::as_array)
+        .ok_or("cargo metadata lists no packages")?;
+
+    let mut members = Vec::new();
+    for p in packages {
+        let field = |k: &str| {
+            p.get(k)
+                .and_then(Json::as_str)
+                .ok_or_else(|| format!("cargo metadata: a package has no {k:?}"))
+        };
+        members.push(Member {
+            name: field("name")?.to_string(),
+            manifest: normalise(Path::new(field("manifest_path")?)),
+        });
+    }
+    if members.is_empty() {
+        return Err("the workspace has no members".into());
+    }
+    members.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(members)
+}
+
+/// A path in a form that compares equal however Cargo happened to spell it.
+fn normalise(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// Run one normalised build into `target` and return what it produced.
+fn build(
+    cwd: &Path,
+    target: &Path,
+    opts: &Options,
+    run: u32,
+    members: &[Member],
+) -> Result<BuildOutputs, String> {
+    let mut flags = vec![
+        format!("--remap-path-prefix={}=/src", cwd.display()),
+        format!("--remap-path-prefix={}=/target", target.display()),
+    ];
     if cfg!(target_env = "msvc") {
-        rustflags.push_str(" -Clink-arg=/Brepro");
+        flags.push("-Clink-arg=/Brepro".to_string());
     }
 
     let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--release", "--offline"]);
+    cmd.args(["build", "--release", "--offline", "--message-format=json"]);
     if opts.only.is_empty() {
         cmd.arg("--workspace");
     } else {
@@ -302,147 +446,168 @@ fn build(cwd: &Path, target: &Path, opts: &Options, run: u32) -> Result<(), Stri
             cmd.args(["-p", p]);
         }
     }
-    if let Some(j) = &opts.jobs {
-        cmd.args(["-j", j]);
-    }
+    cmd.args(["-j", &opts.jobs]);
     cmd.arg("--target-dir").arg(target);
 
-    cmd.env("RUSTFLAGS", &rustflags)
+    // `CARGO_ENCODED_RUSTFLAGS` outranks `RUSTFLAGS`, the `build.rustflags`
+    // config key and its environment form, so setting it is what guarantees
+    // these flags are the ones in force. 0x1f separates flags, which also keeps
+    // a path containing a space in one piece.
+    cmd.env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"))
+        .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_BUILD_RUSTFLAGS")
         .env("SOURCE_DATE_EPOCH", "1")
         .env("CARGO_INCREMENTAL", "0")
+        .env("CARGO_BUILD_JOBS", &opts.jobs)
         .env("TZ", "UTC")
         .env("LC_ALL", "C")
         .env("LANG", "C")
         .env("HOSTNAME", "midgard-build")
         .env_remove("RUSTC_WRAPPER")
         .env_remove("RUSTC_WORKSPACE_WRAPPER");
-    if let Some(j) = &opts.jobs {
-        cmd.env("CARGO_BUILD_JOBS", j);
-    }
 
     eprintln!("mg-repro: build {run} → {}", target.display());
-    match cmd.status() {
-        Ok(s) if s.success() => Ok(()),
-        Ok(s) => Err(format!("build {run} failed ({s})")),
-        Err(e) => Err(format!("cannot run cargo: {e}")),
+    // stdout carries Cargo's JSON; its progress and any compiler output stay on
+    // the terminal.
+    let out = cmd
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("cannot run cargo: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("build {run} failed ({})", out.status));
     }
-}
+    let messages = String::from_utf8(out.stdout)
+        .map_err(|_| format!("build {run}: cargo did not print UTF-8"))?;
 
-/// Digest every comparable artefact in a release directory.
-///
-/// Only the top level is walked: `deps/` holds per-unit outputs whose names
-/// already carry a metadata hash, and `.d` (dependency lists) and `.pdb` (debug
-/// symbols) are build side-channels, not shipped artefacts.
-fn digest_artefacts(release: &Path) -> Result<BTreeMap<String, String>, String> {
-    let entries = std::fs::read_dir(release)
-        .map_err(|e| format!("cannot read {}: {e}", release.display()))?;
-
-    let mut out = BTreeMap::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("cannot read entry: {e}"))?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !is_comparable(&path) {
-            continue;
-        }
+    let produced = artefacts_in(&messages, members).map_err(|e| format!("build {run}: {e}"))?;
+    let mut outputs = BuildOutputs::new();
+    for ((artefact, package), path) in produced {
         let bytes =
             std::fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        out.insert(name, hex(&sha256(&bytes)));
+        let digest = hex(&sha256(&bytes));
+        outputs.insert((artefact, package), Built { path, digest });
+    }
+    Ok(outputs)
+}
+
+/// The comparable files a build produced, from Cargo's JSON messages.
+///
+/// One `compiler-artifact` message is emitted per target built *or found up to
+/// date*, so the result is exactly this invocation's outputs whether or not
+/// anything had to be recompiled. Only workspace members are kept — their
+/// dependencies are inputs, pinned by `Cargo.lock`, not artefacts of this tree.
+fn artefacts_in(
+    messages: &str,
+    members: &[Member],
+) -> Result<BTreeMap<(String, String), PathBuf>, String> {
+    let mut out = BTreeMap::new();
+    for line in messages.lines().filter(|l| !l.trim().is_empty()) {
+        let msg = json::parse(line.trim()).map_err(|e| format!("unreadable cargo message: {e}"))?;
+        if msg.get("reason").and_then(Json::as_str) != Some("compiler-artifact") {
+            continue;
+        }
+        let manifest = msg
+            .get("manifest_path")
+            .and_then(Json::as_str)
+            .ok_or("a compiler-artifact message has no manifest_path")?;
+        let manifest = normalise(Path::new(manifest));
+        let Some(member) = members.iter().find(|m| m.manifest == manifest) else {
+            continue;
+        };
+        let kinds: Vec<&str> = msg
+            .get("target")
+            .and_then(|t| t.get("kind"))
+            .and_then(Json::as_array)
+            .ok_or("a compiler-artifact message has no target kind")?
+            .iter()
+            .filter_map(Json::as_str)
+            .collect();
+        if !kinds.iter().any(|k| is_shipped_kind(k)) {
+            continue;
+        }
+        let files = msg
+            .get("filenames")
+            .and_then(Json::as_array)
+            .ok_or("a compiler-artifact message has no filenames")?;
+        for file in files.iter().filter_map(Json::as_str) {
+            let path = PathBuf::from(file);
+            if !is_comparable(&path, &kinds) || !path.is_file() {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            out.insert((stable_name(&name), member.name.clone()), path);
+        }
     }
     Ok(out)
 }
 
-/// Whether a release-directory file is a shipped artefact worth comparing.
-fn is_comparable(path: &Path) -> bool {
-    // Cargo's own bookkeeping (`.cargo-lock`, `.fingerprint`) sits alongside the
-    // artefacts and has no extension, so it would otherwise be picked up as a
-    // Unix executable.
-    if path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| n.starts_with('.'))
-    {
-        return false;
-    }
+/// Whether a target kind produces something this workspace ships or links.
+/// Build scripts, tests, benches and examples are tooling, not artefacts.
+fn is_shipped_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "bin" | "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
+    )
+}
+
+/// Whether one of a target's output files is an artefact worth comparing.
+fn is_comparable(path: &Path, kinds: &[&str]) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
         // Build side-channels, not artefacts.
-        Some("d") | Some("pdb") | Some("exp") | Some("lib") => false,
-        Some("exe") | Some("rlib") | Some("dll") | Some("so") | Some("dylib") | Some("a") => true,
+        Some("d") | Some("pdb") | Some("exp") => false,
+        // On MSVC `.lib` is a static library when the target is one, and an
+        // import library — a side-channel of a DLL — otherwise.
+        Some("lib") => kinds.contains(&"staticlib"),
+        Some("exe") | Some("rlib") | Some("rmeta") | Some("dll") | Some("so") | Some("dylib")
+        | Some("a") => true,
         // No extension: a Unix executable.
         None => true,
         _ => false,
     }
 }
 
-/// Map an artefact file name back to a package label for the exception list.
-fn package_of(artefact: &str) -> String {
-    let stem = artefact
-        .rsplit_once('.')
-        .map(|(s, _)| s)
-        .unwrap_or(artefact);
-    let stem = stem.strip_prefix("lib").unwrap_or(stem);
-    stem.replace('_', "-")
-}
-
-/// Every package name declared by the workspace.
+/// An artefact's name without the per-build metadata hash Cargo appends to
+/// library outputs: `libattest-9dfe9bd5b80e74b4.rlib` → `libattest.rlib`.
 ///
-/// Parsed from the root `Cargo.toml`'s `members` list and each member's own
-/// `Cargo.toml`, because a member's directory name is frequently not its package
-/// name — `clients/sync` is `midgard-client-sync`, `crypto/attest` is `attest`.
-/// Deriving the name from the path would silently mis-attribute those.
-fn workspace_members(cwd: &Path) -> Result<Vec<String>, String> {
-    let root = std::fs::read_to_string(cwd.join("Cargo.toml"))
-        .map_err(|e| format!("cannot read workspace Cargo.toml: {e}"))?;
-
-    // Take the `members = [ ... ]` array of the [workspace] table.
-    let start = root
-        .find("members")
-        .and_then(|i| root[i..].find('[').map(|j| i + j + 1))
-        .ok_or("workspace Cargo.toml has no members list")?;
-    let end = start
-        + root[start..]
-            .find(']')
-            .ok_or("workspace members list is unterminated")?;
-
-    let mut names = Vec::new();
-    for raw in root[start..end].split(',') {
-        let dir = raw.trim().trim_matches('"').trim();
-        if dir.is_empty() {
-            continue;
+/// The hash is derived from build inputs that are not guaranteed to match
+/// between two target directories, so it is not part of an artefact's identity —
+/// the two builds are paired by this name, and it is the name `--emit` writes.
+fn stable_name(file_name: &str) -> String {
+    let (stem, ext) = match file_name.rsplit_once('.') {
+        Some((s, e)) => (s, Some(e)),
+        None => (file_name, None),
+    };
+    let stem = match stem.rsplit_once('-') {
+        Some((head, hash)) if hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            head
         }
-        let manifest = cwd.join(dir).join("Cargo.toml");
-        let text = std::fs::read_to_string(&manifest)
-            .map_err(|e| format!("cannot read {}: {e}", manifest.display()))?;
-        let name = text
-            .lines()
-            .find_map(|l| l.trim().strip_prefix("name = \""))
-            .map(|v| v.trim_end_matches('"').to_string())
-            .ok_or_else(|| format!("{} declares no package name", manifest.display()))?;
-        names.push(name);
+        _ => stem,
+    };
+    match ext {
+        Some(e) => format!("{stem}.{e}"),
+        None => stem.to_string(),
     }
-    names.sort();
-    names.dedup();
-    Ok(names)
 }
 
 /// Packages that were in scope but produced nothing to compare.
-fn uncovered_members(cwd: &Path, opts: &Options, report: &[Entry]) -> Result<Vec<String>, String> {
-    let produced: std::collections::BTreeSet<&str> =
-        report.iter().map(|e| e.package.as_str()).collect();
+fn uncovered_members(members: &[Member], opts: &Options, report: &[Entry]) -> Vec<String> {
+    let produced: BTreeSet<&str> = report.iter().map(|e| e.package.as_str()).collect();
 
-    let expected = if opts.only.is_empty() {
-        workspace_members(cwd)?
+    let expected: Vec<String> = if opts.only.is_empty() {
+        members.iter().map(|m| m.name.clone()).collect()
     } else {
         opts.only.clone()
     };
 
-    Ok(expected
+    expected
         .into_iter()
         .filter(|p| !produced.contains(p.as_str()))
-        .collect())
+        .collect()
 }
 
 /// Read the exception list: one package per line, `#` comments ignored.
@@ -456,14 +621,16 @@ fn load_exceptions(cwd: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Copy the verified artefacts out, and re-check each digest as it lands so a
-/// truncated or racing copy cannot substitute something unproven.
-fn emit_verified(from: &Path, to: &Path, report: &[Entry]) -> Result<(), String> {
+/// Copy this run's artefacts out, and re-check each digest as it lands so a
+/// truncated or racing copy cannot substitute something that was not compared.
+fn emit_verified(to: &Path, report: &[Entry]) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| format!("cannot create {}: {e}", to.display()))?;
     for e in report {
-        let src = from.join(&e.artefact);
+        let Some(src) = &e.path_run1 else {
+            continue;
+        };
         let dst = to.join(&e.artefact);
-        std::fs::copy(&src, &dst)
+        std::fs::copy(src, &dst)
             .map_err(|err| format!("cannot copy {} → {}: {err}", src.display(), dst.display()))?;
         let bytes =
             std::fs::read(&dst).map_err(|err| format!("cannot read {}: {err}", dst.display()))?;
@@ -479,9 +646,31 @@ fn emit_verified(from: &Path, to: &Path, report: &[Entry]) -> Result<(), String>
     Ok(())
 }
 
-/// Emit the machine-readable report `mg-sign` embeds into the DSSE predicate.
-/// Sorted and timestamp-free, so the report is itself reproducible.
+/// Minimal JSON string escaping (quotes, backslashes, control characters).
+fn json_escape(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o
+}
+
+/// Emit the machine-readable report `mg-sign` embeds into the provenance
+/// attestation. Sorted and timestamp-free, so the report is itself reproducible.
 fn write_report(path: &Path, report: &[Entry]) -> Result<(), String> {
+    std::fs::write(path, render_report(report))
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+fn render_report(report: &[Entry]) -> String {
     let mut s = String::from("{\n  \"packages\": [\n");
     for (i, e) in report.iter().enumerate() {
         // Both digests are recorded, not just the first: when a run fails, the
@@ -490,7 +679,13 @@ fn write_report(path: &Path, report: &[Entry]) -> Result<(), String> {
         s.push_str(&format!(
             "    {{ \"package\": \"{}\", \"artefact\": \"{}\", \"sha256\": \"{}\", \
              \"digest_run1\": \"{}\", \"digest_run2\": \"{}\", \"reproducible\": {}, \"excepted\": {} }}",
-            e.package, e.artefact, e.digest_run1, e.digest_run1, e.digest_run2, e.reproducible, e.excepted
+            json_escape(&e.package),
+            json_escape(&e.artefact),
+            e.digest_run1,
+            e.digest_run1,
+            e.digest_run2,
+            e.reproducible,
+            e.excepted
         ));
         if i + 1 < report.len() {
             s.push(',');
@@ -498,7 +693,7 @@ fn write_report(path: &Path, report: &[Entry]) -> Result<(), String> {
         s.push('\n');
     }
     s.push_str("  ]\n}\n");
-    std::fs::write(path, s).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    s
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -513,33 +708,345 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    fn argv(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn opts(only: &[&str]) -> Options {
+        Options {
+            only: argv(only),
+            jobs: DEFAULT_JOBS.into(),
+            out: None,
+            emit: None,
+        }
+    }
+
+    fn member(name: &str, manifest: &str) -> Member {
+        Member {
+            name: name.into(),
+            manifest: PathBuf::from(manifest),
+        }
+    }
+
+    fn entry(package: &str, artefact: &str, d1: &str, d2: &str) -> Entry {
+        Entry {
+            artefact: artefact.into(),
+            package: package.into(),
+            digest_run1: d1.into(),
+            digest_run2: d2.into(),
+            reproducible: d1 == d2,
+            excepted: false,
+            path_run1: None,
+        }
+    }
+
+    // --- arguments ---
+
     #[test]
-    fn package_label_strips_lib_prefix_and_extension() {
-        assert_eq!(package_of("mg-sbom.exe"), "mg-sbom");
-        assert_eq!(package_of("mg-sbom"), "mg-sbom");
-        assert_eq!(package_of("libattest.rlib"), "attest");
-        assert_eq!(package_of("libbifrost_artefact.rlib"), "bifrost-artefact");
+    fn help_beside_anything_else_is_an_error_not_a_success() {
+        // [AC-RF-SC-3a] no argument value may produce a success without a check.
+        for bad in [
+            vec!["workspace", "--help"],
+            vec!["--help", "mg-sbom"],
+            vec!["--only", "a,b", "-h"],
+        ] {
+            assert!(
+                parse_args(&argv(&bad)).is_err(),
+                "{bad:?} must not be treated as a request for help"
+            );
+        }
     }
 
     #[test]
-    fn only_shipped_artefacts_are_compared() {
-        for yes in ["a.exe", "liba.rlib", "a.dll", "a.so", "a.dylib", "a"] {
-            assert!(is_comparable(Path::new(yes)), "{yes} should be compared");
-        }
-        for no in [
-            "a.d",
-            "a.pdb",
-            "a.exp",
-            "a.lib",
-            "a.json",
-            "a.txt",
-            // Cargo bookkeeping, not output.
-            ".cargo-lock",
-            ".fingerprint",
-        ] {
-            assert!(!is_comparable(Path::new(no)), "{no} should be skipped");
+    fn parallelism_is_always_pinned() {
+        assert_eq!(parse_args(&argv(&[])).unwrap().jobs, DEFAULT_JOBS);
+        assert_eq!(parse_args(&argv(&["--jobs", "8"])).unwrap().jobs, "8");
+        for bad in ["0", "many", "-1", ""] {
+            assert!(
+                parse_args(&argv(&["--jobs", bad])).is_err(),
+                "{bad:?} is not a job count"
+            );
         }
     }
+
+    #[test]
+    fn scope_comes_from_the_bare_argument_or_only() {
+        assert!(parse_args(&argv(&["workspace"])).unwrap().only.is_empty());
+        assert_eq!(parse_args(&argv(&["mg-sbom"])).unwrap().only, ["mg-sbom"]);
+        assert_eq!(
+            parse_args(&argv(&["--only", "a, b,,c"])).unwrap().only,
+            ["a", "b", "c"]
+        );
+        assert!(parse_args(&argv(&["--nonsense"])).is_err());
+    }
+
+    // --- what is compared, and who it belongs to ---
+
+    /// A `compiler-artifact` line in the shape Cargo prints.
+    fn artifact_line(manifest: &str, kind: &str, name: &str, files: &[&str]) -> String {
+        let files: Vec<String> = files
+            .iter()
+            .map(|f| format!("\"{}\"", json_escape(f)))
+            .collect();
+        format!(
+            "{{\"reason\":\"compiler-artifact\",\"manifest_path\":\"{}\",\
+             \"target\":{{\"kind\":[\"{kind}\"],\"name\":\"{name}\"}},\
+             \"filenames\":[{}],\"executable\":null,\"fresh\":false}}",
+            json_escape(manifest),
+            files.join(",")
+        )
+    }
+
+    /// A scratch directory with real files in it, since only files that exist
+    /// are artefacts.
+    fn scratch(tag: &str, files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mg-repro-unit-{tag}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            std::fs::write(dir.join(f), f.as_bytes()).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn artefacts_are_attributed_by_manifest_not_by_file_name() {
+        // `bifrost-fleet` is a binary of the package `bifrost-fleet-server` AND
+        // the name of an unrelated library package. Read from the file name, the
+        // binary would be credited to the library.
+        let dir = scratch(
+            "attribution",
+            &[
+                "bifrost-fleet.exe",
+                "libbifrost_fleet-0123456789abcdef.rlib",
+                "libbifrost_fleet-0123456789abcdef.rmeta",
+            ],
+        );
+        let p = |f: &str| dir.join(f).to_string_lossy().into_owned();
+        let members = [
+            member("bifrost-fleet", "/ws/bifrost/fleet/Cargo.toml"),
+            member(
+                "bifrost-fleet-server",
+                "/ws/bifrost/fleet-server/Cargo.toml",
+            ),
+        ];
+        let messages = [
+            artifact_line(
+                "/ws/bifrost/fleet-server/Cargo.toml",
+                "bin",
+                "bifrost-fleet",
+                &[&p("bifrost-fleet.exe")],
+            ),
+            artifact_line(
+                "/ws/bifrost/fleet/Cargo.toml",
+                "lib",
+                "bifrost_fleet",
+                &[
+                    &p("libbifrost_fleet-0123456789abcdef.rlib"),
+                    &p("libbifrost_fleet-0123456789abcdef.rmeta"),
+                ],
+            ),
+        ]
+        .join("\n");
+
+        let got = artefacts_in(&messages, &members).unwrap();
+        let keys: Vec<(&str, &str)> = got.keys().map(|(a, p)| (a.as_str(), p.as_str())).collect();
+        assert_eq!(
+            keys,
+            [
+                ("bifrost-fleet.exe", "bifrost-fleet-server"),
+                ("libbifrost_fleet.rlib", "bifrost-fleet"),
+                ("libbifrost_fleet.rmeta", "bifrost-fleet"),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_this_builds_own_outputs_count() {
+        // A stale file beside the real output, a dependency's artefact, a build
+        // script, and the side-channels of a real target: none is an artefact of
+        // this run.
+        let dir = scratch(
+            "scope",
+            &[
+                "mg-sbom.exe",
+                "mg_sbom.pdb",
+                "mg-sbom.d",
+                "left-over-from-last-week.exe",
+                "libserde-0123456789abcdef.rlib",
+                "build-script-build.exe",
+            ],
+        );
+        let p = |f: &str| dir.join(f).to_string_lossy().into_owned();
+        let members = [member("mg-sbom", "/ws/tools/mg-sbom/Cargo.toml")];
+        let messages = [
+            artifact_line(
+                "/ws/tools/mg-sbom/Cargo.toml",
+                "bin",
+                "mg-sbom",
+                &[&p("mg-sbom.exe"), &p("mg_sbom.pdb"), &p("mg-sbom.d")],
+            ),
+            artifact_line(
+                "/registry/serde/Cargo.toml",
+                "lib",
+                "serde",
+                &[&p("libserde-0123456789abcdef.rlib")],
+            ),
+            artifact_line(
+                "/ws/tools/mg-sbom/Cargo.toml",
+                "custom-build",
+                "build-script-build",
+                &[&p("build-script-build.exe")],
+            ),
+            // Other message kinds are not artefacts.
+            "{\"reason\":\"build-finished\",\"success\":true}".to_string(),
+        ]
+        .join("\n");
+
+        let got = artefacts_in(&messages, &members).unwrap();
+        let names: Vec<&str> = got.keys().map(|(a, _)| a.as_str()).collect();
+        assert_eq!(names, ["mg-sbom.exe"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_cargo_message_fails_the_run() {
+        // Guessing at a message we cannot parse would mean guessing at what was
+        // built.
+        assert!(artefacts_in("{\"reason\":\"compiler-artifact\"", &[]).is_err());
+        assert!(artefacts_in("warning: not json", &[]).is_err());
+        let no_manifest = "{\"reason\":\"compiler-artifact\",\"filenames\":[]}";
+        assert!(artefacts_in(no_manifest, &[]).is_err());
+    }
+
+    #[test]
+    fn the_metadata_hash_is_not_part_of_an_artefacts_name() {
+        assert_eq!(
+            stable_name("libattest-9dfe9bd5b80e74b4.rlib"),
+            "libattest.rlib"
+        );
+        assert_eq!(
+            stable_name("libattest-9dfe9bd5b80e74b4.rmeta"),
+            "libattest.rmeta"
+        );
+        // Not a hash: wrong length, or not hex, or a real hyphenated name.
+        assert_eq!(stable_name("mg-sbom.exe"), "mg-sbom.exe");
+        assert_eq!(stable_name("mg-sbom"), "mg-sbom");
+        assert_eq!(stable_name("bifrost-fleet-server"), "bifrost-fleet-server");
+        assert_eq!(
+            stable_name("tool-0123456789abcdeg.exe"),
+            "tool-0123456789abcdeg.exe"
+        );
+    }
+
+    #[test]
+    fn side_channels_are_skipped_and_metadata_is_compared() {
+        let lib = ["lib"];
+        for yes in [
+            "a.exe",
+            "liba.rlib",
+            "liba.rmeta",
+            "a.dll",
+            "a.so",
+            "a.dylib",
+            "a",
+        ] {
+            assert!(
+                is_comparable(Path::new(yes), &lib),
+                "{yes} should be compared"
+            );
+        }
+        for no in ["a.d", "a.pdb", "a.exp", "a.json", "a.txt"] {
+            assert!(
+                !is_comparable(Path::new(no), &lib),
+                "{no} should be skipped"
+            );
+        }
+        // `.lib` is the artefact of a static library and a side-channel of a DLL.
+        assert!(is_comparable(Path::new("a.lib"), &["staticlib"]));
+        assert!(!is_comparable(Path::new("a.lib"), &["cdylib"]));
+    }
+
+    // --- members and coverage ---
+
+    #[test]
+    fn workspace_members_come_from_cargo_not_from_directory_names() {
+        // A member's directory name is often not its package name. [AC-RF-SC-3b]
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = workspace_members(&root).expect("cargo metadata");
+        let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+
+        assert!(names.contains(&"attest"), "crypto/attest");
+        assert!(
+            names.contains(&"midgard-client-sync"),
+            "clients/sync is midgard-client-sync, not `sync`"
+        );
+        assert!(names.contains(&"bifrost-fleet") && names.contains(&"bifrost-fleet-server"));
+        assert!(names.len() > 50, "got {} members", names.len());
+        assert!(members.iter().all(|m| m.manifest.ends_with("Cargo.toml")));
+    }
+
+    #[test]
+    fn member_parsing_refuses_metadata_it_cannot_read() {
+        assert!(parse_members("{}").is_err());
+        assert!(parse_members(r#"{"packages": []}"#).is_err());
+        assert!(parse_members(r#"{"packages": [{"name": "a"}]}"#).is_err());
+        assert!(parse_members(r#"{"packages": [{"name": "a", "manifest_path": "x"}"#).is_err());
+        let ok = parse_members(
+            r#"{"packages": [{"name": "b", "manifest_path": "/w/b/Cargo.toml"},
+                             {"name": "a", "manifest_path": "/w/a/Cargo.toml"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(ok[0].name, "a", "sorted by name");
+    }
+
+    #[test]
+    fn a_package_that_emits_nothing_is_a_coverage_hole() {
+        let members = [member("mg-sbom", "m"), member("ghost-package", "g")];
+        let report = vec![entry("mg-sbom", "mg-sbom.exe", "aa", "aa")];
+
+        assert_eq!(
+            uncovered_members(&members, &opts(&[]), &report),
+            ["ghost-package"]
+        );
+        assert_eq!(
+            uncovered_members(&members, &opts(&["ghost-package", "mg-sbom"]), &report),
+            ["ghost-package"]
+        );
+    }
+
+    #[test]
+    fn another_packages_same_named_binary_is_not_coverage() {
+        // The binary `bifrost-fleet` belongs to `bifrost-fleet-server`. It must
+        // not stand in for the library package of the same name.
+        let members = [
+            member("bifrost-fleet", "a"),
+            member("bifrost-fleet-server", "b"),
+        ];
+        let report = vec![entry(
+            "bifrost-fleet-server",
+            "bifrost-fleet.exe",
+            "aa",
+            "aa",
+        )];
+        assert_eq!(
+            uncovered_members(&members, &opts(&[]), &report),
+            ["bifrost-fleet"]
+        );
+    }
+
+    #[test]
+    fn full_coverage_reports_no_holes() {
+        let members = [member("mg-sbom", "m"), member("attest", "a")];
+        let report = vec![
+            entry("mg-sbom", "mg-sbom.exe", "aa", "aa"),
+            entry("attest", "libattest.rlib", "bb", "bb"),
+        ];
+        assert!(uncovered_members(&members, &opts(&[]), &report).is_empty());
+    }
+
+    // --- exceptions ---
 
     #[test]
     fn exceptions_ignore_comments_and_blanks() {
@@ -559,99 +1066,74 @@ mod tests {
         assert!(load_exceptions(Path::new("/nonexistent-dir-for-test")).is_empty());
     }
 
-    fn entry(artefact: &str, d1: &str, d2: &str) -> Entry {
-        Entry {
-            artefact: artefact.into(),
-            package: package_of(artefact),
-            digest_run1: d1.into(),
-            digest_run2: d2.into(),
-            reproducible: d1 == d2,
-            excepted: false,
-        }
+    #[test]
+    fn a_pass_by_exception_is_never_called_reproducible() {
+        assert_eq!(verdict(57, 0), "OK — every artefact is bit-reproducible");
+        let v = verdict(56, 1);
+        assert!(!v.contains("every artefact"), "{v}");
+        assert!(v.contains("1 are NOT"), "{v}");
     }
+
+    // --- the report ---
 
     #[test]
     fn report_is_deterministic_and_parseable_by_mg_sign() {
-        let dir = std::env::temp_dir().join("mg-repro-report-test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let p = dir.join("repro.json");
         let report = vec![
-            entry("mg-sbom.exe", &"aa".repeat(32), &"aa".repeat(32)),
-            entry("libattest.rlib", &"bb".repeat(32), &"bb".repeat(32)),
+            entry("mg-sbom", "mg-sbom.exe", &"aa".repeat(32), &"aa".repeat(32)),
+            entry(
+                "attest",
+                "libattest.rlib",
+                &"bb".repeat(32),
+                &"bb".repeat(32),
+            ),
         ];
-        write_report(&p, &report).unwrap();
-        let first = std::fs::read_to_string(&p).unwrap();
-        write_report(&p, &report).unwrap();
-        assert_eq!(first, std::fs::read_to_string(&p).unwrap());
+        let text = render_report(&report);
+        assert_eq!(text, render_report(&report));
+        assert!(!text.contains("timestamp"));
 
-        // The shape mg-sign's --repro extractor looks for.
-        assert!(first.contains("\"package\": \"mg-sbom\""));
-        assert!(first.contains("\"sha256\": \""));
-        assert!(!first.contains("timestamp"));
-        let _ = std::fs::remove_dir_all(&dir);
+        // mg-sign reads it with the same strict parser, and needs these fields.
+        let doc = json::parse(text.trim()).expect("valid JSON");
+        let rows = doc.get("packages").and_then(Json::as_array).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].get("package").and_then(Json::as_str),
+            Some("mg-sbom")
+        );
+        assert_eq!(
+            rows[0].get("reproducible").and_then(Json::as_bool),
+            Some(true)
+        );
+        assert_eq!(rows[0].get("excepted").and_then(Json::as_bool), Some(false));
+        assert_eq!(
+            rows[0].get("sha256").and_then(Json::as_str),
+            Some("aa".repeat(32).as_str())
+        );
     }
 
     #[test]
     fn report_records_both_digests_so_a_failure_is_diagnosable() {
         // On a failure the report alone must show HOW the builds diverged; one
         // digest would only say THAT they did. [AC-RF-SC-3]
-        let dir = std::env::temp_dir().join("mg-repro-both-digests-test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let p = dir.join("repro.json");
-        let report = vec![entry("flaky.exe", &"aa".repeat(32), &"bb".repeat(32))];
-        write_report(&p, &report).unwrap();
-
-        let text = std::fs::read_to_string(&p).unwrap();
+        let text = render_report(&[entry(
+            "flaky",
+            "flaky.exe",
+            &"aa".repeat(32),
+            &"bb".repeat(32),
+        )]);
         assert!(text.contains(&format!("\"digest_run1\": \"{}\"", "aa".repeat(32))));
         assert!(text.contains(&format!("\"digest_run2\": \"{}\"", "bb".repeat(32))));
         assert!(text.contains("\"reproducible\": false"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn workspace_members_are_read_from_their_manifests_not_their_paths() {
-        // A member's directory name is often not its package name, so deriving
-        // the name from the path would mis-attribute artefacts. [AC-RF-SC-3b]
-        let members = workspace_members(Path::new(".."))
-            .or_else(|_| workspace_members(Path::new("../..")))
-            .expect("read workspace members");
-
-        assert!(members.contains(&"attest".to_string()), "crypto/attest");
-        assert!(
-            members.contains(&"midgard-client-sync".to_string()),
-            "clients/sync is midgard-client-sync, not `sync`"
+    fn report_stays_valid_json_whatever_an_artefact_is_called() {
+        let text = render_report(&[entry("odd\"pkg", "we\\ird \"name\".exe", "aa", "aa")]);
+        let doc = json::parse(text.trim()).expect("still valid JSON");
+        let row = &doc.get("packages").and_then(Json::as_array).unwrap()[0];
+        assert_eq!(row.get("package").and_then(Json::as_str), Some("odd\"pkg"));
+        assert_eq!(
+            row.get("artefact").and_then(Json::as_str),
+            Some("we\\ird \"name\".exe")
         );
-        assert!(members.contains(&"model-server".to_string()));
-        assert!(members.len() > 50, "got {} members", members.len());
-    }
-
-    #[test]
-    fn a_package_that_emits_nothing_is_a_coverage_hole() {
-        let opts = Options {
-            only: vec!["ghost-package".into(), "mg-sbom".into()],
-            jobs: None,
-            out: None,
-            emit: None,
-        };
-        let report = vec![entry("mg-sbom.exe", "aa", "aa")];
-        let uncovered = uncovered_members(Path::new("."), &opts, &report).unwrap();
-        assert_eq!(uncovered, vec!["ghost-package".to_string()]);
-    }
-
-    #[test]
-    fn full_coverage_reports_no_holes() {
-        let opts = Options {
-            only: vec!["mg-sbom".into(), "attest".into()],
-            jobs: None,
-            out: None,
-            emit: None,
-        };
-        let report = vec![
-            entry("mg-sbom.exe", "aa", "aa"),
-            entry("libattest.rlib", "bb", "bb"),
-        ];
-        assert!(uncovered_members(Path::new("."), &opts, &report)
-            .unwrap()
-            .is_empty());
     }
 }

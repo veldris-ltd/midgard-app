@@ -17,16 +17,29 @@
 #
 # NOTE: the base is pinned by digest for reproducibility. Production swaps it for a
 # distroless/`scratch`+musl base; here it is the offline-available toolchain image.
+#
+# The image is built to be BIT-REPRODUCIBLE: deploy/images/build.sh builds it twice,
+# uncached, and requires the two image digests to be equal. Three things make that
+# hold — the digest-pinned base; `SOURCE_DATE_EPOCH` with the exporter's
+# `rewrite-timestamp`, which fixes the created time and every file time in every
+# layer; and nothing in a RUN step that writes the date into a file (see the service
+# account below). [AC-M-6] [AC-RF-SC-5b]
 
 ARG BASE=rust:1.82@sha256:d9c3c6f1264a547d84560e06ffd79ed7a799ce0bff0980b26cf10d29af888377
 FROM ${BASE}
 
+# Declared so BuildKit applies it to this stage's metadata and file times.
+ARG SOURCE_DATE_EPOCH
 ARG SERVICE
 ENV MIDGARD_SERVICE=${SERVICE}
 ENV MIDGARD_RELEASE_TRUST_KEY=/trust/release-trust.pub
 
-# A dedicated non-root, no-login service account.
-RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin midgard
+# A dedicated non-root, no-login service account. Written directly rather than with
+# `useradd`, which stamps the day the account was created into /etc/shadow — the same
+# Dockerfile would then build a different image tomorrow. The account has no shadow
+# entry and no password: it cannot log in, which is the point.
+RUN echo 'midgard:x:10001:10001::/nonexistent:/usr/sbin/nologin' >> /etc/passwd \
+    && echo 'midgard:x:10001:' >> /etc/group
 
 COPY bundle/ /app/
 COPY release-trust.pub /trust/release-trust.pub

@@ -222,7 +222,12 @@ fn a_wrong_key_truncation_trailing_bytes_or_an_existing_file_is_refused() {
 fn a_version_1_bundle_imports_through_the_streaming_path() {
     let dir = scratch("v1");
     let (vk, sk) = keys();
-    let sbom = generate_sbom("heimdall", "0.9.0", "service", vec![]);
+    let sbom = generate_sbom(
+        "heimdall",
+        "0.9.0",
+        "service",
+        vec![SbomComponent::new("heimdall", "0.9.0")],
+    );
     let artefact = build_and_sign(
         "heimdall",
         "0.9.0",

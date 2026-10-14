@@ -8,18 +8,31 @@
 //!   * any component whose licence is not satisfiable by the allow-list;
 //!   * any component with no licence metadata at all;
 //!   * an expired exception of either kind;
-//!   * an advisory database that is absent, empty, or older than its own
-//!     staleness limit.
+//!   * an advisory database that is absent, empty, unreadable in part, dated in
+//!     the future, or older than its own staleness limit.
 //!
 //! ```text
-//! mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--policy-dir <dir>]
-//!         [--today YYYY-MM-DD] [--advisory-only] [--out findings.json]
+//! mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--npm-advisory-db <dir>]
+//!         [--policy-dir <dir>] [--today YYYY-MM-DD] [--advisory-only]
+//!         [--out findings.json]
+//! mg-scan import-osv --from <dir> --packages <file> --out <dir>
+//!         --date YYYY-MM-DD --source <url>
 //! ```
+//!
+//! ## One database per ecosystem
+//! A component is matched against the advisory database of **its own**
+//! ecosystem, read from its purl: `pkg:cargo/…` against RustSec
+//! (`vendor/advisory-db`), `pkg:npm/…` against the vendored OSV snapshot
+//! (`vendor/advisory-db-npm`). A crate and an npm package can share a name, and
+//! an advisory for one says nothing about the other. A component of an ecosystem
+//! with no vendored database, or an npm package the snapshot was not filtered
+//! for, is a blocking finding: "nobody looked" must never read as "clean".
+//! `import-osv` builds that snapshot from a directory of OSV documents.
 //!
 //! `--advisory-only` reports without failing on anything below CRITICAL — the PR
 //! mode, so exposure is discovered at review time rather than at release time.
 //! It still fails on CRITICAL, because a critical advisory is not news anyone
-//! should merge past.
+//! should merge past. It never calls a run clean that a release would refuse.
 //!
 //! Exit codes: `0` clean, `2` usage error, `1` refused.
 //!
@@ -27,6 +40,22 @@
 //! Everything is local: the SBOM, `supply-chain/*.toml`, and the vendored
 //! `vendor/advisory-db`. The scan never resolves a name over the network, which
 //! is why the database's staleness is enforced rather than assumed.
+//!
+//! ## The clock
+//! Staleness and exception expiry are judged against the **system clock**.
+//! `SOURCE_DATE_EPOCH` is deliberately not consulted: it pins the date *of a
+//! build* so its output is reproducible, and reproducible-build shells export it
+//! as a fixed instant years in the past. Read as "today", that would make every
+//! database fresh and every exception unexpired. `--today` overrides the clock
+//! for tests and says so on stderr; either way a snapshot dated after "today" is
+//! refused, because a clock that runs behind the data is not one to judge age by.
+//!
+//! ## One reading of the SBOM
+//! The SBOM is parsed with the same strict parser, and passes the same structural
+//! gate, as `mg-sign` and `mg-verify` (`attest::sbom`). Every entry under
+//! `components` is scanned whatever its `type`, nested components included, so
+//! this tool and the verifier cannot disagree about what a signed bill of
+//! materials contains.
 
 mod advisory;
 mod licence;
@@ -36,21 +65,43 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use advisory::Database;
+use attest::json::{self, Json};
 use licence::Policy;
 use semver::Version;
 
 const USAGE: &str = "\
 usage:
-  mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--policy-dir <dir>]
-          [--today YYYY-MM-DD] [--advisory-only] [--out <findings.json>]
+  mg-scan <sbom.cdx.json> [--advisory-db <dir>] [--npm-advisory-db <dir>]
+          [--policy-dir <dir>] [--today YYYY-MM-DD] [--advisory-only]
+          [--out <findings.json>]
+  mg-scan import-osv --from <dir> --packages <file> --out <dir>
+          --date YYYY-MM-DD --source <url>
 
 Refuses unless every component in the SBOM has an allowed licence and no
 blocking advisory. Exceptions live in supply-chain/{licences,advisories}.toml
-and must carry an owner and an expiry; an expired exception is a refusal.
+and must carry an owner, a reason and an expiry; an expired exception is a
+refusal.
 ";
 
+/// The CycloneDX property `mg-sbom` records each component's origin under.
+const SOURCE_PROPERTY: &str = "midgard:source";
+/// Its value for a path/workspace member — our own code, not a registry crate.
+const SOURCE_WORKSPACE: &str = "workspace";
+
 fn main() -> ExitCode {
-    match run() {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    // Help is its own invocation. It exits 0, so it must never be reachable from
+    // a command line that also names an SBOM: a caller that checks only the exit
+    // code would read that as "scanned and clean".
+    if matches!(argv.as_slice(), [only] if is_help(only)) {
+        print!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    let result = match argv.first().map(String::as_str) {
+        Some("import-osv") => import_osv(&argv[1..]),
+        _ => run(&argv),
+    };
+    match result {
         Ok(code) => code,
         Err(Failure::Usage(m)) => {
             eprintln!("mg-scan: {m}\n");
@@ -62,6 +113,10 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn is_help(arg: &str) -> bool {
+    arg == "-h" || arg == "--help"
 }
 
 #[derive(Debug)]
@@ -76,14 +131,19 @@ struct Component {
     name: String,
     version: String,
     purl: String,
+    /// The package ecosystem, from the purl's type: `cargo`, `npm`, …
+    ecosystem: String,
     /// SPDX expression; `None` when the SBOM recorded no licence.
     licence: Option<String>,
-    /// Whether this component was fetched from the registry (crates.io). Detected
-    /// from the presence of an integrity `hashes` block, which the SBOM carries only
-    /// for crates with a `Cargo.lock` checksum. A path/workspace member has none —
-    /// and RustSec advisories, which are keyed to crates.io package names, do NOT
-    /// apply to a local crate that merely shares a name. [RT-41] [FR-MS-6]
-    from_registry: bool,
+    /// Whether the SBOM positively identifies this as a path/workspace member.
+    ///
+    /// RustSec advisories are keyed to crates.io package names and do NOT apply
+    /// to a local crate that merely shares one, so a workspace member is not
+    /// matched against the database. That exemption is granted only on a
+    /// positive statement (`midgard:source = workspace`, which `mg-sbom` derives
+    /// from `Cargo.lock`). A component that says nothing about its origin — a
+    /// git dependency, an SBOM from another tool — is matched. [RT-41] [FR-MS-6]
+    workspace_member: bool,
 }
 
 /// One reason a component was flagged.
@@ -93,18 +153,23 @@ struct Finding {
     purl: String,
     kind: String,
     detail: String,
+    /// Whether this finding refuses a release.
     blocking: bool,
 }
 
-fn run() -> Result<ExitCode, Failure> {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    if argv.iter().any(|a| a == "-h" || a == "--help") {
-        print!("{USAGE}");
-        return Ok(ExitCode::SUCCESS);
+impl Finding {
+    /// Whether this finding fails the run in the given mode. A release is
+    /// refused by every blocking finding; a PR (`--advisory-only`) only by an
+    /// unexcused CRITICAL advisory.
+    fn fails(&self, advisory_only: bool) -> bool {
+        self.blocking && (!advisory_only || self.kind == "advisory-critical")
     }
+}
 
+fn run(argv: &[String]) -> Result<ExitCode, Failure> {
     let mut sbom_path: Option<PathBuf> = None;
     let mut db_dir = PathBuf::from("vendor/advisory-db");
+    let mut npm_db_dir = PathBuf::from("vendor/advisory-db-npm");
     let mut policy_dir = PathBuf::from("supply-chain");
     let mut today: Option<String> = None;
     let mut advisory_only = false;
@@ -119,8 +184,17 @@ fn run() -> Result<ExitCode, Failure> {
                 .ok_or_else(|| Failure::Usage(format!("{what} requires a value")))
         };
         match argv[i].as_str() {
+            help if is_help(help) => {
+                return Err(Failure::Usage(format!(
+                    "{help} must be the only argument — it does not scan anything"
+                )))
+            }
             "--advisory-db" => {
                 db_dir = PathBuf::from(need(i, "--advisory-db")?);
+                i += 2;
+            }
+            "--npm-advisory-db" => {
+                npm_db_dir = PathBuf::from(need(i, "--npm-advisory-db")?);
                 i += 2;
             }
             "--policy-dir" => {
@@ -153,7 +227,16 @@ fn run() -> Result<ExitCode, Failure> {
     }
 
     let sbom_path = sbom_path.ok_or_else(|| Failure::Usage("no SBOM given".into()))?;
-    let today = today.unwrap_or_else(build_date);
+    let today = match today {
+        Some(t) => {
+            if civil_days(&t).is_none() {
+                return Err(Failure::Usage(format!("--today {t:?} is not YYYY-MM-DD")));
+            }
+            eprintln!("mg-scan: WARNING — judging age and expiry against --today {t}, not the system clock");
+            t
+        }
+        None => system_date(),
+    };
 
     // --- inputs, each of which fails closed if unusable ---------------------
     let sbom = std::fs::read_to_string(&sbom_path)
@@ -180,29 +263,75 @@ fn run() -> Result<ExitCode, Failure> {
     }
 
     let advisory_exceptions =
-        parse_advisory_exceptions(&policy_dir.join("advisories.toml")).map_err(Failure::Refused)?;
+        load_advisory_exceptions(&policy_dir.join("advisories.toml")).map_err(Failure::Refused)?;
 
-    let expected_advisories = check_db_freshness(&db_dir, &today).map_err(Failure::Refused)?;
+    let expected_advisories =
+        check_db_freshness(&db_dir, &today, false).map_err(Failure::Refused)?;
     let db = Database::load(&db_dir).map_err(Failure::Refused)?;
 
-    // The snapshot manifest records how many advisories it vendored. If fewer
-    // load, something is dropping them — a parser that silently skips what it
-    // cannot read is indistinguishable from a clean scan, and that is precisely
-    // the failure this gate exists to prevent. (It happened once already: CVSS
-    // 4.0 vectors were being discarded whole.)
-    if db.count < expected_advisories {
+    // The snapshot manifest records how many advisories it vendored, and the
+    // number loaded must be that number exactly. Fewer means something is
+    // dropping them — a parser that silently skips what it cannot read is
+    // indistinguishable from a clean scan (it happened once already: CVSS 4.0
+    // vectors were being discarded whole). More means the directory is not the
+    // snapshot the manifest describes, and a surplus could mask the same number
+    // dropped.
+    if db.count != expected_advisories {
         return Err(Failure::Refused(format!(
-            "advisory database declares {expected_advisories} advisories but only {} loaded — \
-             {} were silently dropped; the parser is at fault, not the data",
-            db.count,
-            expected_advisories - db.count
+            "advisory database declares {expected_advisories} advisories but {} loaded — \
+             the directory is not the snapshot its manifest describes",
+            db.count
         )));
     }
 
+    // The npm snapshot is loaded only when the SBOM has npm components to match:
+    // a Rust artefact's scan does not depend on it. When it is needed it is held
+    // to the same rules as the RustSec database — fresh, complete, readable.
+    let npm_needed = components
+        .iter()
+        .any(|c| c.ecosystem == "npm" && !c.workspace_member);
+    let npm = if npm_needed {
+        let expected = check_db_freshness(&npm_db_dir, &today, true).map_err(|e| {
+            Failure::Refused(format!(
+                "the SBOM lists npm packages, and the npm advisory database is not usable: {e}"
+            ))
+        })?;
+        let db = Database::load_osv(&npm_db_dir, "npm").map_err(Failure::Refused)?;
+        if db.count != expected {
+            return Err(Failure::Refused(format!(
+                "npm advisory database declares {expected} advisories but {} loaded — \
+                 the directory is not the snapshot its manifest describes",
+                db.count
+            )));
+        }
+        let covered = std::fs::read_to_string(npm_db_dir.join("packages.txt"))
+            .map_err(|e| {
+                Failure::Refused(format!(
+                    "cannot read {}: {e}",
+                    npm_db_dir.join("packages.txt").display()
+                ))
+            })?
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect::<std::collections::BTreeSet<String>>();
+        Some((db, covered))
+    } else {
+        None
+    };
+
+    let members = components.iter().filter(|c| c.workspace_member).count();
     eprintln!(
-        "mg-scan: {} component(s), {} advisories, {} allowed licence id(s)",
+        "mg-scan: {} component(s) — {} matched against advisories ({} RustSec{}), {} workspace \
+         member(s) exempt from advisory matching; {} allowed licence id(s)",
         components.len(),
+        components.len() - members,
         db.count,
+        match &npm {
+            Some((n, _)) => format!(", {} npm", n.count),
+            None => String::new(),
+        },
+        members,
         policy.allowed_count()
     );
 
@@ -266,15 +395,49 @@ fn run() -> Result<ExitCode, Failure> {
             Some(_) => {}
         }
 
-        // RustSec advisories are keyed to crates.io package names. A path/workspace
-        // member is our own code, not the registry crate of the same name, so it is
-        // never matched against the advisory database — that would flag a name
-        // collision (e.g. our `telemetry` vs the abandoned crates.io `telemetry`) as
-        // a phantom vulnerability. Licence checks above still apply to every
-        // component. [RT-41] [FR-MS-6]
-        if !c.from_registry {
+        // A workspace member is our own code, not the registry crate of the same
+        // name, so it is not matched against the advisory database — that would
+        // flag a name collision (e.g. our `telemetry` vs the abandoned crates.io
+        // `telemetry`) as a phantom vulnerability. Licence checks above still
+        // apply to every component. [RT-41] [FR-MS-6]
+        if c.workspace_member {
             continue;
         }
+
+        // Its own ecosystem's database, and no other. [AC-RF-SC-5b]
+        let advisories: &Database = match (c.ecosystem.as_str(), &npm) {
+            ("cargo", _) => &db,
+            ("npm", Some((npm_db, covered))) => {
+                if !covered.contains(&c.name) {
+                    // The snapshot is filtered to the packages the lockfile named
+                    // when it was made. A package added since has no advisories
+                    // in it — which is absence of data, not absence of findings.
+                    findings.push(Finding {
+                        component: format!("{}@{}", c.name, c.version),
+                        purl: c.purl.clone(),
+                        kind: "advisory-uncovered".into(),
+                        detail: "the npm advisory snapshot was not filtered for this package; \
+                                 refresh it (just advisory-db-npm-refresh)"
+                            .into(),
+                        blocking: true,
+                    });
+                    continue;
+                }
+                npm_db
+            }
+            (other, _) => {
+                findings.push(Finding {
+                    component: format!("{}@{}", c.name, c.version),
+                    purl: c.purl.clone(),
+                    kind: "ecosystem-unsupported".into(),
+                    detail: format!(
+                        "no advisory database is vendored for {other} packages; it was not scanned"
+                    ),
+                    blocking: true,
+                });
+                continue;
+            }
+        };
 
         let Some(version) = Version::parse(&c.version) else {
             // A version we cannot parse cannot be matched against advisory
@@ -289,7 +452,7 @@ fn run() -> Result<ExitCode, Failure> {
             continue;
         };
 
-        for a in db.for_crate(&c.name) {
+        for a in advisories.for_crate(&c.name) {
             if !a.affects(&version) {
                 continue;
             }
@@ -326,6 +489,7 @@ fn run() -> Result<ExitCode, Failure> {
             .cmp(&a.blocking)
             .then_with(|| a.component.cmp(&b.component))
             .then_with(|| a.kind.cmp(&b.kind))
+            .then_with(|| a.detail.cmp(&b.detail))
     });
 
     for f in &findings {
@@ -343,36 +507,34 @@ fn run() -> Result<ExitCode, Failure> {
         eprintln!("mg-scan: wrote {}", path.display());
     }
 
-    // In advisory-only (PR) mode, only CRITICAL still blocks.
-    let blocking: Vec<&Finding> = findings
-        .iter()
-        .filter(|f| {
-            if advisory_only {
-                f.kind == "advisory-critical"
-            } else {
-                f.blocking
-            }
-        })
-        .collect();
+    let release_blocking = findings.iter().filter(|f| f.blocking).count();
+    let failing = findings.iter().filter(|f| f.fails(advisory_only)).count();
 
     println!(
-        "mg-scan: {} finding(s), {} blocking",
-        findings.len(),
-        blocking.len()
+        "mg-scan: {} finding(s), {release_blocking} blocking a release",
+        findings.len()
     );
 
-    if blocking.is_empty() {
-        println!("mg-scan: OK — no blocking advisory or licence violation");
-        Ok(ExitCode::SUCCESS)
-    } else {
-        Err(Failure::Refused(format!(
-            "{} blocking finding(s); see the BLOCK lines above",
-            blocking.len()
-        )))
+    if failing > 0 {
+        return Err(Failure::Refused(format!(
+            "{failing} blocking finding(s); see the BLOCK lines above"
+        )));
     }
+    if release_blocking > 0 {
+        // Only reachable in --advisory-only mode. The run passes, and says
+        // exactly what it is passing over.
+        println!(
+            "mg-scan: PASSED (advisory-only) — nothing CRITICAL, but {release_blocking} \
+             finding(s) above WOULD BLOCK A RELEASE"
+        );
+    } else {
+        println!("mg-scan: OK — no blocking advisory or licence violation");
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// A recorded advisory exception.
+#[derive(Debug)]
 struct AdvisoryException {
     id: String,
     krate: String,
@@ -380,66 +542,127 @@ struct AdvisoryException {
     expires: String,
 }
 
-fn parse_advisory_exceptions(path: &Path) -> Result<Vec<AdvisoryException>, String> {
+fn load_advisory_exceptions(path: &Path) -> Result<Vec<AdvisoryException>, String> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    parse_advisory_exceptions(&text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Parse `supply-chain/advisories.toml`.
+///
+/// Every field the format demands must be present **and say something**: an
+/// exception whose owner or reason is the empty string is not a decision anyone
+/// made, and a compensating control with nothing to follow is a claim nobody can
+/// check.
+fn parse_advisory_exceptions(text: &str) -> Result<Vec<AdvisoryException>, String> {
+    type Fields = std::collections::BTreeMap<String, String>;
+
+    let finish =
+        |cur: Option<(String, Fields)>, out: &mut Vec<AdvisoryException>| -> Result<(), String> {
+            let Some((id, f)) = cur else { return Ok(()) };
+            let need = |k: &str| -> Result<String, String> {
+                match f.get(k).map(|v| v.trim()) {
+                    None => Err(format!("advisory exception {id} has no `{k}`")),
+                    Some("") => Err(format!("advisory exception {id} has an empty `{k}`")),
+                    Some(v) => Ok(v.to_string()),
+                }
+            };
+            need("reason")?;
+            // A compensating control is mandatory: accepting exposure without one is
+            // not risk acceptance, it is risk ignorance. It must point at something.
+            let control = need("compensating_control")?;
+            if !has_link(&control) {
+                return Err(format!(
+                    "advisory exception {id}: `compensating_control` must link to the control \
+                 (a URL, or a path to a document in this repository)"
+                ));
+            }
+            // `crate` for a Rust advisory; `package` reads better for an npm one.
+            let krate = need("crate").or_else(|e| need("package").map_err(|_| e))?;
+            let (owner, expires) = (need("owner")?, need("expires")?);
+            if civil_days(&expires).is_none() {
+                return Err(format!(
+                    "advisory exception {id}: `expires` {expires:?} is not YYYY-MM-DD"
+                ));
+            }
+            out.push(AdvisoryException {
+                id,
+                krate,
+                owner,
+                expires,
+            });
+            Ok(())
+        };
 
     let mut out = Vec::new();
-    let mut current: Option<(String, std::collections::BTreeMap<String, String>)> = None;
-    let finish = |cur: Option<(String, std::collections::BTreeMap<String, String>)>,
-                  out: &mut Vec<AdvisoryException>|
-     -> Result<(), String> {
-        let Some((id, f)) = cur else { return Ok(()) };
-        let need = |k: &str| -> Result<String, String> {
-            f.get(k)
-                .cloned()
-                .ok_or_else(|| format!("advisory exception {id} has no `{k}`"))
-        };
-        // A compensating control is mandatory: accepting exposure without one is
-        // not risk acceptance, it is risk ignorance.
-        need("compensating_control")?;
-        need("reason")?;
-        let (krate, owner, expires) = (need("crate")?, need("owner")?, need("expires")?);
-        out.push(AdvisoryException {
-            id,
-            krate,
-            owner,
-            expires,
-        });
-        Ok(())
-    };
-
-    for raw in text.lines() {
-        let line = if raw.trim_start().starts_with('#') {
-            ""
-        } else {
-            raw
-        }
-        .trim();
-        if line.is_empty() {
+    let mut current: Option<(String, Fields)> = None;
+    let mut lines = text.lines();
+    while let Some(raw) = lines.next() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         if let Some(h) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             finish(current.take(), &mut out)?;
             if let Some(id) = h.strip_prefix("advisories.") {
-                current = Some((
-                    id.trim_matches('"').to_string(),
-                    std::collections::BTreeMap::new(),
-                ));
+                current = Some((id.trim_matches('"').to_string(), Fields::new()));
             }
             continue;
         }
-        if let (Some((k, v)), Some((_, fields))) = (line.split_once('='), current.as_mut()) {
-            fields.insert(k.trim().to_string(), v.trim().trim_matches('"').to_string());
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(format!("expected `key = value`, got {line:?}"));
+        };
+        let Some((_, fields)) = current.as_mut() else {
+            return Err(format!(
+                "`{}` is outside any [advisories.\"<id>\"] table",
+                key.trim()
+            ));
+        };
+        // A basic string may continue over lines with a trailing backslash, as
+        // the format's own example does.
+        let mut value = value.trim().to_string();
+        while value.ends_with('\\') {
+            value.pop();
+            match lines.next() {
+                Some(next) => value.push_str(next.trim()),
+                None => return Err(format!("`{}` ends in a dangling backslash", key.trim())),
+            }
         }
+        let value = value
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .ok_or_else(|| format!("`{}` must be a quoted string", key.trim()))?;
+        fields.insert(key.trim().to_string(), value.to_string());
     }
     finish(current.take(), &mut out)?;
     Ok(out)
 }
 
-/// Refuse an advisory database that is missing, empty, or too old to be trusted.
-/// Returns the advisory count the snapshot claims to contain.
-fn check_db_freshness(db_dir: &Path, today: &str) -> Result<usize, String> {
+/// Whether a compensating control points at something a reader can follow: a
+/// URL, or a path to a file (`docs/…/runbook.md`).
+fn has_link(text: &str) -> bool {
+    text.split_whitespace()
+        .map(|t| t.trim_matches(|c: char| matches!(c, '.' | ',' | ';' | ':' | '(' | ')' | '`')))
+        .any(|t| {
+            let url = ["https://", "http://"]
+                .iter()
+                .any(|p| t.strip_prefix(p).is_some_and(|rest| rest.contains('.')));
+            let path = t.contains('/')
+                && t.rsplit('/')
+                    .next()
+                    .is_some_and(|file| file.contains('.') && !file.starts_with('.'));
+            url || path
+        })
+}
+
+/// Refuse an advisory database that is missing, empty, or whose age cannot be
+/// trusted. Returns the advisory count the snapshot claims to contain.
+///
+/// `filtered` says the snapshot is one cut down to the packages a lockfile names
+/// (the npm snapshot). Such a snapshot may honestly hold no advisories at all —
+/// its `packages.txt` is what shows the packages were looked up — whereas an
+/// unfiltered database with none in it is simply empty.
+fn check_db_freshness(db_dir: &Path, today: &str, filtered: bool) -> Result<usize, String> {
     let manifest = db_dir.join("snapshot.toml");
     let text = std::fs::read_to_string(&manifest).map_err(|e| {
         format!(
@@ -454,17 +677,34 @@ fn check_db_freshness(db_dir: &Path, today: &str) -> Result<usize, String> {
             Some(rest.trim_matches('"').to_string())
         })
     };
+    // A limit that is written down but unreadable is an error, not an invitation
+    // to substitute a default the author did not choose.
+    let days = |k: &str, default: i64| -> Result<i64, String> {
+        match field(k) {
+            None => Ok(default),
+            Some(v) => v.parse::<i64>().ok().filter(|n| *n > 0).ok_or_else(|| {
+                format!("snapshot.toml: {k} = {v:?} is not a positive number of days")
+            }),
+        }
+    };
     let date = field("date").ok_or("snapshot.toml records no date")?;
-    let warn: i64 = field("warn_after_days")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(30);
-    let fail: i64 = field("fail_after_days")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(180);
+    let warn = days("warn_after_days", 30)?;
+    let fail = days("fail_after_days", 180)?;
+    if fail < warn {
+        return Err(format!(
+            "snapshot.toml: fail_after_days ({fail}) is below warn_after_days ({warn})"
+        ));
+    }
 
     let age = days_between(&date, today)
         .ok_or_else(|| format!("snapshot.toml date {date:?} is not YYYY-MM-DD"))?;
 
+    if age < 0 {
+        return Err(format!(
+            "advisory database snapshot is dated {date}, after today ({today}) — the clock is \
+             wrong, so neither the database's age nor any exception's expiry can be judged"
+        ));
+    }
     if age > fail {
         return Err(format!(
             "advisory database is {age} days old (snapshot {date}, limit {fail}) — \
@@ -478,7 +718,7 @@ fn check_db_freshness(db_dir: &Path, today: &str) -> Result<usize, String> {
     let count: usize = field("advisory_count")
         .and_then(|v| v.parse().ok())
         .ok_or("snapshot.toml records no advisory_count")?;
-    if count == 0 {
+    if count == 0 && !filtered {
         return Err(
             "snapshot.toml declares zero advisories — an empty database \
                     reports every artefact clean"
@@ -521,14 +761,9 @@ fn expired(expires: &str, today: &str) -> bool {
     }
 }
 
-/// The build date, from SOURCE_DATE_EPOCH when set so the gate is reproducible,
-/// else the system clock.
-fn build_date() -> String {
-    if let Ok(v) = std::env::var("SOURCE_DATE_EPOCH") {
-        if let Ok(secs) = v.parse::<i64>() {
-            return date_from_unix(secs);
-        }
-    }
+/// Today's date (UTC) from the system clock. See "The clock" in the module docs
+/// for why `SOURCE_DATE_EPOCH` is not consulted.
+fn system_date() -> String {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => date_from_unix(d.as_secs() as i64),
         Err(_) => "1970-01-01".to_string(),
@@ -549,39 +784,264 @@ fn date_from_unix(secs: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// Read components out of a CycloneDX document.
+/// Read every component out of a CycloneDX document.
+///
+/// The document first passes `attest::sbom::validate` — the gate `mg-sign` and
+/// `mg-verify` apply — and is then walked as parsed JSON, so a component is
+/// scanned however the file happens to be formatted and whatever its `type`.
 fn parse_sbom(text: &str) -> Result<Vec<Component>, String> {
-    if !text.contains("\"bomFormat\"") || !text.contains("\"CycloneDX\"") {
-        return Err("not a CycloneDX document".into());
-    }
+    attest::sbom::validate(text.as_bytes())?;
+    let doc = json::parse(text).map_err(|e| format!("not valid JSON: {e}"))?;
     let mut out = Vec::new();
-    for chunk in text.split("\"type\": \"library\"").skip(1) {
-        let chunk = chunk.split("}\n").next().unwrap_or(chunk);
-        let field = |k: &str| -> Option<String> {
-            let key = format!("\"{k}\": \"");
-            let at = chunk.find(&key)? + key.len();
-            let end = at + chunk[at..].find('"')?;
-            Some(chunk[at..end].to_string())
-        };
-        let (Some(name), Some(version)) = (field("name"), field("version")) else {
-            return Err("a component is missing name or version".into());
-        };
-        out.push(Component {
-            purl: field("purl").unwrap_or_else(|| format!("pkg:cargo/{name}@{version}")),
-            // An empty `licenses` array means "looked, found nothing"; the
-            // expression form means it was resolved.
-            licence: field("expression"),
-            // A registry crate carries a Cargo.lock checksum, emitted as a `hashes`
-            // block; a path/workspace member does not. [RT-41]
-            from_registry: chunk.contains("\"hashes\""),
-            name,
-            version,
-        });
-    }
+    collect_components(&doc, &mut out)?;
     Ok(out)
 }
 
+/// Append the components listed under `parent`, and theirs, recursively.
+fn collect_components(parent: &Json, out: &mut Vec<Component>) -> Result<(), String> {
+    let Some(list) = parent.get("components") else {
+        return Ok(());
+    };
+    let list = list.as_array().ok_or("`components` is not an array")?;
+    for c in list {
+        let field = |k: &str| -> Result<String, String> {
+            c.get(k)
+                .and_then(Json::as_str)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| format!("a component has no `{k}`"))
+        };
+        let name = field("name")?;
+        let version = field("version").map_err(|_| format!("component {name} has no `version`"))?;
+        let purl = field("purl").map_err(|_| format!("component {name} has no `purl`"))?;
+        let ecosystem = purl
+            .strip_prefix("pkg:")
+            .and_then(|rest| rest.split_once('/'))
+            .map(|(kind, _)| kind.to_string())
+            .filter(|kind| !kind.is_empty())
+            .ok_or_else(|| format!("component {name}: {purl:?} is not a package URL"))?;
+        out.push(Component {
+            ecosystem,
+            licence: licence_of(c).map_err(|e| format!("component {name}: {e}"))?,
+            workspace_member: source_of(c) == Some(SOURCE_WORKSPACE),
+            name,
+            version,
+            purl,
+        });
+        collect_components(c, out)?;
+    }
+    Ok(())
+}
+
+/// A component's licence as one SPDX expression, or `None` if it records none.
+///
+/// CycloneDX allows several entries; every one of them is a term the component
+/// is under, so they are joined with `AND` — an entry this gate would refuse
+/// cannot hide behind one it accepts.
+fn licence_of(component: &Json) -> Result<Option<String>, String> {
+    let Some(licenses) = component.get("licenses") else {
+        return Ok(None);
+    };
+    let entries = licenses.as_array().ok_or("`licenses` is not an array")?;
+    let mut terms: Vec<&str> = Vec::new();
+    for e in entries {
+        let term = e
+            .get("expression")
+            .and_then(Json::as_str)
+            .or_else(|| {
+                let l = e.get("license")?;
+                l.get("id").or_else(|| l.get("name")).and_then(Json::as_str)
+            })
+            .ok_or("a `licenses` entry has neither an expression nor a licence id")?;
+        terms.push(term);
+    }
+    Ok(match terms.as_slice() {
+        [] => None,
+        [one] => Some(one.to_string()),
+        many => Some(
+            many.iter()
+                .map(|t| format!("({t})"))
+                .collect::<Vec<_>>()
+                .join(" AND "),
+        ),
+    })
+}
+
+/// The origin `mg-sbom` recorded for a component, if any.
+fn source_of(component: &Json) -> Option<&str> {
+    component
+        .get("properties")?
+        .as_array()?
+        .iter()
+        .find(|p| p.get("name").and_then(Json::as_str) == Some(SOURCE_PROPERTY))?
+        .get("value")?
+        .as_str()
+}
+
+/// `mg-scan import-osv`: build the vendored npm advisory snapshot.
+///
+/// Reads every OSV document under `--from` (an unpacked osv.dev export), keeps
+/// those that affect a package named in `--packages` (one per line — the
+/// lockfile's packages, from `mg-sbom --pnpm-lock … --list-packages`), and writes
+/// `<out>/advisories/<id>.json`, `<out>/packages.txt` and `<out>/snapshot.toml`.
+/// The snapshot is therefore small and reviewable, and knows which packages it
+/// speaks for: a scan refuses an npm package that is not in `packages.txt`.
+fn import_osv(argv: &[String]) -> Result<ExitCode, Failure> {
+    let mut opts: std::collections::BTreeMap<&str, String> = std::collections::BTreeMap::new();
+    let known = ["--from", "--packages", "--out", "--date", "--source"];
+    let mut i = 0;
+    while i < argv.len() {
+        let flag = argv[i].as_str();
+        let Some(name) = known.iter().find(|k| **k == flag) else {
+            return Err(Failure::Usage(format!(
+                "import-osv: unknown argument {flag}"
+            )));
+        };
+        let value = argv
+            .get(i + 1)
+            .filter(|v| !v.starts_with("--"))
+            .ok_or_else(|| Failure::Usage(format!("{flag} requires a value")))?;
+        opts.insert(name, value.clone());
+        i += 2;
+    }
+    let get = |k: &str| {
+        opts.get(k)
+            .cloned()
+            .ok_or_else(|| Failure::Usage(format!("import-osv: {k} is required")))
+    };
+    let (from, out) = (PathBuf::from(get("--from")?), PathBuf::from(get("--out")?));
+    let (date, source) = (get("--date")?, get("--source")?);
+    if civil_days(&date).is_none() {
+        return Err(Failure::Usage(format!("--date {date:?} is not YYYY-MM-DD")));
+    }
+    let packages_path = get("--packages")?;
+    let packages: std::collections::BTreeSet<String> = std::fs::read_to_string(&packages_path)
+        .map_err(|e| Failure::Refused(format!("cannot read {packages_path}: {e}")))?
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if packages.is_empty() {
+        return Err(Failure::Refused(format!(
+            "{packages_path} names no packages"
+        )));
+    }
+
+    let mut files = Vec::new();
+    json_files(&from, &mut files).map_err(Failure::Refused)?;
+    if files.is_empty() {
+        return Err(Failure::Refused(format!(
+            "{} holds no OSV documents",
+            from.display()
+        )));
+    }
+    files.sort();
+
+    let advisories_dir = out.join("advisories");
+    // Replaced wholesale: an advisory withdrawn upstream must not linger here.
+    let _ = std::fs::remove_dir_all(&advisories_dir);
+    std::fs::create_dir_all(&advisories_dir).map_err(|e| {
+        Failure::Refused(format!("cannot create {}: {e}", advisories_dir.display()))
+    })?;
+
+    let mut kept = 0usize;
+    for path in &files {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| Failure::Refused(format!("cannot read {}: {e}", path.display())))?;
+        // An export also carries documents this reader has no use for (no
+        // affected list at all). Only a document that mentions one of OUR
+        // packages and still cannot be read is a failure.
+        let parsed = match advisory::parse_osv(&text, "npm") {
+            Ok(a) => a,
+            Err(e) => {
+                if packages.iter().any(|p| text.contains(&format!("\"{p}\""))) {
+                    return Err(Failure::Refused(format!(
+                        "cannot parse {}, which names a package in the lockfile: {e}",
+                        path.display()
+                    )));
+                }
+                continue;
+            }
+        };
+        let Some(first) = parsed.iter().find(|a| packages.contains(&a.package)) else {
+            continue;
+        };
+        let name: String = first
+            .id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        std::fs::write(advisories_dir.join(format!("{name}.json")), &text)
+            .map_err(|e| Failure::Refused(format!("cannot write advisory {name}: {e}")))?;
+        kept += 1;
+    }
+
+    let mut list = String::new();
+    for p in &packages {
+        list.push_str(p);
+        list.push('\n');
+    }
+    std::fs::write(out.join("packages.txt"), list)
+        .map_err(|e| Failure::Refused(format!("cannot write packages.txt: {e}")))?;
+    // A snapshot with no advisories is legitimate: it says these packages were
+    // looked up and nothing is recorded against them. packages.txt is the proof.
+    let manifest = format!(
+        "# Pinned snapshot of the OSV advisories for the npm packages this workspace locks.\n\
+         #\n\
+         # Written by `mg-scan import-osv` (just advisory-db-npm-refresh). Do not edit: the\n\
+         # scan refuses a directory that does not hold exactly `advisory_count` advisories,\n\
+         # and refuses an npm package that packages.txt does not list.\n\
+         [snapshot]\n\
+         source = \"{source}\"\n\
+         ecosystem = \"npm\"\n\
+         date = \"{date}\"\n\
+         advisory_count = {kept}\n\
+         package_count = {}\n\
+         \n\
+         [staleness]\n\
+         warn_after_days = 30\n\
+         fail_after_days = 180\n",
+        packages.len()
+    );
+    std::fs::write(out.join("snapshot.toml"), manifest)
+        .map_err(|e| Failure::Refused(format!("cannot write snapshot.toml: {e}")))?;
+
+    println!(
+        "mg-scan: imported {kept} advisories affecting {} locked npm package(s), from {} OSV document(s), into {}",
+        packages.len(),
+        files.len(),
+        out.display()
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Every `.json` file under `dir`, recursively.
+fn json_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))?;
+    for entry in entries {
+        let path = entry.map_err(|e| format!("cannot read entry: {e}"))?.path();
+        if path.is_dir() {
+            json_files(&path, out)?;
+        } else if path.extension().is_some_and(|x| x == "json") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
 fn write_findings(path: &Path, findings: &[Finding]) -> Result<(), String> {
+    std::fs::write(path, render_findings(findings))
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+fn render_findings(findings: &[Finding]) -> String {
     let mut s = String::from("{\n  \"findings\": [\n");
     for (i, f) in findings.iter().enumerate() {
         s.push_str(&format!(
@@ -594,11 +1054,24 @@ fn write_findings(path: &Path, findings: &[Finding]) -> Result<(), String> {
         s.push('\n');
     }
     s.push_str("  ]\n}\n");
-    std::fs::write(path, s).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    s
 }
 
+/// JSON string escaping: quotes, backslashes and every control character.
 fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o
 }
 
 #[cfg(test)]
@@ -615,26 +1088,26 @@ mod tests {
 }"#;
 
     #[test]
-    fn registry_vs_local_is_detected_from_the_integrity_hash() {
-        // A component with a Cargo.lock checksum (hashes block) is a registry crate;
-        // one without is a path/workspace member. Advisory matching is skipped for
-        // the latter, so a name collision with a crates.io crate is not a phantom
-        // vulnerability. [RT-41]
+    fn only_a_positive_statement_exempts_a_component_from_advisory_matching() {
+        // A workspace member shares nothing with the crates.io crate of the same
+        // name, so it is exempt — but only when the SBOM says it is one. A
+        // component that says nothing about its origin is matched. [RT-41]
         let sbom = r#"{ "bomFormat": "CycloneDX", "specVersion": "1.5", "components": [
-            { "type": "library", "name": "aes-gcm", "version": "0.10.3", "purl": "pkg:cargo/aes-gcm@0.10.3", "licenses": [], "hashes": [ { "alg": "SHA-256", "content": "ab" } ] },
-            { "type": "library", "name": "telemetry", "version": "0.0.0", "purl": "pkg:cargo/telemetry@0.0.0", "licenses": [ { "expression": "Apache-2.0" } ] }
+            { "type": "library", "name": "telemetry", "version": "0.0.0", "purl": "pkg:cargo/telemetry@0.0.0",
+              "properties": [ { "name": "midgard:source", "value": "workspace" } ] },
+            { "type": "library", "name": "aes-gcm", "version": "0.10.3", "purl": "pkg:cargo/aes-gcm@0.10.3",
+              "properties": [ { "name": "midgard:source", "value": "registry" } ] },
+            { "type": "library", "name": "from-git", "version": "1.0.0", "purl": "pkg:cargo/from-git@1.0.0",
+              "properties": [ { "name": "midgard:source", "value": "git" } ] },
+            { "type": "library", "name": "says-nothing", "version": "1.0.0", "purl": "pkg:cargo/says-nothing@1.0.0" }
         ] }"#;
         let comps = parse_sbom(sbom).expect("parses");
-        let registry = comps.iter().find(|c| c.name == "aes-gcm").unwrap();
-        let local = comps.iter().find(|c| c.name == "telemetry").unwrap();
-        assert!(
-            registry.from_registry,
-            "a crate with an integrity hash is from the registry"
-        );
-        assert!(
-            !local.from_registry,
-            "a workspace member (no hash) is not a registry crate"
-        );
+        let exempt: Vec<&str> = comps
+            .iter()
+            .filter(|c| c.workspace_member)
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(exempt, ["telemetry"]);
     }
 
     #[test]
@@ -650,8 +1123,61 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_non_cyclonedx_document() {
-        assert!(parse_sbom(r#"{"hello":"world"}"#).is_err());
+    fn every_component_is_read_whatever_its_type_or_formatting() {
+        // Compact, no `type`, a non-library type, and a nested component: a
+        // reader keyed on the text `"type": "library"` sees none of these.
+        let sbom = concat!(
+            r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":["#,
+            r#"{"type":"library","name":"compact","version":"1.0.0","purl":"pkg:cargo/compact@1.0.0"},"#,
+            r#"{"name":"untyped","version":"1.0.0","purl":"pkg:cargo/untyped@1.0.0"},"#,
+            r#"{"type":"framework","name":"framework","version":"1.0.0","purl":"pkg:cargo/framework@1.0.0","#,
+            r#""components":[{"type":"library","name":"nested","version":"2.0.0","purl":"pkg:cargo/nested@2.0.0"}]}"#,
+            r#"]}"#
+        );
+        let names: Vec<String> = parse_sbom(sbom)
+            .expect("parses")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, ["compact", "untyped", "framework", "nested"]);
+    }
+
+    #[test]
+    fn every_licence_entry_of_a_component_counts() {
+        let sbom = r#"{ "bomFormat": "CycloneDX", "specVersion": "1.5", "components": [
+            { "name": "two", "version": "1.0.0", "purl": "pkg:cargo/two@1.0.0",
+              "licenses": [ { "expression": "MIT OR Apache-2.0" }, { "license": { "id": "GPL-3.0" } } ] },
+            { "name": "by-id", "version": "1.0.0", "purl": "pkg:cargo/by-id@1.0.0",
+              "licenses": [ { "license": { "id": "MIT" } } ] }
+        ] }"#;
+        let c = parse_sbom(sbom).expect("parses");
+        assert_eq!(
+            c[0].licence.as_deref(),
+            Some("(MIT OR Apache-2.0) AND (GPL-3.0)"),
+            "a second entry cannot hide behind the first"
+        );
+        assert_eq!(c[1].licence.as_deref(), Some("MIT"));
+    }
+
+    #[test]
+    fn refuses_what_the_signer_and_verifier_refuse() {
+        for (tag, doc) in [
+            ("not cyclonedx", r#"{"hello":"world"}"#.to_string()),
+            ("truncated", SBOM[..SBOM.len() - 1].to_string()),
+            ("another version", SBOM.replace("\"1.5\"", "\"1.4\"")),
+            (
+                "a component with no purl",
+                r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[{"name":"a","version":"1"}]}"#
+                    .to_string(),
+            ),
+            (
+                "a component with no version",
+                r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[{"name":"a","purl":"pkg:cargo/a@1"}]}"#
+                    .to_string(),
+            ),
+        ] {
+            assert!(parse_sbom(&doc).is_err(), "{tag} must be refused");
+        }
     }
 
     #[test]
@@ -694,5 +1220,140 @@ mod tests {
             expired("whenever", "2026-01-01"),
             "an unreadable expiry is treated as expired"
         );
+    }
+
+    // --- advisory exceptions ---
+
+    const EXCEPTION: &str = r#"
+# Accepted exposure.
+[advisories]
+
+[advisories."RUSTSEC-2099-0001"]
+crate = "example"
+owner = "a.name"
+reason = "The vulnerable parser is only reachable from the CLI path, which \
+          the enclosure never invokes."
+compensating_control = "Egress broker denies the path; see docs/dev/operations/runbooks/example.md"
+expires = "2026-12-31"
+"#;
+
+    #[test]
+    fn a_complete_advisory_exception_is_read() {
+        let e = parse_advisory_exceptions(EXCEPTION).expect("parses");
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].id, "RUSTSEC-2099-0001");
+        assert_eq!(e[0].krate, "example");
+        assert_eq!(e[0].owner, "a.name");
+        assert_eq!(e[0].expires, "2026-12-31");
+        assert!(parse_advisory_exceptions("[advisories]\n# (empty)\n")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn an_advisory_exception_must_say_something_in_every_field() {
+        for (tag, broken) in [
+            ("no owner", EXCEPTION.replace("owner = \"a.name\"\n", "")),
+            ("empty owner", EXCEPTION.replace("\"a.name\"", "\"\"")),
+            ("blank owner", EXCEPTION.replace("\"a.name\"", "\"  \"")),
+            ("empty crate", EXCEPTION.replace("\"example\"", "\"\"")),
+            (
+                "no compensating control",
+                EXCEPTION
+                    .lines()
+                    .filter(|l| !l.starts_with("compensating_control"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            (
+                "a control that links to nothing",
+                EXCEPTION.replace(
+                    "Egress broker denies the path; see docs/dev/operations/runbooks/example.md",
+                    "Trust us, it is handled.",
+                ),
+            ),
+            (
+                "an unreadable expiry",
+                EXCEPTION.replace("2026-12-31", "next year"),
+            ),
+            (
+                "an unquoted value",
+                EXCEPTION.replace("\"a.name\"", "a.name"),
+            ),
+        ] {
+            assert!(
+                parse_advisory_exceptions(&broken).is_err(),
+                "{tag} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_compensating_control_must_point_somewhere() {
+        for yes in [
+            "see https://example.org/runbooks/egress",
+            "Egress broker denies it; see docs/dev/operations/runbooks/example.md.",
+            "(docs/ops/PKI.md)",
+        ] {
+            assert!(has_link(yes), "{yes:?} links to something");
+        }
+        for no in [
+            "",
+            "it is fine",
+            "handled and/or mitigated",
+            "https://",
+            "see the runbook.",
+        ] {
+            assert!(!has_link(no), "{no:?} links to nothing");
+        }
+    }
+
+    // --- modes and output ---
+
+    fn finding(kind: &str, blocking: bool) -> Finding {
+        Finding {
+            component: "c@1".into(),
+            purl: String::new(),
+            kind: kind.into(),
+            detail: String::new(),
+            blocking,
+        }
+    }
+
+    #[test]
+    fn pr_mode_fails_only_on_an_unexcused_critical() {
+        // Release mode: every blocking finding fails.
+        assert!(finding("advisory-high", true).fails(false));
+        assert!(finding("licence-unknown", true).fails(false));
+        assert!(!finding("advisory-medium", false).fails(false));
+
+        // PR mode: only CRITICAL — and not one a recorded exception covers,
+        // which release mode lets through too.
+        assert!(finding("advisory-critical", true).fails(true));
+        assert!(!finding("advisory-critical", false).fails(true));
+        assert!(!finding("advisory-high", true).fails(true));
+        assert!(!finding("licence-disallowed", true).fails(true));
+    }
+
+    #[test]
+    fn the_findings_report_is_valid_json_whatever_it_contains() {
+        let text = render_findings(&[Finding {
+            component: "odd\"name@1".into(),
+            purl: "pkg:cargo/odd".into(),
+            kind: "advisory-high".into(),
+            detail: "line one\nline two\ttabbed \u{1} back\\slash".into(),
+            blocking: true,
+        }]);
+        let doc = json::parse(text.trim()).expect("valid JSON");
+        let row = &doc.get("findings").and_then(Json::as_array).unwrap()[0];
+        assert_eq!(
+            row.get("detail").and_then(Json::as_str),
+            Some("line one\nline two\ttabbed \u{1} back\\slash")
+        );
+        assert_eq!(
+            row.get("component").and_then(Json::as_str),
+            Some("odd\"name@1")
+        );
+        assert_eq!(row.get("blocking").and_then(Json::as_bool), Some(true));
     }
 }

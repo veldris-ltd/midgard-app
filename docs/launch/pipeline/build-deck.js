@@ -131,7 +131,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
   // ── 1 · title ────────────────────────────────────────────────────────────
   {
     const s = base(
-      'Welcome. Midgard is a Veldris Ltd product: a sovereign, open-source, post-quantum alternative to the Palantir platform family, built and verified against a complete specification. ' +
+      'Welcome. Midgard is a Veldris Ltd product: a sovereign, open-source, post-quantum alternative to the Palantir platform family, built against a complete specification: five services run today and the rest is tested as libraries. ' +
       'Over the next twenty minutes I will show you what it is, watch it run end to end, and be precise about what is proven today and what still stands between this release candidate and general availability. (≈1 min)');
     eyebrow(s, 0, 'VELDRIS LTD · PRODUCT LAUNCH · SEPTEMBER 2026', M, 1.55, FAINT, 6);
     s.addText([{ text: 'MIDGARD', options: { color: TXT } }, { text: '.', options: { color: RED } }],
@@ -227,16 +227,16 @@ async function productSlide({ num, product, label, heading, points, shot, side =
     const hw = (W - 2 * M - 0.25) / 2;
     card(s, M, 6.0, hw, 0.85);
     para(s, 'Admin Control Panel', M + 0.3, 6.08, 2.6, 0.35, 13, TXT, { bold: true });
-    para(s, 'Role-separated RBAC, no super-admin, dual control, time-boxed break-glass, one PQ-signed ledger over seven subsystems', M + 0.3, 6.4, hw - 0.6, 0.4, 11, MUTED);
+    para(s, 'Role-separated RBAC and no super-admin. Dual control is live for enrolment; break-glass and the rest are tested libraries', M + 0.3, 6.4, hw - 0.6, 0.4, 11, MUTED);
     card(s, M + hw + 0.25, 6.0, hw, 0.85);
     para(s, 'Client platforms', M + hw + 0.55, 6.08, 2.6, 0.35, 13, TXT, { bold: true });
-    para(s, 'Native mobile, desktop (Tauri) and web (WASM + broker extension). Offline-first, hardware key custody, tiered inference', M + hw + 0.55, 6.4, hw - 0.6, 0.4, 11, MUTED);
+    para(s, 'One shared Rust core, tested as a library: offline-first sync, tiered inference. Six shells are specified, not built', M + hw + 0.55, 6.4, hw - 0.6, 0.4, 11, MUTED);
   }
 
   // ── 5 · design principles ───────────────────────────────────────────────
   {
     const s = base(
-      'Six principles, and each one is enforced by construction rather than by policy document. Sovereign: no core function requires an outbound call, and the acceptance suite proves it under docker network none. ' +
+      'Six principles, and each one is enforced by construction rather than by policy document. Sovereign: no core function requires an outbound call, and the build and the test suite run under docker network none. ' +
       'Post-quantum by default: hybrid ML-KEM in transit, ML-KEM-wrapped keys at rest, ML-DSA signatures everywhere. The object fabric is the centre, not a bolt-on. Every product calls Mimir for AI, never a hosted model. ' +
       'Every claim has a source and every action has lineage. And the core is open: Apache-2.0, reproducible builds, a CycloneDX SBOM with every release. (≈1 min)');
     eyebrow(s, 4, 'DESIGN PRINCIPLES', M, 0.55);
@@ -278,12 +278,12 @@ async function productSlide({ num, product, label, heading, points, shot, side =
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: bx, y: by, w: bw, h: bh, fill: { color: FILL2 }, line: { color: RED, width: 1, dashType: 'dash' }, rectRadius: 0.1 });
     mono(s, 'THE ENCLOSURE · AIR-GAP BOUNDARY · NO OUTBOUND CALL REQUIRED', bx + 0.2, by + 0.1, bw - 0.4, 0.25, 8.5, RED3);
     // left column, outside the boundary
-    box(M, 2.45, 2.55, 1.35, 'Operators & clients', 'Mobile · desktop · web · SDKs\nOffline-first, hardware key custody\nTLS 1.3 / PQ-mTLS to the edge');
+    box(M, 2.45, 2.55, 1.35, 'Operators & clients', 'Console · API · client core\nShells specified, not built\nTLS 1.3 / PQ-mTLS to the edge');
     arrow(M + 2.55, 3.12, bx + 0.35, 3.12, RED3);
     box(M, 4.45, 2.55, 1.0, 'External sources', 'PostgreSQL · S3 · Kafka\nvia the egress broker: TLS 1.3, pinned CA', FAINT, FILL2);
     arrow(bx + 0.35, 4.95, M + 2.55, 4.95, ACC.forge.m);
     gapLabel('EGRESS', M + 2.55, 4.68);
-    box(M, 5.75, 2.55, 1.0, 'Air-gapped sites', 'Signed .mgbundle on media; verifies itself offline, returns a signed receipt', ACC.bifrost.t, FILL2);
+    box(M, 5.75, 2.55, 1.0, 'Air-gapped sites', 'Signed .mgbundle on media; every artefact is verified offline before install', ACC.bifrost.t, FILL2);
     arrow(bx + 0.35, 6.25, M + 2.55, 6.25, ACC.bifrost.m);
     gapLabel('BUNDLE', M + 2.55, 5.98);
     // edge + core
@@ -299,7 +299,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
       arrow(bx + 5.7, 3.12, px, y + ph / 2, ACC[k].m);
     });
     mono(s, 'PQ-mTLS SERVICE MESH · HYBRID X25519 + ML-KEM-768', bx + 0.35, 3.95, 5.35, 0.22, 7.5, FAINT);
-    box(bx + 0.35, 4.3, 5.35, 0.95, 'Admin Control Panel', 'Dual control on every high-risk action · no super-admin · time-boxed break-glass · GitOps configuration · same ledger', TXT, FILL2);
+    box(bx + 0.35, 4.3, 5.35, 0.95, 'Admin Control Panel', 'Dual control on enrolment today · no super-admin · break-glass and signed configuration are tested libraries, not yet served', TXT, FILL2);
     box(bx + 0.35, 5.45, 5.35, 1.1, 'Deployment', 'Laptop (dev mode) · docker compose (5 services) · Kubernetes via Helm (hardened pods, default-deny network) · signed air-gap bundle for disconnected sites', TXT, FILL2);
     box(px, 5.95, pw, 0.6, 'Every hop audited', 'one ledger, ML-DSA-65, re-verified on start', SECURE, FILL2);
   }
@@ -310,7 +310,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
     points: [
       'Objects, properties and links: aircraft, facilities, crew, sensor feeds as real things, not rows in a table.',
       'Markings (clearance band plus compartment) and purposes are enforced per object at query time. What you cannot read never appears.',
-      'Actions are typed and policy-authorised. Consequential ones are human-gated by default: refused until a person authorises.',
+      'Actions are typed and policy-authorised, and gated by default: refused without a human-gate token. Tying that token to a named person is still to do.',
       'Every response carries the audit id of the signed ledger entry that authorised it.',
       'Schema comes from an ontology file; data is imported offline and validated against it, all or nothing.',
     ],
@@ -323,14 +323,14 @@ async function productSlide({ num, product, label, heading, points, shot, side =
   {
     const s = base(
       'Governance is the spine, not a report. Policy is deny by default: role, marking and purpose must all match a written rule, mandatory access control runs first, and anything not granted is denied. ' +
-      'You can dry-run a decision for a subject, clearance and purpose before it goes live, and the decision itself is ML-DSA-signed. Every read, write, action and AI step lands in one append-only ledger, and the service re-verifies that ledger on every start: a tampered ledger, keystore or policy file stops it from starting. (≈1 min)');
+      'You can dry-run a decision for a subject, clearance and purpose before it goes live, and the decision itself is ML-DSA-signed. Every read, write and action at the edge lands in one append-only ledger, and the service re-verifies that ledger on every start: a tampered ledger, keystore or policy file stops it from starting. (≈1 min)');
     eyebrow(s, 7, 'THE ENCLOSURE · GOVERNANCE', M, 0.55);
     title(s, 'Access is proven, not assumed', M, 0.9, 4.9, 28, 1.0);
     await iconCircle(s, 'FiShield', RED3, M, 2.0, 0.5);
     bullets(s, [
       'Deny by default. Role, marking and purpose must all match a written rule; mandatory access control runs first.',
       'Dry-run any decision before it goes live. The decision is ML-DSA-signed and audited like everything else.',
-      'One append-only ledger for reads, writes, actions and AI steps, re-verified on every start.',
+      'One append-only ledger for reads, writes and actions at the edge, re-verified on every start.',
       'Fail closed. A tampered ledger, keystore or policy file stops the service from starting.',
     ], M, 2.65, 4.9, 3.8, 13.5);
     const iw = 6.0, ix = W - M - iw;
@@ -347,7 +347,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
       'Connectors for PostgreSQL, S3 and Kafka, syncing incrementally from checkpoints inside an air-gapped sandbox.',
       'Sources outside the enclosure are reached only through the egress broker: TLS 1.3, one pinned CA per route.',
       'Datasets are content-addressed and versioned with ingest lineage; an unchanged source is the same version.',
-      'Expectations run on every build. Failing ones block promotion, so nobody downstream sees bad data.',
+      'Expectation checks that block promotion are a tested library; the running worker does not apply them yet.',
       'A pure-Rust partitioned compute engine: join, aggregate, sort and window, with spill to disk.',
     ],
     shot: shotPath('forge-pipeline'), sub: 'FORGE CONSOLE · PIPELINE BUILDER · BUILT-IN SAMPLE DATA',
@@ -359,8 +359,8 @@ async function productSlide({ num, product, label, heading, points, shot, side =
       'All inference runs in-enclosure over PQ-mTLS. Every product calls Mimir; nothing calls a hosted model.',
       'A model loads only from a signed manifest whose weights stream to the signed digest. One changed byte and the service refuses to start.',
       'Granite 3.3 2B Instruct (Apache-2.0) served on llama.cpp today: first token in 325 ms on a 12-core CPU. vLLM on GPU is wired, not yet run.',
-      'Answers are grounded in your own data with every claim cited. Five guardrails screen every input and tool call.',
-      'AI proposes, humans dispose: no consequential action auto-executes, by construction.',
+      'Grounded, cited answers and input guardrails are tested libraries. The running service answers a prompt without retrieval.',
+      'AI proposes, humans dispose: in the agent loop, a tested library, no consequential action runs without a recorded human decision.',
     ],
     shot: shotPath('mimir-studio'), sub: 'MIMIR CONSOLE · AGENT STUDIO · BUILT-IN SAMPLE DATA',
     notes: 'Mimir is the AIP counterpart. The inference plane is a running service: a certified caller opens a PQ-mTLS channel, policy decides whether it may infer, and every call, permitted or denied, is written to a sealed ledger the service re-verifies on restart. We have run a real model end to end: Granite 3.3 2B on CPU, staged from a signed manifest. (≈1 min)',
@@ -371,7 +371,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
       'Sources submit observations signed with their certified mesh key; an observation is fused only if policy, feed identity, signature and audit all pass.',
       'Observations sharing an entity key fuse into one tracked entity with contributing feeds, first and last seen, and latest attributes.',
       'The picture is sealed at rest after each change and recovered on restart; analysts read it as JSON or in the console.',
-      'Decision workflows rank options; people authorise. The authorisation, its evidence and what happened next become one signed record.',
+      'Ranked, cited options and human-authorised workflows are tested libraries. The running service does not generate options yet.',
     ],
     shot: shotPath('heimdall-picture'), sub: 'HEIMDALL CONSOLE · COMMON OPERATING PICTURE · SYNTHETIC REFERENCE LAYOUT',
     notes: 'Heimdall is the Maven Smart System counterpart. The feed gateway runs as a service today: a source with a certified identity signs its observations, four checks gate each one, refusals are audited too, and the fused picture survives a restart. The console view here is the product\'s own synthetic reference layout. (≈0.75 min)',
@@ -381,7 +381,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
     points: [
       'Every binary is rebuilt bit-for-bit, gets a CycloneDX SBOM, an offline CVE and licence scan, an ML-DSA signature and an attestation, in that order, each gate fail-closed.',
       'Services ship as verify-before-run images: the binary is re-verified inside the container before it starts.',
-      'Rollouts go ring by ring with health gates between rings and automatic rollback.',
+      'Ring-by-ring rollout with health gates and automatic rollback is a tested library. Services run one replica today.',
       'The fleet manager records every installation\'s version, liveness and drift from its channel over PQ-mTLS.',
       'Air-gapped sites receive one signed bundle on media. It verifies itself offline and streams a model\'s weights without holding them in memory.',
     ],
@@ -392,17 +392,17 @@ async function productSlide({ num, product, label, heading, points, shot, side =
   // ── 13 · admin & clients ────────────────────────────────────────────────
   {
     const s = base(
-      'Two cross-cutting layers. The admin control panel governs itself: role-separated RBAC with no super-admin, dual control on every high-risk action, a self-approval attempt refused and recorded, time-boxed break-glass with real alerts, and one tamper-evident ledger over all seven subsystems. ' +
-      'And the client platforms: one shared core behind native mobile, desktop and web shells, keys held in device hardware, offline-first with conflict-free sync when the connection returns. (≈0.75 min)');
+      'Two cross-cutting layers. The admin control panel is designed to govern itself: role-separated RBAC with no super-admin, and dual control, which is live today for enrolling a principal. The guarded-action orchestrator, break-glass and its alerts are tested libraries, and the console runs on sample data. ' +
+      'And the client platforms: one shared core, tested as a library, with offline-first, conflict-free sync. The native, desktop and web shells are specified and not built yet. (≈0.75 min)');
     eyebrow(s, 12, 'CONTROL & REACH', M, 0.55);
     title(s, 'No single person can do the dangerous things. And it works where the work happens.', M, 0.9, 12, 26, 1.0);
     const hw = (W - 2 * M - 0.4) / 2;
     frame(s, shotPath('admin-approvals'), M, 2.05, hw, 3.5);
     frame(s, shotPath('clients-mobile'), M + hw + 0.4, 2.05, hw, 3.5);
     para(s, 'Admin Control Panel', M, 5.7, hw, 0.35, 15, TXT, { bold: true });
-    para(s, 'Dual control: a second, different approver for every high-risk change. Break-glass is time-boxed and alerts. Seven subsystems, one signed ledger.', M, 6.05, hw, 0.8, 12, MUTED);
+    para(s, 'Dual control with a second, different approver: live for enrolment, a tested library for other high-risk changes. Break-glass is a tested library.', M, 6.05, hw, 0.8, 12, MUTED);
     para(s, 'Client platforms', M + hw + 0.4, 5.7, hw, 0.35, 15, TXT, { bold: true });
-    para(s, 'Native iOS, Android and Linux; Tauri desktop; WASM web app and broker-mode extension. Hardware key custody, offline-first, tiered inference.', M + hw + 0.4, 6.05, hw, 0.8, 12, MUTED);
+    para(s, 'One shared core, tested as a library. Native, desktop, web and extension shells are specified in SAD_06; none is built, so no key is held in device hardware.', M + hw + 0.4, 6.05, hw, 0.8, 12, MUTED);
   }
 
   // ── 14 · live demo ──────────────────────────────────────────────────────
@@ -466,14 +466,14 @@ async function productSlide({ num, product, label, heading, points, shot, side =
   // ── 16 · proof ──────────────────────────────────────────────────────────
   {
     const s = base(
-      'These are measurements from the repository, not projections. The seventy-two acceptance criteria pass end to end inside the pinned toolchain container with networking disabled. The full test sweep runs both crypto backends. ' +
+      'These are measurements, each with its run. On a fresh clone, in the pinned toolchain container with networking disabled, the workspace builds and eight hundred and seventy tests pass on both crypto backends. The seventy-two acceptance criteria each map to a test, and that gate has not yet been run against a public commit. ' +
       'Every one of the eighteen binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)');
     eyebrow(s, 15, 'PROOF', M, 0.55);
     title(s, 'Measured, not promised', M, 0.9, 8);
-    para(s, 'Every figure below comes from a run recorded in the repository, most recently at commit 60091a9 inside the pinned Rust 1.82 container.', M, 1.55, 11, 0.4, 12.5, FAINT);
+    para(s, 'Each figure names its run. The acceptance gate has not been run against a commit in the public history; that run comes before the tag.', M, 1.55, 11, 0.4, 12.5, FAINT);
     const stats = [
-      ['72 / 72', 'ACCEPTANCE CRITERIA', 'The full gate, under docker --network none. Exit 0: FULL SUITE PASSED, AIR-GAPPED.'],
-      ['664', 'TESTS PASSED · 0 FAILED', '44 crates, 238 test binaries, both crypto backends exercised in separate invocations.'],
+      ['72', 'ACCEPTANCE CRITERIA, EACH MAPPED TO A TEST', 'One script runs them all under docker --network none. No run is recorded against a public commit yet.'],
+      ['870', 'TESTS PASSED · 0 FAILED', '288 test binaries on a fresh clone, 2026-10-13, both crypto backends, in a container with no network.'],
       ['0', 'NETWORK CALLS', 'Vendored dependencies; builds, tests and the gate need no network at all.'],
       ['18 / 18', 'BINARIES GATED', 'Reproduced, SBOM, scanned, signed, attested. A new binary without a gate entry fails CI.'],
       ['54', 'ARTEFACTS IN ONE SIGNED BUNDLE', 'Packed by the rehearsed release pipeline and installed offline on a 3-node kind cluster.'],
@@ -492,10 +492,10 @@ async function productSlide({ num, product, label, heading, points, shot, side =
   // ── 17 · status & roadmap ───────────────────────────────────────────────
   {
     const s = base(
-      'Where we are, honestly. The implementation is complete and verified, and version 0.1.0-rc.1 is prepared: the edge on the real fabric, five services on one PQ-mTLS runtime, compose and Helm deployment, connectors, real model serving, and a release pipeline rehearsed end to end on the fifteenth of September. ' +
+      'Where we are, honestly. Five services run and are tested, most other subsystems are tested libraries, and version 0.1.0-rc.1 is prepared: the edge on the real fabric, five services on one PQ-mTLS runtime, compose and Helm deployment, connectors, real model serving, and a release pipeline rehearsed end to end on the fifteenth of September. ' +
       'What blocks general availability is external or hardware-bound: HSM-backed key custody, GPU serving, FIPS 140-3 certification, and the key ceremony and signing runner that let us tag the release. The authoritative go/no-go record is GA_READINESS.md and it currently reads no-go, naming every blocker. The next ninety days are about closing those and putting live data through Forge into the fabric. (≈2 min)');
     eyebrow(s, 16, 'WHERE WE ARE', M, 0.55);
-    title(s, 'Code-complete and verified. Release candidate prepared. GA gated on named blockers.', M, 0.9, 12, 24, 0.9);
+    title(s, 'Five services run and are tested. Release candidate prepared. GA gated on named blockers.', M, 0.9, 12, 24, 0.9);
     const cols = [
       ['DONE · v0.1.0-rc.1 PREPARED', SECURE, 'FiCheckCircle', [
         'The edge serves the real object fabric with one PQ-signed ledger',
@@ -544,7 +544,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
       ['FiMonitor', 'Laptop', 'Development mode, one command. Real edge, real policy, real signed ledger, illustrative data.'],
       ['FiLayers', 'Docker compose', 'Five services, non-root, read-only filesystems, PQ-mTLS between them. just compose-up.'],
       ['FiServer', 'Kubernetes', 'Helm chart: hardened StatefulSets, default-deny network policies. Runs on a 3-node kind cluster.'],
-      ['FiPackage', 'Air-gapped sites', 'One signed .mgbundle on media. Verifies itself offline, installs, returns a signed receipt.'],
+      ['FiPackage', 'Air-gapped sites', 'One signed .mgbundle on media. Every artefact is verified offline, then installed.'],
     ];
     const cw = (W - 2 * M - 3 * 0.25) / 4;
     for (let i = 0; i < 4; i++) {

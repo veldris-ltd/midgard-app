@@ -15,3 +15,6 @@ path = "src/main.rs"
 # One hash implementation, shared with the rest of the supply chain. [RT-41]
 # [NFR-OSS-1]
 pqc-agility = { path = "../../crypto/pqc-agility" }
+# The strict JSON parser, for the package.json files a pnpm workspace's licences
+# and package names are read from. No key custody is needed here.
+attest = { path = "../../crypto/attest", default-features = false, features = ["backend-fips"] }

@@ -61,10 +61,21 @@ Before opening a PR, ensure:
 
 1. Branch from `main` (or `dev`); keep PRs focused.
 2. Fill in what changed, why, and the requirement tag(s).
-3. Green CI is required: build/test, provenance-tag lint, licence gate, contract
-   breaking-change gate, secret scan.
-4. A code owner ([CODEOWNERS](.github/CODEOWNERS)) reviews; security-relevant areas
-   require a security-team review.
+3. CI must be green: script self-tests, provenance-tag lint, vendored-dependency
+   check, secret scan, rendered-manifest check, format and lint, build and test,
+   reproducible build, advisory and licence scan, and the air-gapped acceptance
+   suite (`just ci list`; see [docs/dev/CI.md](docs/dev/CI.md)). There is no contract
+   breaking-change gate yet.
+4. A code owner ([CODEOWNERS](.github/CODEOWNERS)) reviews. Being a code owner means
+   being asked to review; anyone may contribute.
+
+## Branches and the public tree
+
+Work lands on `dev` and reaches `main` by an ordinary merge through a pull request.
+There is no export step and no private upstream: what is on `main` is exactly the
+tracked tree that was merged, dot-directories included, so nothing can be dropped
+between the working tree and the published one. `dev` always descends from `main`;
+both branches refuse force pushes and deletion.
 
 ## Releases and versions
 

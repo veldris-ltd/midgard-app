@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "aircraft",
+      "title": "Aircraft",
+      "properties": [
+        {
+          "name": "tail",
+          "type": "string"
+        }
+      ]
+    }
+  ]
+}

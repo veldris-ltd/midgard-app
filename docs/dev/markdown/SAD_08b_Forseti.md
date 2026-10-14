@@ -3,7 +3,7 @@
 *Forecast-integrity monitoring · integrity-confidence feedback · asset-centric force-protection geometry*
 
 **Module:** Forseti — addendum to SAD_08 (Gungnir) · **Methodology:** Imhotep (arc42 + TOGAF + C4)
-**New:** FR-F-1..14, NFR-F-1..6, AC-F-1..18, prompts A.F-1..3 · **v1.0.0** · CONFIDENTIAL — RECIPIENT EYES ONLY
+**New:** FR-F-1..14, NFR-F-1..6, AC-F-1..18, prompts A.F-1..3 · **v1.0.0** · PUBLIC, published with the Midgard repository
 
 > **WHY FORSETI EXISTS.** Gungnir walls off execution, so its highest-value attack surface becomes the forecast itself and the human who consumes it. Forseti hardens that surface: an independent AI monitoring Gungnir's projections for manipulation/drift/unearned confidence; a feedback path so suspect forecasts are visibly flagged, never silently trusted; and asset-centric force-protection geometry so an operator is warned when something is near, or has line-of-sight to, a protected asset.
 

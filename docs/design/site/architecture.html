@@ -43,7 +43,7 @@ function App() {
           </p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 24 }}>
             <Badge tone="accent">ARC42 + TOGAF STRUCTURED</Badge>
-            <Badge>NIST SP 800-53 · OWASP ASVS · ISO 27001 ALIGNED</Badge>
+            <Badge>NIST SP 800-53 · OWASP ASVS · ISO 27001 MAPPED</Badge>
           </div>
         </div>
       </section>
@@ -51,40 +51,40 @@ function App() {
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           <Layer n={1} title="Post-quantum substrate" accent
             desc="Cryptography is a platform property, inherited by every product. Hybrid key agreement in transit, wrapped keys at rest, lattice signatures on every artefact and every audit record, with algorithm agility so tomorrow's standards swap in without a data migration."
-            items={['X25519 + ML-KEM-768', 'AES-256-GCM · ML-KEM-1024 wrap', 'ML-DSA / SLH-DSA', 'HSM/TPM sealing', 'hot-swap agility']} />
+            items={['X25519 + ML-KEM-768', 'AES-256-GCM · ML-KEM-1024 wrap', 'ML-DSA / SLH-DSA', 'software key custody · HSM seam', 'algorithm agility']} />
           <Layer n={2} title="Identity & zero trust"
-            desc="A self-contained identity provider that works air-gapped, with optional federation. Every request, whether human, service, or agent, is authenticated and authorised on identity, device posture, and declared purpose. Deny is the default."
-            items={['self-contained OIDC', 'WebAuthn / passkeys', 'PQ-signed tokens', 'purpose-bound sessions']} />
+            desc="A self-contained identity provider that works air-gapped. Every request to the edge carries an ML-DSA-signed token and is authorised on role, marking, and declared purpose. Deny is the default. Federation and WebAuthn are tested libraries."
+            items={['password + one-time code', 'PQ-signed tokens', 'purpose-bound access', 'dual-control enrolment']} />
           <Layer n={3} title="The object fabric" accent
             desc="Your organisation as typed objects, links, and actions: semantics and kinetics in one layer. Policy is evaluated at query time, per row and per marking, and every mutation flows through a validated, audited action."
             items={['object + link types', 'actions & functions', 'search-around', 'marking-aware queries', 'incremental indexing']} />
           <Layer n={4} title="Governance & lineage"
-            desc="Role, marking, and purpose access control enforced at the data layer, with an append-only, PQ-signed audit lineage of every read, write, and agent step. Audit is a query, not a project."
+            desc="Role, marking, and purpose access control enforced at the data layer, with an append-only, PQ-signed audit lineage of every read, write, and action at the edge. Audit is a query, not a project."
             items={['policy point', 'append-only ledger', 'ML-DSA-signed lineage', 'retention by marking']} />
           <Layer n={5} title="The products" accent
             desc="Forge, Mimir, Bifrost, and Heimdall each depend only on the core's contracts; every one runs standalone, and inter-product capabilities are discovered at runtime. Losing one degrades gracefully; it never cascades."
             items={['Forge · data ops', 'Mimir · local AI', 'Bifrost · delivery', 'Heimdall · fusion', 'contract-based composition']} />
           <Layer n={6} title="Clients & administration"
-            desc="Seven client targets share one Rust core for crypto, sync, and storage, offline-first with conflict-free merge. A separate, self-governed admin panel composes every subsystem under dual-control and break-glass discipline."
-            items={['one Rust core · 7 targets', 'offline-first CRDT', 'admin dual-control', 'no super-admin']} />
+            desc="One Rust client core for crypto, sync, and storage, offline-first with conflict-free merge, is tested as a library; the six client shells are specified, not built. In the admin panel, dual control is live for enrolment and the other controls are tested libraries."
+            items={['one Rust client core', 'offline-first CRDT', 'dual-control enrolment', 'no super-admin']} />
         </div>
       </section>
       <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', padding: 'clamp(44px, 7vw, 88px) clamp(16px, 4vw, 36px)' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 'clamp(24px, 4vw, 48px)', flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ flex: '1 1 320px' }}>
             <SectionLabel number={2}>DEPLOYMENT</SectionLabel>
-            <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 12px' }}>From a laptop to a fleet of enclaves.</h2>
+            <h2 style={{ fontSize: 'clamp(1.6rem, 3.6vw, 2.4rem)', margin: '14px 0 12px' }}>From a laptop to an air-gapped site.</h2>
             <p style={{ margin: 0, fontSize: 'var(--fs-body)', color: 'var(--text-muted)', lineHeight: 1.7, maxWidth: 480 }}>
-              Single-node for development, HA clusters for production, and fully air-gapped sites fed by signed offline bundles. The same releases, the same signatures, every topology.
+              One command for development, Docker compose or a Helm chart for a cluster, and air-gapped sites fed by signed offline bundles. Each service runs as one replica today; high availability is specified, not built.
             </p>
           </div>
           <Terminal title="TOPOLOGIES" style={{ flex: '1 1 360px' }} lines={[
             '> midgard deploy --list-profiles',
-            'dev        1 node · self-signed trust root',
-            'prod       HA cluster · HSM-sealed roots',
-            'air-gap    HA · egress-deny · bundle import',
-            'multi-site prod + PQ-encrypted replication',
-            '# one build · four topologies · zero downtime',
+            'dev        1 node · in-memory, one built-in login',
+            'compose    5 services · PQ-mTLS between them',
+            'helm       1 replica each · default-deny network',
+            'air-gap    signed bundle · verified offline',
+            '# one build · software key custody today',
           ]} />
         </div>
       </section>

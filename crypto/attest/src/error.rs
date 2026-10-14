@@ -19,6 +19,12 @@ pub enum SignError {
     /// The signing custodian refused, was unreachable, or the algorithm is
     /// unavailable.
     Custodian(String),
+    /// The signing key's algorithm is not approved for release signing, so no
+    /// verifier would accept the result.
+    UnapprovedAlgorithm { alg: String },
+    /// The signature just produced does not verify under the signer's own
+    /// verifying key. Nothing is written.
+    SelfVerifyFailed(String),
     /// A local development key file was requested without the explicit
     /// environment opt-in.
     FileSigningNotPermitted,
@@ -43,6 +49,15 @@ impl fmt::Display for SignError {
                 write!(f, "invalid CycloneDX SBOM {}: {reason}", path.display())
             }
             SignError::Custodian(s) => write!(f, "signing custodian: {s}"),
+            SignError::UnapprovedAlgorithm { alg } => write!(
+                f,
+                "{alg} is not an approved release-signing algorithm — refusing to sign"
+            ),
+            SignError::SelfVerifyFailed(s) => write!(
+                f,
+                "the new signature does not verify under the signer's own verifying key \
+                 ({s}) — refusing to write it"
+            ),
             SignError::FileSigningNotPermitted => write!(
                 f,
                 "--key-file requires MIDGARD_ALLOW_FILE_SIGNING_KEY=1 (local development only)"

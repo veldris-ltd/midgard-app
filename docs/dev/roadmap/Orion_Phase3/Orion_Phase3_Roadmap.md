@@ -3,7 +3,7 @@
 *Networked common picture · full 3D environmental simulation · ground-operator augmentation · force-multiplication to Midgard*
 
 **Builds on:** Orion Phase 1 (FR-OR-*), Phase 2 (FR-P2-*), Heimdall (FR-H-*)
-**New:** FR-P3-1..11, NFR-P3-1..4, AC-P3-1..16, prompts A.P3-1..3 · **v1.0** · CONFIDENTIAL — RECIPIENT EYES ONLY
+**New:** FR-P3-1..11, NFR-P3-1..4, AC-P3-1..16, prompts A.P3-1..3 · **v1.0** · PUBLIC, published with the Midgard repository
 **Operator target:** shared 3D core → desktop command-post + mobile/wearable
 
 > **SCOPE BOUNDARY — read first.** Phase 3 delivers the networked common picture, full 3D environmental simulation, ground-operator augmentation, and force-multiplication to Midgard. It deliberately does **NOT** specify effects execution, weapon/fire control, closed-loop engagement, or offensive 'forward-push' cyber reach into connected assets. Those were requested and are excluded by design. Orion remains decision-support: it builds the picture and hands an authorised human the decision.

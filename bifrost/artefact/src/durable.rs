@@ -79,6 +79,11 @@ impl DurableArtefactRegistry {
         self.inner.verify_for_deploy(id, version)
     }
 
+    /// Every registered artefact's reference, sorted. [AC-RF-SC-5c]
+    pub fn refs(&self) -> Vec<ArtefactRef> {
+        self.inner.refs()
+    }
+
     /// Number of registered artefacts.
     pub fn len(&self) -> usize {
         self.inner.len()

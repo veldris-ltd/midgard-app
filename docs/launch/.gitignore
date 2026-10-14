@@ -16,3 +16,6 @@ pipeline/pages/midgard/
 # before uploading `site/`.
 site/media/**/*.mp4
 site/media/**/*.pptx
+
+# Copies of ui/design-system/src/fonts, made by the same builder.
+site/assets/fonts/

@@ -48,7 +48,9 @@ fn a_bundle_from_a_sealed_keystore_imports_offline_and_refuses_everything_else()
 
     let service = dir.join("http-gateway");
     let payload = b"\x7fELF not really a service".to_vec();
-    let sbom = "{\"bomFormat\": \"CycloneDX\", \"specVersion\": \"1.5\"}";
+    let sbom = r#"{"bomFormat": "CycloneDX", "specVersion": "1.5", "components": [
+        {"type": "library", "name": "http-gateway", "version": "0.1.0-rc.1", "purl": "pkg:cargo/http-gateway@0.1.0-rc.1"}
+    ]}"#;
     std::fs::write(&service, &payload).unwrap();
     std::fs::write(dir.join("http-gateway.sbom.cdx.json"), sbom).unwrap();
     let signature = dir.join("http-gateway.sig");
@@ -155,4 +157,37 @@ fn a_bundle_from_a_sealed_keystore_imports_offline_and_refuses_everything_else()
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn pack_refuses_an_sbom_that_import_would_refuse() {
+    let dir = scratch("bad-sbom");
+    let (admission, _anchor) = keystore(&dir, "bifrost-admission", SigId::MlDsa65);
+
+    let service = dir.join("svc");
+    std::fs::write(&service, b"bytes").unwrap();
+    // CycloneDX in name only: it lists no components.
+    std::fs::write(
+        dir.join("svc.sbom.cdx.json"),
+        r#"{"bomFormat": "CycloneDX", "specVersion": "1.5"}"#,
+    )
+    .unwrap();
+
+    let bundle = dir.join("out.mgbundle");
+    let spec = format!("svc:1.0:{}", s(&service));
+    let out = mg_bundle(&[
+        "pack",
+        "--out",
+        s(&bundle),
+        "--id",
+        "x",
+        "--label",
+        "x",
+        "--keystore",
+        s(&admission),
+        &spec,
+    ]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("SBOM"), "{}", stderr(&out));
+    assert!(!bundle.exists(), "a refused pack wrote a bundle");
 }

@@ -87,32 +87,32 @@ function App() {
       <Hero
         eyebrow="01 // FORGE · DATA OPERATIONS"
         headline={<>Your data, versioned like code.<br /><span style={{ color: 'var(--text-muted)' }}>Sealed like state secrets.</span></>}
-        sub="Forge ingests from any source, transforms through low-code and pro-code pipelines over the same contracts, and versions every dataset with branches, diffs, and reproducible rebuilds, then projects it into the object fabric."
+        sub="Forge syncs files, PostgreSQL and S3-compatible stores into sealed, versioned datasets and projects them into the object fabric over PQ-mTLS. The pipeline builder, the compute engine and data expectations are tested libraries that the running worker does not use yet."
         seals={<><StatusPill status="secure" label="PQ-SEALED AT REST" pulse={false} /><Badge tone="accent">OPEN-SOURCE CORE</Badge></>}
-        stats={<><StatBlock value="v42" label="EVERY DATASET VERSIONED" /><StatBlock value="2/2" label="REBUILDS BIT-IDENTICAL" accent /><StatBlock value="0" label="OUTBOUND CONNECTIONS" /></>}
+        stats={<><StatBlock value="3" label="CONNECTORS IN THE RUNNING WORKER" /><StatBlock value="SHA-256" label="DATASET VERSIONS · CONTENT-ADDRESSED" accent /><StatBlock value="0" label="EGRESS OUTSIDE DECLARED HOSTS" /></>}
       />
       <Capabilities num={2} title="From raw source to governed objects, one lineage."
         items={[
-          ['workflow', 'Dual-mode pipelines', 'A visual builder and a pro-code IDE compile to the same typed contracts, and interoperate in a single pipeline.'],
-          ['git-branch', 'Git-style data versioning', 'Immutable, content-addressed snapshots with branches and lineage. Rebuild any version, bit-identical.'],
-          ['database', 'Typed connectors', 'Databases, object stores, APIs, files, streams: sandboxed, inbound-pull only, credentials held by the platform KMS.'],
-          ['activity', 'Health gates every build', 'Expectations run on every build; failures block promotion before bad data reaches anyone.'],
-          ['sparkles', 'AI-assisted transforms', 'Describe the transform; Mimir drafts it locally. Every suggestion is a preview diff that a human commits.'],
-          ['boxes', 'Object projection', 'Curated datasets map to object and link types with markings carried through, so policy follows the data.'],
+          ['workflow', 'Dual-mode pipelines', 'A visual builder and a pro-code IDE over the same typed contracts are designed. The builder screens run on sample data.'],
+          ['git-branch', 'Git-style data versioning', 'The running worker writes immutable, content-addressed dataset versions with ingest lineage; an unchanged source is the same version. Branching is a tested library.'],
+          ['database', 'Typed connectors', 'Delimited files, PostgreSQL and S3-compatible stores: sandboxed to a declared host and port, pulling inbound only, with credentials resolved by the platform KMS. Kafka is tested against a fake broker only.'],
+          ['activity', 'Health gates', 'Expectation checks that block promotion are a tested library. The running worker does not apply them yet.'],
+          ['sparkles', 'AI-assisted transforms', 'Drafting a transform with Mimir, as a preview diff a human commits, is a tested library, not yet in a running service.'],
+          ['boxes', 'Object projection', 'The running worker maps rows to object and link types and carries the job marking and purposes onto every object.'],
         ]} />
       <Showcase num={3} title="A build you can trust twice."
-        body="Every build resolves its sources over PQ-mTLS, runs its expectations, seals the result under wrapped keys, and signs the lineage. Run it again and you get the same bytes."
-        terminal={<Terminal title="FORGE BUILD" style={{ flex: '1 1 360px' }} lines={[
-          '> forge build flight_tracks --branch main',
-          'resolve    sources 2/2 · PQ-mTLS OK',
-          'transform  clean + fuse · 6/6 steps',
-          'health     expectations 12/12 ✓',
+        body="The running worker reads its sources through a declared egress route, seals each dataset version under wrapped keys, records ingest lineage and syncs the objects into the fabric over PQ-mTLS. An unchanged source produces the same version."
+        terminal={<Terminal title="ILLUSTRATIVE · FORGE SYNC" style={{ flex: '1 1 360px' }} lines={[
+          '> forge-worker · job aircraft',
+          'source     postgres · declared egress route',
+          'dataset    content-addressed version',
+          'lineage    ingest recorded',
           'seal       AES-256-GCM · ML-KEM-1024 wrap',
-          'project    12,408 objects → fabric',
-          '# v42 OK · reproducible · lineage signed',
+          'project    rows → aircraft objects',
+          '# illustrative layout of a worker sync',
         ]} />}
       />
-      <Standalone num={4} line="Midgard + Forge is a complete data-operations platform on its own. Add Mimir for AI-assisted authoring, Bifrost for governed promotion, Heimdall to feed the operational picture." />
+      <Standalone num={4} line="Forge runs today as one worker service beside the Midgard edge. AI-assisted authoring with Mimir and governed promotion through Bifrost are tested libraries, not yet wired between the services." />
     </SiteShell>
   );
 }
