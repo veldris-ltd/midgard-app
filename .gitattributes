@@ -12,3 +12,15 @@ Cargo.lock text eol=lf
 
 # Shell scripts run inside Linux containers; a CRLF checkout would break them.
 *.sh text eol=lf
+
+# A gate record cites the SHA-256 of the logs beside it, and is itself compared
+# byte for byte with what those logs give. Store and check out exactly.
+# [AC-RF-CA-5b]
+docs/compliance/gate-runs/** -text
+
+# The numbers sheet is compared byte for byte with what tools/ci/numbers.sh prints.
+# [AC-RF-CA-2a]
+docs/compliance/NUMBERS.md text eol=lf
+
+# Read by git and ssh-keygen to verify release tags. [AC-RF-CA-6a]
+deploy/trust/allowed_signers text eol=lf

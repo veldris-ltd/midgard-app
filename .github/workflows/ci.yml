@@ -39,6 +39,8 @@ jobs:
       - run: bash tools/ci/run.sh provenance
       - run: bash tools/ci/run.sh vendor
       - run: bash tools/ci/run.sh claims
+      - run: bash tools/ci/run.sh gate-record
+      - run: bash tools/ci/run.sh numbers
       - run: bash tools/ci/run.sh secrets
       - run: bash tools/ci/run.sh k8s-render
 
@@ -67,6 +69,12 @@ jobs:
       - run: bash tools/ci/run.sh toolchain
       - run: bash tools/ci/run.sh build
       - run: bash tools/ci/run.sh test
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: gate-test
+          path: target/gate/
+          if-no-files-found: warn
 
   repro:
     name: reproducible build
@@ -111,3 +119,9 @@ jobs:
           key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
       - run: bash tools/ci/run.sh toolchain
       - run: bash tools/ci/run.sh acceptance
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: gate-acceptance
+          path: target/gate/
+          if-no-files-found: warn

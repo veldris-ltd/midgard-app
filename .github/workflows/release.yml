@@ -90,7 +90,13 @@ jobs:
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The gate record names a commit; checking it needs the history.
+          fetch-depth: 0
       - run: bash tools/ci/run.sh release-preflight
+      - run: bash tools/ci/run.sh release-tag
+      - run: bash tools/ci/run.sh gate-record --release
+      - run: bash tools/ci/run.sh numbers
 
   shell-audits:
     name: client shell audits

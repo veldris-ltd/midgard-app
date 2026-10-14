@@ -50,7 +50,7 @@ These carry forward from the playbook and are **not restated** in each prompt. A
 | # | Absence | Evidence |
 |---|---|---|
 | 1 | **Nothing durable.** No crate anywhere performs file or database I/O. Every store — object fabric, audit ledger, model registry, dataset store, keystore, config — is an in-process `Vec`/`BTreeMap`. A restart is total data loss. | No `std::fs` / `File::` in any of `services/`, `mimir/`, `forge/`, `bifrost/`, `heimdall/`, `admin/`, `clients/`, `crypto/` |
-| 2 | **Almost nothing is runnable.** 56 crates, 5 binaries: `http-gateway` and the four supply-chain tools. The other 51 are libraries with no process, no config, no lifecycle, no health endpoint. | `find -name main.rs` |
+| 2 | **Almost nothing is runnable.** 56 crates, 5 binaries: `http-gateway` and the four supply-chain tools. The other 51 are libraries with no process, no config, no lifecycle, no health endpoint. | `find -name main.rs` | <!-- numbers:historical -->
 | 3 | **The release gate passes vacuously.** `mg-sign` and `mg-verify` print "STUB (Phase 0.b)" and `return ExitCode::SUCCESS`. `mg-repro workspace` — the exact invocation CI makes — returns success without building. Release-time CVE scan, licence allow-list, and provenance attestation are `echo "TODO"`. | `tools/mg-sign/src/main.rs:17`, `tools/mg-verify/src/main.rs:16`, `tools/mg-repro/src/main.rs:24`, `.github/workflows/release.yml` |
 | 4 | **Five of six consoles show fabricated data.** Only the Midgard core console can point at a real edge, and only for 15 endpoints. Admin, Forge, Mimir, Bifrost, Heimdall and Clients are hard-wired to ~3 100 lines of TypeScript fixtures with no server behind them. | `products/*/ui/src/main.tsx`, `sdk/ts/src/products/*.ts`, `services/http-gateway/src/lib.rs:64-129` |
 | 5 | **No inference.** The "local AI plane" serves a deterministic string-generating reference engine. The GPU backend produces a `LaunchSpec` and never spawns anything; there is no tokenizer, no weight loader, no sampler, no streaming. | `mimir/model-server/src/backends/local.rs:3-11`, `backends/gpu_docker.rs:10-15` |
@@ -58,7 +58,7 @@ These carry forward from the playbook and are **not restated** in each prompt. A
 
 **Beyond those,** the audit found: no observability of any kind (no metrics, traces, or structured logs — the Observability console renders fixtures); a 2-file proto contract for an 8-subsystem platform; no deployment artefacts (`deploy/helm/` and `deploy/air-gap-bundle/` are referenced by `deploy/README.md` and do not exist); no authentication anywhere in the web tier (no login, no session, no token refresh); effectively no frontend accessibility (7 `aria-`/`role` occurrences across 7 200 lines), no error boundaries, no i18n; zero frontend tests of any kind; no multi-tenancy; no backup/restore or DR; and several places where documentation asserts things the tree contradicts (Go and DataFusion backends that do not exist, a Python workspace whose members are Rust crates).
 
-**Sizing.** 169 remedial items across 24 workstreams, carrying roughly 800 acceptance criteria. If sequenced as written — supply chain and runtime first, then persistence and transport, then product depth and UI wiring, then clients, operations and assurance — this is on the order of a 6–8 quarter programme for a team of 10–14. The dependency graph in §3 is the critical path; the phased plan in §4 is the suggested cut.
+**Sizing.** 169 remedial items across 24 workstreams, carrying roughly 800 acceptance criteria. If sequenced as written — supply chain and runtime first, then persistence and transport, then product depth and UI wiring, then clients, operations and assurance — this is on the order of a 6–8 quarter programme for a team of 10–14. The dependency graph in §3 is the critical path; the phased plan in §4 is the suggested cut. <!-- numbers:historical -->
 
 **Revision 2 note (2026-10-12).** Workstream Y adds 13 items and 57 acceptance criteria, for 182 items and 881 criteria across 25 workstreams. It was written against public `main` @ `9ec8659`, which has moved a long way from the tree audited above: the workspace is 70 crates, not 56; five services run as processes (`http-gateway`, `mimir-server`, `bifrost-fleet`, `heimdall-feed`, `forge-worker`); state and the audit ledger are durable and sealed; `mg-sign` and `mg-verify` are real; a real model has been served on CPU. Absences 1, 2, 3 and 5 in the table above are therefore partly closed; absences 4 and 6 stand. The summary above is kept as the record of 2026-08-25. **The current position is §1a**, and each item's Status note; where a Status note and the Evidence beneath it disagree, the Status note is current.
 
@@ -10024,6 +10024,51 @@ Generate every headline number from the tree, once, and use it everywhere.
 
 **Done when:** the sheet is generated from the tag, `--check` is green, and every swept document quotes it unchanged.
 
+> **As built (2026-10-14, after the status above).** Partial: the sheet and its check
+> exist and pass; the launch deck binaries are not regenerated, and no run figure can be
+> quoted until a gate record exists.
+>
+> - *Steps 1 and 2:* `tools/ci/numbers.sh` prints the sheet and `--write` renders it to
+>   `docs/compliance/NUMBERS.md`: crates, Rust files and raw and code lines, test
+>   functions and ignored ones, criteria defined, shipped binaries, services, images,
+>   console bundles, npm packages, SAD documents and diagrams, each beside its counting
+>   rule and a one-line command that reproduces it. Run figures come only from
+>   `gate-record.sh --figures`, and only when the tree is the gated commit apart from the
+>   record and its generated prose; otherwise each reads "not run at this commit", with
+>   the last recorded run and its commit beside it. The sheet cannot hold the id of the
+>   commit that contains it, so it names the version and the gate run's commit instead;
+>   `--check` ties it to whichever checkout it runs on. `docs/compliance/NUMBERS.md` is
+>   checked out with LF line ends, so a clone on any platform reproduces it byte for byte.
+> - *Step 3:* `numbers.sh --check` runs in the hygiene job of both pipelines and in the
+>   release preflight. It fails when the sheet is not the tree's, and on any crate, Rust
+>   line, test-function, tests-passed or criteria figure in the swept documents that
+>   differs, naming the file and line. Swept: `README.md`, `GETTING_STARTED.md` (the only
+>   copy left), `CHANGELOG.md`, `GA_READINESS.md`, `docs/releases/*`, the deck source
+>   `docs/launch/pipeline/build-deck.js`, and §1 of this document. The rest of this
+>   document is not swept: its items quote superseded figures as the evidence for each
+>   fix. A figure of another tree passes when its line names that tree's commit, or, for
+>   the two figures in §1 from the tree audited before public history, carries
+>   `<!-- numbers:historical -->`. Bare "N tests" and "N passed" are judged from 100 up,
+>   so a log excerpt quoting "3 passed" is not a headline figure. Text between the
+>   gate-record markers is left to `gate-record.sh`, which generates and checks it.
+> - *Step 4:* the sweep found the README's "76 diagrams" (73 in the tree; corrected) and
+>   the deck's "870 tests passed" from a run named by date, not commit. The deck source
+>   now reads every count from `NUMBERS.md` at build time and words the proof slide by
+>   whether a gate run covers the tree. **The `.pptx` files are not regenerated:** that
+>   needs the pipeline's `npm install` and its recorded screens, so
+>   `docs/launch/Midgard-Launch*.pptx` still carry the old figures and the reference to
+>   `60091a9` until the owner rebuilds them.
+> - *Step 5:* the sheet labels "Test functions" as functions written and the two run
+>   figures as tests that ran and passed, in separate rows; the claims rows that quoted
+>   "870 tests passed" without a commit were reworded.
+> - Tests: `tools/ci/tests/numbers.test.sh` (throwaway repositories): the
+>   counts, byte-for-byte reproduction from a clean clone, drift failing with file and
+>   line, the historical forms, the swept range, and run figures following the record.
+>
+> Criteria: a and b met (tested); c met in that no swept document now quotes a run figure,
+> and the check refuses one without a covering record; d open until the deck is rebuilt
+> and a gate record exists at the tag.
+
 ---
 
 ### RF-CA-3 · Restore the hermetic build configuration to the public tree
@@ -10174,6 +10219,52 @@ Produce one gate run a reader can reproduce, and derive every status line from i
 
 **Done when:** a gate record exists for the tag's commit and the README and GA_READINESS tables are generated from it.
 
+> **As built (2026-10-14, after the status above).** Partial: the tooling is in place and
+> CI keeps the logs; no record is committed, because a record names a pushed commit and
+> the commit that carries this tooling has not been pushed.
+>
+> - *Finding:* the gate as it ran in CI on `f26f910` (the merge of PR #1) would have
+>   been refused. Of the 72 criteria, 58 had a verdict line of their own, 13 only a
+>   grouped one (`AC-B-1/4`, `AC-B-5/6`, `AC-F-6/7`, `AC-MS-2/5/6/7`, `AC-MS-4/8/9`), and
+>   AC-MS-3 none: it was a remark under AC-B-3. `verify-bifrost.sh` now gives AC-MS-3 a
+>   step of its own, running its one named test and requiring that exactly one test ran,
+>   since a filter that matches nothing exits 0. Grouped verdicts are kept: the record
+>   gives each criterion the step's result and shows the verdict line it came from.
+> - *Step 1:* `tools/ci/gate-run.sh` runs `deploy/acceptance/run-airgapped.sh` and
+>   `just test` in the pinned image under `--network none`, and keeps each log unedited
+>   with a `.meta` beside it: commit, whether the tree was clean, image, base-image
+>   digest, Dockerfile SHA-256, `rustc` and `cargo` versions, times, exit status, and the
+>   CI run. The `acceptance` and `test` CI jobs now go through it, and both pipelines
+>   keep `target/gate` as the `gate-acceptance` and `gate-test` artefacts.
+> - *Steps 2 and 3:* `tools/ci/gate-record.sh` writes
+>   `docs/compliance/gate-runs/<commit>.md` and keeps the logs and metadata under
+>   `docs/compliance/gate-runs/<commit>/`, committed and checked out byte for byte, so
+>   the digests stay checkable after CI artefacts expire; `release-publish` also attaches
+>   them to the release. The record is a function of the logs, the metadata, and Part C
+>   of the spec and the justfile's `test` recipe at the gated commit. It refuses, writing
+>   nothing, when a criterion has no verdict, a verdict names a criterion the spec does
+>   not define, the log is cut short or disagrees with its exit status, the tree was
+>   dirty, the parts differ in commit or toolchain, the run was not air-gapped, the
+>   invocations are not the recipe's, or the commit is not in the history. A failing run
+>   is recorded as failing. `--check` (the `gate-record` CI job) makes the record again
+>   from the committed logs and requires the same bytes; `--compare DIR` holds a fresh run
+>   to the record (AC-RF-CA-5d); `--check --release` (release preflight) also requires the
+>   tagged commit to differ from the gated one only in the record and the prose generated
+>   from it, since a record cannot be inside the commit it names.
+> - *Steps 4 and 5:* the README status table and the GA_READINESS sweep table are
+>   generated between `gate-record` markers and checked in CI. Until a record exists
+>   they say that no run is recorded; a failing record names each failing criterion.
+>   The reference to `60091a9` is gone from both, as is GA_READINESS's sweep paragraph
+>   citing `9f4b49f`, which is not in public history either.
+> - Tests: `tools/ci/tests/gate-record.test.sh` (throwaway repositories),
+>   including a log with one criterion removed (AC-RF-CA-5c), an edited record and a
+>   changed log failing `--check` (AC-RF-CA-5b), and `--compare` (AC-RF-CA-5d). Checked
+>   against the real CI logs of `f26f910`: refused for AC-MS-3 alone.
+>
+> Criteria: c met (tested). a, b and d need a record: push, let CI run, download the two
+> artefacts, `just gate-record`, and commit the result on top of the gated commit
+> (`docs/dev/CI.md`, "The gate record").
+
 ---
 
 ### RF-CA-6 · Signed, tagged public release
@@ -10221,6 +10312,39 @@ Cut v0.1.0-rc.1 as a signed tag that everything else points at.
 - **AC-RF-CA-6e — The tag is immutable.** *Given* the published tag, *when* a delete or force-update is attempted, *then* it is refused.
 
 **Done when:** `v0.1.0-rc.1` is public, signed and verifiable, and every claim, number and gate result in circulation points at it.
+
+> **As built (2026-10-14, after the status above).** Partial: what the repository can do
+> without the keys is done; the key ceremony, the repository rules, the signing runner
+> and the tag itself are the owner's.
+>
+> - *Steps 1 and 4 (tooling):* `deploy/trust/allowed_signers` is the git verifying
+>   material the ceremony publishes; `docs/ops/PKI.md` gains a "Git signing" section for
+>   it, and `deploy/trust/README.md` lists it. `tools/ci/verify-tag.sh` passes a tag only
+>   if it is annotated, signed by a key that file lists for the namespace `git`, and on
+>   the commit checked out; a missing or empty file, or one holding a private key, is a
+>   refusal. It runs as the `release-tag` job in the release preflight of both
+>   pipelines, beside `gate-record --release` and `numbers`, before anything is built or
+>   signed. `tools/ci/tag-release.sh` makes the signed annotated tag only when the tree
+>   is clean and is `origin/main`, the gate record covers the commit, the numbers sheet
+>   and the claims ledger check, the release notes exist and `allowed_signers` is
+>   published; it verifies the tag it made and does not push. `release-publish` attaches
+>   the gate record, its logs and `NUMBERS.md`.
+> - *Step 5:* `docs/releases/v0.1.0-rc.1.md` now says GA is NO-GO and names each blocker
+>   (the PARTIAL risk rows, GA_READINESS §4 A–E) under "What this candidate is not", and
+>   its tagging steps follow the order a record requires.
+> - *Steps 2 and 6:* `docs/dev/CI.md`, "Repository rules", gives the two GitHub rulesets
+>   (signed commits and no force pushes on `main` and `dev`; `v*` tags undeletable and
+>   unmovable) as `gh api` calls, and the GitLab equivalents. Not applied: they are
+>   repository settings. `dev` currently allows force pushes and must stop.
+> - Tests: `tools/ci/tests/verify-tag.test.sh` (throwaway keys): a listed key
+>   verifies and is named; an unlisted key, an unsigned or lightweight tag, a tag off the
+>   checkout, a missing, empty or private-key-bearing signers file, and a key listed for
+>   another namespace are refused.
+>
+> Criteria: none met yet; each needs an owner action. a needs the ceremony's
+> `allowed_signers` and the tag; b needs the gate record and sheet at the tag (the tools
+> enforce it); c needs the ceremony's trust anchors and the runner; d and e need the
+> rulesets.
 
 ---
 
