@@ -120,6 +120,32 @@ audit chain:
 6. **Witness sign-off**: both officers confirm; the ceremony is sealed into the audit
    chain.
 
+## Git signing (tags and commits)
+
+Artefacts are signed with ML-DSA; git cannot verify that, so tags and commits are
+signed with SSH keys, and the ceremony publishes which ones count.
+
+1. Each person who may cut a release tag holds an SSH signing key (ed25519) in a
+   custodian of their own — a hardware key where available — and configures git with
+   it (`gpg.format = ssh`, `user.signingkey`).
+2. The ceremony collects the public halves and commits them as
+   `deploy/trust/allowed_signers`, in git's allowed-signers format, each for the
+   namespace `git`:
+
+   ```text
+   release@example.org namespaces="git" ssh-ed25519 AAAA...
+   ```
+
+3. The fingerprint of each key (`ssh-keygen -lf key.pub`) is published through a
+   second channel, so a reader can tell the committed file was not swapped.
+4. The same keys are registered on the forge as signing keys, so the branch rule that
+   requires signed commits accepts them.
+
+`tools/ci/verify-tag.sh` verifies a release tag against that file, and the release's
+`release-tag` job runs it before anything is built: with no file, no tag verifies.
+Rotating a key is a commit to `deploy/trust/allowed_signers`, itself signed by a key
+already listed there.
+
 ## Rotation cadence
 
 | Key | Cadence | Mechanism |

@@ -31,6 +31,26 @@ const { BG, CARD, CARD2, BORDER, LINE, FILL2, FRAME, SHADOW, TXT, MUTED, FAINT, 
 const TF = 'Arial', BF = 'Calibri', MF = 'Consolas';
 const W = 13.333, H = 7.5, M = 0.6;
 
+// ── figures (docs/compliance/NUMBERS.md) ────────────────────────────────────
+// Every count on a slide is read from the numbers sheet, which tools/ci/numbers.sh
+// generates from the tree and the recorded gate run. None is typed here, so the deck
+// cannot quote a figure the repository does not. [AC-RF-CA-2d]
+const SHEET = path.join(HERE, '..', '..', 'compliance', 'NUMBERS.md');
+const SHEET_TEXT = fs.readFileSync(SHEET, 'utf8');
+const FIGURES = {};
+for (const line of SHEET_TEXT.split(/\r?\n/)) {
+  const m = line.match(/^\| ([^|]+?) \| (?:\*\*)?([^|*]+?)(?:\*\*)? \|/);
+  if (m) FIGURES[m[1]] = m[2];
+}
+function figure(label) {
+  if (!(label in FIGURES)) throw new Error(`NUMBERS.md has no figure '${label}'; run bash tools/ci/numbers.sh --write`);
+  return FIGURES[label];
+}
+// The gate run's figures stand for this tree only when the sheet says it was run here.
+const GATE = /gate was run at commit \[`([0-9a-f]{40})`\]/.exec(SHEET_TEXT);
+const GATE_RAN = !!GATE && figure('Tests passed, `just test`') !== 'not run at this commit';
+const GATE_AT = GATE_RAN ? GATE[1].slice(0, 12) : '';
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 const iconCache = new Map();
 async function icon(name, color) {
@@ -463,17 +483,28 @@ async function productSlide({ num, product, label, heading, points, shot, side =
 
   // ── 16 · proof ──────────────────────────────────────────────────────────
   {
+    const criteria = figure('Acceptance criteria defined');
+    const binaries = figure('Shipped binaries');
     const s = base(
-      'These are measurements, each with its run. On a fresh clone, in the pinned toolchain container with networking disabled, the workspace builds and eight hundred and seventy tests pass on both crypto backends. The seventy-two acceptance criteria each map to a test, and that gate has not yet been run against a public commit. ' +
-      'Every one of the eighteen binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)');
+      'These are measurements, each with its run. ' +
+      (GATE_RAN
+        ? `The gate was run at commit ${GATE_AT}, in the pinned toolchain container with networking disabled: ${figure('Acceptance criteria passed')} acceptance criteria passed, and ${figure('Tests passed, `just test`')} tests passed on both crypto backends. The record and its logs are in the repository. `
+        : `The ${criteria} acceptance criteria each map to a test, and the tree holds ${figure('Test functions')} test functions. The gate has not been run at this commit; the run that is recorded comes before the tag. `) +
+      `Every one of the ${binaries} binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)`);
     eyebrow(s, 15, 'PROOF', M, 0.55);
     title(s, 'Measured, not promised', M, 0.9, 8);
-    para(s, 'Each figure names its run. The acceptance gate has not been run against a commit in the public history; that run comes before the tag.', M, 1.55, 11, 0.4, 12.5, FAINT);
+    para(s, GATE_RAN
+      ? `Each figure names its run. The acceptance gate was recorded at commit ${GATE_AT}; docs/compliance/gate-runs holds the record and its logs.`
+      : 'Each figure names its run. The acceptance gate has not been run at this commit; that run comes before the tag.', M, 1.55, 11, 0.4, 12.5, FAINT);
     const stats = [
-      ['72', 'ACCEPTANCE CRITERIA, EACH MAPPED TO A TEST', 'One script runs them all under docker --network none. No run is recorded against a public commit yet.'],
-      ['870', 'TESTS PASSED · 0 FAILED', '288 test binaries on a fresh clone, 2026-10-13, both crypto backends, in a container with no network.'],
+      GATE_RAN
+        ? [figure('Acceptance criteria passed'), 'ACCEPTANCE CRITERIA PASSED', `In the gate run recorded at ${GATE_AT}, under docker --network none. Each criterion maps to a test.`]
+        : [criteria, 'ACCEPTANCE CRITERIA, EACH MAPPED TO A TEST', 'One script runs them all under docker --network none. No run is recorded for this commit yet.'],
+      GATE_RAN
+        ? [figure('Tests passed, `just test`'), 'TESTS PASSED · just test', `In the same run, both crypto backends, no network. ${figure('Test functions')} test functions in the tree.`]
+        : [figure('Test functions'), 'TEST FUNCTIONS IN THE TREE', 'Counted from the source. How many ran and passed is recorded with the gate run, before the tag.'],
       ['0', 'NETWORK CALLS', 'Vendored dependencies; builds, tests and the gate need no network at all.'],
-      ['18 / 18', 'BINARIES GATED', 'Reproduced, SBOM, scanned, signed, attested. A new binary without a gate entry fails CI.'],
+      [`${binaries} / ${binaries}`, 'BINARIES GATED', 'Reproduced, SBOM, scanned, signed, attested. A new binary without a gate entry fails CI.'],
       ['54', 'ARTEFACTS IN ONE SIGNED BUNDLE', 'Packed by the rehearsed release pipeline and installed offline on a 3-node kind cluster.'],
       ['325 ms', 'FIRST TOKEN · GRANITE 3.3 2B · CPU', 'A certified PQ-mTLS inference call answered by a real model, staged from a signed manifest.'],
     ];

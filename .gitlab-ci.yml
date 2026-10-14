@@ -148,6 +148,8 @@ hygiene:
     - bash tools/ci/run.sh provenance
     - bash tools/ci/run.sh vendor
     - bash tools/ci/run.sh claims
+    - bash tools/ci/run.sh gate-record
+    - bash tools/ci/run.sh numbers
     - bash tools/ci/run.sh secrets
     - bash tools/ci/run.sh k8s-render
 
@@ -164,6 +166,10 @@ test:
   script:
     - bash tools/ci/run.sh build
     - bash tools/ci/run.sh test
+  artifacts:
+    when: always
+    paths:
+      - target/gate/
 
 repro:
   stage: verify
@@ -189,6 +195,10 @@ acceptance:
     - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev")
   script:
     - bash tools/ci/run.sh acceptance
+  artifacts:
+    when: always
+    paths:
+      - target/gate/
 
 # --- the release gate, without publishing ----------------------------------------------
 
@@ -294,6 +304,9 @@ release-preflight:
   extends: [.signing, .on-release]
   script:
     - bash tools/ci/run.sh release-preflight
+    - bash tools/ci/run.sh release-tag
+    - bash tools/ci/run.sh gate-record --release
+    - bash tools/ci/run.sh numbers
 
 release:
   stage: release

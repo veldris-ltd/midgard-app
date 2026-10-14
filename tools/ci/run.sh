@@ -40,19 +40,22 @@ selftest|host|the CI scripts test themselves, and both pipelines call the same j
 provenance|host|changed sources under governed trees cite a requirement
 vendor|host|/vendor is exactly the crates Cargo.lock names, and Cargo is pinned to it
 claims|host|every row of the claims ledger cites files, lines and tests that exist
+gate-record|host|the committed gate record is what its logs give, and the status tables are what it gives
+numbers|host|docs/compliance/NUMBERS.md matches the tree, and no swept document quotes a figure that differs from it
 secrets|host|no credential is committed (gitleaks)
 k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders (needs helm)
 toolchain|host|build or restore the digest-pinned toolchain image (the only online step)
 fmt|toolchain|formatting
 lint|toolchain|clippy at deny-warnings
 build|toolchain|release build of the workspace
-test|toolchain|the test suite, both crypto backends
+test|toolchain|the test suite, both crypto backends; its log is kept in target/gate
 repro|toolchain|two normalised builds of the workspace are bit-identical
 scan|toolchain|advisory and licence scan of the dependency graph, PR mode
-acceptance|host|the full acceptance suite under a genuine air gap
+acceptance|host|the full acceptance suite under a genuine air gap; its log is kept in target/gate
 js-build|host|install the JS workspace and build every JavaScript artefact twice, bit-identical
 release-dry-run|toolchain|the whole release gate with throwaway keys, publishing nothing
 release-preflight|host|the signing runner is provisioned
+release-tag|host|the release tag is annotated, signed, and verifies against deploy/trust/allowed_signers
 release|toolchain|gate every binary, admit each to Bifrost, account for all of them
 release-images|host|build the verify-before-run images from the gated binaries
 release-bundle|toolchain|pack the signed air-gap bundle
@@ -112,6 +115,12 @@ job_provenance() { bash tools/ci/provenance-lint.sh; }
 job_vendor() { bash tools/ci/vendor-check.sh; }
 
 job_claims() { bash tools/ci/claims.sh --check --strict; }
+
+# `gate-record --release` is the release's form: the record must also be of the commit
+# being released, apart from the record itself and the prose generated from it.
+job_gate_record() { bash tools/ci/gate-record.sh --check "$@"; }
+
+job_numbers() { bash tools/ci/numbers.sh --check; }
 
 job_secrets() {
     local bin=gitleaks os arch want got dir
@@ -185,7 +194,10 @@ job_toolchain() {
 job_fmt() { in_toolchain just fmt-check; }
 job_lint() { in_toolchain just lint; }
 job_build() { in_toolchain just build-rust; }
-job_test() { in_toolchain just test; }
+# The two parts of the acceptance gate go through gate-run.sh, which runs them exactly
+# as before and keeps the log and its metadata in target/gate. The pipelines keep that
+# directory; tools/ci/gate-record.sh makes the gate record from it.
+job_test() { bash tools/ci/gate-run.sh test; }
 
 # Four jobs pinned, so the report is the same on a runner of any size. repro.json is
 # the artefact the pipelines keep.
@@ -196,7 +208,7 @@ job_scan() {
     in_toolchain bash -c 'mkdir -p target/ci && just sbom target/ci/workspace && just scan-advisory target/ci/workspace'
 }
 
-job_acceptance() { IMAGE="$IMAGE" bash deploy/acceptance/run-airgapped.sh; }
+job_acceptance() { bash tools/ci/gate-run.sh acceptance; }
 
 # The JavaScript artefacts, built where node is — the Rust toolchain image has none —
 # and left in target/js-out for the release to gate. `pnpm install` is the online step
@@ -216,6 +228,9 @@ job_js_build() {
 job_release_dry_run() { in_toolchain bash tools/ci/release.sh --dry-run "$@"; }
 
 job_release_preflight() { bash tools/ci/release-preflight.sh; }
+
+# A release is built from a signed tag, verified here before anything is built or signed.
+job_release_tag() { bash tools/ci/verify-tag.sh "$@"; }
 
 job_release() {
     local mounts
@@ -288,6 +303,16 @@ job_release_publish() {
                -o -name '*.mgbundle' -o -name 'images.lock' -o -name 'release-manifest.txt' \) | sort
         awk 'NF { print $4 }' "$out/artefacts.txt" | while read -r file; do echo "$out/$file"; done
     )
+    # The gate run the release rests on, with its raw logs, and the numbers sheet: what a
+    # reader needs to check every figure the release states. The preflight has already
+    # required that the record covers this commit.
+    local gate
+    gate="$(tr -d ' \r\n' < docs/compliance/gate-runs/CURRENT 2>/dev/null || true)"
+    [ -n "$gate" ] && [ -d "docs/compliance/gate-runs/$gate" ] || {
+        ci_error "release-publish: no gate run is recorded (docs/compliance/gate-runs/CURRENT)"
+        exit 1
+    }
+    files+=("docs/compliance/NUMBERS.md" "docs/compliance/gate-runs/$gate.md" "docs/compliance/gate-runs/$gate"/*)
     case "$(ci_platform)" in
         github)
             need gh "release-publish: the gh CLI is needed"
