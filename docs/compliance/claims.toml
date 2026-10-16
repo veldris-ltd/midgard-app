@@ -111,7 +111,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/ontology_file.rs:144", "contracts/schema/ontology.v1.schema.json"]
 tests = ["services/http-gateway/tests/ontology_boot.rs::an_invalid_ontology_refuses_to_boot", "services/http-gateway/tests/contract_schemas.rs::ontology_fixtures_get_the_same_verdict_from_the_schema_and_the_parser", "services/http-gateway/tests/contract_schemas.rs::the_ontology_schema_allows_exactly_the_keys_the_parser_allows"]
 service_tests = ["deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:305", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:307", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "checked-import"
@@ -121,7 +121,7 @@ status = "operable"
 evidence = ["tools/mg-admin/src/main.rs:376", "services/http-gateway/src/import_file.rs:91", "contracts/schema/import-record.v1.schema.json"]
 tests = ["services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it", "services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer"]
 service_tests = ["tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves"]
-stated_in = ["README.md:347", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:349", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "human-gated-actions"
@@ -220,7 +220,7 @@ evidence = ["products/admin/ui/src/main.tsx:17"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
-stated_in = ["README.md:836", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544"]
+stated_in = ["README.md:840", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544"]
 
 # ---- Mimir -----------------------------------------------------------------------------
 
@@ -463,7 +463,7 @@ evidence = ["justfile:373", "tools/ci/release.sh:170"]
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component"]
 service_tests = ["tools/ci/run.sh:225"]
 limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner."
-stated_in = ["README.md:766", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402"]
+stated_in = ["README.md:770", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402"]
 
 [[claim]]
 id = "offline-build"
@@ -474,7 +474,18 @@ criteria = ["AC-M-5"]
 evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/vendor-check.sh"]
 service_tests = ["tools/ci/run.sh:208"]
 limit = "The recorded gate run is of commit df320bfc512f (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again."
-stated_in = ["README.md:128", "docs/launch/pipeline/build-deck.js:508"]
+stated_in = ["README.md:130", "docs/launch/pipeline/build-deck.js:508"]
+
+[[claim]]
+id = "verify-before-run"
+area = "Supply chain and release"
+claim = "Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails."
+status = "operable"
+criteria = ["AC-B-1"]
+evidence = ["deploy/images/entrypoint.sh:16", "deploy/images/service.Dockerfile"]
+service_tests = ["deploy/images/build.sh:103"]
+limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly."
+stated_in = ["README.md:784", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83"]
 
 [[claim]]
 id = "acceptance-gate"
@@ -536,4 +547,4 @@ id = "likan"
 area = "Outside this repository"
 claim = "Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here."
 status = "external"
-stated_in = ["README.md:857"]
+stated_in = ["README.md:861"]

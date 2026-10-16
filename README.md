@@ -1,6 +1,6 @@
 # Midgard
 
-> **The sovereign enclosure.** A sovereign, open-source, post-quantum data and decision platform — one core platform and four composable products, built and verified against a complete specification.
+> **The sovereign enclosure.** A sovereign, open-source, post-quantum data and decision platform — one core platform and four composable products, fully specified and partly implemented. What runs today, and how far each capability goes, is in the [claims ledger](docs/compliance/CLAIMS.md).
 
 Midgard is a **Veldris Ltd** project. This repository holds three things that fit together:
 
@@ -51,7 +51,7 @@ What that does **not** yet mean:
   - `forge-worker`, which syncs sources into versioned datasets and on into the enclosure's fabric
 
   All five run under docker compose. See [Run the services with docker compose](#run-the-services-with-docker-compose) and [What is not yet runnable](#what-is-not-yet-runnable).
-- **The gateway edge runs on the real `fabric` + `governance` crates, and can serve a real enclosure.** Queries, actions, search-around, audit and policy dry-runs go through the object fabric and its single PQ-signed ledger. Development mode keeps everything in memory with one built-in login. A state directory created by `mg-admin` gives the gateway persisted keys, a durable, encrypted store, ledger and identity directory, a policy file and enrolled users (optionally with TOTP). Its schema, including the object types, links and human-gated actions, comes from an ontology file. Data is loaded offline with `mg-admin import`, which checks every record against the ontology before anything is written. What a real enclosure does not have yet is Forge connectors syncing from live sources. See [Run a real enclosure](#run-a-real-enclosure-no-demo-data).
+- **The gateway edge runs on the real `fabric` + `governance` crates, and can serve a real enclosure.** Queries, actions, search-around, audit and policy dry-runs go through the object fabric and its single PQ-signed ledger. Development mode keeps everything in memory with one built-in login. A state directory created by `mg-admin` gives the gateway persisted keys, a durable, encrypted store, ledger and identity directory, a policy file and enrolled users (optionally with TOTP). Its schema, including the object types, links and human-gated actions, comes from an ontology file. Data is loaded offline with `mg-admin import`, which checks every record against the ontology before anything is written. Data can also arrive while it runs, through the Forge worker's connectors (files, PostgreSQL, S3-compatible stores). See [Run a real enclosure](#run-a-real-enclosure-no-demo-data).
 - **GA is gated on external work** — FIPS 140-3 module certification and deployment-tier assurance on real HSM / GPU / cluster hardware.
 
 The authoritative go/no-go record is **[docs/compliance/GA_READINESS.md](docs/compliance/GA_READINESS.md)**, which currently reads **NO-GO** and names every blocker. The step-by-step gate procedure is [docs/ops/RUNBOOK_ga_gate.md](docs/ops/RUNBOOK_ga_gate.md).
@@ -70,17 +70,19 @@ Midgard is the core platform — *the enclosure*: identity, the object/ontology 
 | **Bifrost** | Continuous delivery — PQ-signed artefacts, rings, fleet, offline bundles | Bridge violet `#7D5CE6` |
 | **Heimdall** | Operational fusion — feeds, one common picture, decision workflows | Watchman gold `#C99A22` |
 
+Each domain above is what that product's SAD specifies. What runs today is narrower. A Midgard edge serves the object fabric. A Forge worker syncs files, PostgreSQL and S3-compatible stores into it. Mimir serves inference from one signed model on CPU. Bifrost records the fleet and packs signed offline bundles. A Heimdall feed gateway fuses signed observations into one picture. Model-family routing, grounded retrieval, agents, evals, the compute engine, ring rollout and decision support are implemented and tested as libraries, not yet in a running service. The [claims ledger](docs/compliance/CLAIMS.md) gives each capability's status and evidence.
+
 Two cross-cutting layers complete the suite:
 
-- **Admin Control Panel** — one unified, self-governing console over IAM, Governance, KMS, Fabric, Mimir, Bifrost and Observability. Role-separated RBAC (no super-admin), dual-control on all high-risk actions, time-boxed break-glass, GitOps configuration, and a PQ-signed append-only audit ledger.
-- **Client Platforms** — native mobile (iOS / Android / Linux), native desktop (Tauri: macOS / Windows / Linux), and web (WASM app + broker-mode browser extension). Offline-first, key-custody-aware, tiered inference.
+- **Admin Control Panel** — specified in `SAD_07` as one self-governing console over IAM, Governance, KMS, Fabric, Mimir, Bifrost and Observability, with role-separated RBAC (no super-admin), dual control on high-risk actions, time-boxed break-glass and versioned configuration. Dual control, break-glass and signed configuration are implemented and tested as libraries. In the running services dual control applies to principal enrolment only, and the admin console runs on fixture data.
+- **Client Platforms** — specified in `SAD_06`: native mobile (iOS / Android / Linux), native desktop (Tauri: macOS / Windows / Linux), and web (WASM app + broker-mode browser extension), offline-first and key-custody-aware. The shared client core is implemented and tested as a library. None of the six shells is built: they are scaffolded as manifests and accessibility declarations.
 
 ### Design principles
 
 - **Sovereign by construction.** No core function requires an outbound network call. The platform runs fully offline / air-gapped — the acceptance suite proves it under `--network none`.
 - **Post-quantum by default.** Hybrid X25519 + ML-KEM-768 in transit; AES-256-GCM under ML-KEM-1024-wrapped keys at rest; ML-DSA / SLH-DSA signatures for service auth and artefact signing. `[STD:NIST FIPS 203/204/205]`
 - **Object fabric at the centre.** A decision-centric semantic + kinetic layer (objects, properties, links; actions, functions, dynamic security).
-- **Local AI native.** Mimir provides all inference in-enclosure; every product calls Mimir, never a hosted LLM.
+- **Local AI native.** Inference runs inside the enclosure, in Mimir, and nothing calls a hosted model. Today only `mimir-probe` calls it; no product routes AI requests to it yet.
 - **Provenance everywhere.** Every claim has a source, every action has lineage. Provenance tags, append-only audit, and human gates are first-class, not afterthoughts.
 - **Open-source core.** Reproducible builds, CycloneDX SBOM per release, OSI-approved licence for the core.
 
@@ -349,6 +351,8 @@ Edit `ontology.json` before serving; the gateway registers it on every start and
 - A link's `from` and `to` are keys of objects of the link type's declared source and target types, either in the same file or already in the store.
 - It is all or nothing. The first bad line refuses the file and names the line, and so does an object that already exists: an import never replaces anything. Nothing is written until every record has passed.
 - Each import is recorded in the audit ledger before it is written.
+
+For a complete worked example, from an empty state directory to querying your own data, see [Import your own data](docs/guides/IMPORT_YOUR_OWN_DATA.md).
 
 ### 3 — Enrol a user
 
@@ -685,9 +689,9 @@ S3 and Kafka can go through the broker. PostgreSQL cannot, because PostgreSQL ne
 
 ## What is not yet runnable
 
-The engineering is done and tested; the service packaging is not. Being precise about the difference:
+Most subsystems are implemented and tested as libraries; five run as services. Being precise about the difference:
 
-**There are five server binaries.** `services/http-gateway` is the edge, and it composes `fabric`, `kms`, `iam` and `governance` in one process; its mesh door lets the Forge worker write into that fabric. `mimir/mimir-server` is the inference plane, `bifrost/fleet-server` the fleet manager, `heimdall/feed-server` the feed gateway and `forge/worker` the Forge worker. All four are built on `services/runtime`, which loads a mesh identity from files, opens a durable audit ledger, runs the PQ-mTLS accept loop, serves health and metrics, and gives clients a one-call PQ-mTLS request. The rest of Forge, Bifrost and Heimdall, and `scheduler` and the admin crates, are still libraries: implemented and exercised by the 72-criterion gate, but with no `main.rs` and no wire listener. The Helm chart deploys all five services; they have been run on a local kind cluster, not on production infrastructure.
+**There are five services.** `services/http-gateway` is the edge, and it composes `fabric`, `kms`, `iam` and `governance` in one process; its mesh door lets the Forge worker write into that fabric. `mimir/mimir-server` is the inference plane, `bifrost/fleet-server` the fleet manager, `heimdall/feed-server` the feed gateway and `forge/worker` the Forge worker. All four are built on `services/runtime`, which loads a mesh identity from files, opens a durable audit ledger, runs the PQ-mTLS accept loop, serves health and metrics, and gives clients a one-call PQ-mTLS request. The rest of Forge, Bifrost and Heimdall, and `scheduler` and the admin crates, are still libraries: implemented and exercised by the 72-criterion gate, but with no `main.rs` and no wire listener. The Helm chart deploys all five services; they have been run on a local kind cluster, not on production infrastructure.
 
 **The edge serves a real enclosure, filled offline.** `http-gateway` serves the object-fabric routes from `fabric::Fabric`, which owns the single `governance` spine, so edge admission and every fabric call are written to one PQ-signed ledger. From a state directory it runs on persisted keys, a durable store, ledger and identity directory, a policy file, an ontology file, users enrolled with `mg-admin`, and data imported with `mg-admin`.
 
@@ -696,7 +700,7 @@ Running the platform on live data therefore still needs, in rough order:
 1. Reach PostgreSQL outside the enclosure's network. The egress broker covers S3 and Kafka; PostgreSQL needs its own TLS negotiation in the connector, or PostgreSQL 17's direct TLS behind the broker.
 2. Build and sign a release image per service, so the chart's release values can run on a real cluster, and run the deployment tier there with an HSM and a GPU.
 
-None of this is blocked on unsolved problems — the libraries underneath are built and verified.
+Each step builds on libraries that are implemented and tested. What each capability still needs is tracked in the [claims ledger](docs/compliance/CLAIMS.md).
 
 ---
 
@@ -719,7 +723,7 @@ docker run --rm -v "$PWD":/work -w /work midgard-acceptance:1.82.0 just build
 
 ### The air-gapped acceptance gate
 
-The strongest evidence the platform meets the spec: the **entire 72-criterion suite** built and run with the network cut. One command bakes the pinned image (the only online step) and runs everything under `docker --network none`:
+Each of the 72 acceptance criteria maps to a test, and this builds and runs them all with the network cut. Most criteria are exercised against libraries rather than the running services; the [claims ledger](docs/compliance/CLAIMS.md) says which. The latest recorded run is in [docs/compliance/gate-runs/](docs/compliance/gate-runs/README.md). One command bakes the pinned image (the only online step) and runs everything under `docker --network none`:
 
 ```bash
 bash deploy/acceptance/run-airgapped.sh
@@ -734,9 +738,9 @@ Individual phase gates, each mapping its criteria to concrete tests and reportin
 ```bash
 # inside the pinned container, from the workspace root
 bash deploy/acceptance/verify-core.sh        # AC-M-1..9  (Midgard core)
-bash deploy/acceptance/verify-mimir.sh       # AC-MI-1..8 + AC-MS-1..9
+bash deploy/acceptance/verify-mimir.sh       # AC-MI-1..8 + AC-MS-1..9 except AC-MS-3
 bash deploy/acceptance/verify-forge.sh       # AC-F-1..7
-bash deploy/acceptance/verify-bifrost.sh     # AC-B-1..6
+bash deploy/acceptance/verify-bifrost.sh     # AC-B-1..6 + AC-MS-3
 bash deploy/acceptance/verify-heimdall.sh    # AC-H-1..7
 bash deploy/acceptance/verify-admin.sh       # AC-AD-1..13
 bash deploy/acceptance/verify-clients.sh     # AC-C-1..13
@@ -804,13 +808,13 @@ The pages take their tokens and fonts from `ui/design-system/src`, the one track
 
 > **Troubleshooting.** Blank page / "Failed to fetch" → you opened `file://`; serve over `http://`. 404 on a token or font file → your server root isn't the repository root. Fully offline → vendor `react`, `react-dom` and `babel` locally and repoint the three `unpkg` `<script>` tags.
 
-These UI kits are **reference designs**. The shipping console UIs live under `ui/` and `products/` and bind to the gateway edge.
+These UI kits are **reference designs**. The console UIs live under `ui/` and `products/`. The Midgard console can be pointed at the gateway edge; the other six run on built-in sample data.
 
 ---
 
 ## The specification
 
-`docs/dev/markdown/` holds the Solutions Architecture Documents, authored to the **Imhotep** methodology (arc42 + TOGAF + C4; security aligned to NIST SP 800-53 / OWASP ASVS / ISO 27001). Every architectural decision carries a provenance tag: `[DD-*]` design driver, `[FR-*]`/`[NFR-*]` requirement, `[STD:*]` external standard. The SADs are the design authority; the code realises them, and every acceptance criterion traces back to a requirement here.
+`docs/dev/markdown/` holds the Solutions Architecture Documents, authored to the **Imhotep** methodology (arc42 + TOGAF + C4; security aligned to NIST SP 800-53 / OWASP ASVS / ISO 27001). Every architectural decision carries a provenance tag: `[DD-*]` design driver, `[FR-*]`/`[NFR-*]` requirement, `[STD:*]` external standard. The SADs are the design authority. The code implements them in part, as the claims ledger records, and every acceptance criterion traces back to a requirement here.
 
 | Document | Covers |
 |---|---|

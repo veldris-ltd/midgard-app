@@ -1,0 +1,3 @@
+serial,rating_kva,load_fraction,oil_temp_c,in_service,feeder
+TX-50001,500,0.64,55.0,true,FDR-ELM-01
+TX-50002,315,,,false,FDR-ELM-02

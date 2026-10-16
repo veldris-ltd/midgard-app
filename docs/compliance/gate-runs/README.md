@@ -25,7 +25,8 @@ generated from the current record and checked the same way.
 - **It covers one commit.** The record names the commit that was gated, so it cannot be
   part of that commit; it is committed after it. Later commits are not covered until a
   new record is made. A release must be of the gated commit apart from the record and
-  the prose generated from it, and `gate-record.sh --check --release` enforces that.
+  the prose generated from it, and documents the gate never reads (the design system,
+  the launch material, the guides); `gate-record.sh --check --release` enforces that.
 - **Every criterion has a verdict, or there is no record.** A run whose log lacks a
   verdict for any criterion of the spec is refused, as is one that gives a verdict for
   a criterion the spec does not define.

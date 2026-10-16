@@ -44,12 +44,13 @@ END_MARK='<!-- gate-record:end -->'
 # Files that carry a status table generated from the record: path, then the prefix that
 # takes a link in that file to the repository root.
 STATUS_FILES=("README.md|" "docs/compliance/GA_READINESS.md|../../")
-# What may differ between the gated commit and the commit released: the record, and
-# prose and ledgers that are generated from it or cite it. Nothing the gate builds,
-# runs or reads.
+# What may differ between the gated commit and the commit released: the record, the
+# prose and ledgers generated from it or citing it, and documents the gate never reads
+# (the design system and marketing site, the launch material, the guides). Nothing the
+# gate builds, runs or reads: the acceptance spec under docs/dev/ stays gated.
 UNGATED=("$RECORDS/" "README.md" "CHANGELOG.md" "docs/compliance/GA_READINESS.md"
     "docs/compliance/NUMBERS.md" "docs/compliance/CLAIMS.md" "docs/compliance/claims.toml"
-    "docs/releases/")
+    "docs/releases/" "docs/design/" "docs/launch/" "docs/guides/")
 
 ESC=$'\033'
 TAB=$'\t'

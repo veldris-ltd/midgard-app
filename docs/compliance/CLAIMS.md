@@ -27,11 +27,11 @@ talks to it over its own listener.
 | Status | Rows |
 |---|---|
 | `production` | 0 |
-| `operable` | 22 |
+| `operable` | 23 |
 | `reference` | 19 |
 | `spec` | 4 |
 | `external` | 1 |
-| **Total** | **46** |
+| **Total** | **47** |
 
 No document is listed as wording a capability above its status.
 
@@ -175,7 +175,7 @@ An enclosure's object types, link types and actions come from an ontology file w
 - Service tests:
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:305`](../../README.md)
+  - [`README.md:307`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `checked-import` (operable)
@@ -192,7 +192,7 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 - Service tests:
   - [`tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves`](../../tools/mg-admin/tests/import.rs)
 - Stated at:
-  - [`README.md:347`](../../README.md)
+  - [`README.md:349`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `human-gated-actions` (operable)
@@ -329,7 +329,7 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
-  - [`README.md:836`](../../README.md)
+  - [`README.md:840`](../../README.md)
   - [`CHANGELOG.md:97`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
@@ -681,7 +681,7 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
 - Service tests:
   - [`tools/ci/run.sh:225`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:766`](../../README.md)
+  - [`README.md:770`](../../README.md)
   - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
   - [`docs/launch/pipeline/build-deck.js:402`](../../docs/launch/pipeline/build-deck.js)
 
@@ -699,8 +699,26 @@ The workspace builds and its tests run with no network: every dependency is vend
 - Service tests:
   - [`tools/ci/run.sh:208`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:128`](../../README.md)
+  - [`README.md:130`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:508`](../../docs/launch/pipeline/build-deck.js)
+
+### `verify-before-run` (operable)
+
+Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails.
+
+**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly.
+
+- Criteria: AC-B-1
+- Source:
+  - [`deploy/images/entrypoint.sh:16`](../../deploy/images/entrypoint.sh)
+  - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
+- Service tests:
+  - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
+- Stated at:
+  - [`README.md:784`](../../README.md)
+  - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
+  - [`CHANGELOG.md:83`](../../CHANGELOG.md)
 
 ### `acceptance-gate` (operable)
 
@@ -782,5 +800,5 @@ Alignment with NIST SP 800-53, OWASP ASVS and ISO 27001.
 Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here.
 
 - Stated at:
-  - [`README.md:857`](../../README.md)
+  - [`README.md:861`](../../README.md)
 

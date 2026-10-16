@@ -18,14 +18,14 @@ const { Icon, ProductMark, Button, Badge, StatusPill, SectionLabel, Terminal, St
 const TIERS = [
   {
     name: 'Open Core', price: 'Free, forever', badge: 'OSI LICENCE',
-    line: 'The full sovereign platform, from source.',
+    line: 'The open-source platform, from source.',
     items: ['Midgard core: identity, fabric, KMS, governance', 'All four products, open-source core', 'PQ crypto substrate · FIPS 203/204/205', 'Reproducible builds + SBOM per release', 'Community support'],
     cta: ['Watch the repository', 'ghost'],
   },
   {
     name: 'Enterprise', price: 'Per enclosure', badge: 'COMMERCIAL TIER', featured: true,
     line: 'Advanced modules and someone to call at 03:00.',
-    items: ['Everything in Open Core', 'HA control plane + cross-site DR replication', 'Advanced governance: N-of-M approvals, compartments', 'Hardware guidance + PQ offload support', '24/7 support with response SLAs'],
+    items: ['Everything in Open Core', 'Planned: HA control plane and cross-site DR (specified in SAD_00; not implemented)', 'Planned: N-of-M approvals (implemented and tested as a library; not yet in a running service)', 'Hardware guidance + PQ offload support', '24/7 support with response SLAs'],
     cta: ['Request early access', 'primary'],
   },
   {
@@ -81,9 +81,9 @@ function App() {
           <SectionLabel number={2}>STRAIGHT ANSWERS</SectionLabel>
           <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 24px' }}>Questions we'd ask too.</h2>
           {[
-            ['Is the open core actually usable, or a demo?', 'Usable. Identity, the object fabric, KMS, governance, and every product core are in the open tier. The commercial tiers add operational depth (HA, DR, advanced governance), not the ability to function.'],
+            ['Is the open core actually usable, or a demo?', 'Usable, within stated limits. Five services run today: the edge and object fabric, Mimir inference, the Bifrost fleet manager, the Heimdall feed gateway and the Forge worker. Most other subsystems are tested libraries. The claims ledger in the repository gives the status of every capability. Everything that exists is in the open tier.'],
             ['What happens if we stop paying?', 'The platform keeps running. Commercial modules stop updating; nothing turns off, and nothing you built is held hostage. Your data was always in your enclosure.'],
-            ['Can we audit what we run?', 'Yes, bit for bit. Every release builds reproducibly from source and ships a CycloneDX SBOM and an ML-DSA signature. If your rebuild differs, that is a finding; tell us.'],
+            ['Can we audit what we run?', 'Yes, bit for bit. Every release artefact is built twice and proven bit-identical, and ships with a CycloneDX SBOM and an ML-DSA signature. No release has been published yet; the first will be v0.1.0-rc.1, a release candidate. If your rebuild differs, that is a finding; tell us.'],
             ['Do you see our data, ever?', 'No. No core function makes an outbound call, telemetry is in-enclosure only, and air-gapped estates get releases by signed offline bundle.'],
           ].map(([q, a]) => (
             <div key={q} style={{ padding: '16px 0', borderBottom: '1px solid var(--divider)' }}>
