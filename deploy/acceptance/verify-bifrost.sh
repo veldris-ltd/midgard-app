@@ -15,6 +15,10 @@
 #   AC-MS-3  Mimir model bundle transits the signed-bundle workflow, rejected on bad sig (Prompt 5.c)
 #   AC-C-7   client artefacts transit the same workflow                        (Prompt 5.c)
 #
+# AC-MS-3 is a criterion in its own right, so it gets a verdict of its own here rather
+# than a remark under AC-B-3's: the gate record (tools/ci/gate-record.sh) accounts for
+# every criterion by its verdict line, and refuses a run in which one has none.
+#
 # For each criterion this runs the test(s) that exercise it and reports PASS/FAIL
 # with real output. Fails closed. SAD_03 §17, BUILD_PLAYBOOK §5.4/§5.5.
 #
@@ -68,20 +72,36 @@ run_ac "AC-B-2" "ring health-gate failure triggers automatic rollback with no do
 run_ac "AC-B-3" "air-gapped site verifies a signed bundle offline before deploy (model+client links)" \
     cargo test --offline -p bifrost-bundle $FIPS --test ac_b_3
 
+# --- AC-MS-3: a Mimir model bundle transits the same signed-bundle workflow ---
+# One named test. A filter that matched nothing would exit 0 having run nothing, so the
+# step also requires that exactly one test ran and passed.
+ac_ms_3() {
+    local out
+    out="$(cargo test --offline -p bifrost-bundle $FIPS --test ac_b_3 -- --exact \
+        ac_ms_3_and_c_7_model_and_client_bundles_transit_the_same_workflow 2>&1)" || {
+        echo "$out"
+        return 1
+    }
+    echo "$out"
+    echo "$out" | grep -Eq '^test result: ok\. 1 passed; 0 failed'
+}
+run_ac "AC-MS-3" "a Mimir model bundle transits the signed-bundle workflow and is rejected on a bad signature" \
+    ac_ms_3
+
 # --- AC-B-5 + AC-B-6 + EV-A7: advisory risk score + deterministic gate ---
 run_ac "AC-B-5/6" "Mimir-present risk score can gate; Mimir-absent rule-based gate still enforces safe rollout (A.7, EV-A7-*)" \
     cargo test --offline -p bifrost-risk --test ac_b_5_6
 
 echo
 echo "============================================================"
-echo "ACCEPTANCE SUMMARY — Bifrost Phase 5 (AC-B-1..6, EV-A7-*)"
+echo "ACCEPTANCE SUMMARY — Bifrost Phase 5 (AC-B-1..6, AC-MS-3, EV-A7-*)"
 echo "------------------------------------------------------------"
 for line in "${SUMMARY[@]}"; do echo "  $line"; done
 echo "------------------------------------------------------------"
 echo "  $pass passed, $fail failed"
 if [ "$fail" -eq 0 ]; then
     echo "  >>> PHASE 5 (BIFROST) DEFINITION OF DONE: MET"
-    echo "  >>> Forward links AC-MS-3 (model bundle transit) and AC-C-7 (client) verified at the Bifrost boundary"
+    echo "  >>> Forward link AC-C-7 (client artefacts) is verified with the client platforms, in verify-clients.sh"
     exit 0
 else
     echo "  >>> DEFINITION OF DONE: NOT MET (fail closed)"

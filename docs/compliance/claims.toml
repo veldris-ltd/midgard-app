@@ -34,7 +34,7 @@ limit = "The module has no FIPS 140-3 certificate; that is an external laborator
 evidence = ["crypto/pqc-agility/src/backend/mod.rs:14"]
 tests = ["crypto/pqc-agility/tests/fips_backend.rs::kem_roundtrip_every_suite"]
 service_tests = ["deploy/compose/smoke.sh:19"]
-stated_in = ["README.md:56", "docs/compliance/GA_READINESS.md:62", "docs/launch/pipeline/build-deck.js:454"]
+stated_in = ["README.md:63", "docs/compliance/GA_READINESS.md:64", "docs/launch/pipeline/build-deck.js:474"]
 
 [[claim]]
 id = "pq-mtls"
@@ -45,7 +45,7 @@ criteria = ["RC-40.2"]
 evidence = ["crypto/pq-mtls/src/lib.rs:18"]
 tests = ["crypto/pq-mtls/tests/real_fips_handshake.rs::real_handshake_negotiates_hybrid_and_agrees", "crypto/pq-mtls/tests/tcp_transport.rs::tcp_handshake_denies_unauthorized", "services/gateway/tests/session.rs::a_second_connection_resumes_and_the_ticket_is_single_use"]
 service_tests = ["deploy/compose/smoke.sh:19", "deploy/kind/smoke.sh:115"]
-stated_in = ["CHANGELOG.md:58", "docs/releases/v0.1.0-rc.1.md:16", "docs/launch/pipeline/build-deck.js:450"]
+stated_in = ["CHANGELOG.md:58", "docs/releases/v0.1.0-rc.1.md:17", "docs/launch/pipeline/build-deck.js:470"]
 
 [[claim]]
 id = "mesh-certificate-lifecycle"
@@ -66,7 +66,7 @@ criteria = ["RC-40.1"]
 evidence = ["services/kms/src/lib.rs:85"]
 tests = ["services/kms/tests/envelope.rs::seal_is_ml_kem_1024_and_carries_no_plaintext", "services/kms/tests/file_ledger_restart.rs::tampered_on_disk_entry_is_detected_on_load", "services/http-gateway/tests/state_dir_boot.rs::a_tampered_ledger_refuses_to_boot"]
 service_tests = ["deploy/compose/smoke.sh:24", "deploy/kind/smoke.sh:80"]
-stated_in = ["CHANGELOG.md:106", "docs/launch/pipeline/build-deck.js:451"]
+stated_in = ["CHANGELOG.md:106", "docs/launch/pipeline/build-deck.js:471"]
 
 [[claim]]
 id = "hardware-key-custody"
@@ -78,7 +78,7 @@ evidence = ["services/kms/src/hardware.rs:167"]
 tests = ["services/kms/tests/rc_28.rs::decapsulation_happens_on_the_device_not_in_the_process", "services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper"]
 fallback = "Key custody is software: keystores are files. A hardware trust root with attestation is implemented and tested against a software stand-in (services/kms/tests/rc_28.rs); no HSM or TPM has been used."
 milestone = "RC-40.3 passes with a release artefact signed by a key held in a real HSM (RF-SEC-8, RF-SC-8)."
-stated_in = ["CHANGELOG.md:93", "docs/releases/v0.1.0-rc.1.md:88", "docs/launch/pipeline/build-deck.js:463"]
+stated_in = ["CHANGELOG.md:93", "docs/releases/v0.1.0-rc.1.md:112", "docs/launch/pipeline/build-deck.js:483"]
 
 # ---- Core: fabric, identity and governance ---------------------------------------------
 
@@ -91,7 +91,7 @@ evidence = ["crypto/audit-writer/src/ledger.rs:5"]
 tests = ["crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history", "services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row", "services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:24"]
 limit = "The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime)."
-stated_in = ["README.md:47", "CHANGELOG.md:49", "docs/launch/pipeline/build-deck.js:314"]
+stated_in = ["README.md:54", "CHANGELOG.md:49", "docs/launch/pipeline/build-deck.js:334"]
 
 [[claim]]
 id = "object-fabric"
@@ -101,7 +101,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/enclosure.rs:368"]
 tests = ["services/http-gateway/tests/fabric_edge.rs::mandatory_access_control_hides_objects_outside_the_callers_compartments", "services/http-gateway/tests/secured_edge.rs::above_clearance_query_is_denied_403_and_audited"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:47", "docs/launch/pipeline/build-deck.js:312"]
+stated_in = ["README.md:54", "docs/launch/pipeline/build-deck.js:332"]
 
 [[claim]]
 id = "ontology-file"
@@ -111,7 +111,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/ontology_file.rs:144", "contracts/schema/ontology.v1.schema.json"]
 tests = ["services/http-gateway/tests/ontology_boot.rs::an_invalid_ontology_refuses_to_boot", "services/http-gateway/tests/contract_schemas.rs::ontology_fixtures_get_the_same_verdict_from_the_schema_and_the_parser", "services/http-gateway/tests/contract_schemas.rs::the_ontology_schema_allows_exactly_the_keys_the_parser_allows"]
 service_tests = ["deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:298", "docs/launch/pipeline/build-deck.js:315"]
+stated_in = ["README.md:309", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "checked-import"
@@ -121,7 +121,7 @@ status = "operable"
 evidence = ["tools/mg-admin/src/main.rs:376", "services/http-gateway/src/import_file.rs:91", "contracts/schema/import-record.v1.schema.json"]
 tests = ["services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it", "services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer"]
 service_tests = ["tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves"]
-stated_in = ["README.md:340", "docs/launch/pipeline/build-deck.js:315"]
+stated_in = ["README.md:325", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "human-gated-actions"
@@ -132,7 +132,7 @@ limit = "The edge accepts any non-empty token: it does not yet check that the to
 evidence = ["services/http-gateway/src/enclosure.rs:375"]
 tests = ["services/http-gateway/tests/fabric_edge.rs::a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip"]
-stated_in = ["docs/launch/pipeline/build-deck.js:313"]
+stated_in = ["docs/launch/pipeline/build-deck.js:333"]
 
 [[claim]]
 id = "login-and-session-tokens"
@@ -143,7 +143,7 @@ evidence = ["services/iam/src/auth.rs:1"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests", "services/http-gateway/tests/login_directory.rs::a_durable_principal_needs_both_factors_and_survives_a_restart"]
 service_tests = ["tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway"]
 limit = "The console's login form has no field for the one-time code."
-stated_in = ["README.md:47", "docs/launch/pipeline/build-deck.js:427"]
+stated_in = ["README.md:54", "docs/launch/pipeline/build-deck.js:447"]
 
 [[claim]]
 id = "webauthn-oidc-federation"
@@ -163,7 +163,7 @@ status = "operable"
 evidence = ["services/runtime/src/policy_file.rs:1"]
 tests = ["services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing", "crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel"]
 service_tests = ["services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller", "deploy/kind/smoke.sh:115"]
-stated_in = ["docs/launch/pipeline/build-deck.js:331"]
+stated_in = ["docs/launch/pipeline/build-deck.js:351"]
 
 [[claim]]
 id = "dual-control-enrolment"
@@ -220,7 +220,7 @@ evidence = ["products/admin/ui/src/main.tsx:17"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
-stated_in = ["README.md:829", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:94", "docs/launch/pipeline/build-deck.js:513"]
+stated_in = ["README.md:812", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544"]
 
 # ---- Mimir -----------------------------------------------------------------------------
 
@@ -233,7 +233,7 @@ evidence = ["mimir/model-server/src/backends/openai_compat.rs:60"]
 tests = ["mimir/mimir-server/tests/serve.rs::inference_is_served_over_pqmtls_audited_and_survives_a_restart"]
 service_tests = ["deploy/compose/smoke.sh:19", "deploy/compose/granite-smoke.sh:40", "deploy/kind/smoke.sh:73"]
 limit = "One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream."
-stated_in = ["CHANGELOG.md:72", "docs/releases/v0.1.0-rc.1.md:21", "docs/launch/pipeline/build-deck.js:361"]
+stated_in = ["CHANGELOG.md:72", "docs/releases/v0.1.0-rc.1.md:22", "docs/launch/pipeline/build-deck.js:381"]
 
 [[claim]]
 id = "mimir-inference-gpu"
@@ -245,7 +245,7 @@ evidence = ["mimir/model-server/src/backends/gpu_docker.rs:90"]
 tests = ["mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts"]
 fallback = "vLLM on GPU is wired and has not been run. The 800 ms first-token objective is unvalidated; the measured figure is 325 ms for a 2B model on a 12-core CPU."
 milestone = "RC-40.4 passes on a GPU node (RF-MI-1)."
-stated_in = ["CHANGELOG.md:94", "docs/releases/v0.1.0-rc.1.md:90", "docs/launch/pipeline/build-deck.js:510"]
+stated_in = ["CHANGELOG.md:94", "docs/releases/v0.1.0-rc.1.md:114", "docs/launch/pipeline/build-deck.js:541"]
 
 [[claim]]
 id = "signed-model-manifest"
@@ -257,7 +257,7 @@ evidence = ["tools/mg-model/src/main.rs:1"]
 tests = ["mimir/model-server/tests/model_dir.rs::changed_truncated_or_swapped_weights_are_refused"]
 service_tests = ["mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts", "deploy/compose/granite-smoke.sh:31"]
 limit = "No vendor signature is checked cryptographically; an upstream signature is recorded as unverifiable. The served model was signed with a development key and did not pass through the staging intake."
-stated_in = ["CHANGELOG.md:74", "docs/launch/pipeline/build-deck.js:360"]
+stated_in = ["CHANGELOG.md:74", "docs/launch/pipeline/build-deck.js:380"]
 
 [[claim]]
 id = "model-family-routing"
@@ -324,7 +324,7 @@ evidence = ["forge/worker/src/lib.rs:10", "forge/connector-sdk/src/connector.rs:
 tests = ["forge/engine/tests/rc_27.rs::rc_27_egress_violating_connector_is_blocked"]
 service_tests = ["forge/worker/tests/sync.rs::the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh", "deploy/compose/smoke.sh:50", "deploy/kind/smoke.sh:105"]
 limit = "The Kafka connector has been tested only against a fake broker. The PostgreSQL connector has no TLS and cannot use the egress broker before PostgreSQL 17."
-stated_in = ["CHANGELOG.md:67", "docs/releases/v0.1.0-rc.1.md:19", "docs/launch/pipeline/build-deck.js:347"]
+stated_in = ["CHANGELOG.md:67", "docs/releases/v0.1.0-rc.1.md:20", "docs/launch/pipeline/build-deck.js:367"]
 
 [[claim]]
 id = "forge-compute-engine"
@@ -335,7 +335,7 @@ evidence = ["forge/engine/src/partitioned.rs:56"]
 tests = ["forge/engine/tests/partitioned.rs::partitioned_matches_reference_with_shuffle_and_spill", "forge/engine/tests/relational.rs::inner_join_then_aggregate"]
 fallback = "A partitioned compute engine with join, aggregate, sort, window and spill to disk is implemented and tested as a library. The running Forge worker syncs and projects rows; it does not run pipelines on the engine."
 milestone = "forge-worker executes a pipeline on the engine (RF-F-1, RF-F-3)."
-stated_in = ["CHANGELOG.md:113", "docs/launch/pipeline/build-deck.js:351"]
+stated_in = ["CHANGELOG.md:113", "docs/launch/pipeline/build-deck.js:371"]
 
 [[claim]]
 id = "forge-data-expectations"
@@ -366,7 +366,7 @@ evidence = ["bifrost/fleet-server/src/lib.rs:104"]
 tests = ["bifrost/fleet/tests/durable_restart.rs::fleet_state_survives_restart"]
 service_tests = ["bifrost/fleet-server/tests/serve.rs::agents_check_in_operators_read_the_fleet_and_it_survives_a_restart", "deploy/compose/smoke.sh:31", "deploy/kind/smoke.sh:87"]
 limit = "The agent reports a version and a health flag. It does not install, verify or roll back anything."
-stated_in = ["docs/launch/pipeline/build-deck.js:385"]
+stated_in = ["docs/launch/pipeline/build-deck.js:405"]
 
 [[claim]]
 id = "bifrost-rollout"
@@ -378,7 +378,7 @@ evidence = ["bifrost/rollout/src/orchestrator.rs:101"]
 tests = ["bifrost/rollout/tests/rollout.rs::ac_b_2_broad_ring_gate_failure_rolls_back_automatically_no_downtime", "services/scheduler/tests/rollout_real.rs::rolling_upgrade_serves_every_request_with_real_replicas"]
 fallback = "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (AC-M-7, AC-B-2). Deployed services run one replica each and restart on their recovered state (RC-40.1); upgrading one interrupts it."
 milestone = "RF-CA-9, after the replica-model decision: the fleet manager drives a rollout against real agents (RF-B-2, RF-B-3)."
-stated_in = ["docs/releases/v0.1.0-rc.1.md:95", "docs/launch/pipeline/build-deck.js:514"]
+stated_in = ["docs/releases/v0.1.0-rc.1.md:119", "docs/launch/pipeline/build-deck.js:545"]
 
 [[claim]]
 id = "air-gap-bundle"
@@ -390,7 +390,7 @@ evidence = ["bifrost/bundle/src/stream.rs:151", "deploy/air-gap-bundle/install.s
 tests = ["bifrost/bundle/tests/streaming.rs::damage_is_located_and_a_forged_chunk_is_still_refused"]
 service_tests = ["tools/mg-bundle/tests/cli.rs::a_bundle_from_a_sealed_keystore_imports_offline_and_refuses_everything_else"]
 limit = "The bundle carries binaries. The chart, base image, advisory snapshot and trust anchors come from a repository checkout, and an import returns no signed receipt."
-stated_in = ["CHANGELOG.md:13", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:75"]
+stated_in = ["CHANGELOG.md:13", "docs/releases/v0.1.0-rc.1.md:25", "docs/compliance/GA_READINESS.md:77"]
 
 # ---- Heimdall --------------------------------------------------------------------------
 
@@ -403,7 +403,7 @@ evidence = ["heimdall/feed-server/src/lib.rs:166"]
 tests = ["heimdall/picture-sync/tests/rc_26.rs::rc_26_unsigned_feed_is_rejected_at_the_boundary"]
 service_tests = ["heimdall/feed-server/tests/serve.rs::sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart", "deploy/compose/smoke.sh:42", "deploy/kind/smoke.sh:95"]
 limit = "A resubmitted observation is counted again, observations carry no marking, and there is no feed-staleness indication."
-stated_in = ["docs/launch/pipeline/build-deck.js:371", "docs/launch/pipeline/build-deck.js:373"]
+stated_in = ["docs/launch/pipeline/build-deck.js:391", "docs/launch/pipeline/build-deck.js:393"]
 
 [[claim]]
 id = "heimdall-picture-replication"
@@ -439,7 +439,7 @@ evidence = ["clients/core/src/lib.rs:48"]
 tests = ["clients/core/tests/one_core.rs::two_cores_converge_on_reconnect", "clients/sync/tests/convergence.rs::all_permutations_converge_and_are_idempotent", "clients/inference/tests/rc_57.rs::tier2_request_delegates_over_real_pqmtls"]
 fallback = "A shared client core with sealed edits, conflict-free sync and tiered inference is implemented and tested as a library. It keeps its state in memory, and no application is built on it."
 milestone = "Client-side persistence and language bindings (RF-PER-5, RF-CL-1)."
-stated_in = ["docs/launch/pipeline/build-deck.js:396"]
+stated_in = ["docs/launch/pipeline/build-deck.js:416"]
 
 [[claim]]
 id = "client-shells"
@@ -461,9 +461,9 @@ status = "operable"
 criteria = ["AC-M-6", "AC-B-1"]
 evidence = ["justfile:373", "tools/ci/release.sh:170"]
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component"]
-service_tests = ["tools/ci/run.sh:213"]
+service_tests = ["tools/ci/run.sh:225"]
 limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner."
-stated_in = ["README.md:759", "docs/compliance/GA_READINESS.md:64", "docs/launch/pipeline/build-deck.js:382"]
+stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402"]
 
 [[claim]]
 id = "offline-build"
@@ -472,9 +472,20 @@ claim = "The workspace builds and its tests run with no network: every dependenc
 status = "operable"
 criteria = ["AC-M-5"]
 evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/vendor-check.sh"]
-service_tests = ["tools/ci/run.sh:196"]
-limit = "Observed on a fresh clone of dev on 2026-10-13 (870 tests passed). Not yet repeated on public main."
-stated_in = ["README.md:121", "docs/launch/pipeline/build-deck.js:477"]
+service_tests = ["tools/ci/run.sh:208"]
+limit = "The recorded gate run is of commit 3c8b1614bb1d (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again."
+stated_in = ["README.md:130", "docs/launch/pipeline/build-deck.js:508"]
+
+[[claim]]
+id = "verify-before-run"
+area = "Supply chain and release"
+claim = "Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails."
+status = "operable"
+criteria = ["AC-B-1"]
+evidence = ["deploy/images/entrypoint.sh:16", "deploy/images/service.Dockerfile"]
+service_tests = ["deploy/images/build.sh:103"]
+limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly."
+stated_in = ["README.md:756", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83"]
 
 [[claim]]
 id = "acceptance-gate"
@@ -482,8 +493,8 @@ area = "Supply chain and release"
 claim = "Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network."
 status = "operable"
 evidence = ["deploy/acceptance/run-airgapped.sh:10"]
-service_tests = ["tools/ci/run.sh:196"]
-limit = "No run of the gate is recorded against a commit in the public history. Figures quoted for commit 60091a9 cannot be checked from the public tree (RF-CA-5, RF-CA-2)."
+service_tests = ["tools/ci/run.sh:208"]
+limit = "Recorded at commit 3c8b1614bb1d (docs/compliance/gate-runs): every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again."
 stated_in = ["GETTING_STARTED.md:5"]
 
 # ---- Deployment and operations ---------------------------------------------------------
@@ -497,7 +508,7 @@ criteria = ["RC-40.1"]
 evidence = ["deploy/compose/compose.yaml", "deploy/kind/values.yaml:4"]
 service_tests = ["deploy/compose/smoke.sh:13", "deploy/kind/smoke.sh:73"]
 limit = "The chart has run on a three-node kind cluster, not on a production cluster."
-stated_in = ["CHANGELOG.md:63", "docs/releases/v0.1.0-rc.1.md:17", "docs/launch/pipeline/build-deck.js:303"]
+stated_in = ["CHANGELOG.md:63", "docs/releases/v0.1.0-rc.1.md:18", "docs/launch/pipeline/build-deck.js:323"]
 
 [[claim]]
 id = "high-availability"
@@ -507,7 +518,7 @@ status = "spec"
 evidence = ["docs/ops/DR_PLAN.md:16"]
 fallback = "Each service runs as one replica holding a single-writer state directory. Availability comes from restart and recovery, not from replicas. High-availability and multi-site topologies are specified, not implemented, and no availability figure has been measured."
 milestone = "The replica-model decision, then RF-DEP-2 and RF-RES-3."
-stated_in = ["docs/releases/v0.1.0-rc.1.md:95"]
+stated_in = ["docs/releases/v0.1.0-rc.1.md:119"]
 
 [[claim]]
 id = "telemetry"
@@ -536,4 +547,4 @@ id = "likan"
 area = "Outside this repository"
 claim = "Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here."
 status = "external"
-stated_in = ["README.md:850"]
+stated_in = ["README.md:833"]

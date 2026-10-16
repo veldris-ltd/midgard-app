@@ -41,7 +41,6 @@ function App() {
   const storage = [
     ['mg-mode', 'Colour-mode preference (light / dark / system)', 'Until you clear it'],
     ['mg-consent', 'That you dismissed the storage notice', 'Until you clear it'],
-    ['mg-early-access', 'Early-access requests you typed (this preview only)', 'Until you clear it'],
     ['mg-contact', 'Contact messages you typed (this preview only)', 'Until you clear it'],
   ];
   return (
@@ -75,8 +74,8 @@ function App() {
             </div>
             <p style={{ margin: '10px 0 0' }}>Local storage never leaves your device and is removable at any time via your browser settings.</p>
           </Clause>
-          <Clause n={3} title="Early access and contact requests">
-            In this preview, form submissions are stored only in your own browser. In production, submitting a form will send us the data you typed (name, email, organisation, message). We will process it to respond to you: Art. 6(1)(b) GDPR where you are asking about a contract, otherwise Art. 6(1)(f) (our legitimate interest in answering people who write to us). It is retained for the life of the conversation plus 12 months, then deleted.
+          <Clause n={3} title="Contact requests">
+            In this preview, form submissions are stored only in your own browser. In production, submitting a form will send us the data you typed (name, email, message). We will process it to respond to you: Art. 6(1)(b) GDPR where you are asking about a contract, otherwise Art. 6(1)(f) (our legitimate interest in answering people who write to us). It is retained for the life of the conversation plus 12 months, then deleted.
           </Clause>
           <Clause n={4} title="What we never do">
             We do not sell personal data. We do not share it with third parties for marketing. We do not profile you. We do not enrich your record from data brokers. We do not transfer personal data outside the EU/UK; if that ever changes, this notice changes first and safeguards under Chapter V GDPR will apply.

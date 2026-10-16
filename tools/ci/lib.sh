@@ -71,6 +71,15 @@ ci_runner() {
     echo "${RUNNER_NAME:-${CI_RUNNER_DESCRIPTION:-$(hostname 2>/dev/null || echo unknown)}}"
 }
 
+# Where this run can be looked up, or nothing outside CI.
+ci_run_url() {
+    if [ -n "${GITHUB_RUN_ID:-}" ]; then
+        echo "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID}"
+    else
+        echo "${CI_PIPELINE_URL:-}"
+    fi
+}
+
 # The commit a change set is measured from: the merge target on a pull or merge
 # request, the commit the branch moved from on a push, else nothing. An all-zero
 # "before" is a new branch, which has no prior state.

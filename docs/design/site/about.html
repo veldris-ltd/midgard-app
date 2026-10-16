@@ -49,9 +49,9 @@ function App() {
           <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 28px' }}>Three commitments, verifiable.</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 14 }}>
             {[
-              ['git-branch', 'Open by default', 'Every product core ships under an OSI-approved licence and builds reproducibly from source. If our published build differs from yours, that is a finding.'],
+              ['git-branch', 'Open by default', 'Midgard is published under Apache-2.0 and builds reproducibly from source. If our published build differs from yours, that is a finding.'],
               ['lock', 'Trust nothing, prove everything', 'PQ signatures on artefacts, append-only lineage on actions, human gates on consequence. Claims you can audit, not claims you must believe.'],
-              ['eye-off', 'Your data is not our business model', 'No telemetry leaves your enclosure. No usage metering inside your walls. We sell engineering and support, never your information.'],
+              ['eye-off', 'Your data is not our business model', 'No telemetry leaves your enclosure, and nothing inside it meters your use. Your information is never the product.'],
             ].map(([icon, title, body]) => (
               <Card key={title} size="lg">
                 <Icon name={icon} size={24} color="var(--accent)" />
@@ -68,7 +68,7 @@ function App() {
           <SectionLabel number={4}>THE COMPANY</SectionLabel>
           <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 20px' }}>Veldris Ltd, on the record.</h2>
           <p style={{ margin: '0 0 20px', fontSize: 'var(--fs-body)', color: 'var(--text-body)', lineHeight: 1.75, maxWidth: 680 }}>
-            Midgard is created and maintained by Veldris Ltd. The core is open source; the commercial version of Midgard — the supported, enterprise and sovereign tiers — is operated and maintained by Veldris Ltd.
+            Midgard is created and maintained by Veldris Ltd, and published as open source under Apache-2.0.
           </p>
           <Terminal lines={[
             '> whoami --company',
@@ -76,9 +76,6 @@ function App() {
             'website     veldris.io',
             'focus       sovereign, post-quantum platform engineering',
             'flagship    Midgard platform suite',
-            'commercial  operated & maintained by Veldris Ltd',
-            'registry    [company number · to be supplied]',
-            'office      [registered office address · to be supplied]',
             'contact     hello@veldris.io',
           ]} />
           <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>

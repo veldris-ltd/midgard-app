@@ -1,4 +1,4 @@
-<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="midgard.eu · suite home with early-access signup" name="midgard.eu" -->
+<!-- @dsCard group="Marketing Site" viewport="1440x900" subtitle="midgard.eu · suite home" name="midgard.eu" -->
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Midgard · The sovereign enclosure</title>
 <link rel="stylesheet" href="../styles.css">
 <script src="../docs/mode.js"></script>
@@ -32,7 +32,7 @@ function Hero() {
           Midgard is a sovereign, open-source, post-quantum platform suite: one enclosure for your data, your models, and your operations. Four products, one trust boundary, zero outbound dependencies.
         </p>
         <div style={{ display: 'flex', gap: 12, marginTop: 32, flexWrap: 'wrap' }}>
-          <a href="#early-access" style={{ textDecoration: 'none' }}><Button variant="primary" size="lg" iconRight={<Icon name="arrow-right" size={16} />}>Request early access</Button></a>
+          <a href="#source" style={{ textDecoration: 'none' }}><Button variant="primary" size="lg" iconRight={<Icon name="arrow-right" size={16} />}>Get the source</Button></a>
           <a href="#suite" style={{ textDecoration: 'none' }}><Button variant="outline" size="lg">Explore the suite ↓</Button></a>
         </div>
         <div style={{ display: 'flex', gap: 'clamp(24px, 5vw, 56px)', marginTop: 'clamp(40px, 6vw, 72px)', flexWrap: 'wrap' }}>
@@ -81,7 +81,7 @@ function Principles() {
     ['lock', 'Post-quantum by default', 'Hybrid X25519 + ML-KEM-768 in transit. AES-256-GCM under ML-KEM-1024-wrapped keys at rest. ML-DSA signatures on everything that moves. Not an add-on: the substrate.'],
     ['eye-off', 'Sovereign by construction', 'No core function makes an outbound call. Self-host it, air-gap it, or run it on a ship. Your data and your models never leave your walls.'],
     ['brain-circuit', 'AI that answers to you', 'All inference is local. Grounding in your data, citation, evaluation suites and human gates are implemented and tested as libraries; the running service does not use them yet.'],
-    ['code', 'Open-source core', 'Reproducible builds, a CycloneDX SBOM with every release, and an OSI-approved licence. Trust you can rebuild from source, bit for bit.'],
+    ['code', 'Open source', 'Reproducible builds, a CycloneDX SBOM with every release, and the Apache-2.0 licence. Trust you can rebuild from source, bit for bit.'],
   ];
   return (
     <section style={{ background: 'var(--bg-sunken)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: 'clamp(48px, 8vw, 96px) clamp(16px, 4vw, 36px)' }}>
