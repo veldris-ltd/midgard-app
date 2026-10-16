@@ -50,8 +50,8 @@ ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorith
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:51`](../../README.md)
-  - [`docs/compliance/GA_READINESS.md:52`](../../docs/compliance/GA_READINESS.md)
+  - [`README.md:63`](../../README.md)
+  - [`docs/compliance/GA_READINESS.md:64`](../../docs/compliance/GA_READINESS.md)
   - [`docs/launch/pipeline/build-deck.js:474`](../../docs/launch/pipeline/build-deck.js)
 
 ### `pq-mtls` (operable)
@@ -141,7 +141,7 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:42`](../../README.md)
+  - [`README.md:54`](../../README.md)
   - [`CHANGELOG.md:49`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
 
@@ -158,7 +158,7 @@ The object fabric serves typed objects, links and actions through the HTTP edge.
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:42`](../../README.md)
+  - [`README.md:54`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:332`](../../docs/launch/pipeline/build-deck.js)
 
 ### `ontology-file` (operable)
@@ -175,7 +175,7 @@ An enclosure's object types, link types and actions come from an ontology file w
 - Service tests:
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:293`](../../README.md)
+  - [`README.md:305`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `checked-import` (operable)
@@ -192,7 +192,7 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 - Service tests:
   - [`tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves`](../../tools/mg-admin/tests/import.rs)
 - Stated at:
-  - [`README.md:335`](../../README.md)
+  - [`README.md:347`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `human-gated-actions` (operable)
@@ -224,7 +224,7 @@ A principal logs in at the edge with a password, and a time-based one-time code 
 - Service tests:
   - [`tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway`](../../tools/mg-admin/tests/cli.rs)
 - Stated at:
-  - [`README.md:42`](../../README.md)
+  - [`README.md:54`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:447`](../../docs/launch/pipeline/build-deck.js)
 
 ### `webauthn-oidc-federation` (reference)
@@ -329,7 +329,7 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
-  - [`README.md:824`](../../README.md)
+  - [`README.md:836`](../../README.md)
   - [`CHANGELOG.md:97`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
@@ -579,7 +579,7 @@ mg-bundle packs gate-verified artefacts into one signed bundle and imports it of
 - Stated at:
   - [`CHANGELOG.md:13`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:25`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/compliance/GA_READINESS.md:65`](../../docs/compliance/GA_READINESS.md)
+  - [`docs/compliance/GA_READINESS.md:77`](../../docs/compliance/GA_READINESS.md)
 
 ## Heimdall
 
@@ -681,15 +681,15 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
 - Service tests:
   - [`tools/ci/run.sh:225`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:754`](../../README.md)
-  - [`docs/compliance/GA_READINESS.md:54`](../../docs/compliance/GA_READINESS.md)
+  - [`README.md:766`](../../README.md)
+  - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
   - [`docs/launch/pipeline/build-deck.js:402`](../../docs/launch/pipeline/build-deck.js)
 
 ### `offline-build` (operable)
 
 The workspace builds and its tests run with no network: every dependency is vendored, Cargo is pinned to the vendored directory, and the CI jobs run in a container started with no network.
 
-**Limit.** Observed on a fresh clone of dev on 2026-10-13. The measure of record is a gate run recorded under docs/compliance/gate-runs, and none is recorded yet (RF-CA-5).
+**Limit.** The recorded gate run is of commit df320bfc512f (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again.
 
 - Criteria: AC-M-5
 - Source:
@@ -699,14 +699,14 @@ The workspace builds and its tests run with no network: every dependency is vend
 - Service tests:
   - [`tools/ci/run.sh:208`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:116`](../../README.md)
+  - [`README.md:128`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:508`](../../docs/launch/pipeline/build-deck.js)
 
 ### `acceptance-gate` (operable)
 
 Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network.
 
-**Limit.** No run of the gate is recorded yet. tools/ci/gate-record.sh records a run of a pushed commit, and refuses it unless every one of the 72 criteria has a verdict (RF-CA-5).
+**Limit.** Recorded at commit df320bfc512f (docs/compliance/gate-runs): every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again.
 
 - Source:
   - [`deploy/acceptance/run-airgapped.sh:10`](../../deploy/acceptance/run-airgapped.sh)
@@ -782,5 +782,5 @@ Alignment with NIST SP 800-53, OWASP ASVS and ISO 27001.
 Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here.
 
 - Stated at:
-  - [`README.md:845`](../../README.md)
+  - [`README.md:857`](../../README.md)
 

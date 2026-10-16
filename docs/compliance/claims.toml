@@ -34,7 +34,7 @@ limit = "The module has no FIPS 140-3 certificate; that is an external laborator
 evidence = ["crypto/pqc-agility/src/backend/mod.rs:14"]
 tests = ["crypto/pqc-agility/tests/fips_backend.rs::kem_roundtrip_every_suite"]
 service_tests = ["deploy/compose/smoke.sh:19"]
-stated_in = ["README.md:51", "docs/compliance/GA_READINESS.md:52", "docs/launch/pipeline/build-deck.js:474"]
+stated_in = ["README.md:63", "docs/compliance/GA_READINESS.md:64", "docs/launch/pipeline/build-deck.js:474"]
 
 [[claim]]
 id = "pq-mtls"
@@ -91,7 +91,7 @@ evidence = ["crypto/audit-writer/src/ledger.rs:5"]
 tests = ["crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history", "services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row", "services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:24"]
 limit = "The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime)."
-stated_in = ["README.md:42", "CHANGELOG.md:49", "docs/launch/pipeline/build-deck.js:334"]
+stated_in = ["README.md:54", "CHANGELOG.md:49", "docs/launch/pipeline/build-deck.js:334"]
 
 [[claim]]
 id = "object-fabric"
@@ -101,7 +101,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/enclosure.rs:368"]
 tests = ["services/http-gateway/tests/fabric_edge.rs::mandatory_access_control_hides_objects_outside_the_callers_compartments", "services/http-gateway/tests/secured_edge.rs::above_clearance_query_is_denied_403_and_audited"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:42", "docs/launch/pipeline/build-deck.js:332"]
+stated_in = ["README.md:54", "docs/launch/pipeline/build-deck.js:332"]
 
 [[claim]]
 id = "ontology-file"
@@ -111,7 +111,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/ontology_file.rs:144", "contracts/schema/ontology.v1.schema.json"]
 tests = ["services/http-gateway/tests/ontology_boot.rs::an_invalid_ontology_refuses_to_boot", "services/http-gateway/tests/contract_schemas.rs::ontology_fixtures_get_the_same_verdict_from_the_schema_and_the_parser", "services/http-gateway/tests/contract_schemas.rs::the_ontology_schema_allows_exactly_the_keys_the_parser_allows"]
 service_tests = ["deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:293", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:305", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "checked-import"
@@ -121,7 +121,7 @@ status = "operable"
 evidence = ["tools/mg-admin/src/main.rs:376", "services/http-gateway/src/import_file.rs:91", "contracts/schema/import-record.v1.schema.json"]
 tests = ["services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it", "services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer"]
 service_tests = ["tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves"]
-stated_in = ["README.md:335", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:347", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "human-gated-actions"
@@ -143,7 +143,7 @@ evidence = ["services/iam/src/auth.rs:1"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests", "services/http-gateway/tests/login_directory.rs::a_durable_principal_needs_both_factors_and_survives_a_restart"]
 service_tests = ["tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway"]
 limit = "The console's login form has no field for the one-time code."
-stated_in = ["README.md:42", "docs/launch/pipeline/build-deck.js:447"]
+stated_in = ["README.md:54", "docs/launch/pipeline/build-deck.js:447"]
 
 [[claim]]
 id = "webauthn-oidc-federation"
@@ -220,7 +220,7 @@ evidence = ["products/admin/ui/src/main.tsx:17"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
-stated_in = ["README.md:824", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544"]
+stated_in = ["README.md:836", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544"]
 
 # ---- Mimir -----------------------------------------------------------------------------
 
@@ -390,7 +390,7 @@ evidence = ["bifrost/bundle/src/stream.rs:151", "deploy/air-gap-bundle/install.s
 tests = ["bifrost/bundle/tests/streaming.rs::damage_is_located_and_a_forged_chunk_is_still_refused"]
 service_tests = ["tools/mg-bundle/tests/cli.rs::a_bundle_from_a_sealed_keystore_imports_offline_and_refuses_everything_else"]
 limit = "The bundle carries binaries. The chart, base image, advisory snapshot and trust anchors come from a repository checkout, and an import returns no signed receipt."
-stated_in = ["CHANGELOG.md:13", "docs/releases/v0.1.0-rc.1.md:25", "docs/compliance/GA_READINESS.md:65"]
+stated_in = ["CHANGELOG.md:13", "docs/releases/v0.1.0-rc.1.md:25", "docs/compliance/GA_READINESS.md:77"]
 
 # ---- Heimdall --------------------------------------------------------------------------
 
@@ -463,7 +463,7 @@ evidence = ["justfile:373", "tools/ci/release.sh:170"]
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component"]
 service_tests = ["tools/ci/run.sh:225"]
 limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner."
-stated_in = ["README.md:754", "docs/compliance/GA_READINESS.md:54", "docs/launch/pipeline/build-deck.js:402"]
+stated_in = ["README.md:766", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402"]
 
 [[claim]]
 id = "offline-build"
@@ -473,8 +473,8 @@ status = "operable"
 criteria = ["AC-M-5"]
 evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/vendor-check.sh"]
 service_tests = ["tools/ci/run.sh:208"]
-limit = "Observed on a fresh clone of dev on 2026-10-13. The measure of record is a gate run recorded under docs/compliance/gate-runs, and none is recorded yet (RF-CA-5)."
-stated_in = ["README.md:116", "docs/launch/pipeline/build-deck.js:508"]
+limit = "The recorded gate run is of commit df320bfc512f (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again."
+stated_in = ["README.md:128", "docs/launch/pipeline/build-deck.js:508"]
 
 [[claim]]
 id = "acceptance-gate"
@@ -483,7 +483,7 @@ claim = "Each of the 72 acceptance criteria maps to a test, and one script runs 
 status = "operable"
 evidence = ["deploy/acceptance/run-airgapped.sh:10"]
 service_tests = ["tools/ci/run.sh:208"]
-limit = "No run of the gate is recorded yet. tools/ci/gate-record.sh records a run of a pushed commit, and refuses it unless every one of the 72 criteria has a verdict (RF-CA-5)."
+limit = "Recorded at commit df320bfc512f (docs/compliance/gate-runs): every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again."
 stated_in = ["GETTING_STARTED.md:5"]
 
 # ---- Deployment and operations ---------------------------------------------------------
@@ -536,4 +536,4 @@ id = "likan"
 area = "Outside this repository"
 claim = "Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here."
 status = "external"
-stated_in = ["README.md:845"]
+stated_in = ["README.md:857"]
