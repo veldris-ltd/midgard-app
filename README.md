@@ -304,55 +304,27 @@ This writes:
 
 `init` refuses a directory that already has anything in it.
 
-### Declare an ontology
+### Declare an ontology and import data
 
-Edit `ontology.json` before serving; the gateway registers it on every start and refuses to start if it is invalid. The format is published as a JSON Schema, [`contracts/schema/ontology.v1.schema.json`](contracts/schema/ontology.v1.schema.json), and the records `mg-admin import` reads as [`contracts/schema/import-record.v1.schema.json`](contracts/schema/import-record.v1.schema.json). A test holds both schemas to the gateway's parsers, with worked examples under `contracts/fixtures/`.
+Before serving, write the enclosure's schema into `ontology.json`: its object types, link types and actions. The gateway registers it on every start and refuses to start if it is invalid. Then load data, with the gateway stopped, from a JSON Lines file of objects and links:
 
 ```json
-{
-  "version": 1,
-  "objectTypes": [
-    { "id": "aircraft", "title": "Aircraft",
-      "properties": [ { "name": "tail", "type": "text", "required": true },
-                      { "name": "status", "type": "text" } ] }
-  ],
-  "actions": [
-    { "id": "ground_aircraft", "name": "groundAircraft", "title": "Ground aircraft",
-      "objectType": "aircraft", "marking": "confidential", "purposes": ["operations"],
-      "effect": { "kind": "set-property", "property": "status", "value": "grounded" } }
-  ]
-}
+{ "version": 1,
+  "objectTypes": [ { "id": "aircraft", "title": "Aircraft",
+                     "properties": [ { "name": "tail", "type": "text", "required": true } ] } ] }
 ```
-
-- Property types are `text`, `int`, `float`, `bool` and `timestamp`.
-- `linkTypes` entries take `id`, `name`, `from`, `to` and a `cardinality` of `one-to-one`, `one-to-many` or `many-to-many`.
-- An action is **human-gated unless it says `"humanGated": false`**. A caller needs clearance for its `marking` (a band, plus any `compartments`) and one of its `purposes`.
-- A caller also needs a policy rule granting the action's `name`, for example `{"id":"operator-ground","role":"operator","action":"groundAircraft","resource":"*","effect":"permit"}`.
-- Effects are `set-property` (`property`, `value`) and `cycle-property` (`property`, `values`), each on a text property of the action's object type.
-- Unknown keys, undeclared types or properties and duplicate ids refuse the whole file.
-
-### Import data
-
-`mg-admin import` adds objects and links from a JSON Lines file, one record per line, to the enclosure's durable store. Run it with the gateway stopped:
 
 ```bash
 ./target/release/mg-admin import --state-dir ./enclosure --file ./fleet.jsonl
 ```
 
 ```text
-{"object":"aircraft","key":"AC-2214","marking":"confidential","compartments":["OPS-N"],"purposes":["operations"],"properties":{"tail":"MG-404","status":"active"}}
-{"object":"facility","key":"FAC-NORTH","marking":"restricted","purposes":["operations"],"properties":{"name":"Northern operating base"}}
-{"link":"aircraft_base","from":"AC-2214","to":"FAC-NORTH"}
+{"object":"aircraft","key":"AC-2214","marking":"internal","purposes":["operations"],"properties":{"tail":"MG-404"}}
 ```
 
-- An object's id becomes `<object type>/<key>`, for example `aircraft/AC-2214`.
-- Every property must be declared by its type in `ontology.json`, as the right kind of JSON value: a string for `text`, an integer for `int`, any number for `float`, `true` or `false` for `bool`, and Unix seconds for `timestamp`. Required properties must be present.
-- `marking`, `compartments` and `purposes` decide who can read each object. A caller sees it only with clearance that dominates its marking and one of its purposes.
-- A link's `from` and `to` are keys of objects of the link type's declared source and target types, either in the same file or already in the store.
-- It is all or nothing. The first bad line refuses the file and names the line, and so does an object that already exists: an import never replaces anything. Nothing is written until every record has passed.
-- Each import is recorded in the audit ledger before it is written.
+An import is all or nothing: every record is checked against the ontology before anything is written, an existing object is never replaced, and the import is recorded in the audit ledger. Both formats are published as JSON Schemas, [`contracts/schema/ontology.v1.schema.json`](contracts/schema/ontology.v1.schema.json) and [`contracts/schema/import-record.v1.schema.json`](contracts/schema/import-record.v1.schema.json), and a test holds them to the gateway's parsers.
 
-For a complete worked example, from an empty state directory to querying your own data, see [Import your own data](docs/guides/IMPORT_YOUR_OWN_DATA.md).
+**[Import your own data](docs/guides/IMPORT_YOUR_OWN_DATA.md)** is the full walkthrough: every key of both formats, links, actions and the policy rules they need, who can read what, converting a spreadsheet, and the errors you will meet.
 
 ### 3 — Enrol a user
 

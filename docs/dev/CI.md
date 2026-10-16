@@ -279,6 +279,12 @@ EOF
 rule that allows them on `dev` must be turned off as well. On GitLab: protect `v*` under
 Settings → Repository → Protected tags with no one allowed to create them but
 maintainers, and turn on *Reject unsigned commits* in the push rules (a Premium feature).
+[`tools/ci/gitlab-rules.sh`](../../tools/ci/gitlab-rules.sh) applies all of it through
+the API with a maintainer's token, and `--dry-run` shows the calls first:
+
+```bash
+GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://git.veldris.dev --project <group>/midgard-app
+```
 
 ## What a GitLab instance needs
 
