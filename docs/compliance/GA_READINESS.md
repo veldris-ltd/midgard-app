@@ -110,7 +110,7 @@ not a release. Nothing was signed with a ceremony key, and nothing was published
 | Stage | Result |
 |-------|--------|
 | Coverage (RC-07) | `supply-chain/release-artefacts.txt` names all 18 binaries the workspace builds; the check passes |
-| Gate | `just gate forge-worker forge-egress` passes. All 18 binaries were proven bit-reproducible (`mg-repro`), SBOM'd, scanned (0 blocking findings), signed and verified. Every attestation records source revision `cbf26da` |
+| Gate | `just gate forge-worker forge-egress` passes. All 18 binaries were proven bit-reproducible (`mg-repro`), SBOM'd, scanned (0 blocking findings), signed and verified. Every attestation records source revision `cbf26da`, a commit of the private working history that is not in this repository |
 | Images | 6 verify-before-run images. Every binary they carry (7) is verified and started through the image's own entrypoint. The image list is signed and verified |
 | Bundle | 54 artefacts (18 binaries, each with its `.sig` and `.att`), 28 MB, signed with the admission key |
 | Install | `deploy/air-gap-bundle/install.sh` verified all 54 artefacts offline, rebuilt the images, loaded them into a three-node kind cluster and deployed 0.1.0-rc.1. Every service logged `verify-before-run: OK` and came up ready |

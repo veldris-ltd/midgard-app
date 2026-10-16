@@ -246,7 +246,7 @@ function DocsShell({ active, children }) {
   );
   return (
     <div className={'theme-' + platform} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-page)' }}>
-      <ClassificationBanner level="internal" text="INTERNAL · MIDGARD PLATFORM DESIGN SYSTEM v1.0" compact />
+      <ClassificationBanner level="open" text="PUBLIC · MIDGARD PLATFORM DESIGN SYSTEM v1.0" compact />
       <header ref={headerRef} style={{
         position: 'sticky', top: 0, zIndex: 50, flex: 'none',
         display: 'flex', alignItems: 'center', gap: '6px 14px',

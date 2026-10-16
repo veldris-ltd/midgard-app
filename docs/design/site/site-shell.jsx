@@ -72,8 +72,8 @@ function SiteHeader({ active }) {
         ))}
       </nav>
       <ModeToggle />
-      <a href="#early-access" style={{ textDecoration: 'none', flex: 'none' }}>
-        <Button variant="primary" size="sm" iconRight={<Icon name="arrow-right" size={14} />}>Early access</Button>
+      <a href="github.html" style={{ textDecoration: 'none', flex: 'none' }}>
+        <Button variant="primary" size="sm" iconRight={<Icon name="arrow-right" size={14} />}>Source</Button>
       </a>
       <button type="button" aria-label="Menu" onClick={() => setOpen(o => !o)} className="site-burger" style={{
         all: 'unset', display: 'none', width: 34, height: 30, borderRadius: 5, cursor: 'pointer',
@@ -105,62 +105,20 @@ function SiteHeader({ active }) {
   );
 }
 
-/* Early-access signup: persists to localStorage, issues a mono receipt. */
-function EarlyAccess({ product }) {
-  const KEY = 'mg-early-access';
-  const [form, setForm] = React.useState({ name: '', email: '', org: '', interest: product || 'suite' });
-  const [done, setDone] = React.useState(null);
-  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
-  const submit = () => {
-    if (!form.email.trim() || !/.+@.+\..+/.test(form.email)) { setDone({ error: 'A valid email is required.' }); return; }
-    const list = JSON.parse(localStorage.getItem(KEY) || '[]');
-    const id = 'EA-' + String(1000 + list.length + 1);
-    const rec = { ...form, id, ts: new Date().toISOString() };
-    list.push(rec);
-    localStorage.setItem(KEY, JSON.stringify(list));
-    setDone(rec);
-  };
+/* The call to action: the source, not a signup. Nothing is collected. */
+function GetTheSource() {
   return (
-    <section id="early-access" className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', borderTop: '1px solid var(--border)', padding: 'clamp(48px, 8vw, 96px) clamp(16px, 4vw, 36px)' }}>
+    <section id="source" className="mg-grid-bg" style={{ background: 'color-mix(in srgb, var(--bg-sunken) 55%, transparent)', borderTop: '1px solid var(--border)', padding: 'clamp(48px, 8vw, 96px) clamp(16px, 4vw, 36px)' }}>
       <div style={{ maxWidth: 880, margin: '0 auto' }}>
-        <SectionLabel number={9}>EARLY ACCESS</SectionLabel>
-        <h2 style={{ fontSize: 'clamp(1.7rem, 4vw, 2.6rem)', margin: '14px 0 10px' }}>Get inside the enclosure first.</h2>
+        <SectionLabel number={9}>THE SOURCE</SectionLabel>
+        <h2 style={{ fontSize: 'clamp(1.7rem, 4vw, 2.6rem)', margin: '14px 0 10px' }}>Read it. Build it. Verify it.</h2>
         <p style={{ margin: '0 0 28px', fontSize: 'var(--fs-body)', color: 'var(--text-muted)', maxWidth: 560, lineHeight: 1.65 }}>
-          The suite is in closed development. Early-access partners get the first self-host builds, the reference hardware guide, and a direct line to the architecture team.
+          Midgard is open source under Apache-2.0. Clone it, build it offline in the pinned toolchain, and run the acceptance gate yourself. The claims ledger in the repository says what each capability does today.
         </p>
-        {done && done.id ? (
-          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--secure)', borderRadius: 'var(--radius-lg)', padding: 'clamp(18px, 3vw, 28px)', maxWidth: 560 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <Icon name="shield-check" size={18} color="var(--secure)" />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.14em', color: 'var(--secure)' }}>REQUEST SEALED · {done.id}</span>
-            </div>
-            <Terminal lines={[
-              '> midgard access request --verify',
-              'applicant  ' + (done.name || 'unnamed'),
-              'contact    ' + done.email,
-              'interest   ' + done.interest,
-              'stored     locally · nothing left this page',
-              '# we will reach out when your cohort opens',
-            ]} />
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 560 }}>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <Input label="Name" placeholder="Ada Lovelace" value={form.name} onChange={set('name')} style={{ flex: '1 1 200px' }} fullWidth />
-              <Input label="Work email" placeholder="you@organisation.eu" value={form.email} onChange={set('email')} style={{ flex: '1 1 220px' }} fullWidth />
-            </div>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <Input label="Organisation" placeholder="Optional" value={form.org} onChange={set('org')} style={{ flex: '1 1 200px' }} fullWidth />
-              <Select label="Primary interest" value={form.interest} onChange={set('interest')} style={{ flex: '1 1 180px' }} fullWidth
-                options={[{ value: 'suite', label: 'Full suite' }, { value: 'midgard', label: 'Midgard core' }, { value: 'forge', label: 'Forge' }, { value: 'mimir', label: 'Mimir' }, { value: 'bifrost', label: 'Bifrost' }, { value: 'heimdall', label: 'Heimdall' }]} />
-            </div>
-            {done && done.error && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--midgard-300)' }}>{done.error}</span>}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-              <Button variant="primary" size="lg" onClick={submit} iconRight={<Icon name="arrow-right" size={16} />}>Request early access</Button>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>STORED LOCALLY · NO TRACKING · NO EGRESS</span>
-            </div>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <a href="github.html" style={{ textDecoration: 'none' }}><Button variant="primary" size="lg" iconRight={<Icon name="arrow-right" size={16} />}>Get the source</Button></a>
+          <a href="architecture.html" style={{ textDecoration: 'none' }}><Button variant="outline" size="lg">Read the architecture</Button></a>
+        </div>
       </div>
     </section>
   );
@@ -206,7 +164,7 @@ function SiteFooter() {
         </div>
         {[
           ['PRODUCTS', PRODUCTS.slice(1).map(p => [p.name[0] + p.name.slice(1).toLowerCase(), p.href])],
-          ['PLATFORM', [['Midgard core', 'index.html'], ['Architecture', 'architecture.html'], ['Pricing & licence', 'pricing.html'], ['Source on GitHub', 'github.html'], ['Early access', '#early-access']]],
+          ['PLATFORM', [['Midgard core', 'index.html'], ['Architecture', 'architecture.html'], ['Licence', 'pricing.html'], ['Source on GitHub', 'github.html']]],
           ['COMPANY', [['Veldris Ltd · veldris.io', 'https://veldris.io'], ['About us', 'about.html'], ['Contact us', 'contact.html'], ['Security disclosure', 'contact.html#security']]],
           ['LEGAL', [['Privacy notice', 'privacy.html'], ['Terms of use', 'terms.html'], ['Legal notice', 'legal.html'], ['Your GDPR rights', 'privacy.html#rights']]],
         ].map(([title, links]) => (
@@ -218,7 +176,7 @@ function SiteFooter() {
           </div>
         ))}
         <div style={{ flex: '1 1 100%', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', borderTop: '1px solid var(--divider)', paddingTop: 18 }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>© 2026 VELDRIS LTD · OPEN-SOURCE CORE · OSI LICENCE</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>© 2026 VELDRIS LTD · OPEN SOURCE · APACHE-2.0</span>
           <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--text-faint)' }}>PQ-SEALED · ML-KEM-1024 · AIR-GAP READY</span>
         </div>
       </div>
@@ -232,7 +190,7 @@ function SiteShell({ active, children }) {
       <style>{'@media (max-width: 860px){ .site-nav{display:none!important} .site-burger{display:inline-flex!important} .site-domain{display:none} }'}</style>
       <SiteHeader active={active} />
       <main style={{ flex: 1 }}>{children}</main>
-      <EarlyAccess product={active === 'midgard' ? 'suite' : active} />
+      <GetTheSource />
       <SiteFooter />
       <ConsentBanner />
     </div>

@@ -105,6 +105,18 @@ the handoff. Neither has a default; a runner missing either fails the release.
 
 ## HSM key ceremony (CA + release signing key)
 
+**The mechanical part, as one run.** `deploy/trust/ceremony.sh` generates the release
+signing key (ML-DSA-87) and the Bifrost admission key (ML-DSA-65) into sealed keystores
+outside the checkout, writes `deploy/trust/release-trust.pub`, `bifrost-trust.pub` and
+`allowed_signers`, checks them as the release will, and writes a ceremony record under
+`docs/ops/ceremonies/` with every digest and fingerprint and blank sign-off lines. It
+commits nothing. Until custody is hardware, it stands in for steps 2 to 4 below with
+software keystores; steps 5 and 6 remain the officers'.
+
+```bash
+bash deploy/trust/ceremony.sh --custody /secure/midgard-keys-2026 --signer you@example.org=$HOME/.ssh/id_ed25519_signing.pub --witness "A. Witness"
+```
+
 Run with the duty Security Officer + a second witness (dual-control), recorded in the
 audit chain:
 
@@ -180,6 +192,8 @@ kms]` runners. **Provision them** as follows. The workflow's *Signing-runner pre
 job (`tools/ci/release-preflight.sh`) asserts each item and fails closed with a pointer
 here if any is missing:
 
+0. **A current runner.** The workflows' actions run on Node.js 24 and need GitHub's
+   runner 2.327.1 or later (`./config.sh --version` on the runner).
 1. **Pinned toolchain image.** Build `midgard-acceptance:1.82.0` from
    `deploy/acceptance/Dockerfile` (Rust `1.82.0` and `just`, on a digest-pinned base),
    and pull the service image base `deploy/images/service.Dockerfile` names. Do both
