@@ -56,6 +56,9 @@ pub const REPLAY_MEMORY: usize = 200_000;
 
 /// The method a source submits one encoded signed observation with.
 pub const INGEST: &str = "Ingest";
+/// The method a source submits many encoded signed observations with, framed by
+/// [`encode_batch`].
+pub const INGEST_BATCH: &str = "IngestBatch";
 /// The method an analyst reads the picture with; its payload is empty.
 pub const READ_PICTURE: &str = "ReadPicture";
 /// The policy action a submission is authorised as.
@@ -133,6 +136,27 @@ impl PictureState {
     /// The current picture.
     pub fn picture(&self) -> &Picture {
         self.engine.picture()
+    }
+
+    /// Fuse verified observations in order and seal the picture once for all of them.
+    pub fn fuse_many(&mut self, observations: &[VerifiedObservation]) -> Result<(), StoreError> {
+        if observations.is_empty() {
+            return Ok(());
+        }
+        let mut changed = BTreeSet::new();
+        for observation in observations {
+            changed.insert(self.engine.ingest(observation));
+        }
+        let layers: Vec<_> = self.engine.picture().layers().cloned().collect();
+        let entities: Vec<_> = changed
+            .iter()
+            .filter_map(|id| self.engine.picture().entity(id).cloned())
+            .collect();
+        self.durable.upsert_all(layers, entities)?;
+        for observation in observations {
+            self.remember(&observation.observation().id.0);
+        }
+        Ok(())
     }
 
     /// Fuse a verified observation and seal the entity it changed.
@@ -243,7 +267,8 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
     }
 
-    /// The router the PQ-mTLS gateway serves: [`INGEST`] and [`READ_PICTURE`].
+    /// The router the PQ-mTLS gateway serves: [`INGEST`], [`INGEST_BATCH`] and
+    /// [`READ_PICTURE`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
         let ingest: Arc<dyn RequestHandler> =
@@ -251,85 +276,23 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         let service = self.clone();
         let read: Arc<dyn RequestHandler> =
             Arc::new(move |peer: &WorkloadIdentity, _: &[u8]| service.read_picture(peer));
+        let service = self.clone();
+        let batch: Arc<dyn RequestHandler> =
+            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.ingest_batch(peer, body));
         Router::new()
             .route(INGEST, ingest)
+            .route(INGEST_BATCH, batch)
             .route(READ_PICTURE, read)
     }
 
     /// Admit, fuse and persist one signed observation.
     pub fn ingest(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
         let now = (self.clock)();
-        let signed = decode_signed_observation(body);
-        // A malformed submission is still an authenticated call, and is still audited.
-        let action = if signed.is_ok() {
-            ACTION_INGEST
-        } else {
-            "Ingest:MALFORMED"
+        let admitted = self.admit(peer, body, now, &BTreeSet::new());
+        let (verified, audit_seq) = match admitted {
+            Ok(ok) => ok,
+            Err(Refusal { code, message }) => return self.reply(INGEST, code, &message),
         };
-        let decision = match lock(&self.governance).authorize(
-            &self.context(peer),
-            &self.resource,
-            action,
-            now,
-        ) {
-            Ok(decision) => decision,
-            Err(_) => {
-                return self.reply(
-                    INGEST,
-                    outcome::FAILED,
-                    "the observation could not be audited",
-                )
-            }
-        };
-        let signed = match signed {
-            Ok(signed) => signed,
-            Err(e) => return self.reply(INGEST, outcome::MALFORMED, &e.to_string()),
-        };
-        if !decision.permitted {
-            return self.reply(
-                INGEST,
-                outcome::DENIED,
-                "policy does not permit this identity to submit observations",
-            );
-        }
-
-        let feed = signed.observation.feed_id.0.clone();
-        if feed != peer.id.0 {
-            return self.refuse(
-                peer,
-                now,
-                "Ingest refused: observation from another feed",
-                &feed,
-                "a source submits only its own feed's observations",
-            );
-        }
-        let mut registry = FeedRegistry::new();
-        registry.register(FeedId(peer.id.0.clone()), peer.verifying_key.clone());
-        let verified = match FeedGateway::new(registry, self.provider.clone()).authenticate(&signed)
-        {
-            Ok(verified) => verified,
-            Err(e) => {
-                return self.refuse(
-                    peer,
-                    now,
-                    "Ingest refused: feed signature rejected",
-                    &feed,
-                    &format!("the observation was rejected: {e}"),
-                )
-            }
-        };
-
-        let observation_id = verified.observation().id.0.clone();
-        if lock(&self.state).already_fused(&observation_id) {
-            return self.refuse(
-                peer,
-                now,
-                "Ingest refused: duplicate observation",
-                &feed,
-                &format!("observation {observation_id} was already fused"),
-            );
-        }
-
         let fused = lock(&self.state).fuse(&verified);
         self.sweep(now);
         match fused {
@@ -337,8 +300,8 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 INGEST,
                 outcome::ACCEPTED,
                 &format!(
-                    "fused into entity {} at audit sequence {}",
-                    entity.0, decision.audit_seq
+                    "fused into entity {} at audit sequence {audit_seq}",
+                    entity.0
                 ),
             ),
             Err(e) => self.reply(
@@ -347,6 +310,123 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 &format!("the picture was not persisted: {e:?}"),
             ),
         }
+    }
+
+    /// Admit, fuse and persist a batch of signed observations ([`encode_batch`]). Each
+    /// observation passes the same gates as [`FeedService::ingest`] and is authorised
+    /// and audited on its own; the admitted ones are fused in order and the picture is
+    /// sealed once, so a batch costs one write instead of one per observation. The
+    /// response is `{"accepted": N, "refused": [{"index", "code", "message"}]}`.
+    pub fn ingest_batch(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+        let now = (self.clock)();
+        let items = match decode_batch(body) {
+            Ok(items) => items,
+            Err(e) => {
+                // Still an authenticated call, so it is still audited.
+                let _ = lock(&self.governance).authorize(
+                    &self.context(peer),
+                    &self.resource,
+                    "IngestBatch:MALFORMED",
+                    now,
+                );
+                return self.reply(INGEST_BATCH, outcome::MALFORMED, &e);
+            }
+        };
+        let mut admitted = Vec::with_capacity(items.len());
+        let mut pending = BTreeSet::new();
+        let mut refused = Vec::new();
+        for (index, item) in items.iter().enumerate() {
+            match self.admit(peer, item, now, &pending) {
+                Ok((verified, _)) => {
+                    pending.insert(verified.observation().id.0.clone());
+                    admitted.push(verified);
+                }
+                Err(Refusal { code, message }) => refused.push(Json::obj(vec![
+                    ("index", count(index as u64)),
+                    ("code", Json::Int(i64::from(code))),
+                    ("message", Json::s(&message)),
+                ])),
+            }
+        }
+        let fused = lock(&self.state).fuse_many(&admitted);
+        self.sweep(now);
+        if let Err(e) = fused {
+            return self.reply(
+                INGEST_BATCH,
+                outcome::FAILED,
+                &format!("the picture was not persisted: {e:?}"),
+            );
+        }
+        let body = Json::obj(vec![
+            ("accepted", count(admitted.len() as u64)),
+            ("refused", Json::Arr(refused)),
+        ]);
+        self.reply(INGEST_BATCH, outcome::ACCEPTED, &body.encode())
+    }
+
+    /// The five gates every observation passes, each audited: authorised by policy,
+    /// well formed, from the caller's own feed, signed by the key its certificate
+    /// binds, and not already fused (or `pending` in the same batch).
+    fn admit(
+        &self,
+        peer: &WorkloadIdentity,
+        body: &[u8],
+        now: u64,
+        pending: &BTreeSet<String>,
+    ) -> Result<(VerifiedObservation, u64), Refusal> {
+        let signed = decode_signed_observation(body);
+        // A malformed submission is still an authenticated call, and is still audited.
+        let action = if signed.is_ok() {
+            ACTION_INGEST
+        } else {
+            "Ingest:MALFORMED"
+        };
+        let decision = lock(&self.governance)
+            .authorize(&self.context(peer), &self.resource, action, now)
+            .map_err(|_| Refusal::new(outcome::FAILED, "the observation could not be audited"))?;
+        let signed = signed.map_err(|e| Refusal::new(outcome::MALFORMED, &e.to_string()))?;
+        if !decision.permitted {
+            return Err(Refusal::new(
+                outcome::DENIED,
+                "policy does not permit this identity to submit observations",
+            ));
+        }
+
+        let feed = signed.observation.feed_id.0.clone();
+        if feed != peer.id.0 {
+            return Err(self.refuse(
+                peer,
+                now,
+                "Ingest refused: observation from another feed",
+                &feed,
+                "a source submits only its own feed's observations",
+            ));
+        }
+        let mut registry = FeedRegistry::new();
+        registry.register(FeedId(peer.id.0.clone()), peer.verifying_key.clone());
+        let verified = FeedGateway::new(registry, self.provider.clone())
+            .authenticate(&signed)
+            .map_err(|e| {
+                self.refuse(
+                    peer,
+                    now,
+                    "Ingest refused: feed signature rejected",
+                    &feed,
+                    &format!("the observation was rejected: {e}"),
+                )
+            })?;
+
+        let observation_id = verified.observation().id.0.clone();
+        if pending.contains(&observation_id) || lock(&self.state).already_fused(&observation_id) {
+            return Err(self.refuse(
+                peer,
+                now,
+                "Ingest refused: duplicate observation",
+                &feed,
+                &format!("observation {observation_id} was already fused"),
+            ));
+        }
+        Ok((verified, decision.audit_seq))
     }
 
     /// The picture as JSON: layers with visibility, and every tracked entity.
@@ -402,14 +482,14 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         action: &str,
         feed: &str,
         message: &str,
-    ) -> Vec<u8> {
+    ) -> Refusal {
         let recorded =
             lock(&self.governance).record_event(&peer.id.0, action, &format!("feed:{feed}"), now);
         let message = match recorded {
             Ok(_) => message.to_string(),
             Err(_) => format!("{message} (not audited)"),
         };
-        self.reply(INGEST, outcome::DENIED, &message)
+        Refusal::new(outcome::DENIED, &message)
     }
 
     fn context(&self, peer: &WorkloadIdentity) -> GovContext {
@@ -439,6 +519,68 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         out.extend_from_slice(message.as_bytes());
         out
     }
+}
+
+/// Why an observation was not admitted: the outcome byte and a message.
+struct Refusal {
+    code: u8,
+    message: String,
+}
+
+impl Refusal {
+    fn new(code: u8, message: &str) -> Self {
+        Self {
+            code,
+            message: message.to_string(),
+        }
+    }
+}
+
+/// The most observations one [`INGEST_BATCH`] request may carry.
+pub const MAX_BATCH: usize = 10_000;
+
+/// Frame encoded signed observations for [`INGEST_BATCH`]: a `u32` count, then each
+/// observation as a `u32` length and its bytes, all little-endian.
+pub fn encode_batch(items: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + items.iter().map(|i| 4 + i.len()).sum::<usize>());
+    out.extend_from_slice(&(items.len() as u32).to_le_bytes());
+    for item in items {
+        out.extend_from_slice(&(item.len() as u32).to_le_bytes());
+        out.extend_from_slice(item);
+    }
+    out
+}
+
+/// The inverse of [`encode_batch`]. A count over [`MAX_BATCH`], a truncated item and
+/// trailing bytes are refused.
+pub fn decode_batch(bytes: &[u8]) -> Result<Vec<&[u8]>, String> {
+    let take_u32 = |at: usize| -> Result<usize, String> {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+            .ok_or_else(|| "the batch is truncated".to_string())
+    };
+    let n = take_u32(0)?;
+    if n > MAX_BATCH {
+        return Err(format!(
+            "a batch carries at most {MAX_BATCH} observations, not {n}"
+        ));
+    }
+    let mut pos = 4;
+    let mut items = Vec::with_capacity(n);
+    for _ in 0..n {
+        let len = take_u32(pos)?;
+        pos += 4;
+        let item = bytes
+            .get(pos..pos + len)
+            .ok_or_else(|| "the batch is truncated".to_string())?;
+        items.push(item);
+        pos += len;
+    }
+    if pos != bytes.len() {
+        return Err("the batch has trailing bytes".into());
+    }
+    Ok(items)
 }
 
 /// A lock that stays usable after a panic elsewhere.
@@ -542,5 +684,26 @@ mod tests {
         assert!(parse_attrs("").unwrap().is_empty());
         assert!(parse_attrs("speed").is_err());
         assert!(parse_attrs("=420").is_err());
+    }
+
+    #[test]
+    fn a_batch_round_trips_and_a_malformed_one_is_refused() {
+        let items = vec![b"one".to_vec(), Vec::new(), b"three".to_vec()];
+        let bytes = encode_batch(&items);
+        let decoded = decode_batch(&bytes).unwrap();
+        assert_eq!(decoded, [&b"one"[..], &b""[..], &b"three"[..]]);
+        assert!(
+            decode_batch(&bytes[..bytes.len() - 1]).is_err(),
+            "truncated"
+        );
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(decode_batch(&trailing).is_err(), "trailing bytes");
+        assert!(
+            decode_batch(&((MAX_BATCH as u32 + 1).to_le_bytes())).is_err(),
+            "too many"
+        );
+        assert!(decode_batch(&[]).is_err(), "empty");
+        assert_eq!(decode_batch(&encode_batch(&[])).unwrap().len(), 0);
     }
 }

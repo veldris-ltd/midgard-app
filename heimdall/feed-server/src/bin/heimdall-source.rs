@@ -16,8 +16,9 @@
 //! the gateway refuses any other. `--observed-at` defaults to now. Exits 1 when the
 //! gateway refuses.
 //!
-//! `--batch` submits many observations over one PQ-mTLS session, one JSON object per
-//! line of FILE (or standard input for `-`):
+//! `--batch` submits many observations over one PQ-mTLS session as `IngestBatch`
+//! requests (the service seals its picture once per request), one JSON object per line
+//! of FILE (or standard input for `-`):
 //!
 //! ```text
 //! {"entity": "406A9F", "kind": "air-track", "observedAt": 1792169458, "id": "optional",
@@ -30,7 +31,9 @@
 //! summary line and exits 1 if any observation was refused or a line was unreadable.
 
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
-use heimdall_feed_server::{outcome, parse_attrs, INGEST, READ_PICTURE};
+use heimdall_feed_server::{
+    encode_batch, outcome, parse_attrs, INGEST, INGEST_BATCH, READ_PICTURE,
+};
 use heimdall_picture::{Attr, FeedId, Observation};
 use pqc_agility::backend::fips::FipsSig;
 use service_runtime::json::{parse, Json};
@@ -125,7 +128,11 @@ fn run(args: &Args) -> Result<String, String> {
 /// How many refusals a batch reports line by line before it only counts them.
 const REPORTED_REFUSALS: usize = 20;
 
-/// Sign and submit every observation in the JSON Lines `path` over one session.
+/// The largest batch request, kept under the transport's 1 MiB frame limit.
+const BATCH_BYTES: usize = 900 * 1024;
+
+/// Sign every observation in the JSON Lines `path` and submit them as `IngestBatch`
+/// requests over one session; the service seals the picture once per request.
 fn batch(
     identity: &ServiceIdentity,
     addr: &str,
@@ -141,40 +148,68 @@ fn batch(
     } else {
         std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?
     };
-    let scheme = FipsSig::new(identity.cert.identity.sig_alg);
-    let mut session = client::Session::open(identity, addr, purpose)?;
-    let (mut accepted, mut refused, mut unreadable) = (0usize, 0usize, 0usize);
     let started = std::time::Instant::now();
+    let scheme = FipsSig::new(identity.cert.identity.sig_alg);
+    let mut unreadable = 0usize;
+    // (line number, signed observation bytes), in file order.
+    let mut signed = Vec::new();
     for (n, line) in text
         .lines()
         .enumerate()
         .filter(|(_, l)| !l.trim().is_empty())
     {
-        let observation = match observation_from_json(line, feed) {
-            Ok(o) => o,
+        match observation_from_json(line, feed) {
+            Ok(observation) => {
+                let s = sign_observation(&scheme, &identity.signing_key, observation)
+                    .map_err(|e| format!("cannot sign the observation on line {}: {e}", n + 1))?;
+                signed.push((n + 1, encode_signed_observation(&s)));
+            }
             Err(e) => {
                 unreadable += 1;
-                eprintln!("heimdall-source: line {}: {e}", n + 1);
-                continue;
+                eprintln!("heimdall-source: line {n}: {e}", n = n + 1);
             }
-        };
-        let signed = sign_observation(&scheme, &identity.signing_key, observation)
-            .map_err(|e| format!("cannot sign the observation on line {}: {e}", n + 1))?;
-        let payload = encode_signed_observation(&signed);
-        // A service may close a long session; reopen once and resend that line.
-        let response = match session.call(INGEST, &payload) {
+        }
+    }
+
+    let mut session = client::Session::open(identity, addr, purpose)?;
+    let (mut accepted, mut refused) = (0usize, 0usize);
+    let mut rest = &signed[..];
+    while !rest.is_empty() {
+        let mut size = 4;
+        let take = rest
+            .iter()
+            .take_while(|(_, bytes)| {
+                size += 4 + bytes.len();
+                size <= BATCH_BYTES
+            })
+            .count()
+            .max(1);
+        let (chunk, tail) = rest.split_at(take);
+        rest = tail;
+        let payload = encode_batch(&chunk.iter().map(|(_, b)| b.clone()).collect::<Vec<_>>());
+        // A service may close a long session; reopen once and resend that request.
+        let response = match session.call(INGEST_BATCH, &payload) {
             Ok(r) => r,
             Err(_) => {
                 session = client::Session::open(identity, addr, purpose)?;
-                session.call(INGEST, &payload)?
+                session.call(INGEST_BATCH, &payload)?
             }
         };
-        match answer(&response) {
-            Ok(_) => accepted += 1,
-            Err(e) => {
+        let report = parse(&answer(&response)?)?;
+        accepted += report.get("accepted").and_then(Json::as_i64).unwrap_or(0) as usize;
+        if let Some(Json::Arr(items)) = report.get("refused") {
+            for item in items {
                 refused += 1;
                 if refused <= REPORTED_REFUSALS {
-                    eprintln!("heimdall-source: line {}: {e}", n + 1);
+                    let line = item
+                        .get("index")
+                        .and_then(Json::as_i64)
+                        .and_then(|i| chunk.get(i as usize))
+                        .map_or(0, |(line, _)| *line);
+                    eprintln!(
+                        "heimdall-source: line {line}: refused: {}",
+                        item.str_field("message").unwrap_or("")
+                    );
                 }
             }
         }

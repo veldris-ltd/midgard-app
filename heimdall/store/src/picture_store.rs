@@ -69,6 +69,22 @@ impl DurablePicture {
         Ok(gone)
     }
 
+    /// Register layers if absent and insert or replace entities, durably, in one write.
+    /// [RC-13]
+    pub fn upsert_all(
+        &mut self,
+        layers: impl IntoIterator<Item = Layer>,
+        entities: impl IntoIterator<Item = TrackedEntity>,
+    ) -> Result<(), StoreError> {
+        for layer in layers {
+            self.picture.ensure_layer(layer);
+        }
+        for entity in entities {
+            self.picture.upsert_entity(entity);
+        }
+        self.save()
+    }
+
     /// Register a layer if absent, durably.
     pub fn ensure_layer(&mut self, layer: Layer) -> Result<(), StoreError> {
         self.picture.ensure_layer(layer);
