@@ -27,11 +27,11 @@ talks to it over its own listener.
 | Status | Rows |
 |---|---|
 | `production` | 0 |
-| `operable` | 22 |
+| `operable` | 23 |
 | `reference` | 19 |
 | `spec` | 4 |
 | `external` | 1 |
-| **Total** | **46** |
+| **Total** | **47** |
 
 No document is listed as wording a capability above its status.
 
@@ -50,9 +50,9 @@ ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorith
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:56`](../../README.md)
-  - [`docs/compliance/GA_READINESS.md:62`](../../docs/compliance/GA_READINESS.md)
-  - [`docs/launch/pipeline/build-deck.js:454`](../../docs/launch/pipeline/build-deck.js)
+  - [`README.md:63`](../../README.md)
+  - [`docs/compliance/GA_READINESS.md:64`](../../docs/compliance/GA_READINESS.md)
+  - [`docs/launch/pipeline/build-deck.js:474`](../../docs/launch/pipeline/build-deck.js)
 
 ### `pq-mtls` (operable)
 
@@ -70,8 +70,8 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:58`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:16`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:450`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:470`](../../docs/launch/pipeline/build-deck.js)
 
 ### `mesh-certificate-lifecycle` (reference)
 
@@ -102,7 +102,7 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:106`](../../CHANGELOG.md)
-  - [`docs/launch/pipeline/build-deck.js:451`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
 
 ### `hardware-key-custody` (reference)
 
@@ -120,8 +120,8 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
   - [`services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper`](../../services/kms/tests/rc_28.rs)
 - Stated at:
   - [`CHANGELOG.md:93`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:88`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:463`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:112`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:483`](../../docs/launch/pipeline/build-deck.js)
 
 ## Core: fabric, identity and governance
 
@@ -141,9 +141,9 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:47`](../../README.md)
+  - [`README.md:54`](../../README.md)
   - [`CHANGELOG.md:49`](../../CHANGELOG.md)
-  - [`docs/launch/pipeline/build-deck.js:314`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
 
 ### `object-fabric` (operable)
 
@@ -158,8 +158,8 @@ The object fabric serves typed objects, links and actions through the HTTP edge.
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:47`](../../README.md)
-  - [`docs/launch/pipeline/build-deck.js:312`](../../docs/launch/pipeline/build-deck.js)
+  - [`README.md:54`](../../README.md)
+  - [`docs/launch/pipeline/build-deck.js:332`](../../docs/launch/pipeline/build-deck.js)
 
 ### `ontology-file` (operable)
 
@@ -175,8 +175,8 @@ An enclosure's object types, link types and actions come from an ontology file w
 - Service tests:
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:298`](../../README.md)
-  - [`docs/launch/pipeline/build-deck.js:315`](../../docs/launch/pipeline/build-deck.js)
+  - [`README.md:309`](../../README.md)
+  - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `checked-import` (operable)
 
@@ -192,8 +192,8 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 - Service tests:
   - [`tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves`](../../tools/mg-admin/tests/import.rs)
 - Stated at:
-  - [`README.md:340`](../../README.md)
-  - [`docs/launch/pipeline/build-deck.js:315`](../../docs/launch/pipeline/build-deck.js)
+  - [`README.md:325`](../../README.md)
+  - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `human-gated-actions` (operable)
 
@@ -208,7 +208,7 @@ An action the ontology marks as human-gated is refused at the edge unless the re
 - Service tests:
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
 - Stated at:
-  - [`docs/launch/pipeline/build-deck.js:313`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:333`](../../docs/launch/pipeline/build-deck.js)
 
 ### `login-and-session-tokens` (operable)
 
@@ -224,8 +224,8 @@ A principal logs in at the edge with a password, and a time-based one-time code 
 - Service tests:
   - [`tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway`](../../tools/mg-admin/tests/cli.rs)
 - Stated at:
-  - [`README.md:47`](../../README.md)
-  - [`docs/launch/pipeline/build-deck.js:427`](../../docs/launch/pipeline/build-deck.js)
+  - [`README.md:54`](../../README.md)
+  - [`docs/launch/pipeline/build-deck.js:447`](../../docs/launch/pipeline/build-deck.js)
 
 ### `webauthn-oidc-federation` (reference)
 
@@ -254,7 +254,7 @@ Access is denied unless a written rule grants it: role, marking and purpose must
   - [`services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller`](../../services/http-gateway/tests/http.rs)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`docs/launch/pipeline/build-deck.js:331`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:351`](../../docs/launch/pipeline/build-deck.js)
 
 ### `dual-control-enrolment` (operable)
 
@@ -329,10 +329,10 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
-  - [`README.md:829`](../../README.md)
+  - [`README.md:812`](../../README.md)
   - [`CHANGELOG.md:97`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:94`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:513`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
 
 ## Mimir
 
@@ -352,8 +352,8 @@ mimir-server answers inference requests from a real model inside the enclosure: 
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:72`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:21`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:361`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:381`](../../docs/launch/pipeline/build-deck.js)
 
 ### `mimir-inference-gpu` (reference)
 
@@ -370,8 +370,8 @@ GPU serving through vLLM, with a first token in under 800 ms.
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
 - Stated at:
   - [`CHANGELOG.md:94`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:90`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:510`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:114`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:541`](../../docs/launch/pipeline/build-deck.js)
 
 ### `signed-model-manifest` (operable)
 
@@ -389,7 +389,7 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`deploy/compose/granite-smoke.sh:31`](../../deploy/compose/granite-smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:74`](../../CHANGELOG.md)
-  - [`docs/launch/pipeline/build-deck.js:360`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:380`](../../docs/launch/pipeline/build-deck.js)
 
 ### `model-family-routing` (reference)
 
@@ -483,8 +483,8 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:67`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:19`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:347`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:367`](../../docs/launch/pipeline/build-deck.js)
 
 ### `forge-compute-engine` (reference)
 
@@ -501,7 +501,7 @@ A partitioned compute engine in Rust: filter, derive, join, aggregate, sort and 
   - [`forge/engine/tests/relational.rs::inner_join_then_aggregate`](../../forge/engine/tests/relational.rs)
 - Stated at:
   - [`CHANGELOG.md:113`](../../CHANGELOG.md)
-  - [`docs/launch/pipeline/build-deck.js:351`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:371`](../../docs/launch/pipeline/build-deck.js)
 
 ### `forge-data-expectations` (reference)
 
@@ -542,7 +542,7 @@ bifrost-fleet records each installation's version, liveness and drift from its c
   - [`deploy/compose/smoke.sh:31`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:87`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`docs/launch/pipeline/build-deck.js:385`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:405`](../../docs/launch/pipeline/build-deck.js)
 
 ### `bifrost-rollout` (reference)
 
@@ -559,8 +559,8 @@ Ring-by-ring rollout with health gates between rings and automatic rollback, wit
   - [`bifrost/rollout/tests/rollout.rs::ac_b_2_broad_ring_gate_failure_rolls_back_automatically_no_downtime`](../../bifrost/rollout/tests/rollout.rs)
   - [`services/scheduler/tests/rollout_real.rs::rolling_upgrade_serves_every_request_with_real_replicas`](../../services/scheduler/tests/rollout_real.rs)
 - Stated at:
-  - [`docs/releases/v0.1.0-rc.1.md:95`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:514`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:119`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:545`](../../docs/launch/pipeline/build-deck.js)
 
 ### `air-gap-bundle` (operable)
 
@@ -578,8 +578,8 @@ mg-bundle packs gate-verified artefacts into one signed bundle and imports it of
   - [`tools/mg-bundle/tests/cli.rs::a_bundle_from_a_sealed_keystore_imports_offline_and_refuses_everything_else`](../../tools/mg-bundle/tests/cli.rs)
 - Stated at:
   - [`CHANGELOG.md:13`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/compliance/GA_READINESS.md:75`](../../docs/compliance/GA_READINESS.md)
+  - [`docs/releases/v0.1.0-rc.1.md:25`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/compliance/GA_READINESS.md:77`](../../docs/compliance/GA_READINESS.md)
 
 ## Heimdall
 
@@ -598,8 +598,8 @@ heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose
   - [`deploy/compose/smoke.sh:42`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:95`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`docs/launch/pipeline/build-deck.js:371`](../../docs/launch/pipeline/build-deck.js)
-  - [`docs/launch/pipeline/build-deck.js:373`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:391`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:393`](../../docs/launch/pipeline/build-deck.js)
 
 ### `heimdall-picture-replication` (reference)
 
@@ -649,7 +649,7 @@ One shared client core in Rust: sealed local edits, clearance checks, and confli
   - [`clients/sync/tests/convergence.rs::all_permutations_converge_and_are_idempotent`](../../clients/sync/tests/convergence.rs)
   - [`clients/inference/tests/rc_57.rs::tier2_request_delegates_over_real_pqmtls`](../../clients/inference/tests/rc_57.rs)
 - Stated at:
-  - [`docs/launch/pipeline/build-deck.js:396`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/launch/pipeline/build-deck.js:416`](../../docs/launch/pipeline/build-deck.js)
 
 ### `client-shells` (spec)
 
@@ -679,17 +679,17 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
   - [`tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component`](../../tools/mg-scan/tests/cli.rs)
 - Service tests:
-  - [`tools/ci/run.sh:213`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:225`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:759`](../../README.md)
-  - [`docs/compliance/GA_READINESS.md:64`](../../docs/compliance/GA_READINESS.md)
-  - [`docs/launch/pipeline/build-deck.js:382`](../../docs/launch/pipeline/build-deck.js)
+  - [`README.md:742`](../../README.md)
+  - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
+  - [`docs/launch/pipeline/build-deck.js:402`](../../docs/launch/pipeline/build-deck.js)
 
 ### `offline-build` (operable)
 
 The workspace builds and its tests run with no network: every dependency is vendored, Cargo is pinned to the vendored directory, and the CI jobs run in a container started with no network.
 
-**Limit.** Observed on a fresh clone of dev on 2026-10-13 (870 tests passed). Not yet repeated on public main.
+**Limit.** The recorded gate run is of commit 3c8b1614bb1d (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again.
 
 - Criteria: AC-M-5
 - Source:
@@ -697,21 +697,39 @@ The workspace builds and its tests run with no network: every dependency is vend
   - [`tools/ci/in-toolchain.sh:12`](../../tools/ci/in-toolchain.sh)
   - [`tools/ci/vendor-check.sh`](../../tools/ci/vendor-check.sh)
 - Service tests:
-  - [`tools/ci/run.sh:196`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:208`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:121`](../../README.md)
-  - [`docs/launch/pipeline/build-deck.js:477`](../../docs/launch/pipeline/build-deck.js)
+  - [`README.md:130`](../../README.md)
+  - [`docs/launch/pipeline/build-deck.js:508`](../../docs/launch/pipeline/build-deck.js)
+
+### `verify-before-run` (operable)
+
+Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails.
+
+**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly.
+
+- Criteria: AC-B-1
+- Source:
+  - [`deploy/images/entrypoint.sh:16`](../../deploy/images/entrypoint.sh)
+  - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
+- Service tests:
+  - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
+- Stated at:
+  - [`README.md:756`](../../README.md)
+  - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
+  - [`CHANGELOG.md:83`](../../CHANGELOG.md)
 
 ### `acceptance-gate` (operable)
 
 Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network.
 
-**Limit.** No run of the gate is recorded against a commit in the public history. Figures quoted for commit 60091a9 cannot be checked from the public tree (RF-CA-5, RF-CA-2).
+**Limit.** Recorded at commit 3c8b1614bb1d (docs/compliance/gate-runs): every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again.
 
 - Source:
   - [`deploy/acceptance/run-airgapped.sh:10`](../../deploy/acceptance/run-airgapped.sh)
 - Service tests:
-  - [`tools/ci/run.sh:196`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:208`](../../tools/ci/run.sh)
 - Stated at:
   - [`GETTING_STARTED.md:5`](../../GETTING_STARTED.md)
 
@@ -732,8 +750,8 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:63`](../../CHANGELOG.md)
-  - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
-  - [`docs/launch/pipeline/build-deck.js:303`](../../docs/launch/pipeline/build-deck.js)
+  - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/launch/pipeline/build-deck.js:323`](../../docs/launch/pipeline/build-deck.js)
 
 ### `high-availability` (spec)
 
@@ -746,7 +764,7 @@ Highly available clusters, replication between sites, zero-downtime operation an
 - Source:
   - [`docs/ops/DR_PLAN.md:16`](../../docs/ops/DR_PLAN.md)
 - Stated at:
-  - [`docs/releases/v0.1.0-rc.1.md:95`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.1.md:119`](../../docs/releases/v0.1.0-rc.1.md)
 
 ### `telemetry` (operable)
 
@@ -782,5 +800,5 @@ Alignment with NIST SP 800-53, OWASP ASVS and ISO 27001.
 Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here.
 
 - Stated at:
-  - [`README.md:850`](../../README.md)
+  - [`README.md:833`](../../README.md)
 

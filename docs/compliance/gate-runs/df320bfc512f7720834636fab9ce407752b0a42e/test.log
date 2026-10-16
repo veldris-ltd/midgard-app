@@ -1,0 +1,2857 @@
+cargo test -p pqc-agility -p pq-mtls -p audit-writer --features test-backend
+[1m[32m   Compiling[0m libc v0.2.186
+[1m[32m   Compiling[0m zeroize v1.8.1
+[1m[32m   Compiling[0m policy v0.1.0-rc.1 (/work/crypto/policy)
+[1m[32m   Compiling[0m pqc-agility v0.1.0-rc.1 (/work/crypto/pqc-agility)
+[1m[32m   Compiling[0m pq-mtls v0.1.0-rc.1 (/work/crypto/pq-mtls)
+[1m[32m   Compiling[0m audit-writer v0.1.0-rc.1 (/work/crypto/audit-writer)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 3.34s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/audit_writer-399962f7fd6acc7f)
+
+running 1 test
+test codec::tests::round_trips_a_sealed_entry ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/append_verify.rs (target/debug/deps/append_verify-5afa2a68751a331a)
+
+running 1 test
+test append_and_verify_chain ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/canonical.rs (target/debug/deps/canonical-26b1e5343fb77934)
+
+running 2 tests
+test field_boundaries_are_injective ... ok
+test identical_records_encode_identically ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/chain_break.rs (target/debug/deps/chain_break-a59b457fc6ca3104)
+
+running 3 tests
+test cross_ledger_splice_is_detected ... ok
+test reorder_is_detected ... ok
+test truncation_gap_is_detected ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/tamper.rs (target/debug/deps/tamper-ce295f96223e3e12)
+
+running 4 tests
+test mutated_record_is_detected ... ok
+test wrong_key_resign_is_detected ... ok
+test swapped_signature_is_detected ... ok
+test compromised_signer_cannot_rewrite_history ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/pq_mtls-4af6e3254ebb700a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/authz.rs (target/debug/deps/authz-87fb44102ef7ecfd)
+
+running 2 tests
+test insufficient_posture_blocks_channel ... ok
+test deny_by_default_pdp_blocks_channel ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/channel_loopback.rs (target/debug/deps/channel_loopback-44a53e902f190a79)
+
+running 2 tests
+test empty_channel_reports_closed ... ok
+test loopback_delivers_messages ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/fail_closed.rs (target/debug/deps/fail_closed-d63d02a36bdcbcb6)
+
+running 1 test
+test no_common_pq_suite_fails_closed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/handshake_ok.rs (target/debug/deps/handshake_ok-e229109ab3190c72)
+
+running 1 test
+test successful_mutual_handshake ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/identity_files.rs (target/debug/deps/identity_files-7481553711c9af9d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/mutual_auth.rs (target/debug/deps/mutual_auth-a93fdb9ddb9b9859)
+
+running 5 tests
+test on_path_downgrade_breaks_authentication ... ok
+test missing_client_credential_is_rejected ... ok
+test untrusted_server_cert_is_rejected ... ok
+test tampered_ciphertext_is_rejected ... ok
+test tampered_key_confirmation_is_rejected ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/object_safety.rs (target/debug/deps/object_safety-93852d9f6394755a)
+
+running 1 test
+test channel_is_object_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/real_fips_handshake.rs (target/debug/deps/real_fips_handshake-9c7624be4e6b38e3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/tcp_transport.rs (target/debug/deps/tcp_transport-233566f51194dc3f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/pqc_agility-4cbe79b809d1190e)
+
+running 7 tests
+test hash::tests::sha256_abc ... ok
+test hash::tests::sha256_empty ... ok
+test secret::tests::empty_secret_is_never_locked ... ok
+test hybrid::tests::both_halves_mix ... ok
+test secret::tests::secret_array_exposes_and_zeroizes_in_place ... ok
+test secret::tests::secret_bytes_roundtrips_and_reports_lock_state ... ok
+test secret::tests::zeroed_is_all_zero ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/aead_kat.rs (target/debug/deps/aead_kat-fbc7cf81621c362e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/agility_fips.rs (target/debug/deps/agility_fips-ac7bf72f68944ff3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/agility_hotswap.rs (target/debug/deps/agility_hotswap-b86f7e3143d85428)
+
+running 2 tests
+test disable_reenable_changes_negotiation ... ok
+test old_ciphertext_still_decapsulates_after_enabling_another_algorithm ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/fips_backend.rs (target/debug/deps/fips_backend-48656a7404e539b0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/hash_kat.rs (target/debug/deps/hash_kat-a72a9724c2633873)
+
+running 5 tests
+test kat_448_bits ... ok
+test kat_abc ... ok
+test kat_two_block_boundary ... ok
+test kat_empty ... ok
+test kat_million_a ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+[1m[32m     Running[0m tests/kem_roundtrip.rs (target/debug/deps/kem_roundtrip-fbe54dbc04a19c8e)
+
+running 3 tests
+test tampered_ciphertext_changes_secret ... ok
+test wrong_suite_key_is_rejected ... ok
+test roundtrip_every_suite ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/negotiation.rs (target/debug/deps/negotiation-5ade15e53a34b97f)
+
+running 4 tests
+test empty_peer_fails_closed ... ok
+test no_overlap_fails_closed ... ok
+test prefers_higher_security_when_no_hybrid ... ok
+test prefers_hybrid_when_offered ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/object_safety.rs (target/debug/deps/object_safety-2a175b97512ef009)
+
+running 1 test
+test traits_are_object_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rc_51.rs (target/debug/deps/rc_51-8c2516e8f9a036c7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/sign_roundtrip.rs (target/debug/deps/sign_roundtrip-f25f6bd3dfefe0fe)
+
+running 5 tests
+test algorithm_mismatch_is_rejected ... ok
+test tampered_message_fails ... ok
+test tampered_signature_fails ... ok
+test sign_verify_roundtrip ... ok
+test wrong_key_fails ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m audit_writer
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m pq_mtls
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m pqc_agility
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p pqc-agility --features backend-fips --test fips_backend
+[1m[32m   Compiling[0m version_check v0.9.5
+[1m[32m   Compiling[0m typenum v1.20.1
+[1m[32m   Compiling[0m proc-macro2 v1.0.106
+[1m[32m   Compiling[0m cfg-if v1.0.4
+[1m[32m   Compiling[0m unicode-ident v1.0.24
+[1m[32m   Compiling[0m quote v1.0.46
+[1m[32m   Compiling[0m generic-array v0.14.7
+[1m[32m   Compiling[0m cpufeatures v0.2.17
+[1m[32m   Compiling[0m subtle v2.6.1
+[1m[32m   Compiling[0m getrandom v0.2.17
+[1m[32m   Compiling[0m semver v1.0.28
+[1m[32m   Compiling[0m rand_core v0.6.4
+[1m[32m   Compiling[0m rustc_version v0.4.1
+[1m[32m   Compiling[0m syn v2.0.118
+[1m[32m   Compiling[0m keccak v0.1.6
+[1m[32m   Compiling[0m curve25519-dalek v4.1.3
+[1m[32m   Compiling[0m crypto-common v0.1.7
+[1m[32m   Compiling[0m block-buffer v0.10.4
+[1m[32m   Compiling[0m inout v0.1.4
+[1m[32m   Compiling[0m digest v0.10.7
+[1m[32m   Compiling[0m universal-hash v0.5.1
+[1m[32m   Compiling[0m cipher v0.4.4
+[1m[32m   Compiling[0m opaque-debug v0.3.1
+[1m[32m   Compiling[0m sha3 v0.10.9
+[1m[32m   Compiling[0m polyval v0.6.2
+[1m[32m   Compiling[0m sha2 v0.10.9
+[1m[32m   Compiling[0m ctr v0.9.2
+[1m[32m   Compiling[0m aes v0.8.4
+[1m[32m   Compiling[0m ghash v0.5.1
+[1m[32m   Compiling[0m aead v0.5.2
+[1m[32m   Compiling[0m aes-gcm v0.10.3
+[1m[32m   Compiling[0m zeroize_derive v1.4.2
+[1m[32m   Compiling[0m curve25519-dalek-derive v0.1.1
+[1m[32m   Compiling[0m zeroize v1.8.1
+[1m[32m   Compiling[0m fips203 v0.4.3
+[1m[32m   Compiling[0m fips204 v0.4.6
+[1m[32m   Compiling[0m fips205 v0.4.1
+[1m[32m   Compiling[0m x25519-dalek v2.0.1
+[1m[32m   Compiling[0m pqc-agility v0.1.0-rc.1 (/work/crypto/pqc-agility)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 4.04s
+[1m[32m     Running[0m tests/fips_backend.rs (target/debug/deps/fips_backend-f3cfc66a3670e24d)
+
+running 9 tests
+test kem_cross_suite_public_key_rejected ... ok
+test kem_wrong_length_public_key_rejected ... ok
+test kem_roundtrip_every_suite ... ok
+test kem_tampered_ciphertext_changes_secret ... ok
+test injected_rng_is_faithful_same_seed_same_key ... ok
+test kem_wrong_secret_key_yields_different_secret ... ok
+test sign_verify_roundtrip_every_alg ... ok
+test tampered_message_and_signature_fail ... ok
+test wrong_verifying_key_fails ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.30s
+
+cargo test -p pqc-agility --features backend-fips --test aead_kat
+[1m[32m   Compiling[0m pqc-agility v0.1.0-rc.1 (/work/crypto/pqc-agility)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+[1m[32m     Running[0m tests/aead_kat.rs (target/debug/deps/aead_kat-30ed6afaa2246107)
+
+running 6 tests
+test kat_case13_empty_plaintext ... ok
+test roundtrip_with_aad ... ok
+test kat_case14_zero_block ... ok
+test wrong_aad_fails_closed ... ok
+test tampered_ciphertext_fails_closed ... ok
+test wrong_nonce_fails_closed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p pqc-agility --features backend-fips --test agility_fips
+[1m[32m   Compiling[0m pqc-agility v0.1.0-rc.1 (/work/crypto/pqc-agility)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+[1m[32m     Running[0m tests/agility_fips.rs (target/debug/deps/agility_fips-51e32923f05a549f)
+
+running 3 tests
+test negotiation_hot_swaps_on_enable_disable ... ok
+test hot_add_signature_algorithm_leaves_old_signature_valid ... ok
+test hot_add_algorithm_leaves_old_ciphertext_valid ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+cargo test -p pq-mtls --features backend-fips --test real_fips_handshake
+[1m[32m   Compiling[0m pq-mtls v0.1.0-rc.1 (/work/crypto/pq-mtls)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+[1m[32m     Running[0m tests/real_fips_handshake.rs (target/debug/deps/real_fips_handshake-49f9b2fb460bde81)
+
+running 5 tests
+test real_handshake_fails_closed_without_common_pq_suite ... ok
+test real_handshake_rejects_untrusted_cert ... ok
+test real_handshake_negotiates_hybrid_and_agrees ... ok
+test real_handshake_denies_unauthorized_peer ... ok
+test real_record_layer_roundtrips_and_fails_closed ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+cargo test -p pq-mtls --features backend-fips --test tcp_transport
+[1m[32m   Compiling[0m pq-mtls v0.1.0-rc.1 (/work/crypto/pq-mtls)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+[1m[32m     Running[0m tests/tcp_transport.rs (target/debug/deps/tcp_transport-0c284f7edc5bfa20)
+
+running 2 tests
+test tcp_handshake_denies_unauthorized ... ok
+test tcp_handshake_and_records ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+cargo test -p policy
+[1m[32m   Compiling[0m policy v0.1.0-rc.1 (/work/crypto/policy)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.46s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/policy-3e205561ae1be5b6)
+
+running 4 tests
+test lattice::tests::empty_marking_dominated_by_any_level ... ok
+test lattice::tests::no_read_up ... ok
+test lattice::tests::reflexive ... ok
+test lattice::tests::missing_compartment_denies ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/object_safety.rs (target/debug/deps/object_safety-278513a0c794d988)
+
+running 1 test
+test pdp_is_object_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/pdp.rs (target/debug/deps/pdp-09382ff7abde75ed)
+
+running 8 tests
+test duplicate_rule_ids_rejected ... ok
+test clearance_too_low_denies_even_with_permit_rule ... ok
+test decisions_are_deterministic ... ok
+test empty_policy_denies_by_default ... ok
+test explicit_deny_overrides_permit ... ok
+test missing_compartment_denies ... ok
+test purpose_gate_blocks_even_with_permit_rule ... ok
+test permit_via_matching_role ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m policy
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p iam
+[1m[32m   Compiling[0m audit-writer v0.1.0-rc.1 (/work/crypto/audit-writer)
+[1m[32m   Compiling[0m kms v0.1.0-rc.1 (/work/services/kms)
+[1m[32m   Compiling[0m iam v0.1.0-rc.1 (/work/services/iam)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.80s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/iam-87c49815b6d32c53)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/idp.rs (target/debug/deps/idp-791525710ad5ae38)
+
+running 6 tests
+test issues_and_verifies_a_token_offline ... ok
+test tampered_token_fails_closed ... ok
+test expired_and_not_yet_valid_fail_closed ... ok
+test certifies_workload_identities_that_chain_to_the_anchor ... ok
+test unknown_subject_and_unauthorised_purpose_are_denied ... ok
+test token_from_a_different_issuer_key_is_rejected ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+[1m[32m     Running[0m tests/issuer_key.rs (target/debug/deps/issuer_key-7621ba5034d8de0a)
+
+running 3 tests
+test a_key_of_another_algorithm_is_refused ... ok
+test a_keypair_that_does_not_belong_together_is_refused ... ok
+test a_rebuilt_idp_verifies_tokens_issued_before_the_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+[1m[32m     Running[0m tests/primitives.rs (target/debug/deps/primitives-3c460aba47cb5e12)
+
+running 3 tests
+test totp_matches_within_skew_and_rejects_outside ... ok
+test pbkdf2_hash_verifies_and_rejects_wrong_password ... ok
+test webauthn_assertion_verifies_and_fails_closed ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+[1m[32m     Running[0m tests/rc_29.rs (target/debug/deps/rc_29-11d0fadcc62d65ac)
+
+running 3 tests
+test the_directory_survives_a_restart ... ok
+test credentials_and_mfa_are_verified_before_a_token_is_minted ... ok
+test federation_mints_a_local_token_from_a_verified_upstream_assertion ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+[1m[32m     Running[0m tests/rc_35.rs (target/debug/deps/rc_35-40cb768557e7ebb5)
+
+running 2 tests
+test expiry_is_tracked_and_renewal_worklist_surfaces_expiring_certs ... ok
+test renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+[1m[32m   Doc-tests[0m iam
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p gateway
+[1m[32m   Compiling[0m audit-writer v0.1.0-rc.1 (/work/crypto/audit-writer)
+[1m[32m   Compiling[0m gateway v0.1.0-rc.1 (/work/services/gateway)
+[1m[32m   Compiling[0m governance v0.1.0-rc.1 (/work/services/governance)
+[1m[32m   Compiling[0m iam v0.1.0-rc.1 (/work/services/iam)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.32s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/gateway-bcc533592d6e1867)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/gateway.rs (target/debug/deps/gateway-695c6d6fe237aa2c)
+
+running 3 tests
+test unauthorized_client_is_denied ... ok
+test client_with_untrusted_cert_is_rejected ... ok
+test authenticated_client_completes_and_is_echoed ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+[1m[32m     Running[0m tests/session.rs (target/debug/deps/session-061637e0e8c86a71)
+
+running 4 tests
+test an_expired_ticket_is_refused ... ok
+test a_second_connection_resumes_and_the_ticket_is_single_use ... ok
+test an_abusive_client_is_rate_limited ... ok
+test many_requests_share_one_handshake_and_route_correctly ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.66s
+
+[1m[32m   Doc-tests[0m gateway
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p http-gateway
+[1m[32m   Compiling[0m telemetry v0.1.0-rc.1 (/work/services/telemetry)
+[1m[32m   Compiling[0m kms v0.1.0-rc.1 (/work/services/kms)
+[1m[32m   Compiling[0m admin-identity v0.1.0-rc.1 (/work/admin/identity)
+[1m[32m   Compiling[0m fabric v0.1.0-rc.1 (/work/services/fabric)
+[1m[32m   Compiling[0m attest v0.1.0-rc.1 (/work/crypto/attest)
+[1m[32m   Compiling[0m service-runtime v0.1.0-rc.1 (/work/services/runtime)
+[1m[32m   Compiling[0m admin-privilege v0.1.0-rc.1 (/work/admin/privilege)
+[1m[32m   Compiling[0m http-gateway v0.1.0-rc.1 (/work/services/http-gateway)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 8.40s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/http_gateway-b5bb000f7d0cc6e0)
+
+running 1 test
+test tests::a_poisoned_enclosure_lock_does_not_take_the_edge_down ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/http_gateway-f71f516a9c12836f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/admin_enrolment.rs (target/debug/deps/admin_enrolment-d7162b6a19e2bd31)
+
+running 2 tests
+test a_development_gateway_serves_no_administration ... ok
+test an_enrolment_needs_a_second_administrator_and_survives_a_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.57s
+
+[1m[32m     Running[0m tests/contract_schemas.rs (target/debug/deps/contract_schemas-1a2f1700304a9cc4)
+
+running 8 tests
+test import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer ... ok
+test every_enumerated_value_is_one_the_parser_accepts ... ok
+test the_demonstration_ontology_meets_the_published_schema ... ok
+test the_import_record_schema_allows_exactly_the_keys_the_parser_allows ... ok
+test the_full_fixture_exercises_every_key_the_schema_declares ... ok
+test ontology_fixtures_get_the_same_verdict_from_the_schema_and_the_parser ... ok
+test the_ontology_schema_allows_exactly_the_keys_the_parser_allows ... ok
+test an_unknown_key_on_any_object_of_an_ontology_is_refused_by_both ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[1m[32m     Running[0m tests/durable_enclosure.rs (target/debug/deps/durable_enclosure-752f5f66855e91e2)
+
+running 2 tests
+test a_gateway_over_a_durable_enclosure_serves_connection_threads ... ok
+test an_action_and_its_lineage_survive_a_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+[1m[32m     Running[0m tests/fabric_edge.rs (target/debug/deps/fabric_edge-0e4cd63ea07e296c)
+
+running 13 tests
+test an_action_on_an_unreadable_target_is_indistinguishable_from_a_missing_one ... ok
+test an_authorised_gated_action_really_changes_the_fabric ... ok
+test a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row ... ok
+test a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing ... ok
+test an_ungated_action_needs_no_token_and_applies_only_to_readable_objects ... ok
+test an_unknown_object_type_is_404_not_an_empty_result ... ok
+test object_types_come_from_the_registry_and_are_scoped_to_the_caller ... ok
+test mandatory_access_control_hides_objects_outside_the_callers_compartments ... ok
+test edge_admission_and_fabric_decisions_share_one_ledger ... ok
+test every_audit_row_is_verified_against_its_ml_dsa_signature ... ok
+test the_policy_dry_run_is_a_real_pdp_decision_under_the_sessions_purpose ... ok
+test search_around_walks_real_links_in_both_directions_under_access_control ... ok
+test policies_are_the_rule_set_the_pdp_enforces ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+[1m[32m     Running[0m tests/http.rs (target/debug/deps/http-743f177241ff0963)
+
+running 4 tests
+test cors_preflight_and_not_found ... ok
+test fabric_and_governance_routes_are_not_reachable_without_a_caller ... ok
+test platform_reads_serve_json ... ok
+test real_socket_round_trip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+[1m[32m     Running[0m tests/import_file.rs (target/debug/deps/import_file-c10869ebe1a8486c)
+
+running 3 tests
+test a_good_file_imports_record_for_record ... ok
+test an_import_never_replaces_an_object_or_links_to_nothing ... ok
+test a_bad_line_refuses_the_whole_file_and_names_it ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/login_directory.rs (target/debug/deps/login_directory-b3d3e1dfa5bea6be)
+
+running 1 test
+test a_durable_principal_needs_both_factors_and_survives_a_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+[1m[32m     Running[0m tests/mesh_sync.rs (target/debug/deps/mesh_sync-565ccb4b23dafd87)
+
+running 1 test
+test a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+[1m[32m     Running[0m tests/ontology_boot.rs (target/debug/deps/ontology_boot-686ea030a1f91e71)
+
+running 2 tests
+test an_invalid_ontology_refuses_to_boot ... ok
+test a_declared_action_changes_a_stored_object_durably ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.93s
+
+[1m[32m     Running[0m tests/ontology_file.rs (target/debug/deps/ontology_file-ff5f8fe898468003)
+
+running 4 tests
+test a_full_file_parses_field_for_field ... ok
+test object_types_alone_are_a_valid_ontology ... ok
+test a_malformed_or_inconsistent_file_is_refused ... ok
+test it_registers_into_an_enclosure ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[1m[32m     Running[0m tests/policy_file.rs (target/debug/deps/policy_file-a6da53acddcf7a8e)
+
+running 5 tests
+test a_rule_for_a_resource_named_star_is_not_written_as_any_resource ... ok
+test a_hand_written_file_loads_rule_for_rule ... ok
+test an_empty_rule_set_is_valid_and_grants_nothing ... ok
+test a_file_that_cannot_be_read_exactly_is_refused ... ok
+test the_development_policy_round_trips ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rc_33.rs (target/debug/deps/rc_33-f2d99331ed80260b)
+
+running 1 test
+test service_exposes_liveness_readiness_metrics_and_an_observable_slo_breach ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+[1m[32m     Running[0m tests/rc_37.rs (target/debug/deps/rc_37-dd7a4f15b3a0ed53)
+
+running 2 tests
+test a_forged_token_is_still_rejected ... ok
+test login_issues_a_pq_token_that_authorises_data_requests ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+[1m[32m     Running[0m tests/secured_edge.rs (target/debug/deps/secured_edge-d11548bd05aa1e75)
+
+running 4 tests
+test public_health_needs_no_token ... ok
+test unauthenticated_request_is_rejected_401 ... ok
+test above_clearance_query_is_denied_403_and_audited ... ok
+test in_clearance_request_is_served_over_origin_locked_channel ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+[1m[32m     Running[0m tests/state_dir_boot.rs (target/debug/deps/state_dir_boot-de5d8861d8490f47)
+
+running 2 tests
+test a_tampered_ledger_refuses_to_boot ... ok
+test a_state_directory_serves_a_real_enclosure_across_restarts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.07s
+
+[1m[32m   Doc-tests[0m http_gateway
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p service-runtime
+[1m[32m   Compiling[0m service-runtime v0.1.0-rc.1 (/work/services/runtime)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.89s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/service_runtime-18c1880a37c5f70c)
+
+running 9 tests
+test args::tests::parses_values_and_flags_and_refuses_the_rest ... ok
+test json::tests::parses_utf8_and_escapes ... ok
+test json::tests::parses_request_body ... ok
+test json::tests::round_trips_object ... ok
+test lock::tests::an_unrecognised_lock_is_refused ... ok
+test marking::tests::bands_round_trip_and_nothing_else_is_a_band ... ok
+test lock::tests::a_reused_pid_with_another_start_time_is_stale ... ok
+test lock::tests::a_lock_left_by_a_dead_process_is_taken_over ... ok
+test lock::tests::a_live_holder_keeps_the_lock_until_it_drops ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/health_port.rs (target/debug/deps/health_port-ccacf1338486a679)
+
+running 1 test
+test health_readiness_and_metrics_are_served_and_nothing_else ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/identity.rs (target/debug/deps/identity-4a8d436e6297cfb6)
+
+running 2 tests
+test an_issued_identity_loads_and_its_ledger_survives_a_reopen_but_not_tampering ... ok
+test an_identity_that_does_not_verify_is_refused ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+[1m[32m   Doc-tests[0m service_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p kms
+[1m[32m   Compiling[0m kms v0.1.0-rc.1 (/work/services/kms)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/kms-47700f2b6b7dd9ae)
+
+running 5 tests
+test signing::tests::generate_fails_closed_on_a_disabled_algorithm ... ok
+test signing::tests::from_key_rejects_mismatched_key_algorithms ... ok
+test signing::tests::round_trips_through_from_key ... ok
+test signing::tests::signature_does_not_verify_over_a_different_message ... ok
+test signing::tests::signs_and_verifies_through_the_seam ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+[1m[32m     Running[0m tests/envelope.rs (target/debug/deps/envelope-8b7c6a7973ee71f9)
+
+running 6 tests
+test seal_is_ml_kem_1024_and_carries_no_plaintext ... ok
+test roundtrip_through_the_trust_root ... ok
+test a_different_trust_root_cannot_unseal ... ok
+test wrong_root_id_is_rejected ... ok
+test distinct_seals_use_distinct_wrapped_keys ... ok
+test tampered_ciphertext_or_wrapped_key_fails_closed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+[1m[32m     Running[0m tests/file_ledger_restart.rs (target/debug/deps/file_ledger_restart-9d3ae62a55c9cbb8)
+
+running 2 tests
+test tampered_on_disk_entry_is_detected_on_load ... ok
+test ledger_survives_restart_recovers_and_reverifies ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+[1m[32m     Running[0m tests/rc_28.rs (target/debug/deps/rc_28-ba8ba5949d0df43c)
+
+running 4 tests
+test hardware_root_seals_and_unseals_over_the_device_boundary ... ok
+test decapsulation_happens_on_the_device_not_in_the_process ... ok
+test rotation_rewraps_new_data_without_touching_old_blobs ... ok
+test root_attestation_verifies_and_fails_closed_on_tamper ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+[1m[32m   Doc-tests[0m kms
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p governance
+[1m[32m   Compiling[0m governance v0.1.0-rc.1 (/work/services/governance)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/governance-1906be510969626d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/authorize.rs (target/debug/deps/authorize-274611e8d0d9ae9c)
+
+running 5 tests
+test permit_on_marked_data_is_authorized_and_audited ... ok
+test compartment_need_to_know_is_enforced ... ok
+test permits_does_not_audit ... ok
+test tampering_the_ledger_is_detected ... ok
+test denials_are_also_audited ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+[1m[32m     Running[0m tests/durable_restart.rs (target/debug/deps/durable_restart-4094ee6c73cbf166)
+
+running 1 test
+test governance_lineage_persists_across_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+[1m[32m   Doc-tests[0m governance
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p fabric
+[1m[32m   Compiling[0m fabric v0.1.0-rc.1 (/work/services/fabric)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.32s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/fabric-fb2bab9f88ad7cfc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/degraded.rs (target/debug/deps/degraded-d02be224d7d71a58)
+
+running 2 tests
+test operates_in_degraded_mode_without_mimir ... ok
+test uses_mimir_when_present ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+[1m[32m     Running[0m tests/durable.rs (target/debug/deps/durable-ca203b8ec2d97c19)
+
+running 2 tests
+test tampered_on_disk_record_is_detected_on_load ... ok
+test store_survives_restart_with_identical_queries ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+[1m[32m     Running[0m tests/fabric.rs (target/debug/deps/fabric-27fdf56055d52f8b)
+
+running 9 tests
+test action_rejects_bad_and_missing_params ... ok
+test action_denied_without_authorization ... ok
+test compartments_are_enforced_on_read ... ok
+test schema_validation_fails_closed ... ok
+test query_enforces_marking_purpose_and_role ... ok
+test action_mutates_and_is_audited ... ok
+test search_around_traverses_links_under_policy ... ok
+test indexed_query_by_type_and_property ... ok
+test unknown_object_type_is_rejected ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+[1m[32m     Running[0m tests/rc_42.rs (target/debug/deps/rc_42-8b471a1ea3d0f38c)
+
+running 1 test
+test objects_are_ciphertext_at_rest_under_a_kms_wrapped_key ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+[1m[32m   Doc-tests[0m fabric
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p scheduler
+[1m[32m   Compiling[0m scheduler v0.1.0-rc.1 (/work/services/scheduler)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.84s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/scheduler-eb872e4568a7b455)
+
+running 7 tests
+test admission::tests::admits_within_quota_and_reserves ... ok
+test admission::tests::equal_priority_does_not_preempt ... ok
+test admission::tests::gpus_are_a_hard_integer_constraint ... ok
+test admission::tests::higher_priority_preempts_lower_running_work ... ok
+test admission::tests::over_capacity_workload_is_throttled_into_the_queue ... ok
+test admission::tests::over_quota_request_is_rejected_not_queued ... ok
+test admission::tests::queue_drains_in_priority_order_on_completion ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rc_43.rs (target/debug/deps/rc_43-0fd32948a49a17c4)
+
+running 2 tests
+test critical_workload_preempts_best_effort_to_meet_priority ... ok
+test over_quota_workload_is_throttled_and_queued_by_priority ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rollout.rs (target/debug/deps/rollout-37a81cca10ba17f1)
+
+running 4 tests
+test failed_health_check_triggers_automatic_rollback ... ok
+test failure_on_first_replica_rolls_back_cleanly ... ok
+test healthy_upgrade_completes_with_no_downtime ... ok
+test refuses_to_roll_a_fleet_too_small_to_stay_available ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rollout_real.rs (target/debug/deps/rollout_real-792c9c2110c27530)
+
+running 2 tests
+test rolling_upgrade_serves_every_request_with_real_replicas ... ok
+test unhealthy_new_version_auto_rolls_back_with_zero_failures ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+[1m[32m   Doc-tests[0m scheduler
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p model-server --features backend-fips
+[1m[32m   Compiling[0m attest v0.1.0-rc.1 (/work/crypto/attest)
+[1m[32m   Compiling[0m model-server v0.1.0-rc.1 (/work/mimir/model-server)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 2.58s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/model_server-d45b9df6f238c301)
+
+running 6 tests
+test backends::openai_compat::tests::counts_pieces_when_the_engine_reports_no_usage ... ok
+test backends::openai_compat::tests::json_round_trips_escapes_and_refuses_junk ... ok
+test backends::openai_compat::tests::refuses_a_non_loopback_sidecar_and_fails_closed_when_unreachable ... ok
+test backends::openai_compat::tests::health_is_a_200_from_the_sidecar ... ok
+test backends::openai_compat::tests::streams_a_completion_through_the_family_template ... ok
+test backends::openai_compat::tests::fails_closed_on_a_refusal_a_malformed_event_or_a_cut_stream ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/artifact.rs (target/debug/deps/artifact-9a77c521ea232384)
+
+running 6 tests
+test ac_mi_7_licence_policy_fails_closed ... ok
+test ac_mi_7_hardware_ineligible_fails_closed ... ok
+test ac_mi_7_revoked_artefact_fails_closed_even_with_valid_signature ... ok
+test ac_mi_7_tampered_manifest_fails_closed ... ok
+test ac_mi_7_wrong_signing_key_fails_closed ... ok
+test ac_mi_7_valid_artefact_of_each_family_loads ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+[1m[32m     Running[0m tests/inference_pqmtls.rs (target/debug/deps/inference_pqmtls-0b6eafa8c89802ff)
+
+running 2 tests
+test denied_inference_is_still_audited ... ok
+test ac_mi_8_consumer_calls_inference_over_pqmtls_and_is_audited ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+[1m[32m     Running[0m tests/model_dir.rs (target/debug/deps/model_dir-f6593cd8028e085e)
+
+running 5 tests
+test a_signed_model_directory_loads_and_its_manifest_round_trips ... ok
+test only_gguf_and_safetensors_are_recognised ... ok
+test manifest_files_and_trust_keys_parse_strictly ... ok
+test changed_truncated_or_swapped_weights_are_refused ... ok
+test an_edited_manifest_another_key_or_an_unknown_family_is_refused ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+[1m[32m     Running[0m tests/model_registry.rs (target/debug/deps/model_registry-833dfc0fd04c69ca)
+
+running 7 tests
+test ac_ms_2_staged_but_not_approved_is_not_loadable ... ok
+test ac_ms_5_no_eligible_variant_fails_closed ... ok
+test ac_ms_7_revoked_beats_invalid_signature ... ok
+test ac_ms_6_licence_unmet_is_refused_exactly_as_revoked ... ok
+test ac_ms_2_each_family_loads_from_registry_and_bad_signature_fails_closed ... ok
+test ac_ms_7_revoked_fails_closed_even_with_valid_signature ... ok
+test ac_ms_5_offers_largest_eligible_variant_and_refuses_the_too_big_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+[1m[32m     Running[0m tests/router.rs (target/debug/deps/router-d70bc204a569beb7)
+
+running 6 tests
+test ac_ms_4_family_templating_lives_in_the_adapter_not_the_prompt ... ok
+test ac_ms_4_explicit_override_is_honoured_and_fails_closed_when_ineligible ... ok
+test ac_ms_9_cross_family_swap_is_hot_swappable_without_contract_change ... ok
+test ac_ms_8_inference_runs_locally_from_verified_registry_no_hosted_dependency ... ok
+test ac_ms_4_workload_routes_to_the_right_family_no_consumer_change ... ok
+test ac_ms_9_no_permitted_family_eligible_fails_closed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+[1m[32m     Running[0m tests/serving.rs (target/debug/deps/serving-57efdb24daa73241)
+
+running 9 tests
+test autonomous_selection_by_hardware ... ok
+test ac_mi_1_serves_locally_no_hosted_dependency ... ok
+test continuous_batching_forms_batches ... ok
+test first_token_latency_under_budget ... ok
+test gpu_backend_launch_spec_is_well_formed ... ok
+test kv_cache_prefix_reuse ... ok
+test quantisation_resolution ... ok
+test override_to_ineligible_fails_closed ... ok
+test hardware_probe_from_env_overrides ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m model_server
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p mimir-server --features backend-fips
+[1m[32m   Compiling[0m model-server v0.1.0-rc.1 (/work/mimir/model-server)
+[1m[32m   Compiling[0m mimir-bridge v0.1.0-rc.1 (/work/mimir/bridge)
+[1m[32m   Compiling[0m mimir-server v0.1.0-rc.1 (/work/mimir/mimir-server)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.88s
+[1m[32m     Running[0m unittests src/bin/mimir-probe.rs (target/debug/deps/mimir_probe-4becdfcd9c17c12e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/mimir_server-50460f905d7ea8da)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/serve.rs (target/debug/deps/serve-d0da02f1c4c88426)
+
+running 2 tests
+test a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts ... ok
+test inference_is_served_over_pqmtls_audited_and_survives_a_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+
+cargo test -p mimir-prompts -p oag-retriever -p agent-runtime --features backend-fips
+[1m[32m   Compiling[0m mimir-prompts v0.1.0-rc.1 (/work/mimir/prompts)
+[1m[32m   Compiling[0m oag-retriever v0.1.0-rc.1 (/work/mimir/oag-retriever)
+[1m[32m   Compiling[0m agent-runtime v0.1.0-rc.1 (/work/mimir/agent-runtime)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 4.37s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/agent_runtime-fe49e9293d0db11e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_mi_2.rs (target/debug/deps/ac_mi_2-68a15742dac17014)
+
+running 2 tests
+test ungroundable_task_refuses_without_fabricating ... ok
+test ac_mi_2_answer_cites_fabric_evidence ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+[1m[32m     Running[0m tests/ac_mi_3.rs (target/debug/deps/ac_mi_3-61482b8198acd197)
+
+running 6 tests
+test irreversible_action_forces_human_even_if_preauthorised ... ok
+test mutation_is_denied_when_human_denies ... ok
+test mutation_executes_when_human_approves ... ok
+test ev_a1_mutation_holds_for_a_gated_execution ... ok
+test policy_denial_at_execution_beats_human_approval ... ok
+test preauthorised_evaluated_scope_executes_without_human ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+[1m[32m     Running[0m tests/assembly.rs (target/debug/deps/assembly-5a6dbf2128734f01)
+
+running 4 tests
+test layer_8_guardrail_can_block_the_assembled_prompt ... ok
+test layers_are_emitted_in_authority_order ... ok
+test rejects_when_core_exceeds_budget ... ok
+test oag_truncates_by_relevance_never_the_core ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/builders.rs (target/debug/deps/builders-164a6a6698897f62)
+
+running 4 tests
+test no_tool_agent_is_pure_qa ... ok
+test pro_code_builder_from_same_spec_is_equivalent ... ok
+test pro_code_override_changes_behaviour ... ok
+test logic_builder_agent_runs_over_the_contract ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+[1m[32m     Running[0m tests/consolidated.rs (target/debug/deps/consolidated-e2466b49418d7af6)
+
+running 1 test
+test consolidated_ev_report ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+[1m[32m     Running[0m tests/ev_a1.rs (target/debug/deps/ev_a1-3f7df6bbb8cef811)
+
+running 4 tests
+test ev_a1_notool_passes_and_catches ... ok
+test ev_a1_ground_passes_and_catches ... ok
+test ev_a1_schema_holds_and_contract_serialises ... ok
+test ev_a1_ungrounded_passes_and_catches ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/eval_matrix.rs (target/debug/deps/eval_matrix-cc7cd1414041e0dd)
+
+running 1 test
+test eval_matrix_scores_each_family_distinctly_and_reports_per_eval_family ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/guardrail_paraphrase.rs (target/debug/deps/guardrail_paraphrase-065a80e8feae0ff2)
+
+running 3 tests
+test sanitise_rewrites_the_prompt_instead_of_passing_it_through ... ok
+test model_seam_catches_semantic_paraphrase_the_prefilter_misses ... ok
+test obfuscated_paraphrases_are_blocked_even_though_not_literal_entries ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/per_family.rs (target/debug/deps/per_family-537eb601defc3ba3)
+
+running 1 test
+test a3_a4_a5_evals_pass_for_every_model_family ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/self_defending.rs (target/debug/deps/self_defending-4154a2672129ff22)
+
+running 3 tests
+test ev_a3_suite_passes ... ok
+test benign_task_with_injection_guardrail_still_runs ... ok
+test ac_mi_6_injection_blocked_before_any_tool_executes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+[1m[32m     Running[0m tests/self_healing.rs (target/debug/deps/self_healing-bdf2ce6b1c612d96)
+
+running 3 tests
+test ev_a4_suite_passes ... ok
+test healing_is_bounded_by_budget ... ok
+test ac_mi_5_transient_failure_is_retried_and_recovers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+[1m[32m     Running[0m tests/self_learning.rs (target/debug/deps/self_learning-85bc82653e0235e7)
+
+running 3 tests
+test pii_feedback_is_flagged_and_held_back ... ok
+test ac_mi_4_governed_feedback_updates_with_provenance ... ok
+test ev_a5_suite_passes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/mimir_prompts-e1346aefb3c449c2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/oag_retriever-654b7298aff19a3a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/grounding.rs (target/debug/deps/grounding-4023e3017ed22e40)
+
+running 3 tests
+test ungroundable_task_returns_false_with_reason ... ok
+test plan_references_only_existing_types_and_adds_search_around ... ok
+test grounding_binds_citations_and_ranks_by_relevance ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m agent_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m mimir_prompts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m oag_retriever
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p staging --features backend-fips
+[1m[32m   Compiling[0m staging v0.1.0-rc.1 (/work/mimir/staging)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.02s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/staging-dc04a08077954eff)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ms_1.rs (target/debug/deps/ac_ms_1-7e36ac4672cade08)
+
+running 4 tests
+test ac_ms_1_provenance_mismatch_fails_closed_and_never_resigns ... ok
+test ac_ms_1_human_gate_rejection_halts_intake ... ok
+test ac_ms_1_unverifiable_provenance_is_recorded_but_not_fatal ... ok
+test ac_ms_1_full_intake_verifies_provenance_sbom_licence_and_resigns ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+[1m[32m     Running[0m tests/ev_a9.rs (target/debug/deps/ev_a9-56db8d5bb12b4eba)
+
+running 3 tests
+test ev_a9_unknown_passes_and_catches ... ok
+test ev_a9_restrict_passes_and_catches ... ok
+test ev_a9_noverdict_passes_and_catches ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rt_21.rs (target/debug/deps/rt_21-3b6e3f7c84d2eba0)
+
+running 3 tests
+test a_commit_is_verified_only_against_matching_pinned_files ... ok
+test a_changed_or_uncovered_file_is_never_verified ... ok
+test a_present_vendor_signature_is_never_reported_verified ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m staging
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p forge-engine
+[1m[32m   Compiling[0m forge-dataset-store v0.1.0-rc.1 (/work/forge/dataset-store)
+[1m[32m   Compiling[0m forge-projection v0.1.0-rc.1 (/work/forge/projection)
+[1m[32m   Compiling[0m forge-connector-sdk v0.1.0-rc.1 (/work/forge/connector-sdk)
+[1m[32m   Compiling[0m forge-engine v0.1.0-rc.1 (/work/forge/engine)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.92s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_engine-676660de5bb1b287)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/execution.rs (target/debug/deps/execution-3a55b6e5be761d20)
+
+running 6 tests
+test execution_is_deterministic ... ok
+test cast_text_to_int_parses_and_bad_text_fails_closed ... ok
+test mock_backend_isolates_the_seam ... ok
+test filter_derive_select_pipeline_executes_correctly ... ok
+test output_schema_infers_without_executing ... ok
+test type_errors_fail_closed_before_execution ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/partitioned.rs (target/debug/deps/partitioned-8e30b3bff310e6b2)
+
+running 2 tests
+test partitioned_matches_reference_across_worker_counts ... ok
+test partitioned_matches_reference_with_shuffle_and_spill ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+[1m[32m     Running[0m tests/rc_27.rs (target/debug/deps/rc_27-7c4ef7e09a1caa60)
+
+running 2 tests
+test rc_27_egress_violating_connector_is_blocked ... ok
+test rc_27_file_source_join_aggregate_projects_to_fabric ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/relational.rs (target/debug/deps/relational-895c368839842a7b)
+
+running 5 tests
+test aggregate_group_sum_count_avg_min_max ... ok
+test inner_join_then_aggregate ... ok
+test left_join_keeps_unmatched_with_nulls ... ok
+test sort_multi_key_desc_then_asc ... ok
+test window_row_number_and_running_sum_per_partition ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m forge_engine
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p forge-dataset-store -p forge-connector-sdk -p forge-pipeline --features backend-fips
+[1m[32m   Compiling[0m forge-dataset-store v0.1.0-rc.1 (/work/forge/dataset-store)
+[1m[32m   Compiling[0m forge-connector-sdk v0.1.0-rc.1 (/work/forge/connector-sdk)
+[1m[32m   Compiling[0m forge-engine v0.1.0-rc.1 (/work/forge/engine)
+[1m[32m   Compiling[0m forge-pipeline v0.1.0-rc.1 (/work/forge/pipeline)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 3.55s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_connector_sdk-f5725ba114a891bf)
+
+running 11 tests
+test connectors::kafka::tests::checkpoints_round_trip_and_malformed_ones_are_refused ... ok
+test connectors::kafka::tests::crc32c_matches_the_check_value ... ok
+test csv::tests::malformed_quoting_is_refused ... ok
+test csv::tests::quoted_fields_hold_delimiters_quotes_and_line_breaks ... ok
+test sigv4::tests::encoding_keeps_only_unreserved_characters ... ok
+test sigv4::tests::dates_are_formatted_in_utc ... ok
+test sigv4::tests::signing_matches_the_aws_test_suite ... ok
+test wire::tests::base64_matches_rfc_4648 ... ok
+test wire::tests::scram_refuses_a_weak_or_foreign_challenge ... ok
+test wire::tests::pbkdf2_matches_known_vectors ... ok
+test wire::tests::scram_matches_rfc_7677 ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+[1m[32m     Running[0m tests/connectors.rs (target/debug/deps/connectors-5d4aa28ce66e2701)
+
+running 6 tests
+test air_gapped_sandbox_denies_egress_by_default ... ok
+test descriptor_reports_file_kind_and_non_streaming ... ok
+test malformed_source_fails_closed_at_ingest ... ok
+test typed_file_connector_syncs_into_a_sealed_raw_dataset ... ok
+test rc_55_ingest_funnel_enforces_egress_for_every_connector ... ok
+test kms_credential_resolver_unseals_by_reference ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[1m[32m     Running[0m tests/kafka.rs (target/debug/deps/kafka-9bce2a451340984e)
+
+running 3 tests
+test a_topic_syncs_across_fetches_after_mutual_scram ... ok
+test an_incremental_sync_resumes_mid_batch_and_picks_up_new_records ... ok
+test authentication_and_integrity_failures_fail_closed ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+[1m[32m     Running[0m tests/live.rs (target/debug/deps/live-327f6c2edd0ac182)
+
+running 3 tests
+test live_postgres ... ok
+test live_s3 ... ok
+test live_s3_through_the_egress_broker ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/postgres.rs (target/debug/deps/postgres-854b36a12413cf39)
+
+running 5 tests
+test egress_is_checked_before_anything_connects ... ok
+test authentication_fails_closed ... ok
+test a_table_syncs_into_a_typed_dataset_inside_a_read_only_transaction ... ok
+test an_incremental_sync_resumes_from_its_checkpoint ... ok
+test schema_drift_and_server_errors_fail_closed ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+[1m[32m     Running[0m tests/s3.rs (target/debug/deps/s3-a84c23297d8ab477)
+
+running 3 tests
+test objects_under_a_prefix_sync_across_pages_into_one_dataset ... ok
+test an_incremental_sync_reads_only_what_changed_after_its_checkpoint ... ok
+test a_wrong_secret_a_bad_object_and_a_denied_egress_fail_closed ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_dataset_store-a40ff08fac69cdb6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/durable_restart.rs (target/debug/deps/durable_restart-5d81f1594c27549d)
+
+running 2 tests
+test tampered_blob_fails_closed_on_checkout ... ok
+test checkout_branch_is_identical_after_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+[1m[32m     Running[0m tests/versioning.rs (target/debug/deps/versioning-a3d233fe6f4f307e)
+
+running 5 tests
+test invalid_rows_are_rejected_before_the_store ... ok
+test snapshot_is_sealed_at_rest_and_carries_no_plaintext ... ok
+test lineage_records_source_operation_and_inputs ... ok
+test checkout_roundtrips_through_the_trust_root ... ok
+test same_inputs_produce_identical_content_id_across_independent_stores ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_pipeline-281f2889911dab0e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_forge_4b.rs (target/debug/deps/ac_forge_4b-8c0f2b69507dc0a4)
+
+running 3 tests
+test ac_f_1_connector_sync_creates_a_pq_sealed_raw_dataset ... ok
+test ac_f_6_and_7_full_flow_standalone_and_offline ... ok
+test ac_f_2_pipeline_rebuild_is_content_identical ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+[1m[32m     Running[0m tests/build.rs (target/debug/deps/build-4e23f402c7d71f34)
+
+running 6 tests
+test low_code_and_pro_code_produce_identical_ir ... ok
+test pushdown_blocked_by_referenced_rename_and_by_limit ... ok
+test predicate_pushdown_reorders_but_preserves_results ... ok
+test scheduler_separates_batch_stream_and_manual ... ok
+test build_fails_closed_on_type_error_and_unknown_source ... ok
+test end_to_end_build_is_reproducible_across_independent_stores ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+[1m[32m   Doc-tests[0m forge_connector_sdk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m forge_dataset_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m forge_pipeline
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p forge-health -p forge-projection --features backend-fips
+[1m[32m   Compiling[0m forge-projection v0.1.0-rc.1 (/work/forge/projection)
+[1m[32m   Compiling[0m forge-pipeline v0.1.0-rc.1 (/work/forge/pipeline)
+[1m[32m   Compiling[0m forge-health v0.1.0-rc.1 (/work/forge/health)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.93s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_health-2ff33279c29610c5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_f_3.rs (target/debug/deps/ac_f_3-6a8fd9fecca2f0ed)
+
+running 3 tests
+test missing_column_expectation_fails_closed ... ok
+test failing_expectation_blocks_promotion_and_reports ... ok
+test passing_expectations_allow_promotion ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_projection-fdc469cf81726dce)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_f_4.rs (target/debug/deps/ac_f_4-1604e2c77b90f4c6)
+
+running 4 tests
+test unmapped_column_fails_closed ... ok
+test bytes_value_has_no_fabric_representation ... ok
+test links_are_projected_between_id_columns ... ok
+test objects_are_projected_with_markings_propagated ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m forge_health
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m forge_projection
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p forge-ai-assist
+[1m[32m   Compiling[0m mimir-bridge v0.1.0-rc.1 (/work/mimir/bridge)
+[1m[32m   Compiling[0m forge-ai-assist v0.1.0-rc.1 (/work/forge/ai-assist)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.76s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_ai_assist-2428070499e1f365)
+
+running 2 tests
+test mimir_bridge::tests::failure_degrades_fail_closed ... ok
+test mimir_bridge::tests::live_suggester_returns_model_text_and_routes_fast_transform ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_f_5.rs (target/debug/deps/ac_f_5-55c292c6055db980)
+
+running 6 tests
+test ev_a6_nocolumn_flags_an_invented_column_and_blocks_application ... ok
+test ac_f_5_valid_suggestion_is_a_preview_and_is_not_committed ... ok
+test inference_failure_fails_closed ... ok
+test malformed_json_fails_closed ... ok
+test ev_a6_valid_passes_for_a_satisfiable_request ... ok
+test unsupported_request_is_reported_not_fabricated ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m forge_ai_assist
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p forge-worker --features backend-fips
+[1m[32m   Compiling[0m forge-worker v0.1.0-rc.1 (/work/forge/worker)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 2.16s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/forge_worker-27aea4ae9796a908)
+
+running 8 tests
+test egress::tests::a_routes_file_that_could_inject_or_collide_is_refused ... ok
+test egress::tests::only_jobs_through_the_broker_pass ... ok
+test egress::tests::routes_render_to_a_verifying_tls_broker ... ok
+test tests::a_jobs_file_is_read_strictly ... ok
+test tests::network_sources_are_read_strictly ... ok
+test tests::collected_instances_become_import_records ... ok
+test tests::secrets_come_only_from_their_directory ... ok
+test tests::checkpoints_survive_a_reopen ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+[1m[32m     Running[0m unittests src/bin/forge-egress.rs (target/debug/deps/forge_egress-41b14a86a8d7a99b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/forge_worker-f3be05131fefd7cc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/sync.rs (target/debug/deps/sync-f8e821a24fc8dfdf)
+
+running 1 test
+test the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+
+[1m[32m   Doc-tests[0m forge_worker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p bifrost-rollout -p bifrost-fleet -p bifrost-risk
+[1m[32m   Compiling[0m bifrost-rollout v0.1.0-rc.1 (/work/bifrost/rollout)
+[1m[32m   Compiling[0m bifrost-artefact v0.1.0-rc.1 (/work/bifrost/artefact)
+[1m[32m   Compiling[0m bifrost-risk v0.1.0-rc.1 (/work/bifrost/risk)
+[1m[32m   Compiling[0m bifrost-fleet v0.1.0-rc.1 (/work/bifrost/fleet)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.72s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/bifrost_fleet-860fdc39c8a4f955)
+
+running 1 test
+test agent::tests::report_round_trips ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/agents_pqmtls.rs (target/debug/deps/agents_pqmtls-2d77320b36856cd9)
+
+running 1 test
+test agents_check_in_over_pqmtls_and_staleness_is_detected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+[1m[32m     Running[0m tests/durable_restart.rs (target/debug/deps/durable_restart-359c6638e20e221b)
+
+running 3 tests
+test tampered_fleet_journal_fails_closed ... ok
+test agent_check_ins_survive_restart ... ok
+test fleet_state_survives_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+[1m[32m     Running[0m tests/reconcile.rs (target/debug/deps/reconcile-c1d5fcc8f2a3acef)
+
+running 4 tests
+test install_on_undeclared_channel_is_not_drifted ... ok
+test drift_reports_installations_behind_their_channel ... ok
+test reconcile_plan_covers_only_the_drifted_installs_of_a_channel ... ok
+test updating_installs_converges_the_fleet ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/bifrost_risk-0f4317ec12ac5dd4)
+
+running 2 tests
+test mimir_bridge::tests::live_advisor_returns_model_text_and_routes_code_analysis ... ok
+test mimir_bridge::tests::failure_degrades_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_b_5_6.rs (target/debug/deps/ac_b_5_6-cd7180d43cf4ebd2)
+
+running 5 tests
+test ev_a7_suite_scores_the_assessment ... ok
+test hard_rules_block_critical_cve_and_missing_canary_without_mimir ... ok
+test ac_b_6_mimir_absent_rule_based_gate_still_enforces_safe_rollout ... ok
+test malformed_or_out_of_range_response_fails_closed ... ok
+test ac_b_5_mimir_present_produces_a_score_that_can_gate ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/bifrost_rollout-e0b24061b6893588)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rollout.rs (target/debug/deps/rollout-5c9f02666594e05a)
+
+running 4 tests
+test ac_b_2_broad_ring_gate_failure_rolls_back_automatically_no_downtime ... ok
+test canary_broad_plan_splits_the_fleet ... ok
+test healthy_rollout_upgrades_all_rings_with_zero_downtime ... ok
+test canary_gate_failure_stops_before_broad ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m bifrost_fleet
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m bifrost_risk
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m bifrost_rollout
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p bifrost-fleet-server --features backend-fips
+[1m[32m   Compiling[0m bifrost-fleet-server v0.1.0-rc.1 (/work/bifrost/fleet-server)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.24s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/bifrost_fleet_server-84e4e5f72aab65b1)
+
+running 1 test
+test tests::a_channels_file_is_read_strictly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/bin/bifrost-agent.rs (target/debug/deps/bifrost_agent-88aa7c16b258a1f1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/bifrost_fleet-a183370985a81872)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/serve.rs (target/debug/deps/serve-e581929384b96211)
+
+running 1 test
+test agents_check_in_operators_read_the_fleet_and_it_survives_a_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.67s
+
+[1m[32m   Doc-tests[0m bifrost_fleet_server
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p bifrost-artefact -p bifrost-bundle --features backend-fips
+[1m[32m   Compiling[0m bifrost-artefact v0.1.0-rc.1 (/work/bifrost/artefact)
+[1m[32m   Compiling[0m bifrost-bundle v0.1.0-rc.1 (/work/bifrost/bundle)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.00s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/bifrost_artefact-a37642cd404a4557)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/registry.rs (target/debug/deps/registry-44eed28819f67615)
+
+running 6 tests
+test generated_sboms_carry_a_purl_on_every_component ... ok
+test ac_b_4_published_release_has_verifiable_sbom_and_ml_dsa_signature ... ok
+test sbom_is_deterministic ... ok
+test registry_verifies_on_ingest_and_before_deploy ... ok
+test ac_b_1_unsigned_or_tampered_artefact_is_rejected_fail_closed ... ok
+test ac_b_4_a_valid_signature_does_not_vouch_for_an_unusable_sbom ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/bifrost_bundle-db4c59e6097656d2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_b_3.rs (target/debug/deps/ac_b_3-f934265a66e3b5fd)
+
+running 3 tests
+test ac_b_3_bundle_rejected_offline_on_signature_failure ... ok
+test ac_b_3_air_gapped_import_verifies_offline_then_admits_artefacts ... ok
+test ac_ms_3_and_c_7_model_and_client_bundles_transit_the_same_workflow ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+[1m[32m     Running[0m tests/streaming.rs (target/debug/deps/streaming-26a327824347c074)
+
+running 4 tests
+test a_version_1_bundle_imports_through_the_streaming_path ... ok
+test damage_is_located_and_a_forged_chunk_is_still_refused ... ok
+test a_wrong_key_truncation_trailing_bytes_or_an_existing_file_is_refused ... ok
+test a_streamed_bundle_imports_exactly_what_was_packed ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+[1m[32m   Doc-tests[0m bifrost_artefact
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m bifrost_bundle
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p heimdall-picture -p heimdall-classify -p heimdall-decision-support
+[1m[32m   Compiling[0m heimdall-picture v0.1.0-rc.1 (/work/heimdall/picture)
+[1m[32m   Compiling[0m heimdall-decision-support v0.1.0-rc.1 (/work/heimdall/decision-support)
+[1m[32m   Compiling[0m heimdall-classify v0.1.0-rc.1 (/work/heimdall/classify)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.18s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_classify-fab7231c963191c8)
+
+running 4 tests
+test rules::tests::deterministic_same_input_same_label ... ok
+test rules::tests::first_matching_rule_wins ... ok
+test rules::tests::no_rule_matches_is_none ... ok
+test rules::tests::numeric_threshold_matches ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_decision_support-e5ae67c211084044)
+
+running 2 tests
+test mimir_bridge::tests::live_provider_returns_model_text_and_routes_deep_reasoning ... ok
+test mimir_bridge::tests::transport_failure_degrades_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_h_3.rs (target/debug/deps/ac_h_3-23dfba57fbaf6788)
+
+running 8 tests
+test ev_a8_cited_catches_uncited_option ... ok
+test adapter_fails_closed_when_mimir_unavailable ... ok
+test ev_a8_grounded_catches_invented_evidence ... ok
+test ac_h_3_options_are_ranked_and_cite_evidence ... ok
+test ev_a8_insuff_catches_silent_empty_answer ... ok
+test ev_a8_insuff_catches_contradictory_response ... ok
+test ev_a8_neutral_catches_risk_suppressed_option ... ok
+test unsupported_when_picture_cannot_support_a_decision ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_picture-9c75b1eddbf8cf10)
+
+running 6 tests
+test codec::tests::encoding_is_deterministic ... ok
+test codec::tests::delta_round_trips ... ok
+test codec::tests::observation_bytes_are_stable ... ok
+test codec::tests::trailing_bytes_rejected ... ok
+test codec::tests::observation_round_trips ... ok
+test codec::tests::truncated_buffer_fails_closed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m heimdall_classify
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m heimdall_decision_support
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m heimdall_picture
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p heimdall-feed-gateway -p heimdall-fusion -p heimdall-picture-sync -p heimdall-workflow --features backend-fips
+[1m[32m   Compiling[0m heimdall-feed-gateway v0.1.0-rc.1 (/work/heimdall/feed-gateway)
+[1m[32m   Compiling[0m heimdall-picture-sync v0.1.0-rc.1 (/work/heimdall/picture-sync)
+[1m[32m   Compiling[0m heimdall-workflow v0.1.0-rc.1 (/work/heimdall/workflow)
+[1m[32m   Compiling[0m heimdall-fusion v0.1.0-rc.1 (/work/heimdall/fusion)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 2.33s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_feed_gateway-928dcf4abd976c1c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_h_2.rs (target/debug/deps/ac_h_2-05726141555472f7)
+
+running 4 tests
+test ac_h_2_tampered_observation_is_rejected ... ok
+test ac_h_2_unregistered_feed_is_rejected ... ok
+test ac_h_2_registered_feed_with_valid_signature_is_admitted ... ok
+test ac_h_2_wrong_key_is_rejected ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_fusion-440f400add904941)
+
+running 2 tests
+test layering::tests::override_wins ... ok
+test layering::tests::prefix_convention ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_h_1_6_7.rs (target/debug/deps/ac_h_1_6_7-1118ab353dc9899e)
+
+running 3 tests
+test ac_h_6_rules_classification_without_mimir ... ok
+test ac_h_7_full_path_runs_offline_and_projects_to_fabric ... ok
+test ac_h_1_multiple_feeds_fuse_into_one_layered_picture_with_toggles ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_picture_sync-96711621c40c5319)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_h_5.rs (target/debug/deps/ac_h_5-e13843b31a4e9f4e)
+
+running 3 tests
+test ac_h_5_tampered_delta_is_rejected_and_merges_nothing ... ok
+test ac_h_5_delta_from_untrusted_node_is_rejected ... ok
+test ac_h_5_two_nodes_converge_over_signed_deltas ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+[1m[32m     Running[0m tests/rc_26.rs (target/debug/deps/rc_26-11890ce4bfbd9d8f)
+
+running 2 tests
+test rc_26_unsigned_feed_is_rejected_at_the_boundary ... ok
+test rc_26_feed_over_pqmtls_converges_across_two_nodes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_workflow-961d6be0993d4584)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_h_4.rs (target/debug/deps/ac_h_4-ab6fbb0b76d32cdc)
+
+running 4 tests
+test ac_h_4_tampering_with_the_audit_chain_is_detected ... ok
+test ac_h_4_denied_action_cannot_execute ... ok
+test ac_h_3_and_4_option_to_audited_action_lineage ... ok
+test ac_h_4_consequential_action_needs_human_authorisation_and_is_audited ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+[1m[32m     Running[0m tests/rc_44.rs (target/debug/deps/rc_44-9cd12044161e60a9)
+
+running 2 tests
+test approved_action_invokes_a_real_actuator_and_is_audited ... ok
+test unactuatable_action_fails_closed_and_is_audited ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+[1m[32m   Doc-tests[0m heimdall_feed_gateway
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m heimdall_fusion
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m heimdall_picture_sync
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m heimdall_workflow
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p heimdall-feed-server --features backend-fips
+[1m[32m   Compiling[0m heimdall-decision-support v0.1.0-rc.1 (/work/heimdall/decision-support)
+[1m[32m   Compiling[0m heimdall-workflow v0.1.0-rc.1 (/work/heimdall/workflow)
+[1m[32m   Compiling[0m heimdall-store v0.1.0-rc.1 (/work/heimdall/store)
+[1m[32m   Compiling[0m heimdall-feed-server v0.1.0-rc.1 (/work/heimdall/feed-server)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 1.85s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/heimdall_feed_server-27aea8c5c80225cc)
+
+running 1 test
+test tests::attributes_are_typed_from_text ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/heimdall_feed-671dae506dde8fb7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/bin/heimdall-source.rs (target/debug/deps/heimdall_source-a0bb1c627c0fac5b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/serve.rs (target/debug/deps/serve-f1bebbd27c7ec5e5)
+
+running 1 test
+test sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+
+[1m[32m   Doc-tests[0m heimdall_feed_server
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-identity
+[1m[32m   Compiling[0m admin-identity v0.1.0-rc.1 (/work/admin/identity)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.98s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_identity-c725fb9fe8b84c3f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_1_2.rs (target/debug/deps/ac_ad_1_2-c18f16b9025ea1a9)
+
+running 6 tests
+test ac_ad_2_auditor_is_strictly_read_only ... ok
+test ac_ad_2_bindings_are_scoped_and_expiring ... ok
+test ac_ad_2_no_role_grants_all_capabilities ... ok
+test ac_ad_1_fresh_reauth_tracks_the_latest_re_authentication ... ok
+test ac_ad_1_a_non_user_verified_or_unknown_admin_gets_no_session ... ok
+test ac_ad_1_mfa_sign_in_then_step_up_required_to_enter_scope ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+[1m[32m     Running[0m tests/durable_restart.rs (target/debug/deps/durable_restart-9551f2ab8b790bab)
+
+running 1 test
+test identity_bindings_survive_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+[1m[32m     Running[0m tests/passkeys.rs (target/debug/deps/passkeys-745cf1a15eb90ce8)
+
+running 2 tests
+test a_wrong_or_repeated_credential_is_refused ... ok
+test a_registered_passkey_signs_in_after_a_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+[1m[32m     Running[0m tests/rc_30.rs (target/debug/deps/rc_30-503f6fd446f9f445)
+
+running 6 tests
+test a_replayed_assertion_for_a_different_challenge_is_denied ... ok
+test a_genuine_user_verified_assertion_authenticates ... ok
+test a_wrong_credential_id_is_denied ... ok
+test a_forged_signature_is_denied ... ok
+test direct_verification_against_a_registered_passkey_also_fails_closed ... ok
+test an_assertion_from_a_different_key_is_denied ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+[1m[32m   Doc-tests[0m admin_identity
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-privilege --features backend-fips
+[1m[32m   Compiling[0m admin-privilege v0.1.0-rc.1 (/work/admin/privilege)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_privilege-0e4557cec162d5e3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_3_4_13.rs (target/debug/deps/ac_ad_3_4_13-3e984a889c26043a)
+
+running 5 tests
+test ac_ad_3_low_risk_action_is_authorised_without_a_second_approver ... ok
+test ac_ad_3_high_risk_action_needs_a_second_distinct_approver ... ok
+test ac_ad_13_panel_privilege_change_still_blocks_self_approval ... ok
+test ac_ad_13_panel_privilege_change_requires_a_security_officer_approver ... ok
+test ac_ad_4_self_approval_is_denied_by_separation_of_duties ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+[1m[32m     Running[0m tests/durable_restart.rs (target/debug/deps/durable_restart-79e79e7f4d1b8d4f)
+
+running 1 test
+test privilege_ledger_and_inflight_state_survive_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+[1m[32m     Running[0m tests/principal_enroll.rs (target/debug/deps/principal_enroll-b737fa23c2eff8cb)
+
+running 1 test
+test enrolling_a_principal_needs_a_second_iam_administrator ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+[1m[32m   Doc-tests[0m admin_privilege
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-sim
+[1m[32m   Compiling[0m admin-sim v0.1.0-rc.1 (/work/admin/sim)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_sim-3acba3b4247062c9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_5.rs (target/debug/deps/ac_ad_5-011526d88c6b1885)
+
+running 4 tests
+test ac_ad_5_marked_data_grant_is_flagged_high_blast_radius ... ok
+test ac_ad_5_no_op_change_reports_no_effect ... ok
+test ac_ad_5_simulated_effect_equals_committed_effect ... ok
+test ac_ad_5_simulation_shows_grants_before_commit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m admin_sim
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-config
+[1m[32m   Compiling[0m admin-config v0.1.0-rc.1 (/work/admin/config)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.97s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_config-f34484167d4307c5)
+
+running 4 tests
+test reconcile::tests::detect_reports_in_sync_and_drift ... ok
+test reconcile::tests::apply_that_does_not_converge_is_a_failure ... ok
+test reconcile::tests::reconcile_corrects_drift_and_confirms_convergence ... ok
+test reconcile::tests::unreachable_subsystem_fails_closed_never_in_sync ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_7.rs (target/debug/deps/ac_ad_7-5644393527f2b9e1)
+
+running 4 tests
+test ac_ad_7_content_hash_binds_the_snapshot ... ok
+test ac_ad_7_empty_author_is_rejected ... ok
+test ac_ad_7_signature_verification_fails_closed_on_key_mismatch ... ok
+test ac_ad_7_versioned_with_diff_and_rollback ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+[1m[32m     Running[0m tests/dr_drill.rs (target/debug/deps/dr_drill-f8e68e33224c9b33)
+
+running 2 tests
+test dr_restore_of_a_tampered_backup_fails_closed ... ok
+test dr_restore_drill_recovers_the_platform_within_rto_rpo ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+[1m[32m     Running[0m tests/durable_restart.rs (target/debug/deps/durable_restart-155b216f713287d6)
+
+running 1 test
+test config_history_survives_restart_and_reverifies ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+[1m[32m   Doc-tests[0m admin_config
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-breakglass
+[1m[32m   Compiling[0m admin-breakglass v0.1.0-rc.1 (/work/admin/breakglass)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_breakglass-02537a44fb78bc1d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_8.rs (target/debug/deps/ac_ad_8-b456968d7bff3ea2)
+
+running 3 tests
+test ac_ad_8_grant_is_time_boxed_justified_and_alerted ... ok
+test ac_ad_8_expiry_forces_a_reviewed_post_hoc ... ok
+test ac_ad_8_break_glass_is_never_unilateral ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/durable_restart.rs (target/debug/deps/durable_restart-e096298f39b9d37d)
+
+running 1 test
+test breakglass_grants_survive_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+[1m[32m     Running[0m tests/rc_32.rs (target/debug/deps/rc_32-46dd529186ff096a)
+
+running 2 tests
+test alert_delivery_is_durable_across_a_transient_bus_outage ... ok
+test grant_delivers_a_real_alert_and_elevates_access_which_auto_expires ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+[1m[32m   Doc-tests[0m admin_breakglass
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-audit --features backend-fips
+[1m[32m   Compiling[0m admin-breakglass v0.1.0-rc.1 (/work/admin/breakglass)
+[1m[32m   Compiling[0m admin-config v0.1.0-rc.1 (/work/admin/config)
+[1m[32m   Compiling[0m admin-audit v0.1.0-rc.1 (/work/admin/audit)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_audit-9fe32f8d0b599026)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_6_10_12.rs (target/debug/deps/ac_ad_6_10_12-a9d8366601e49155)
+
+running 3 tests
+test ac_ad_10_data_plane_authorises_without_the_admin_panel ... ok
+test ac_ad_12_break_glass_and_audit_work_offline ... ok
+test ac_ad_6_every_admin_action_including_denied_and_simulated_is_audited ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+[1m[32m   Doc-tests[0m admin_audit
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-ai-assist
+[1m[32m   Compiling[0m admin-ai-assist v0.1.0-rc.1 (/work/admin/ai-assist)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.83s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_ai_assist-60f78193cbb6d51a)
+
+running 2 tests
+test mimir_bridge::tests::live_copilot_returns_model_text_and_routes_balanced ... ok
+test mimir_bridge::tests::failure_degrades_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_11.rs (target/debug/deps/ac_ad_11-1032be04af7444cc)
+
+running 1 test
+test ac_ad_11_copilot_proposal_cannot_execute_and_traverses_the_guarded_path ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+[1m[32m     Running[0m tests/ev_ad.rs (target/debug/deps/ev_ad-a6dee996f9b1bb2f)
+
+running 4 tests
+test malformed_responses_fail_closed ... ok
+test ev_ad2_suite ... ok
+test ev_ad1_suite ... ok
+test ev_ad3_suite ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m admin_ai_assist
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p admin-service-identity
+[1m[32m   Compiling[0m admin-service-identity v0.1.0-rc.1 (/work/admin/service-identity)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/admin_service_identity-05e068cdad71800f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_ad_9.rs (target/debug/deps/ac_ad_9-18cc340f82867b1e)
+
+running 2 tests
+test ac_ad_9_no_superuser_role_is_present ... ok
+test ac_ad_9_distinct_least_privilege_identity_per_subsystem ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+[1m[32m   Doc-tests[0m admin_service_identity
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-sync
+[1m[32m   Compiling[0m midgard-client-sync v0.1.0-rc.1 (/work/clients/sync)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_sync-f007cebd9719decb)
+
+running 6 tests
+test tests::concurrent_distinct_fields_both_survive ... ok
+test tests::concurrent_same_field_resolves_by_version_deterministically ... ok
+test tests::delete_tombstones_the_field ... ok
+test tests::drain_clears_the_queue_but_keeps_state ... ok
+test tests::local_edit_is_visible_and_queued ... ok
+test tests::merge_is_idempotent ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/convergence.rs (target/debug/deps/convergence-9dd70352b0f3a6db)
+
+running 3 tests
+test bidirectional_reconnect_converges_both_sides ... ok
+test independent_edits_are_never_lost ... ok
+test all_permutations_converge_and_are_idempotent ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m midgard_client_sync
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-keystore --features backend-fips
+[1m[32m   Compiling[0m midgard-client-keystore v0.1.0-rc.1 (/work/clients/keystore)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_keystore-16b444ba710be0d7)
+
+running 5 tests
+test tests::brokered_keystore_holds_no_key ... ok
+test tests::floor_ordering_is_weakest_to_strongest ... ok
+test tests::generating_a_brokered_root_is_rejected ... ok
+test tests::platform_floors_match_sad_table ... ok
+test tests::software_keystore_holds_a_non_exportable_key ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/auth.rs (target/debug/deps/auth-097402bdc78bfe29)
+
+running 5 tests
+test a_valid_biometric_assertion_verifies ... ok
+test mechanism_defaults_match_each_platform ... ok
+test assertion_carries_no_secret_key_material ... ok
+test a_foreign_credential_is_denied ... ok
+test a_replayed_or_tampered_challenge_is_denied ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+[1m[32m   Doc-tests[0m midgard_client_keystore
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-store --features backend-fips
+[1m[32m   Compiling[0m midgard-client-store v0.1.0-rc.1 (/work/clients/store)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_store-961580f8d071c61b)
+
+running 2 tests
+test tests::a_tampered_blob_fails_closed ... ok
+test tests::a_foreign_root_cannot_unseal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[1m[32m     Running[0m tests/at_rest_and_clearance.rs (target/debug/deps/at_rest_and_clearance-8dde514de1f3a4f8)
+
+running 6 tests
+test brokered_custody_holds_no_local_key ... ok
+test a_too_weak_floor_fails_closed ... ok
+test above_clearance_is_never_cached_or_rendered ... ok
+test missing_compartment_is_above_clearance ... ok
+test dominated_objects_are_visible ... ok
+test round_trips_and_seals_at_rest ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[1m[32m   Doc-tests[0m midgard_client_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-enclosure --features test-backend
+[1m[32m   Compiling[0m pq-mtls v0.1.0-rc.1 (/work/crypto/pq-mtls)
+[1m[32m   Compiling[0m midgard-client-enclosure v0.1.0-rc.1 (/work/clients/enclosure)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.71s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_enclosure-48da79df6847482f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/connect.rs (target/debug/deps/connect-307a030226c747e2)
+
+running 3 tests
+test no_common_pq_suite_fails_closed ... ok
+test connects_over_hybrid_pq_mtls_to_the_pinned_gateway ... ok
+test a_wrong_peer_is_rejected_by_the_pin ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+[1m[32m   Doc-tests[0m midgard_client_enclosure
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-inference --features test-backend
+[1m[32m   Compiling[0m pq-mtls v0.1.0-rc.1 (/work/crypto/pq-mtls)
+[1m[32m   Compiling[0m midgard-client-enclosure v0.1.0-rc.1 (/work/clients/enclosure)
+[1m[32m   Compiling[0m midgard-client-inference v0.1.0-rc.1 (/work/clients/inference)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_inference-5897b13b6bfcd1a7)
+
+running 13 tests
+test tier::tests::capable_offline_is_on_device ... ok
+test tier::tests::guard_clamps_on_device_without_model_to_disable ... ok
+test tier::tests::guard_clamps_remote_without_egress_and_incapable_to_disable ... ok
+test tier::tests::guard_clamps_remote_without_egress_to_on_device ... ok
+test tier::tests::heavy_connected_capable_is_hybrid ... ok
+test tier::tests::heavy_connected_incapable_is_remote ... ok
+test tier::tests::guard_downgrades_hybrid_without_local_model_to_remote ... ok
+test tier::tests::moderate_capable_online_is_ambiguous ... ok
+test tier::tests::sensitive_data_stays_on_device_when_capable ... ok
+test wire::tests::output_round_trips ... ok
+test tier::tests::weak_offline_disables ... ok
+test wire::tests::request_round_trips ... ok
+test wire::tests::truncated_input_fails_closed ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/model_and_audit.rs (target/debug/deps/model_and_audit-40469e6e34d13346)
+
+running 4 tests
+test a_model_signed_by_the_wrong_key_fails_closed ... ok
+test a_correctly_signed_model_loads ... ok
+test a_served_request_seals_a_verifiable_audit_entry ... ok
+test a_tampered_model_fails_closed ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/rc_57.rs (target/debug/deps/rc_57-2443a28ba1a309f0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/tiering.rs (target/debug/deps/tiering-f5a6f3d28c29e458)
+
+running 9 tests
+test connected_capable_heavy_task_is_hybrid ... ok
+test ev_ac1_offline_and_clearance ... ok
+test capable_device_offline_runs_tier_1 ... ok
+test connected_heavy_task_delegates_remote_grounded_and_cited ... ok
+test ev_ac2_privacy_keeps_sensitive_on_device ... ok
+test ev_ac2_policy_never_egresses_under_no_egress ... ok
+test weak_device_offline_disables_gracefully ... ok
+test ev_ac2_toobig_online_remote_offline_disable ... ok
+test ev_ac_parity_tier1_matches_tier2 ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m midgard_client_inference
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-broker
+[1m[32m   Compiling[0m midgard-client-broker v0.1.0-rc.1 (/work/clients/broker)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_broker-f2f5f3e0819a4698)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/broker.rs (target/debug/deps/broker-4e8d32589b4b17df)
+
+running 5 tests
+test a_plain_task_uses_only_the_shared_selection ... ok
+test nosecret_eval_catches_a_leak ... ok
+test a_privileged_task_is_brokered_not_performed ... ok
+test noscrape_eval_catches_a_leak ... ok
+test the_broker_holds_no_key_material ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m midgard_client_broker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-delivery --features backend-fips
+[1m[32m   Compiling[0m midgard-client-delivery v0.1.0-rc.1 (/work/clients/delivery)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.45s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_delivery-8717f74d1cbbe54e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/install.rs (target/debug/deps/install-4290748ba143d794)
+
+running 7 tests
+test a_tampered_artefact_fails_closed_before_install ... ok
+test a_non_client_artefact_is_refused ... ok
+test a_signed_client_artefact_installs ... ok
+test a_tampered_bundle_fails_closed_offline ... ok
+test an_artefact_signed_by_an_untrusted_key_fails_closed ... ok
+test air_gapped_install_from_a_signed_bundle_offline ... ok
+test an_update_must_target_the_installed_artefact ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+[1m[32m   Doc-tests[0m midgard_client_delivery
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p midgard-client-core --features backend-fips
+[1m[32m   Compiling[0m pq-mtls v0.1.0-rc.1 (/work/crypto/pq-mtls)
+[1m[32m   Compiling[0m midgard-client-enclosure v0.1.0-rc.1 (/work/clients/enclosure)
+[1m[32m   Compiling[0m midgard-client-core v0.1.0-rc.1 (/work/clients/core)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.94s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/midgard_client_core-3624c2986e4b5a66)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/one_core.rs (target/debug/deps/one_core-49984e29415334d3)
+
+running 5 tests
+test exposes_one_core_version ... ok
+test above_clearance_edit_is_refused_by_the_core ... ok
+test binding_surface_converges_over_opaque_blobs ... ok
+test edit_seals_syncs_and_reloads_through_one_core ... ok
+test two_cores_converge_on_reconnect ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+[1m[32m   Doc-tests[0m midgard_client_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p attest
+[1m[32m   Compiling[0m attest v0.1.0-rc.1 (/work/crypto/attest)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.97s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/attest-e6a330f2c6e646c4)
+
+running 60 tests
+test accept::tests::domains_cannot_collide_even_when_one_label_prefixes_another ... ok
+test accept::tests::every_declared_domain_is_distinct ... ok
+test accept::tests::preimage_is_length_prefixed_and_deterministic ... ok
+test accept::tests::refuses_a_signature_from_another_domain ... ok
+test accept::tests::accepts_a_signature_it_produced ... ok
+test accept::tests::refuses_an_unapproved_algorithm ... ok
+test attestation::tests::binds_the_subject_and_sbom_digests ... ok
+test attestation::tests::carries_no_timestamp ... ok
+test attestation::tests::changing_any_input_changes_the_output ... ok
+test attestation::tests::escapes_hostile_field_content ... ok
+test attestation::tests::is_byte_identical_across_runs ... ok
+test attestation::tests::renders_an_empty_repro_list ... ok
+test attestation::tests::sorts_repro_entries_regardless_of_input_order ... ok
+test backend::tests::kms_signer_propagates_custodian_failure ... ok
+test accept::tests::refuses_a_valid_signature_from_the_wrong_key ... ok
+test backend::tests::no_ambient_key_location_exists_in_this_crate ... ok
+test envelope::tests::rejects_an_absurd_length_prefix ... ok
+test envelope::tests::rejects_bad_magic ... ok
+test envelope::tests::rejects_non_utf8_key_id ... ok
+test envelope::tests::rejects_trailing_bytes ... ok
+test envelope::tests::rejects_truncation_at_every_length ... ok
+test envelope::tests::rejects_unknown_algorithm_tag ... ok
+test envelope::tests::rejects_unknown_version ... ok
+test envelope::tests::round_trips ... ok
+test hex::tests::encodes_lowercase_fixed_width ... ok
+test hex::tests::rejects_malformed_input ... ok
+test hex::tests::round_trips ... ok
+test json::tests::bounds_nesting_depth ... ok
+test json::tests::parses_every_value_kind ... ok
+test json::tests::rejects_duplicate_keys ... ok
+test json::tests::rejects_trailing_data ... ok
+test json::tests::rejects_truncation_at_every_length ... ok
+test json::tests::rejects_what_lenient_parsers_accept ... ok
+test json::tests::unescapes_strings ... ok
+test accept::tests::refuses_a_modified_body ... ok
+test backend::tests::kms_signer_signs_through_a_real_custodian ... ok
+test keystore::tests::dev_key_file_round_trips ... ok
+test keystore::tests::a_tampered_sealed_blob_fails_to_unseal ... ok
+test keystore::tests::exports_a_parseable_trust_anchor_line ... ok
+test accept::tests::refuses_when_anchor_and_signature_disagree_on_algorithm ... ok
+test keystore::tests::rejects_bad_magic_version_and_trailing_bytes ... ok
+test preimage::tests::body_is_fixed_width ... ok
+test preimage::tests::cannot_collide_with_another_signing_context ... ok
+test preimage::tests::every_field_changes_the_preimage ... ok
+test preimage::tests::fields_are_not_interchangeable ... ok
+test preimage::tests::is_deterministic ... ok
+test preimage::tests::preimage_carries_the_release_domain ... ok
+test sbom::tests::a_purl_outside_components_does_not_count ... ok
+test sbom::tests::accepts_an_mg_sbom_document ... ok
+test sbom::tests::rejects_a_document_that_is_not_cyclonedx ... ok
+test sbom::tests::rejects_a_single_component_without_a_purl ... ok
+test sbom::tests::rejects_an_empty_component_list ... ok
+test sbom::tests::rejects_any_other_cyclonedx_version ... ok
+test sbom::tests::rejects_components_without_purls ... ok
+test sbom::tests::rejects_malformed_json_that_mentions_the_right_words ... ok
+test sbom::tests::rejects_non_utf8 ... ok
+test sbom::tests::sidecar_path_appends_rather_than_replacing_the_extension ... ok
+test keystore::tests::signing_key_is_not_present_in_the_clear ... ok
+test keystore::tests::round_trips_and_unseals_a_working_custodian ... ok
+test keystore::tests::the_trust_root_seals_data_that_a_reloaded_keystore_unseals ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+[1m[32m     Running[0m tests/ac_rf_sc_1.rs (target/debug/deps/ac_rf_sc_1-f532763173755684)
+
+running 17 tests
+test ac_rf_sc_1c_unreachable_kms_fails_closed_leaving_no_signature ... ok
+test ac_rf_sc_1b_missing_sbom_fails_closed_and_writes_no_signature ... ok
+test ac_rf_sc_1a_signing_produces_a_verifiable_artefact ... ok
+test ac_rf_sc_1d_file_signing_requires_the_explicit_env_opt_in ... ok
+test ac_rf_sc_1e_a_foreign_domain_label_is_rejected ... ok
+test ac_rf_sc_1b_unusable_sbom_fails_closed ... ok
+test signing_refuses_an_algorithm_no_verifier_accepts ... ok
+test ac_rf_sc_1f_attestation_is_byte_identical_across_runs ... ok
+test the_verdict_line_holds_each_field_exactly_once ... ok
+test trust_anchor_parsing_rejects_malformed_lines ... ok
+test trust_anchors_refuse_one_key_id_bound_to_two_keys ... ok
+test ac_rf_sc_1e_a_signature_from_another_artefact_does_not_verify ... ok
+test signing_refuses_when_the_signature_does_not_match_the_advertised_key ... ok
+test verification_refuses_a_valid_signature_from_an_untrusted_key ... ok
+test verification_refuses_without_trust_anchors ... ok
+test ac_rf_sc_1e_tampering_with_any_bound_file_is_caught ... ok
+test verification_refuses_when_a_sidecar_is_absent ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+[1m[32m   Doc-tests[0m attest
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p attest --no-default-features --features backend-fips
+[1m[32m   Compiling[0m attest v0.1.0-rc.1 (/work/crypto/attest)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.67s
+[1m[32m     Running[0m unittests src/lib.rs (target/debug/deps/attest-f251e6cff847c8ea)
+
+running 50 tests
+test accept::tests::domains_cannot_collide_even_when_one_label_prefixes_another ... ok
+test accept::tests::every_declared_domain_is_distinct ... ok
+test accept::tests::preimage_is_length_prefixed_and_deterministic ... ok
+test accept::tests::refuses_a_modified_body ... ok
+test accept::tests::refuses_a_signature_from_another_domain ... ok
+test accept::tests::refuses_an_unapproved_algorithm ... ok
+test attestation::tests::binds_the_subject_and_sbom_digests ... ok
+test attestation::tests::carries_no_timestamp ... ok
+test attestation::tests::changing_any_input_changes_the_output ... ok
+test attestation::tests::escapes_hostile_field_content ... ok
+test attestation::tests::is_byte_identical_across_runs ... ok
+test attestation::tests::renders_an_empty_repro_list ... ok
+test attestation::tests::sorts_repro_entries_regardless_of_input_order ... ok
+test envelope::tests::rejects_an_absurd_length_prefix ... ok
+test envelope::tests::rejects_bad_magic ... ok
+test envelope::tests::rejects_non_utf8_key_id ... ok
+test envelope::tests::rejects_trailing_bytes ... ok
+test envelope::tests::rejects_truncation_at_every_length ... ok
+test envelope::tests::rejects_unknown_algorithm_tag ... ok
+test envelope::tests::rejects_unknown_version ... ok
+test envelope::tests::round_trips ... ok
+test hex::tests::encodes_lowercase_fixed_width ... ok
+test hex::tests::rejects_malformed_input ... ok
+test hex::tests::round_trips ... ok
+test json::tests::bounds_nesting_depth ... ok
+test json::tests::parses_every_value_kind ... ok
+test json::tests::rejects_duplicate_keys ... ok
+test json::tests::rejects_trailing_data ... ok
+test json::tests::rejects_truncation_at_every_length ... ok
+test json::tests::rejects_what_lenient_parsers_accept ... ok
+test json::tests::unescapes_strings ... ok
+test preimage::tests::body_is_fixed_width ... ok
+test preimage::tests::cannot_collide_with_another_signing_context ... ok
+test preimage::tests::every_field_changes_the_preimage ... ok
+test preimage::tests::fields_are_not_interchangeable ... ok
+test preimage::tests::is_deterministic ... ok
+test preimage::tests::preimage_carries_the_release_domain ... ok
+test sbom::tests::a_purl_outside_components_does_not_count ... ok
+test sbom::tests::accepts_an_mg_sbom_document ... ok
+test sbom::tests::rejects_a_document_that_is_not_cyclonedx ... ok
+test sbom::tests::rejects_a_single_component_without_a_purl ... ok
+test sbom::tests::rejects_an_empty_component_list ... ok
+test sbom::tests::rejects_any_other_cyclonedx_version ... ok
+test sbom::tests::rejects_components_without_purls ... ok
+test sbom::tests::rejects_malformed_json_that_mentions_the_right_words ... ok
+test sbom::tests::rejects_non_utf8 ... ok
+test sbom::tests::sidecar_path_appends_rather_than_replacing_the_extension ... ok
+test accept::tests::accepts_a_signature_it_produced ... ok
+test accept::tests::refuses_a_valid_signature_from_the_wrong_key ... ok
+test accept::tests::refuses_when_anchor_and_signature_disagree_on_algorithm ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+[1m[32m     Running[0m tests/ac_rf_sc_1.rs (target/debug/deps/ac_rf_sc_1-97be9bec3acbca1b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m   Doc-tests[0m attest
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo test -p mg-sign -p mg-sbom -p mg-scan -p mg-verify -p mg-repro
+[1m[32m   Compiling[0m mg-repro v0.1.0-rc.1 (/work/tools/mg-repro)
+[1m[32m   Compiling[0m mg-verify v0.1.0-rc.1 (/work/tools/mg-verify)
+[1m[32m   Compiling[0m mg-scan v0.1.0-rc.1 (/work/tools/mg-scan)
+[1m[32m   Compiling[0m mg-sbom v0.1.0-rc.1 (/work/tools/mg-sbom)
+[1m[32m   Compiling[0m mg-sign v0.1.0-rc.1 (/work/tools/mg-sign)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 3.27s
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/mg_repro-6fc30ca884fb7a6b)
+
+running 19 tests
+test tests::a_missing_exception_list_means_no_exceptions ... ok
+test tests::a_package_that_emits_nothing_is_a_coverage_hole ... ok
+test tests::a_pass_by_exception_is_never_called_reproducible ... ok
+test tests::an_unreadable_cargo_message_fails_the_run ... ok
+test tests::another_packages_same_named_binary_is_not_coverage ... ok
+test tests::full_coverage_reports_no_holes ... ok
+test tests::artefacts_are_attributed_by_manifest_not_by_file_name ... ok
+test tests::exceptions_ignore_comments_and_blanks ... ok
+test tests::help_beside_anything_else_is_an_error_not_a_success ... ok
+test tests::member_parsing_refuses_metadata_it_cannot_read ... ok
+test tests::parallelism_is_always_pinned ... ok
+test tests::report_is_deterministic_and_parseable_by_mg_sign ... ok
+test tests::report_records_both_digests_so_a_failure_is_diagnosable ... ok
+test tests::report_stays_valid_json_whatever_an_artefact_is_called ... ok
+test tests::scope_comes_from_the_bare_argument_or_only ... ok
+test tests::side_channels_are_skipped_and_metadata_is_compared ... ok
+test tests::only_this_builds_own_outputs_count ... ok
+test tests::the_metadata_hash_is_not_part_of_an_artefacts_name ... ok
+test tests::workspace_members_come_from_cargo_not_from_directory_names ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+[1m[32m     Running[0m tests/regression.rs (target/debug/deps/regression-364540f5714d5055)
+
+running 2 tests
+test a_reproducible_workspace_passes_and_only_its_own_outputs_count ... ok
+test an_injected_non_determinism_fails_the_run_and_names_the_package ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/mg_sbom-dd31e660715271b8)
+
+running 15 tests
+test pnpm::tests::small_helpers ... ok
+test pnpm::tests::package_names_cover_every_pinned_registry_package ... ok
+test pnpm::tests::an_uninstalled_workspace_yields_no_licence_rather_than_a_guess ... ok
+test tests::a_packages_origin_comes_from_its_lockfile_source ... ok
+test tests::an_unresolvable_licence_is_an_empty_array_not_a_guess ... ok
+test tests::emits_licences_as_spdx_expressions ... ok
+test pnpm::tests::licences_and_integrity_come_from_the_packages_themselves ... ok
+test pnpm::tests::the_production_closure_is_listed_and_build_tooling_is_not ... ok
+test tests::every_component_states_its_origin ... ok
+test tests::parses_sorts_and_captures_checksums ... ok
+test tests::rejects_a_malformed_checksum ... ok
+test tests::licence_resolution_reads_manifests_and_the_workspace_default ... ok
+test tests::self_hash_binds_the_artefact_when_hashed ... ok
+test tests::renders_deterministic_cyclonedx_with_purls_and_component_hashes ... ok
+test pnpm::tests::what_the_reader_cannot_follow_is_an_error ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/mg_scan-b2286b1bf7268bb9)
+
+running 43 tests
+test advisory::tests::a_non_v3_vector_is_rejected_rather_than_mis_scored ... ok
+test advisory::tests::a_withdrawn_advisory_affects_nothing ... ok
+test advisory::tests::a_compound_range_is_one_requirement_not_two ... ok
+test advisory::tests::an_advisory_with_no_cvss_is_unscored_and_still_blocks ... ok
+test advisory::tests::an_unreadable_range_is_treated_as_exposed ... ok
+test advisory::tests::a_withdrawn_or_unreadable_osv_advisory ... ok
+test advisory::tests::an_osv_advisory_is_read_for_its_own_ecosystem_only ... ok
+test advisory::tests::arrays_are_read_by_element_across_lines_and_keys ... ok
+test advisory::tests::cvss_scores_match_the_specification ... ok
+test advisory::tests::osv_bounds_and_listed_versions ... ok
+test advisory::tests::an_unscoreable_vector_escalates_rather_than_dropping_the_advisory ... ok
+test advisory::tests::osv_intervals_decide_exposure ... ok
+test advisory::tests::parses_frontmatter ... ok
+test advisory::tests::severity_bands_follow_the_cvss_ratings ... ok
+test advisory::tests::roundup_follows_the_specification_not_floating_point ... ok
+test advisory::tests::osv_severity_falls_back_to_the_database_word_then_to_unscored ... ok
+test advisory::tests::version_ranges_decide_exposure ... ok
+test licence::tests::a_with_modifier_is_not_a_licence ... ok
+test licence::tests::a_hash_inside_a_justification_is_not_a_comment ... ok
+test licence::tests::every_allowed_identifier_must_be_justified ... ok
+test licence::tests::accepts_the_expressions_this_workspace_actually_uses ... ok
+test licence::tests::an_unrecognised_with_exception_is_refused ... ok
+test licence::tests::or_needs_one_side_and_and_needs_both ... ok
+test licence::tests::refuses_copyleft_and_unknowns ... ok
+test semver::tests::a_prerelease_ranks_below_its_release ... ok
+test semver::tests::caret_follows_cargos_zero_version_rules ... ok
+test semver::tests::matches_the_comparators_rustsec_uses ... ok
+test semver::tests::parses_and_orders_versions ... ok
+test licence::tests::exceptions_require_owner_reason_and_expiry ... ok
+test semver::tests::unparseable_input_is_none_so_callers_can_fail_closed ... ok
+test tests::a_compensating_control_must_point_somewhere ... ok
+test tests::a_complete_advisory_exception_is_read ... ok
+test tests::dates_and_ages_are_computed_without_a_date_crate ... ok
+test tests::an_advisory_exception_must_say_something_in_every_field ... ok
+test tests::every_component_is_read_whatever_its_type_or_formatting ... ok
+test tests::expiry_is_inclusive_of_the_expiry_day_and_fails_closed ... ok
+test tests::every_licence_entry_of_a_component_counts ... ok
+test tests::only_a_positive_statement_exempts_a_component_from_advisory_matching ... ok
+test tests::pr_mode_fails_only_on_an_unexcused_critical ... ok
+test tests::refuses_what_the_signer_and_verifier_refuse ... ok
+test tests::reads_components_and_licences ... ok
+test tests::the_findings_report_is_valid_json_whatever_it_contains ... ok
+test tests::unix_seconds_round_trip_to_the_same_civil_date ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/cli.rs (target/debug/deps/cli-220a59de9c7786cc)
+
+running 20 tests
+test a_clean_sbom_passes ... ok
+test a_clock_behind_the_data_is_refused ... ok
+test a_component_is_scanned_however_the_sbom_is_written ... ok
+test a_workspace_npm_package_needs_no_npm_database ... ok
+test a_compound_range_does_not_clear_the_versions_below_it ... ok
+test a_shared_name_does_not_cross_ecosystems ... ok
+test ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component ... ok
+test ac_rf_sc_4c_a_component_with_no_licence_blocks ... ok
+test a_database_that_is_not_what_its_manifest_says_is_refused ... ok
+test ac_rf_sc_4b_a_disallowed_licence_blocks_naming_component_licence_and_purl ... ok
+test ac_rf_sc_4f_a_stale_database_fails_naming_the_snapshot_date ... ok
+test ac_rf_sc_5b_an_npm_component_is_matched_against_npm_advisories ... ok
+test ac_rf_sc_4d_an_exception_holds_until_it_expires_then_blocks_with_date_and_owner ... ok
+test help_cannot_turn_a_scan_into_a_success ... ok
+test an_exception_that_does_not_say_who_why_or_how_is_refused_outright ... ok
+test import_osv_builds_a_snapshot_the_scan_accepts ... ok
+test nobody_looked_is_never_reported_as_clean ... ok
+test only_a_declared_workspace_member_is_exempt_from_advisory_matching ... ok
+test the_build_date_variable_cannot_make_an_old_database_fresh ... ok
+test pr_mode_fails_on_critical_and_never_calls_a_release_blocker_clean ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/mg_sign-05f5e506df0beb14)
+
+running 14 tests
+test source_revision_tests::a_blank_revision_is_never_recorded ... ok
+test source_revision_tests::the_flag_wins_then_the_environment_then_git ... ok
+test tests::key_file_is_refused_before_the_key_path_is_touched ... ok
+test tests::parses_known_algorithms_and_rejects_others ... ok
+test tests::only_proven_rows_are_attested_as_reproducible ... ok
+test tests::parses_a_repro_report ... ok
+test tests::rejects_unknown_flags_rather_than_ignoring_them ... ok
+test tests::rejects_a_flag_with_no_value ... ok
+test tests::separates_flags_from_the_artefact ... ok
+test tests::sign_refuses_two_key_sources ... ok
+test tests::sign_requires_exactly_one_artefact ... ok
+test tests::the_report_must_cover_the_artefact_being_signed ... ok
+test tests::sign_requires_a_key_source ... ok
+test tests::refuses_a_repro_report_it_cannot_fully_read ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/mg_verify-561cd7e14172184a)
+
+running 7 tests
+test tests::anchor_loading_refuses_a_missing_file ... ok
+test tests::anchor_loading_merges_several_files ... ok
+test tests::anchor_loading_refuses_an_empty_file ... ok
+test tests::anchor_loading_refuses_a_malformed_file ... ok
+test tests::sidecar_paths_are_the_three_the_verifier_requires ... ok
+test tests::help_alongside_other_arguments_is_a_usage_error ... ok
+test tests::anchor_loading_refuses_one_key_id_anchored_to_two_keys ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/ac_rf_sc_2.rs (target/debug/deps/ac_rf_sc_2-ae86c701c24d1a21)
+
+running 12 tests
+test a_missing_artefact_is_a_refusal ... ok
+test a_malformed_anchor_file_is_a_refusal ... ok
+test a_file_name_cannot_plant_a_field_in_the_verdict ... ok
+test ac_rf_sc_2d_subsystems_hold_no_independent_acceptance_decision ... ok
+test an_anchor_for_an_unapproved_algorithm_is_refused_at_parse_time ... ok
+test ac_rf_sc_2c_valid_signature_from_an_untrusted_key_is_refused ... ok
+test an_artefact_that_was_never_signed_is_refused ... ok
+test help_cannot_turn_a_verification_into_a_success ... ok
+test ac_rf_sc_2e_valid_bundle_exits_zero_with_a_parseable_verdict ... ok
+test no_trust_anchor_is_a_refusal_not_a_bypass ... ok
+test a_valid_signature_does_not_vouch_for_an_unusable_sbom ... ok
+test every_rejection_reason_exits_non_zero ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+cargo test -p mg-admin
+[1m[32m   Compiling[0m mg-admin v0.1.0-rc.1 (/work/tools/mg-admin)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 2.54s
+[1m[32m     Running[0m unittests src/main.rs (target/debug/deps/mg_admin-cd1344fe2d28c0da)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[1m[32m     Running[0m tests/cli.rs (target/debug/deps/cli-1c74bf6591bad966)
+
+running 3 tests
+test init_lays_out_a_state_directory_and_never_overwrites_one ... ok
+test user_add_enrols_and_refuses_what_it_should ... ok
+test a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
+
+[1m[32m     Running[0m tests/enrol.rs (target/debug/deps/enrol-09380f0a7ce3ba6b)
+
+running 1 test
+test two_administrators_enrol_a_principal_through_a_running_gateway ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.02s
+
+[1m[32m     Running[0m tests/import.rs (target/debug/deps/import-041a5f0ebe999b47)
+
+running 1 test
+test an_import_fills_a_real_enclosure_that_a_gateway_then_serves ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.11s
+
+[1m[32m     Running[0m tests/mesh.rs (target/debug/deps/mesh-532c034f08cede04)
+
+running 1 test
+test mesh_issue_writes_a_verifiable_identity_and_never_overwrites_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+# go.work exists but declares no modules and there are no .go files, so this
+# is a no-op that only ever fails when Go is absent. Whether the Go workspace
+# stays at all is RF-SDK-4.

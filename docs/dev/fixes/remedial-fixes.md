@@ -50,7 +50,7 @@ These carry forward from the playbook and are **not restated** in each prompt. A
 | # | Absence | Evidence |
 |---|---|---|
 | 1 | **Nothing durable.** No crate anywhere performs file or database I/O. Every store — object fabric, audit ledger, model registry, dataset store, keystore, config — is an in-process `Vec`/`BTreeMap`. A restart is total data loss. | No `std::fs` / `File::` in any of `services/`, `mimir/`, `forge/`, `bifrost/`, `heimdall/`, `admin/`, `clients/`, `crypto/` |
-| 2 | **Almost nothing is runnable.** 56 crates, 5 binaries: `http-gateway` and the four supply-chain tools. The other 51 are libraries with no process, no config, no lifecycle, no health endpoint. | `find -name main.rs` |
+| 2 | **Almost nothing is runnable.** 56 crates, 5 binaries: `http-gateway` and the four supply-chain tools. The other 51 are libraries with no process, no config, no lifecycle, no health endpoint. | `find -name main.rs` | <!-- numbers:historical -->
 | 3 | **The release gate passes vacuously.** `mg-sign` and `mg-verify` print "STUB (Phase 0.b)" and `return ExitCode::SUCCESS`. `mg-repro workspace` — the exact invocation CI makes — returns success without building. Release-time CVE scan, licence allow-list, and provenance attestation are `echo "TODO"`. | `tools/mg-sign/src/main.rs:17`, `tools/mg-verify/src/main.rs:16`, `tools/mg-repro/src/main.rs:24`, `.github/workflows/release.yml` |
 | 4 | **Five of six consoles show fabricated data.** Only the Midgard core console can point at a real edge, and only for 15 endpoints. Admin, Forge, Mimir, Bifrost, Heimdall and Clients are hard-wired to ~3 100 lines of TypeScript fixtures with no server behind them. | `products/*/ui/src/main.tsx`, `sdk/ts/src/products/*.ts`, `services/http-gateway/src/lib.rs:64-129` |
 | 5 | **No inference.** The "local AI plane" serves a deterministic string-generating reference engine. The GPU backend produces a `LaunchSpec` and never spawns anything; there is no tokenizer, no weight loader, no sampler, no streaming. | `mimir/model-server/src/backends/local.rs:3-11`, `backends/gpu_docker.rs:10-15` |
@@ -58,7 +58,7 @@ These carry forward from the playbook and are **not restated** in each prompt. A
 
 **Beyond those,** the audit found: no observability of any kind (no metrics, traces, or structured logs — the Observability console renders fixtures); a 2-file proto contract for an 8-subsystem platform; no deployment artefacts (`deploy/helm/` and `deploy/air-gap-bundle/` are referenced by `deploy/README.md` and do not exist); no authentication anywhere in the web tier (no login, no session, no token refresh); effectively no frontend accessibility (7 `aria-`/`role` occurrences across 7 200 lines), no error boundaries, no i18n; zero frontend tests of any kind; no multi-tenancy; no backup/restore or DR; and several places where documentation asserts things the tree contradicts (Go and DataFusion backends that do not exist, a Python workspace whose members are Rust crates).
 
-**Sizing.** 169 remedial items across 24 workstreams, carrying roughly 800 acceptance criteria. If sequenced as written — supply chain and runtime first, then persistence and transport, then product depth and UI wiring, then clients, operations and assurance — this is on the order of a 6–8 quarter programme for a team of 10–14. The dependency graph in §3 is the critical path; the phased plan in §4 is the suggested cut.
+**Sizing.** 169 remedial items across 24 workstreams, carrying roughly 800 acceptance criteria. If sequenced as written — supply chain and runtime first, then persistence and transport, then product depth and UI wiring, then clients, operations and assurance — this is on the order of a 6–8 quarter programme for a team of 10–14. The dependency graph in §3 is the critical path; the phased plan in §4 is the suggested cut. <!-- numbers:historical -->
 
 **Revision 2 note (2026-10-12).** Workstream Y adds 13 items and 57 acceptance criteria, for 182 items and 881 criteria across 25 workstreams. It was written against public `main` @ `9ec8659`, which has moved a long way from the tree audited above: the workspace is 70 crates, not 56; five services run as processes (`http-gateway`, `mimir-server`, `bifrost-fleet`, `heimdall-feed`, `forge-worker`); state and the audit ledger are durable and sealed; `mg-sign` and `mg-verify` are real; a real model has been served on CPU. Absences 1, 2, 3 and 5 in the table above are therefore partly closed; absences 4 and 6 stand. The summary above is kept as the record of 2026-08-25. **The current position is §1a**, and each item's Status note; where a Status note and the Evidence beneath it disagree, the Status note is current.
 
@@ -105,7 +105,7 @@ A criterion counts as met only where both the implementation and a test exercisi
 
 ### Findings that cut across items
 
-1. **There is no CI configuration on public `main`.** It is on `dev` since 2026-10-13 (see RF-CA-4), so until that is merged the rest of this finding stands. Every criterion of the form "when CI runs, it fails" is open, and several items cite workflows as evidence that a reader cannot find. RF-CA-4 is a prerequisite for all of them.
+1. **There is no CI configuration on public `main`.** It is on `dev` since 2026-10-13 (see RF-CA-4), so until that is merged the rest of this finding stands. Every criterion of the form "when CI runs, it fails" is open, and several items cite workflows as evidence that a reader cannot find. RF-CA-4 is a prerequisite for all of them. *Update 2026-10-16:* the CI configuration reached public `main` with the merge of 2026-10-14 (`f26f910`), and its jobs have run green there; a criterion of this form is now open only until the job it names exists.
 2. **The acceptance gate has not been re-run on any public commit**, and a fresh clone lacks the cargo configuration the offline build needs (RF-CA-3, RF-CA-5).
 3. **Six consoles have no backend route.** `forge-worker`, `mimir-server`, `bifrost-fleet` and `heimdall-feed` are mesh-only services; the browser edge serves only the Midgard core surface and admin enrolment. Every criterion that names a Forge, Mimir, Bifrost, Heimdall, Admin or Clients screen is open for that reason (RF-UID-1).
 4. **No TypeScript test runner exists** in any `package.json`, so no frontend criterion is met (RF-TST-2).
@@ -489,7 +489,7 @@ CycloneDX, empty component list. Each must exit non-zero. One positive test.
 > **Status at 2026-10-12 — Partial.** `mg-repro` no longer short-circuits `workspace`: it always builds twice, compares every artefact, fails on zero artefacts or an uncovered member, writes `repro.json` with both digests, and `mg-sign --repro` embeds it. The exception list is empty. The CI half of the item cannot be confirmed: this tree has no `.github/` directory, so the As-built claims that CI calls it and uploads `repro.json` have no workflow behind them here, and the injected-non-determinism check was a manual run with no test or script step.
 > Criteria met 3 of 5 (b, d, e); open: c; not verifiable by reading: a. Confidence: medium.
 >
-> **Scope change:** The tool side is built, but the As-built note's CI steps (`just repro` in CI, the `repro.json` upload) have nothing behind them: the tree has no CI configuration (RF-CA-4). Criterion c was a manual run with no test.
+> **Scope change:** The tool side is built, but the As-built note's CI steps (`just repro` in CI, the `repro.json` upload) have nothing behind them: the tree has no CI configuration (RF-CA-4). Criterion c was a manual run with no test. *Update 2026-10-16:* the `repro` job now runs `just repro` and keeps `repro.json` on every pull request and push, in both pipelines.
 >
 > **Still to do:**
 > - Add the CI workflow (or a committed script step) that runs `just repro` over the whole workspace and uploads repro.json; none exists in this tree
@@ -2096,8 +2096,8 @@ Define the full contract surface, and make it the single source of truth.
 5. Model pagination, filtering, sorting, and partial-result truncation uniformly
    across every list RPC, and streaming (server-streaming) for audit, feeds,
    traces, build logs and agent responses.
-6. Enforce compatibility: `buf breaking` against main is already wired in CI —
-   extend it to every new package, and document the versioning policy (additive
+6. Enforce compatibility: wire `buf breaking` against main into CI (it is not
+   wired today) and run it on every package, and document the versioning policy (additive
    only within v1; a v2 package for anything else).
 7. Generate: Rust server/client stubs, TypeScript client types, and the
    documentation surface, all from buf. The hand-written types in
@@ -8225,7 +8225,7 @@ Fuzz everything that parses untrusted input.
 > **Status at 2026-10-12 — Partial.** `just lint` runs clippy at `-D warnings` across the crates, `mg-scan` does an offline advisory and licence scan against a vendored RustSec snapshot, and `.gitleaks.toml` configures secret scanning. Only 9 of roughly 70 crates carry `#![forbid(unsafe_code)]`, there is no workspace lint table, no SAST, no DAST, no findings dashboard, and no CI workflow is published (the gitleaks config refers to a `.github/workflows/ci.yml` that is not in the tree).
 > Criteria met 0 of 5; open: a, b, c, e; not verifiable by reading: d. Confidence: medium.
 >
-> **Scope change:** The Evidence says CI runs `gitleaks`; there is no CI configuration in the tree (RF-CA-4).
+> **Scope change:** The Evidence says CI runs `gitleaks`; there is no CI configuration in the tree (RF-CA-4). *Update 2026-10-16:* the `secrets` job now runs gitleaks, pinned by version and checksum, in the hygiene stage of both pipelines.
 >
 > **Still to do:**
 > - Add `#![forbid(unsafe_code)]` to every crate that can take it and document the exception for `pqc-agility` (mlock in `secret.rs`); add a check that enforces it
@@ -9956,6 +9956,88 @@ Create the claims ledger and make it the only source for capability statements.
 
 **Done when:** the ledger covers every published claim, the check is green in CI, and no swept document states a capability above its ledger status.
 
+> **As built (2026-10-16, after the status above): the README and site-page sweep.**
+>
+> - *README, line by line.* Every capability statement was looked up in the ledger.
+>   Reworded to their rows:
+>   - the tagline ("built and verified against a complete specification" is now "fully
+>     specified and partly implemented", with a pointer to the ledger);
+>   - the Admin Control Panel and Client Platforms bullets, now framed as what SAD_07
+>     and SAD_06 specify, followed by their library and scaffold status;
+>   - a paragraph after the product table saying what runs today and which capabilities
+>     are libraries only;
+>   - the "Local AI native" principle, which said every product calls Mimir while the
+>     compose limits say nothing does;
+>   - "The engineering is done and tested", "There are five server binaries" (the sheet
+>     counts 18 binaries, 6 of them services) and "None of this is blocked on unsolved
+>     problems";
+>   - "The strongest evidence the platform meets the spec", now saying that most
+>     criteria are exercised against libraries;
+>   - "the shipping console UIs bind to the gateway edge" (only the Midgard console
+>     can), and "the code realises" the SADs (it implements them in part).
+>
+>   A stale limit was removed: the status list still said a real enclosure had no Forge
+>   connectors, though `forge-connectors` is operable. The phase-gate comments now show
+>   AC-MS-3 under `verify-bifrost.sh`.
+> - *One new row.* The images' verify-before-run entrypoint was stated in the README,
+>   the release notes, GA_READINESS and the CHANGELOG with no row. `verify-before-run`
+>   is `operable`: its service test is the step of `deploy/images/build.sh` that starts
+>   each binary through the image's own entrypoint. Its limit records that this ran only
+>   in the 2026-09-15 rehearsal, with drill keys, and that compose and kind images start
+>   their binaries directly.
+> - *Site pages.* `pricing.html` and `github.html` were reworded to the ledger:
+>   - the Enterprise tier's HA, cross-site DR and N-of-M approvals are marked planned,
+>     with their status;
+>   - "every product core is usable" now names the five services and points to the
+>     ledger;
+>   - "every release builds reproducibly" now says no release is published yet;
+>   - "commercial modules live in private repos" now says HA and DR are specified, not
+>     implemented;
+>   - "closed development" is now pre-1.0, RC and NO-GO;
+>   - "two maintainer reviews" is now the code-owner review and CI checks the rules
+>     enforce, and "Sign your commits (DCO)" separates sign-off from signing.
+>
+>   The three terminals on the GitHub page showed a tag (`v0.9.2`), a script
+>   (`scripts/verify-release`), `make` targets and outputs (an SBOM of 214 components at
+>   CycloneDX 1.6) that do not exist. They now show the real commands: check out
+>   `v0.1.0-rc.1`, `tools/ci/verify-tag.sh`, `mg-verify`, `gate-run.sh` and
+>   `gate-record.sh --compare`, with no invented output. `about.html` and `contact.html`
+>   state no technical capability above its row.
+> - *Not ledgered, and left for the owner:* commercial and process commitments are not
+>   capabilities, so the ledger has no status for them. The site states:
+>   - an Enterprise tier with 24/7 support and response SLAs;
+>   - a Sovereign tier with on-site commissioning, cleared-personnel support and custom
+>     evaluation suites;
+>   - that the commercial version is operated by Veldris Ltd;
+>   - replies within two working days;
+>   - a PGP key and safe-harbour policy at `/.well-known/security.txt`, which
+>     `SECURITY.md` says is also mirrored in the repository, where it is not;
+>   - placeholder company number, registered office and email addresses.
+>
+>   Each is the owner's to confirm or remove before launch. The security-disclosure
+>   acknowledgement, one working day, matches `SECURITY.md`.
+> - *Side effect.* The gate record now ignores changes to `docs/design/`, `docs/launch/`
+>   and `docs/guides/`, which the gate never reads. That edit is to `gate-record.sh`,
+>   which the gate does cover, so `NUMBERS.md` reads "not run at this commit" until the
+>   gate is recorded again.
+>
+> Criteria: a holds for the README and the four site pages, by reading; d stays open
+> until the decks, slide images and demo videos are rebuilt from the reworded sources.
+
+
+> **Update (2026-10-16), on the owner's instruction:** the commercial and process
+> commitments listed above are removed from the site:
+>
+> - the Enterprise and Sovereign tiers, their prices, support and SLAs;
+> - the two-day reply promise and the procurement channel;
+> - the early-access signup, everywhere, now a pointer to the source;
+> - the placeholder company details;
+> - "open core" and "commercial modules" wording.
+>
+> `pricing.html` is now a licence page (Apache-2.0). The security address, the contact
+> form and the one-working-day security acknowledgement remain; the last matches
+> `SECURITY.md`. Every site page was rendered in a browser after the change.
+
 ---
 
 ### RF-CA-2 · One numbers sheet, generated from the tag
@@ -10023,6 +10105,51 @@ Generate every headline number from the tree, once, and use it everywhere.
 - **AC-RF-CA-2d — One figure everywhere.** *Given* the swept documents at the tag, *when* searched for each headline figure, *then* every occurrence equals the sheet.
 
 **Done when:** the sheet is generated from the tag, `--check` is green, and every swept document quotes it unchanged.
+
+> **As built (2026-10-14, after the status above).** Partial: the sheet and its check
+> exist and pass; the launch deck binaries are not regenerated, and no run figure can be
+> quoted until a gate record exists.
+>
+> - *Steps 1 and 2:* `tools/ci/numbers.sh` prints the sheet and `--write` renders it to
+>   `docs/compliance/NUMBERS.md`: crates, Rust files and raw and code lines, test
+>   functions and ignored ones, criteria defined, shipped binaries, services, images,
+>   console bundles, npm packages, SAD documents and diagrams, each beside its counting
+>   rule and a one-line command that reproduces it. Run figures come only from
+>   `gate-record.sh --figures`, and only when the tree is the gated commit apart from the
+>   record and its generated prose; otherwise each reads "not run at this commit", with
+>   the last recorded run and its commit beside it. The sheet cannot hold the id of the
+>   commit that contains it, so it names the version and the gate run's commit instead;
+>   `--check` ties it to whichever checkout it runs on. `docs/compliance/NUMBERS.md` is
+>   checked out with LF line ends, so a clone on any platform reproduces it byte for byte.
+> - *Step 3:* `numbers.sh --check` runs in the hygiene job of both pipelines and in the
+>   release preflight. It fails when the sheet is not the tree's, and on any crate, Rust
+>   line, test-function, tests-passed or criteria figure in the swept documents that
+>   differs, naming the file and line. Swept: `README.md`, `GETTING_STARTED.md` (the only
+>   copy left), `CHANGELOG.md`, `GA_READINESS.md`, `docs/releases/*`, the deck source
+>   `docs/launch/pipeline/build-deck.js`, and §1 of this document. The rest of this
+>   document is not swept: its items quote superseded figures as the evidence for each
+>   fix. A figure of another tree passes when its line names that tree's commit, or, for
+>   the two figures in §1 from the tree audited before public history, carries
+>   `<!-- numbers:historical -->`. Bare "N tests" and "N passed" are judged from 100 up,
+>   so a log excerpt quoting "3 passed" is not a headline figure. Text between the
+>   gate-record markers is left to `gate-record.sh`, which generates and checks it.
+> - *Step 4:* the sweep found the README's "76 diagrams" (73 in the tree; corrected) and
+>   the deck's "870 tests passed" from a run named by date, not commit. The deck source
+>   now reads every count from `NUMBERS.md` at build time and words the proof slide by
+>   whether a gate run covers the tree. **The `.pptx` files are not regenerated:** that
+>   needs the pipeline's `npm install` and its recorded screens, so
+>   `docs/launch/Midgard-Launch*.pptx` still carry the old figures and the reference to
+>   `60091a9` until the owner rebuilds them.
+> - *Step 5:* the sheet labels "Test functions" as functions written and the two run
+>   figures as tests that ran and passed, in separate rows; the claims rows that quoted
+>   "870 tests passed" without a commit were reworded.
+> - Tests: `tools/ci/tests/numbers.test.sh` (throwaway repositories): the
+>   counts, byte-for-byte reproduction from a clean clone, drift failing with file and
+>   line, the historical forms, the swept range, and run figures following the record.
+>
+> Criteria: a and b met (tested); c met in that no swept document now quotes a run figure,
+> and the check refuses one without a covering record; d open until the deck is rebuilt
+> and a gate record exists at the tag.
 
 ---
 
@@ -10130,6 +10257,29 @@ Publish the workflows, or stop citing them.
 
 **Done when:** the workflows are public, green on `main`, and required.
 
+
+> **As built (2026-10-16).**
+>
+> - *Step 4:* the five pull-request jobs are required status checks on `main`, through
+>   the ruleset `ci gates main`: hygiene (which holds the claims, gate-record and numbers
+>   checks), format and lint, build and test, reproducible build, and the advisory and
+>   licence scan. They are bound to the GitHub Actions app. Not required: the acceptance
+>   suite, which runs on pushes and is skipped on a pull request, and the release dry
+>   run, which runs only when the release machinery changes.
+> - *Step 5 (b):* GA_READINESS and this document were re-read for statements about CI.
+>   Three findings in this document still said there was no CI configuration, and one
+>   prompt said `buf breaking` was wired into CI, which it is not; each now says what
+>   holds. GA_READINESS's CI statements hold. Every job the documents name exists.
+> - The release workflow ran in dry-run mode on a hosted runner
+>   (run 38944747773, on `a088b34`): every binary gated, images built, bundle packed,
+>   with throwaway keys.
+> - The four GitHub actions are pinned to their first Node.js 24 releases (checkout and
+>   cache 5.1.0, upload-artifact 6.0.0, download-artifact 7.0.0), each by commit SHA.
+>   They need runner 2.327.1 or later, now a provisioning step for the signing runner.
+>
+> Criteria: a holds on `main`; b holds by reading; c is enforced and will be shown by the
+> first pull request into `main` that fails a check.
+
 ---
 
 ### RF-CA-5 · Re-run the acceptance gate at the release commit and record it
@@ -10173,6 +10323,52 @@ Produce one gate run a reader can reproduce, and derive every status line from i
 - **AC-RF-CA-5d — The run reproduces.** *Given* the tag and the recorded image digest, *when* a third party runs the gate, *then* they obtain the same per-criterion results.
 
 **Done when:** a gate record exists for the tag's commit and the README and GA_READINESS tables are generated from it.
+
+> **As built (2026-10-14, after the status above).** Partial: the tooling is in place and
+> CI keeps the logs; no record is committed, because a record names a pushed commit and
+> the commit that carries this tooling has not been pushed.
+>
+> - *Finding:* the gate as it ran in CI on `f26f910` (the merge of PR #1) would have
+>   been refused. Of the 72 criteria, 58 had a verdict line of their own, 13 only a
+>   grouped one (`AC-B-1/4`, `AC-B-5/6`, `AC-F-6/7`, `AC-MS-2/5/6/7`, `AC-MS-4/8/9`), and
+>   AC-MS-3 none: it was a remark under AC-B-3. `verify-bifrost.sh` now gives AC-MS-3 a
+>   step of its own, running its one named test and requiring that exactly one test ran,
+>   since a filter that matches nothing exits 0. Grouped verdicts are kept: the record
+>   gives each criterion the step's result and shows the verdict line it came from.
+> - *Step 1:* `tools/ci/gate-run.sh` runs `deploy/acceptance/run-airgapped.sh` and
+>   `just test` in the pinned image under `--network none`, and keeps each log unedited
+>   with a `.meta` beside it: commit, whether the tree was clean, image, base-image
+>   digest, Dockerfile SHA-256, `rustc` and `cargo` versions, times, exit status, and the
+>   CI run. The `acceptance` and `test` CI jobs now go through it, and both pipelines
+>   keep `target/gate` as the `gate-acceptance` and `gate-test` artefacts.
+> - *Steps 2 and 3:* `tools/ci/gate-record.sh` writes
+>   `docs/compliance/gate-runs/<commit>.md` and keeps the logs and metadata under
+>   `docs/compliance/gate-runs/<commit>/`, committed and checked out byte for byte, so
+>   the digests stay checkable after CI artefacts expire; `release-publish` also attaches
+>   them to the release. The record is a function of the logs, the metadata, and Part C
+>   of the spec and the justfile's `test` recipe at the gated commit. It refuses, writing
+>   nothing, when a criterion has no verdict, a verdict names a criterion the spec does
+>   not define, the log is cut short or disagrees with its exit status, the tree was
+>   dirty, the parts differ in commit or toolchain, the run was not air-gapped, the
+>   invocations are not the recipe's, or the commit is not in the history. A failing run
+>   is recorded as failing. `--check` (the `gate-record` CI job) makes the record again
+>   from the committed logs and requires the same bytes; `--compare DIR` holds a fresh run
+>   to the record (AC-RF-CA-5d); `--check --release` (release preflight) also requires the
+>   tagged commit to differ from the gated one only in the record and the prose generated
+>   from it, since a record cannot be inside the commit it names.
+> - *Steps 4 and 5:* the README status table and the GA_READINESS sweep table are
+>   generated between `gate-record` markers and checked in CI. Until a record exists
+>   they say that no run is recorded; a failing record names each failing criterion.
+>   The reference to `60091a9` is gone from both, as is GA_READINESS's sweep paragraph
+>   citing `9f4b49f`, which is not in public history either.
+> - Tests: `tools/ci/tests/gate-record.test.sh` (throwaway repositories),
+>   including a log with one criterion removed (AC-RF-CA-5c), an edited record and a
+>   changed log failing `--check` (AC-RF-CA-5b), and `--compare` (AC-RF-CA-5d). Checked
+>   against the real CI logs of `f26f910`: refused for AC-MS-3 alone.
+>
+> Criteria: c met (tested). a, b and d need a record: push, let CI run, download the two
+> artefacts, `just gate-record`, and commit the result on top of the gated commit
+> (`docs/dev/CI.md`, "The gate record").
 
 ---
 
@@ -10221,6 +10417,58 @@ Cut v0.1.0-rc.1 as a signed tag that everything else points at.
 - **AC-RF-CA-6e — The tag is immutable.** *Given* the published tag, *when* a delete or force-update is attempted, *then* it is refused.
 
 **Done when:** `v0.1.0-rc.1` is public, signed and verifiable, and every claim, number and gate result in circulation points at it.
+
+> **As built (2026-10-14, after the status above).** Partial: what the repository can do
+> without the keys is done; the key ceremony, the repository rules, the signing runner
+> and the tag itself are the owner's.
+>
+> - *Steps 1 and 4 (tooling):* `deploy/trust/allowed_signers` is the git verifying
+>   material the ceremony publishes; `docs/ops/PKI.md` gains a "Git signing" section for
+>   it, and `deploy/trust/README.md` lists it. `tools/ci/verify-tag.sh` passes a tag only
+>   if it is annotated, signed by a key that file lists for the namespace `git`, and on
+>   the commit checked out; a missing or empty file, or one holding a private key, is a
+>   refusal. It runs as the `release-tag` job in the release preflight of both
+>   pipelines, beside `gate-record --release` and `numbers`, before anything is built or
+>   signed. `tools/ci/tag-release.sh` makes the signed annotated tag only when the tree
+>   is clean and is `origin/main`, the gate record covers the commit, the numbers sheet
+>   and the claims ledger check, the release notes exist and `allowed_signers` is
+>   published; it verifies the tag it made and does not push. `release-publish` attaches
+>   the gate record, its logs and `NUMBERS.md`.
+> - *Step 5:* `docs/releases/v0.1.0-rc.1.md` now says GA is NO-GO and names each blocker
+>   (the PARTIAL risk rows, GA_READINESS §4 A–E) under "What this candidate is not", and
+>   its tagging steps follow the order a record requires.
+> - *Steps 2 and 6:* `docs/dev/CI.md`, "Repository rules", gives the two GitHub rulesets
+>   (signed commits and no force pushes on `main` and `dev`; `v*` tags undeletable and
+>   unmovable) as `gh api` calls, and the GitLab equivalents. Not applied: they are
+>   repository settings. `dev` currently allows force pushes and must stop.
+> - Tests: `tools/ci/tests/verify-tag.test.sh` (throwaway keys): a listed key
+>   verifies and is named; an unlisted key, an unsigned or lightweight tag, a tag off the
+>   checkout, a missing, empty or private-key-bearing signers file, and a key listed for
+>   another namespace are refused.
+>
+> Criteria: none met yet; each needs an owner action. a needs the ceremony's
+> `allowed_signers` and the tag; b needs the gate record and sheet at the tag (the tools
+> enforce it); c needs the ceremony's trust anchors and the runner; d and e need the
+> rulesets.
+
+
+> **As built (2026-10-16), continued.**
+>
+> - *Step 1:* `deploy/trust/ceremony.sh` performs the ceremony's mechanical part:
+>   - it generates both keys into sealed keystores outside the checkout;
+>   - it writes the two `.pub` anchors and `allowed_signers`, and checks them as the
+>     release will;
+>   - it writes a ceremony record with every digest and fingerprint, and blank sign-off
+>     lines.
+>
+>   It refuses a private key offered as a signer, an existing anchor, and a custody
+>   directory inside the checkout or not empty. It was run once with the real `mg-sign`
+>   into a throwaway root, and its output is in the form `release-preflight.sh`
+>   accepts. Tests: `tools/ci/tests/ceremony.test.sh`.
+> - *Steps 2 and 6, on a GitLab mirror:* `tools/ci/gitlab-rules.sh` applies the same
+>   rules through the API with a maintainer's token: protected `main` and `dev` with no
+>   force push, protected `v*` tags, and push rules rejecting unsigned commits and tag
+>   deletion. It was not run here, for want of a token.
 
 ---
 
@@ -10286,6 +10534,15 @@ Make every statement about the repository itself true.
 - **AC-RF-CA-7d — Branches merge.** *Given* `dev` and `main` on GitHub, *when* compared, *then* they share an ancestor and a pull request can be opened.
 
 **Done when:** every row above is resolved and both gap analyses carry current status.
+
+
+> **As built (2026-10-16).** The design-system pages were served from the repository
+> root and opened in a browser: the overview, the seven console kits, and the
+> marketing-site pages. Every page loaded the tokens from `ui/design-system/src` and all
+> three fonts, with no failed request. The design-system docs carried an "INTERNAL"
+> banner, a classification marking on published material (criterion b). It now reads
+> "PUBLIC". The marking banners inside the console kits are sample data markings, part
+> of the product being designed, and stay. Criteria a to d hold.
 
 ---
 
@@ -10669,6 +10926,14 @@ State where Midgard ends and Likan begins, and make the join testable.
 - **AC-RF-CA-13d — Midgard stands alone.** *Given* a fresh clone with no proprietary artefact present, *when* the acceptance gate runs, *then* it passes, and the dependency check finds no proprietary requirement.
 
 **Done when:** the README note and ledger row exist, the schema is published and checked against the parser, and the integration statement in step 4 is recorded either way.
+
+
+> **As built (2026-10-16).** Step 3's remaining part is done: the README's ontology and
+> import sections are one section, with a pointer, one example of each format and the
+> rules that matter. `docs/guides/IMPORT_YOUR_OWN_DATA.md` carries the full reference.
+> Criterion d holds on the recorded gate run of `841c000`, made on a clean clone in CI
+> with no proprietary artefact present. Still open, and outside this repository's
+> control: a Likan export as a fixture, once Likan can produce one.
 
 ---
 # Appendix 1 — Complete item register (182)

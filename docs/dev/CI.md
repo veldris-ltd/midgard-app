@@ -79,14 +79,16 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `provenance` | host | changed sources under governed trees cite a requirement |
 | `vendor` | host | `/vendor` is exactly the crates `Cargo.lock` names, and Cargo is pinned to it |
 | `claims` | host | every row of `docs/compliance/claims.toml` cites files, lines and tests that exist, and `CLAIMS.md` is what it renders |
+| `gate-record` | host | the committed gate record is what its logs give, and the README and GA_READINESS status tables are what it gives |
+| `numbers` | host | [`docs/compliance/NUMBERS.md`](../compliance/NUMBERS.md) is what the tree gives, and no swept document quotes a crate, line, test or criteria count that differs from it |
 | `secrets` | host | no credential is committed (gitleaks, pinned by version and checksum) |
 | `k8s-render` | host | `deploy/k8s/enclosure.yaml` is what the Helm chart renders |
 | `toolchain` | host | builds or restores the toolchain image — the only online step |
 | `fmt`, `lint` | toolchain | formatting; clippy at deny-warnings |
-| `build`, `test` | toolchain | the release build; the test suite on both crypto backends |
+| `build`, `test` | toolchain | the release build; the test suite on both crypto backends, its log kept in `target/gate` |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
-| `acceptance` | host | the full acceptance suite under a genuine air gap |
+| `acceptance` | host | the full acceptance suite under a genuine air gap, its log kept in `target/gate` |
 | `js-build` | host | every UI bundle and npm package built twice, bit-identical |
 | `release-dry-run` | toolchain | the whole release gate, throwaway keys, nothing published |
 | `release-preflight` | host | the signing runner is provisioned |
@@ -106,6 +108,41 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | a push to `main` or `dev` | `ci.yml`, plus `acceptance` | the same, plus `acceptance` |
 | a `v*` tag | `release.yml`: the release | the release |
 | by hand | *Run workflow* → `mode`: `dry-run` or `release` | *Run pipeline* → `MIDGARD_RELEASE_MODE`: `dry-run`, `release` or `audit` |
+
+## The gate record
+
+The acceptance gate is two runs in the toolchain image with no network: the acceptance
+suite (`deploy/acceptance/run-airgapped.sh`), which prints a verdict for each acceptance
+criterion, and `just test`. The `acceptance` and `test` jobs make those runs through
+[`tools/ci/gate-run.sh`](../../tools/ci/gate-run.sh), which leaves each run's complete
+log and its metadata (commit, image, toolchain, times, exit status) in `target/gate`.
+Both pipelines keep that directory as an artefact: `gate-acceptance` and `gate-test`.
+
+[`tools/ci/gate-record.sh`](../../tools/ci/gate-record.sh) turns one such run into a
+record under [`docs/compliance/gate-runs/`](../compliance/gate-runs/README.md), and
+rewrites the status tables in the README and `GA_READINESS.md` from it. It refuses a run
+that does not give every criterion of the acceptance spec a verdict. To record the run
+CI made of a pushed commit:
+
+```bash
+gh run download <run-id> -n gate-acceptance -D target/gate
+gh run download <run-id> -n gate-test -D target/gate
+just gate-record
+```
+
+or make the run locally, on a clean checkout of the commit: `just gate-run`, then
+`just gate-record`. The record names the commit that was gated, so it is committed
+after it. The `gate-record` job checks the committed record on every change, and
+`gate-record --release`, in the release's preflight, also requires that the commit
+being released differs from the gated commit only in the record and the prose
+generated from it.
+
+Every headline figure — crates, lines of Rust, test functions, criteria, and the
+gate run's results — is generated into
+[`docs/compliance/NUMBERS.md`](../compliance/NUMBERS.md) by
+[`tools/ci/numbers.sh`](../../tools/ci/numbers.sh). After a change that moves a
+figure, `just numbers --write`; the `numbers` job fails until the sheet is the
+tree's, and fails on any swept document that quotes a different figure.
 
 ## The release
 
@@ -191,7 +228,63 @@ has a buildable project (see [`clients/shells/AUDIT_SCHEMA.md`](../../clients/sh
 
 Publishing is deliberately limited. On GitHub, `release-publish` creates a **draft**
 pre-release. GitLab has no draft state, so there the files are uploaded to the
-project's package registry and creating the release entry is left to a person.
+project's package registry and creating the release entry is left to a person. Either
+way the gate record, its raw logs and the numbers sheet go with the binaries.
+
+### Cutting the tag
+
+A release is built from a signed, annotated tag on the tip of `main`, and from nothing
+else. On the commit to be released, with your signing key configured:
+
+```bash
+bash tools/ci/tag-release.sh --check     # what is not ready, all at once
+bash tools/ci/tag-release.sh             # make the signed tag, verify it, print the push
+```
+
+It names the tag from the workspace version and makes it only when the tree is clean
+and is `origin/main`, the gate record covers the commit (`gate-record --release`), the
+numbers sheet and the claims ledger check, the release notes exist, and
+`deploy/trust/allowed_signers` is published. It does not push. On the runner, the
+`release-tag` job ([`tools/ci/verify-tag.sh`](../../tools/ci/verify-tag.sh)) verifies
+the tag against `deploy/trust/allowed_signers` before anything is built or signed, so
+an unsigned tag, a lightweight tag, or one signed by a key not listed there starts no
+release.
+
+Because the gate record names the commit it gated, the order is: merge to `main`; run
+the gate on that commit and record it (see "The gate record"); write the numbers sheet;
+merge that records-only change; tag its result. `gate-record --release` accepts the
+tagged commit only when it differs from the gated one in the record and the prose
+generated from it.
+
+### Repository rules
+
+The forge enforces what the scripts cannot: that history on the release path is
+signed, and that a published tag stays put. These are the repository owner's to set.
+On GitHub, as rulesets (Settings → Rules → Rulesets), or with `gh`:
+
+```bash
+gh api -X POST repos/veldris-ltd/midgard-app/rulesets --input - <<'EOF'
+{ "name": "signed history", "target": "branch", "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/heads/main", "refs/heads/dev"], "exclude": [] } },
+  "rules": [ { "type": "required_signatures" }, { "type": "non_fast_forward" }, { "type": "deletion" } ] }
+EOF
+gh api -X POST repos/veldris-ltd/midgard-app/rulesets --input - <<'EOF'
+{ "name": "release tags are immutable", "target": "tag", "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
+  "rules": [ { "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" } ] }
+EOF
+```
+
+`non_fast_forward` on the branches also refuses force pushes, so a classic protection
+rule that allows them on `dev` must be turned off as well. On GitLab: protect `v*` under
+Settings → Repository → Protected tags with no one allowed to create them but
+maintainers, and turn on *Reject unsigned commits* in the push rules (a Premium feature).
+[`tools/ci/gitlab-rules.sh`](../../tools/ci/gitlab-rules.sh) applies all of it through
+the API with a maintainer's token, and `--dry-run` shows the calls first:
+
+```bash
+GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://git.veldris.dev --project <group>/midgard-app
+```
 
 ## What a GitLab instance needs
 

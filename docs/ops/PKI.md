@@ -105,6 +105,18 @@ the handoff. Neither has a default; a runner missing either fails the release.
 
 ## HSM key ceremony (CA + release signing key)
 
+**The mechanical part, as one run.** `deploy/trust/ceremony.sh` generates the release
+signing key (ML-DSA-87) and the Bifrost admission key (ML-DSA-65) into sealed keystores
+outside the checkout, writes `deploy/trust/release-trust.pub`, `bifrost-trust.pub` and
+`allowed_signers`, checks them as the release will, and writes a ceremony record under
+`docs/ops/ceremonies/` with every digest and fingerprint and blank sign-off lines. It
+commits nothing. Until custody is hardware, it stands in for steps 2 to 4 below with
+software keystores; steps 5 and 6 remain the officers'.
+
+```bash
+bash deploy/trust/ceremony.sh --custody /secure/midgard-keys-2026 --signer you@veldris.dev=$HOME/.ssh/id_ed25519_codelab.pub --witness "A. Witness"
+```
+
 Run with the duty Security Officer + a second witness (dual-control), recorded in the
 audit chain:
 
@@ -119,6 +131,32 @@ audit chain:
    DR cannot unseal or re-issue.
 6. **Witness sign-off**: both officers confirm; the ceremony is sealed into the audit
    chain.
+
+## Git signing (tags and commits)
+
+Artefacts are signed with ML-DSA; git cannot verify that, so tags and commits are
+signed with SSH keys, and the ceremony publishes which ones count.
+
+1. Each person who may cut a release tag holds an SSH signing key (ed25519) in a
+   custodian of their own — a hardware key where available — and configures git with
+   it (`gpg.format = ssh`, `user.signingkey`).
+2. The ceremony collects the public halves and commits them as
+   `deploy/trust/allowed_signers`, in git's allowed-signers format, each for the
+   namespace `git`:
+
+   ```text
+   release@veldris.dev namespaces="git" ssh-ed25519 AAAA...
+   ```
+
+3. The fingerprint of each key (`ssh-keygen -lf key.pub`) is published through a
+   second channel, so a reader can tell the committed file was not swapped.
+4. The same keys are registered on the forge as signing keys, so the branch rule that
+   requires signed commits accepts them.
+
+`tools/ci/verify-tag.sh` verifies a release tag against that file, and the release's
+`release-tag` job runs it before anything is built: with no file, no tag verifies.
+Rotating a key is a commit to `deploy/trust/allowed_signers`, itself signed by a key
+already listed there.
 
 ## Rotation cadence
 
@@ -154,6 +192,8 @@ kms]` runners. **Provision them** as follows. The workflow's *Signing-runner pre
 job (`tools/ci/release-preflight.sh`) asserts each item and fails closed with a pointer
 here if any is missing:
 
+0. **A current runner.** The workflows' actions run on Node.js 24 and need GitHub's
+   runner 2.327.1 or later (`./config.sh --version` on the runner).
 1. **Pinned toolchain image.** Build `midgard-acceptance:1.82.0` from
    `deploy/acceptance/Dockerfile` (Rust `1.82.0` and `just`, on a digest-pinned base),
    and pull the service image base `deploy/images/service.Dockerfile` names. Do both

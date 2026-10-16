@@ -1,0 +1,12 @@
+{"object":"substation","key":"SS-ELM","marking":"internal","purposes":["operations","asset-management"],"properties":{"name":"Elm Road primary","voltage_kv":33,"status":"energised","commissioned":1262304000}}
+{"object":"substation","key":"SS-QUAY","marking":"restricted","compartments":["GRID-OPS"],"purposes":["operations"],"properties":{"name":"Quayside primary","voltage_kv":132,"status":"energised"}}
+{"object":"feeder","key":"FDR-ELM-01","marking":"internal","purposes":["operations","asset-management"],"properties":{"name":"Elm Road 11 kV feeder 1","customers":1840}}
+{"object":"feeder","key":"FDR-ELM-02","marking":"internal","purposes":["operations","asset-management"],"properties":{"name":"Elm Road 11 kV feeder 2","customers":2210}}
+{"object":"transformer","key":"TX-40117","marking":"internal","purposes":["operations","asset-management"],"properties":{"serial":"TX-40117","rating_kva":500,"load_fraction":0.71,"oil_temp_c":58.5,"in_service":true,"status":"normal","last_inspected":1767225600}}
+{"object":"transformer","key":"TX-40118","marking":"internal","purposes":["operations","asset-management"],"properties":{"serial":"TX-40118","rating_kva":315,"load_fraction":0.93,"oil_temp_c":71,"in_service":true,"status":"normal"}}
+{"object":"transformer","key":"TX-40252","marking":"internal","purposes":["operations","asset-management"],"properties":{"serial":"TX-40252","rating_kva":500,"in_service":false,"status":"spare"}}
+
+{"link":"feeder_from","from":"FDR-ELM-01","to":"SS-ELM"}
+{"link":"feeder_from","from":"FDR-ELM-02","to":"SS-ELM"}
+{"link":"transformer_on","from":"TX-40117","to":"FDR-ELM-01"}
+{"link":"transformer_on","from":"TX-40118","to":"FDR-ELM-02"}

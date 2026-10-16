@@ -418,6 +418,21 @@ release-dry-run only="":
 release:
     bash tools/ci/release.sh
 
+# Run the acceptance gate — the acceptance suite and `just test`, in the pinned image
+# under --network none — and keep its logs in target/gate.
+gate-run *parts:
+    bash tools/ci/gate-run.sh {{parts}}
+
+# Make the gate record from target/gate (or `just gate-record --from DIR`), or check
+# the committed one: `just gate-record --check`. See docs/compliance/gate-runs/.
+gate-record *args:
+    bash tools/ci/gate-record.sh {{args}}
+
+# Print the numbers sheet; `just numbers --write` writes docs/compliance/NUMBERS.md and
+# `just numbers --check` holds the documents to it.
+numbers *args:
+    bash tools/ci/numbers.sh {{args}}
+
 # Run one CI job exactly as the pipelines do (`just ci list` names them).
 ci job *args:
     bash tools/ci/run.sh {{job}} {{args}}
