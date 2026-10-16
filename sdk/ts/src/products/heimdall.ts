@@ -97,6 +97,41 @@ export interface HeimdallTrack {
   feeds: number;
   /** Ranked advisory options attached to a focused/anomalous track. */
   options?: HeimdallOption[];
+  /** Altitude in feet, when the feed reports it (live tracks only). */
+  altFt?: number;
+  /** Reported positions seen so far, oldest first, in the same 0–100 % space (live only). */
+  trail?: { x: number; y: number }[];
+  /** What the feed reported for this track (live only). */
+  detail?: HeimdallTrackDetail;
+}
+
+/** The reported attributes behind a live track. Times are unix seconds. */
+export interface HeimdallTrackDetail {
+  /** Heimdall's entity key (the ICAO 24-bit address for ADS-B). */
+  key: string;
+  callsign?: string;
+  squawk?: string;
+  category?: string;
+  onGround: boolean;
+  lat: number;
+  lon: number;
+  /** Classification label and the rule rationale, when a rule matched. */
+  label?: string;
+  rationale?: string;
+  sources: string[];
+  observations: number;
+  firstSeen: number;
+  lastSeen: number;
+  /** Seconds the shown position is moved forward from the last report (0 = reported). */
+  estimatedSecs: number;
+}
+
+/** A lat/lon box the canvas maps onto 0–100 %. */
+export interface HeimdallRegion {
+  west: number;
+  east: number;
+  south: number;
+  north: number;
 }
 
 /** A toggleable picture layer. */
@@ -150,6 +185,11 @@ export interface HeimdallPicture {
   layers: HeimdallLayer[];
   tracks: HeimdallTrack[];
   entities: HeimdallEntity[];
+  /** Set when positions are geographic: the box the canvas spans (linear in lat/lon).
+   *  Absent for the reference layout, whose positions are not to map scale. */
+  region?: HeimdallRegion;
+  /** When the picture was last read from the gateway (unix ms). */
+  fetchedAt?: number;
 }
 
 // ---- gateway seam -----------------------------------------------------------
