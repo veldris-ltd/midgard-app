@@ -25,6 +25,8 @@ backend-fips = [
 heimdall-picture = { path = "../picture" }
 heimdall-feed-gateway = { path = "../feed-gateway" }
 heimdall-fusion = { path = "../fusion" }
+# The rules classifier a deployment's rules.json configures.
+heimdall-classify = { path = "../classify" }
 heimdall-store = { path = "../store" }
 audit-writer = { path = "../../crypto/audit-writer" }
 pqc-agility = { path = "../../crypto/pqc-agility" }

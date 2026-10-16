@@ -97,6 +97,13 @@ impl FusionEngine {
         entity_id
     }
 
+    /// Drop every entity last seen before `cutoff` from the live picture, returning the
+    /// removed ids. The caller decides the cutoff (now minus a track time-to-live), so
+    /// the engine itself stays clock-free. [FR-H-2] [AC-H-6]
+    pub fn expire_before(&mut self, cutoff: u64) -> Vec<EntityId> {
+        self.picture.expire_before(cutoff)
+    }
+
     /// Fuse a batch of verified observations in order.
     pub fn ingest_all<'a, I>(&mut self, observations: I)
     where

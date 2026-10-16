@@ -538,6 +538,7 @@ dependencies = [
  "audit-writer",
  "gateway",
  "governance",
+ "heimdall-classify",
  "heimdall-feed-gateway",
  "heimdall-fusion",
  "heimdall-picture",

@@ -12,12 +12,20 @@
 //! 4. its signature verifies against the key that certificate binds, through the
 //!    feed gateway's admission check — the only way to a `VerifiedObservation`.
 //!
-//! A refusal at 3 or 4 is audited too. Admitted observations are fused and the
-//! picture is sealed at rest after each one, so a restart recovers it. [RC-13]
+//! A refusal at 3 or 4 is audited too, and so is a fifth: an observation whose id has
+//! already been fused is a replay and is refused. Admitted observations are fused and
+//! the picture is sealed at rest after each one, so a restart recovers it. [RC-13]
+//!
+//! With a track time-to-live ([`FeedService::set_track_ttl`]), entities not seen for
+//! that long are removed from the picture after an ingest, at most once every
+//! [`EXPIRY_SWEEP_SECS`], and each sweep that removes any is audited. The live picture
+//! is current state; the feed ledger keeps the history.
 //!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
 //! [`READ_PICTURE`] the picture as JSON.
 
+use std::collections::{BTreeSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::LedgerStore;
@@ -36,6 +44,15 @@ use pq_mtls::WorkloadIdentity;
 use pqc_agility::SharedProvider;
 use service_runtime::json::Json;
 use telemetry::MetricsRegistry;
+
+pub mod rules_file;
+pub use rules_file::parse_rules;
+
+/// The most often stale tracks are swept, in seconds of the service clock.
+pub const EXPIRY_SWEEP_SECS: u64 = 30;
+/// How many recent observation ids are remembered to refuse replays. Older ids fall
+/// out first; ids are also forgotten on restart, which the ledger records.
+pub const REPLAY_MEMORY: usize = 200_000;
 
 /// The method a source submits one encoded signed observation with.
 pub const INGEST: &str = "Ingest";
@@ -62,20 +79,55 @@ pub mod outcome {
 pub struct PictureState {
     engine: FusionEngine,
     durable: DurablePicture,
+    seen: BTreeSet<String>,
+    seen_order: VecDeque<String>,
 }
 
 impl PictureState {
     /// Resume fusion over a recovered picture: the engine starts from everything the
     /// durable picture holds, so later observations extend the recovered tracks.
     pub fn recover(durable: DurablePicture) -> Self {
-        let mut engine = FusionEngine::new();
+        Self::recover_with(durable, FusionEngine::new())
+    }
+
+    /// [`PictureState::recover`] with a configured engine (a classifier, a layer
+    /// policy). Recovered entities keep the classification they were sealed with until
+    /// their next observation reclassifies them.
+    pub fn recover_with(durable: DurablePicture, mut engine: FusionEngine) -> Self {
         PictureDelta::snapshot(durable.picture()).merge_into(engine.picture_mut());
         for layer in durable.picture().layers() {
             if !durable.picture().is_layer_visible(&layer.id) {
                 engine.picture_mut().set_layer_visible(&layer.id, false);
             }
         }
-        Self { engine, durable }
+        Self {
+            engine,
+            durable,
+            seen: BTreeSet::new(),
+            seen_order: VecDeque::new(),
+        }
+    }
+
+    /// Whether an observation with this id has already been fused (since start).
+    pub fn already_fused(&self, observation_id: &str) -> bool {
+        self.seen.contains(observation_id)
+    }
+
+    /// Remove entities last seen before `cutoff`, from the live and the sealed picture.
+    pub fn expire_before(&mut self, cutoff: u64) -> Result<Vec<EntityId>, StoreError> {
+        self.engine.expire_before(cutoff);
+        self.durable.expire_before(cutoff)
+    }
+
+    fn remember(&mut self, observation_id: &str) {
+        if self.seen.insert(observation_id.to_string()) {
+            self.seen_order.push_back(observation_id.to_string());
+            while self.seen_order.len() > REPLAY_MEMORY {
+                if let Some(old) = self.seen_order.pop_front() {
+                    self.seen.remove(&old);
+                }
+            }
+        }
     }
 
     /// The current picture.
@@ -106,6 +158,9 @@ impl PictureState {
             }
         }
         self.durable.upsert_entity(entity)?;
+        // Remembered only once durable, so a submission that failed to persist can be
+        // retried rather than refused as a replay.
+        self.remember(&observation.observation().id.0);
         Ok(id)
     }
 }
@@ -119,6 +174,8 @@ pub struct FeedService<S: LedgerStore> {
     purpose: Purpose,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     metrics: Arc<MetricsRegistry>,
+    track_ttl: AtomicU64,
+    last_sweep: AtomicU64,
 }
 
 impl<S: LedgerStore + Send + 'static> FeedService<S> {
@@ -138,6 +195,10 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             "feed_requests_total",
             "Feed requests, by method and outcome.",
         );
+        metrics.describe(
+            "feed_tracks_expired_total",
+            "Tracks removed from the picture for not being seen within the time-to-live.",
+        );
         Arc::new(Self {
             state: Mutex::new(state),
             governance: Mutex::new(governance),
@@ -146,7 +207,40 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             purpose,
             clock,
             metrics,
+            track_ttl: AtomicU64::new(0),
+            last_sweep: AtomicU64::new(0),
         })
+    }
+
+    /// Remove entities not seen for `seconds` (0, the default, keeps them for ever).
+    pub fn set_track_ttl(&self, seconds: u64) {
+        self.track_ttl.store(seconds, Ordering::Relaxed);
+    }
+
+    /// Sweep stale tracks if a time-to-live is set and the last sweep is old enough;
+    /// a sweep that removes anything is audited as `ExpireTracks`.
+    fn sweep(&self, now: u64) {
+        let ttl = self.track_ttl.load(Ordering::Relaxed);
+        if ttl == 0
+            || now.saturating_sub(self.last_sweep.load(Ordering::Relaxed)) < EXPIRY_SWEEP_SECS
+        {
+            return;
+        }
+        self.last_sweep.store(now, Ordering::Relaxed);
+        let removed = match lock(&self.state).expire_before(now.saturating_sub(ttl)) {
+            Ok(removed) => removed,
+            Err(_) => return,
+        };
+        if !removed.is_empty() {
+            let _ = lock(&self.governance).record_event(
+                "heimdall-feed",
+                "ExpireTracks",
+                &format!("tracks:{}", removed.len()),
+                now,
+            );
+            self.metrics
+                .inc_by("feed_tracks_expired_total", &[], removed.len() as u64);
+        }
     }
 
     /// The router the PQ-mTLS gateway serves: [`INGEST`] and [`READ_PICTURE`].
@@ -225,7 +319,20 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             }
         };
 
-        match lock(&self.state).fuse(&verified) {
+        let observation_id = verified.observation().id.0.clone();
+        if lock(&self.state).already_fused(&observation_id) {
+            return self.refuse(
+                peer,
+                now,
+                "Ingest refused: duplicate observation",
+                &feed,
+                &format!("observation {observation_id} was already fused"),
+            );
+        }
+
+        let fused = lock(&self.state).fuse(&verified);
+        self.sweep(now);
+        match fused {
             Ok(entity) => self.reply(
                 INGEST,
                 outcome::ACCEPTED,

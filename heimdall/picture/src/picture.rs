@@ -45,6 +45,23 @@ impl Picture {
         self.entities.get(id)
     }
 
+    /// Remove every entity last seen before `cutoff`, returning their ids in id order.
+    /// Layers and their visibility stay, so an operator's toggle outlives the contacts
+    /// that were on it. A replicated delta can bring an expired entity back: expiry is
+    /// local, and picture-sync merges by `last_seen`. [FR-H-1] [FR-H-2]
+    pub fn expire_before(&mut self, cutoff: u64) -> Vec<EntityId> {
+        let stale: Vec<EntityId> = self
+            .entities
+            .values()
+            .filter(|e| e.track.last_seen < cutoff)
+            .map(|e| e.id.clone())
+            .collect();
+        for id in &stale {
+            self.entities.remove(id);
+        }
+        stale
+    }
+
     /// All entities, in id order — including those on hidden layers.
     pub fn entities(&self) -> impl Iterator<Item = &TrackedEntity> {
         self.entities.values()
@@ -91,5 +108,46 @@ impl Picture {
     /// Count of currently-visible entities.
     pub fn visible_count(&self) -> usize {
         self.visible_entities().count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::*;
+    use crate::entity::Track;
+
+    fn entity(id: &str, last_seen: u64) -> TrackedEntity {
+        TrackedEntity {
+            id: EntityId(id.into()),
+            entity_key: id.into(),
+            kind: "air-track".into(),
+            layer: LayerId("air".into()),
+            sources: BTreeSet::new(),
+            track: Track {
+                first_seen: last_seen,
+                last_seen,
+                observation_count: 1,
+            },
+            classification: None,
+            latest_attrs: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn expiry_removes_only_entities_last_seen_before_the_cutoff() {
+        let mut picture = Picture::new();
+        picture.upsert_entity(entity("OLD", 100));
+        picture.upsert_entity(entity("EDGE", 200));
+        picture.upsert_entity(entity("NEW", 300));
+        picture.set_layer_visible(&LayerId("air".into()), false);
+
+        assert_eq!(picture.expire_before(200), vec![EntityId("OLD".into())]);
+        assert_eq!(picture.entity_count(), 2, "an entity at the cutoff stays");
+        assert!(picture.entity(&EntityId("EDGE".into())).is_some());
+        assert_eq!(picture.layer_count(), 1, "the layer outlives its contacts");
+        assert!(!picture.is_layer_visible(&LayerId("air".into())));
+        assert!(picture.expire_before(150).is_empty());
     }
 }

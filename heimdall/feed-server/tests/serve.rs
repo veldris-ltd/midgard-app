@@ -84,6 +84,7 @@ struct Running {
     health: String,
     recovered: String,
     entities: String,
+    classifier: String,
 }
 
 impl Drop for Running {
@@ -94,6 +95,10 @@ impl Drop for Running {
 }
 
 fn start(identity: &Path, state: &Path) -> Running {
+    start_with(identity, state, &[])
+}
+
+fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
     let mut child = Command::new(env!("CARGO_BIN_EXE_heimdall-feed"))
         .args([
             "--identity-dir",
@@ -105,6 +110,7 @@ fn start(identity: &Path, state: &Path) -> Running {
             "--health-bind",
             "127.0.0.1:0",
         ])
+        .args(extra)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -133,6 +139,7 @@ fn start(identity: &Path, state: &Path) -> Running {
         health: field(&serving, "health").expect("health address"),
         recovered: field(&serving, "recovered_audit_entries").expect("recovered count"),
         entities: field(&serving, "entities").expect("entity count"),
+        classifier: field(&serving, "classifier").expect("classifier"),
     }
 }
 
@@ -317,6 +324,114 @@ fn sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart() {
         "fusion continues on the recovered track"
     );
 
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+const RULES: &str = r#"{ "version": 1, "rules": [
+  { "label": "emergency", "rationale": "squawk 7700", "when": { "attr": "squawk", "equals": "7700" } },
+  { "label": "fast-mover", "rationale": "over 400 kt", "when": { "attr": "speed", "gt": 400 } }
+] }"#;
+
+/// A batch over one session; a replayed observation refused and audited; deployment
+/// rules classify; a track not seen within the time-to-live leaves the picture; a text
+/// attribute keeps its leading zero. [FR-H-1] [FR-H-2] [FR-H-3]
+#[test]
+fn a_batch_fuses_over_one_session_replays_are_refused_and_stale_tracks_expire() {
+    let root = scratch("batch");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "adsb", &["feed-source"]);
+    issue(&idp, &clients, "analyst", &["picture-reader"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+    std::fs::write(state.join("rules.json"), RULES).unwrap();
+
+    let server = start_with(&server_identity, &state, &["--track-ttl", "300"]);
+    assert_eq!(server.classifier, "rules.json (2 rules)");
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    // The stale track arrives first, so the first sweep (on the first ingest) removes it.
+    let lines = [
+        format!(
+            r#"{{"entity": "STALE", "kind": "air-track", "observedAt": {}}}"#,
+            now - 1000
+        ),
+        format!(
+            r#"{{"entity": "EMRG", "kind": "air-track", "observedAt": {now}, "attrs": {{"squawk": "7700", "speed": 180.5}}}}"#
+        ),
+        format!(
+            r#"{{"entity": "JET", "kind": "air-track", "observedAt": {now}, "attrs": {{"squawk": "0123", "speed": 446.6, "on_ground": false}}}}"#
+        ),
+        format!(
+            r#"{{"entity": "JET", "kind": "air-track", "observedAt": {now}, "attrs": {{"speed": 999}}}}"#
+        ),
+        r#"{"entity": "", "kind": "air-track"}"#.to_string(),
+    ];
+    let file = root.join("batch.jsonl");
+    std::fs::write(&file, lines.join("\n")).unwrap();
+
+    let out = source(
+        &clients,
+        "adsb",
+        &server.mesh,
+        &["--batch", &file.display().to_string()],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "one replay and one bad line fail the batch"
+    );
+    let summary = text(&out.stderr);
+    assert!(
+        summary.contains("batch: 3 accepted, 1 refused, 1 unreadable"),
+        "{summary}"
+    );
+    assert!(summary.contains("was already fused"), "{summary}");
+
+    let fused = picture(&clients, &server.mesh);
+    let ids: Vec<&str> = match fused.get("entities") {
+        Some(Json::Arr(items)) => items.iter().filter_map(|e| e.str_field("id")).collect(),
+        _ => panic!("{}", fused.encode()),
+    };
+    assert_eq!(
+        ids,
+        ["EMRG", "JET"],
+        "the stale track expired; the replay did not fuse"
+    );
+    let emergency = entity(&fused, "EMRG");
+    assert_eq!(
+        emergency
+            .get("classification")
+            .and_then(|c| c.str_field("label")),
+        Some("emergency")
+    );
+    let jet = entity(&fused, "JET");
+    assert_eq!(
+        jet.get("classification").and_then(|c| c.str_field("label")),
+        Some("fast-mover")
+    );
+    assert_eq!(jet.get("observations"), Some(&Json::Int(1)));
+    let attributes = jet.get("attributes").expect("attributes");
+    assert_eq!(
+        attributes.get("squawk"),
+        Some(&Json::s("0123")),
+        "text keeps its leading zero"
+    );
+    assert_eq!(attributes.get("on_ground"), Some(&Json::Bool(false)));
+
+    // Recovery: the sealed picture holds the expiry, and the ledger the sweep and the
+    // refusal (three submissions, the replay's decision and refusal, the sweep, a read).
+    drop(server);
+    let server = start_with(&server_identity, &state, &["--track-ttl", "300"]);
+    assert_eq!(server.entities, "2");
+    assert_eq!(server.recovered, "7");
     drop(server);
     let _ = std::fs::remove_dir_all(&root);
 }

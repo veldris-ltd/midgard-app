@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use audit_writer::Sealer;
 use heimdall_picture::Layer;
-use heimdall_picture::{LayerId, Picture, PictureDelta, TrackedEntity};
+use heimdall_picture::{EntityId, LayerId, Picture, PictureDelta, TrackedEntity};
 
 use crate::error::StoreError;
 use crate::util::{atomic_write, put_str, Reader};
@@ -57,6 +57,16 @@ impl DurablePicture {
     pub fn upsert_entity(&mut self, entity: TrackedEntity) -> Result<(), StoreError> {
         self.picture.upsert_entity(entity);
         self.save()
+    }
+
+    /// Remove every entity last seen before `cutoff`, durably, in one write. Returns the
+    /// removed ids; nothing is written when none expire. [FR-H-1] [RC-13]
+    pub fn expire_before(&mut self, cutoff: u64) -> Result<Vec<EntityId>, StoreError> {
+        let gone = self.picture.expire_before(cutoff);
+        if !gone.is_empty() {
+            self.save()?;
+        }
+        Ok(gone)
     }
 
     /// Register a layer if absent, durably.
