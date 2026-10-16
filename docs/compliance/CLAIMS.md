@@ -689,7 +689,7 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
 
 The workspace builds and its tests run with no network: every dependency is vendored, Cargo is pinned to the vendored directory, and the CI jobs run in a container started with no network.
 
-**Limit.** The recorded gate run is of commit 841c000405c4 (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again.
+**Limit.** The recorded gate run is of commit 3c8b1614bb1d (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again.
 
 - Criteria: AC-M-5
 - Source:
@@ -724,7 +724,7 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 
 Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network.
 
-**Limit.** Recorded at commit 841c000405c4 (docs/compliance/gate-runs): every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again.
+**Limit.** Recorded at commit 3c8b1614bb1d (docs/compliance/gate-runs): every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again.
 
 - Source:
   - [`deploy/acceptance/run-airgapped.sh:10`](../../deploy/acceptance/run-airgapped.sh)

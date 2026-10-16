@@ -1,0 +1,16 @@
+part=acceptance
+commit=3c8b1614bb1de6b4b4c4181934d85b0aed5dfecb
+tree=clean
+image=midgard-acceptance:1.82.0
+image_id=sha256:f142ca5662318fd5c91897e8afdbe7e459dc7b8961bfeaecb072d037f6fe3b61
+base_image=rust:1.82@sha256:d9c3c6f1264a547d84560e06ffd79ed7a799ce0bff0980b26cf10d29af888377
+dockerfile_sha256=2e03b4f98aab70d37c8ed9fab189eb83ee70b1ac90c7767200d98a357c40c0cc
+rustc=rustc 1.82.0 (f6e511eec 2024-10-15)
+cargo=cargo 1.82.0 (8f40fc59f 2024-08-21)
+network=none
+started=2026-10-16T18:34:30Z
+finished=2026-10-16T18:36:17Z
+seconds=107
+exit=0
+platform=github
+run_url=https://github.com/veldris-ltd/midgard-app/actions/runs/38948119685
