@@ -105,9 +105,14 @@ export function EntitiesScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Entity browser</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="1,204" label="TRACKED" size="sm" />
-        <StatBlock value="96.8%" label="MEAN CONFIDENCE" size="sm" />
-        <StatBlock value="1" label="ANOMALOUS" size="sm" accent />
+        {/* Counted from the picture the gateway serves, not fixed figures. [FR-H-1] [FR-H-2] */}
+        <StatBlock value={all.length.toLocaleString()} label="TRACKED" size="sm" />
+        <StatBlock
+          value={all.length ? `${(all.reduce((s, x) => s + x.conf, 0) / all.length).toFixed(1)}%` : '—'}
+          label="MEAN CONFIDENCE"
+          size="sm"
+        />
+        <StatBlock value={String(all.filter((x) => x.track === 'anomalous').length)} label="ANOMALOUS" size="sm" accent />
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         {FILTERS.map((t) => (

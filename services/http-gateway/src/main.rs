@@ -6,7 +6,8 @@
 //!       into an in-memory fabric, one built-in login, an ephemeral issuer key.
 //!   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
 //!                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
-//!                 [--mesh-purpose P]]
+//!                 [--mesh-purpose P]] [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR
+//!                [--heimdall-service NAME] [--heimdall-purpose P]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
@@ -19,6 +20,13 @@
 //!       who may open the channel and `SyncRecords`, under --mesh-purpose (default
 //!       `data-integration`).
 //!
+//!       With --heimdall-addr, signed-in users the policy lets `Read` it get Heimdall's
+//!       common operating picture at GET /api/v1/heimdall/picture. The gateway reads it
+//!       from `heimdall-feed` over PQ-mTLS as the identity in --heimdall-identity-dir
+//!       (service --heimdall-service, default `picture-analyst`; Heimdall's policy must
+//!       grant it ReadPicture), declaring --heimdall-purpose (default
+//!       `situational-awareness`).
+//!
 //! Point a console at it with `VITE_GATEWAY=http` (see products/*/ui). [RC-24] [RC-29]
 //! [FR-F-4] [NFR-SEC-1]
 
@@ -27,6 +35,7 @@ use std::process::exit;
 use std::sync::Arc;
 
 use http_gateway::boot::{open_state_dir, DurableGateway};
+use http_gateway::heimdall_bridge::HeimdallBridge;
 use http_gateway::mesh_sync::spawn_mesh_listener;
 use http_gateway::policy_file::parse_policy;
 use http_gateway::state_dir::StateDir;
@@ -39,7 +48,9 @@ const USAGE: &str = "\
 usage:
   http-gateway [ADDR]
   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
-               [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]";
+               [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
+               [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR [--heimdall-service NAME]
+                [--heimdall-purpose P]]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -68,6 +79,10 @@ fn main() {
     let mut mesh_identity_dir = None;
     let mut mesh_service = "http-gateway".to_string();
     let mut mesh_purpose = "data-integration".to_string();
+    let mut heimdall_addr = None;
+    let mut heimdall_identity_dir = None;
+    let mut heimdall_service = "picture-analyst".to_string();
+    let mut heimdall_purpose = "situational-awareness".to_string();
     let mut args = argv.iter();
     while let Some(flag) = args.next() {
         let Some(value) = args.next().filter(|v| !v.starts_with("--")) else {
@@ -81,6 +96,10 @@ fn main() {
             "--mesh-identity-dir" => mesh_identity_dir = Some(value.clone()),
             "--mesh-service" => mesh_service = value.clone(),
             "--mesh-purpose" => mesh_purpose = value.clone(),
+            "--heimdall-addr" => heimdall_addr = Some(value.clone()),
+            "--heimdall-identity-dir" => heimdall_identity_dir = Some(value.clone()),
+            "--heimdall-service" => heimdall_service = value.clone(),
+            "--heimdall-purpose" => heimdall_purpose = value.clone(),
             "--state-dir" => fail_usage("--state-dir given twice"),
             other => fail_usage(&format!("unknown option {other}")),
         }
@@ -90,6 +109,9 @@ fn main() {
     };
     if mesh_bind.is_some() != mesh_identity_dir.is_some() {
         fail_usage("--mesh-bind and --mesh-identity-dir go together");
+    }
+    if heimdall_addr.is_some() != heimdall_identity_dir.is_some() {
+        fail_usage("--heimdall-addr and --heimdall-identity-dir go together");
     }
 
     let served = match open_state_dir(&StateDir::new(&state_dir), origins) {
@@ -117,7 +139,18 @@ fn main() {
     }
     // The lock lives as long as the process serves: no second gateway or mg-admin can
     // write this directory meanwhile.
-    let (gateway, _lock) = served.into_parts();
+    let (mut gateway, _lock) = served.into_parts();
+    if let (Some(addr), Some(dir)) = (heimdall_addr, heimdall_identity_dir) {
+        let identity = match ServiceIdentity::load(&dir, &heimdall_service) {
+            Ok(identity) => identity,
+            Err(e) => {
+                eprintln!("http-gateway: cannot load the Heimdall reader identity: {e}");
+                exit(1);
+            }
+        };
+        gateway = gateway.with_heimdall(HeimdallBridge::new(identity, &addr, &heimdall_purpose));
+        eprintln!("http-gateway: serving Heimdall's picture from {addr} as {heimdall_service}");
+    }
     let gateway = Arc::new(gateway);
 
     if let (Some(mesh_bind), Some(identity_dir)) = (mesh_bind, mesh_identity_dir) {

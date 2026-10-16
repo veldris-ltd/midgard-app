@@ -22,6 +22,7 @@ pub mod admin_api;
 pub mod boot;
 pub mod data;
 pub mod enclosure;
+pub mod heimdall_bridge;
 pub mod http;
 pub mod import_file;
 pub mod mesh_sync;
@@ -121,6 +122,8 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     health: HealthRegistry,
     readiness: Arc<Toggle>,
     availability: Mutex<AvailabilitySlo>,
+    /// The read path to Heimdall's picture, where one is configured. [FR-H-1]
+    heimdall: Option<heimdall_bridge::HeimdallBridge>,
 }
 
 impl<L: LedgerStore> SecuredGateway<InMemoryStore, L> {
@@ -173,7 +176,16 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 "gateway_availability",
                 AVAILABILITY_OBJECTIVE,
             )),
+            heimdall: None,
         }
+    }
+
+    /// Serve Heimdall's common operating picture at `GET /api/v1/heimdall/picture`,
+    /// read through `bridge` for signed-in users the policy lets `Read` it. Returns self
+    /// for chaining. [FR-H-1]
+    pub fn with_heimdall(mut self, bridge: heimdall_bridge::HeimdallBridge) -> Self {
+        self.heimdall = Some(bridge);
+        self
     }
 
     /// Enable the `/api/v1/login` endpoint on this gateway: hold the token-minting IdP
@@ -629,6 +641,15 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 Ok(self.lock().audit(&self.provider, limit))
             }
             ("GET", "/api/v1/policies") => Ok(self.lock().policies()),
+            // Authorised and audited above as `Read` on this path; Heimdall audits the
+            // gateway's own read in its ledger.
+            ("GET", "/api/v1/heimdall/picture") => match &self.heimdall {
+                Some(bridge) => bridge.picture(),
+                None => Err(EdgeError::new(
+                    404,
+                    "this gateway is not connected to Heimdall",
+                )),
+            },
             ("POST", "/api/v1/policy/simulate") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))
                 .and_then(|body| {

@@ -19,5 +19,6 @@ export * from './products/forge';
 export * from './products/mimir';
 export * from './products/bifrost';
 export * from './products/heimdall';
+export * from './products/heimdall-http';
 export * from './products/admin';
 export * from './products/clients';

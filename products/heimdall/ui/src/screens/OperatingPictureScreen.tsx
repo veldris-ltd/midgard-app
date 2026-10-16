@@ -304,10 +304,11 @@ export function OperatingPictureScreen() {
       )}
 
       <div style={{ position: 'absolute', left: 12, right: 12, bottom: 10, display: 'flex', alignItems: 'flex-end', gap: '8px 18px', flexWrap: 'wrap', zIndex: 4, background: 'color-mix(in srgb, var(--bg-sunken) 80%, transparent)', backdropFilter: 'var(--blur-panel)', WebkitBackdropFilter: 'var(--blur-panel)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', width: 'fit-content', maxWidth: 'calc(100% - 24px)' }}>
-        <StatBlock value="1,204" label="TRACKED ENTITIES" size="sm" />
-        <StatBlock value="0.4s" label="FUSION LATENCY" size="sm" />
-        <StatBlock value="1" label="ANOMALIES" size="sm" accent />
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY</span>
+        {/* Counted from the picture the gateway serves, not fixed figures. [FR-H-1] [FR-H-2] */}
+        <StatBlock value={(picture?.entities.length ?? 0).toLocaleString()} label="TRACKED ENTITIES" size="sm" />
+        <StatBlock value={visible.length.toLocaleString()} label="ON CANVAS" size="sm" />
+        <StatBlock value={String(tracks.filter((t) => t.track === 'anomalous').length)} label="ANOMALIES" size="sm" accent />
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>REFERENCE LAYOUT · POSITIONS NOT TO MAP SCALE</span>
       </div>
     </ConsolePage>
   );

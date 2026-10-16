@@ -59,7 +59,7 @@ pub struct EdgeError {
 }
 
 impl EdgeError {
-    fn new(status: u16, message: &str) -> Self {
+    pub(crate) fn new(status: u16, message: &str) -> Self {
         Self {
             status,
             body: Json::obj(vec![("error", Json::s(message))]),
