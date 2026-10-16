@@ -67,7 +67,7 @@ function App() {
               </a>
             ))}
           </div>
-          <p style={{ margin: '18px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>ONE HISTORY · ONE SBOM · ONE SIGNATURE PER RELEASE · PRODUCTS BUILD INDEPENDENTLY FROM THEIR SUBTREES</p>
+          <p style={{ margin: '18px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>ONE HISTORY · EVERY RELEASE ARTEFACT GATED: REPRODUCED, SBOM, SCANNED, SIGNED, VERIFIED</p>
         </div>
       </section>
 
@@ -78,8 +78,8 @@ function App() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 14 }}>
             {[
               ['check', 'What is in the repo', 'Every product core, the PQ crypto substrate, the client-core library, deployment recipes, and the full test and Evals suites. OSI licence; the LICENSE file in the repo is authoritative.'],
-              ['x', 'What is not', 'Commercial modules (HA control plane, DR replication, advanced governance) live in private repos under separate agreements. Model weights are distributed as signed bundles, not in git.'],
-              ['gauge', 'Maturity', 'The suite is in closed development and pre-1.0. Interfaces change between minor versions, and main may be ahead of anything we support. Production use belongs on signed releases, not on main.'],
+              ['x', 'What is not', 'High availability and cross-site DR replication: they are specified, not implemented. Model weights: you fetch them yourself and stage them under a signed manifest, and they never go in git.'],
+              ['gauge', 'Maturity', 'The suite is pre-1.0 and has no release yet; the first, v0.1.0-rc.1, is a release candidate, and the GA readiness record reads NO-GO. Five subsystems run as services and the rest are tested libraries: the claims ledger gives each capability its status. Interfaces change between minor versions. Do not run main in production.'],
               ['shield-check', 'Support', 'Open-core users get issues and discussions, best effort. Response SLAs, hardening guidance, and someone to call at 03:00 are what the commercial tiers pay for.'],
             ].map(([icon, title, body]) => (
               <Card key={title} size="lg">
@@ -97,30 +97,26 @@ function App() {
           <SectionLabel number={4}>GET IT RUNNING</SectionLabel>
           <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 10px' }}>Clone, verify, build.</h2>
           <p style={{ margin: '0 0 22px', fontSize: 'var(--fs-sm)', color: 'var(--text-muted)', lineHeight: 1.65, maxWidth: 620 }}>
-            Verification is not optional ceremony; it is the point. Every release tag is ML-DSA-signed and ships a CycloneDX SBOM. Build from a verified tag, then check your artefact against ours.
+            Verification is not optional ceremony; it is the point. A release tag is signed by a key listed in deploy/trust/allowed_signers, and every release artefact carries an ML-DSA signature and a CycloneDX SBOM. Build from a verified tag, then check your artefact against ours.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Terminal lines={[
-              '# 1 · clone and pin to a signed release',
+              '# 1 · clone and check out the release tag',
               '> git clone https://github.com/veldris-ltd/midgard-app.git',
-              '> cd midgard && git tag --list \'v*\' | tail -3',
-              '> git checkout v0.9.2',
+              '> cd midgard-app && git checkout v0.1.0-rc.1',
             ]} />
             <Terminal lines={[
-              '# 2 · verify the tag signature and the SBOM',
-              '> ./scripts/verify-release v0.9.2',
-              'signature   ML-DSA-87 · VALID · signer: releases@veldris.io',
-              'sbom        CycloneDX 1.6 · 214 components · 0 unknown licences',
+              '# 2 · verify the tag, then a released binary',
+              '> bash tools/ci/verify-tag.sh v0.1.0-rc.1',
+              '> mg-verify --trust-anchor deploy/trust/release-trust.pub ./http-gateway',
             ]} />
             <Terminal lines={[
-              '# 3 · reproducible build + self-check',
-              '> make build && make verify-reproducible',
-              'artefact    sha256:9f2c…e41a · MATCHES published release',
-              '> make bootstrap-enclosure   # single-node dev enclosure',
-              'enclosure   up · https://localhost:8443 · SEALED · ML-KEM-1024',
+              '# 3 · run the acceptance gate and hold it to the record',
+              '> bash tools/ci/gate-run.sh',
+              '> bash tools/ci/gate-record.sh --compare target/gate',
             ]} />
           </div>
-          <p style={{ margin: '18px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>FULL PREREQUISITES AND HARDWARE GUIDANCE LIVE IN THE REPO README · COMMANDS ABOVE ARE ILLUSTRATIVE UNTIL THE REPO OPENS</p>
+          <p style={{ margin: '18px 0 0', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-faint)' }}>FULL PREREQUISITES LIVE IN THE REPO README · STEPS 1 AND 2 NEED THE FIRST SIGNED TAG, v0.1.0-rc.1, WHICH IS NOT YET PUBLISHED</p>
         </div>
       </section>
 
@@ -130,7 +126,7 @@ function App() {
           <h2 style={{ fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)', margin: '14px 0 24px' }}>House rules.</h2>
           {[
             ['Issues and discussions', 'Bug reports with a reproduction get priority. Feature requests are welcome; the SAD provenance tags in the docs tell you what is designed versus aspirational.'],
-            ['Pull requests', 'Sign your commits (DCO). Small, reviewable changes land fastest. Anything touching cryptography, policy evaluation, or lineage requires two maintainer reviews; expect that to take time.'],
+            ['Pull requests', 'Sign off under the DCO, and sign your commits: main and dev accept signed commits only. Every change needs a code owner\'s review, and the CI checks must pass before it merges. Small, reviewable changes land fastest; changes to cryptography, policy evaluation or lineage get the closest look.'],
             ['Security issues', 'Never open a public issue for a vulnerability. Write to security@veldris.io; disclosures are acknowledged within one working day and handled under the safe-harbour policy on the contact page.'],
           ].map(([q, a]) => (
             <div key={q} style={{ padding: '16px 0', borderBottom: '1px solid var(--divider)' }}>

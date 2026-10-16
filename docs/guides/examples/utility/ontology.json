@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "substation",
+      "title": "Substation",
+      "properties": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "voltage_kv", "type": "int", "required": true },
+        { "name": "status", "type": "text" },
+        { "name": "commissioned", "type": "timestamp" }
+      ]
+    },
+    {
+      "id": "transformer",
+      "title": "Transformer",
+      "properties": [
+        { "name": "serial", "type": "text", "required": true },
+        { "name": "rating_kva", "type": "int", "required": true },
+        { "name": "load_fraction", "type": "float" },
+        { "name": "oil_temp_c", "type": "float" },
+        { "name": "in_service", "type": "bool" },
+        { "name": "status", "type": "text" },
+        { "name": "last_inspected", "type": "timestamp" }
+      ]
+    },
+    {
+      "id": "feeder",
+      "title": "Feeder",
+      "properties": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "customers", "type": "int" }
+      ]
+    }
+  ],
+  "linkTypes": [
+    { "id": "feeder_from", "name": "supplied from", "from": "feeder", "to": "substation",
+      "cardinality": "many-to-many" },
+    { "id": "transformer_on", "name": "connected to", "from": "transformer", "to": "feeder",
+      "cardinality": "many-to-many" }
+  ],
+  "actions": [
+    {
+      "id": "flag_transformer",
+      "name": "flagTransformer",
+      "title": "Flag for inspection",
+      "objectType": "transformer",
+      "humanGated": false,
+      "marking": "internal",
+      "purposes": ["operations", "asset-management"],
+      "effect": { "kind": "set-property", "property": "status", "value": "inspection-due" }
+    },
+    {
+      "id": "isolate_substation",
+      "name": "isolateSubstation",
+      "title": "Isolate substation",
+      "objectType": "substation",
+      "humanGated": true,
+      "marking": "restricted",
+      "compartments": ["GRID-OPS"],
+      "purposes": ["operations"],
+      "effect": { "kind": "cycle-property", "property": "status", "values": ["energised", "isolated"] }
+    }
+  ]
+}

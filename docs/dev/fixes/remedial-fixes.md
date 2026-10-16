@@ -9956,6 +9956,74 @@ Create the claims ledger and make it the only source for capability statements.
 
 **Done when:** the ledger covers every published claim, the check is green in CI, and no swept document states a capability above its ledger status.
 
+> **As built (2026-10-16, after the status above): the README and site-page sweep.**
+>
+> - *README, line by line.* Every capability statement was looked up in the ledger.
+>   Reworded to their rows:
+>   - the tagline ("built and verified against a complete specification" is now "fully
+>     specified and partly implemented", with a pointer to the ledger);
+>   - the Admin Control Panel and Client Platforms bullets, now framed as what SAD_07
+>     and SAD_06 specify, followed by their library and scaffold status;
+>   - a paragraph after the product table saying what runs today and which capabilities
+>     are libraries only;
+>   - the "Local AI native" principle, which said every product calls Mimir while the
+>     compose limits say nothing does;
+>   - "The engineering is done and tested", "There are five server binaries" (the sheet
+>     counts 18 binaries, 6 of them services) and "None of this is blocked on unsolved
+>     problems";
+>   - "The strongest evidence the platform meets the spec", now saying that most
+>     criteria are exercised against libraries;
+>   - "the shipping console UIs bind to the gateway edge" (only the Midgard console
+>     can), and "the code realises" the SADs (it implements them in part).
+>
+>   A stale limit was removed: the status list still said a real enclosure had no Forge
+>   connectors, though `forge-connectors` is operable. The phase-gate comments now show
+>   AC-MS-3 under `verify-bifrost.sh`.
+> - *One new row.* The images' verify-before-run entrypoint was stated in the README,
+>   the release notes, GA_READINESS and the CHANGELOG with no row. `verify-before-run`
+>   is `operable`: its service test is the step of `deploy/images/build.sh` that starts
+>   each binary through the image's own entrypoint. Its limit records that this ran only
+>   in the 2026-09-15 rehearsal, with drill keys, and that compose and kind images start
+>   their binaries directly.
+> - *Site pages.* `pricing.html` and `github.html` were reworded to the ledger:
+>   - the Enterprise tier's HA, cross-site DR and N-of-M approvals are marked planned,
+>     with their status;
+>   - "every product core is usable" now names the five services and points to the
+>     ledger;
+>   - "every release builds reproducibly" now says no release is published yet;
+>   - "commercial modules live in private repos" now says HA and DR are specified, not
+>     implemented;
+>   - "closed development" is now pre-1.0, RC and NO-GO;
+>   - "two maintainer reviews" is now the code-owner review and CI checks the rules
+>     enforce, and "Sign your commits (DCO)" separates sign-off from signing.
+>
+>   The three terminals on the GitHub page showed a tag (`v0.9.2`), a script
+>   (`scripts/verify-release`), `make` targets and outputs (an SBOM of 214 components at
+>   CycloneDX 1.6) that do not exist. They now show the real commands: check out
+>   `v0.1.0-rc.1`, `tools/ci/verify-tag.sh`, `mg-verify`, `gate-run.sh` and
+>   `gate-record.sh --compare`, with no invented output. `about.html` and `contact.html`
+>   state no technical capability above its row.
+> - *Not ledgered, and left for the owner:* commercial and process commitments are not
+>   capabilities, so the ledger has no status for them. The site states:
+>   - an Enterprise tier with 24/7 support and response SLAs;
+>   - a Sovereign tier with on-site commissioning, cleared-personnel support and custom
+>     evaluation suites;
+>   - that the commercial version is operated by Veldris Ltd;
+>   - replies within two working days;
+>   - a PGP key and safe-harbour policy at `/.well-known/security.txt`, which
+>     `SECURITY.md` says is also mirrored in the repository, where it is not;
+>   - placeholder company number, registered office and email addresses.
+>
+>   Each is the owner's to confirm or remove before launch. The security-disclosure
+>   acknowledgement, one working day, matches `SECURITY.md`.
+> - *Side effect.* The gate record now ignores changes to `docs/design/`, `docs/launch/`
+>   and `docs/guides/`, which the gate never reads. That edit is to `gate-record.sh`,
+>   which the gate does cover, so `NUMBERS.md` reads "not run at this commit" until the
+>   gate is recorded again.
+>
+> Criteria: a holds for the README and the four site pages, by reading; d stays open
+> until the decks, slide images and demo videos are rebuilt from the reworded sources.
+
 ---
 
 ### RF-CA-2 · One numbers sheet, generated from the tag
