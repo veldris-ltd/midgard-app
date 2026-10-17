@@ -17,7 +17,7 @@ import { HumanGateRequiredError, UK_AND_IRELAND } from '@midgard/sdk';
 import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
-import { LAKES, MOTORWAYS, RIVERS, ROADS } from '../app/hydro';
+import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../app/hydro';
 import { AREA_LEGEND, BANDS, KIND_LEGEND, areaColour, bandOf, colourOf, isFixedKind, shapeOf } from '../app/trackStyle';
 import { useStatus } from '../app/status';
 import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
@@ -61,7 +61,7 @@ const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9,
 /** Rivers and lakes as SVG path data in this map's lon / -lat space. */
 const HYDRO_2D = (() => {
   const d = (text: string, close: boolean) => text.split('|').map((ln) => 'M' + ln.split(' ').map((p) => { const [la, lo] = p.split(','); return `${lo} ${-Number(la)}`; }).join(' ') + (close ? 'Z' : '')).join('');
-  return { rivers: d(RIVERS, false), lakes: d(LAKES, true), motorways: d(MOTORWAYS, false), roads: d(ROADS, false) };
+  return { rivers: d(RIVERS, false), lakes: d(LAKES, true), motorways: d(MOTORWAYS, false), roads: d(ROADS, false), rail: d(RAILWAYS, false) };
 })();
 
 /** The map imagery choice the 3D view stores (satellite unless set to dark). */
@@ -95,6 +95,7 @@ function Basemap({ region, radarUrl }: { region: HeimdallRegion; radarUrl?: stri
       {/* Main roads (Natural Earth 1:10m), then rivers and lakes in water blue. [FR-P3-3] */}
       <path d={HYDRO_2D.roads} fill="none" stroke="rgb(235,225,200)" strokeOpacity={0.5} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.motorways} fill="none" stroke="rgb(255,196,92)" strokeOpacity={0.8} strokeWidth={1.8} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.rail} fill="none" stroke="#c9b8ff" strokeOpacity={0.8} strokeWidth={1.3} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.rivers} fill="none" stroke="#6eb9f5" strokeOpacity={0.95} strokeWidth={1.8} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.lakes} fill="#5aa9e6" fillOpacity={0.35} stroke="#5aa9e6" strokeOpacity={0.85} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       {lons.map((l) => <line key={'o' + l} x1={l} x2={l} y1={-north} y2={-south} stroke="var(--divider)" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}

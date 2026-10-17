@@ -36,7 +36,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { HeimdallHistoryPoint } from '@midgard/sdk';
 import type { TrackShape } from '../trackStyle';
 import { BORDER_PATH, LAND_PATH } from '../basemap';
-import { LAKES, MOTORWAYS, RIVERS, ROADS } from '../hydro';
+import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../hydro';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
@@ -243,14 +243,18 @@ function shadeNight(mat: THREE.Material, sun: { value: THREE.Vector3 }, on: { va
 
 /** Line strips (lon, lat) → LineSegments positions on a sphere of radius `r`. */
 /** Terrain height in metres at a point (bilinear in the bundled grid; 0 outside it). */
-const terrainGrid = (() => {
+/** The terrain grid in use: the bundled 5 km grid at first, replaced by the 2.5 km grid
+ *  (public/imagery/terrain-uk-0025.i16, Terrain Tiles zoom 9) once it has loaded. Both
+ *  cover the same box; heights in whole metres, sea 0, rows from the north edge. */
+let GRID = (() => {
   const bin = atob(TERRAIN.data);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Int16Array(bytes.buffer);
+  return { west: TERRAIN.west, north: TERRAIN.north, step: TERRAIN.step, nx: TERRAIN.nx, ny: TERRAIN.ny, data: new Int16Array(bytes.buffer) };
 })();
+const HIRES = { step: 0.025, nx: 641, ny: 561, file: 'terrain-uk-0025.i16' };
 function terrainAt(lat: number, lon: number): number {
-  const { west, north, step, nx, ny } = TERRAIN;
+  const { west, north, step, nx, ny, data: terrainGrid } = GRID;
   const fx = (lon - west) / step, fy = (north - lat) / step;
   if (fx < 0 || fy < 0 || fx > nx - 1 || fy > ny - 1) return 0;
   const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(nx - 1, x0 + 1), y1 = Math.min(ny - 1, y0 + 1);
@@ -469,6 +473,7 @@ export class GlobeView {
     };
     fat(hydro(ROADS), '#ebe1c8', 1.2, 0.55);
     fat(hydro(MOTORWAYS), '#ffc45c', 2.2, 0.9);
+    fat(hydro(RAILWAYS), '#c9b8ff', 1.5, 0.85);
     fat(hydro(LAKES), '#6eb9f5', 1.4, 0.9);
     fat(hydro(RIVERS), '#6eb9f5', 1.8, 0.95);
 
@@ -504,6 +509,7 @@ export class GlobeView {
     this.radarMesh.visible = false;
     this.scene.add(this.radarMesh, this.areaDrape);
     this.buildTerrain();
+    this.loadHiresTerrain();
     const atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(1.045, 96, 64),
       new THREE.ShaderMaterial({
@@ -1036,8 +1042,26 @@ export class GlobeView {
 
   /** The terrain surface (land cells only; the sea stays the globe) and the coast and
    *  borders draped over it, at the current height stretch. [FR-P3-3] */
+  /** Swap in the sharper terrain grid once it has downloaded (bundled with the console,
+   *  so this works offline), then rebuild everything that sits on the ground. */
+  private loadHiresTerrain(): void {
+    const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+    fetch(`${base}imagery/${HIRES.file}`)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((buf) => {
+        if (this.disposed || buf.byteLength !== HIRES.nx * HIRES.ny * 2) return;
+        GRID = { west: TERRAIN.west, north: TERRAIN.north, step: HIRES.step, nx: HIRES.nx, ny: HIRES.ny, data: new Int16Array(buf) };
+        this.buildTerrain();
+        this.place();
+        this.buildAreas();
+        this.buildTrails();
+        this.requestRender();
+      })
+      .catch(() => { /* keep the bundled 5 km grid */ });
+  }
+
   private buildTerrain(): void {
-    const { west, north, step, nx, ny } = TERRAIN;
+    const { west, north, step, nx, ny, data: terrainGrid } = GRID;
     const ground = (h: number) => 1 + (h > 0 ? drawnHeight(h, this.exaggeration) : 0) + 0.0001;
     const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3), uv = new Float32Array(nx * ny * 2);
     const v = new THREE.Vector3(), c = new THREE.Color();
