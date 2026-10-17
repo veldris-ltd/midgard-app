@@ -115,6 +115,8 @@ const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windf
 const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
 const DRAPE_W = 2048;
+/** The height the rain radar floats at: a typical rain-cloud base, metres. */
+const RAIN_CLOUD_M = 2500;
 export type MapStyle = 'tactical' | 'satellite' | 'dark';
 const DRAPE_H = 1792;
 const GLOBE_COLOUR = '#1a2636';
@@ -527,7 +529,10 @@ export class GlobeView {
     this.areaDrape = new THREE.Mesh(this.drapeGeometry, drapeMat(this.drapeTexture, -3));
     this.areaDrape.renderOrder = 1;
     this.areaDrape.visible = false;
-    this.radarMesh = new THREE.Mesh(this.drapeGeometry, drapeMat(null, -2));
+    // Rain is weather in the air: the radar floats as a translucent sheet at cloud height
+    // (RAIN_CLOUD_M, stretched like everything else) instead of being painted on the ground.
+    this.radarMesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    this.buildRadarSheet();
     (this.radarMesh.material as THREE.MeshBasicMaterial).opacity = 0.75;
     this.radarMesh.renderOrder = 1;
     this.radarMesh.visible = false;
@@ -754,9 +759,34 @@ export class GlobeView {
     this.requestRender();
   }
 
+  /** The radar's sheet: a grid over the terrain box at cloud height, mapped like the box. */
+  private buildRadarSheet(): void {
+    const { west, east, south, north } = TERRAIN;
+    const n = 96;
+    const pos = new Float32Array((n + 1) * (n + 1) * 3), uv = new Float32Array((n + 1) * (n + 1) * 2);
+    const r = 1 + drawnHeight(RAIN_CLOUD_M, this.exaggeration);
+    const v = new THREE.Vector3();
+    for (let j = 0; j <= n; j++) {
+      for (let i = 0; i <= n; i++) {
+        toVec(north - (j / n) * (north - south), west + (i / n) * (east - west), r, v);
+        const k = j * (n + 1) + i;
+        pos[k * 3] = v.x; pos[k * 3 + 1] = v.y; pos[k * 3 + 2] = v.z;
+        uv[k * 2] = i / n; uv[k * 2 + 1] = 1 - j / n;
+      }
+    }
+    const index: number[] = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const a = j * (n + 1) + i; index.push(a, a + n + 1, a + 1, a + 1, a + n + 1, a + n + 2); }
+    const g = this.radarMesh.geometry;
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(index);
+    g.computeBoundingSphere();
+  }
+
   setExaggeration(x: number): void {
     if (x === this.exaggeration) return;
     this.exaggeration = x;
+    this.buildRadarSheet();
     this.buildTerrain();
     this.place();
     this.buildTrails();
