@@ -77,11 +77,34 @@ export function sampleAt(points: HeimdallHistoryPoint[], t: number, grace = 60):
   const n = points.length;
   if (!n || t < points[0][0] || t > points[n - 1][0] + grace) return null;
   const i = firstAtOrAfter(points, t);
-  if (i >= n) return motion(points[n - 1], n > 1 ? points[n - 2] : null, points[n - 1], 1);
-  if (points[i][0] === t || i === 0) return motion(points[i], i > 0 ? points[i - 1] : null, points[i], 1);
-  const a = points[i - 1], b = points[i];
-  return motion(a, a, b, (t - a[0]) / (b[0] - a[0]));
+  const j = Math.min(i, n - 1);
+  let s: Sample;
+  if (i >= n) s = motion(points[n - 1], null, points[n - 1], 1);
+  else if (points[i][0] === t || i === 0) s = motion(points[i], null, points[i], 1);
+  else s = motion(points[i - 1], points[i - 1], points[i], (t - points[i - 1][0]) / (points[i][0] - points[i - 1][0]));
+  // Course and speed are the median over the steps of the last COURSE_WINDOW seconds,
+  // each step at least COURSE_STEP long. Two feeds can place one aircraft miles apart
+  // (one of them estimating, not reporting, its position) and take turns being last,
+  // so any single step can read as an impossible speed; the median ignores it.
+  const steps: { hdg: number; spdKt: number }[] = [];
+  let end = j;
+  for (let k = j - 1; k >= 0 && points[j][0] - points[k][0] <= COURSE_WINDOW; k--) {
+    if (points[end][0] - points[k][0] < COURSE_STEP) continue;
+    const c = motion(points[end], points[k], points[end], 1);
+    if (c.hdg !== null && c.spdKt !== null) steps.push({ hdg: c.hdg, spdKt: c.spdKt });
+    end = k;
+  }
+  // Too few steps to outvote a bad one: leave course and speed to what the track
+  // itself reported (the caller falls back to it).
+  if (steps.length < 3) return { ...s, hdg: null, spdKt: null };
+  steps.sort((x, y) => x.spdKt - y.spdKt);
+  const mid = steps[(steps.length - 1) >> 1];
+  return { ...s, hdg: mid.hdg, spdKt: mid.spdKt };
 }
+
+/** Seconds of history a replayed course and speed are taken over, and the shortest step. */
+const COURSE_WINDOW = 120;
+const COURSE_STEP = 10;
 
 function motion(at: HeimdallHistoryPoint, a: HeimdallHistoryPoint | null, b: HeimdallHistoryPoint, f: number): Sample {
   let lat = at[1], lon = at[2], altM = at[3];
@@ -95,7 +118,7 @@ function motion(at: HeimdallHistoryPoint, a: HeimdallHistoryPoint | null, b: Hei
     if (lon < -180) lon += 360;
     altM = a[3] === null || b[3] === null ? (b[3] ?? a[3]) : a[3] + (b[3] - a[3]) * f;
   }
-  if (!a || a === b || b[0] <= a[0]) return { lat, lon, altM, hdg: null, spdKt: null };
+  if (!a || b[0] <= a[0]) return { lat, lon, altM, hdg: null, spdKt: null };
   const p1 = a[1] * D2R, p2 = b[1] * D2R, dl = (b[2] - a[2]) * D2R;
   const hdg = (Math.atan2(Math.sin(dl) * Math.cos(p2), Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl)) / D2R + 360) % 360;
   const h = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
