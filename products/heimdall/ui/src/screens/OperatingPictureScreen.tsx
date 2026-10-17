@@ -863,7 +863,7 @@ export function OperatingPictureScreen() {
             <button onClick={() => setFilter(null)} style={{ all: 'unset', cursor: 'pointer', ...mono, color: 'var(--accent-hover)' }}>FILTER: {filter} ✕</button>
           )}
           <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
-            {view === '3d' ? 'GLOBE: NATURAL EARTH 1:110M + 1:50M EUROPE' : region ? 'MAP: NATURAL EARTH 1:50M · LINEAR LAT/LON' : 'REFERENCE LAYOUT · POSITIONS NOT TO MAP SCALE'}
+            {view === '3d' ? 'GLOBE: NATURAL EARTH 1:110M + 1:50M EUROPE · TERRAIN: MAPZEN TERRAIN TILES (SRTM, GMTED2010, ETOPO1)' : region ? 'MAP: NATURAL EARTH 1:50M · LINEAR LAT/LON' : 'REFERENCE LAYOUT · POSITIONS NOT TO MAP SCALE'}
           </span>
           <button type="button" onClick={() => setStatsOpen(false)} aria-label="Fold the figures" aria-expanded style={{ all: 'unset', cursor: 'pointer', ...mono, color: 'var(--text-faint)', padding: '4px 6px' }}>▾</button>
         </div>}

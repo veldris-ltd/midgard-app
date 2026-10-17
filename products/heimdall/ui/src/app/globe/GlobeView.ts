@@ -22,10 +22,12 @@
  * Picking is done in screen space against every instance (nearest marker within 10 px
  * for a mouse, 28 px for touch, ignoring those behind the earth). */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { HeimdallHistoryPoint } from '@midgard/sdk';
 import type { TrackShape } from '../trackStyle';
 import { BORDER_PATH, LAND_PATH } from '../basemap';
 import { GLOBE_LAND_110M } from '../globeLand';
+import { TERRAIN } from './terrainUK';
 import { GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
 import { D2R, drawnHeight, enu, raySphere, toVec } from './geo';
 
@@ -58,11 +60,15 @@ export interface GlobeCallbacks {
 }
 
 /** Marker sizes in CSS pixels. */
-const PX: Record<TrackShape, number> = { aircraft: 13, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
+const PX: Record<TrackShape, number> = { aircraft: 17, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
 const SHAPES: TrackShape[] = ['aircraft', 'balloon', 'satellite', 'quake', 'flood', 'point'];
 const GLOBE_COLOUR = '#0a0f16';
 /** A screen tap: moved less than this (px) within this long (ms). */
 const TAP_PX = { mouse: 5, touch: 12 };
+/** How far a trail's ribbon hangs below it: a fifth of its drawn height, at most about
+ *  12 km as drawn (in earth radii), so it reads as depth and never reaches the ground. */
+const TRAIL_DROP = 12 / 6371;
+const TRAIL_DROP_SHARE = 0.2;
 const TAP_MS = 450;
 const DOUBLE_TAP_MS = 320;
 
@@ -80,8 +86,71 @@ function svgRings(d: string): [number, number][][] {
   return rings;
 }
 
+/** A small aircraft, nose along +y, up along +z, one unit long: fuselage, nose, swept
+ *  wings, tailplane and fin, so it reads as an aircraft in 3D and shades under light. */
+function aircraftGeometry(): THREE.BufferGeometry {
+  const box = (w: number, l: number, h: number, x: number, y: number, z: number, sweep = 0) => {
+    const g = new THREE.BoxGeometry(w, l, h);
+    if (sweep) {
+      // sweep the wing back: shift each vertex aft in proportion to its span
+      const pos = g.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) pos.setY(i, pos.getY(i) - Math.abs(pos.getX(i)) * sweep);
+    }
+    g.translate(x, y, z);
+    return g;
+  };
+  const fuselage = new THREE.CylinderGeometry(0.06, 0.05, 0.86, 10);
+  fuselage.translate(0, -0.05, 0);
+  const nose = new THREE.ConeGeometry(0.06, 0.16, 10);
+  nose.translate(0, 0.46, 0);
+  const parts = [
+    fuselage,
+    nose,
+    box(1.0, 0.18, 0.025, 0, 0.06, 0, 0.35),
+    box(0.4, 0.1, 0.02, 0, -0.4, 0.01, 0.3),
+    box(0.02, 0.14, 0.2, 0, -0.41, 0.1),
+  ].map((g) => g.toNonIndexed());
+  // The cylinder and cone are built along y already; all parts share one frame.
+  const merged = mergeGeometries(parts, false)!;
+  merged.computeVertexNormals();
+  return merged;
+}
+
 /** Line strips (lon, lat) → LineSegments positions on a sphere of radius `r`. */
-function stripsToSegments(strips: [number, number][][], r: number): Float32Array {
+/** Terrain height in metres at a point (bilinear in the bundled grid; 0 outside it). */
+const terrainGrid = (() => {
+  const bin = atob(TERRAIN.data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Int16Array(bytes.buffer);
+})();
+function terrainAt(lat: number, lon: number): number {
+  const { west, north, step, nx, ny } = TERRAIN;
+  const fx = (lon - west) / step, fy = (north - lat) / step;
+  if (fx < 0 || fy < 0 || fx > nx - 1 || fy > ny - 1) return 0;
+  const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(nx - 1, x0 + 1), y1 = Math.min(ny - 1, y0 + 1);
+  const tx = fx - x0, ty = fy - y0;
+  const h = (x: number, y: number) => terrainGrid[y * nx + x];
+  return (h(x0, y0) * (1 - tx) + h(x1, y0) * tx) * (1 - ty) + (h(x0, y1) * (1 - tx) + h(x1, y1) * tx) * ty;
+}
+
+/** Muted relief colours by height: dark lowland to pale upland, so it stays a backdrop. */
+const RELIEF: [number, THREE.Color][] = [
+  [0, new THREE.Color('#16211b')],
+  [150, new THREE.Color('#1f2b1f')],
+  [400, new THREE.Color('#2d3226')],
+  [800, new THREE.Color('#463f32')],
+  [1200, new THREE.Color('#6b6455')],
+];
+function reliefColour(h: number, out: THREE.Color): THREE.Color {
+  for (let i = 1; i < RELIEF.length; i++) {
+    if (h <= RELIEF[i][0]) return out.copy(RELIEF[i - 1][1]).lerp(RELIEF[i][1], (h - RELIEF[i - 1][0]) / (RELIEF[i][0] - RELIEF[i - 1][0]));
+  }
+  return out.copy(RELIEF[RELIEF.length - 1][1]);
+}
+
+function stripsToSegments(strips: [number, number][][], r: number | ((lat: number, lon: number) => number)): Float32Array {
+  const rad = typeof r === 'number' ? () => r : r;
   let n = 0;
   for (const s of strips) n += Math.max(0, s.length - 1);
   const out = new Float32Array(n * 6);
@@ -89,8 +158,8 @@ function stripsToSegments(strips: [number, number][][], r: number): Float32Array
   let k = 0;
   for (const s of strips) {
     for (let i = 0; i + 1 < s.length; i++) {
-      toVec(s[i][1], s[i][0], r, a);
-      toVec(s[i + 1][1], s[i + 1][0], r, b);
+      toVec(s[i][1], s[i][0], rad(s[i][1], s[i][0]), a);
+      toVec(s[i + 1][1], s[i + 1][0], rad(s[i + 1][1], s[i + 1][0]), b);
       out[k++] = a.x; out[k++] = a.y; out[k++] = a.z;
       out[k++] = b.x; out[k++] = b.y; out[k++] = b.z;
     }
@@ -153,7 +222,7 @@ export class GlobeView {
   private readonly ro: ResizeObserver;
   private readonly meshes = new Map<TrackShape, THREE.InstancedMesh>();
   private readonly geometries = new Map<TrackShape, THREE.BufferGeometry>();
-  private readonly materials = new Map<TrackShape, THREE.MeshBasicMaterial>();
+  private readonly materials = new Map<TrackShape, THREE.MeshBasicMaterial | THREE.MeshLambertMaterial>();
   private placed: Placed[] = [];
   private byId = new Map<string, Placed>();
   private items: GlobeItem[] = [];
@@ -175,6 +244,11 @@ export class GlobeView {
   private readonly trailLines: THREE.LineSegments;
   /** A translucent wall from the selected track's recorded path down to the ground. */
   private readonly pathCurtain: THREE.Mesh;
+  private readonly terrain: THREE.Mesh;
+  private readonly drapedStrips: [number, number][][][];
+  private readonly draped: THREE.LineSegments[];
+  /** Short ribbons hanging a little below every trail, so trails read in 3D. */
+  private readonly trailRibbons: THREE.Mesh;
   private readonly pathLine: THREE.Line;
   private readonly marker: THREE.Mesh;
   // input
@@ -219,8 +293,19 @@ export class GlobeView {
       return out;
     });
     lines(stripsToSegments(graticule(10), 1.0003), 'var(--text-faint)', 0.16);
-    lines(stripsToSegments([...world, ...svgRings(LAND_PATH)], 1.0006), 'var(--text-muted)', 0.6);
-    lines(stripsToSegments(svgRings(BORDER_PATH), 1.0006), 'var(--text-faint)', 0.35);
+    lines(stripsToSegments(world, 1.0006), 'var(--text-muted)', 0.6);
+    // Europe's coast and borders at 1:50m, draped over the terrain (rebuilt when the
+    // height stretch changes).
+    this.drapedStrips = [svgRings(LAND_PATH), svgRings(BORDER_PATH)];
+    this.draped = [lines(new Float32Array(0), 'var(--text-muted)', 0.6), lines(new Float32Array(0), 'var(--text-faint)', 0.4)];
+
+    // Shaded relief for the UK and Ireland, lit by the same lights as the markers.
+    this.terrain = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
+    );
+    this.scene.add(this.terrain);
+    this.buildTerrain();
     const atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(1.045, 96, 64),
       new THREE.ShaderMaterial({
@@ -235,8 +320,16 @@ export class GlobeView {
     );
     this.scene.add(atmosphere);
 
+    // Light for the solid markers: soft all round, plus a key light that travels with
+    // the camera (from above its left shoulder), so shading reads the same from any angle.
+    this.scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    key.position.set(-0.6, 1, 0.4);
+    this.camera.add(key);
+    this.scene.add(this.camera);
+
     // Entity markers, one instanced mesh per shape (grown on demand).
-    this.geometries.set('aircraft', new THREE.ConeGeometry(0.5, 1, 3));
+    this.geometries.set('aircraft', aircraftGeometry());
     this.geometries.set('balloon', new THREE.SphereGeometry(0.5, 12, 8));
     this.geometries.set('satellite', new THREE.OctahedronGeometry(0.5));
     this.geometries.set('quake', new THREE.RingGeometry(0.72, 1, 40));
@@ -244,7 +337,9 @@ export class GlobeView {
     this.geometries.set('point', new THREE.SphereGeometry(0.5, 8, 6));
     for (const s of SHAPES) {
       const flat = s === 'quake' || s === 'flood';
-      this.materials.set(s, new THREE.MeshBasicMaterial({
+      // Solid markers are lit so they shade as 3D objects; flat surface markers are not.
+      const Mat = flat ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
+      this.materials.set(s, new Mat({
         color: 0xffffff,
         transparent: flat,
         opacity: s === 'flood' ? 0.6 : s === 'quake' ? 0.9 : 1,
@@ -260,7 +355,7 @@ export class GlobeView {
       return g;
     };
     this.drops = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.45, depthWrite: false }));
-    this.trailLines = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false }));
+    this.trailLines = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.16, depthWrite: false }));
     this.pathLine = new THREE.Line(vcLines(), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }));
     const curtain = (opacity: number) => {
       const g = new THREE.BufferGeometry();
@@ -271,10 +366,11 @@ export class GlobeView {
       return mesh;
     };
     this.pathCurtain = curtain(1);
+    this.trailRibbons = curtain(1);
     this.marker = new THREE.Mesh(new THREE.RingGeometry(0.78, 1, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }));
     this.marker.renderOrder = 10;
     this.marker.visible = false;
-    this.scene.add(this.pathCurtain, this.drops, this.trailLines, this.pathLine, this.marker);
+    this.scene.add(this.trailRibbons, this.pathCurtain, this.drops, this.trailLines, this.pathLine, this.marker);
 
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
@@ -329,6 +425,7 @@ export class GlobeView {
   setExaggeration(x: number): void {
     if (x === this.exaggeration) return;
     this.exaggeration = x;
+    this.buildTerrain();
     this.place();
     this.buildTrails();
     this.buildPath();
@@ -440,23 +537,29 @@ export class GlobeView {
   /** Quads from consecutive path points down to the ground, as one curtain mesh: the
    *  flight path as a wall whose top edge is the route at altitude. Alpha fades to the
    *  ground and, with `fade`, towards the oldest point. */
-  private setCurtain(mesh: THREE.Mesh, paths: { points: HeimdallHistoryPoint[]; colour: THREE.Color; alpha: number; fade: boolean }[]): void {
+  private setCurtain(mesh: THREE.Mesh, paths: { points: HeimdallHistoryPoint[]; colour: THREE.Color; alpha: number; fade: boolean }[], drop?: number): void {
     const pos: number[] = [], col: number[] = [];
     const a = new THREE.Vector3(), b = new THREE.Vector3(), ag = new THREE.Vector3(), bg = new THREE.Vector3();
     for (const { points, colour: c, alpha, fade } of paths) {
       const n = points.length;
       if (n < 2) continue;
+      // The lower edge: the ground, or `drop` below the path (never below the ground).
+      const lower = (pt: HeimdallHistoryPoint, top: THREE.Vector3, out: THREE.Vector3) => {
+        const above = top.length() - 1;
+        const r = drop === undefined ? 1.0006 : Math.max(1.0006, top.length() - Math.min(drop, above * TRAIL_DROP_SHARE));
+        return toVec(pt[1], pt[2], r, out);
+      };
       this.pointAt(points[0], a);
-      toVec(points[0][1], points[0][2], 1.0006, ag);
+      lower(points[0], a, ag);
       for (let i = 1; i < n; i++) {
         this.pointAt(points[i], b);
-        toVec(points[i][1], points[i][2], 1.0006, bg);
+        lower(points[i], b, bg);
         const fa = fade ? 0.2 + 0.8 * ((i - 1) / (n - 1)) : 1;
         const fb = fade ? 0.2 + 0.8 * (i / (n - 1)) : 1;
         // two triangles: a, ag, b and b, ag, bg
         pos.push(a.x, a.y, a.z, ag.x, ag.y, ag.z, b.x, b.y, b.z, b.x, b.y, b.z, ag.x, ag.y, ag.z, bg.x, bg.y, bg.z);
         const top = (f: number) => [c.r, c.g, c.b, alpha * f];
-        const low = (f: number) => [c.r, c.g, c.b, alpha * f * 0.08];
+        const low = (f: number) => [c.r, c.g, c.b, alpha * f * (drop === undefined ? 0.08 : 0)];
         col.push(...top(fa), ...low(fa), ...top(fb), ...top(fb), ...low(fa), ...low(fb));
         a.copy(b);
         ag.copy(bg);
@@ -467,6 +570,44 @@ export class GlobeView {
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
     g.computeBoundingSphere();
     mesh.visible = pos.length > 0;
+  }
+
+  /** The terrain surface (land cells only; the sea stays the globe) and the coast and
+   *  borders draped over it, at the current height stretch. [FR-P3-3] */
+  private buildTerrain(): void {
+    const { west, north, step, nx, ny } = TERRAIN;
+    const ground = (h: number) => 1 + (h > 0 ? drawnHeight(h, this.exaggeration) : 0) + 0.0001;
+    const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3);
+    const v = new THREE.Vector3(), c = new THREE.Color();
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const h = terrainGrid[j * nx + i];
+        toVec(north - j * step, west + i * step, ground(h), v);
+        const k = (j * nx + i) * 3;
+        pos[k] = v.x; pos[k + 1] = v.y; pos[k + 2] = v.z;
+        reliefColour(h, c);
+        col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
+      }
+    }
+    const index: number[] = [];
+    for (let j = 0; j + 1 < ny; j++) {
+      for (let i = 0; i + 1 < nx; i++) {
+        const a = j * nx + i, b = a + 1, d = a + nx, e = d + 1;
+        if (terrainGrid[a] <= 0 && terrainGrid[b] <= 0 && terrainGrid[d] <= 0 && terrainGrid[e] <= 0) continue;
+        index.push(a, d, b, b, d, e);
+      }
+    }
+    const g = this.terrain.geometry;
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setIndex(index);
+    g.computeVertexNormals();
+    g.computeBoundingSphere();
+    const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0006;
+    this.draped.forEach((line, n) => {
+      line.geometry.setAttribute('position', new THREE.BufferAttribute(stripsToSegments(this.drapedStrips[n], drape), 3));
+      line.geometry.computeBoundingSphere();
+    });
   }
 
   private pointAt(pt: HeimdallHistoryPoint, out: THREE.Vector3): THREE.Vector3 {
@@ -491,6 +632,8 @@ export class GlobeView {
       }
     }
     this.setLines(this.trailLines, pos, col);
+    // A narrow ribbon under each trail, fading downward and towards the tail.
+    this.setCurtain(this.trailRibbons, this.trails.map((tr) => ({ points: tr.points, colour: this.colour(tr.colour), alpha: 0.12, fade: true })), TRAIL_DROP);
   }
 
   private buildPath(): void {
@@ -569,7 +712,7 @@ export class GlobeView {
         px = (4 + 2.2 * Math.max(0, p.item.magnitude ?? 3)) * pulse;
       }
       const k = px * this.perPx(d);
-      if (s === 'aircraft') scale.set(k * 0.62, k, k * 0.3);
+      if (s === 'aircraft') scale.set(k, k, k);
       else scale.set(k, k, k);
       m.makeBasis(p.a, p.b, p.up);
       m.scale(scale);
