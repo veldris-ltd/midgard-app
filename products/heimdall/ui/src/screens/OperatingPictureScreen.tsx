@@ -17,7 +17,7 @@ import { HumanGateRequiredError, UK_AND_IRELAND } from '@midgard/sdk';
 import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
-import { LAKES, RIVERS } from '../app/hydro';
+import { LAKES, MOTORWAYS, RIVERS, ROADS } from '../app/hydro';
 import { AREA_LEGEND, BANDS, KIND_LEGEND, areaColour, bandOf, colourOf, isFixedKind, shapeOf } from '../app/trackStyle';
 import { useStatus } from '../app/status';
 import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
@@ -61,7 +61,7 @@ const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9,
 /** Rivers and lakes as SVG path data in this map's lon / -lat space. */
 const HYDRO_2D = (() => {
   const d = (text: string, close: boolean) => text.split('|').map((ln) => 'M' + ln.split(' ').map((p) => { const [la, lo] = p.split(','); return `${lo} ${-Number(la)}`; }).join(' ') + (close ? 'Z' : '')).join('');
-  return { rivers: d(RIVERS, false), lakes: d(LAKES, true) };
+  return { rivers: d(RIVERS, false), lakes: d(LAKES, true), motorways: d(MOTORWAYS, false), roads: d(ROADS, false) };
 })();
 
 /** The map imagery choice the 3D view stores (satellite unless set to dark). */
@@ -92,8 +92,10 @@ function Basemap({ region, radarUrl }: { region: HeimdallRegion; radarUrl?: stri
       )}
       <path d={LAND_PATH} fill="var(--text-faint)" fillOpacity={0.07} stroke="var(--text-faint)" strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       <path d={BORDER_PATH} fill="none" stroke="var(--text-faint)" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
-      {/* Rivers and lakes (Natural Earth 1:10m), in water blue. [FR-P3-3] */}
-      <path d={HYDRO_2D.rivers} fill="none" stroke="#5aa9e6" strokeOpacity={0.85} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+      {/* Main roads (Natural Earth 1:10m), then rivers and lakes in water blue. [FR-P3-3] */}
+      <path d={HYDRO_2D.roads} fill="none" stroke="rgb(235,225,200)" strokeOpacity={0.5} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.motorways} fill="none" stroke="rgb(255,196,92)" strokeOpacity={0.8} strokeWidth={1.8} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.rivers} fill="none" stroke="#6eb9f5" strokeOpacity={0.95} strokeWidth={1.8} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.lakes} fill="#5aa9e6" fillOpacity={0.35} stroke="#5aa9e6" strokeOpacity={0.85} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       {lons.map((l) => <line key={'o' + l} x1={l} x2={l} y1={-north} y2={-south} stroke="var(--divider)" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
       {lats.map((l) => <line key={'a' + l} x1={west} x2={east} y1={-l} y2={-l} stroke="var(--divider)" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
@@ -722,14 +724,16 @@ export function OperatingPictureScreen() {
   const globeAreas = React.useMemo<GlobeArea[]>(() => (view !== '3d' ? [] : areaTracks.map((t) => {
     const d = t.detail!;
     const ft = (v: number | undefined) => (v === undefined ? undefined : v / 3.28084);
-    if (d.kind === 'event-sigmet' || d.kind === 'airspace-volume') {
-      const air = d.kind === 'airspace-volume';
+    // SIGMETs are volumes (their altitude band is the point); airspace lies flat on the
+    // ground as an outline with a light tint, since 1,300 volumes bury the picture. Its
+    // vertical limits are in the tooltip and inspector.
+    if (d.kind === 'event-sigmet') {
       const base = Math.max(0, d.baseFt ?? 0);
-      // A SIGMET without a top is drawn 10,000 ft deep; airspace is capped at FL660.
+      // A SIGMET without a top is drawn 10,000 ft deep.
       const top = Math.min(66000, d.topFt ?? base + 10000);
-      return { id: `${t.id}:${d.kind}`, mode: 'volume' as const, ring: d.area!, colour: areaColour(d), fill: air ? 0.035 : 0.11, baseM: ft(base), topM: ft(top) };
+      return { id: `${t.id}:${d.kind}`, mode: 'volume' as const, ring: d.area!, colour: areaColour(d), fill: 0.11, baseM: ft(base), topM: ft(top) };
     }
-    const fill = d.kind === 'event-weather-warning' ? 0.24 : d.kind === 'land-road-disruption' ? 0.4 : 0.14;
+    const fill = d.kind === 'event-weather-warning' ? 0.24 : d.kind === 'land-road-disruption' ? 0.4 : d.kind === 'airspace-volume' ? 0.05 : 0.14;
     return { id: `${t.id}:${d.kind}`, mode: 'drape' as const, ring: d.area!, colour: areaColour(d), fill };
   })), [areaTracks, view]);
 

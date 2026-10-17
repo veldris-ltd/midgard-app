@@ -33,7 +33,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { HeimdallHistoryPoint } from '@midgard/sdk';
 import type { TrackShape } from '../trackStyle';
 import { BORDER_PATH, LAND_PATH } from '../basemap';
-import { LAKES, RIVERS } from '../hydro';
+import { LAKES, MOTORWAYS, RIVERS, ROADS } from '../hydro';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
@@ -111,6 +111,11 @@ const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windf
 const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
 const DRAPE_W = 2048;
+/** Rivers, lakes and main roads ([lat, lon] lines) for the draped base map. */
+const BASE_LINES = (() => {
+  const parse = (text: string) => text.split('|').filter(Boolean).map((ln) => ln.split(' ').map((p) => p.split(',').map(Number) as [number, number]));
+  return { rivers: parse(RIVERS), lakes: parse(LAKES), motorways: parse(MOTORWAYS), roads: parse(ROADS) };
+})();
 const DRAPE_H = 1792;
 const GLOBE_COLOUR = '#1a2636';
 /** A screen tap: moved less than this (px) within this long (ms). */
@@ -775,12 +780,38 @@ export class GlobeView {
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
   }
 
+  /** The base map painted into the draped texture under everything else: main roads
+   *  and rivers (lakes filled), with real line widths so they read at regional zoom. */
+  private paintBaseMap(ctx: CanvasRenderingContext2D): void {
+    const { west, east, south, north } = TERRAIN;
+    const x = (lo: number) => ((lo - west) / (east - west)) * DRAPE_W;
+    const y = (la: number) => ((north - la) / (north - south)) * DRAPE_H;
+    const stroke = (lines: [number, number][][], colour: string, width: number, fill = false) => {
+      ctx.strokeStyle = colour;
+      ctx.fillStyle = colour;
+      ctx.lineWidth = width;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      for (const ln of lines) {
+        ctx.beginPath();
+        ln.forEach(([la, lo], i) => (i ? ctx.lineTo(x(lo), y(la)) : ctx.moveTo(x(lo), y(la))));
+        if (fill) { ctx.closePath(); ctx.fill(); }
+        ctx.stroke();
+      }
+    };
+    stroke(BASE_LINES.roads, 'rgba(235, 225, 200, 0.55)', 2.2);
+    stroke(BASE_LINES.motorways, 'rgba(255, 196, 92, 0.85)', 3.4);
+    stroke(BASE_LINES.lakes, 'rgba(90, 169, 230, 0.75)', 1.5, true);
+    stroke(BASE_LINES.rivers, 'rgba(110, 185, 245, 0.95)', 3.2);
+  }
+
   private buildAreas(): void {
     const fillPos: number[] = [], fillCol: number[] = [];
     const linePos: number[] = [], lineCol: number[] = [];
     const ctx = this.drapeCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, DRAPE_W, DRAPE_H);
-    let draped = 0;
+    this.paintBaseMap(ctx);
+    let draped = 1; // the base map is always there
     const { west, east, south, north } = TERRAIN;
     const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0007;
     const a = new THREE.Vector3(), b = new THREE.Vector3(), a2 = new THREE.Vector3(), b2 = new THREE.Vector3();
