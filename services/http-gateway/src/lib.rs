@@ -180,7 +180,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
     }
 
-    /// Serve Heimdall's common operating picture at `GET /api/v1/heimdall/picture`,
+    /// Serve Heimdall's common operating picture at `GET /api/v1/heimdall/picture` and
+    /// its track history at `GET /api/v1/heimdall/history`,
     /// read through `bridge` for signed-in users the policy lets `Read` it. Returns self
     /// for chaining. [FR-H-1]
     pub fn with_heimdall(mut self, bridge: heimdall_bridge::HeimdallBridge) -> Self {
@@ -650,6 +651,16 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     "this gateway is not connected to Heimdall",
                 )),
             },
+            // Track history, authorised and audited the same way; Heimdall audits each
+            // page the gateway reads. [FR-H-1]
+            ("GET", "/api/v1/heimdall/history") => match &self.heimdall {
+                Some(bridge) => heimdall_bridge::HistoryParams::from_query(&req.query, now)
+                    .and_then(|params| bridge.history(&params)),
+                None => Err(EdgeError::new(
+                    404,
+                    "this gateway is not connected to Heimdall",
+                )),
+            },
             ("POST", "/api/v1/policy/simulate") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))
                 .and_then(|body| {
@@ -963,6 +974,83 @@ mod tests {
             authorization: bearer.map(|t| format!("Bearer {t}")),
             origin: None,
         }
+    }
+
+    fn login(gw: &SecuredGateway) -> String {
+        let login = format!(r#"{{"username":"{DEMO_USERNAME}","password":"{DEMO_PASSWORD}"}}"#);
+        let resp = gw.handle(&request("POST", "/api/v1/login", &login, None), now_secs());
+        assert_eq!(resp.status, 200, "{}", resp.body);
+        parse(&resp.body)
+            .ok()
+            .and_then(|j| j.str_field("token").map(str::to_string))
+            .expect("login returns a token")
+    }
+
+    /// A Heimdall reader identity, as `mg-admin mesh issue` writes it, in a fresh dir.
+    fn heimdall_reader() -> service_runtime::ServiceIdentity {
+        use attest::Keystore;
+        use pq_mtls::{encode_anchor, encode_cert, ServiceId, WorkloadIdentity};
+        let uniq = Box::into_raw(Box::new(0u8)) as usize;
+        let dir = std::env::temp_dir().join(format!(
+            "http-gateway-heimdall-{}-{uniq}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let idp = iam::Idp::generate("mesh-idp", &mut OsRng).unwrap();
+        let service = "picture-analyst";
+        let key = Keystore::generate(service, iam::IDP_SIG_ALG, &mut OsRng).unwrap();
+        let audit =
+            Keystore::generate(&format!("{service}-audit"), iam::IDP_SIG_ALG, &mut OsRng).unwrap();
+        let cert = idp
+            .certify(&WorkloadIdentity {
+                id: ServiceId(service.into()),
+                roles: [Role("picture-reader".into())].into_iter().collect(),
+                sig_alg: iam::IDP_SIG_ALG,
+                verifying_key: key.verifying_key.clone(),
+            })
+            .unwrap();
+        key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+        audit
+            .write(&dir.join(format!("{service}.audit.keystore")))
+            .unwrap();
+        std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
+        std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
+        let identity = service_runtime::ServiceIdentity::load(&dir, service).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        identity
+    }
+
+    /// The history route is authorised and audited like the picture: bad parameters are
+    /// a 400 and an unreachable Heimdall a 502, both after the read was audited; without
+    /// Heimdall it is a 404; without a token a 401. [FR-H-1] [NFR-SEC-1]
+    #[test]
+    fn the_history_route_maps_bad_params_and_an_unreachable_heimdall() {
+        let get = |gw: &SecuredGateway, query: &str, token: Option<&str>| {
+            let mut req = request("GET", "/api/v1/heimdall/history", "", token);
+            req.query = query.to_string();
+            gw.handle(&req, now_secs())
+        };
+        let unconnected = SecuredGateway::dev();
+        let token = login(&unconnected);
+        assert_eq!(get(&unconnected, "", None).status, 401);
+        assert_eq!(get(&unconnected, "", Some(&token)).status, 404);
+
+        // Nothing listens on port 1.
+        let gw = SecuredGateway::dev().with_heimdall(heimdall_bridge::HeimdallBridge::new(
+            heimdall_reader(),
+            "127.0.0.1:1",
+            "situational-awareness",
+        ));
+        let token = login(&gw);
+        let before = gw.audit_len();
+        let bad = get(&gw, "from=200&to=100", Some(&token));
+        assert_eq!(bad.status, 400, "{}", bad.body);
+        let bad = get(&gw, "step=often", Some(&token));
+        assert_eq!(bad.status, 400, "{}", bad.body);
+        let down = get(&gw, "from=100&to=200&layer=air", Some(&token));
+        assert_eq!(down.status, 502, "{}", down.body);
+        assert!(down.body.contains("unreachable"), "{}", down.body);
+        assert_eq!(gw.audit_len(), before + 3, "each read was audited");
     }
 
     #[test]

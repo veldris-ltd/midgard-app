@@ -21,10 +21,11 @@
 //!       `data-integration`).
 //!
 //!       With --heimdall-addr, signed-in users the policy lets `Read` it get Heimdall's
-//!       common operating picture at GET /api/v1/heimdall/picture. The gateway reads it
+//!       common operating picture at GET /api/v1/heimdall/picture, and its track
+//!       history at GET /api/v1/heimdall/history. The gateway reads them
 //!       from `heimdall-feed` over PQ-mTLS as the identity in --heimdall-identity-dir
 //!       (service --heimdall-service, default `picture-analyst`; Heimdall's policy must
-//!       grant it ReadPicture), declaring --heimdall-purpose (default
+//!       grant it ReadPicture and ReadHistory), declaring --heimdall-purpose (default
 //!       `situational-awareness`).
 //!
 //! Point a console at it with `VITE_GATEWAY=http` (see products/*/ui). [RC-24] [RC-29]

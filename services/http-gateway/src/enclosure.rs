@@ -51,6 +51,7 @@ const MAX_NODES: usize = 60;
 const MAX_HOPS: i64 = 4;
 
 /// A request the enclosure refused, already mapped to its HTTP status.
+#[derive(Debug)]
 pub struct EdgeError {
     /// HTTP status code.
     pub status: u16,
