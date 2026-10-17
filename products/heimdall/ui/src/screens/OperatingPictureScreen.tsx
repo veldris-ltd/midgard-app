@@ -64,8 +64,8 @@ const HYDRO_2D = (() => {
   return { rivers: d(RIVERS, false), lakes: d(LAKES, true), motorways: d(MOTORWAYS, false), roads: d(ROADS, false), rail: d(RAILWAYS, false) };
 })();
 
-/** The map imagery choice the 3D view stores (satellite unless set to dark). */
-const imageryOn = () => { try { return window.localStorage.getItem('heimdall.globe.imagery') !== 'dark'; } catch { return true; } };
+/** The map style the 3D view stores (tactical unless set otherwise). */
+const mapStyle2d = () => { try { const v = window.localStorage.getItem('heimdall.globe.imagery'); return v === 'satellite' || v === 'dark' ? v : 'tactical'; } catch { return 'tactical'; } };
 
 function Basemap({ region, radarUrl }: { region: HeimdallRegion; radarUrl?: string }) {
   const { west, east, south, north } = region;
@@ -83,8 +83,8 @@ function Basemap({ region, radarUrl }: { region: HeimdallRegion; radarUrl?: stri
       {/* NASA Blue Marble (public domain), the same bundled image the 3D terrain uses; its
           box is -12..4 E, 48..62 N, linear in lat/lon like this map. Off when the 3D
           view's MAP chip is set to DARK. [FR-P3-3] */}
-      {imageryOn() && (
-        <image href={`${import.meta.env.BASE_URL}imagery/uk-ie-2560.jpg`} x={-12} y={-62} width={16} height={14} preserveAspectRatio="none" opacity={0.9} />
+      {mapStyle2d() !== 'dark' && (
+        <image href={`${import.meta.env.BASE_URL}imagery/${mapStyle2d() === 'tactical' ? 'uk-ie-tactical.jpg' : 'uk-ie-2560.jpg'}`} x={-12} y={-62} width={16} height={14} preserveAspectRatio="none" opacity={0.9} />
       )}
       {/* RainViewer radar, reprojected to this map's lat/lon box, under the tracks. [FR-H-1] */}
       {radarUrl && (

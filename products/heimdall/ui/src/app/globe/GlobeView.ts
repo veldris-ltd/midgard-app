@@ -114,6 +114,7 @@ const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windf
 const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
 const DRAPE_W = 2048;
+export type MapStyle = 'tactical' | 'satellite' | 'dark';
 const DRAPE_H = 1792;
 const GLOBE_COLOUR = '#1a2636';
 /** A screen tap: moved less than this (px) within this long (ms). */
@@ -375,9 +376,11 @@ export class GlobeView {
   private readonly pathCurtain: THREE.Mesh;
   private readonly terrain: THREE.Mesh;
   private readonly globeMaterial: THREE.MeshBasicMaterial;
-  /** Satellite imagery (NASA Blue Marble) on the globe and the terrain, or the plain dark map. */
+  /** Textured map (tactical relief or satellite imagery) on the globe and terrain, or the
+   *  plain dark map. */
   private imagery = false;
-  private textures: { earth: THREE.Texture; uk: THREE.Texture } | null = null;
+  private mapStyle: MapStyle = 'dark';
+  private textures: Partial<Record<string, THREE.Texture>> = {};
   /** Airport runway centre lines, on the ground. */
   private readonly runwayLines: THREE.LineSegments;
   /** Runways as strips of their real width (at least RUNWAY_MIN_M), on the ground. */
@@ -702,29 +705,39 @@ export class GlobeView {
     this.requestRender();
   }
 
-  /** Satellite imagery on or off. The images are bundled with the console (public/imagery),
-   *  so this works offline; they load the first time imagery is turned on. [FR-P3-3] */
-  setImagery(on: boolean): void {
-    if (on === this.imagery) return;
+  /** The map style: TACTICAL (monochrome hillshade relief with contours, a dark blue-grey
+   *  globe), SATELLITE (NASA Blue Marble, hillshaded) or DARK (plain relief colours). The
+   *  images are bundled with the console (public/imagery), so all three work offline;
+   *  each loads the first time its style is chosen. [FR-P3-3] */
+  setMapStyle(style: MapStyle): void {
+    if (style === this.mapStyle) return;
+    this.mapStyle = style;
+    const on = style !== 'dark';
     this.imagery = on;
-    if (on && !this.textures) {
-      const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
-      const load = (name: string) => {
-        const tex = new THREE.TextureLoader().load(`${base}imagery/${name}`, () => this.requestRender());
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
-        return tex;
-      };
-      this.textures = { earth: load('earth-4096.jpg'), uk: load('uk-ie-2560.jpg') };
-    }
-    // Dimmed a little, so tracks and labels stay the brightest things on screen.
-    this.globeMaterial.map = on ? this.textures!.earth : null;
-    this.globeMaterial.color.set(on ? 0xf2f2f2 : GLOBE_COLOUR);
+    const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+    const tex = (name: string) => {
+      if (!this.textures[name]) {
+        const t = new THREE.TextureLoader().load(`${base}imagery/${name}`, () => this.requestRender());
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        this.textures[name] = t;
+      }
+      return this.textures[name]!;
+    };
+    const tactical = style === 'tactical';
+    this.globeMaterial.map = on ? tex(tactical ? 'earth-tactical.jpg' : 'earth-4096.jpg') : null;
+    this.globeMaterial.color.set(on ? (tactical ? 0xffffff : 0xf2f2f2) : GLOBE_COLOUR);
     this.globeMaterial.needsUpdate = true;
     const tm = this.terrain.material as THREE.MeshLambertMaterial;
-    tm.map = on ? this.textures!.uk : null;
+    tm.map = on ? tex(tactical ? 'uk-ie-tactical.jpg' : 'uk-ie-2560.jpg') : null;
     tm.vertexColors = !on;
-    tm.color.set(on ? 0xb4b4b4 : 0xffffff);
+    // The relief is already shaded in the image; the scene light only adds a little.
+    tm.color.set(on ? (tactical ? 0xffffff : 0xb4b4b4) : 0xffffff);
+    // Roads and rails step back a little on the tactical map, so tracks lead.
+    for (const f of this.fatLines) {
+      const m = f.obj.material as LineMaterial;
+      m.opacity = (m.userData.baseOpacity ??= m.opacity) * (tactical ? 0.75 : 1);
+    }
     tm.needsUpdate = true;
     this.buildTerrain();
     this.requestRender();

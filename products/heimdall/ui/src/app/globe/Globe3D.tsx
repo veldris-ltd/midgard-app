@@ -8,7 +8,7 @@
 import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { colourOf, shapeOf } from '../trackStyle';
-import { GlobeView, type GlobeArea, type GlobeItem, type GlobeTrail, type PresetId } from './GlobeView';
+import { GlobeView, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
 
@@ -47,6 +47,15 @@ function Control({ label, onClick, active, children }: { label: string; onClick:
 }
 
 const IMAGERY_KEY = 'heimdall.globe.imagery';
+/** The stored map style; tactical unless the browser chose another. */
+export const readMapStyle = (): MapStyle => {
+  try {
+    const v = window.localStorage.getItem(IMAGERY_KEY);
+    return v === 'satellite' || v === 'dark' ? v : 'tactical';
+  } catch {
+    return 'tactical';
+  }
+};
 
 export interface Globe3DProps {
   tracks: HeimdallTrack[];
@@ -95,15 +104,16 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const [follow, setFollow] = React.useState(false);
   const [tilted, setTilted] = React.useState(true);
   const [heightsOpen, setHeightsOpen] = React.useState(false);
-  // Satellite imagery or the plain dark map, remembered per browser.
-  const [imagery, setImageryState] = React.useState(() => { try { return window.localStorage.getItem(IMAGERY_KEY) !== 'dark'; } catch { return true; } });
-  const setImagery = (on: boolean) => {
-    setImageryState(on);
-    try { window.localStorage.setItem(IMAGERY_KEY, on ? 'satellite' : 'dark'); } catch { /* storage blocked: still switches */ }
+  // Map style (tactical by default, satellite or dark), remembered per browser.
+  const [mapStyle, setMapStyleState] = React.useState<MapStyle>(readMapStyle);
+  const nextStyle = () => {
+    const next: MapStyle = mapStyle === 'tactical' ? 'satellite' : mapStyle === 'satellite' ? 'dark' : 'tactical';
+    setMapStyleState(next);
+    try { window.localStorage.setItem(IMAGERY_KEY, next); } catch { /* storage blocked: still switches */ }
   };
-  const imageryRef = React.useRef(imagery);
-  imageryRef.current = imagery;
-  React.useEffect(() => { viewRef.current?.setImagery(imagery); }, [imagery]);
+  const imageryRef = React.useRef(mapStyle);
+  imageryRef.current = mapStyle;
+  React.useEffect(() => { viewRef.current?.setMapStyle(mapStyle); }, [mapStyle]);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
   const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings });
@@ -158,7 +168,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
       return;
     }
     viewRef.current = view;
-    view.setImagery(imageryRef.current);
+    view.setMapStyle(imageryRef.current);
     return () => {
       view.dispose();
       viewRef.current = null;
@@ -309,9 +319,9 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
 
       {/* Vertical exaggeration, labelled so the heights are never read as true scale:
           folded to one chip until asked for. */}
-      <button type="button" onClick={() => setImagery(!imagery)} aria-pressed={imagery} aria-label={imagery ? 'Map: satellite imagery; switch to dark' : 'Map: dark; switch to satellite imagery'}
+      <button type="button" onClick={nextStyle} aria-label={`Map style: ${mapStyle}; switch style`}
         style={{ all: 'unset', cursor: 'pointer', position: 'absolute', top: 52, left: 12, zIndex: 4, minHeight: 32, padding: '0 10px', display: 'inline-flex', alignItems: 'center', ...mono, color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
-        MAP · {imagery ? 'SATELLITE' : 'DARK'}
+        MAP · {mapStyle.toUpperCase()}
       </button>
       {!heightsOpen && (
         <button type="button" onClick={() => setHeightsOpen(true)} aria-expanded={false} aria-label={`Heights stretched ×${exaggeration}; change`}
