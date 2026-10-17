@@ -126,6 +126,7 @@ const KIND_CLASS: Record<string, string> = {
   'land-road-disruption': 'ROAD DISRUPTION',
   'airspace-volume': 'AIRSPACE',
   'event-fire': 'FIRE HOTSPOT',
+  'land-train': 'TRAIN',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -144,6 +145,7 @@ const KIND_FEED: Record<string, string> = {
   'space-weather': 'space weather (NOAA SWPC)',
   'airspace-volume': 'airspace (openAIP)',
   'event-fire': 'fire hotspots (NASA FIRMS)',
+  'land-train': 'train movements (TRUST)',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -349,6 +351,14 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
       rows.push(['SEVERITY', a('severity')], ['CATEGORY', a('category')], ['LOCATION', a('location')], ['COMMENTS', a('comments')],
         ['FROM', when(e.attributes.start)], ['UNTIL', when(e.attributes.end)]);
       break;
+    case 'land-train': {
+      const late = num(e.attributes.late_min) ?? 0;
+      rows.push(['HEADCODE', a('headcode')], ['AT', [a('station'), a('crs') && `(${a('crs')})`].filter(Boolean).join(' ')],
+        ['EVENT', a('event')], ['PLATFORM', a('platform')],
+        ['PUNCTUALITY', late > 0 ? `${late} min late` : late < 0 ? `${-late} min early` : 'on time'],
+        ['NEXT REPORT', a('next_station')], ['OPERATOR CODE', a('toc_id')], ['TRAIN ID', a('train_id')]);
+      break;
+    }
     case 'sea-vessel':
       rows.push(['NAME', a('name')], ['MMSI', a('mmsi')], ['IMO', a('imo')], ['TYPE', a('ship_type')], ['STATUS', a('nav_status')],
         ['DESTINATION', a('destination')], ['HEADING', num(e.attributes.heading) !== undefined ? `${Math.round(num(e.attributes.heading)!)}°` : undefined]);
@@ -552,6 +562,7 @@ export class HeimdallHttp implements HeimdallGateway {
         lon: reportedLon,
         altM,
         magnitude: num(e.attributes.mag),
+        lateMin: e.kind === 'land-train' ? num(e.attributes.late_min) : undefined,
         severityLevel: num(e.attributes.severity_level),
         station: isStation(e) || undefined,
         shipType: e.kind === 'sea-vessel' ? textAttr(e, 'ship_type') : undefined,

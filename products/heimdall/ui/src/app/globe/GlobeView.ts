@@ -30,6 +30,9 @@
  * terminator); the MEASURE line and range rings drawn on the ground. */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { HeimdallHistoryPoint } from '@midgard/sdk';
 import type { TrackShape } from '../trackStyle';
 import { BORDER_PATH, LAND_PATH } from '../basemap';
@@ -101,21 +104,16 @@ export interface GlobeCallbacks {
 
 /** Marker sizes in CSS pixels. */
 const PX: Record<TrackShape, number> = {
-  aircraft: 17, vessel: 13, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6,
+  aircraft: 17, vessel: 13, train: 10, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6,
   sigmet: 9, warning: 9, windfarm: 15, platform: 7, road: 8, airspace: 4, fire: 6,
 };
-const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire'];
+const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'train', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire'];
 /** Flat marks laid on the ground (unlit, translucent). */
 const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire']);
 /** Marks placed on the terrain surface rather than at an altitude. */
-const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
+const SURFACE = new Set<TrackShape>([...FLAT, 'platform', 'train']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
 const DRAPE_W = 2048;
-/** Rivers, lakes and main roads ([lat, lon] lines) for the draped base map. */
-const BASE_LINES = (() => {
-  const parse = (text: string) => text.split('|').filter(Boolean).map((ln) => ln.split(' ').map((p) => p.split(',').map(Number) as [number, number]));
-  return { rivers: parse(RIVERS), lakes: parse(LAKES), motorways: parse(MOTORWAYS), roads: parse(ROADS) };
-})();
 const DRAPE_H = 1792;
 const GLOBE_COLOUR = '#1a2636';
 /** A screen tap: moved less than this (px) within this long (ms). */
@@ -381,6 +379,7 @@ export class GlobeView {
   /** Runways as strips of their real width (at least RUNWAY_MIN_M), on the ground. */
   private readonly runwayStrips: THREE.Mesh;
   private readonly drapedStrips: [number, number][][][];
+  private readonly fatLines: { obj: LineSegments2; strips: [number, number][][] }[] = [];
   private readonly draped: THREE.LineSegments[];
   /** Short ribbons hanging a little below every trail, so trails read in 3D. */
   private readonly trailRibbons: THREE.Mesh;
@@ -457,9 +456,21 @@ export class GlobeView {
     // height stretch changes).
     // Rivers and lakes (Natural Earth 1:10m) are draped like the coast, in water blue.
     const hydro = (text: string) => text.split('|').map((ln) => ln.split(' ').map((p) => { const [la, lo] = p.split(',').map(Number); return [lo, la] as [number, number]; }));
-    this.drapedStrips = [svgRings(LAND_PATH), svgRings(BORDER_PATH), hydro(RIVERS), hydro(LAKES)];
-    this.draped = [lines(new Float32Array(0), 'var(--text-muted)', 0.6), lines(new Float32Array(0), 'var(--text-faint)', 0.4),
-      lines(new Float32Array(0), '#5aa9e6', 0.9), lines(new Float32Array(0), '#5aa9e6', 0.9)];
+    this.drapedStrips = [svgRings(LAND_PATH), svgRings(BORDER_PATH)];
+    this.draped = [lines(new Float32Array(0), 'var(--text-muted)', 0.6), lines(new Float32Array(0), 'var(--text-faint)', 0.4)];
+    // Roads and rivers as screen-space lines of a fixed pixel width, draped on the terrain:
+    // sharp at any zoom (a painted texture blurs when magnified).
+    const fat = (strips: [number, number][][], colour: string, px: number, opacity: number) => {
+      const material = new LineMaterial({ color: new THREE.Color(colour).getHex(), linewidth: px, transparent: true, opacity, depthWrite: false });
+      const obj = new LineSegments2(new LineSegmentsGeometry(), material);
+      obj.frustumCulled = false;
+      this.scene.add(obj);
+      this.fatLines.push({ obj, strips });
+    };
+    fat(hydro(ROADS), '#ebe1c8', 1.2, 0.55);
+    fat(hydro(MOTORWAYS), '#ffc45c', 2.2, 0.9);
+    fat(hydro(LAKES), '#6eb9f5', 1.4, 0.9);
+    fat(hydro(RIVERS), '#6eb9f5', 1.8, 0.95);
 
     // Shaded relief for the UK and Ireland, lit by the same lights as the markers.
     this.terrain = new THREE.Mesh(
@@ -518,6 +529,10 @@ export class GlobeView {
     // Entity markers, one instanced mesh per shape (grown on demand).
     this.geometries.set('aircraft', aircraftGeometry());
     this.geometries.set('vessel', vesselGeometry());
+    // A train: a long low carriage, lit like the other solid markers.
+    const carriage = new THREE.BoxGeometry(0.34, 1, 0.26);
+    carriage.translate(0, 0, 0.13);
+    this.geometries.set('train', carriage);
     this.geometries.set('balloon', new THREE.SphereGeometry(0.5, 12, 8));
     this.geometries.set('satellite', new THREE.OctahedronGeometry(0.5));
     this.geometries.set('quake', new THREE.RingGeometry(0.72, 1, 40));
@@ -780,38 +795,12 @@ export class GlobeView {
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
   }
 
-  /** The base map painted into the draped texture under everything else: main roads
-   *  and rivers (lakes filled), with real line widths so they read at regional zoom. */
-  private paintBaseMap(ctx: CanvasRenderingContext2D): void {
-    const { west, east, south, north } = TERRAIN;
-    const x = (lo: number) => ((lo - west) / (east - west)) * DRAPE_W;
-    const y = (la: number) => ((north - la) / (north - south)) * DRAPE_H;
-    const stroke = (lines: [number, number][][], colour: string, width: number, fill = false) => {
-      ctx.strokeStyle = colour;
-      ctx.fillStyle = colour;
-      ctx.lineWidth = width;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      for (const ln of lines) {
-        ctx.beginPath();
-        ln.forEach(([la, lo], i) => (i ? ctx.lineTo(x(lo), y(la)) : ctx.moveTo(x(lo), y(la))));
-        if (fill) { ctx.closePath(); ctx.fill(); }
-        ctx.stroke();
-      }
-    };
-    stroke(BASE_LINES.roads, 'rgba(235, 225, 200, 0.55)', 2.2);
-    stroke(BASE_LINES.motorways, 'rgba(255, 196, 92, 0.85)', 3.4);
-    stroke(BASE_LINES.lakes, 'rgba(90, 169, 230, 0.75)', 1.5, true);
-    stroke(BASE_LINES.rivers, 'rgba(110, 185, 245, 0.95)', 3.2);
-  }
-
   private buildAreas(): void {
     const fillPos: number[] = [], fillCol: number[] = [];
     const linePos: number[] = [], lineCol: number[] = [];
     const ctx = this.drapeCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, DRAPE_W, DRAPE_H);
-    this.paintBaseMap(ctx);
-    let draped = 1; // the base map is always there
+    let draped = 0;
     const { west, east, south, north } = TERRAIN;
     const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0007;
     const a = new THREE.Vector3(), b = new THREE.Vector3(), a2 = new THREE.Vector3(), b2 = new THREE.Vector3();
@@ -1103,6 +1092,11 @@ export class GlobeView {
     this.drapeGeometry.setIndex(full);
     this.drapeGeometry.computeBoundingSphere();
     const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0006;
+    const drapeLow = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.00025;
+    for (const f of this.fatLines) {
+      (f.obj.geometry as LineSegmentsGeometry).setPositions(stripsToSegments(f.strips, drapeLow));
+      f.obj.computeLineDistances();
+    }
     this.draped.forEach((line, n) => {
       line.geometry.setAttribute('position', new THREE.BufferAttribute(stripsToSegments(this.drapedStrips[n], drape), 3));
       line.geometry.computeBoundingSphere();
@@ -1197,6 +1191,7 @@ export class GlobeView {
     this.height = h;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(w, h, false);
+    for (const f of this.fatLines) (f.obj.material as LineMaterial).resolution.set(w, h);
     this.frameView();
     this.requestRender();
   }

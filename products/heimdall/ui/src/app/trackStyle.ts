@@ -25,7 +25,7 @@ export const FLOOD_COLOURS: Record<number, string> = {
 
 /** The entity kind a track is drawn as. Reference-layout tracks carry no detail, so
  *  their layer stands in. */
-export type TrackShape = 'aircraft' | 'vessel' | 'airport' | 'balloon' | 'satellite' | 'quake' | 'flood' | 'point'
+export type TrackShape = 'aircraft' | 'vessel' | 'train' | 'airport' | 'balloon' | 'satellite' | 'quake' | 'flood' | 'point'
   | 'sigmet' | 'warning' | 'windfarm' | 'platform' | 'road' | 'airspace' | 'fire';
 
 /** openAIP airspace by type: restrictions warm, controlled airspace cool, the rest faint. */
@@ -81,6 +81,7 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'air-track': return 'aircraft';
     case 'air-balloon': return 'balloon';
     case 'sea-vessel': return 'vessel';
+    case 'land-train': return 'train';
     case 'land-airport': return 'airport';
     case 'space-satellite': return 'satellite';
     case 'event-earthquake': return 'quake';
@@ -103,6 +104,11 @@ export function colourOf(t: HeimdallTrack): string {
     case 'aircraft': return bandOf(t).color;
     case 'balloon': return 'var(--mimir-300)';
     case 'airport': return FLIGHT_CATEGORY_COLOURS[t.detail?.flightCategory ?? ''] ?? 'var(--text-muted)';
+    case 'train': {
+      // On time (or early) green, a few minutes late amber, badly late red.
+      const late = t.detail?.lateMin ?? 0;
+      return late > 10 ? 'var(--danger)' : late > 2 ? 'var(--warn)' : 'var(--secure)';
+    }
     case 'vessel': return VESSEL_COLOURS[t.detail?.shipType ?? ''] ?? 'var(--midgard-300)';
     case 'satellite': return t.detail?.station ? 'var(--heimdall-300)' : 'var(--bifrost-300)';
     case 'quake': return (t.detail?.magnitude ?? 0) >= 5 ? 'var(--danger)' : 'var(--warn)';

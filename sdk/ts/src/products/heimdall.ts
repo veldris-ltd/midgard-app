@@ -134,6 +134,8 @@ export interface HeimdallTrackDetail {
   altM?: number;
   /** Earthquake magnitude. */
   magnitude?: number;
+  /** A train's lateness against its timetable in minutes (negative = early). */
+  lateMin?: number;
   /** Flood warning severity, 1 (most severe) to 4. */
   severityLevel?: number;
   /** A crewed space station (highlighted on the globe). */
