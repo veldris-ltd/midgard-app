@@ -419,6 +419,8 @@ export class GlobeView {
   private readonly drapeCanvas: HTMLCanvasElement;
   private readonly drapeTexture: THREE.CanvasTexture;
   private readonly radarMesh: THREE.Mesh;
+  private readonly trafficMesh: THREE.Mesh;
+  private trafficTexture: THREE.Texture | null = null;
   private radarTexture: THREE.Texture | null = null;
   private readonly sun = { value: new THREE.Vector3(1, 0, 0) };
   private readonly night = { value: 1 };
@@ -523,7 +525,10 @@ export class GlobeView {
     (this.radarMesh.material as THREE.MeshBasicMaterial).opacity = 0.75;
     this.radarMesh.renderOrder = 1;
     this.radarMesh.visible = false;
-    this.scene.add(this.radarMesh, this.areaDrape);
+    this.trafficMesh = new THREE.Mesh(this.drapeGeometry, drapeMat(null, -4));
+    this.trafficMesh.renderOrder = 9; // over the road lines, which it replaces while on
+    this.trafficMesh.visible = false;
+    this.scene.add(this.radarMesh, this.areaDrape, this.trafficMesh);
     this.buildTerrain();
     this.loadHiresTerrain();
     const atmosphere = new THREE.Mesh(
@@ -761,6 +766,28 @@ export class GlobeView {
   setAreas(areas: GlobeArea[]): void {
     this.areas = areas;
     this.buildAreas();
+    this.requestRender();
+  }
+
+  /** Live traffic over the terrain box, or null to hide it. While it shows, the road
+   *  lines fade so the traffic colours lead. [FR-H-1] */
+  setTraffic(canvas: HTMLCanvasElement | null): void {
+    this.trafficTexture?.dispose();
+    this.trafficTexture = null;
+    const m = this.trafficMesh.material as THREE.MeshBasicMaterial;
+    if (canvas) {
+      this.trafficTexture = new THREE.CanvasTexture(canvas);
+      this.trafficTexture.colorSpace = THREE.SRGBColorSpace;
+      this.trafficTexture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    }
+    m.map = this.trafficTexture;
+    m.needsUpdate = true;
+    this.trafficMesh.visible = !!canvas;
+    for (const f of this.fatLines.slice(2, 6)) {
+      const lm = f.obj.material as LineMaterial;
+      lm.userData.baseOpacity ??= lm.opacity;
+      lm.opacity = lm.userData.baseOpacity * (canvas ? 0.3 : 1);
+    }
     this.requestRender();
   }
 

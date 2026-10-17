@@ -77,6 +77,8 @@ export interface Globe3DProps {
   areas?: GlobeArea[];
   /** The radar image over the terrain box, or null. */
   radar?: HTMLCanvasElement | null;
+  /** Live traffic over the terrain box, or null. */
+  traffic?: HTMLCanvasElement | null;
   /** The time the night side is shaded for (unix ms): now, or the replay time. */
   sunTime?: number;
   /** MEASURE: surface taps go to `onSurface` instead of selecting. */
@@ -92,7 +94,7 @@ export interface Globe3DProps {
   onInteract?: () => void;
 }
 
-export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract }: Globe3DProps) {
+export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract }: Globe3DProps) {
   const measureRef = React.useRef<HTMLDivElement>(null);
   const ringLabelRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const hostRef = React.useRef<HTMLDivElement>(null);
@@ -208,6 +210,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const areaSig = areas.map((a) => a.id).join('|');
   React.useEffect(() => { viewRef.current?.setAreas(areasRef.current); }, [areaSig]);
   React.useEffect(() => { viewRef.current?.setRadar(radar); }, [radar]);
+  React.useEffect(() => { viewRef.current?.setTraffic(traffic); }, [traffic]);
   // Shade for the minute (a frame per minute is plenty for the terminator).
   const sunMinute = Math.floor((sunTime ?? Date.now()) / 60000);
   React.useEffect(() => { viewRef.current?.setSunTime(sunMinute * 60000); }, [sunMinute]);
