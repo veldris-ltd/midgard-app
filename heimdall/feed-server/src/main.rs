@@ -10,7 +10,7 @@
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
 //! to `heimdall-feed`). `--state-dir` holds `policy.json` — the rules for `OpenChannel`,
-//! `Ingest`, `ReadPicture` and `ReadHistory` — and the service's sealed
+//! `Ingest`, `ReadPicture`, `ReadHistory`, `ReadAlerts` and `AcknowledgeAlert` — and the service's sealed
 //! `picture.sealed`, `history/` and `feed.ledger`; it is locked while the service runs. Requests are audited under
 //! `--purpose` (default `situational-awareness`), the one purpose the channel opens
 //! for. PQ-mTLS is served on `--bind` (default `0.0.0.0:7730`); `/healthz`, `/readyz`
@@ -23,6 +23,12 @@
 //! for `--history-retention` seconds (default 86400) and read with `ReadHistory`, in
 //! pages of at most `--history-page-bytes` (default 921600; smaller only to exercise
 //! paging). [FR-H-1] [RC-13]
+//!
+//! `ttl.json` in the state directory, when it exists, sets the time-to-live of exact
+//! kinds (see [`heimdall_feed_server::ttl_file`]); other kinds use `--track-ttl`.
+//! `alerts.json`, when it exists, configures the alerts raised (see
+//! [`heimdall_feed_server::alerts`]); they are sealed in `alerts.sealed`, and read and
+//! acknowledged with `ReadAlerts` and `AcknowledgeAlert`. [FR-H-2] [FR-H-4]
 
 use std::collections::BTreeSet;
 use std::net::TcpListener;
@@ -33,7 +39,8 @@ use gateway::Gateway;
 use governance::Governance;
 use heimdall_classify::RulesClassifier;
 use heimdall_feed_server::{
-    parse_rules, FeedService, PictureState, DEFAULT_HISTORY_RETENTION, HISTORY_PAGE_BYTES,
+    describe_ttl, parse_alerts, parse_rules, parse_ttl, AlertBook, AlertConfig, FeedService,
+    PictureState, DEFAULT_HISTORY_RETENTION, HISTORY_PAGE_BYTES,
 };
 use heimdall_fusion::FusionEngine;
 use heimdall_store::{DurableHistory, DurablePicture};
@@ -156,6 +163,34 @@ fn run(args: &Args) -> Result<(), String> {
             "default rules".to_string(),
         )
     };
+    let read_optional = |name: &str| -> Result<Option<String>, String> {
+        let path = state_dir.join(name);
+        if !path.exists() {
+            return Ok(None);
+        }
+        std::fs::read_to_string(&path)
+            .map(Some)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))
+    };
+    let kind_ttls = match read_optional("ttl.json")? {
+        Some(text) => parse_ttl(&text).map_err(|e| format!("ttl.json: {e}"))?,
+        None => Default::default(),
+    };
+    let alert_config = match read_optional("alerts.json")? {
+        Some(text) => parse_alerts(&text).map_err(|e| format!("alerts.json: {e}"))?,
+        None => AlertConfig::default(),
+    };
+    let alerts_source = if state_dir.join("alerts.json").exists() {
+        format!("alerts.json ({})", alert_config.describe())
+    } else {
+        "none".to_string()
+    };
+    let alert_book = AlertBook::open(
+        state_dir.join("alerts.sealed"),
+        identity.data_sealer()?,
+        alert_config,
+    )?;
+    let open_alerts = alert_book.newest_first(true).count();
     let history = DurableHistory::open(state_dir.join("history"), identity.data_sealer()?)
         .map_err(|e| format!("the track history does not open: {e}"))?;
     let history_points = history.point_count();
@@ -163,7 +198,8 @@ fn run(args: &Args) -> Result<(), String> {
         durable,
         FusionEngine::new().with_classifier(Box::new(classifier)),
     )
-    .with_history(history);
+    .with_history(history)
+    .with_alerts(alert_book);
     let entities = state.picture().entity_count();
     state_ready.set(true);
 
@@ -185,6 +221,8 @@ fn run(args: &Args) -> Result<(), String> {
         metrics.clone(),
     );
     feed_service.set_track_ttl(track_ttl);
+    let kind_ttl_text = describe_ttl(&kind_ttls);
+    feed_service.set_kind_ttls(kind_ttls);
     feed_service.set_history_retention(history_retention);
     feed_service.set_history_page_bytes(history_page_bytes);
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
@@ -214,6 +252,9 @@ fn run(args: &Args) -> Result<(), String> {
             ("entities", &entities.to_string()),
             ("classifier", &rules_source),
             ("track_ttl", &track_ttl.to_string()),
+            ("kind_ttls", &kind_ttl_text),
+            ("alerts", &alerts_source),
+            ("open_alerts", &open_alerts.to_string()),
             ("history_points", &history_points.to_string()),
             ("history_retention", &history_retention.to_string()),
         ],

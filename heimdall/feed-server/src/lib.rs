@@ -28,11 +28,22 @@
 //! keeps its history until then — and is pruned and compacted at most once every
 //! [`HISTORY_MAINTAIN_SECS`]. [FR-H-1] [RC-13]
 //!
+//! A time-to-live can differ by kind ([`FeedService::set_kind_ttls`], from `ttl.json`;
+//! see [`ttl_file`]). Where an observation's position came from (`pos_source`) ranks
+//! it: an ADS-B position outranks a derived one for a minute (see
+//! [`heimdall_fusion::engine`]), and only positions the entity adopted become history.
+//!
+//! An [`AlertBook`] (configured by `alerts.json`; see [`alerts`]) watches the picture:
+//! classification labels, tracks that go dark, and feeds that disagree on a position.
+//! Each raise and clear is audited (`RaiseAlert`, `ClearAlert`); analysts read alerts
+//! with [`READ_ALERTS`] and acknowledge them with [`ACKNOWLEDGE_ALERT`], both
+//! authorised and audited. [FR-H-1] [FR-H-2] [FR-H-4]
+//!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
-//! [`READ_PICTURE`] the picture as JSON, or for [`READ_HISTORY`] a page of history as
-//! JSON.
+//! [`READ_PICTURE`] the picture as JSON, for [`READ_HISTORY`] a page of history as
+//! JSON, for [`READ_ALERTS`] the alerts and for [`ACKNOWLEDGE_ALERT`] the alert.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -55,8 +66,12 @@ use pqc_agility::SharedProvider;
 use service_runtime::json::Json;
 use telemetry::MetricsRegistry;
 
+pub mod alerts;
 pub mod rules_file;
+pub mod ttl_file;
+pub use alerts::{parse_alerts, Alert, AlertBook, AlertChange, AlertConfig};
 pub use rules_file::parse_rules;
+pub use ttl_file::{describe_ttl, parse_ttl};
 
 /// The most often stale tracks are swept, in seconds of the service clock.
 pub const EXPIRY_SWEEP_SECS: u64 = 30;
@@ -81,6 +96,19 @@ pub const READ_PICTURE: &str = "ReadPicture";
 /// The method an analyst reads track history with; its payload is a JSON query
 /// (see [`FeedService::read_history`]).
 pub const READ_HISTORY: &str = "ReadHistory";
+/// The method an analyst reads alerts with; its payload is `{"state": "open"|"all"}`
+/// (see [`FeedService::read_alerts`]).
+pub const READ_ALERTS: &str = "ReadAlerts";
+/// The method an analyst acknowledges an alert with; its payload is `{"id", "by"}`
+/// (see [`FeedService::acknowledge_alert`]).
+pub const ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
+/// The policy action an alert read is authorised as.
+pub const ACTION_READ_ALERTS: &str = "ReadAlerts";
+/// The policy action an acknowledgement is authorised as.
+pub const ACTION_ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
+/// The most bytes of alerts one [`READ_ALERTS`] response carries (under 900 KiB);
+/// past it the oldest are left out and `"truncated"` is true.
+pub const ALERTS_PAGE_BYTES: usize = 900 * 1024 - 1024;
 /// The policy action a submission is authorised as.
 pub const ACTION_INGEST: &str = "Ingest";
 /// The policy action a picture read is authorised as.
@@ -98,6 +126,8 @@ pub mod outcome {
     pub const MALFORMED: u8 = 2;
     /// It could not be audited or persisted.
     pub const FAILED: u8 = 3;
+    /// What it names does not exist (an unknown alert id).
+    pub const NOT_FOUND: u8 = 4;
 }
 
 /// The fused picture and its sealed, durable copy, kept in step.
@@ -105,6 +135,7 @@ pub struct PictureState {
     engine: FusionEngine,
     durable: DurablePicture,
     history: Option<DurableHistory>,
+    alerts: AlertBook,
     seen: BTreeSet<String>,
     seen_order: VecDeque<String>,
 }
@@ -130,6 +161,7 @@ impl PictureState {
             engine,
             durable,
             history: None,
+            alerts: AlertBook::in_memory(AlertConfig::default()),
             seen: BTreeSet::new(),
             seen_order: VecDeque::new(),
         }
@@ -140,6 +172,23 @@ impl PictureState {
     pub fn with_history(mut self, history: DurableHistory) -> Self {
         self.history = Some(history);
         self
+    }
+
+    /// Keep alerts in `book` (by default an in-memory book that raises none).
+    /// [FR-H-2] [FR-H-4]
+    pub fn with_alerts(mut self, book: AlertBook) -> Self {
+        self.alerts = book;
+        self
+    }
+
+    /// The alerts.
+    pub fn alerts(&self) -> &AlertBook {
+        &self.alerts
+    }
+
+    /// The alerts, to change.
+    pub fn alerts_mut(&mut self) -> &mut AlertBook {
+        &mut self.alerts
     }
 
     /// The track history, if one is kept.
@@ -182,8 +231,49 @@ impl PictureState {
 
     /// Remove entities last seen before `cutoff`, from the live and the sealed picture.
     pub fn expire_before(&mut self, cutoff: u64) -> Result<Vec<EntityId>, StoreError> {
-        self.engine.expire_before(cutoff);
-        self.durable.expire_before(cutoff)
+        self.expire(cutoff, |_| 0)
+    }
+
+    /// Remove every entity whose kind's time-to-live (`ttl_of(kind)` seconds; 0 keeps
+    /// it for ever) has passed since it was last seen, from the live and the sealed
+    /// picture in one write, and tell the alert book. [FR-H-1] [FR-H-2]
+    pub fn expire_by_kind(
+        &mut self,
+        now: u64,
+        ttl_of: impl Fn(&str) -> u64,
+    ) -> Result<Vec<EntityId>, StoreError> {
+        self.expire(now, |kind| match ttl_of(kind) {
+            0 => u64::MAX,
+            ttl => ttl,
+        })
+    }
+
+    /// Expire entities last seen before `now - age(kind)` (an age of 0: `now` itself;
+    /// `u64::MAX`: never).
+    fn expire(&mut self, now: u64, age: impl Fn(&str) -> u64) -> Result<Vec<EntityId>, StoreError> {
+        let stale: Vec<EntityId> = self
+            .engine
+            .picture()
+            .entities()
+            .filter(|e| {
+                let age = age(&e.kind);
+                age != u64::MAX && e.track.last_seen < now.saturating_sub(age)
+            })
+            .map(|e| e.id.clone())
+            .collect();
+        if stale.is_empty() {
+            return Ok(stale);
+        }
+        let gone = self.engine.picture_mut().remove_entities(&stale);
+        let removed = self.durable.remove_entities(&stale)?;
+        self.alerts.expired(&gone, now);
+        let _ = self.alerts.flush();
+        Ok(removed)
+    }
+
+    /// The alert changes since last taken, for the caller to audit.
+    pub fn take_alert_changes(&mut self) -> Vec<AlertChange> {
+        self.alerts.take_changes()
     }
 
     fn remember(&mut self, observation_id: &str) {
@@ -215,9 +305,19 @@ impl PictureState {
         let mut changed = BTreeSet::new();
         let mut records = Vec::new();
         for observation in observations {
-            let id = self.engine.ingest(observation);
-            records.extend(self.history_record(observation, &id));
-            changed.insert(id);
+            let fused = self.engine.fuse(observation);
+            if fused.position_adopted {
+                records.extend(self.history_record(observation, &fused.id));
+            }
+            if let Some(entity) = self.engine.picture().entity(&fused.id) {
+                self.alerts.observed(entity, observation.observation(), now);
+            }
+            changed.insert(fused.id);
+        }
+        for id in &changed {
+            if let Some(entity) = self.engine.picture().entity(id) {
+                self.alerts.entity_updated(entity, now);
+            }
         }
         let layers: Vec<_> = self.engine.picture().layers().cloned().collect();
         let entities: Vec<_> = changed
@@ -229,6 +329,8 @@ impl PictureState {
         for observation in observations {
             self.remember(&observation.observation().id.0);
         }
+        // An alert book that fails to seal is written again on its next change.
+        let _ = self.alerts.flush();
         Ok(())
     }
 
@@ -239,7 +341,8 @@ impl PictureState {
         observation: &VerifiedObservation,
         now: u64,
     ) -> Result<EntityId, StoreError> {
-        let id = self.engine.ingest(observation);
+        let fused = self.engine.fuse(observation);
+        let id = fused.id.clone();
         let Some(entity) = self.engine.picture().entity(&id).cloned() else {
             return Ok(id);
         };
@@ -259,12 +362,20 @@ impl PictureState {
                 self.durable.ensure_layer(layer)?;
             }
         }
+        self.alerts
+            .observed(&entity, observation.observation(), now);
+        self.alerts.entity_updated(&entity, now);
         self.durable.upsert_entity(entity)?;
-        let record: Vec<_> = self.history_record(observation, &id).into_iter().collect();
+        let record: Vec<_> = if fused.position_adopted {
+            self.history_record(observation, &id).into_iter().collect()
+        } else {
+            Vec::new()
+        };
         self.record_history(&record, now)?;
         // Remembered only once durable, so a submission that failed to persist can be
         // retried rather than refused as a replay.
         self.remember(&observation.observation().id.0);
+        let _ = self.alerts.flush();
         Ok(id)
     }
 }
@@ -279,6 +390,7 @@ pub struct FeedService<S: LedgerStore> {
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     metrics: Arc<MetricsRegistry>,
     track_ttl: AtomicU64,
+    kind_ttls: Mutex<BTreeMap<String, u64>>,
     last_sweep: AtomicU64,
     history_retention: AtomicU64,
     last_history_maintenance: AtomicU64,
@@ -307,6 +419,10 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             "Track-history points removed for being older than the retention window.",
         );
         metrics.describe(
+            "feed_alerts_total",
+            "Alert changes, by action (RaiseAlert, ClearAlert).",
+        );
+        metrics.describe(
             "feed_tracks_expired_total",
             "Tracks removed from the picture for not being seen within the time-to-live.",
         );
@@ -319,6 +435,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             clock,
             metrics,
             track_ttl: AtomicU64::new(0),
+            kind_ttls: Mutex::new(BTreeMap::new()),
             last_sweep: AtomicU64::new(0),
             history_retention: AtomicU64::new(DEFAULT_HISTORY_RETENTION),
             last_history_maintenance: AtomicU64::new(0),
@@ -329,6 +446,12 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     /// Remove entities not seen for `seconds` (0, the default, keeps them for ever).
     pub fn set_track_ttl(&self, seconds: u64) {
         self.track_ttl.store(seconds, Ordering::Relaxed);
+    }
+
+    /// Time-to-live by exact kind, overriding [`FeedService::set_track_ttl`] for those
+    /// kinds (0 keeps a kind for ever). [FR-H-1]
+    pub fn set_kind_ttls(&self, ttls: BTreeMap<String, u64>) {
+        *lock(&self.kind_ttls) = ttls;
     }
 
     /// Keep track history for `seconds` (default [`DEFAULT_HISTORY_RETENTION`]); older
@@ -344,10 +467,33 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             .store(bytes.max(1), Ordering::Relaxed);
     }
 
-    /// Expire stale tracks and maintain the history, each when it is due.
+    /// Expire stale tracks and maintain the history, each when it is due; prune old
+    /// cleared alerts; and audit every alert change since the last sweep.
     fn sweep(&self, now: u64) {
         self.expire_tracks(now);
         self.maintain_history(now);
+        {
+            let mut state = lock(&self.state);
+            if state.alerts.prune(now) > 0 {
+                let _ = state.alerts.flush();
+            }
+        }
+        self.audit_alert_changes(now);
+    }
+
+    /// Record each alert change in the ledger, one entry per change. [FR-H-4]
+    fn audit_alert_changes(&self, now: u64) {
+        let changes = lock(&self.state).take_alert_changes();
+        if changes.is_empty() {
+            return;
+        }
+        let mut governance = lock(&self.governance);
+        for change in &changes {
+            let _ =
+                governance.record_event("heimdall-feed", change.action(), &change.resource(), now);
+            self.metrics
+                .inc("feed_alerts_total", &[("action", change.action())]);
+        }
     }
 
     /// Prune history older than the retention window and compact its segments, at most
@@ -386,13 +532,15 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     /// a sweep that removes anything is audited as `ExpireTracks`.
     fn expire_tracks(&self, now: u64) {
         let ttl = self.track_ttl.load(Ordering::Relaxed);
-        if ttl == 0
+        let kinds = lock(&self.kind_ttls).clone();
+        if (ttl == 0 && kinds.values().all(|t| *t == 0))
             || now.saturating_sub(self.last_sweep.load(Ordering::Relaxed)) < EXPIRY_SWEEP_SECS
         {
             return;
         }
         self.last_sweep.store(now, Ordering::Relaxed);
-        let removed = match lock(&self.state).expire_before(now.saturating_sub(ttl)) {
+        let ttl_of = |kind: &str| kinds.get(kind).copied().unwrap_or(ttl);
+        let removed = match lock(&self.state).expire_by_kind(now, ttl_of) {
             Ok(removed) => removed,
             Err(_) => return,
         };
@@ -409,7 +557,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     }
 
     /// The router the PQ-mTLS gateway serves: [`INGEST`], [`INGEST_BATCH`],
-    /// [`READ_PICTURE`] and [`READ_HISTORY`].
+    /// [`READ_PICTURE`], [`READ_HISTORY`], [`READ_ALERTS`] and [`ACKNOWLEDGE_ALERT`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
         let ingest: Arc<dyn RequestHandler> =
@@ -423,11 +571,20 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         let service = self.clone();
         let history: Arc<dyn RequestHandler> =
             Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.read_history(peer, body));
+        let service = self.clone();
+        let alerts: Arc<dyn RequestHandler> =
+            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.read_alerts(peer, body));
+        let service = self.clone();
+        let ack: Arc<dyn RequestHandler> = Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| {
+            service.acknowledge_alert(peer, body)
+        });
         Router::new()
             .route(INGEST, ingest)
             .route(INGEST_BATCH, batch)
             .route(READ_PICTURE, read)
             .route(READ_HISTORY, history)
+            .route(READ_ALERTS, alerts)
+            .route(ACKNOWLEDGE_ALERT, ack)
     }
 
     /// Admit, fuse and persist one signed observation.
@@ -675,6 +832,137 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
     }
 
+    /// The alerts, newest first: `{"state": "open"}` (not cleared, acknowledged or
+    /// not) or `{"state": "all"}`; an empty body reads open ones. The response is
+    /// `{"alerts": [alert, ..], "truncated": bool}` (see [`Alert::to_json`]), under
+    /// [`ALERTS_PAGE_BYTES`]. Authorised as [`ACTION_READ_ALERTS`] and audited once; a
+    /// malformed request is refused as malformed. [FR-H-4] [NFR-SEC-1]
+    pub fn read_alerts(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+        let now = (self.clock)();
+        let request = parse_alerts_request(body);
+        let action = if request.is_ok() {
+            ACTION_READ_ALERTS
+        } else {
+            "ReadAlerts:MALFORMED"
+        };
+        let decision =
+            lock(&self.governance).authorize(&self.context(peer), &self.resource, action, now);
+        let open_only = match (decision, request) {
+            (Err(_), _) => {
+                return self.reply(
+                    READ_ALERTS,
+                    outcome::FAILED,
+                    "the read could not be audited",
+                )
+            }
+            (Ok(_), Err(e)) => return self.reply(READ_ALERTS, outcome::MALFORMED, &e),
+            (Ok(d), Ok(_)) if !d.permitted => {
+                return self.reply(
+                    READ_ALERTS,
+                    outcome::DENIED,
+                    "policy does not permit this identity to read alerts",
+                )
+            }
+            (Ok(_), Ok(open_only)) => open_only,
+        };
+        let state = lock(&self.state);
+        let mut bytes = 64;
+        let mut truncated = false;
+        let mut items = Vec::new();
+        for alert in state.alerts().newest_first(open_only) {
+            let json = alert.to_json();
+            bytes += json.encode().len() + 1;
+            if bytes > ALERTS_PAGE_BYTES {
+                truncated = true;
+                break;
+            }
+            items.push(json);
+        }
+        let body = Json::obj(vec![
+            ("alerts", Json::Arr(items)),
+            ("truncated", Json::Bool(truncated)),
+        ]);
+        self.reply(READ_ALERTS, outcome::ACCEPTED, &body.encode())
+    }
+
+    /// Acknowledge an alert: the body is `{"id": "A-1", "by": "<user name>"}` and the
+    /// response the alert as it now is. Authorised as [`ACTION_ACKNOWLEDGE_ALERT`] and
+    /// audited, then recorded as an `AcknowledgeAlert` event naming the alert and `by`;
+    /// a detector's alert it clears is audited as `ClearAlert`. An unknown id is
+    /// [`outcome::NOT_FOUND`]. [FR-H-4] [NFR-SEC-1]
+    pub fn acknowledge_alert(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+        let now = (self.clock)();
+        let request = parse_ack_request(body);
+        let action = if request.is_ok() {
+            ACTION_ACKNOWLEDGE_ALERT
+        } else {
+            "AcknowledgeAlert:MALFORMED"
+        };
+        let decision =
+            lock(&self.governance).authorize(&self.context(peer), &self.resource, action, now);
+        let (id, by) = match (decision, request) {
+            (Err(_), _) => {
+                return self.reply(
+                    ACKNOWLEDGE_ALERT,
+                    outcome::FAILED,
+                    "the acknowledgement could not be audited",
+                )
+            }
+            (Ok(_), Err(e)) => return self.reply(ACKNOWLEDGE_ALERT, outcome::MALFORMED, &e),
+            (Ok(d), Ok(_)) if !d.permitted => {
+                return self.reply(
+                    ACKNOWLEDGE_ALERT,
+                    outcome::DENIED,
+                    "policy does not permit this identity to acknowledge alerts",
+                )
+            }
+            (Ok(_), Ok(request)) => request,
+        };
+        let acknowledged = {
+            let mut state = lock(&self.state);
+            state
+                .alerts_mut()
+                .acknowledge(&id, &by, now)
+                .map(|alert| (alert, state.alerts_mut().flush()))
+        };
+        let (alert, flushed) = match acknowledged {
+            Ok(ok) => ok,
+            Err(_) => {
+                return self.reply(
+                    ACKNOWLEDGE_ALERT,
+                    outcome::NOT_FOUND,
+                    &format!("there is no alert {id}"),
+                )
+            }
+        };
+        let recorded = lock(&self.governance).record_event(
+            &peer.id.0,
+            "AcknowledgeAlert",
+            &format!("alert:{id} by:{by}"),
+            now,
+        );
+        self.audit_alert_changes(now);
+        if recorded.is_err() {
+            return self.reply(
+                ACKNOWLEDGE_ALERT,
+                outcome::FAILED,
+                "the acknowledgement could not be audited",
+            );
+        }
+        if let Err(e) = flushed {
+            return self.reply(
+                ACKNOWLEDGE_ALERT,
+                outcome::FAILED,
+                &format!("the acknowledgement was not persisted: {e}"),
+            );
+        }
+        self.reply(
+            ACKNOWLEDGE_ALERT,
+            outcome::ACCEPTED,
+            &alert.to_json().encode(),
+        )
+    }
+
     fn refuse(
         &self,
         peer: &WorkloadIdentity,
@@ -709,6 +997,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             outcome::ACCEPTED => "accepted",
             outcome::DENIED => "denied",
             outcome::MALFORMED => "malformed",
+            outcome::NOT_FOUND => "not-found",
             _ => "failed",
         };
         self.metrics.inc(
@@ -826,6 +1115,64 @@ pub fn parse_history_query(body: &[u8], retention: u64) -> Result<HistoryQuery, 
         after: text_field("after")?,
         max_bytes: HISTORY_PAGE_BYTES,
     })
+}
+
+/// Parse a [`READ_ALERTS`] request: whether only open alerts are wanted.
+pub fn parse_alerts_request(body: &[u8]) -> Result<bool, String> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(true);
+    }
+    let json = request_object(body)?;
+    if let Json::Obj(pairs) = &json {
+        if let Some((key, _)) = pairs.iter().find(|(k, _)| k != "state") {
+            return Err(format!("unknown key \"{key}\""));
+        }
+    }
+    match json.get("state") {
+        None => Ok(true),
+        Some(Json::Str(s)) if s == "open" => Ok(true),
+        Some(Json::Str(s)) if s == "all" => Ok(false),
+        _ => Err("\"state\" must be \"open\" or \"all\"".into()),
+    }
+}
+
+/// The most characters of an acknowledger's name recorded.
+pub const MAX_ACK_BY: usize = 64;
+
+/// Parse an [`ACKNOWLEDGE_ALERT`] request: the alert id and who acknowledges it (control
+/// characters stripped, at most [`MAX_ACK_BY`] characters).
+pub fn parse_ack_request(body: &[u8]) -> Result<(String, String), String> {
+    let json = request_object(body)?;
+    if let Json::Obj(pairs) = &json {
+        if let Some((key, _)) = pairs.iter().find(|(k, _)| k != "id" && k != "by") {
+            return Err(format!("unknown key \"{key}\""));
+        }
+    }
+    let id = match json.str_field("id") {
+        Some(id) if !id.trim().is_empty() && id.len() <= 128 => id.to_string(),
+        _ => return Err("\"id\" must be an alert id".into()),
+    };
+    let by: String = json
+        .str_field("by")
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_ACK_BY)
+        .collect();
+    if by.trim().is_empty() {
+        return Err("\"by\" must name who acknowledges the alert".into());
+    }
+    Ok((id, by))
+}
+
+fn request_object(body: &[u8]) -> Result<Json, String> {
+    let text = std::str::from_utf8(body).map_err(|_| "the request is not UTF-8".to_string())?;
+    let json =
+        service_runtime::json::parse(text).map_err(|e| format!("the request is not JSON: {e}"))?;
+    if !matches!(json, Json::Obj(_)) {
+        return Err("the request is not a JSON object".into());
+    }
+    Ok(json)
 }
 
 /// A lock that stays usable after a panic elsewhere.
@@ -956,6 +1303,51 @@ mod tests {
         ] {
             assert!(
                 parse_history_query(bad, 3600).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn alert_requests_are_parsed_and_bad_ones_refused() {
+        assert_eq!(parse_alerts_request(b""), Ok(true));
+        assert_eq!(parse_alerts_request(br#"{"state": "open"}"#), Ok(true));
+        assert_eq!(parse_alerts_request(br#"{"state": "all"}"#), Ok(false));
+        assert_eq!(parse_alerts_request(b"{}"), Ok(true));
+        for bad in [
+            &br#"{"state": "closed"}"#[..],
+            br#"{"state": 1}"#,
+            br#"{"state": "all", "x": 1}"#,
+            b"[]",
+            b"nope",
+        ] {
+            assert!(
+                parse_alerts_request(bad).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+        assert_eq!(
+            parse_ack_request(br#"{"id": "A-1", "by": "alice\u0007 smith"}"#),
+            Ok(("A-1".to_string(), "alice smith".to_string()))
+        );
+        let long = format!(r#"{{"id": "A-1", "by": "{}"}}"#, "x".repeat(100));
+        assert_eq!(
+            parse_ack_request(long.as_bytes()).unwrap().1.len(),
+            MAX_ACK_BY
+        );
+        for bad in [
+            &br#"{"id": "A-1"}"#[..],
+            br#"{"id": "A-1", "by": " "}"#,
+            br#"{"by": "alice"}"#,
+            br#"{"id": "", "by": "alice"}"#,
+            br#"{"id": 1, "by": "alice"}"#,
+            br#"{"id": "A-1", "by": "alice", "note": "x"}"#,
+            b"",
+        ] {
+            assert!(
+                parse_ack_request(bad).is_err(),
                 "{}",
                 String::from_utf8_lossy(bad)
             );

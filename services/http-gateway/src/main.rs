@@ -22,11 +22,13 @@
 //!
 //!       With --heimdall-addr, signed-in users the policy lets `Read` it get Heimdall's
 //!       common operating picture at GET /api/v1/heimdall/picture, and its track
-//!       history at GET /api/v1/heimdall/history. The gateway reads them
-//!       from `heimdall-feed` over PQ-mTLS as the identity in --heimdall-identity-dir
-//!       (service --heimdall-service, default `picture-analyst`; Heimdall's policy must
-//!       grant it ReadPicture and ReadHistory), declaring --heimdall-purpose (default
-//!       `situational-awareness`).
+//!       history at GET /api/v1/heimdall/history, and its alerts at
+//!       GET /api/v1/heimdall/alerts; users it lets `Apply` acknowledge an alert with
+//!       POST /api/v1/heimdall/alerts/{id}/ack. The gateway calls `heimdall-feed` over
+//!       PQ-mTLS as the identity in --heimdall-identity-dir (service
+//!       --heimdall-service, default `picture-analyst`; Heimdall's policy must grant it
+//!       ReadPicture, ReadHistory, ReadAlerts and AcknowledgeAlert), declaring
+//!       --heimdall-purpose (default `situational-awareness`). [FR-H-4]
 //!
 //! Point a console at it with `VITE_GATEWAY=http` (see products/*/ui). [RC-24] [RC-29]
 //! [FR-F-4] [NFR-SEC-1]

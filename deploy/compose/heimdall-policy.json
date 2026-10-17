@@ -10,6 +10,10 @@
     { "id": "analyst-read", "role": "picture-reader", "action": "ReadPicture",
       "resource": "*", "effect": "permit" },
     { "id": "analyst-history", "role": "picture-reader", "action": "ReadHistory",
+      "resource": "*", "effect": "permit" },
+    { "id": "analyst-alerts", "role": "picture-reader", "action": "ReadAlerts",
+      "resource": "*", "effect": "permit" },
+    { "id": "analyst-acknowledge", "role": "picture-reader", "action": "AcknowledgeAlert",
       "resource": "*", "effect": "permit" }
   ]
 }

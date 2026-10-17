@@ -661,6 +661,29 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     "this gateway is not connected to Heimdall",
                 )),
             },
+            // Alerts, authorised and audited as `Read` on this path; Heimdall audits the
+            // read too. [FR-H-4]
+            ("GET", heimdall_bridge::ALERTS_PATH) => match &self.heimdall {
+                Some(bridge) => heimdall_bridge::alerts_state(&req.query)
+                    .and_then(|open_only| bridge.alerts(open_only)),
+                None => Err(EdgeError::new(
+                    404,
+                    "this gateway is not connected to Heimdall",
+                )),
+            },
+            // An acknowledgement, authorised and audited as `Apply` above under the
+            // signed-in user, whose name Heimdall records as `by`. [FR-H-4]
+            ("POST", path) if heimdall_bridge::ack_target(path).is_some() => {
+                match (&self.heimdall, heimdall_bridge::ack_target(path)) {
+                    (Some(bridge), Some(id)) => {
+                        id.and_then(|id| bridge.acknowledge(&id, &claims.subject))
+                    }
+                    _ => Err(EdgeError::new(
+                        404,
+                        "this gateway is not connected to Heimdall",
+                    )),
+                }
+            }
             ("POST", "/api/v1/policy/simulate") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))
                 .and_then(|body| {
@@ -702,6 +725,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             ("POST", "/api/v1/actions") => {
                 (req.path.clone(), self.marking_for("__actions__"), "Apply")
             }
+            // Acknowledging a Heimdall alert changes it: a write, like an action.
+            // [FR-H-4]
+            ("POST", path) if heimdall_bridge::ack_target(path).is_some() => (
+                path.to_string(),
+                self.marking_for(heimdall_bridge::ALERTS_PATH),
+                "Apply",
+            ),
             (_, path) => (path.to_string(), self.marking_for(path), "Read"),
         }
     }
@@ -1051,6 +1081,130 @@ mod tests {
         assert_eq!(down.status, 502, "{}", down.body);
         assert!(down.body.contains("unreachable"), "{}", down.body);
         assert_eq!(gw.audit_len(), before + 3, "each read was audited");
+    }
+
+    /// The alert routes: the read is authorised and audited like the picture and its
+    /// `state` checked; an acknowledgement is authorised and audited as `Apply` (a
+    /// reader without it is refused, audited), a bad id is a 400 and an unreachable
+    /// Heimdall a 502, all after auditing; without Heimdall a 404; without a token a
+    /// 401. [FR-H-4] [NFR-SEC-1]
+    #[test]
+    fn the_alert_routes_authorise_audit_and_map_errors() {
+        let call =
+            |gw: &SecuredGateway, method: &str, path: &str, query: &str, token: Option<&str>| {
+                let mut req = request(method, path, "", token);
+                req.query = query.to_string();
+                gw.handle(&req, now_secs())
+            };
+        let ack = "/api/v1/heimdall/alerts/A-1/ack";
+        let unconnected = SecuredGateway::dev();
+        let token = login(&unconnected);
+        assert_eq!(
+            call(&unconnected, "GET", "/api/v1/heimdall/alerts", "", None).status,
+            401
+        );
+        assert_eq!(call(&unconnected, "POST", ack, "", None).status, 401);
+        assert_eq!(
+            call(
+                &unconnected,
+                "GET",
+                "/api/v1/heimdall/alerts",
+                "",
+                Some(&token)
+            )
+            .status,
+            404
+        );
+        assert_eq!(
+            call(&unconnected, "POST", ack, "", Some(&token)).status,
+            404
+        );
+
+        let gw = SecuredGateway::dev().with_heimdall(heimdall_bridge::HeimdallBridge::new(
+            heimdall_reader(),
+            "127.0.0.1:1",
+            "situational-awareness",
+        ));
+        let token = login(&gw);
+        let before = gw.audit_len();
+        let bad = call(
+            &gw,
+            "GET",
+            "/api/v1/heimdall/alerts",
+            "state=closed",
+            Some(&token),
+        );
+        assert_eq!(bad.status, 400, "{}", bad.body);
+        let down = call(
+            &gw,
+            "GET",
+            "/api/v1/heimdall/alerts",
+            "state=all",
+            Some(&token),
+        );
+        assert_eq!(down.status, 502, "{}", down.body);
+        assert!(down.body.contains("unreachable"), "{}", down.body);
+        let bad = call(
+            &gw,
+            "POST",
+            "/api/v1/heimdall/alerts/A%201/ack",
+            "",
+            Some(&token),
+        );
+        assert_eq!(bad.status, 400, "{}", bad.body);
+        let down = call(&gw, "POST", ack, "", Some(&token));
+        assert_eq!(down.status, 502, "{}", down.body);
+        assert_eq!(gw.audit_len(), before + 4, "each request was audited");
+        assert_eq!(
+            call(&gw, "GET", ack, "", Some(&token)).status,
+            404,
+            "an acknowledgement is a POST"
+        );
+
+        // A user the policy lets Read but not Apply may read alerts but not
+        // acknowledge them.
+        let idp = iam::Idp::generate("ro-idp", &mut OsRng).unwrap();
+        let read_only_policy = PolicySet::new(vec![Rule {
+            id: RuleId("reader".into()),
+            role: Role("operator".into()),
+            action: Action("Read".into()),
+            purpose: None,
+            selector: Selector::Any,
+            effect: Effect::Permit,
+        }])
+        .unwrap();
+        let mut read_only = SecuredGateway::new(
+            fips_provider(),
+            idp.verifying_key().clone(),
+            Governance::new(DefaultPdp::new(read_only_policy), &mut OsRng).unwrap(),
+            vec![],
+        )
+        .with_idp(idp, Pbkdf2Hasher::new(1024))
+        .with_heimdall(heimdall_bridge::HeimdallBridge::new(
+            heimdall_reader(),
+            "127.0.0.1:1",
+            "situational-awareness",
+        ));
+        read_only
+            .provision_login(DEMO_USERNAME, DEMO_PASSWORD, demo_operator())
+            .unwrap();
+        let token = login(&read_only);
+        let before = read_only.audit_len();
+        let read = call(
+            &read_only,
+            "GET",
+            "/api/v1/heimdall/alerts",
+            "",
+            Some(&token),
+        );
+        assert_eq!(
+            read.status, 502,
+            "permitted to read; Heimdall is down: {}",
+            read.body
+        );
+        let refused = call(&read_only, "POST", ack, "", Some(&token));
+        assert_eq!(refused.status, 403, "{}", refused.body);
+        assert_eq!(read_only.audit_len(), before + 2, "the refusal was audited");
     }
 
     #[test]

@@ -17,6 +17,12 @@
 //! page over one session and returns the tracks merged, up to [`MAX_HISTORY_PAGES`]
 //! pages or [`MAX_HISTORY_BYTES`], after which the result says `"truncated": true`.
 //! Each page is one audited `ReadHistory` in Heimdall's ledger. [FR-H-1]
+//!
+//! Alerts (`GET /api/v1/heimdall/alerts?state=open|all`) are read the same way, as
+//! `ReadAlerts`. Acknowledging one (`POST /api/v1/heimdall/alerts/{id}/ack`) is a write:
+//! the gateway authorises it as `Apply` and audits it under the signed-in user, then
+//! calls `AcknowledgeAlert` with that user's name as `by`, which Heimdall authorises and
+//! audits again, recording `by`. An unknown alert is a 404. [FR-H-4] [NFR-SEC-1]
 
 use service_runtime::client;
 use service_runtime::json::{parse, Json};
@@ -32,6 +38,80 @@ const READ_HISTORY: &str = "ReadHistory";
 const ACCEPTED: u8 = 0;
 /// Heimdall's outcome byte for a query it could not make sense of.
 const MALFORMED: u8 = 2;
+/// Heimdall's outcome byte for an alert it does not hold.
+const NOT_FOUND: u8 = 4;
+/// The `heimdall-feed` method that returns the alerts.
+const READ_ALERTS: &str = "ReadAlerts";
+/// The `heimdall-feed` method that acknowledges an alert.
+const ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
+/// The path alerts are read at; an acknowledgement is `{ALERTS_PATH}/{id}/ack`.
+pub const ALERTS_PATH: &str = "/api/v1/heimdall/alerts";
+
+/// Parse the query string of `GET /api/v1/heimdall/alerts`: `state` is `open` (the
+/// default) or `all`. Returns whether only open alerts are wanted; anything else is a
+/// 400. [FR-H-4]
+pub fn alerts_state(query: &str) -> Result<bool, EdgeError> {
+    let mut open_only = true;
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let (k, v) = (percent_decode(k)?, percent_decode(v)?);
+        match (k.as_str(), v.as_str()) {
+            ("state", "open") | ("state", "") => open_only = true,
+            ("state", "all") => open_only = false,
+            ("state", other) => {
+                return Err(EdgeError::bad_request(&format!(
+                    "state must be open or all, not '{other}'"
+                )))
+            }
+            _ => {}
+        }
+    }
+    Ok(open_only)
+}
+
+/// The alert id an acknowledgement path names: `Some` for any path of the form
+/// `/api/v1/heimdall/alerts/{id}/ack`, with the id or a 400 for one that is not an
+/// alert id (1-64 letters, digits, `-` or `_`, after percent-decoding). [FR-H-4]
+pub fn ack_target(path: &str) -> Option<Result<String, EdgeError>> {
+    let rest = path.strip_prefix(ALERTS_PATH)?.strip_prefix('/')?;
+    let raw = rest.strip_suffix("/ack")?;
+    Some(percent_decode(raw).and_then(|id| {
+        let ok = !id.is_empty()
+            && id.len() <= 64
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if ok {
+            Ok(id)
+        } else {
+            Err(EdgeError::bad_request(&format!(
+                "'{raw}' is not an alert id"
+            )))
+        }
+    }))
+}
+
+/// Make sense of a `ReadAlerts` or `AcknowledgeAlert` response: its JSON, or the error
+/// the browser gets (unknown alert 404, malformed 400, anything else 502).
+fn alerts_response(response: &[u8]) -> Result<Json, EdgeError> {
+    let (code, body) = response
+        .split_first()
+        .ok_or_else(|| EdgeError::new(502, "Heimdall sent an empty response"))?;
+    let body = String::from_utf8_lossy(body);
+    match *code {
+        ACCEPTED => {
+            parse(&body).map_err(|e| EdgeError::new(502, &format!("Heimdall's alerts: {e}")))
+        }
+        NOT_FOUND => Err(EdgeError::new(404, &body)),
+        MALFORMED => Err(EdgeError::bad_request(&format!(
+            "Heimdall refused the request: {body}"
+        ))),
+        _ => Err(EdgeError::new(
+            502,
+            &format!("Heimdall refused the request: {body}"),
+        )),
+    }
+}
 /// The most history pages one gateway request reads.
 pub const MAX_HISTORY_PAGES: usize = 50;
 /// The most history bytes one gateway request reads.
@@ -256,6 +336,43 @@ impl HeimdallBridge {
         parse(&body).map_err(|e| EdgeError::new(502, &format!("Heimdall's picture: {e}")))
     }
 
+    /// The alerts as `{"alerts": [..]}`, newest first: only open ones, or all. Heimdall
+    /// being unreachable or refusing the read is a 502. [FR-H-4]
+    pub fn alerts(&self, open_only: bool) -> Result<Json, EdgeError> {
+        let request = Json::obj(vec![(
+            "state",
+            Json::s(if open_only { "open" } else { "all" }),
+        )]);
+        let response = client::call(
+            &self.identity,
+            &self.addr,
+            &self.purpose,
+            READ_ALERTS,
+            request.encode().as_bytes(),
+        )
+        .map_err(|e| EdgeError::new(502, &format!("Heimdall is unreachable: {e}")))?;
+        let body = alerts_response(&response)?;
+        match body.get("alerts") {
+            Some(Json::Arr(items)) => Ok(Json::obj(vec![("alerts", Json::Arr(items.clone()))])),
+            _ => Err(EdgeError::new(502, "Heimdall's alerts are malformed")),
+        }
+    }
+
+    /// Acknowledge alert `id` as `by` (the signed-in user's name): the updated alert.
+    /// An unknown alert is a 404; Heimdall unreachable or refusing is a 502. [FR-H-4]
+    pub fn acknowledge(&self, id: &str, by: &str) -> Result<Json, EdgeError> {
+        let request = Json::obj(vec![("id", Json::s(id)), ("by", Json::s(by))]);
+        let response = client::call(
+            &self.identity,
+            &self.addr,
+            &self.purpose,
+            ACKNOWLEDGE_ALERT,
+            request.encode().as_bytes(),
+        )
+        .map_err(|e| EdgeError::new(502, &format!("Heimdall is unreachable: {e}")))?;
+        alerts_response(&response)
+    }
+
     /// Track history as `{"from", "to", "tracks": [{"id", "kind", "layer", "points":
     /// [[t, lat, lon, alt_m|null], ..]}], "truncated"}`: every page Heimdall serves for
     /// the query, read over one session and merged, up to [`MAX_HISTORY_PAGES`] pages or
@@ -330,6 +447,59 @@ mod tests {
             let e = HistoryParams::from_query(bad, 1_000).unwrap_err();
             assert_eq!(e.status, 400, "{bad}");
         }
+    }
+
+    #[test]
+    fn alert_params_and_paths_parse_and_refuse() {
+        assert!(alerts_state("").unwrap());
+        assert!(alerts_state("state=open").unwrap());
+        assert!(!alerts_state("state=all").unwrap());
+        assert!(alerts_state("other=1&state=").unwrap());
+        assert_eq!(alerts_state("state=closed").unwrap_err().status, 400);
+        assert_eq!(alerts_state("state=%zz").unwrap_err().status, 400);
+
+        assert_eq!(
+            ack_target("/api/v1/heimdall/alerts/A-12/ack").map(|r| r.unwrap()),
+            Some("A-12".to_string())
+        );
+        assert_eq!(
+            ack_target("/api/v1/heimdall/alerts/A%2D1/ack").map(|r| r.unwrap()),
+            Some("A-1".to_string())
+        );
+        for bad in [
+            "/api/v1/heimdall/alerts//ack",
+            "/api/v1/heimdall/alerts/A 1/ack",
+            "/api/v1/heimdall/alerts/A%201/ack",
+            "/api/v1/heimdall/alerts/A/1/ack",
+            "/api/v1/heimdall/alerts/%zz/ack",
+        ] {
+            assert_eq!(ack_target(bad).unwrap().unwrap_err().status, 400, "{bad}");
+        }
+        for not_ack in [
+            "/api/v1/heimdall/alerts",
+            "/api/v1/heimdall/alerts/A-1",
+            "/api/v1/heimdall/alertsA-1/ack",
+            "/api/v1/heimdall/picture",
+        ] {
+            assert!(ack_target(not_ack).is_none(), "{not_ack}");
+        }
+    }
+
+    #[test]
+    fn alert_responses_map_to_status() {
+        let ok = alerts_response(b"\x00{\"id\":\"A-1\"}").unwrap();
+        assert_eq!(ok.str_field("id"), Some("A-1"));
+        assert_eq!(
+            alerts_response(b"\x04there is no alert A-9")
+                .unwrap_err()
+                .status,
+            404
+        );
+        assert_eq!(alerts_response(b"\x02bad").unwrap_err().status, 400);
+        assert_eq!(alerts_response(b"\x01denied").unwrap_err().status, 502);
+        assert_eq!(alerts_response(b"\x03failed").unwrap_err().status, 502);
+        assert_eq!(alerts_response(b"\x00not json").unwrap_err().status, 502);
+        assert_eq!(alerts_response(&[]).unwrap_err().status, 502);
     }
 
     #[test]

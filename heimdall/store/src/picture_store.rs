@@ -69,6 +69,21 @@ impl DurablePicture {
         Ok(gone)
     }
 
+    /// Remove the entities with these ids, durably, in one write; returns the ids that
+    /// were present, and writes nothing when none were. [FR-H-1] [RC-13]
+    pub fn remove_entities(&mut self, ids: &[EntityId]) -> Result<Vec<EntityId>, StoreError> {
+        let gone: Vec<EntityId> = self
+            .picture
+            .remove_entities(ids)
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        if !gone.is_empty() {
+            self.save()?;
+        }
+        Ok(gone)
+    }
+
     /// Register layers if absent and insert or replace entities, durably, in one write.
     /// [RC-13]
     pub fn upsert_all(

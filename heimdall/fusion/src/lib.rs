@@ -22,6 +22,6 @@ pub mod engine;
 pub mod fabric_sync;
 pub mod layering;
 
-pub use engine::FusionEngine;
+pub use engine::{Fused, FusionEngine, ADSB_PREFERENCE_SECS, POS_AT, POS_FEED, POS_SOURCE};
 pub use fabric_sync::{project_entity, sync_to_fabric, ENTITY_TYPE_ID};
 pub use layering::LayerPolicy;

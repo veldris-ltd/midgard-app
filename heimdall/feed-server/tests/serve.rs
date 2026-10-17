@@ -14,7 +14,7 @@ use std::process::{Child, Command, Output, Stdio};
 
 use attest::Keystore;
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
-use heimdall_feed_server::{outcome, INGEST, READ_HISTORY};
+use heimdall_feed_server::{outcome, ACKNOWLEDGE_ALERT, INGEST, READ_ALERTS, READ_HISTORY};
 use heimdall_picture::{FeedId, Observation};
 use iam::{Idp, IDP_SIG_ALG};
 use policy::Role;
@@ -36,6 +36,10 @@ const POLICY: &str = r#"{
     { "id": "analyst-read", "role": "picture-reader", "action": "ReadPicture",
       "resource": "*", "effect": "permit" },
     { "id": "analyst-history", "role": "picture-reader", "action": "ReadHistory",
+      "resource": "*", "effect": "permit" },
+    { "id": "analyst-alerts", "role": "picture-reader", "action": "ReadAlerts",
+      "resource": "*", "effect": "permit" },
+    { "id": "analyst-acknowledge", "role": "picture-reader", "action": "AcknowledgeAlert",
       "resource": "*", "effect": "permit" }
   ]
 }"#;
@@ -88,6 +92,9 @@ struct Running {
     entities: String,
     classifier: String,
     history_points: String,
+    kind_ttls: String,
+    alerts: String,
+    open_alerts: String,
 }
 
 impl Drop for Running {
@@ -144,6 +151,9 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
         entities: field(&serving, "entities").expect("entity count"),
         classifier: field(&serving, "classifier").expect("classifier"),
         history_points: field(&serving, "history_points").expect("history point count"),
+        kind_ttls: field(&serving, "kind_ttls").expect("kind ttls"),
+        alerts: field(&serving, "alerts").expect("alerts config"),
+        open_alerts: field(&serving, "open_alerts").expect("open alert count"),
     }
 }
 
@@ -629,6 +639,247 @@ fn positions_become_track_history_that_pages_is_audited_and_survives_a_restart()
         recovered[0].2, tracks[1].2,
         "the same points after the restart"
     );
+    drop(session);
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+const ALERTS: &str = r#"{ "version": 1,
+  "labels": { "emergency": "critical" },
+  "detectors": {
+    "went_dark": { "kinds": ["sea-vessel"], "min_speed_kt": 2.0, "severity": "warning" },
+    "source_disagreement": { "max_km": 5.0, "window_s": 60, "severity": "warning" } } }"#;
+
+const TTL: &str = r#"{ "version": 1, "ttl": { "sea-vessel": 60, "airspace-volume": 0 } }"#;
+
+/// The alerts in a `ReadAlerts` response, after checking it was served.
+fn alerts_of(response: &[u8]) -> Vec<Json> {
+    assert_eq!(response[0], outcome::ACCEPTED, "{}", text(&response[1..]));
+    let body = parse(&text(&response[1..])).expect("alerts are JSON");
+    assert_eq!(body.get("truncated"), Some(&Json::Bool(false)));
+    match body.get("alerts") {
+        Some(Json::Arr(items)) => items.clone(),
+        _ => panic!("{}", body.encode()),
+    }
+}
+
+/// Alerts end to end: a rule's label raises an alert and a vessel under way that
+/// expires by its kind's time-to-live raises `went-dark`, while a static kind with a
+/// time-to-live of 0 stays; an analyst reads them and acknowledges them, each
+/// acknowledgement audited with who made it; a source may do neither; and the alerts
+/// survive a restart. [FR-H-1] [FR-H-2] [FR-H-4] [NFR-SEC-1]
+#[test]
+fn rules_and_detectors_raise_alerts_analysts_read_and_acknowledge() {
+    let root = scratch("alerts");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "adsb", &["feed-source"]);
+    issue(&idp, &clients, "analyst", &["picture-reader"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+    std::fs::write(state.join("rules.json"), RULES).unwrap();
+    std::fs::write(state.join("alerts.json"), ALERTS).unwrap();
+    std::fs::write(state.join("ttl.json"), TTL).unwrap();
+
+    let flags = ["--track-ttl", "300"];
+    let server = start_with(&server_identity, &state, &flags);
+    assert_eq!(server.kind_ttls, "airspace-volume=0,sea-vessel=60");
+    assert!(
+        server.alerts.starts_with("alerts.json ("),
+        "{}",
+        server.alerts
+    );
+    assert_eq!(server.open_alerts, "0");
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let lines = [
+        // Under way, last seen 100 s ago: past the sea-vessel TTL of 60 s.
+        format!(
+            r#"{{"entity": "VESSEL", "kind": "sea-vessel", "observedAt": {}, "attrs": {{"speed": 12.34, "lat": 50.1, "lon": -4.2}}}}"#,
+            now - 100
+        ),
+        // Static, a day old, never expires.
+        format!(
+            r#"{{"entity": "EGTT-CTA", "kind": "airspace-volume", "observedAt": {}, "attrs": {{"lower_ft": 5500, "upper_ft": 24500}}}}"#,
+            now - 86_400
+        ),
+        format!(
+            r#"{{"entity": "EMRG", "kind": "air-track", "observedAt": {now}, "attrs": {{"squawk": "7700", "lat": 51.5, "lon": -0.1}}}}"#
+        ),
+    ];
+    let file = root.join("batch.jsonl");
+    std::fs::write(&file, lines.join("\n")).unwrap();
+    let out = source(
+        &clients,
+        "adsb",
+        &server.mesh,
+        &["--batch", &file.display().to_string()],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+
+    let analyst = ServiceIdentity::load(&clients, "analyst").unwrap();
+    let mut session = client::Session::open(&analyst, &server.mesh, PURPOSE).unwrap();
+    let open = alerts_of(&session.call(READ_ALERTS, br#"{"state": "open"}"#).unwrap());
+    let summary: Vec<(&str, &str, &str, &str)> = open
+        .iter()
+        .map(|a| {
+            (
+                a.str_field("id").unwrap(),
+                a.str_field("entity").unwrap(),
+                a.str_field("label").unwrap(),
+                a.str_field("severity").unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("A-2", "VESSEL", "went-dark", "warning"),
+            ("A-1", "EMRG", "emergency", "critical"),
+        ],
+        "newest first"
+    );
+    let dark = &open[0];
+    assert_eq!(dark.str_field("kind"), Some("sea-vessel"));
+    assert_eq!(
+        dark.str_field("rationale"),
+        Some("stopped reporting while under way at 12.3 kt")
+    );
+    assert_eq!(dark.get("lat"), Some(&Json::Num(50.1)));
+    assert_eq!(dark.get("clearedAt"), Some(&Json::Null));
+    assert_eq!(dark.get("acknowledgedBy"), Some(&Json::Null));
+    assert!(matches!(open[1].get("raisedAt"), Some(Json::Int(t)) if *t as u64 >= now));
+
+    // The static airspace stays; the vessel went.
+    let fused = picture(&clients, &server.mesh);
+    let ids: Vec<&str> = match fused.get("entities") {
+        Some(Json::Arr(items)) => items.iter().filter_map(|e| e.str_field("id")).collect(),
+        _ => panic!("{}", fused.encode()),
+    };
+    assert_eq!(ids, ["EGTT-CTA", "EMRG"]);
+    assert_eq!(
+        entity(&fused, "EGTT-CTA").get("layer"),
+        Some(&Json::s("airspace"))
+    );
+
+    // Acknowledged: the label alert stays open, the detector's clears.
+    let acked = session
+        .call(ACKNOWLEDGE_ALERT, br#"{"id": "A-1", "by": "alice"}"#)
+        .unwrap();
+    assert_eq!(acked[0], outcome::ACCEPTED, "{}", text(&acked[1..]));
+    let acked = parse(&text(&acked[1..])).unwrap();
+    assert_eq!(acked.str_field("acknowledgedBy"), Some("alice"));
+    assert_eq!(acked.get("clearedAt"), Some(&Json::Null));
+    let acked = session
+        .call(ACKNOWLEDGE_ALERT, br#"{"id": "A-2", "by": "bob"}"#)
+        .unwrap();
+    assert_eq!(acked[0], outcome::ACCEPTED, "{}", text(&acked[1..]));
+    assert!(matches!(
+        parse(&text(&acked[1..])).unwrap().get("clearedAt"),
+        Some(Json::Int(_))
+    ));
+    let open = alerts_of(&session.call(READ_ALERTS, br#"{"state": "open"}"#).unwrap());
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].str_field("acknowledgedBy"), Some("alice"));
+    let all = alerts_of(&session.call(READ_ALERTS, br#"{"state": "all"}"#).unwrap());
+    assert_eq!(all.len(), 2);
+    let unknown = session
+        .call(ACKNOWLEDGE_ALERT, br#"{"id": "A-99", "by": "alice"}"#)
+        .unwrap();
+    assert_eq!(unknown[0], outcome::NOT_FOUND, "{}", text(&unknown[1..]));
+    drop(session);
+
+    // A source may neither read nor acknowledge alerts.
+    let adsb = ServiceIdentity::load(&clients, "adsb").unwrap();
+    let denied = client::call(&adsb, &server.mesh, PURPOSE, READ_ALERTS, b"{}").unwrap();
+    assert_eq!(denied[0], outcome::DENIED);
+    let denied = client::call(
+        &adsb,
+        &server.mesh,
+        PURPOSE,
+        ACKNOWLEDGE_ALERT,
+        br#"{"id": "A-1", "by": "mallory"}"#,
+    )
+    .unwrap();
+    assert_eq!(denied[0], outcome::DENIED);
+
+    // Audited: three submissions, two raises, the picture read, four alert reads, two
+    // acknowledgements (each a decision and an event, and the second a clear), the
+    // unknown acknowledgement, and the source's two refusals.
+    drop(server);
+    let feed = ServiceIdentity::load(&server_identity, "heimdall-feed").unwrap();
+    let ledger = feed
+        .audit_writer(state.join("feed.ledger"), "heimdall-feed-audit")
+        .unwrap();
+    let rows: Vec<(String, String, String)> = ledger
+        .entries()
+        .iter()
+        .map(|e| {
+            (
+                e.record.actor.0.clone(),
+                e.record.action.0.clone(),
+                e.record.resource.0.clone(),
+            )
+        })
+        .collect();
+    let has = |actor: &str, action: &str, resource: &str| {
+        rows.iter()
+            .any(|(a, b, c)| a == actor && b == action && c == resource)
+    };
+    assert!(
+        has(
+            "heimdall-feed",
+            "RaiseAlert",
+            "alert:A-1 entity:EMRG label:emergency"
+        ),
+        "{rows:?}"
+    );
+    assert!(
+        has(
+            "heimdall-feed",
+            "RaiseAlert",
+            "alert:A-2 entity:VESSEL label:went-dark"
+        ),
+        "{rows:?}"
+    );
+    assert!(
+        has(
+            "heimdall-feed",
+            "ClearAlert",
+            "alert:A-2 entity:VESSEL label:went-dark"
+        ),
+        "{rows:?}"
+    );
+    assert!(
+        has("analyst", "AcknowledgeAlert", "alert:A-1 by:alice"),
+        "{rows:?}"
+    );
+    assert!(
+        has("analyst", "AcknowledgeAlert", "alert:A-2 by:bob"),
+        "{rows:?}"
+    );
+    assert!(has("adsb", "DENY ReadAlerts", "heimdall-feed"), "{rows:?}");
+    assert!(
+        has("adsb", "DENY AcknowledgeAlert", "heimdall-feed"),
+        "{rows:?}"
+    );
+    assert!(!rows.iter().any(|(_, _, r)| r.contains("mallory")));
+    assert_eq!(rows.len(), 3 + 2 + 1 + 4 + 5 + 1 + 2, "{rows:?}");
+    drop(ledger);
+
+    // The alerts survive a restart.
+    let server = start_with(&server_identity, &state, &flags);
+    assert_eq!(server.open_alerts, "1");
+    let mut session = client::Session::open(&analyst, &server.mesh, PURPOSE).unwrap();
+    let all = alerts_of(&session.call(READ_ALERTS, br#"{"state": "all"}"#).unwrap());
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[1].str_field("acknowledgedBy"), Some("alice"));
     drop(session);
     drop(server);
     let _ = std::fs::remove_dir_all(&root);

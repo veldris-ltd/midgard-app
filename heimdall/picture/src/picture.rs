@@ -62,6 +62,15 @@ impl Picture {
         stale
     }
 
+    /// Remove the entities with these ids, returning those that were present, in the
+    /// order given. Layers stay, as with [`Picture::expire_before`]; this is how a
+    /// caller applies a time-to-live that differs by kind. [FR-H-1] [FR-H-2]
+    pub fn remove_entities(&mut self, ids: &[EntityId]) -> Vec<TrackedEntity> {
+        ids.iter()
+            .filter_map(|id| self.entities.remove(id))
+            .collect()
+    }
+
     /// All entities, in id order — including those on hidden layers.
     pub fn entities(&self) -> impl Iterator<Item = &TrackedEntity> {
         self.entities.values()
@@ -149,5 +158,17 @@ mod tests {
         assert_eq!(picture.layer_count(), 1, "the layer outlives its contacts");
         assert!(!picture.is_layer_visible(&LayerId("air".into())));
         assert!(picture.expire_before(150).is_empty());
+    }
+
+    #[test]
+    fn removal_by_id_returns_what_was_there_and_keeps_layers() {
+        let mut picture = Picture::new();
+        picture.upsert_entity(entity("A", 100));
+        picture.upsert_entity(entity("B", 200));
+        let gone = picture.remove_entities(&[EntityId("B".into()), EntityId("NONE".into())]);
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].id, EntityId("B".into()));
+        assert_eq!(picture.entity_count(), 1);
+        assert_eq!(picture.layer_count(), 1);
     }
 }

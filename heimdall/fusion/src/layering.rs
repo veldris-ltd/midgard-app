@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use heimdall_picture::{Layer, LayerId};
 
 /// Maps an observation/entity kind to the layer it belongs on. A default prefix
-/// convention (`air-*`, `sea-*`, `land-*`, `space-*`, `cyber-*`/`sigint`, `event-*`) covers
-/// common feeds; explicit overrides take precedence.
+/// convention (`air-*`, `airspace-*`, `sea-*`, `land-*`, `space-*`, `cyber-*`/`sigint`,
+/// `event-*`) covers common feeds; explicit overrides take precedence.
 #[derive(Debug, Clone, Default)]
 pub struct LayerPolicy {
     overrides: BTreeMap<String, (String, String)>,
@@ -39,6 +39,7 @@ impl LayerPolicy {
         }
         let (id, name) = match domain_of(kind) {
             "air" => ("air", "Air"),
+            "airspace" => ("airspace", "Airspace"),
             "sea" => ("sea", "Maritime"),
             "land" => ("land", "Land"),
             "space" => ("space", "Space"),
@@ -53,7 +54,11 @@ impl LayerPolicy {
 /// Derive a coarse domain from a kind string.
 fn domain_of(kind: &str) -> &'static str {
     let k = kind.to_ascii_lowercase();
-    if k.starts_with("air") {
+    if k.starts_with("airspace") {
+        // Static airspace volumes (`airspace-volume`) are their own layer, not
+        // traffic; checked before `air`. [FR-H-1]
+        "airspace"
+    } else if k.starts_with("air") {
         "air"
     } else if k.starts_with("sea") || k.starts_with("mar") || k.starts_with("surface") {
         "sea"
@@ -92,6 +97,17 @@ mod tests {
         assert_eq!(layer.name, "Events");
         assert_eq!(p.layer_for("Event").0, LayerId("events".into()));
         assert_eq!(p.layer_for("eventual").0, LayerId("events".into()));
+    }
+
+    #[test]
+    fn airspace_has_its_own_layer() {
+        let p = LayerPolicy::new();
+        let (id, layer) = p.layer_for("airspace-volume");
+        assert_eq!(id, LayerId("airspace".into()));
+        assert_eq!(layer.name, "Airspace");
+        assert_eq!(p.layer_for("Airspace").0, LayerId("airspace".into()));
+        assert_eq!(p.layer_for("air-track").0, LayerId("air".into()));
+        assert_eq!(p.layer_for("airship").0, LayerId("air".into()));
     }
 
     #[test]
