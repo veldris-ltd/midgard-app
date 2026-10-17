@@ -169,11 +169,13 @@ const isStation = (e: WireEntity): boolean =>
   e.kind === 'space-satellite' &&
   (textAttr(e, 'group') === 'stations' || /\b(ISS|ZARYA|TIANHE|CSS|TIANGONG)\b/i.test(textAttr(e, 'name') ?? ''));
 
-/** Runway centre lines from the feed's `lat,lon,lat,lon;…` text. */
-function runwaysOf(geo: string | undefined): [number, number, number, number][] | undefined {
+/** Runways from the feed's `lat,lon,lat,lon[,width_m];…` text (width 45 m when absent). */
+function runwaysOf(geo: string | undefined): [number, number, number, number, number][] | undefined {
   if (!geo) return undefined;
-  const out = geo.split(';').map((r) => r.split(',').map(Number)).filter((r) => r.length === 4 && r.every(Number.isFinite));
-  return out.length ? (out as [number, number, number, number][]) : undefined;
+  const out = geo.split(';').map((r) => r.split(',').map(Number))
+    .filter((r) => (r.length === 4 || r.length === 5) && r.every(Number.isFinite))
+    .map((r) => [r[0], r[1], r[2], r[3], r[4] || 45] as [number, number, number, number, number]);
+  return out.length ? out : undefined;
 }
 
 /** The kind-specific attributes the inspector lists, in display order. */

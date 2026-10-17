@@ -43,8 +43,8 @@ export interface GlobeItem {
   colour: string;
   station?: boolean;
   magnitude?: number;
-  /** Runway centre lines, [lat, lon, lat, lon], drawn on the ground. */
-  runways?: [number, number, number, number][];
+  /** Runways, [lat, lon, lat, lon, width m], drawn on the ground. */
+  runways?: [number, number, number, number, number][];
 }
 
 export interface GlobeTrail {
@@ -67,6 +67,8 @@ const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'airport', 'balloon', 'satel
 const GLOBE_COLOUR = '#0a0f16';
 /** A screen tap: moved less than this (px) within this long (ms). */
 const TAP_PX = { mouse: 5, touch: 12 };
+/** Narrowest a runway is drawn, metres, so it shows before you are right on top of it. */
+const RUNWAY_MIN_M = 150;
 /** How far a trail's ribbon hangs below it: a fifth of its drawn height, at most about
  *  12 km as drawn (in earth radii), so it reads as depth and never reaches the ground. */
 const TRAIL_DROP = 12 / 6371;
@@ -271,6 +273,8 @@ export class GlobeView {
   private textures: { earth: THREE.Texture; uk: THREE.Texture } | null = null;
   /** Airport runway centre lines, on the ground. */
   private readonly runwayLines: THREE.LineSegments;
+  /** Runways as strips of their real width (at least RUNWAY_MIN_M), on the ground. */
+  private readonly runwayStrips: THREE.Mesh;
   private readonly drapedStrips: [number, number][][][];
   private readonly draped: THREE.LineSegments[];
   /** Short ribbons hanging a little below every trail, so trails read in 3D. */
@@ -336,6 +340,12 @@ export class GlobeView {
     );
     this.scene.add(this.terrain);
     this.runwayLines = lines(new Float32Array(0), 'var(--grey-100)', 0.85);
+    this.runwayStrips = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      new THREE.MeshBasicMaterial({ color: this.colour('var(--grey-100)'), transparent: true, opacity: 0.85, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    );
+    this.runwayStrips.renderOrder = 1;
+    this.scene.add(this.runwayStrips);
     this.buildTerrain();
     const atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(1.045, 96, 64),
@@ -711,10 +721,35 @@ export class GlobeView {
 
   private buildRunways(): void {
     const strips: [number, number][][] = [];
-    for (const p of this.placed) for (const [la1, lo1, la2, lo2] of p.item.runways ?? []) strips.push([[lo1, la1], [lo2, la2]]);
+    const quads: number[] = [];
     const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0008;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), side = new THREE.Vector3(), up = new THREE.Vector3();
+    for (const p of this.placed) {
+      for (const [la1, lo1, la2, lo2, w] of p.item.runways ?? []) {
+        strips.push([[lo1, la1], [lo2, la2]]);
+        toVec(la1, lo1, drape(la1, lo1), a);
+        toVec(la2, lo2, drape(la2, lo2), b);
+        up.copy(a).add(b).normalize();
+        side.subVectors(b, a).cross(up).normalize().multiplyScalar(Math.max(w, RUNWAY_MIN_M) / 2 / 6_371_000);
+        // two triangles: a-, a+, b+ and a-, b+, b-
+        quads.push(a.x - side.x, a.y - side.y, a.z - side.z, a.x + side.x, a.y + side.y, a.z + side.z, b.x + side.x, b.y + side.y, b.z + side.z,
+          a.x - side.x, a.y - side.y, a.z - side.z, b.x + side.x, b.y + side.y, b.z + side.z, b.x - side.x, b.y - side.y, b.z - side.z);
+      }
+    }
     this.runwayLines.geometry.setAttribute('position', new THREE.BufferAttribute(stripsToSegments(strips, drape), 3));
     this.runwayLines.geometry.computeBoundingSphere();
+    const g = this.runwayStrips.geometry;
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(quads), 3));
+    g.computeBoundingSphere();
+  }
+
+  /** Fly in low over a track (an airport, to see its runways). */
+  flyClose(id: string): void {
+    const p = this.byId.get(id);
+    if (!p) return;
+    this.endFollow();
+    this.cam.flyTo({ lat: p.item.lat, lon: p.item.lon, dist: 25 / 6371, tilt: 50 }, 1400);
+    this.requestRender();
   }
 
   private pointAt(pt: HeimdallHistoryPoint, out: THREE.Vector3): THREE.Vector3 {

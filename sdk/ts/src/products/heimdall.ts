@@ -142,8 +142,8 @@ export interface HeimdallTrackDetail {
   shipType?: string;
   /** An airport's METAR flight category: VFR, MVFR, IFR or LIFR. */
   flightCategory?: string;
-  /** An airport's runway centre lines, each [lat, lon, lat, lon]. */
-  runways?: [number, number, number, number][];
+  /** An airport's runways, each [lat, lon, lat, lon, width in metres] (centre line ends). */
+  runways?: [number, number, number, number, number][];
   /** Kind-specific reported attributes for the inspector, in display order. */
   facts?: { label: string; value: string }[];
   /** Classification label and the rule rationale, when a rule matched. */

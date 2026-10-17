@@ -232,6 +232,8 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights }: { t:
   const colour = colourOf(t);
   const aircraft = d.kind === 'air-track';
   const event = d.kind.startsWith('event-');
+  // Fixed things (airports, events) have no speed, track, trail or flight history.
+  const fixed = event || d.kind === 'land-airport';
   const sq = aircraft && d.squawk ? SQUAWKS[d.squawk] : undefined;
   const title = aircraft ? d.callsign || d.key : d.name || t.id;
   return (
@@ -252,7 +254,7 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights }: { t:
           SQUAWK {d.squawk} · {sq}
         </div>
       )}
-      {!event && (
+      {!fixed && (
         <Card size="sm">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <StatBlock value={t.alt} label="ALTITUDE" size="sm" />
@@ -275,10 +277,10 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights }: { t:
         <Row k="FIRST SEEN" v={`${fmtAgo(secsAgo(d.firstSeen))} ago`} />
         <Row k="OBSERVATIONS" v={d.observations.toLocaleString()} />
         <Row k="SOURCES" v={d.sources.length ? d.sources.join(', ') + ' · ML-DSA signed' : '—'} />
-        <Row k="TRAIL" v={trailNote} />
+        {!fixed && <Row k="TRAIL" v={trailNote} />}
       </Card>
       {flights && <FlightsCard {...flights} />}
-      {path && path.length > 1 && <FlightHistory points={path} replayAt={replayAt} />}
+      {!fixed && path && path.length > 1 && <FlightHistory points={path} replayAt={replayAt} />}
       <Card size="sm">
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>CLASSIFICATION</div>
         {d.label ? (

@@ -137,7 +137,13 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     runways: t.detail.runways,
   }] : [])), [tracks]);
 
+  const itemsRef = React.useRef(items);
+  itemsRef.current = items;
   React.useEffect(() => { viewRef.current?.setItems(items); }, [items]);
+  // Choosing an airport (on the globe or with Find) flies in over its runways.
+  React.useEffect(() => {
+    if (selected && itemsRef.current.find((it) => it.id === selected)?.shape === 'airport') viewRef.current?.flyClose(selected);
+  }, [selected]);
   React.useEffect(() => { viewRef.current?.setInsets(bottomInset); }, [bottomInset]);
   React.useEffect(() => { viewRef.current?.setTrails(trails); }, [trails]);
   const sel = tracks.find((t) => t.id === selected);
