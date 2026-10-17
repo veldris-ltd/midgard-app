@@ -18,6 +18,7 @@
 
 import type { AuditRecord, MarkingLevel, PolicyContext } from '../types';
 import { HumanGateRequiredError } from '../mock/MockGateway';
+import { mockGeoTracks, mockHistory } from './heimdall-mock-geo';
 
 // ---- shared enums -----------------------------------------------------------
 
@@ -30,8 +31,10 @@ export type HeimdallTrackState = 'stable' | 'anomalous';
 /** Post-quantum source-signature scheme a feed authenticates each frame with. */
 export type HeimdallSignatureScheme = 'ML-DSA' | 'SLH-DSA';
 
-/** Picture layers the operator can toggle. */
-export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'feeds';
+/** Picture layers the operator can toggle. `feeds` is the reference layout's sensor
+ *  coverage overlay; the others are Heimdall's wire layers (air, sea, land, space,
+ *  events, other) under the console's names. [FR-H-1] */
+export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'space' | 'events' | 'other' | 'feeds';
 
 // ---- domain types (product-prefixed) ----------------------------------------
 
@@ -87,6 +90,10 @@ export interface HeimdallTrack {
   x: number;
   /** Vertical position, 0–100 (% of picture region). */
   y: number;
+  /** Shown geographic position (dead-reckoned where the detail says it is estimated;
+   *  the reported one is in `detail`). Live and replayed tracks only. [FR-P3-3] */
+  lat?: number;
+  lon?: number;
   layer: HeimdallLayerId;
   track: HeimdallTrackState;
   /** Heading in degrees (0 = north). */
@@ -103,18 +110,36 @@ export interface HeimdallTrack {
   trail?: { x: number; y: number }[];
   /** What the feed reported for this track (live only). */
   detail?: HeimdallTrackDetail;
+  /** Reported positions seen so far, oldest first, geographic (live only): the
+   *  client-side trail, used when the gateway has no history to serve. [FR-P3-3] */
+  geoTrail?: HeimdallHistoryPoint[];
 }
 
 /** The reported attributes behind a live track. Times are unix seconds. */
 export interface HeimdallTrackDetail {
   /** Heimdall's entity key (the ICAO 24-bit address for ADS-B). */
   key: string;
+  /** Heimdall's entity kind, e.g. air-track, air-balloon, space-satellite,
+   *  event-earthquake, event-flood. [FR-P3-3] */
+  kind: string;
+  /** A display name where the kind has one (satellite name, flood area, quake place). */
+  name?: string;
   callsign?: string;
   squawk?: string;
   category?: string;
   onGround: boolean;
   lat: number;
   lon: number;
+  /** Metres above mean sea level where known (negative: an earthquake's depth). */
+  altM?: number;
+  /** Earthquake magnitude. */
+  magnitude?: number;
+  /** Flood warning severity, 1 (most severe) to 4. */
+  severityLevel?: number;
+  /** A crewed space station (highlighted on the globe). */
+  station?: boolean;
+  /** Kind-specific reported attributes for the inspector, in display order. */
+  facts?: { label: string; value: string }[];
   /** Classification label and the rule rationale, when a rule matched. */
   label?: string;
   rationale?: string;
@@ -190,6 +215,52 @@ export interface HeimdallPicture {
   region?: HeimdallRegion;
   /** When the picture was last read from the gateway (unix ms). */
   fetchedAt?: number;
+  /** Every positioned entity worldwide, whatever `region` is (the 3D globe draws these;
+   *  `tracks` keeps only those inside the region). Same objects and ids as `tracks`
+   *  where both hold an entity; x/y may fall outside 0–100. [FR-P3-3] */
+  geo?: HeimdallTrack[];
+}
+
+// ---- history (replay) -------------------------------------------------------
+
+/** One recorded position: [unix s, lat, lon, metres AMSL or null]. */
+export type HeimdallHistoryPoint = [number, number, number, number | null];
+
+/** The recorded path of one entity, points sorted by time. `id` is the entity key
+ *  (`HeimdallTrackDetail.key`), not the display id. */
+export interface HeimdallHistoryTrack {
+  id: string;
+  kind: string;
+  layer: HeimdallLayerId;
+  points: HeimdallHistoryPoint[];
+}
+
+/** Recorded positions over a time window (`GET /heimdall/history`). */
+export interface HeimdallHistory {
+  from: number;
+  to: number;
+  /** The server returned fewer points than it holds (raise `step` or narrow the window). */
+  truncated: boolean;
+  tracks: HeimdallHistoryTrack[];
+}
+
+export interface HeimdallHistoryQuery {
+  /** Window start and end, unix seconds. */
+  from: number;
+  to: number;
+  layer?: HeimdallLayerId;
+  /** One entity key. */
+  entity?: string;
+  /** Down-sample to at most one point per `step` seconds per track (0 = every point). */
+  step?: number;
+}
+
+/** The gateway has no history to serve (not deployed yet, or its store is down). */
+export class HeimdallHistoryUnavailableError extends Error {
+  constructor(message = 'history unavailable') {
+    super(message);
+    this.name = 'HeimdallHistoryUnavailableError';
+  }
 }
 
 // ---- gateway seam -----------------------------------------------------------
@@ -218,6 +289,9 @@ export interface HeimdallGateway {
   listEntities(): Promise<HeimdallEntity[]>;
   /** Sites the picture replicates to (marking-filtered per site clearance). */
   listSyncSites(): Promise<HeimdallSyncSite[]>;
+  /** Recorded positions over a window, for replay and trails. Rejects with
+   *  `HeimdallHistoryUnavailableError` when the gateway has none. [FR-P3-7] */
+  getHistory(q: HeimdallHistoryQuery): Promise<HeimdallHistory>;
 
   // Decide -------------------------------------------------------------------
   /** Human-gated action workflows (queue / approvals / execution). */
@@ -272,6 +346,8 @@ const LAYERS: HeimdallLayer[] = [
   { id: 'air', label: 'Air', active: true },
   { id: 'maritime', label: 'Maritime', active: true },
   { id: 'ground', label: 'Ground', active: true },
+  { id: 'space', label: 'Space', active: true },
+  { id: 'events', label: 'Events', active: true },
   { id: 'feeds', label: 'Feed coverage', active: false },
 ];
 
@@ -383,7 +459,15 @@ export class HeimdallMock implements HeimdallGateway {
       layers: LAYERS.map((l) => ({ ...l })),
       tracks: TRACKS.map((t) => ({ ...t, options: t.options?.map((o) => ({ ...o, cites: [...o.cites] })) })),
       entities: ENTITIES.map((e) => ({ ...e })),
+      // The globe's worldwide entities move on fixed, deterministic paths in time, so
+      // the picture and the history agree. [FR-P3-3]
+      geo: mockGeoTracks(TRACKS, Date.now() / 1000),
     });
+  }
+
+  /** History synthesised from the same paths the picture is drawn from. [FR-P3-7] */
+  getHistory(q: HeimdallHistoryQuery): Promise<HeimdallHistory> {
+    return this.wait(mockHistory(TRACKS, q, Date.now() / 1000));
   }
 
   listFeeds(): Promise<HeimdallFeed[]> {
