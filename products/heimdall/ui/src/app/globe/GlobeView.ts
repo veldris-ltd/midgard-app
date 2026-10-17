@@ -109,9 +109,9 @@ const PX: Record<TrackShape, number> = {
 };
 const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'train', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire'];
 /** Flat marks laid on the ground (unlit, translucent). */
-const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire']);
+const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire', 'train']);
 /** Marks placed on the terrain surface rather than at an altitude. */
-const SURFACE = new Set<TrackShape>([...FLAT, 'platform', 'train']);
+const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
 const DRAPE_W = 2048;
 const DRAPE_H = 1792;
@@ -464,18 +464,31 @@ export class GlobeView {
     this.draped = [lines(new Float32Array(0), 'var(--text-muted)', 0.6), lines(new Float32Array(0), 'var(--text-faint)', 0.4)];
     // Roads and rivers as screen-space lines of a fixed pixel width, draped on the terrain:
     // sharp at any zoom (a painted texture blurs when magnified).
-    const fat = (strips: [number, number][][], colour: string, px: number, opacity: number) => {
+    // Styled like a British road atlas: motorways blue and primary roads green, each over a
+    // dark casing; railways a black line with white dashes. Casings draw first.
+    const fat = (strips: [number, number][][], colour: string, px: number, opacity: number, order: number, dash?: number) => {
       const material = new LineMaterial({ color: new THREE.Color(colour).getHex(), linewidth: px, transparent: true, opacity, depthWrite: false });
+      if (dash) {
+        material.dashed = true;
+        material.dashSize = dash;
+        material.gapSize = dash;
+      }
       const obj = new LineSegments2(new LineSegmentsGeometry(), material);
       obj.frustumCulled = false;
+      obj.renderOrder = order;
       this.scene.add(obj);
       this.fatLines.push({ obj, strips });
     };
-    fat(hydro(ROADS), '#ebe1c8', 1.2, 0.55);
-    fat(hydro(MOTORWAYS), '#ffc45c', 2.2, 0.9);
-    fat(hydro(RAILWAYS), '#c9b8ff', 1.5, 0.85);
-    fat(hydro(LAKES), '#6eb9f5', 1.4, 0.9);
-    fat(hydro(RIVERS), '#6eb9f5', 1.8, 0.95);
+    const roads = hydro(ROADS), motorways = hydro(MOTORWAYS), rail = hydro(RAILWAYS);
+    fat(hydro(LAKES), '#6eb9f5', 1.4, 0.9, 2);
+    fat(hydro(RIVERS), '#6eb9f5', 1.8, 0.95, 2);
+    fat(roads, '#0f1a12', 3.4, 0.8, 3);
+    fat(roads, '#3fb35c', 1.8, 0.95, 4);
+    fat(motorways, '#0b1630', 4.8, 0.85, 5);
+    fat(motorways, '#3b82e0', 3.0, 1, 6);
+    fat(rail, '#111111', 3.2, 0.9, 7);
+    // white dashes about 1.5 km long (scene units are earth radii)
+    fat(rail, '#f2f2f2', 1.6, 0.95, 8, 1.5 / 6371);
 
     // Shaded relief for the UK and Ireland, lit by the same lights as the markers.
     this.terrain = new THREE.Mesh(
@@ -535,10 +548,15 @@ export class GlobeView {
     // Entity markers, one instanced mesh per shape (grown on demand).
     this.geometries.set('aircraft', aircraftGeometry());
     this.geometries.set('vessel', vesselGeometry());
-    // A train: a long low carriage, lit like the other solid markers.
-    const carriage = new THREE.BoxGeometry(0.34, 1, 0.26);
-    carriage.translate(0, 0, 0.13);
-    this.geometries.set('train', carriage);
+    // A train: a flat badge lying on the ground (the feed gives a station, not a heading).
+    const badge = new THREE.Shape();
+    const bw = 0.5, bh = 0.32, br = 0.12;
+    badge.moveTo(-bw + br, -bh);
+    badge.lineTo(bw - br, -bh); badge.quadraticCurveTo(bw, -bh, bw, -bh + br);
+    badge.lineTo(bw, bh - br); badge.quadraticCurveTo(bw, bh, bw - br, bh);
+    badge.lineTo(-bw + br, bh); badge.quadraticCurveTo(-bw, bh, -bw, bh - br);
+    badge.lineTo(-bw, -bh + br); badge.quadraticCurveTo(-bw, -bh, -bw + br, -bh);
+    this.geometries.set('train', new THREE.ShapeGeometry(badge));
     this.geometries.set('balloon', new THREE.SphereGeometry(0.5, 12, 8));
     this.geometries.set('satellite', new THREE.OctahedronGeometry(0.5));
     this.geometries.set('quake', new THREE.RingGeometry(0.72, 1, 40));
@@ -928,7 +946,9 @@ export class GlobeView {
     for (const it of this.items) {
       // Surface markers sit on the terrain, not under it.
       const surface = SURFACE.has(it.shape);
-      const r = 1 + (surface ? drawnHeight(Math.max(0, terrainAt(it.lat, it.lon)), this.exaggeration) + 0.0009 : drawnHeight(it.altM, this.exaggeration) + 0.0004);
+      // Surface markers sit just above the draped roads and rivers (about 2 km as drawn),
+      // close enough to read as on the ground at any tilt.
+      const r = 1 + (surface ? drawnHeight(Math.max(0, terrainAt(it.lat, it.lon)), this.exaggeration) + 0.0003 : drawnHeight(it.altM, this.exaggeration) + 0.0004);
       const pos = toVec(it.lat, it.lon, r);
       const up = new THREE.Vector3();
       enu(pos, east, north, up);

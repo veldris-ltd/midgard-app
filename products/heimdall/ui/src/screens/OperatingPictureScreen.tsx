@@ -93,9 +93,14 @@ function Basemap({ region, radarUrl }: { region: HeimdallRegion; radarUrl?: stri
       <path d={LAND_PATH} fill="var(--text-faint)" fillOpacity={0.07} stroke="var(--text-faint)" strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       <path d={BORDER_PATH} fill="none" stroke="var(--text-faint)" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
       {/* Main roads (Natural Earth 1:10m), then rivers and lakes in water blue. [FR-P3-3] */}
-      <path d={HYDRO_2D.roads} fill="none" stroke="rgb(235,225,200)" strokeOpacity={0.5} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
-      <path d={HYDRO_2D.motorways} fill="none" stroke="rgb(255,196,92)" strokeOpacity={0.8} strokeWidth={1.8} vectorEffect="non-scaling-stroke" />
-      <path d={HYDRO_2D.rail} fill="none" stroke="#c9b8ff" strokeOpacity={0.8} strokeWidth={1.3} vectorEffect="non-scaling-stroke" />
+      {/* Road-atlas styling: primary roads green and motorways blue over dark casings;
+          railways black with white dashes. */}
+      <path d={HYDRO_2D.roads} fill="none" stroke="#0f1a12" strokeOpacity={0.8} strokeWidth={3} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.roads} fill="none" stroke="#3fb35c" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.motorways} fill="none" stroke="#0b1630" strokeOpacity={0.85} strokeWidth={4.2} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.motorways} fill="none" stroke="#3b82e0" strokeWidth={2.6} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.rail} fill="none" stroke="#111" strokeOpacity={0.9} strokeWidth={3} vectorEffect="non-scaling-stroke" />
+      <path d={HYDRO_2D.rail} fill="none" stroke="#f2f2f2" strokeWidth={1.4} strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.rivers} fill="none" stroke="#6eb9f5" strokeOpacity={0.95} strokeWidth={1.8} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.lakes} fill="#5aa9e6" fillOpacity={0.35} stroke="#5aa9e6" strokeOpacity={0.85} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       {lons.map((l) => <line key={'o' + l} x1={l} x2={l} y1={-north} y2={-south} stroke="var(--divider)" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
