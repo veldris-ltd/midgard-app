@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use heimdall_picture::{Layer, LayerId};
 
 /// Maps an observation/entity kind to the layer it belongs on. A default prefix
-/// convention (`air-*`, `sea-*`, `land-*`, `space-*`, `cyber-*`/`sigint`) covers
+/// convention (`air-*`, `sea-*`, `land-*`, `space-*`, `cyber-*`/`sigint`, `event-*`) covers
 /// common feeds; explicit overrides take precedence.
 #[derive(Debug, Clone, Default)]
 pub struct LayerPolicy {
@@ -43,6 +43,7 @@ impl LayerPolicy {
             "land" => ("land", "Land"),
             "space" => ("space", "Space"),
             "cyber" => ("cyber", "Cyber"),
+            "events" => ("events", "Events"),
             _ => ("other", "Other"),
         };
         (LayerId(id.to_string()), Layer::new(id, name))
@@ -62,6 +63,9 @@ fn domain_of(kind: &str) -> &'static str {
         "space"
     } else if k.starts_with("cyber") || k.starts_with("sigint") || k.starts_with("net") {
         "cyber"
+    } else if k.starts_with("event") {
+        // Incidents and alerts (`event-*`) are their own layer. [FR-H-1]
+        "events"
     } else {
         "other"
     }
@@ -78,6 +82,16 @@ mod tests {
         assert_eq!(p.layer_for("sea-track").0, LayerId("sea".into()));
         assert_eq!(p.layer_for("sigint").0, LayerId("cyber".into()));
         assert_eq!(p.layer_for("weather").0, LayerId("other".into()));
+    }
+
+    #[test]
+    fn events_have_their_own_layer() {
+        let p = LayerPolicy::new();
+        let (id, layer) = p.layer_for("event-incident");
+        assert_eq!(id, LayerId("events".into()));
+        assert_eq!(layer.name, "Events");
+        assert_eq!(p.layer_for("Event").0, LayerId("events".into()));
+        assert_eq!(p.layer_for("eventual").0, LayerId("events".into()));
     }
 
     #[test]
