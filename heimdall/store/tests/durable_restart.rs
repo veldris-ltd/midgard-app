@@ -9,7 +9,7 @@ use audit_writer::{verify_chain, LedgerId};
 use heimdall_picture::{
     Classification, ClassificationSource, EntityId, Layer, LayerId, Track, TrackedEntity,
 };
-use heimdall_store::{DurablePicture, DurableWorkflow};
+use heimdall_store::{DurableHistory, DurablePicture, DurableWorkflow, HistoryRecord};
 use heimdall_workflow::{DispatchActuator, Effector, ProposedAction, WorkflowState};
 
 /// A success effector for the durable-restart workflow's action type.
@@ -163,6 +163,78 @@ fn tampered_picture_fails_closed_on_load() {
     assert!(
         DurablePicture::open(&path, Box::new(sealer())).is_err(),
         "a tampered sealed picture must fail closed on load"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Track history sealed under the KMS: ciphertext at rest, recovered on reopen,
+/// compacted to a fraction of its appended size, failing closed on tamper.
+/// [FR-H-1] [NFR-PQ-2] [RC-13]
+#[test]
+fn track_history_is_sealed_recovered_compacted_and_fails_closed() {
+    let dir = scratch("history");
+    let size = |dir: &PathBuf| -> u64 {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum()
+    };
+    {
+        let mut h = DurableHistory::open(&dir, Box::new(sealer())).unwrap();
+        for batch in 0..10u64 {
+            let records: Vec<HistoryRecord> = (0..100u64)
+                .map(|i| HistoryRecord {
+                    entity: format!("SECRET-{}", i % 20),
+                    kind: "air-track".into(),
+                    layer: "air".into(),
+                    t: 1_000 + batch * 100 + i,
+                    lat: 51.0 + i as f64 / 1000.0,
+                    lon: -1.0,
+                    alt_m: Some(3000.0),
+                })
+                .collect();
+            h.record(&records, 1_000).unwrap();
+        }
+        assert_eq!(h.point_count(), 1000);
+    }
+    let appended = size(&dir);
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let bytes = std::fs::read(entry.unwrap().path()).unwrap();
+        assert!(
+            !bytes.windows(6).any(|w| w == b"SECRET"),
+            "history at rest is ciphertext"
+        );
+    }
+    let mut h = DurableHistory::open(&dir, Box::new(sealer())).unwrap();
+    assert_eq!(h.point_count(), 1000, "recovered");
+    assert_eq!(h.track_count(), 20);
+    let report = h.maintain(10_000, 0).unwrap();
+    assert_eq!(report.segments_compacted, 1);
+    let compacted = size(&dir);
+    eprintln!("1000 points: {appended} bytes appended in 10 frames, {compacted} compacted");
+    assert!(compacted < appended);
+    assert!(compacted < 1000 * 24 + 4096, "{compacted}");
+    drop(h);
+    assert_eq!(
+        DurableHistory::open(&dir, Box::new(sealer()))
+            .unwrap()
+            .point_count(),
+        1000
+    );
+
+    let seg = std::fs::read_dir(&dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut bytes = std::fs::read(&seg).unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0x01;
+    std::fs::write(&seg, &bytes).unwrap();
+    assert!(
+        DurableHistory::open(&dir, Box::new(sealer())).is_err(),
+        "tampered history fails closed"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

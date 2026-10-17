@@ -61,6 +61,10 @@ impl<'a> Reader<'a> {
         let b = self.take(4)?;
         Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
     }
+    pub(crate) fn i32(&mut self) -> Result<i32, StoreError> {
+        let b = self.take(4)?;
+        Ok(i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
     pub(crate) fn u64(&mut self) -> Result<u64, StoreError> {
         let mut a = [0u8; 8];
         a.copy_from_slice(self.take(8)?);

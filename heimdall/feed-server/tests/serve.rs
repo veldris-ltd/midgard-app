@@ -14,7 +14,7 @@ use std::process::{Child, Command, Output, Stdio};
 
 use attest::Keystore;
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
-use heimdall_feed_server::{outcome, INGEST};
+use heimdall_feed_server::{outcome, INGEST, READ_HISTORY};
 use heimdall_picture::{FeedId, Observation};
 use iam::{Idp, IDP_SIG_ALG};
 use policy::Role;
@@ -34,6 +34,8 @@ const POLICY: &str = r#"{
     { "id": "analyst-channel", "role": "picture-reader", "action": "OpenChannel",
       "resource": "*", "effect": "permit" },
     { "id": "analyst-read", "role": "picture-reader", "action": "ReadPicture",
+      "resource": "*", "effect": "permit" },
+    { "id": "analyst-history", "role": "picture-reader", "action": "ReadHistory",
       "resource": "*", "effect": "permit" }
   ]
 }"#;
@@ -85,6 +87,7 @@ struct Running {
     recovered: String,
     entities: String,
     classifier: String,
+    history_points: String,
 }
 
 impl Drop for Running {
@@ -140,6 +143,7 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
         recovered: field(&serving, "recovered_audit_entries").expect("recovered count"),
         entities: field(&serving, "entities").expect("entity count"),
         classifier: field(&serving, "classifier").expect("classifier"),
+        history_points: field(&serving, "history_points").expect("history point count"),
     }
 }
 
@@ -432,6 +436,200 @@ fn a_batch_fuses_over_one_session_replays_are_refused_and_stale_tracks_expire() 
     let server = start_with(&server_identity, &state, &["--track-ttl", "300"]);
     assert_eq!(server.entities, "2");
     assert_eq!(server.recovered, "7");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A track read back: its id, layer and points.
+type ReadTrack = (String, String, Vec<Json>);
+
+/// Read every page of a history query over one session: the pages' raw sizes and the
+/// merged points per track (`[t, lat, lon, alt]`), in the order served.
+fn read_history_pages(session: &mut client::Session, query: &str) -> (Vec<usize>, Vec<ReadTrack>) {
+    let mut sizes = Vec::new();
+    let mut tracks: Vec<ReadTrack> = Vec::new();
+    let mut after = Json::Null;
+    loop {
+        let mut q = parse(query).unwrap();
+        if let Json::Obj(pairs) = &mut q {
+            pairs.push(("after".into(), after.clone()));
+        }
+        let response = session.call(READ_HISTORY, q.encode().as_bytes()).unwrap();
+        assert_eq!(response[0], outcome::ACCEPTED, "{}", text(&response[1..]));
+        sizes.push(response.len());
+        let page = parse(&text(&response[1..])).expect("a history page is JSON");
+        let Some(Json::Arr(items)) = page.get("tracks") else {
+            panic!("{}", page.encode())
+        };
+        for track in items {
+            let id = track.str_field("id").unwrap().to_string();
+            let layer = track.str_field("layer").unwrap().to_string();
+            let Some(Json::Arr(points)) = track.get("points") else {
+                panic!("{}", track.encode())
+            };
+            match tracks.iter_mut().find(|(i, _, _)| *i == id) {
+                Some((_, _, all)) => all.extend(points.iter().cloned()),
+                None => tracks.push((id, layer, points.clone())),
+            }
+        }
+        match page.get("next") {
+            Some(Json::Null) => break,
+            Some(next) => after = next.clone(),
+            None => panic!("no next in {}", page.encode()),
+        }
+    }
+    (sizes, tracks)
+}
+
+fn t_of(point: &Json) -> i64 {
+    match point {
+        Json::Arr(v) => v[0].as_i64().unwrap(),
+        _ => panic!("{}", point.encode()),
+    }
+}
+
+/// Positions fused over time become track history: an analyst reads both tracks'
+/// points in time order, paging when the history outgrows a response, decimated on
+/// request; a source may not read it; a bad window is refused; every read is audited;
+/// and the history survives a restart. [FR-H-1] [RC-13] [NFR-SEC-1]
+#[test]
+fn positions_become_track_history_that_pages_is_audited_and_survives_a_restart() {
+    let root = scratch("history");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "adsb", &["feed-source"]);
+    issue(&idp, &clients, "analyst", &["picture-reader"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+    let flags = ["--history-page-bytes", "600", "--history-retention", "7200"];
+
+    let server = start_with(&server_identity, &state, &flags);
+    assert_eq!(server.history_points, "0");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    // Two aircraft, 20 positions each, ten seconds apart; the second in reverse
+    // order of arrival. Plus one observation with no position.
+    let mut lines = Vec::new();
+    for i in 0..20u64 {
+        let t = now - 200 + i * 10;
+        lines.push(format!(
+            r#"{{"entity": "AC-1", "kind": "air-track", "observedAt": {t}, "attrs": {{"lat": {}, "lon": -1.25, "alt_ft": 10000}}}}"#,
+            51.0 + i as f64 * 0.01
+        ));
+        let t = now - 10 - i * 10;
+        lines.push(format!(
+            r#"{{"entity": "SHIP-2", "kind": "sea-track", "observedAt": {t}, "attrs": {{"lat": 50.123456, "lon": {}}}}}"#,
+            -2 - i as i64
+        ));
+    }
+    lines.push(format!(
+        r#"{{"entity": "AC-1", "kind": "air-track", "observedAt": {}, "attrs": {{"speed": 400}}}}"#,
+        now - 5
+    ));
+    let file = root.join("positions.jsonl");
+    std::fs::write(&file, lines.join("\n")).unwrap();
+    let out = source(
+        &clients,
+        "adsb",
+        &server.mesh,
+        &["--batch", &file.display().to_string()],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+
+    let analyst = ServiceIdentity::load(&clients, "analyst").unwrap();
+    let mut session = client::Session::open(&analyst, &server.mesh, PURPOSE).unwrap();
+    let window = format!(r#"{{"from": {}, "to": {now}}}"#, now - 300);
+    let (sizes, tracks) = read_history_pages(&mut session, &window);
+    assert!(
+        sizes.len() > 2,
+        "a 600-byte budget pages ({} pages)",
+        sizes.len()
+    );
+    assert!(sizes.iter().all(|s| *s < 600 + 200), "{sizes:?}");
+    let ids: Vec<&str> = tracks.iter().map(|(id, _, _)| id.as_str()).collect();
+    assert_eq!(ids, ["AC-1", "SHIP-2"]);
+    for (id, layer, points) in &tracks {
+        assert_eq!(points.len(), 20, "{id}");
+        let times: Vec<i64> = points.iter().map(t_of).collect();
+        assert!(times.windows(2).all(|w| w[0] < w[1]), "{id} {times:?}");
+        assert_eq!(layer, if id == "AC-1" { "air" } else { "sea" });
+    }
+    let first_ac = tracks[0].2[0].encode();
+    assert_eq!(first_ac, format!("[{},51,-1.25,3048]", now - 200));
+    let first_ship = tracks[1].2[0].encode();
+    assert_eq!(first_ship, format!("[{},50.12346,-21,null]", now - 200));
+
+    // Decimated to a point a minute, one layer.
+    let (decimated_pages, decimated) = read_history_pages(
+        &mut session,
+        &format!(
+            r#"{{"from": {}, "to": {now}, "step": 60, "layer": "air"}}"#,
+            now - 300
+        ),
+    );
+    assert_eq!(decimated.len(), 1);
+    let times: Vec<i64> = decimated[0].2.iter().map(t_of).collect();
+    let start = (now - 200) as i64;
+    assert_eq!(times, [start, start + 60, start + 120, start + 180]);
+
+    // Refusals: `to` before `from`, a window over the retention, and a source.
+    let refused = session
+        .call(
+            READ_HISTORY,
+            format!(r#"{{"from": {now}, "to": 1}}"#).as_bytes(),
+        )
+        .unwrap();
+    assert_eq!(refused[0], outcome::MALFORMED, "{}", text(&refused[1..]));
+    let too_long = session
+        .call(
+            READ_HISTORY,
+            format!(r#"{{"from": 0, "to": {now}}}"#).as_bytes(),
+        )
+        .unwrap();
+    assert_eq!(too_long[0], outcome::MALFORMED, "{}", text(&too_long[1..]));
+    assert!(
+        text(&too_long[1..]).contains("kept for 7200"),
+        "{}",
+        text(&too_long[1..])
+    );
+    let adsb = ServiceIdentity::load(&clients, "adsb").unwrap();
+    let denied = client::call(
+        &adsb,
+        &server.mesh,
+        PURPOSE,
+        READ_HISTORY,
+        window.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(denied[0], outcome::DENIED, "a source cannot read history");
+    drop(session);
+
+    // Every read was audited once: 41 submissions, the history pages, the decimated
+    // pages, two malformed reads and the source's refused read.
+    drop(server);
+    let server = start_with(&server_identity, &state, &flags);
+    let audited = 41 + sizes.len() + decimated_pages.len() + 3;
+    assert_eq!(server.recovered, audited.to_string());
+    assert_eq!(server.history_points, "40", "history is recovered");
+    let mut session = client::Session::open(&analyst, &server.mesh, PURPOSE).unwrap();
+    let (_, recovered) = read_history_pages(
+        &mut session,
+        &format!(
+            r#"{{"from": {}, "to": {now}, "entity": "SHIP-2"}}"#,
+            now - 300
+        ),
+    );
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(
+        recovered[0].2, tracks[1].2,
+        "the same points after the restart"
+    );
+    drop(session);
     drop(server);
     let _ = std::fs::remove_dir_all(&root);
 }

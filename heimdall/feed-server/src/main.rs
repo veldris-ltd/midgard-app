@@ -4,13 +4,14 @@
 //! ```text
 //! heimdall-feed --identity-dir DIR --state-dir DIR
 //!               [--service NAME] [--purpose P] [--bind ADDR] [--health-bind ADDR]
-//!               [--track-ttl SECONDS]
+//!               [--track-ttl SECONDS] [--history-retention SECONDS]
+//!               [--history-page-bytes BYTES]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
 //! to `heimdall-feed`). `--state-dir` holds `policy.json` — the rules for `OpenChannel`,
-//! `Ingest` and `ReadPicture` — and the service's sealed `picture.sealed` and
-//! `feed.ledger`; it is locked while the service runs. Requests are audited under
+//! `Ingest`, `ReadPicture` and `ReadHistory` — and the service's sealed
+//! `picture.sealed`, `history/` and `feed.ledger`; it is locked while the service runs. Requests are audited under
 //! `--purpose` (default `situational-awareness`), the one purpose the channel opens
 //! for. PQ-mTLS is served on `--bind` (default `0.0.0.0:7730`); `/healthz`, `/readyz`
 //! and `/metrics` on `--health-bind` (default `0.0.0.0:9090`).
@@ -18,6 +19,10 @@
 //! Entities are classified by `rules.json` in the state directory when it exists (see
 //! [`heimdall_feed_server::rules_file`]), otherwise by the built-in default rules.
 //! `--track-ttl` removes entities not seen for that many seconds (default 0: never).
+//! Track history (each positioned observation's point, sealed in `history/`) is kept
+//! for `--history-retention` seconds (default 86400) and read with `ReadHistory`, in
+//! pages of at most `--history-page-bytes` (default 921600; smaller only to exercise
+//! paging). [FR-H-1] [RC-13]
 
 use std::collections::BTreeSet;
 use std::net::TcpListener;
@@ -27,9 +32,11 @@ use std::sync::{Arc, RwLock};
 use gateway::Gateway;
 use governance::Governance;
 use heimdall_classify::RulesClassifier;
-use heimdall_feed_server::{parse_rules, FeedService, PictureState};
+use heimdall_feed_server::{
+    parse_rules, FeedService, PictureState, DEFAULT_HISTORY_RETENTION, HISTORY_PAGE_BYTES,
+};
 use heimdall_fusion::FusionEngine;
-use heimdall_store::DurablePicture;
+use heimdall_store::{DurableHistory, DurablePicture};
 use policy::{
     ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
 };
@@ -41,7 +48,8 @@ use service_runtime::{
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--service NAME] \
-                     [--purpose P] [--bind ADDR] [--health-bind ADDR] [--track-ttl SECONDS]";
+                     [--purpose P] [--bind ADDR] [--health-bind ADDR] [--track-ttl SECONDS] \
+                     [--history-retention SECONDS] [--history-page-bytes BYTES]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "heimdall-feed-audit";
@@ -58,6 +66,8 @@ fn main() {
             "bind",
             "health-bind",
             "track-ttl",
+            "history-retention",
+            "history-page-bytes",
         ],
         &[],
     ) {
@@ -83,6 +93,22 @@ fn run(args: &Args) -> Result<(), String> {
             .parse::<u64>()
             .map_err(|_| format!("--track-ttl must be a whole number of seconds, not '{s}'"))?,
         None => 0,
+    };
+    let history_retention = match args.get("history-retention") {
+        Some(s) => s.parse::<u64>().ok().filter(|v| *v > 0).ok_or_else(|| {
+            format!("--history-retention must be a positive number of seconds, not '{s}'")
+        })?,
+        None => DEFAULT_HISTORY_RETENTION,
+    };
+    let history_page_bytes = match args.get("history-page-bytes") {
+        Some(s) => s
+            .parse::<usize>()
+            .ok()
+            .filter(|v| (1..=HISTORY_PAGE_BYTES).contains(v))
+            .ok_or_else(|| {
+                format!("--history-page-bytes must be 1..={HISTORY_PAGE_BYTES}, not '{s}'")
+            })?,
+        None => HISTORY_PAGE_BYTES,
     };
     let logger = Logger::new(service, &StdoutJsonSink);
 
@@ -130,10 +156,14 @@ fn run(args: &Args) -> Result<(), String> {
             "default rules".to_string(),
         )
     };
+    let history = DurableHistory::open(state_dir.join("history"), identity.data_sealer()?)
+        .map_err(|e| format!("the track history does not open: {e}"))?;
+    let history_points = history.point_count();
     let state = PictureState::recover_with(
         durable,
         FusionEngine::new().with_classifier(Box::new(classifier)),
-    );
+    )
+    .with_history(history);
     let entities = state.picture().entity_count();
     state_ready.set(true);
 
@@ -155,6 +185,8 @@ fn run(args: &Args) -> Result<(), String> {
         metrics.clone(),
     );
     feed_service.set_track_ttl(track_ttl);
+    feed_service.set_history_retention(history_retention);
+    feed_service.set_history_page_bytes(history_page_bytes);
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
     let gateway = Gateway::new(
         Arc::new(fips_provider()),
@@ -182,6 +214,8 @@ fn run(args: &Args) -> Result<(), String> {
             ("entities", &entities.to_string()),
             ("classifier", &rules_source),
             ("track_ttl", &track_ttl.to_string()),
+            ("history_points", &history_points.to_string()),
+            ("history_retention", &history_retention.to_string()),
         ],
     );
     serve_mesh(service, listener, gateway, metrics)

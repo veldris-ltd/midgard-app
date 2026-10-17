@@ -21,11 +21,19 @@
 //! [`EXPIRY_SWEEP_SECS`], and each sweep that removes any is audited. The live picture
 //! is current state; the feed ledger keeps the history.
 //!
+//! Each fused observation with a numeric `lat` and `lon` also adds a point to its
+//! entity's track history ([`heimdall_store::DurableHistory`], sealed at rest), which
+//! analysts read with [`READ_HISTORY`]. History is kept for a retention window
+//! ([`FeedService::set_history_retention`]) — a track that expires from the picture
+//! keeps its history until then — and is pruned and compacted at most once every
+//! [`HISTORY_MAINTAIN_SECS`]. [FR-H-1] [RC-13]
+//!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
-//! [`READ_PICTURE`] the picture as JSON.
+//! [`READ_PICTURE`] the picture as JSON, or for [`READ_HISTORY`] a page of history as
+//! JSON.
 
 use std::collections::{BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::LedgerStore;
@@ -38,7 +46,9 @@ use heimdall_fusion::FusionEngine;
 use heimdall_picture::{
     Attr, ClassificationSource, EntityId, FeedId, Picture, PictureDelta, TrackedEntity,
 };
-use heimdall_store::{DurablePicture, StoreError};
+use heimdall_store::{
+    position_of, DurableHistory, DurablePicture, HistoryQuery, HistoryRecord, StoreError,
+};
 use policy::{ClassificationLevel, Clearance, Purpose, Resource};
 use pq_mtls::WorkloadIdentity;
 use pqc_agility::SharedProvider;
@@ -50,6 +60,13 @@ pub use rules_file::parse_rules;
 
 /// The most often stale tracks are swept, in seconds of the service clock.
 pub const EXPIRY_SWEEP_SECS: u64 = 30;
+/// The most often track history is pruned and compacted, in seconds.
+pub const HISTORY_MAINTAIN_SECS: u64 = 300;
+/// How long track history is kept by default, in seconds (a day).
+pub const DEFAULT_HISTORY_RETENTION: u64 = 86_400;
+/// The most bytes of tracks one [`READ_HISTORY`] response carries by default; transport
+/// frames are capped at 1 MiB, and a caller pages for the rest.
+pub const HISTORY_PAGE_BYTES: usize = 900 * 1024;
 /// How many recent observation ids are remembered to refuse replays. Older ids fall
 /// out first; ids are also forgotten on restart, which the ledger records.
 pub const REPLAY_MEMORY: usize = 200_000;
@@ -61,10 +78,15 @@ pub const INGEST: &str = "Ingest";
 pub const INGEST_BATCH: &str = "IngestBatch";
 /// The method an analyst reads the picture with; its payload is empty.
 pub const READ_PICTURE: &str = "ReadPicture";
+/// The method an analyst reads track history with; its payload is a JSON query
+/// (see [`FeedService::read_history`]).
+pub const READ_HISTORY: &str = "ReadHistory";
 /// The policy action a submission is authorised as.
 pub const ACTION_INGEST: &str = "Ingest";
 /// The policy action a picture read is authorised as.
 pub const ACTION_READ_PICTURE: &str = "ReadPicture";
+/// The policy action a history read is authorised as.
+pub const ACTION_READ_HISTORY: &str = "ReadHistory";
 
 /// The first byte of every feed response.
 pub mod outcome {
@@ -82,6 +104,7 @@ pub mod outcome {
 pub struct PictureState {
     engine: FusionEngine,
     durable: DurablePicture,
+    history: Option<DurableHistory>,
     seen: BTreeSet<String>,
     seen_order: VecDeque<String>,
 }
@@ -106,8 +129,49 @@ impl PictureState {
         Self {
             engine,
             durable,
+            history: None,
             seen: BTreeSet::new(),
             seen_order: VecDeque::new(),
+        }
+    }
+
+    /// Keep track history in `history`: every positioned observation fused from now on
+    /// adds a point to it. [FR-H-1]
+    pub fn with_history(mut self, history: DurableHistory) -> Self {
+        self.history = Some(history);
+        self
+    }
+
+    /// The track history, if one is kept.
+    pub fn history(&self) -> Option<&DurableHistory> {
+        self.history.as_ref()
+    }
+
+    /// The point a fused observation adds to its entity's history, if it is positioned.
+    fn history_record(
+        &self,
+        observation: &VerifiedObservation,
+        id: &EntityId,
+    ) -> Option<HistoryRecord> {
+        let o = observation.observation();
+        let (lat, lon, alt_m) = position_of(&o.attrs)?;
+        let entity = self.engine.picture().entity(id)?;
+        Some(HistoryRecord {
+            entity: id.0.clone(),
+            kind: entity.kind.clone(),
+            layer: entity.layer.0.clone(),
+            t: o.observed_at,
+            lat,
+            lon,
+            alt_m,
+        })
+    }
+
+    /// Record points in the history, if one is kept.
+    fn record_history(&mut self, records: &[HistoryRecord], now: u64) -> Result<(), StoreError> {
+        match self.history.as_mut() {
+            Some(history) => history.record(records, now),
+            None => Ok(()),
         }
     }
 
@@ -138,14 +202,22 @@ impl PictureState {
         self.engine.picture()
     }
 
-    /// Fuse verified observations in order and seal the picture once for all of them.
-    pub fn fuse_many(&mut self, observations: &[VerifiedObservation]) -> Result<(), StoreError> {
+    /// Fuse verified observations in order and seal the picture once for all of them;
+    /// their positions go to the history in one append. `now` is the service clock.
+    pub fn fuse_many(
+        &mut self,
+        observations: &[VerifiedObservation],
+        now: u64,
+    ) -> Result<(), StoreError> {
         if observations.is_empty() {
             return Ok(());
         }
         let mut changed = BTreeSet::new();
+        let mut records = Vec::new();
         for observation in observations {
-            changed.insert(self.engine.ingest(observation));
+            let id = self.engine.ingest(observation);
+            records.extend(self.history_record(observation, &id));
+            changed.insert(id);
         }
         let layers: Vec<_> = self.engine.picture().layers().cloned().collect();
         let entities: Vec<_> = changed
@@ -153,14 +225,20 @@ impl PictureState {
             .filter_map(|id| self.engine.picture().entity(id).cloned())
             .collect();
         self.durable.upsert_all(layers, entities)?;
+        self.record_history(&records, now)?;
         for observation in observations {
             self.remember(&observation.observation().id.0);
         }
         Ok(())
     }
 
-    /// Fuse a verified observation and seal the entity it changed.
-    pub fn fuse(&mut self, observation: &VerifiedObservation) -> Result<EntityId, StoreError> {
+    /// Fuse a verified observation and seal the entity it changed, and its position
+    /// in the history. `now` is the service clock.
+    pub fn fuse(
+        &mut self,
+        observation: &VerifiedObservation,
+        now: u64,
+    ) -> Result<EntityId, StoreError> {
         let id = self.engine.ingest(observation);
         let Some(entity) = self.engine.picture().entity(&id).cloned() else {
             return Ok(id);
@@ -182,6 +260,8 @@ impl PictureState {
             }
         }
         self.durable.upsert_entity(entity)?;
+        let record: Vec<_> = self.history_record(observation, &id).into_iter().collect();
+        self.record_history(&record, now)?;
         // Remembered only once durable, so a submission that failed to persist can be
         // retried rather than refused as a replay.
         self.remember(&observation.observation().id.0);
@@ -200,6 +280,9 @@ pub struct FeedService<S: LedgerStore> {
     metrics: Arc<MetricsRegistry>,
     track_ttl: AtomicU64,
     last_sweep: AtomicU64,
+    history_retention: AtomicU64,
+    last_history_maintenance: AtomicU64,
+    history_page_bytes: AtomicUsize,
 }
 
 impl<S: LedgerStore + Send + 'static> FeedService<S> {
@@ -220,6 +303,10 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             "Feed requests, by method and outcome.",
         );
         metrics.describe(
+            "feed_history_points_pruned_total",
+            "Track-history points removed for being older than the retention window.",
+        );
+        metrics.describe(
             "feed_tracks_expired_total",
             "Tracks removed from the picture for not being seen within the time-to-live.",
         );
@@ -233,6 +320,9 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             metrics,
             track_ttl: AtomicU64::new(0),
             last_sweep: AtomicU64::new(0),
+            history_retention: AtomicU64::new(DEFAULT_HISTORY_RETENTION),
+            last_history_maintenance: AtomicU64::new(0),
+            history_page_bytes: AtomicUsize::new(HISTORY_PAGE_BYTES),
         })
     }
 
@@ -241,9 +331,60 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         self.track_ttl.store(seconds, Ordering::Relaxed);
     }
 
+    /// Keep track history for `seconds` (default [`DEFAULT_HISTORY_RETENTION`]); older
+    /// points are pruned, and a [`READ_HISTORY`] window may be no longer than this.
+    pub fn set_history_retention(&self, seconds: u64) {
+        self.history_retention.store(seconds, Ordering::Relaxed);
+    }
+
+    /// The most bytes of tracks one [`READ_HISTORY`] response carries (default
+    /// [`HISTORY_PAGE_BYTES`]; smaller only to exercise paging).
+    pub fn set_history_page_bytes(&self, bytes: usize) {
+        self.history_page_bytes
+            .store(bytes.max(1), Ordering::Relaxed);
+    }
+
+    /// Expire stale tracks and maintain the history, each when it is due.
+    fn sweep(&self, now: u64) {
+        self.expire_tracks(now);
+        self.maintain_history(now);
+    }
+
+    /// Prune history older than the retention window and compact its segments, at most
+    /// once every [`HISTORY_MAINTAIN_SECS`]; a pass that prunes points is audited as
+    /// `PruneHistory`. [FR-H-1] [RC-13]
+    fn maintain_history(&self, now: u64) {
+        let last = self.last_history_maintenance.load(Ordering::Relaxed);
+        if last != 0 && now.saturating_sub(last) < HISTORY_MAINTAIN_SECS {
+            return;
+        }
+        self.last_history_maintenance.store(now, Ordering::Relaxed);
+        let cutoff = now.saturating_sub(self.history_retention.load(Ordering::Relaxed));
+        let report = match lock(&self.state).history.as_mut() {
+            Some(history) => match history.maintain(now, cutoff) {
+                Ok(report) => report,
+                Err(_) => return,
+            },
+            None => return,
+        };
+        if report.points_pruned > 0 {
+            let _ = lock(&self.governance).record_event(
+                "heimdall-feed",
+                "PruneHistory",
+                &format!("points:{}", report.points_pruned),
+                now,
+            );
+            self.metrics.inc_by(
+                "feed_history_points_pruned_total",
+                &[],
+                report.points_pruned as u64,
+            );
+        }
+    }
+
     /// Sweep stale tracks if a time-to-live is set and the last sweep is old enough;
     /// a sweep that removes anything is audited as `ExpireTracks`.
-    fn sweep(&self, now: u64) {
+    fn expire_tracks(&self, now: u64) {
         let ttl = self.track_ttl.load(Ordering::Relaxed);
         if ttl == 0
             || now.saturating_sub(self.last_sweep.load(Ordering::Relaxed)) < EXPIRY_SWEEP_SECS
@@ -267,8 +408,8 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
     }
 
-    /// The router the PQ-mTLS gateway serves: [`INGEST`], [`INGEST_BATCH`] and
-    /// [`READ_PICTURE`].
+    /// The router the PQ-mTLS gateway serves: [`INGEST`], [`INGEST_BATCH`],
+    /// [`READ_PICTURE`] and [`READ_HISTORY`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
         let ingest: Arc<dyn RequestHandler> =
@@ -279,10 +420,14 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         let service = self.clone();
         let batch: Arc<dyn RequestHandler> =
             Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.ingest_batch(peer, body));
+        let service = self.clone();
+        let history: Arc<dyn RequestHandler> =
+            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.read_history(peer, body));
         Router::new()
             .route(INGEST, ingest)
             .route(INGEST_BATCH, batch)
             .route(READ_PICTURE, read)
+            .route(READ_HISTORY, history)
     }
 
     /// Admit, fuse and persist one signed observation.
@@ -293,7 +438,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Ok(ok) => ok,
             Err(Refusal { code, message }) => return self.reply(INGEST, code, &message),
         };
-        let fused = lock(&self.state).fuse(&verified);
+        let fused = lock(&self.state).fuse(&verified, now);
         self.sweep(now);
         match fused {
             Ok(entity) => self.reply(
@@ -348,7 +493,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 ])),
             }
         }
-        let fused = lock(&self.state).fuse_many(&admitted);
+        let fused = lock(&self.state).fuse_many(&admitted, now);
         self.sweep(now);
         if let Err(e) = fused {
             return self.reply(
@@ -475,6 +620,61 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         self.reply(READ_PICTURE, outcome::ACCEPTED, &body.encode())
     }
 
+    /// A page of track history. The body is a JSON query: `{"from": T, "to": T,
+    /// "layer"?: id, "entity"?: id, "step"?: seconds, "after"?: cursor}` (unix seconds,
+    /// inclusive; `step` is the least spacing between returned points of a track). The
+    /// response is `{"from","to","tracks":[{"id","kind","layer","points":[[t,lat,lon,
+    /// alt_m|null],..]}],"next"}`, points by time; when `next` is not null, the same
+    /// query with `"after": next` returns the rest. Each call is authorised as
+    /// [`ACTION_READ_HISTORY`] and audited once; a malformed query, `to` before `from`
+    /// or a window longer than the retention is refused as malformed. [FR-H-1]
+    pub fn read_history(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+        let now = (self.clock)();
+        let retention = self.history_retention.load(Ordering::Relaxed);
+        let query = parse_history_query(body, retention);
+        let action = if query.is_ok() {
+            ACTION_READ_HISTORY
+        } else {
+            "ReadHistory:MALFORMED"
+        };
+        let decision =
+            lock(&self.governance).authorize(&self.context(peer), &self.resource, action, now);
+        let mut query = match (decision, query) {
+            (Err(_), _) => {
+                return self.reply(
+                    READ_HISTORY,
+                    outcome::FAILED,
+                    "the read could not be audited",
+                )
+            }
+            (Ok(_), Err(e)) => return self.reply(READ_HISTORY, outcome::MALFORMED, &e),
+            (Ok(d), Ok(_)) if !d.permitted => {
+                return self.reply(
+                    READ_HISTORY,
+                    outcome::DENIED,
+                    "policy does not permit this identity to read track history",
+                )
+            }
+            (Ok(_), Ok(query)) => query,
+        };
+        let (from, to) = (query.from, query.to);
+        // Points older than the retention window are served by no read, pruned or not.
+        query.from = query.from.max(now.saturating_sub(retention));
+        query.max_bytes = self.history_page_bytes.load(Ordering::Relaxed);
+        let state = lock(&self.state);
+        let Some(history) = state.history() else {
+            return self.reply(
+                READ_HISTORY,
+                outcome::FAILED,
+                "this service keeps no track history",
+            );
+        };
+        match history.page(&query) {
+            Ok(page) => self.reply(READ_HISTORY, outcome::ACCEPTED, &page.to_json(from, to)),
+            Err(e) => self.reply(READ_HISTORY, outcome::MALFORMED, &e.to_string()),
+        }
+    }
+
     fn refuse(
         &self,
         peer: &WorkloadIdentity,
@@ -583,6 +783,51 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<&[u8]>, String> {
     Ok(items)
 }
 
+/// Parse a [`READ_HISTORY`] query, refusing `to` before `from` and a window longer
+/// than `retention`. The page budget is the service's to set.
+pub fn parse_history_query(body: &[u8], retention: u64) -> Result<HistoryQuery, String> {
+    let text = std::str::from_utf8(body).map_err(|_| "the query is not UTF-8".to_string())?;
+    let json =
+        service_runtime::json::parse(text).map_err(|e| format!("the query is not JSON: {e}"))?;
+    if !matches!(json, Json::Obj(_)) {
+        return Err("the query is not a JSON object".into());
+    }
+    let seconds = |key: &str, required: bool| -> Result<Option<u64>, String> {
+        match json.get(key) {
+            None | Some(Json::Null) if !required => Ok(None),
+            Some(Json::Int(n)) if *n >= 0 => Ok(Some(*n as u64)),
+            _ => Err(format!("\"{key}\" must be a whole number of seconds")),
+        }
+    };
+    let text_field = |key: &str| -> Result<Option<String>, String> {
+        match json.get(key) {
+            None | Some(Json::Null) => Ok(None),
+            Some(Json::Str(s)) => Ok(Some(s.clone())),
+            _ => Err(format!("\"{key}\" must be a string")),
+        }
+    };
+    let from = seconds("from", true)?.unwrap_or(0);
+    let to = seconds("to", true)?.unwrap_or(0);
+    if to < from {
+        return Err(format!("\"to\" ({to}) is before \"from\" ({from})"));
+    }
+    if to - from > retention {
+        return Err(format!(
+            "the window is {} s; history is kept for {retention} s",
+            to - from
+        ));
+    }
+    Ok(HistoryQuery {
+        from,
+        to,
+        layer: text_field("layer")?,
+        entity: text_field("entity")?,
+        step: seconds("step", false)?.unwrap_or(0),
+        after: text_field("after")?,
+        max_bytes: HISTORY_PAGE_BYTES,
+    })
+}
+
 /// A lock that stays usable after a panic elsewhere.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -684,6 +929,37 @@ mod tests {
         assert!(parse_attrs("").unwrap().is_empty());
         assert!(parse_attrs("speed").is_err());
         assert!(parse_attrs("=420").is_err());
+    }
+
+    #[test]
+    fn a_history_query_is_parsed_and_a_bad_window_refused() {
+        let q = parse_history_query(
+            br#"{"from": 100, "to": 200, "layer": "air", "step": 5, "after": "150:AC-1"}"#,
+            3600,
+        )
+        .unwrap();
+        assert_eq!((q.from, q.to, q.step), (100, 200, 5));
+        assert_eq!(q.layer.as_deref(), Some("air"));
+        assert_eq!(q.entity, None);
+        assert_eq!(q.after.as_deref(), Some("150:AC-1"));
+        let q = parse_history_query(br#"{"from": 0, "to": 0, "entity": null}"#, 1).unwrap();
+        assert_eq!((q.step, q.entity), (0, None));
+        for bad in [
+            &br#"{"to": 200}"#[..],
+            br#"{"from": 300, "to": 200}"#,
+            br#"{"from": 0, "to": 3601}"#,
+            br#"{"from": -1, "to": 2}"#,
+            br#"{"from": 1, "to": 2, "layer": 3}"#,
+            br#"{"from": 1, "to": 2, "step": 1.5}"#,
+            b"[]",
+            b"not json",
+        ] {
+            assert!(
+                parse_history_query(bad, 3600).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
     }
 
     #[test]
