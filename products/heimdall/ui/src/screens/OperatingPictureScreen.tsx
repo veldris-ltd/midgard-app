@@ -13,10 +13,15 @@ import {
   Switch,
 } from '@midgard/design-system';
 import { useAsync, useGateway } from '@midgard/ui-shared';
-import { HumanGateRequiredError } from '@midgard/sdk';
-import type { HeimdallGateway, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
+import { HumanGateRequiredError, UK_AND_IRELAND } from '@midgard/sdk';
+import type { HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
+import { BANDS, KIND_LEGEND, bandOf, colourOf, shapeOf } from '../app/trackStyle';
+import { keyOf, replayTracks, stepFor, trailOf } from '../app/history';
+import { useEntityPath, useHistory } from '../app/useHistory';
+import { Timeline, useReplayClock } from '../app/Timeline';
+import type { GlobeTrail } from '../app/globe/GlobeView';
 
 type LayerState = Record<HeimdallLayerId, boolean>;
 type GateState = { rank: number; state: 'pending' | 'authorised' | 'rejected'; auditId?: string } | null;
@@ -34,14 +39,7 @@ const WORKFLOW_FOR_RANK: Record<number, string | undefined> = { 1: 'W-0912', 2: 
 
 /* ---- live (geographic) picture helpers. [FR-H-1] [FR-H-2] ---------------------- */
 
-/** Altitude bands that colour live tracks. */
-const BANDS = [
-  { id: 'gnd', label: 'ON GROUND', color: 'var(--text-faint)', test: (t: HeimdallTrack) => !!t.detail?.onGround },
-  { id: 'low', label: 'BELOW 10,000 FT', color: 'var(--secure)', test: (t: HeimdallTrack) => (t.altFt ?? 0) < 10000 },
-  { id: 'mid', label: '10,000–25,000 FT', color: 'var(--info)', test: (t: HeimdallTrack) => (t.altFt ?? 0) < 25000 },
-  { id: 'high', label: 'ABOVE 25,000 FT', color: 'var(--accent)', test: () => true },
-] as const;
-const bandOf = (t: HeimdallTrack) => BANDS.find((b) => b.test(t))!;
+/* Altitude bands and kind colours live in app/trackStyle, shared with the 3D globe. */
 
 /** The emergency squawks: hijack, radio failure, general emergency. */
 const SQUAWKS: Record<string, string> = { '7500': 'UNLAWFUL INTERFERENCE', '7600': 'RADIO FAILURE', '7700': 'EMERGENCY' };
@@ -130,43 +128,61 @@ function Row({ k, v, tone }: { k: string; v: React.ReactNode; tone?: string }) {
   );
 }
 
-/** The inspector for one live track: what the feed reported and how Heimdall classed it. */
-function LiveTrackPanel({ t, onClose }: { t: HeimdallTrack; onClose: () => void }) {
+const utc = (unix: number) => new Date(unix * 1000).toISOString().slice(11, 19);
+
+/** The inspector for one live track: what the feed reported and how Heimdall classed it.
+ *  Aircraft show their transponder fields; other kinds (balloons, satellites, earthquakes,
+ *  flood warnings) the facts their feed reports. In replay the position is the recorded
+ *  one at the replay time. [FR-H-1] [FR-P3-7] */
+function LiveTrackPanel({ t, onClose, replayAt, trailNote }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string }) {
   const d = t.detail!;
-  const band = bandOf(t);
-  const sq = d.squawk && SQUAWKS[d.squawk];
+  const colour = colourOf(t);
+  const aircraft = d.kind === 'air-track';
+  const event = d.kind.startsWith('event-');
+  const sq = aircraft && d.squawk ? SQUAWKS[d.squawk] : undefined;
+  const title = aircraft ? d.callsign || d.key : d.name || t.id;
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <Icon name="crosshair" size={17} color={t.track === 'anomalous' ? 'var(--warn)' : band.color} />
-        <h2 style={{ fontSize: 'var(--fs-h4)', minWidth: 0 }}>{d.callsign || d.key}</h2>
+        <Icon name="crosshair" size={17} color={colour} />
+        <h2 style={{ fontSize: 'var(--fs-h4)', minWidth: 0 }}>{title}</h2>
         <Badge tone={t.track === 'anomalous' ? 'warn' : 'neutral'}>{t.cls}</Badge>
-        <button onClick={onClose} style={{ all: 'unset', marginLeft: 'auto', cursor: 'pointer', ...mono, color: 'var(--text-faint)' }}>← SUMMARY</button>
+        <button onClick={onClose} style={{ all: 'unset', marginLeft: 'auto', cursor: 'pointer', ...mono, color: 'var(--text-faint)', padding: '6px 0' }}>← SUMMARY</button>
       </div>
+      {replayAt !== null && (
+        <div style={{ padding: '7px 12px', border: '1px solid var(--warn)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--warn)' }}>
+          REPLAY · RECORDED POSITION AT {utc(replayAt)} UTC
+        </div>
+      )}
       {sq && (
         <div style={{ padding: '9px 12px', border: '1px solid var(--warn)', background: 'var(--warn-tint)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--warn)' }}>
           SQUAWK {d.squawk} · {sq}
         </div>
       )}
+      {!event && (
+        <Card size="sm">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <StatBlock value={t.alt} label="ALTITUDE" size="sm" />
+            <StatBlock value={t.spd.toLocaleString() + ' KT'} label="GROUND SPEED" size="sm" />
+            <StatBlock value={String(Math.round(t.hdg)).padStart(3, '0') + '°'} label="TRACK" size="sm" />
+          </div>
+        </Card>
+      )}
       <Card size="sm">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <StatBlock value={t.alt} label="ALTITUDE" size="sm" />
-          <StatBlock value={t.spd + ' KT'} label="GROUND SPEED" size="sm" />
-          <StatBlock value={String(Math.round(t.hdg)).padStart(3, '0') + '°'} label="TRACK" size="sm" />
-        </div>
-      </Card>
-      <Card size="sm">
-        <Row k="ICAO ADDRESS" v={d.key} />
-        <Row k="CALLSIGN" v={d.callsign ?? '—'} />
-        <Row k="SQUAWK" v={d.squawk ?? '—'} tone={sq ? 'var(--warn)' : undefined} />
-        <Row k="CATEGORY" v={d.category ?? '—'} />
-        <Row k="POSITION" v={`${d.lat.toFixed(3)}, ${d.lon.toFixed(3)}`} />
-        <Row k="REPORTED" v={`${fmtAgo(secsAgo(d.lastSeen))} ago`} />
-        <Row k="SHOWN" v={d.estimatedSecs > 0 ? `estimated ${d.estimatedSecs}s ahead (dead reckoning)` : 'as reported'} tone={d.estimatedSecs > 0 ? 'var(--text-muted)' : undefined} />
+        <Row k={aircraft ? 'ICAO ADDRESS' : 'ENTITY'} v={d.key} />
+        {aircraft && <Row k="CALLSIGN" v={d.callsign ?? '—'} />}
+        {aircraft && <Row k="SQUAWK" v={d.squawk ?? '—'} tone={sq ? 'var(--warn)' : undefined} />}
+        {aircraft && <Row k="CATEGORY" v={d.category ?? '—'} />}
+        {!aircraft && <Row k="KIND" v={d.kind} />}
+        {(d.facts ?? []).map((f) => <Row key={f.label} k={f.label} v={f.value} />)}
+        <Row k="POSITION" v={`${d.lat.toFixed(3)}, ${d.lon.toFixed(3)}${d.altM !== undefined && !event ? ` · ${Math.round(d.altM).toLocaleString()} m` : ''}`} />
+        {replayAt === null && <Row k="REPORTED" v={`${fmtAgo(secsAgo(d.lastSeen))} ago`} />}
+        {replayAt === null && <Row k="SHOWN" v={d.estimatedSecs > 0 ? `estimated ${d.estimatedSecs}s ahead (dead reckoning)` : 'as reported'} tone={d.estimatedSecs > 0 ? 'var(--text-muted)' : undefined} />}
+        {replayAt !== null && <Row k="SHOWN" v="interpolated between recorded positions" tone="var(--text-muted)" />}
         <Row k="FIRST SEEN" v={`${fmtAgo(secsAgo(d.firstSeen))} ago`} />
         <Row k="OBSERVATIONS" v={d.observations.toLocaleString()} />
-        <Row k="SOURCES" v={d.sources.join(', ') + ' · ML-DSA signed'} />
-        <Row k="TRAIL" v={`${t.trail?.length ?? 0} reported position${t.trail?.length === 1 ? '' : 's'} since this page opened`} />
+        <Row k="SOURCES" v={d.sources.length ? d.sources.join(', ') + ' · ML-DSA signed' : '—'} />
+        <Row k="TRAIL" v={trailNote} />
       </Card>
       <Card size="sm">
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>CLASSIFICATION</div>
@@ -182,20 +198,25 @@ function LiveTrackPanel({ t, onClose }: { t: HeimdallTrack; onClose: () => void 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
         <ProvenanceTag id="FR-H-1" title="Multi-source fusion into one common operating picture" />
         <ProvenanceTag id="FR-H-2" title="Rule-based, explainable classification" />
+        <ProvenanceTag id="FR-P3-3" title="Shared 3D scene core: networked entities as navigable 3D" />
       </div>
     </>
   );
 }
 
 /** The inspector with nothing selected: what is in the live picture right now. */
-function LiveSummaryPanel({ picture, tracks, filter, setFilter, select }: {
+function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt }: {
   picture: HeimdallPicture;
   tracks: HeimdallTrack[];
   filter: string | null;
   setFilter: (f: string | null) => void;
   select: (id: string) => void;
+  /** Replay time (unix s), or null when live. */
+  replayAt: number | null;
 }) {
-  const airborne = tracks.filter((t) => !t.detail?.onGround);
+  // Air figures count aircraft and balloons only; satellites and events have their own rows.
+  const air = tracks.filter((t) => t.layer === 'air');
+  const airborne = air.filter((t) => !t.detail?.onGround);
   const byClass = new Map<string, number>();
   for (const t of tracks) byClass.set(t.cls, (byClass.get(t.cls) ?? 0) + 1);
   const classes = [...byClass.entries()].sort((a, b) => b[1] - a[1]);
@@ -216,16 +237,18 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select }: {
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Icon name="radar" size={17} color="var(--accent)" />
-        <h2 style={{ fontSize: 'var(--fs-h4)' }}>Live picture</h2>
-        <Badge tone="secure">LIVE</Badge>
+        <h2 style={{ fontSize: 'var(--fs-h4)' }}>{replayAt === null ? 'Live picture' : 'Replayed picture'}</h2>
+        {replayAt === null ? <Badge tone="secure">LIVE</Badge> : <Badge tone="warn">REPLAY</Badge>}
       </div>
-      <div style={{ ...mono, color: 'var(--text-faint)' }}>
-        READ {fmtAgo(Math.round((Date.now() - (picture.fetchedAt ?? Date.now())) / 1000))} AGO · NEWEST REPORT {newest ? fmtAgo(secsAgo(newest)) : '—'} AGO
+      <div style={{ ...mono, color: replayAt === null ? 'var(--text-faint)' : 'var(--warn)' }}>
+        {replayAt === null
+          ? `READ ${fmtAgo(Math.round((Date.now() - (picture.fetchedAt ?? Date.now())) / 1000))} AGO · NEWEST REPORT ${newest ? fmtAgo(secsAgo(newest)) : '—'} AGO`
+          : `RECORDED POSITIONS AT ${utc(replayAt)} UTC · ${tracks.length.toLocaleString()} TRACKS`}
       </div>
       <Card size="sm">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <StatBlock value={airborne.length.toLocaleString()} label="AIRBORNE" size="sm" />
-          <StatBlock value={(tracks.length - airborne.length).toLocaleString()} label="ON GROUND" size="sm" />
+          <StatBlock value={(air.length - airborne.length).toLocaleString()} label="ON GROUND" size="sm" />
           <StatBlock value={meanAlt ? `FL${Math.round(meanAlt / 100)}` : '—'} label="MEAN ALT" size="sm" />
         </div>
         <div style={{ marginTop: 10 }}>
@@ -260,13 +283,13 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select }: {
         <SectionLabel>ALTITUDE BANDS</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 8 }}>
           {BANDS.map((b) => {
-            const n = tracks.filter((t) => bandOf(t).id === b.id).length;
+            const n = air.filter((t) => bandOf(t).id === b.id).length;
             return (
               <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: b.color, flex: 'none' }} />
                 <span style={{ ...mono, color: 'var(--text-body)', width: 122 }}>{b.label}</span>
                 <span style={{ flex: 1, height: 5, background: 'var(--surface-inset)', borderRadius: 3, overflow: 'hidden' }}>
-                  <span style={{ display: 'block', height: '100%', width: `${(n / Math.max(1, tracks.length)) * 100}%`, background: b.color }} />
+                  <span style={{ display: 'block', height: '100%', width: `${(n / Math.max(1, air.length)) * 100}%`, background: b.color }} />
                 </span>
                 <span style={{ ...mono, color: 'var(--text-muted)', width: 28, textAlign: 'right' }}>{n}</span>
               </div>
@@ -285,7 +308,7 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select }: {
       </div>
 
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', lineHeight: 1.6 }}>
-        POSITIONS FROM ADS-B (ADSB.LOL), SIGNED AND FUSED BY HEIMDALL. BETWEEN REPORTS EACH AIRBORNE TRACK IS MOVED ALONG ITS TRACK AT ITS GROUND SPEED (ESTIMATED). TRAILS SHOW REPORTED POSITIONS SEEN SINCE THIS PAGE OPENED.
+        POSITIONS FROM THE FEEDS HEIMDALL FUSES (ADS-B, RADIOSONDES, ORBITAL ELEMENTS, SEISMIC AND FLOOD WARNINGS), EACH SIGNED. BETWEEN REPORTS EACH AIRBORNE AIRCRAFT IS MOVED ALONG ITS TRACK AT ITS GROUND SPEED (ESTIMATED). TRAILS COME FROM RECORDED HISTORY, OR FROM POSITIONS SEEN SINCE THIS PAGE OPENED WHEN THE GATEWAY HAS NONE.
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
         <ProvenanceTag id="FR-H-1" title="Multi-source fusion into one common operating picture" />
@@ -294,6 +317,20 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select }: {
     </>
   );
 }
+
+// three.js loads only when the 3D view is first opened. [FR-P3-7]
+const Globe3D = React.lazy(() => import('../app/globe/Globe3D').then((m) => ({ default: m.Globe3D })));
+
+const VIEW_KEY = 'heimdall.cop.view';
+function readView(): '2d' | '3d' {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === '3d' ? '3d' : '2d';
+  } catch {
+    return '2d';
+  }
+}
+
+const inBox = (t: HeimdallTrack) => t.x >= 0 && t.x <= 100 && t.y >= 0 && t.y <= 100;
 
 export function OperatingPictureScreen() {
   const gateway = useGateway<HeimdallGateway>();
@@ -305,11 +342,36 @@ export function OperatingPictureScreen() {
     return () => window.clearInterval(timer);
   }, [reload]);
 
+  // 2D map or 3D globe, remembered per browser. [FR-P3-7]
+  const [view, setViewState] = React.useState<'2d' | '3d'>(readView);
+  const setView = (v: '2d' | '3d') => {
+    setViewState(v);
+    try { window.localStorage.setItem(VIEW_KEY, v); } catch { /* storage blocked: still switches */ }
+  };
+
+  // The replay timeline and the history behind it, shared by both views. [FR-P3-7]
+  const [windowSecs, setWindowSecs] = React.useState(3600);
+  const [trailMins, setTrailMins] = React.useState(10);
+  const trailSecs = trailMins * 60;
+  const clock = useReplayClock(windowSecs, view === '3d' ? 100 : 250);
+  const history = useHistory(gateway, windowSecs, trailSecs);
+  const replay = !clock.live && history.status === 'ready';
+  const replayAt = replay ? clock.t : null;
+
   const layerDefs = picture?.layers ?? [];
-  const allTracks: HeimdallTrack[] = picture?.tracks ?? [];
-  /** Geographic picture (live): a basemap, trails and altitude colours replace the
-   *  reference layout's illustrative rings and sensor footprint. */
-  const region = picture?.region;
+  /** Every positioned entity worldwide (the globe's), live. */
+  const geoLive = React.useMemo(() => picture?.geo ?? picture?.tracks ?? [], [picture]);
+  /** Geographic picture (live, or any replay): a basemap, trails and altitude colours
+   *  replace the reference layout's illustrative rings and sensor footprint. */
+  const region: HeimdallRegion | undefined = replay ? (picture?.region ?? UK_AND_IRELAND) : picture?.region;
+  const replayed = React.useMemo(
+    () => (replay ? replayTracks(geoLive, history.store, clock.t, region, Math.max(60, 2 * stepFor(windowSecs))) : null),
+    [replay, geoLive, history.store, clock.t, region, windowSecs],
+  );
+  const allTracks: HeimdallTrack[] = view === '3d'
+    ? (replayed ?? geoLive)
+    : (replayed ? replayed.filter(inBox) : (picture?.tracks ?? []));
+  const geoView = view === '3d' || !!region;
   const [filter, setFilter] = React.useState<string | null>(null);
   // Canvas height in px, for the live view's true-scale rings and scale bar.
   const canvasRef = React.useRef<HTMLDivElement>(null);
@@ -322,6 +384,19 @@ export function OperatingPictureScreen() {
     return () => ro.disconnect();
   }, []);
   const pxPerNm = region && canvasH ? canvasH / ((region.north - region.south) * 60) : 0;
+  // The panels along the bottom (figures + timeline): the globe centres above them, and
+  // on short canvases the figures fold to one line.
+  const bottomRef = React.useRef<HTMLDivElement>(null);
+  const [bottomH, setBottomH] = React.useState(0);
+  React.useEffect(() => {
+    const el = bottomRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBottomH(el.offsetHeight + 10));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const [statsOpenChoice, setStatsOpen] = React.useState<boolean | null>(null);
+  const statsOpen = statsOpenChoice ?? canvasH >= 780;
   const tracks = filter ? allTracks.filter((t) => t.cls === filter) : allTracks;
 
   const [layers, setLayers] = React.useState<LayerState | null>(null);
@@ -342,8 +417,41 @@ export function OperatingPictureScreen() {
   const setLayer = (id: HeimdallLayerId, v: boolean) => setLayers((l) => ({ ...(l ?? ({} as LayerState)), [id]: v }));
 
   const e = tracks.find((t) => t.id === sel);
-  const visible = tracks.filter((t) => layerOn(t.layer));
+  const visible = React.useMemo(() => tracks.filter((t) => layers?.[t.layer] !== false), [tracks, layers]);
   const options = e?.options ?? [];
+
+  // Trails: the last `trailMins` of recorded history up to the time shown, joined to the
+  // drawn position; without history, the positions this session has seen. [FR-P3-7]
+  const tShown = clock.t;
+  const trails = React.useMemo(() => {
+    const out = new Map<string, HeimdallHistoryPoint[]>();
+    if (!geoView) return out;
+    for (const t of visible) {
+      const h = history.store.get(keyOf(t));
+      let pts: HeimdallHistoryPoint[] = h
+        ? trailOf(h.points, tShown - trailSecs, tShown)
+        : replay ? [] : (t.geoTrail ?? []).filter((p) => p[0] >= tShown - trailSecs);
+      if (!replay && t.detail && pts.length) {
+        pts = [...pts, [tShown, t.lat ?? t.detail.lat, t.lon ?? t.detail.lon, t.detail.altM ?? null]];
+      }
+      if (pts.length > 1) out.set(t.id, pts);
+    }
+    return out;
+  }, [geoView, visible, history.store, tShown, trailSecs, replay]);
+  const globeTrails = React.useMemo<GlobeTrail[]>(
+    () => (view === '3d' ? visible.flatMap((t) => { const p = trails.get(t.id); return p ? [{ colour: colourOf(t), points: p }] : []; }) : []),
+    [view, visible, trails],
+  );
+
+  // The selected entity's whole recorded path over the window.
+  const selKey = e ? keyOf(e) : null;
+  const entityPath = useEntityPath(gateway, history.status === 'ready' ? selKey : null, windowSecs, history.to);
+  const selPath = entityPath ?? (selKey ? history.store.get(selKey)?.points ?? null : null);
+  const trailNote = (t: HeimdallTrack) => {
+    const n = history.store.get(keyOf(t))?.points.length;
+    if (history.status === 'ready') return n ? `${n.toLocaleString()} recorded positions over the window; trail shows the last ${trailMins} min` : 'no recorded positions in this window';
+    return `${t.geoTrail?.length ?? t.trail?.length ?? 0} reported positions since this page opened (history unavailable)`;
+  };
 
   const authorise = async () => {
     const wfId = WORKFLOW_FOR_RANK[chosen];
@@ -359,11 +467,12 @@ export function OperatingPictureScreen() {
     }
   };
 
-  const aside = region && picture ? (
+  const select = (id: string) => { setSel(id); setGate(null); };
+  const aside = geoView && picture ? (
     e?.detail ? (
-      <LiveTrackPanel t={e} onClose={() => setSel('')} />
+      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} />
     ) : (
-      <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={(id) => { setSel(id); setGate(null); }} />
+      <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt} />
     )
   ) : e ? (
     <>
@@ -439,6 +548,34 @@ export function OperatingPictureScreen() {
 
   const focus = e;
   const focusRng = focus ? Math.round(Math.hypot(focus.x - 50, focus.y - 50) * 1.3) : 0;
+  const project = (p: HeimdallHistoryPoint) => {
+    const r = region ?? UK_AND_IRELAND;
+    return `${((p[2] - r.west) / (r.east - r.west)) * 100},${((r.north - p[1]) / (r.north - r.south)) * 100}`;
+  };
+  // In replay the selected path ends at the replay time; live, at its newest point.
+  const selPath2d = view === '2d' && region && selPath && selPath.length > 1
+    ? (replay ? selPath.filter((p) => p[0] <= tShown) : selPath)
+    : null;
+
+  const viewToggle = (
+    <span role="group" aria-label="Picture view" style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+      {(['2d', '3d'] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          aria-pressed={view === v}
+          onClick={() => setView(v)}
+          style={{
+            all: 'unset', cursor: 'pointer', minWidth: 44, height: 36, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            ...mono, fontSize: 10, color: view === v ? 'var(--accent-hover)' : 'var(--text-muted)',
+            background: view === v ? 'var(--surface-raised)' : 'transparent',
+          }}
+        >
+          {v.toUpperCase()}
+        </button>
+      ))}
+    </span>
+  );
 
   return (
     <ConsolePage
@@ -448,6 +585,7 @@ export function OperatingPictureScreen() {
       mainStyle={{ padding: 0, gap: 0, position: 'relative' }}
       toolbar={
         <>
+          {viewToggle}
           <IconButton label="Alerts" active>
             <Icon name="bell" size={17} />
           </IconButton>
@@ -469,7 +607,14 @@ export function OperatingPictureScreen() {
       {/* The blueprint grid and glow stay in both views; the live view adds the map. */}
       <div ref={canvasRef} className="mg-grid-bg" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 55% 45%, var(--accent-tint), transparent 60%)', pointerEvents: 'none' }} />
-      {region && (
+
+      {view === '3d' && (
+        <React.Suspense fallback={<div style={{ position: 'absolute', top: '40%', width: '100%', textAlign: 'center', ...mono, color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}>
+          <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH} />
+        </React.Suspense>
+      )}
+
+      {view === '2d' && region && (
         <>
           <Basemap region={region} />
           <GraticuleLabels region={region} />
@@ -477,21 +622,29 @@ export function OperatingPictureScreen() {
         </>
       )}
 
-      {region && (
+      {view === '2d' && region && (
         <svg aria-hidden viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-          {tracks.filter((t) => layerOn(t.layer) && (t.trail?.length ?? 0) > 0).map((t) => {
-            const pts = [...t.trail!, { x: t.x, y: t.y }].map((p) => `${p.x},${p.y}`).join(' ');
+          {visible.map((t) => {
+            // Recorded history when there is some, else the positions this session has seen.
+            const hist = trails.get(t.id);
+            const pts = hist
+              ? hist.map(project).join(' ')
+              : !replay && t.trail?.length ? [...t.trail, { x: t.x, y: t.y }].map((p) => `${p.x},${p.y}`).join(' ') : null;
+            if (!pts) return null;
             const on = t.id === sel || t.id === hover;
             return (
-              <polyline key={t.id} points={pts} fill="none" stroke={t.track === 'anomalous' ? 'var(--warn)' : bandOf(t).color}
+              <polyline key={t.id} points={pts} fill="none" stroke={colourOf(t)}
                 strokeOpacity={on ? 0.9 : 0.3} strokeWidth={on ? 2 : 1} vectorEffect="non-scaling-stroke" />
             );
           })}
+          {selPath2d && (
+            <polyline points={selPath2d.map(project).join(' ')} fill="none" stroke="var(--grey-100)" strokeOpacity={0.7} strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+          )}
         </svg>
       )}
 
       {/* range rings + scale + north arrow (reference layout only) */}
-      {!region && <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      {view === '2d' && !region && <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         {([[160, '20 NM'], [320, '40 NM'], [480, '60 NM']] as [number, string][]).map(([rr, lb], i) => (
           <React.Fragment key={i}>
             <div style={{ position: 'absolute', left: '50%', top: '50%', width: rr * 2, height: rr * 2, marginLeft: -rr, marginTop: -rr, border: '1px solid var(--divider)', borderRadius: '50%' }} />
@@ -511,33 +664,36 @@ export function OperatingPictureScreen() {
         </div>
       </div>}
 
-      {!region && layerOn('feeds') && (
+      {view === '2d' && !region && layerOn('feeds') && (
         <>
           <div style={{ position: 'absolute', left: '12%', top: '8%', width: '55%', height: '62%', border: '1px dashed var(--accent-glow)', borderRadius: '50%', pointerEvents: 'none' }} />
           <span style={{ position: 'absolute', left: '39%', top: '8%', transform: 'translate(-50%, -50%)', fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.12em', color: 'var(--accent-hover)', background: 'var(--bg-sunken)', padding: '1px 6px', pointerEvents: 'none' }}>NORTH-2 · RADAR · 4 HZ · R 60 NM</span>
         </>
       )}
 
-      {visible.map((en) => {
+      {view === '2d' && visible.map((en) => {
         const anomalous = en.track === 'anomalous';
         const selected = en.id === sel;
-        const color = anomalous ? 'var(--warn)' : region ? bandOf(en).color : 'var(--accent)';
+        const color = region ? colourOf(en) : anomalous ? 'var(--warn)' : 'var(--accent)';
+        const shape = shapeOf(en);
         const rad = (en.hdg * Math.PI) / 180;
         // Live: the vector is where the track will be in 3 minutes (speed in NM/min × 3).
-        const vlen = region ? (en.detail?.onGround ? 0 : (en.spd / 20) * pxPerNm) : Math.min(46, 12 + en.spd / 14);
-        const size = region ? 7 : 14;
+        // Satellites move too fast for a vector to mean anything at this scale; events do not move.
+        const moves = shape === 'aircraft' || shape === 'balloon' || shape === 'point';
+        const vlen = region ? (en.detail?.onGround || !moves ? 0 : (en.spd / 20) * pxPerNm) : Math.min(46, 12 + en.spd / 14);
+        const size = region ? (shape === 'quake' ? 6 + 2 * (en.detail?.magnitude ?? 2) : shape === 'flood' ? 10 : 7) : 14;
         // With hundreds of live tracks, label only the ones that matter right now.
         const labelled = !region || selected || anomalous || en.id === hover || visible.length <= 40;
         return (
           <button
             key={en.id}
-            onClick={() => { setSel(en.id); setGate(null); }}
+            onClick={() => select(en.id)}
             onMouseEnter={() => setHover(en.id)}
             onMouseLeave={() => setHover(null)}
             onFocus={() => setHover(en.id)}
             onBlur={() => setHover(null)}
             aria-label={`${en.id} · ${en.cls} · heading ${en.hdg} degrees`}
-            style={{ all: 'unset', position: 'absolute', left: en.x + '%', top: en.y + '%', transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', zIndex: selected ? 3 : undefined, transition: region ? 'left 2s linear, top 2s linear' : undefined }}
+            style={{ all: 'unset', position: 'absolute', left: en.x + '%', top: en.y + '%', transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', zIndex: selected ? 3 : undefined, transition: region && !replay ? 'left 2s linear, top 2s linear' : undefined }}
           >
             <span style={{ position: 'relative', width: size, height: size }}>
               {!region && [1, 2, 3].map((k) => (
@@ -560,8 +716,11 @@ export function OperatingPictureScreen() {
               />
               <span
                 style={{
-                  position: 'absolute', inset: 0, borderRadius: en.layer === 'maritime' ? 2 : '50%',
-                  background: color,
+                  position: 'absolute', inset: 0, borderRadius: en.layer === 'maritime' || shape === 'satellite' ? 2 : '50%',
+                  background: shape === 'quake' ? 'transparent' : color,
+                  border: shape === 'quake' ? `2px solid ${color}` : undefined,
+                  opacity: shape === 'flood' ? 0.7 : 1,
+                  transform: shape === 'satellite' ? 'rotate(45deg)' : undefined,
                   boxShadow: selected
                     ? `0 0 0 5px ${anomalous ? 'var(--warn-tint)' : 'var(--accent-tint)'}, 0 0 18px -2px ${anomalous ? 'var(--warn)' : 'var(--accent-glow)'}`
                     : region ? `0 0 8px -1px ${color}` : 'none',
@@ -578,7 +737,7 @@ export function OperatingPictureScreen() {
         );
       })}
 
-      {(() => {
+      {view === '2d' && (() => {
         const t = tracks.find((x) => x.id === hover);
         if (!t || !layerOn(t.layer)) return null;
         const rng = Math.round(Math.hypot(t.x - 50, t.y - 50) * 1.3);
@@ -588,8 +747,8 @@ export function OperatingPictureScreen() {
           ['TRK / SPD', String(Math.round(t.hdg)).padStart(3, '0') + '° · ' + t.spd + ' KT'],
           ['ALT', t.alt],
           ['SQUAWK', d.squawk ?? '—'],
-          ['POSITION', `${d.lat.toFixed(2)}, ${d.lon.toFixed(2)}`],
-          ['REPORTED', `${fmtAgo(secsAgo(d.lastSeen))} ago${d.estimatedSecs > 0 ? ' · moved on (est.)' : ''}`],
+          ['POSITION', `${(t.lat ?? d.lat).toFixed(2)}, ${(t.lon ?? d.lon).toFixed(2)}`],
+          replay ? ['REPLAY', `${utc(tShown)} UTC · recorded`] : ['REPORTED', `${fmtAgo(secsAgo(d.lastSeen))} ago${d.estimatedSecs > 0 ? ' · moved on (est.)' : ''}`],
         ] : [
           ['HDG / SPD', String(t.hdg).padStart(3, '0') + '° · ' + t.spd + ' KT'],
           ['ALT', t.alt],
@@ -624,7 +783,7 @@ export function OperatingPictureScreen() {
         );
       })()}
 
-      {focus && !region && (
+      {view === '2d' && focus && !region && (
         <div style={{ position: 'absolute', top: 12, right: 14, pointerEvents: 'none', textAlign: 'right', fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 3 }}>
           <span style={{ fontSize: 8, letterSpacing: '0.14em', color: 'var(--accent-hover)' }}>FOCUS · {focus.id}</span>
           <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{String(focus.hdg).padStart(3, '0')}° · {focus.spd} KT · {focus.alt}</span>
@@ -632,28 +791,43 @@ export function OperatingPictureScreen() {
         </div>
       )}
 
-      <div style={{ position: 'absolute', left: 12, right: 12, bottom: 10, display: 'flex', alignItems: 'flex-end', gap: '8px 18px', flexWrap: 'wrap', zIndex: 4, background: 'color-mix(in srgb, var(--bg-sunken) 80%, transparent)', backdropFilter: 'var(--blur-panel)', WebkitBackdropFilter: 'var(--blur-panel)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', width: 'fit-content', maxWidth: 'calc(100% - 24px)' }}>
-        {/* Counted from the picture the gateway serves, not fixed figures. [FR-H-1] [FR-H-2] */}
-        <StatBlock value={(picture?.entities.length ?? 0).toLocaleString()} label="TRACKED ENTITIES" size="sm" />
-        <StatBlock value={visible.length.toLocaleString()} label="ON CANVAS" size="sm" />
-        <StatBlock value={String(tracks.filter((t) => t.track === 'anomalous').length)} label="ANOMALIES" size="sm" accent />
-        {region && <StatBlock value={String(allTracks.filter((t) => t.detail?.label === 'fast-mover').length)} label="FAST MOVERS" size="sm" />}
-        {region && <StatBlock value={String(allTracks.filter((t) => t.detail?.label === 'rotorcraft').length)} label="ROTORCRAFT" size="sm" />}
-        {region && (
-          <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            {BANDS.map((b) => (
-              <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, ...mono, fontSize: 8, color: 'var(--text-faint)' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: b.color }} />{b.label}
-              </span>
-            ))}
+      {/* Picture figures and the replay timeline, stacked along the bottom. [FR-P3-7] */}
+      <div ref={bottomRef} style={{ position: 'absolute', left: 12, right: 12, bottom: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, zIndex: 4, pointerEvents: 'none' }}>
+        {!statsOpen && (
+          <button type="button" onClick={() => setStatsOpen(true)} aria-expanded={false} style={{ all: 'unset', pointerEvents: 'auto', cursor: 'pointer', minHeight: 32, display: 'inline-flex', alignItems: 'center', gap: 12, padding: '0 12px', ...mono, color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--bg-sunken) 80%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
+            <span>{(picture?.entities.length ?? 0).toLocaleString()} TRACKED</span>
+            <span>{visible.length.toLocaleString()} {view === '3d' ? 'ON GLOBE' : 'ON CANVAS'}</span>
+            <span style={{ color: 'var(--accent-hover)' }}>{tracks.filter((t) => t.track === 'anomalous').length} ANOMALIES</span>
+            <span aria-hidden>▴</span>
+          </button>
+        )}
+        {statsOpen && <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'flex-end', gap: '8px 18px', flexWrap: 'wrap', background: 'color-mix(in srgb, var(--bg-sunken) 80%, transparent)', backdropFilter: 'var(--blur-panel)', WebkitBackdropFilter: 'var(--blur-panel)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', width: 'fit-content', maxWidth: '100%', boxSizing: 'border-box' }}>
+          {/* Counted from the picture the gateway serves, not fixed figures. [FR-H-1] [FR-H-2] */}
+          <StatBlock value={(picture?.entities.length ?? 0).toLocaleString()} label="TRACKED ENTITIES" size="sm" />
+          <StatBlock value={visible.length.toLocaleString()} label={view === '3d' ? 'ON GLOBE' : 'ON CANVAS'} size="sm" />
+          <StatBlock value={String(tracks.filter((t) => t.track === 'anomalous').length)} label="ANOMALIES" size="sm" accent />
+          {region && view === '2d' && <StatBlock value={String(allTracks.filter((t) => t.detail?.label === 'fast-mover').length)} label="FAST MOVERS" size="sm" />}
+          {region && view === '2d' && <StatBlock value={String(allTracks.filter((t) => t.detail?.label === 'rotorcraft').length)} label="ROTORCRAFT" size="sm" />}
+          {geoView && (
+            <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {[...BANDS.map((b) => ({ label: b.label, color: b.color })), ...KIND_LEGEND].map((b) => (
+                <span key={b.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, ...mono, fontSize: 8, color: 'var(--text-faint)' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: b.color }} />{b.label}
+                </span>
+              ))}
+            </span>
+          )}
+          {filter && (
+            <button onClick={() => setFilter(null)} style={{ all: 'unset', cursor: 'pointer', ...mono, color: 'var(--accent-hover)' }}>FILTER: {filter} ✕</button>
+          )}
+          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
+            {view === '3d' ? 'GLOBE: NATURAL EARTH 1:110M + 1:50M EUROPE' : region ? 'MAP: NATURAL EARTH 1:50M · LINEAR LAT/LON' : 'REFERENCE LAYOUT · POSITIONS NOT TO MAP SCALE'}
           </span>
-        )}
-        {filter && (
-          <button onClick={() => setFilter(null)} style={{ all: 'unset', cursor: 'pointer', ...mono, color: 'var(--accent-hover)' }}>FILTER: {filter} ✕</button>
-        )}
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
-          {region ? 'MAP: NATURAL EARTH 1:50M · LINEAR LAT/LON' : 'REFERENCE LAYOUT · POSITIONS NOT TO MAP SCALE'}
-        </span>
+          <button type="button" onClick={() => setStatsOpen(false)} aria-label="Fold the figures" aria-expanded style={{ all: 'unset', cursor: 'pointer', ...mono, color: 'var(--text-faint)', padding: '4px 6px' }}>▾</button>
+        </div>}
+        <div style={{ pointerEvents: 'auto', width: '100%' }}>
+          <Timeline clock={clock} history={history} windowSecs={windowSecs} setWindow={setWindowSecs} trailMins={trailMins} setTrailMins={setTrailMins} />
+        </div>
       </div>
     </ConsolePage>
   );
