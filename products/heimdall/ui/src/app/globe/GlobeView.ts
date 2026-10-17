@@ -64,7 +64,7 @@ export interface GlobeCallbacks {
 /** Marker sizes in CSS pixels. */
 const PX: Record<TrackShape, number> = { aircraft: 17, vessel: 13, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
 const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point'];
-const GLOBE_COLOUR = '#0a0f16';
+const GLOBE_COLOUR = '#1a2636';
 /** A screen tap: moved less than this (px) within this long (ms). */
 const TAP_PX = { mouse: 5, touch: 12 };
 /** Narrowest a runway is drawn, metres, so it shows before you are right on top of it. */
@@ -158,11 +158,11 @@ function terrainAt(lat: number, lon: number): number {
 
 /** Muted relief colours by height: dark lowland to pale upland, so it stays a backdrop. */
 const RELIEF: [number, THREE.Color][] = [
-  [0, new THREE.Color('#16211b')],
-  [150, new THREE.Color('#1f2b1f')],
-  [400, new THREE.Color('#2d3226')],
-  [800, new THREE.Color('#463f32')],
-  [1200, new THREE.Color('#6b6455')],
+  [0, new THREE.Color('#2a3d30')],
+  [150, new THREE.Color('#35482f')],
+  [400, new THREE.Color('#4d543c')],
+  [800, new THREE.Color('#6e624c')],
+  [1200, new THREE.Color('#9a907c')],
 ];
 function reliefColour(h: number, out: THREE.Color): THREE.Color {
   for (let i = 1; i < RELIEF.length; i++) {
@@ -513,12 +513,12 @@ export class GlobeView {
     }
     // Dimmed a little, so tracks and labels stay the brightest things on screen.
     this.globeMaterial.map = on ? this.textures!.earth : null;
-    this.globeMaterial.color.set(on ? 0x9a9a9a : GLOBE_COLOUR);
+    this.globeMaterial.color.set(on ? 0xf2f2f2 : GLOBE_COLOUR);
     this.globeMaterial.needsUpdate = true;
     const tm = this.terrain.material as THREE.MeshLambertMaterial;
     tm.map = on ? this.textures!.uk : null;
     tm.vertexColors = !on;
-    tm.color.set(on ? 0x6e6e6e : 0xffffff);
+    tm.color.set(on ? 0xb4b4b4 : 0xffffff);
     tm.needsUpdate = true;
     this.buildTerrain();
     this.requestRender();

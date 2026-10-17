@@ -70,7 +70,7 @@ function Basemap({ region }: { region: HeimdallRegion }) {
           box is -12..4 E, 48..62 N, linear in lat/lon like this map. Off when the 3D
           view's MAP chip is set to DARK. [FR-P3-3] */}
       {imageryOn() && (
-        <image href={`${import.meta.env.BASE_URL}imagery/uk-ie-2560.jpg`} x={-12} y={-62} width={16} height={14} preserveAspectRatio="none" opacity={0.55} />
+        <image href={`${import.meta.env.BASE_URL}imagery/uk-ie-2560.jpg`} x={-12} y={-62} width={16} height={14} preserveAspectRatio="none" opacity={0.9} />
       )}
       <path d={LAND_PATH} fill="var(--text-faint)" fillOpacity={0.07} stroke="var(--text-faint)" strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       <path d={BORDER_PATH} fill="none" stroke="var(--text-faint)" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
