@@ -7,6 +7,12 @@
 //!                 [--attrs k=v,...] [--observed-at T] [--observation-id ID]
 //!                 [--service NAME] [--feed-id FEED] [--purpose P]
 //! heimdall-source --identity-dir DIR --addr HOST:PORT --picture [--service NAME] [--purpose P]
+//! ```
+//!
+//! `--picture` reads every page of the picture over one session and prints it merged.
+//! [FR-H-1]
+//!
+//! ```text
 //! heimdall-source --identity-dir DIR --addr HOST:PORT --batch FILE|- [--service NAME]
 //!                 [--feed-id FEED] [--purpose P]
 //! ```
@@ -85,7 +91,7 @@ fn run(args: &Args) -> Result<String, String> {
     let purpose = args.get("purpose").unwrap_or("situational-awareness");
 
     if args.flag("picture") {
-        return answer(&client::call(&identity, addr, purpose, READ_PICTURE, &[])?);
+        return whole_picture(&identity, addr, purpose);
     }
 
     let feed = args.get("feed-id").unwrap_or(service);
@@ -123,6 +129,44 @@ fn run(args: &Args) -> Result<String, String> {
         INGEST,
         &encode_signed_observation(&signed),
     )?)
+}
+
+/// The most picture pages one `--picture` reads.
+const MAX_PICTURE_PAGES: usize = 1000;
+
+/// Read every page of the picture over one session and print it merged:
+/// `{"layers": [..], "entities": [..]}` (the layers from the first page). [FR-H-1]
+fn whole_picture(identity: &ServiceIdentity, addr: &str, purpose: &str) -> Result<String, String> {
+    let mut session = client::Session::open(identity, addr, purpose)?;
+    let mut layers = Json::Arr(Vec::new());
+    let mut entities = Vec::new();
+    let mut request = Vec::new();
+    for page_no in 0..MAX_PICTURE_PAGES {
+        let page = answer(&session.call(READ_PICTURE, &request)?)?;
+        let page = parse(&page).map_err(|e| format!("the picture is not JSON: {e}"))?;
+        if page_no == 0 {
+            layers = page.get("layers").cloned().unwrap_or(Json::Arr(Vec::new()));
+        }
+        if let Some(Json::Arr(items)) = page.get("entities") {
+            entities.extend(items.iter().cloned());
+        }
+        match page.get("next") {
+            None | Some(Json::Null) => {
+                return Ok(
+                    Json::obj(vec![("layers", layers), ("entities", Json::Arr(entities))]).encode(),
+                )
+            }
+            Some(next @ Json::Str(_)) => {
+                request = Json::obj(vec![("after", next.clone())])
+                    .encode()
+                    .into_bytes();
+            }
+            Some(_) => return Err("the picture's cursor is malformed".into()),
+        }
+    }
+    Err(format!(
+        "the picture is more than {MAX_PICTURE_PAGES} pages"
+    ))
 }
 
 /// How many refusals a batch reports line by line before it only counts them.

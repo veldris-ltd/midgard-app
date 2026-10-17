@@ -12,6 +12,12 @@
 //!
 //! So both ledgers record the read: who asked, and which workload fetched it.
 //!
+//! Heimdall serves the picture in pages that fit its transport frame; the gateway reads
+//! every page over one session and returns `{"layers", "entities"}` merged (layers from
+//! the first page), up to [`MAX_PICTURE_PAGES`] pages or [`MAX_PICTURE_BYTES`], after
+//! which the result also says `"truncated": true`. Each page is one audited
+//! `ReadPicture` in Heimdall's ledger. [FR-H-1]
+//!
 //! Track history (`GET /api/v1/heimdall/history`) goes the same way, as `ReadHistory`.
 //! Heimdall serves it in pages that fit its transport frame; the gateway reads every
 //! page over one session and returns the tracks merged, up to [`MAX_HISTORY_PAGES`]
@@ -116,6 +122,54 @@ fn alerts_response(response: &[u8]) -> Result<Json, EdgeError> {
 pub const MAX_HISTORY_PAGES: usize = 50;
 /// The most history bytes one gateway request reads.
 pub const MAX_HISTORY_BYTES: usize = 40 * 1024 * 1024;
+/// The most picture pages one gateway request reads.
+pub const MAX_PICTURE_PAGES: usize = 50;
+/// The most picture bytes one gateway request reads.
+pub const MAX_PICTURE_BYTES: usize = 40 * 1024 * 1024;
+
+/// Picture pages merged: the first page's layers, then every page's entities.
+#[derive(Default)]
+struct MergedPicture {
+    layers: Option<Json>,
+    entities: Vec<Json>,
+}
+
+impl MergedPicture {
+    /// Add one page; returns its `next` cursor (`Json::Null` at the end).
+    fn add(&mut self, page: &Json) -> Result<Json, EdgeError> {
+        let bad = || EdgeError::new(502, "Heimdall's picture page is malformed");
+        let Some(Json::Arr(entities)) = page.get("entities") else {
+            return Err(bad());
+        };
+        if self.layers.is_none() {
+            match page.get("layers") {
+                Some(layers @ Json::Arr(_)) => self.layers = Some(layers.clone()),
+                _ => return Err(bad()),
+            }
+        }
+        self.entities.extend(entities.iter().cloned());
+        match page.get("next") {
+            None | Some(Json::Null) => Ok(Json::Null),
+            Some(next @ Json::Str(_)) => Ok(next.clone()),
+            Some(_) => Err(EdgeError::new(
+                502,
+                "Heimdall's picture cursor is malformed",
+            )),
+        }
+    }
+
+    fn into_json(self, truncated: bool) -> Json {
+        let mut pairs = vec![
+            ("layers", self.layers.unwrap_or(Json::Arr(Vec::new()))),
+            ("entities", Json::Arr(self.entities)),
+        ];
+        if truncated {
+            pairs.push(("truncated", Json::Bool(true)));
+        }
+        Json::obj(pairs)
+    }
+}
+
 /// The window a history request covers when it names no `from`, in seconds.
 pub const DEFAULT_HISTORY_WINDOW: u64 = 3600;
 
@@ -299,6 +353,21 @@ fn history_page(response: &[u8]) -> Result<Json, EdgeError> {
     }
 }
 
+/// Make sense of one `ReadPicture` response: the page, or a 502.
+fn picture_page(response: &[u8]) -> Result<Json, EdgeError> {
+    let (code, body) = response
+        .split_first()
+        .ok_or_else(|| EdgeError::new(502, "Heimdall sent an empty response"))?;
+    let body = String::from_utf8_lossy(body);
+    if *code != ACCEPTED {
+        return Err(EdgeError::new(
+            502,
+            &format!("Heimdall refused the read: {body}"),
+        ));
+    }
+    parse(&body).map_err(|e| EdgeError::new(502, &format!("Heimdall's picture: {e}")))
+}
+
 /// Where the picture is and who the gateway is when it asks for it.
 pub struct HeimdallBridge {
     identity: ServiceIdentity,
@@ -317,23 +386,31 @@ impl HeimdallBridge {
         }
     }
 
-    /// The picture as Heimdall serves it: `{"layers": [..], "entities": [..]}`. Heimdall
-    /// being unreachable, or refusing the read, is a 502: the gateway is a client there.
+    /// The picture as `{"layers": [..], "entities": [..]}`: every page Heimdall serves,
+    /// read over one session and merged, up to [`MAX_PICTURE_PAGES`] pages or
+    /// [`MAX_PICTURE_BYTES`], past which `"truncated": true` is added. Heimdall being
+    /// unreachable, or refusing the read, is a 502: the gateway is a client there.
+    /// [FR-H-1]
     pub fn picture(&self) -> Result<Json, EdgeError> {
-        let response =
-            client::call(&self.identity, &self.addr, &self.purpose, READ_PICTURE, &[])
-                .map_err(|e| EdgeError::new(502, &format!("Heimdall is unreachable: {e}")))?;
-        let (code, body) = response
-            .split_first()
-            .ok_or_else(|| EdgeError::new(502, "Heimdall sent an empty response"))?;
-        let body = String::from_utf8_lossy(body);
-        if *code != ACCEPTED {
-            return Err(EdgeError::new(
-                502,
-                &format!("Heimdall refused the read: {body}"),
-            ));
+        let unreachable = |e: String| EdgeError::new(502, &format!("Heimdall is unreachable: {e}"));
+        let mut session = client::Session::open(&self.identity, &self.addr, &self.purpose)
+            .map_err(unreachable)?;
+        let mut merged = MergedPicture::default();
+        let mut request = Vec::new();
+        let mut bytes = 0usize;
+        for _ in 0..MAX_PICTURE_PAGES {
+            if bytes >= MAX_PICTURE_BYTES {
+                break;
+            }
+            let response = session.call(READ_PICTURE, &request).map_err(unreachable)?;
+            bytes += response.len();
+            let next = merged.add(&picture_page(&response)?)?;
+            if next == Json::Null {
+                return Ok(merged.into_json(false));
+            }
+            request = Json::obj(vec![("after", next)]).encode().into_bytes();
         }
-        parse(&body).map_err(|e| EdgeError::new(502, &format!("Heimdall's picture: {e}")))
+        Ok(merged.into_json(true))
     }
 
     /// The alerts as `{"alerts": [..]}`, newest first: only open ones, or all. Heimdall
@@ -483,6 +560,54 @@ mod tests {
         ] {
             assert!(ack_target(not_ack).is_none(), "{not_ack}");
         }
+    }
+
+    #[test]
+    fn picture_pages_merge_and_refusals_map_to_status() {
+        let page = |json: &str| {
+            let mut bytes = vec![ACCEPTED];
+            bytes.extend_from_slice(json.as_bytes());
+            picture_page(&bytes).unwrap()
+        };
+        let mut merged = MergedPicture::default();
+        let next = merged
+            .add(&page(
+                r#"{"layers":[{"id":"air"}],"entities":[{"id":"A"},{"id":"B"}],"next":"B"}"#,
+            ))
+            .unwrap();
+        assert_eq!(next, Json::s("B"));
+        let next = merged
+            .add(&page(
+                r#"{"layers":[{"id":"air"},{"id":"sea"}],"entities":[{"id":"C"}],"next":null}"#,
+            ))
+            .unwrap();
+        assert_eq!(next, Json::Null);
+        assert_eq!(
+            merged.into_json(false).encode(),
+            parse(r#"{"layers":[{"id":"air"}],"entities":[{"id":"A"},{"id":"B"},{"id":"C"}]}"#)
+                .unwrap()
+                .encode(),
+            "layers from the first page; no truncated flag when whole"
+        );
+        let mut old = MergedPicture::default();
+        assert_eq!(
+            old.add(&page(r#"{"layers":[],"entities":[]}"#)).unwrap(),
+            Json::Null,
+            "a page with no cursor is the last"
+        );
+        assert_eq!(
+            old.into_json(true).get("truncated"),
+            Some(&Json::Bool(true))
+        );
+        assert!(MergedPicture::default()
+            .add(&page(r#"{"layers":[]}"#))
+            .is_err());
+        assert!(MergedPicture::default()
+            .add(&page(r#"{"layers":[],"entities":[],"next":5}"#))
+            .is_err());
+        assert_eq!(picture_page(b"\x01denied").unwrap_err().status, 502);
+        assert_eq!(picture_page(b"\x00nope").unwrap_err().status, 502);
+        assert_eq!(picture_page(&[]).unwrap_err().status, 502);
     }
 
     #[test]

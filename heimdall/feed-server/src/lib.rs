@@ -91,8 +91,12 @@ pub const INGEST: &str = "Ingest";
 /// The method a source submits many encoded signed observations with, framed by
 /// [`encode_batch`].
 pub const INGEST_BATCH: &str = "IngestBatch";
-/// The method an analyst reads the picture with; its payload is empty.
+/// The method an analyst reads the picture with, a page at a time; its payload is
+/// empty (the first page) or a JSON query (see [`FeedService::read_picture`]).
 pub const READ_PICTURE: &str = "ReadPicture";
+/// The most bytes of entities one [`READ_PICTURE`] page carries by default; transport
+/// frames are capped at 1 MiB, and a caller pages for the rest. [FR-H-1]
+pub const PICTURE_PAGE_BYTES: usize = 900 * 1024;
 /// The method an analyst reads track history with; its payload is a JSON query
 /// (see [`FeedService::read_history`]).
 pub const READ_HISTORY: &str = "ReadHistory";
@@ -395,6 +399,7 @@ pub struct FeedService<S: LedgerStore> {
     history_retention: AtomicU64,
     last_history_maintenance: AtomicU64,
     history_page_bytes: AtomicUsize,
+    picture_page_bytes: AtomicUsize,
 }
 
 impl<S: LedgerStore + Send + 'static> FeedService<S> {
@@ -440,12 +445,20 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             history_retention: AtomicU64::new(DEFAULT_HISTORY_RETENTION),
             last_history_maintenance: AtomicU64::new(0),
             history_page_bytes: AtomicUsize::new(HISTORY_PAGE_BYTES),
+            picture_page_bytes: AtomicUsize::new(PICTURE_PAGE_BYTES),
         })
     }
 
     /// Remove entities not seen for `seconds` (0, the default, keeps them for ever).
     pub fn set_track_ttl(&self, seconds: u64) {
         self.track_ttl.store(seconds, Ordering::Relaxed);
+    }
+
+    /// The most bytes of entities one [`READ_PICTURE`] page carries (default
+    /// [`PICTURE_PAGE_BYTES`]; smaller only to exercise paging). [FR-H-1]
+    pub fn set_picture_page_bytes(&self, bytes: usize) {
+        self.picture_page_bytes
+            .store(bytes.max(1), Ordering::Relaxed);
     }
 
     /// Time-to-live by exact kind, overriding [`FeedService::set_track_ttl`] for those
@@ -564,7 +577,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.ingest(peer, body));
         let service = self.clone();
         let read: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, _: &[u8]| service.read_picture(peer));
+            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.read_picture(peer, body));
         let service = self.clone();
         let batch: Arc<dyn RequestHandler> =
             Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.ingest_batch(peer, body));
@@ -731,31 +744,42 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         Ok((verified, decision.audit_seq))
     }
 
-    /// The picture as JSON: layers with visibility, and every tracked entity.
-    pub fn read_picture(&self, peer: &WorkloadIdentity) -> Vec<u8> {
+    /// A page of the picture as JSON: `{"layers": [..], "entities": [..], "next"}`.
+    /// The body is empty (the first page) or `{"after"?: cursor|null, "layer"?: id}`.
+    /// Entities come in id order, as many as fit in the page budget (at least one);
+    /// when `next` is not null, the same query with `"after": next` returns the rest.
+    /// Every page carries all the layers with their visibility. Each page is
+    /// authorised as [`ACTION_READ_PICTURE`] and audited once; a malformed query is
+    /// refused as malformed. [FR-H-1] [NFR-SEC-1]
+    pub fn read_picture(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
         let now = (self.clock)();
-        match lock(&self.governance).authorize(
-            &self.context(peer),
-            &self.resource,
-            ACTION_READ_PICTURE,
-            now,
-        ) {
-            Ok(d) if d.permitted => {}
-            Ok(_) => {
-                return self.reply(
-                    READ_PICTURE,
-                    outcome::DENIED,
-                    "policy does not permit this identity to read the picture",
-                )
-            }
-            Err(_) => {
+        let query = parse_picture_query(body);
+        let action = if query.is_ok() {
+            ACTION_READ_PICTURE
+        } else {
+            "ReadPicture:MALFORMED"
+        };
+        let decision =
+            lock(&self.governance).authorize(&self.context(peer), &self.resource, action, now);
+        let (after, only_layer) = match (decision, query) {
+            (Err(_), _) => {
                 return self.reply(
                     READ_PICTURE,
                     outcome::FAILED,
                     "the read could not be audited",
                 )
             }
-        }
+            (Ok(_), Err(e)) => return self.reply(READ_PICTURE, outcome::MALFORMED, &e),
+            (Ok(d), Ok(_)) if !d.permitted => {
+                return self.reply(
+                    READ_PICTURE,
+                    outcome::DENIED,
+                    "policy does not permit this identity to read the picture",
+                )
+            }
+            (Ok(_), Ok(query)) => query,
+        };
+        let budget = self.picture_page_bytes.load(Ordering::Relaxed);
 
         let state = lock(&self.state);
         let picture = state.picture();
@@ -769,10 +793,29 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 ])
             })
             .collect();
-        let entities = picture.entities().map(entity_json).collect();
+        let mut bytes = 0usize;
+        let mut entities = Vec::new();
+        let mut next = Json::Null;
+        let mut last: Option<&str> = None;
+        let candidates = picture
+            .entities()
+            .filter(|e| after.as_deref().is_none_or(|a| e.id.0.as_str() > a))
+            .filter(|e| only_layer.as_deref().is_none_or(|l| e.layer.0 == l));
+        for entity in candidates {
+            let json = entity_json(entity);
+            let size = json.encode().len() + 1;
+            if !entities.is_empty() && bytes + size > budget {
+                next = last.map_or(Json::Null, Json::s);
+                break;
+            }
+            bytes += size;
+            last = Some(entity.id.0.as_str());
+            entities.push(json);
+        }
         let body = Json::obj(vec![
             ("layers", Json::Arr(layers)),
             ("entities", Json::Arr(entities)),
+            ("next", next),
         ]);
         self.reply(READ_PICTURE, outcome::ACCEPTED, &body.encode())
     }
@@ -1117,6 +1160,26 @@ pub fn parse_history_query(body: &[u8], retention: u64) -> Result<HistoryQuery, 
     })
 }
 
+/// Parse a [`READ_PICTURE`] query: the cursor after which to start, and a layer to
+/// keep to. An empty body is the first page of every layer. [FR-H-1]
+pub fn parse_picture_query(body: &[u8]) -> Result<(Option<String>, Option<String>), String> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok((None, None));
+    }
+    let json = request_object(body)?;
+    if let Json::Obj(pairs) = &json {
+        if let Some((key, _)) = pairs.iter().find(|(k, _)| k != "after" && k != "layer") {
+            return Err(format!("unknown key \"{key}\""));
+        }
+    }
+    let text = |key: &str| match json.get(key) {
+        None | Some(Json::Null) => Ok(None),
+        Some(Json::Str(s)) => Ok(Some(s.clone())),
+        _ => Err(format!("\"{key}\" must be a string or null")),
+    };
+    Ok((text("after")?, text("layer")?))
+}
+
 /// Parse a [`READ_ALERTS`] request: whether only open alerts are wanted.
 pub fn parse_alerts_request(body: &[u8]) -> Result<bool, String> {
     if body.iter().all(u8::is_ascii_whitespace) {
@@ -1303,6 +1366,30 @@ mod tests {
         ] {
             assert!(
                 parse_history_query(bad, 3600).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn a_picture_query_is_parsed_and_a_bad_one_refused() {
+        assert_eq!(parse_picture_query(b""), Ok((None, None)));
+        assert_eq!(parse_picture_query(b" \n"), Ok((None, None)));
+        assert_eq!(parse_picture_query(br#"{"after": null}"#), Ok((None, None)));
+        assert_eq!(
+            parse_picture_query(br#"{"after": "AC-1", "layer": "air"}"#),
+            Ok((Some("AC-1".into()), Some("air".into())))
+        );
+        for bad in [
+            &br#"{"after": 3}"#[..],
+            br#"{"layer": true}"#,
+            br#"{"from": 1}"#,
+            b"[]",
+            b"nope",
+        ] {
+            assert!(
+                parse_picture_query(bad).is_err(),
                 "{}",
                 String::from_utf8_lossy(bad)
             );
