@@ -9,6 +9,7 @@ import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { colourOf, shapeOf } from '../trackStyle';
 import type { TrafficLines } from '../traffic';
+import { PLACES } from '../places';
 import { GlobeView, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
@@ -48,6 +49,44 @@ function Control({ label, onClick, active, children }: { label: string; onClick:
 }
 
 const IMAGERY_KEY = 'heimdall.globe.imagery';
+
+/** Place names over the globe: the largest places first, as many as fit without
+ *  overlapping, with smaller places admitted as the camera comes closer. Spans are
+ *  reused between frames. [FR-P3-3] */
+function drawPlaceLabels(host: HTMLDivElement, view: GlobeView): void {
+  const km = view.state.dist * 6371;
+  const minPop = km > 2500 ? 1_000_000 : km > 1400 ? 250_000 : km > 700 ? 80_000 : km > 350 ? 30_000 : km > 150 ? 12_000 : 5_000;
+  const boxes: [number, number, number, number][] = [];
+  const shown: { name: string; x: number; y: number; big: boolean; capital: boolean }[] = [];
+  for (const [name, lat, lon, pop, capital] of PLACES) {
+    if (pop < minPop || shown.length >= 140) break;
+    const at = view.screenOfPoint(lat, lon);
+    if (!at) continue;
+    const big = pop >= 400_000 || capital === 1;
+    const w = name.length * (big ? 7.4 : 6.4) + 10, h = big ? 16 : 14;
+    const b: [number, number, number, number] = [at.x - w / 2, at.y - h - 4, at.x + w / 2, at.y + 4];
+    if (boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1])) continue;
+    boxes.push(b);
+    shown.push({ name, x: at.x, y: at.y, big, capital: capital === 1 });
+  }
+  while (host.childElementCount < shown.length) {
+    const s = document.createElement('span');
+    s.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap;font-family:var(--font-mono);letter-spacing:0.06em;text-shadow:0 0 3px #000,0 0 6px #000;';
+    host.appendChild(s);
+  }
+  for (let i = 0; i < host.childElementCount; i++) {
+    const s = host.children[i] as HTMLSpanElement;
+    const p = shown[i];
+    if (!p) { s.style.display = 'none'; continue; }
+    s.style.display = 'block';
+    const text = p.name.toUpperCase();
+    if (s.textContent !== text) s.textContent = text;
+    s.style.fontSize = p.big ? '11px' : '9.5px';
+    s.style.fontWeight = p.big ? '600' : '400';
+    s.style.color = p.capital ? '#f4e2b8' : p.big ? '#e6dcc8' : '#b9b2a4';
+    s.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -125%)`;
+  }
+}
 /** The stored map style; tactical unless the browser chose another. */
 export const readMapStyle = (): MapStyle => {
   try {
@@ -101,6 +140,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const hostRef = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<GlobeView | null>(null);
   const labelRef = React.useRef<HTMLDivElement>(null);
+  const placesRef = React.useRef<HTMLDivElement>(null);
   const tipRef = React.useRef<HTMLDivElement>(null);
   const compassRef = React.useRef<HTMLSpanElement>(null);
   const [exaggeration, setExaggeration] = React.useState(() => readNumber(EXAGGERATION_KEY, 4));
@@ -135,6 +175,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     place(labelRef.current, live.current.selected || null);
     place(tipRef.current, live.current.hover && live.current.hover !== live.current.selected ? live.current.hover : null);
     if (compassRef.current) compassRef.current.style.transform = `rotate(${-view.state.heading}deg)`;
+    if (placesRef.current) drawPlaceLabels(placesRef.current, view);
     // The measured distance sits at the line's far end; ring labels at each ring's north.
     const m = live.current.measure;
     if (measureRef.current) {
@@ -257,6 +298,8 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
       )}
 
       {/* Selected track label and hover tooltip, positioned each frame by `overlays`. */}
+      {/* Town and city names, thinned by zoom so they never overlap. */}
+      <div ref={placesRef} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, overflow: 'hidden' }} />
       <div ref={labelRef} aria-hidden style={{ position: 'absolute', left: 0, top: 0, display: 'none', pointerEvents: 'none', zIndex: 3 }}>
         {sel && (
           <span style={{ position: 'absolute', left: 14, top: -9, whiteSpace: 'nowrap', ...mono, fontSize: 10, color: 'var(--grey-100)', background: 'color-mix(in srgb, var(--bg-sunken) 75%, transparent)', padding: '2px 6px', borderRadius: 3, border: `1px solid ${selColour}` }}>

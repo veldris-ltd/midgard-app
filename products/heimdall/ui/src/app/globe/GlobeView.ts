@@ -37,6 +37,7 @@ import type { HeimdallHistoryPoint } from '@midgard/sdk';
 import type { TrackShape } from '../trackStyle';
 import { BORDER_PATH, LAND_PATH } from '../basemap';
 import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../hydro';
+import { URBAN } from '../places';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { buildDetail, zoomFor, type Box } from './detailPatch';
@@ -116,6 +117,8 @@ const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windf
 const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
 const DRAPE_W = 2048;
+/** Built-up area outlines, [lat, lon] rings (places.ts). */
+const URBAN_RINGS: [number, number][][] = URBAN.split('|').map((r) => r.split(' ').map((p) => p.split(',').map(Number) as [number, number]));
 /** The height the rain radar floats at: a typical rain-cloud base, metres. */
 const RAIN_CLOUD_M = 2500;
 export type MapStyle = 'tactical' | 'satellite' | 'dark';
@@ -501,6 +504,8 @@ export class GlobeView {
       this.fatLines.push({ obj, strips });
     };
     const roads = hydro(ROADS), motorways = hydro(MOTORWAYS), rail = hydro(RAILWAYS);
+    // Built-up areas: a fine outline here, a light fill painted into the drape (buildAreas).
+    fat(URBAN_RINGS.map((r) => r.map(([la, lo]) => [lo, la] as [number, number])), '#d8b878', 1.0, 0.55, 2);
     fat(hydro(LAKES), '#6eb9f5', 1.4, 0.9, 2);
     fat(hydro(RIVERS), '#6eb9f5', 1.8, 0.95, 2);
     fat(roads, '#0f1a12', 3.4, 0.8, 3);
@@ -957,8 +962,19 @@ export class GlobeView {
     const linePos: number[] = [], lineCol: number[] = [];
     const ctx = this.drapeCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, DRAPE_W, DRAPE_H);
-    let draped = 0;
     const { west, east, south, north } = TERRAIN;
+    // Built-up areas, lightly tinted, under every other fill.
+    ctx.fillStyle = 'rgba(216, 184, 120, 0.2)';
+    for (const ring of URBAN_RINGS) {
+      ctx.beginPath();
+      ring.forEach(([la, lo], i) => {
+        const x = ((lo - west) / (east - west)) * DRAPE_W, y = ((north - la) / (north - south)) * DRAPE_H;
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fill();
+    }
+    let draped = 1;
     const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0007;
     const a = new THREE.Vector3(), b = new THREE.Vector3(), a2 = new THREE.Vector3(), b2 = new THREE.Vector3();
     const line = (p: THREE.Vector3, q: THREE.Vector3, c: THREE.Color, k = 1) => {
