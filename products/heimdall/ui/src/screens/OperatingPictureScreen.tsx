@@ -22,7 +22,7 @@ import { AREA_LEGEND, BANDS, KIND_LEGEND, areaColour, bandOf, colourOf, isFixedK
 import { useStatus } from '../app/status';
 import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
 import { radarLabel, useRadar, RADAR_BOX } from '../app/radar';
-import { trafficLabel, useTraffic } from '../app/traffic';
+import { trafficLabel, useTraffic, TRAFFIC_COLOURS, type TrafficLines } from '../app/traffic';
 import { useWatchlist, type Watchlist } from '../app/watchlist';
 import { AreaLayer, ToolLayer } from '../app/MapOverlays2D';
 import type { LatLon } from '../app/geoMath';
@@ -68,7 +68,7 @@ const HYDRO_2D = (() => {
 /** The map style the 3D view stores (tactical unless set otherwise). */
 const mapStyle2d = () => { try { const v = window.localStorage.getItem('heimdall.globe.imagery'); return v === 'satellite' || v === 'dark' ? v : 'tactical'; } catch { return 'tactical'; } };
 
-function Basemap({ region, radarUrl, trafficUrl }: { region: HeimdallRegion; radarUrl?: string; trafficUrl?: string }) {
+function Basemap({ region, radarUrl, traffic }: { region: HeimdallRegion; radarUrl?: string; traffic?: TrafficLines }) {
   const { west, east, south, north } = region;
   const lons: number[] = [];
   const lats: number[] = [];
@@ -102,10 +102,10 @@ function Basemap({ region, radarUrl, trafficUrl }: { region: HeimdallRegion; rad
       <path d={HYDRO_2D.motorways} fill="none" stroke="#3b82e0" strokeWidth={2.6} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.rail} fill="none" stroke="#111" strokeOpacity={0.9} strokeWidth={3} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.rail} fill="none" stroke="#f2f2f2" strokeWidth={1.4} strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />
-      {/* Live traffic (TomTom), over the road lines. [FR-H-1] */}
-      {trafficUrl && (
-        <image href={trafficUrl} x={RADAR_BOX.west} y={-RADAR_BOX.north} width={RADAR_BOX.east - RADAR_BOX.west} height={RADAR_BOX.north - RADAR_BOX.south} preserveAspectRatio="none" />
-      )}
+      {/* Live traffic (TomTom), crisp lines over the roads: light, moderate, heavy, closed. [FR-H-1] */}
+      {traffic && (['light', 'moderate', 'closed', 'heavy'] as const).map((cls) => (
+        <path key={cls} d={traffic[cls].map((l) => 'M' + l.map(([la, lo]) => `${lo} ${-la}`).join(' ')).join('')} fill="none" stroke={TRAFFIC_COLOURS[cls]} strokeWidth={cls === 'heavy' ? 2.4 : 1.8} vectorEffect="non-scaling-stroke" />
+      ))}
       <path d={HYDRO_2D.rivers} fill="none" stroke="#6eb9f5" strokeOpacity={0.95} strokeWidth={1.8} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.lakes} fill="#5aa9e6" fillOpacity={0.35} stroke="#5aa9e6" strokeOpacity={0.85} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       {lons.map((l) => <line key={'o' + l} x1={l} x2={l} y1={-north} y2={-south} stroke="var(--divider)" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
@@ -971,7 +971,7 @@ export function OperatingPictureScreen() {
       {view === '3d' && (
         <React.Suspense fallback={<div style={{ position: 'absolute', top: '40%', width: '100%', textAlign: 'center', ...mono, color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}>
           <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hoverPath={hoverPath} pathsFirst={trailMins === 0 || trailMins >= 30} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH}
-            areas={globeAreas} radar={radar.status === 'ready' ? radar.frame.canvas : null} traffic={traffic.status === 'ready' ? traffic.frame.canvas : null} sunTime={replayAt !== null ? replayAt * 1000 : Date.now()}
+            areas={globeAreas} radar={radar.status === 'ready' ? radar.frame.canvas : null} traffic={traffic.status === 'ready' ? traffic.lines : null} sunTime={replayAt !== null ? replayAt * 1000 : Date.now()}
             measuring={measuring} measure={measurePts} rings={rings} onSurface={addMeasure} markerScale={wall ? 1.6 : 1} flyRequest={flyRequest}
             onInteract={() => { pausedUntil.current = Date.now() + TOUR_PAUSE_MS; }} />
         </React.Suspense>
@@ -979,7 +979,7 @@ export function OperatingPictureScreen() {
 
       {view === '2d' && region && (
         <>
-          <Basemap region={region} radarUrl={radar.status === 'ready' ? radar.frame.url : undefined} trafficUrl={traffic.status === 'ready' ? traffic.frame.url : undefined} />
+          <Basemap region={region} radarUrl={radar.status === 'ready' ? radar.frame.url : undefined} traffic={traffic.status === 'ready' ? traffic.lines : undefined} />
           {areaTracks.length > 0 && <AreaLayer region={region} areas={areaTracks} selected={sel} />}
           <GraticuleLabels region={region} />
           <GeoRings region={region} height={canvasH} />
@@ -1183,7 +1183,7 @@ export function OperatingPictureScreen() {
         <Chip on={radarOn} onClick={() => setRadarOn(!radarOn)} tone={radar.status === 'unavailable' ? 'var(--warn)' : undefined}
           label={radarOn ? 'Hide rain radar' : 'Show rain radar (RainViewer, needs the internet)'}>{radarLabel(radar)}</Chip>
         <Chip on={trafficOn} onClick={() => setTrafficOn(!trafficOn)} tone={traffic.status === 'unavailable' ? 'var(--warn)' : undefined}
-          label={trafficOn ? 'Hide live traffic' : 'Show live traffic: green flowing, orange slow, red queuing (TomTom, needs the internet)'}>{trafficLabel(traffic)}</Chip>
+          label={trafficOn ? 'Hide live traffic' : 'Show live traffic (TomTom, needs the internet): green light, amber moderate, red heavy, dark red closed'}>{trafficLabel(traffic)}</Chip>
         {(
           <Chip on={measuring} onClick={() => { if (measuring) { setMeasuring(false); setMeasurePts([]); } else setMeasuring(true); }} label="Measure: click two points; Escape clears">
             {measuring ? (measurePts.length < 2 ? `MEASURE · CLICK POINT ${measurePts.length + 1}` : 'MEASURE · ESC CLEARS') : 'MEASURE'}

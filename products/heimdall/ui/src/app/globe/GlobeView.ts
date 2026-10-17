@@ -39,7 +39,8 @@ import { BORDER_PATH, LAND_PATH } from '../basemap';
 import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../hydro';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
-import { buildDetail, type Box } from './detailPatch';
+import { buildDetail, zoomFor, type Box } from './detailPatch';
+import { loadTrafficLines, TRAFFIC_COLOURS, type TrafficLines } from '../traffic';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
 import { D2R, EARTH_KM, drawnHeight, enu, raySphere, toVec } from './geo';
 import { circle, greatCircle, subsolarPoint, type LatLon } from '../geoMath';
@@ -422,13 +423,20 @@ export class GlobeView {
   private readonly drapeCanvas: HTMLCanvasElement;
   private readonly drapeTexture: THREE.CanvasTexture;
   private readonly radarMesh: THREE.Mesh;
-  private readonly trafficMesh: THREE.Mesh;
+  /** Live traffic as crisp lines: the UK overview, or finer lines for the area in view. */
+  private trafficOverview: TrafficLines | null = null;
+  private trafficClose: { key: string; lines: TrafficLines } | null = null;
+  private trafficWant = '';
+  private trafficAbort: AbortController | null = null;
+  private trafficTimer = 0;
+  private readonly trafficFat: { cls: keyof TrafficLines | 'casing'; obj: LineSegments2 }[] = [];
   /** Close-up detail laid on the terrain for the area in view (see detailPatch.ts). */
   private detail: { mesh: THREE.Mesh; key: string } | null = null;
   private detailWant = '';
   private detailTimer = 0;
   private detailAbort: AbortController | null = null;
-  private trafficTexture: THREE.Texture | null = null;
+  /** Live traffic is on: the close-up detail draws it at full resolution. */
+  private trafficOn = false;
   private radarTexture: THREE.Texture | null = null;
   private readonly sun = { value: new THREE.Vector3(1, 0, 0) };
   private readonly night = { value: 1 };
@@ -536,10 +544,16 @@ export class GlobeView {
     (this.radarMesh.material as THREE.MeshBasicMaterial).opacity = 0.75;
     this.radarMesh.renderOrder = 1;
     this.radarMesh.visible = false;
-    this.trafficMesh = new THREE.Mesh(this.drapeGeometry, drapeMat(null, -4));
-    this.trafficMesh.renderOrder = 9; // over the road lines, which it replaces while on
-    this.trafficMesh.visible = false;
-    this.scene.add(this.radarMesh, this.areaDrape, this.trafficMesh);
+    this.scene.add(this.radarMesh, this.areaDrape);
+    // Traffic lines over the roads: a dark casing, then the class colours (heavy on top).
+    for (const [cls, colour, px, order] of [['casing', '#06090c', 4.2, 9], ['light', TRAFFIC_COLOURS.light, 2.2, 10], ['moderate', TRAFFIC_COLOURS.moderate, 2.6, 11], ['closed', TRAFFIC_COLOURS.closed, 2.8, 12], ['heavy', TRAFFIC_COLOURS.heavy, 3.0, 13]] as const) {
+      const obj = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ color: new THREE.Color(colour).getHex(), linewidth: px, transparent: true, opacity: cls === 'casing' ? 0.7 : 1, depthWrite: false }));
+      obj.frustumCulled = false;
+      obj.renderOrder = order;
+      obj.visible = false;
+      this.scene.add(obj);
+      this.trafficFat.push({ cls, obj });
+    }
     this.buildTerrain();
     this.loadHiresTerrain();
     const atmosphere = new THREE.Mesh(
@@ -787,6 +801,7 @@ export class GlobeView {
     if (x === this.exaggeration) return;
     this.exaggeration = x;
     this.buildRadarSheet();
+    this.buildTrafficLines();
     this.buildTerrain();
     this.place();
     this.buildTrails();
@@ -805,26 +820,68 @@ export class GlobeView {
     this.requestRender();
   }
 
-  /** Live traffic over the terrain box, or null to hide it. While it shows, the road
-   *  lines fade so the traffic colours lead. [FR-H-1] */
-  setTraffic(canvas: HTMLCanvasElement | null): void {
-    this.trafficTexture?.dispose();
-    this.trafficTexture = null;
-    const m = this.trafficMesh.material as THREE.MeshBasicMaterial;
-    if (canvas) {
-      this.trafficTexture = new THREE.CanvasTexture(canvas);
-      this.trafficTexture.colorSpace = THREE.SRGBColorSpace;
-      this.trafficTexture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+  /** Live traffic for the UK overview, or null to hide traffic. Close in, finer lines
+   *  for the area in view replace it (updateTraffic). While it shows, the road lines fade
+   *  so the traffic colours lead. [FR-H-1] */
+  setTraffic(lines: TrafficLines | null): void {
+    this.trafficOverview = lines;
+    this.trafficOn = !!lines;
+    if (!lines) {
+      this.trafficAbort?.abort();
+      this.trafficClose = null;
+      this.trafficWant = '';
     }
-    m.map = this.trafficTexture;
-    m.needsUpdate = true;
-    this.trafficMesh.visible = !!canvas;
     for (const f of this.fatLines.slice(2, 6)) {
       const lm = f.obj.material as LineMaterial;
       lm.userData.baseOpacity ??= lm.opacity;
-      lm.opacity = lm.userData.baseOpacity * (canvas ? 0.3 : 1);
+      lm.opacity = lm.userData.baseOpacity * (lines ? 0.3 : 1);
+    }
+    this.buildTrafficLines();
+    this.scheduleDetail();
+  }
+
+  private buildTrafficLines(): void {
+    const lines = this.trafficOn ? (this.trafficClose?.lines ?? this.trafficOverview) : null;
+    const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.00035;
+    const strips = (ls: [number, number][][]) => ls.map((l) => l.map(([la, lo]) => [lo, la] as [number, number]));
+    for (const f of this.trafficFat) {
+      f.obj.visible = !!lines;
+      if (!lines) continue;
+      const src = f.cls === 'casing' ? [...lines.light, ...lines.moderate, ...lines.heavy, ...lines.closed] : lines[f.cls];
+      // A fresh geometry each time: an instanced geometry keeps the segment count it was
+      // first drawn with, so a longer list would be cut short.
+      f.obj.geometry.dispose();
+      const g = new LineSegmentsGeometry();
+      g.setPositions(stripsToSegments(strips(src), drape));
+      f.obj.geometry = g;
     }
     this.requestRender();
+  }
+
+  /** Close in with traffic on: finer flow tiles for the area in view (refreshed every 2
+   *  minutes while it stays in view); zoomed out, back to the overview. */
+  private updateTraffic(box: Box | null): void {
+    window.clearTimeout(this.trafficTimer);
+    if (!this.trafficOn || !box) {
+      this.trafficAbort?.abort();
+      this.trafficWant = '';
+      if (this.trafficClose) { this.trafficClose = null; this.buildTrafficLines(); }
+      return;
+    }
+    const z = Math.max(9, Math.min(13, zoomFor(box, 1600)));
+    const key = `${box.west.toFixed(3)}:${box.south.toFixed(3)}:${z}`;
+    if (key === this.trafficWant) return;
+    this.trafficWant = key;
+    this.trafficAbort?.abort();
+    const ctrl = new AbortController();
+    this.trafficAbort = ctrl;
+    const read = () => loadTrafficLines(box, z, ctrl.signal).then((lines) => {
+      if (ctrl.signal.aborted || this.trafficWant !== key) return;
+      this.trafficClose = { key, lines };
+      this.buildTrafficLines();
+      this.trafficTimer = window.setTimeout(() => { if (this.trafficWant === key) read().catch(() => undefined); }, 120_000);
+    });
+    read().catch(() => { if (this.trafficWant === key) this.trafficWant = ''; });
   }
 
   /** The radar image over the terrain box (RADAR_BOX), or null to hide it. */
@@ -1214,7 +1271,10 @@ export class GlobeView {
     const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0006;
     const drapeLow = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.00025;
     for (const f of this.fatLines) {
-      (f.obj.geometry as LineSegmentsGeometry).setPositions(stripsToSegments(f.strips, drapeLow));
+      f.obj.geometry.dispose();
+      const g = new LineSegmentsGeometry();
+      g.setPositions(stripsToSegments(f.strips, drapeLow));
+      f.obj.geometry = g;
       f.obj.computeLineDistances();
     }
     this.draped.forEach((line, n) => {
@@ -1311,7 +1371,7 @@ export class GlobeView {
     this.height = h;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(w, h, false);
-    for (const f of this.fatLines) (f.obj.material as LineMaterial).resolution.set(w, h);
+    for (const f of [...this.fatLines, ...this.trafficFat]) (f.obj.material as LineMaterial).resolution.set(w, h);
     this.frameView();
     this.requestRender();
   }
@@ -1738,6 +1798,7 @@ export class GlobeView {
         this.detail = null;
         this.requestRender();
       }
+      this.updateTraffic(null);
       return;
     }
     // The area in view, a little generous so a small pan stays covered; snapped so the
@@ -1747,6 +1808,7 @@ export class GlobeView {
     const lat = Math.round(s.lat / q) * q, lon = Math.round(s.lon / q) * q;
     const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
     const box: Box = { west: lon - span / cos / 2, east: lon + span / cos / 2, south: lat - span / 2, north: lat + span / 2 };
+    this.updateTraffic(box);
     const key = `${this.mapStyle}:${box.west.toFixed(3)}:${box.south.toFixed(3)}:${span.toFixed(3)}:${this.exaggeration}`;
     if (key === this.detailWant || key === this.detail?.key) return;
     this.detailWant = key;

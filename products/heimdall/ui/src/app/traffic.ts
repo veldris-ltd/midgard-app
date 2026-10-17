@@ -1,86 +1,87 @@
-/* Live road traffic for the UK and Ireland from TomTom Traffic Flow (free developer key,
- * VITE_TOMTOM_KEY in products/heimdall/ui/.env.local, which git ignores), as one image in
- * plain latitude/longitude over the same box as the terrain and imagery, so both views
- * lay it straight down. [FR-H-1] [FR-P3-3]
+/* Live road traffic from TomTom Traffic Flow vector tiles (free developer key,
+ * VITE_TOMTOM_KEY in products/heimdall/ui/.env.local, which git ignores), drawn as crisp
+ * lines like the rest of the map. [FR-H-1] [FR-P3-3]
  *
- * The "relative" flow tiles colour each road by current speed against its free-flow
- * speed: green flowing, orange slow, red queuing, dark red stationary. Zoom 7 Web Mercator
- * tiles covering the box are drawn into a mosaic, then reprojected row by row (as for the
- * rain radar). Refreshed every 5 minutes while on (about 60 tiles a read, well inside the
- * free daily allowance). Needs the internet; attribution "TomTom" wherever it shows. */
+ * Each road segment in a flow tile carries `traffic_level`, its current speed as a
+ * fraction of free-flow speed, and `road_closure`. Segments are sorted into four classes:
+ * light (75 % of free flow or better), moderate (40-75 %), heavy (under 40 %) and closed.
+ * The UK and Ireland overview uses zoom 7 tiles (major roads, ~60 tiles a read, every 5
+ * minutes while on); the globe reads finer tiles for the area in view when close in
+ * (loadTrafficLines with the view's box). Needs the internet; attribution "TomTom". */
 import * as React from 'react';
+import { VectorTile } from '@mapbox/vector-tile';
+import Pbf from 'pbf';
 import { RADAR_BOX } from './radar';
 
-const ZOOM = 7;
-const TILE = 256;
-const OUT_W = 2048;
-const OUT_H = 1792;
-const REFRESH_MS = 5 * 60 * 1000;
-const KEY = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TOMTOM_KEY;
+export interface TrafficBox {
+  west: number;
+  east: number;
+  south: number;
+  north: number;
+}
 
-export interface TrafficFrame {
-  canvas: HTMLCanvasElement;
-  url: string;
-  /** When it was read, unix ms. */
-  at: number;
+/** Polylines of [lat, lon] by traffic class. */
+export interface TrafficLines {
+  light: [number, number][][];
+  moderate: [number, number][][];
+  heavy: [number, number][][];
+  closed: [number, number][][];
 }
 
 export type TrafficState =
   | { status: 'off' }
   | { status: 'loading' }
-  | { status: 'ready'; frame: TrafficFrame }
+  | { status: 'ready'; lines: TrafficLines; at: number }
   | { status: 'unavailable'; reason: string };
+
+const KEY = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TOMTOM_KEY;
+const OVERVIEW_ZOOM = 7;
+const REFRESH_MS = 5 * 60 * 1000;
+const MAX_TILES = 80;
 
 const tileX = (lon: number, z: number) => ((lon + 180) / 360) * 2 ** z;
 const tileY = (lat: number, z: number) => {
   const r = (lat * Math.PI) / 180;
   return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z;
 };
+const lonOf = (x: number, z: number) => (x / 2 ** z) * 360 - 180;
+const latOf = (y: number, z: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** z))) * 180) / Math.PI;
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('tile failed'));
-    img.src = src;
-  });
-}
-
-export async function loadTraffic(signal?: AbortSignal): Promise<TrafficFrame> {
+/** The traffic for a box from zoom-`z` flow tiles. */
+export async function loadTrafficLines(box: TrafficBox, z: number, signal?: AbortSignal): Promise<TrafficLines> {
   if (!KEY) throw new Error('no TomTom key (VITE_TOMTOM_KEY)');
-  const { west, east, south, north } = RADAR_BOX;
-  const x0 = Math.floor(tileX(west, ZOOM)), x1 = Math.floor(tileX(east, ZOOM));
-  const y0 = Math.floor(tileY(north, ZOOM)), y1 = Math.floor(tileY(south, ZOOM));
-  const mosaic = document.createElement('canvas');
-  mosaic.width = (x1 - x0 + 1) * TILE;
-  mosaic.height = (y1 - y0 + 1) * TILE;
-  const mctx = mosaic.getContext('2d')!;
+  const x0 = Math.floor(tileX(box.west, z)), x1 = Math.floor(tileX(box.east, z));
+  const y0 = Math.floor(tileY(box.north, z)), y1 = Math.floor(tileY(box.south, z));
+  if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_TILES) throw new Error('too many traffic tiles');
+  const out: TrafficLines = { light: [], moderate: [], heavy: [], closed: [] };
   const jobs: Promise<void>[] = [];
   for (let x = x0; x <= x1; x++) {
     for (let y = y0; y <= y1; y++) {
-      jobs.push(loadImage(`https://api.tomtom.com/traffic/map/4/tile/flow/relative/${ZOOM}/${x}/${y}.png?key=${KEY}&tileSize=${TILE}&thickness=8`)
-        .then((img) => { mctx.drawImage(img, (x - x0) * TILE, (y - y0) * TILE); }));
+      jobs.push(fetch(`https://api.tomtom.com/traffic/map/4/tile/flow/relative/${z}/${x}/${y}.pbf?key=${KEY}`, { signal })
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((buf) => {
+          const layer = new VectorTile(new Pbf(buf)).layers['Traffic flow'];
+          if (!layer) return;
+          for (let i = 0; i < layer.length; i++) {
+            const f = layer.feature(i);
+            if (f.type !== 2) continue;
+            const p = f.properties as { traffic_level?: number; road_closure?: boolean };
+            const level = typeof p.traffic_level === 'number' ? p.traffic_level : 1;
+            const cls = p.road_closure ? 'closed' : level < 0.4 ? 'heavy' : level < 0.75 ? 'moderate' : 'light';
+            for (const ring of f.loadGeometry()) {
+              out[cls].push(ring.map((pt: { x: number; y: number }) => [latOf(y + pt.y / layer.extent, z), lonOf(x + pt.x / layer.extent, z)] as [number, number]));
+            }
+          }
+        }));
     }
   }
   const done = await Promise.allSettled(jobs);
-  if (done.every((d) => d.status === 'rejected')) throw new Error('traffic tiles unreachable');
   if (signal?.aborted) throw new Error('aborted');
-  const out = document.createElement('canvas');
-  out.width = OUT_W;
-  out.height = OUT_H;
-  const ctx = out.getContext('2d')!;
-  const sx0 = (tileX(west, ZOOM) - x0) * TILE;
-  const sw = (tileX(east, ZOOM) - tileX(west, ZOOM)) * TILE;
-  for (let row = 0; row < OUT_H; row++) {
-    const lat = north - ((row + 0.5) / OUT_H) * (north - south);
-    const sy = (tileY(lat, ZOOM) - y0) * TILE;
-    ctx.drawImage(mosaic, sx0, Math.floor(sy), sw, 1, 0, row, OUT_W, 1);
-  }
-  return { canvas: out, url: out.toDataURL('image/png'), at: Date.now() };
+  if (done.every((d) => d.status === 'rejected')) throw new Error('traffic tiles unreachable');
+  return out;
 }
 
-/** Live traffic while `on`, refreshed every 5 minutes. */
+/** The UK and Ireland overview while `on`, refreshed every 5 minutes. */
 export function useTraffic(on: boolean): TrafficState {
   const [state, setState] = React.useState<TrafficState>({ status: 'off' });
   React.useEffect(() => {
@@ -93,8 +94,8 @@ export function useTraffic(on: boolean): TrafficState {
     const read = () => {
       ctrl.abort();
       ctrl = new AbortController();
-      loadTraffic(ctrl.signal)
-        .then((frame) => { if (live) setState({ status: 'ready', frame }); })
+      loadTrafficLines(RADAR_BOX, OVERVIEW_ZOOM, ctrl.signal)
+        .then((lines) => { if (live) setState({ status: 'ready', lines, at: Date.now() }); })
         .catch((err) => { if (live) setState((s) => (s.status === 'ready' ? s : { status: 'unavailable', reason: err instanceof Error ? err.message : String(err) })); });
     };
     setState({ status: 'loading' });
@@ -114,6 +115,14 @@ export function trafficLabel(s: TrafficState): string {
     case 'off': return 'TRAFFIC';
     case 'loading': return 'TRAFFIC · LOADING';
     case 'unavailable': return 'TRAFFIC UNAVAILABLE';
-    case 'ready': return `TRAFFIC ${new Date(s.frame.at).toISOString().slice(11, 16)}Z · TOMTOM`;
+    case 'ready': return `TRAFFIC ${new Date(s.at).toISOString().slice(11, 16)}Z · TOMTOM`;
   }
 }
+
+/** Line colours by class, shared by the globe and the 2D map. */
+export const TRAFFIC_COLOURS: Record<keyof TrafficLines, string> = {
+  light: '#2fd16b',
+  moderate: '#ffb020',
+  heavy: '#ff3b30',
+  closed: '#9b1c31',
+};

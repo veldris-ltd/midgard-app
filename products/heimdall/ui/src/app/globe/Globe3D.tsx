@@ -8,6 +8,7 @@
 import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { colourOf, shapeOf } from '../trackStyle';
+import type { TrafficLines } from '../traffic';
 import { GlobeView, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
@@ -77,8 +78,8 @@ export interface Globe3DProps {
   areas?: GlobeArea[];
   /** The radar image over the terrain box, or null. */
   radar?: HTMLCanvasElement | null;
-  /** Live traffic over the terrain box, or null. */
-  traffic?: HTMLCanvasElement | null;
+  /** Live traffic lines for the UK overview, or null. */
+  traffic?: TrafficLines | null;
   /** The time the night side is shaded for (unix ms): now, or the replay time. */
   sunTime?: number;
   /** MEASURE: surface taps go to `onSurface` instead of selecting. */

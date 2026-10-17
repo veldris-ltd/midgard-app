@@ -11,9 +11,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "1.3.1",
     "@midgard/design-system": "workspace:*",
     "@midgard/sdk": "workspace:*",
     "@midgard/ui-shared": "workspace:*",
+    "pbf": "3.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
