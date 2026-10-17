@@ -48,6 +48,10 @@ export interface Globe3DProps {
   selected: string;
   /** The selected track's whole recorded path, if any. */
   path: HeimdallHistoryPoint[] | null;
+  /** The recorded path of the track under the pointer, shown before any click. */
+  hoverPath?: HeimdallHistoryPoint[] | null;
+  /** Long trails: dim the markers so the paths lead. */
+  pathsFirst?: boolean;
   hover: string | null;
   onSelect: (id: string) => void;
   onHover: (id: string | null) => void;
@@ -55,7 +59,7 @@ export interface Globe3DProps {
   bottomInset?: number;
 }
 
-export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHover, bottomInset = 0 }: Globe3DProps) {
+export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0 }: Globe3DProps) {
   const hostRef = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<GlobeView | null>(null);
   const labelRef = React.useRef<HTMLDivElement>(null);
@@ -127,6 +131,9 @@ export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHov
   const sel = tracks.find((t) => t.id === selected);
   const selColour = sel ? colourOf(sel) : undefined;
   React.useEffect(() => { viewRef.current?.setSelected(selected || null, path, selColour); }, [selected, path, selColour]);
+  const hoverColour = React.useMemo(() => { const t = tracks.find((x) => x.id === hover); return t ? colourOf(t) : undefined; }, [tracks, hover]);
+  React.useEffect(() => { viewRef.current?.setHoverPath(hoverPath, hoverColour); }, [hoverPath, hoverColour]);
+  React.useEffect(() => { viewRef.current?.setPathsFirst(pathsFirst); }, [pathsFirst]);
   React.useEffect(() => {
     viewRef.current?.setExaggeration(exaggeration);
     try { window.localStorage.setItem(EXAGGERATION_KEY, String(exaggeration)); } catch { /* storage blocked */ }

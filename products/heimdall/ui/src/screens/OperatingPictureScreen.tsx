@@ -281,6 +281,9 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt
         <h2 style={{ fontSize: 'var(--fs-h4)' }}>{replayAt === null ? 'Live picture' : 'Replayed picture'}</h2>
         {replayAt === null ? <Badge tone="secure">LIVE</Badge> : <Badge tone="warn">REPLAY</Badge>}
       </div>
+      <div style={{ padding: '8px 10px', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        FLIGHT HISTORY: POINT AT ANY AIRCRAFT TO SEE ITS RECORDED PATH; CLICK IT FOR THE FULL HISTORY. TRAIL 30M OR ALL SHOWS EVERY PATH.
+      </div>
       <div style={{ ...mono, color: replayAt === null ? 'var(--text-faint)' : 'var(--warn)' }}>
         {replayAt === null
           ? `READ ${fmtAgo(Math.round((Date.now() - (picture.fetchedAt ?? Date.now())) / 1000))} AGO · NEWEST REPORT ${newest ? fmtAgo(secsAgo(newest)) : '—'} AGO`
@@ -480,7 +483,9 @@ export function OperatingPictureScreen() {
     return out;
   }, [geoView, visible, history.store, tShown, trailSecs, replay]);
   const globeTrails = React.useMemo<GlobeTrail[]>(
-    () => (view === '3d' ? visible.flatMap((t) => { const p = trails.get(t.id); return p ? [{ colour: colourOf(t), points: p }] : []; }) : []),
+    // Satellites are left out: their orbits cut straight across the picture. A selected
+    // satellite still shows its path.
+    () => (view === '3d' ? visible.flatMap((t) => { const p = shapeOf(t) === 'satellite' ? undefined : trails.get(t.id); return p ? [{ colour: colourOf(t), points: p }] : []; }) : []),
     [view, visible, trails],
   );
 
@@ -488,6 +493,9 @@ export function OperatingPictureScreen() {
   const selKey = e ? keyOf(e) : null;
   const entityPath = useEntityPath(gateway, history.status === 'ready' ? selKey : null, windowSecs, history.to);
   const selPath = entityPath ?? (selKey ? history.store.get(selKey)?.points ?? null : null);
+  // Pointing at a track shows its recorded flight straight away, before any click.
+  const hoverTrack = hover && hover !== sel ? allTracks.find((t) => t.id === hover) : undefined;
+  const hoverPath = hoverTrack ? history.store.get(keyOf(hoverTrack))?.points ?? null : null;
   const trailNote = (t: HeimdallTrack) => {
     const n = history.store.get(keyOf(t))?.points.length;
     if (history.status === 'ready') return n ? `${n.toLocaleString()} recorded positions over the window; trail shows ${trailMins ? `the last ${trailMins} min` : 'the whole window'}` : 'no recorded positions in this window';
@@ -652,7 +660,7 @@ export function OperatingPictureScreen() {
 
       {view === '3d' && (
         <React.Suspense fallback={<div style={{ position: 'absolute', top: '40%', width: '100%', textAlign: 'center', ...mono, color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}>
-          <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH} />
+          <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hoverPath={hoverPath} pathsFirst={trailMins === 0 || trailMins >= 30} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH} />
         </React.Suspense>
       )}
 

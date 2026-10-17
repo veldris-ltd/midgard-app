@@ -272,6 +272,9 @@ export class GlobeView {
   /** Short ribbons hanging a little below every trail, so trails read in 3D. */
   private readonly trailRibbons: THREE.Mesh;
   private readonly pathLine: THREE.Line;
+  /** The path of the track under the pointer, with a lighter curtain. */
+  private readonly hoverLine: THREE.Line;
+  private readonly hoverCurtain: THREE.Mesh;
   private readonly marker: THREE.Mesh;
   // input
   private readonly pointers = new Map<number, { x: number; y: number; x0: number; y0: number; t0: number; type: string }>();
@@ -392,10 +395,12 @@ export class GlobeView {
     };
     this.pathCurtain = curtain(1);
     this.trailRibbons = curtain(1);
+    this.hoverCurtain = curtain(1);
+    this.hoverLine = new THREE.Line(vcLines(), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
     this.marker = new THREE.Mesh(new THREE.RingGeometry(0.78, 1, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }));
     this.marker.renderOrder = 10;
     this.marker.visible = false;
-    this.scene.add(this.trailRibbons, this.pathCurtain, this.drops, this.trailLines, this.pathLine, this.marker);
+    this.scene.add(this.trailRibbons, this.hoverCurtain, this.hoverLine, this.pathCurtain, this.drops, this.trailLines, this.pathLine, this.marker);
 
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
@@ -444,6 +449,35 @@ export class GlobeView {
     this.buildPath();
     this.buildDrops();
     if (this.follow) this.followSelected();
+    this.requestRender();
+  }
+
+  setHoverPath(path: HeimdallHistoryPoint[] | null, colour?: string): void {
+    const pos: number[] = [], col: number[] = [];
+    const v = new THREE.Vector3();
+    const c = this.colour(colour ?? 'var(--grey-100)');
+    for (const pt of path ?? []) {
+      this.pointAt(pt, v);
+      pos.push(v.x, v.y, v.z);
+      col.push(c.r, c.g, c.b);
+    }
+    this.setLines(this.hoverLine, pos, col);
+    (this.hoverLine.material as THREE.LineBasicMaterial).color.copy(c);
+    this.hoverLine.visible = pos.length >= 6;
+    this.setCurtain(this.hoverCurtain, path && path.length > 1 ? [{ points: path, colour: c, alpha: 0.25, fade: false }] : []);
+    this.requestRender();
+  }
+
+  /** Long trails: markers step back (dimmer) and trails come forward, so the paths lead. */
+  setPathsFirst(on: boolean): void {
+    for (const s of SHAPES) {
+      const m = this.materials.get(s)!;
+      const base = s === 'flood' ? 0.6 : s === 'quake' ? 0.9 : 1;
+      m.transparent = on || s === 'quake' || s === 'flood' || s === 'airport';
+      m.opacity = on ? base * 0.35 : base;
+      m.needsUpdate = true;
+    }
+    (this.trailLines.material as THREE.LineBasicMaterial).opacity = on ? 0.55 : 0.16;
     this.requestRender();
   }
 
