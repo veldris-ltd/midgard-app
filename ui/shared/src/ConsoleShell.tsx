@@ -7,7 +7,7 @@ import {
   SideNav,
   StatusPill,
 } from '@midgard/design-system';
-import { NAV, type ConsoleProduct } from './nav';
+import { NAV, type ConsoleProduct, type Seal } from './nav';
 import { PanelHandle, Scrim, useMedia } from './responsive';
 
 export interface ConsoleShellProps {
@@ -25,6 +25,14 @@ export interface ConsoleShellProps {
   /** Router hook: called with the target item's href + id on nav selection.
    *  Defaults to `location.href = href` to match the static prototype. */
   onNavigate?: (href: string, id: string) => void;
+  /** Header seals to show instead of the product's NAV defaults (e.g. live values).
+   *  Omitted: the NAV defaults, unchanged. [FR-H-1] */
+  seals?: Seal[];
+  /** Per nav item id, a badge to show instead of the NAV default; `null` removes it.
+   *  Items not named keep their default. [FR-H-1] */
+  badges?: Record<string, string | null>;
+  /** Hide the side navigation (and its handle) entirely, e.g. for a wall display. */
+  hideNav?: boolean;
 }
 
 /**
@@ -33,6 +41,8 @@ export interface ConsoleShellProps {
  * -> [ side nav | main | inspector rail ]. Nav collapses to a 52px icon rail
  * (persisted), and below 900px both nav and inspector become overlay drawers.
  * Ported from docs/design/ui_kits/kit-shell.jsx. `[NFR-SEC-2]`
+ * Seals, nav badges and the nav itself can be overridden per screen (live values, a
+ * wall display); without those props every console renders its NAV defaults. [FR-H-1]
  */
 export function ConsoleShell({
   product,
@@ -45,8 +55,12 @@ export function ConsoleShell({
   children,
   mainStyle,
   onNavigate,
+  seals: sealsOverride,
+  badges,
+  hideNav = false,
 }: ConsoleShellProps) {
   const cfg = NAV[product];
+  const seals = sealsOverride ?? cfg.seals;
   const isMobile = useMedia('(max-width: 900px)');
   const isNarrow = useMedia('(max-width: 640px)');
   const [navOpen, setNavOpen] = React.useState(() => localStorage.getItem('mg-nav') !== 'closed');
@@ -80,7 +94,7 @@ export function ConsoleShell({
     items: s.items.map((it) => ({
       id: it.id,
       label: it.label,
-      badge: it.badge,
+      badge: badges && it.id in badges ? (badges[it.id] ?? undefined) : it.badge,
       icon: <Icon name={it.icon} size={16} />,
     })),
   }));
@@ -207,19 +221,21 @@ export function ConsoleShell({
           </span>
         )}
         <div style={{ flex: 1 }} />
-        {!isNarrow && cfg.seals.map(([st, lb, pulse]) => <StatusPill key={lb} status={st} label={lb} pulse={pulse} />)}
-        {isNarrow && cfg.seals.slice(0, 1).map(([st, lb, pulse]) => <StatusPill key={lb} status={st} label={lb} pulse={pulse} />)}
+        {!isNarrow && seals.map(([st, lb, pulse]) => <StatusPill key={lb} status={st} label={lb} pulse={pulse} />)}
+        {isNarrow && seals.slice(0, 1).map(([st, lb, pulse]) => <StatusPill key={lb} status={st} label={lb} pulse={pulse} />)}
         {toolbar}
       </header>
       <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
-        {!isMobile && (navOpen ? nav : rail)}
-        <PanelHandle
-          side="left"
-          open={isMobile ? navDrawer : navOpen}
-          onClick={toggleNav}
-          label={(isMobile ? navDrawer : navOpen) ? 'Collapse navigation' : 'Expand navigation'}
-        />
-        {isMobile && navDrawer && (
+        {!isMobile && !hideNav && (navOpen ? nav : rail)}
+        {!hideNav && (
+          <PanelHandle
+            side="left"
+            open={isMobile ? navDrawer : navOpen}
+            onClick={toggleNav}
+            label={(isMobile ? navDrawer : navOpen) ? 'Collapse navigation' : 'Expand navigation'}
+          />
+        )}
+        {isMobile && !hideNav && navDrawer && (
           <>
             <Scrim onClick={() => setNavDrawer(false)} />
             <div style={{ position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 100, display: 'flex', boxShadow: 'var(--shadow-lg)' }}>

@@ -68,6 +68,11 @@ interface MockEntity {
   topFt?: number;
   level?: string;
   flightCategory?: string;
+  airspaceType?: string;
+  icaoClass?: string;
+  lowerRef?: string;
+  upperRef?: string;
+  frp?: number;
   taf?: string;
   tafWorst?: string;
   /** When the entity first appeared (unix s), for the inspector. */
@@ -311,6 +316,27 @@ function airport(icao: string, name: string, lat: number, lon: number, cat: stri
   ]);
 }
 
+/** An openAIP airspace volume (on the Airspace layer, off by default). [FR-H-1] */
+function airspace(id: string, name: string, type: string, cls: string | undefined, lowerFt: number, lowerRef: string, upperFt: number, upperRef: string, poly: [number, number][]): MockEntity {
+  const [lat, lon] = centreOf(poly);
+  const lim = (ft: number, ref: string) => (ft <= 0 && ref === 'GND' ? 'GND' : ref === 'STD' ? `FL${Math.round(ft / 100)}` : `${ft.toLocaleString()} ft ${ref}`);
+  return fixed({ id, kind: 'airspace-volume', layer: 'airspace', cls: `AIRSPACE ${type.toUpperCase()}`, sources: ['openaip'], name, area: poly, baseFt: lowerFt, topFt: upperFt, airspaceType: type, icaoClass: cls, lowerRef, upperRef }, lat, lon, 72, [
+    { label: 'NAME', value: name }, { label: 'TYPE', value: type.toUpperCase() }, ...(cls ? [{ label: 'CLASS', value: cls }] : []),
+    { label: 'LOWER', value: `${lim(lowerFt, lowerRef)} (${lowerRef})` }, { label: 'UPPER', value: `${lim(upperFt, upperRef)} (${upperRef})` },
+  ]);
+}
+
+/** A NASA FIRMS fire hotspot. */
+function fire(id: string, lat: number, lon: number, frp: number, confidence: string, hoursAgo: number): MockEntity {
+  return fixed({ id, kind: 'event-fire', layer: 'events', cls: 'FIRE HOTSPOT', sources: ['nasa-firms'], name: `Hotspot ${frp.toFixed(1)} MW`, frp }, lat, lon, hoursAgo, [
+    { label: 'FRP', value: `${frp.toFixed(1)} MW` }, { label: 'CONFIDENCE', value: confidence }, { label: 'SATELLITE', value: 'N20 · VIIRS' }, { label: 'DAY / NIGHT', value: 'day' },
+  ]);
+}
+
+/** A rough circle of `km` about a point, as an outline. */
+const ringAbout = (lat: number, lon: number, km: number, n = 24): [number, number][] =>
+  Array.from({ length: n }, (_, i) => offset(lat, lon, (i / n) * 360, km));
+
 let FLEET: MockEntity[] | null = null;
 
 function fleet(reference: HeimdallTrack[]): MockEntity[] {
@@ -415,6 +441,15 @@ function fleet(reference: HeimdallTrack[]): MockEntity[] {
     road('tfl-a40', 'Serious', 'Works', 'A40 Westway (W12)', 'Lane 2 closed eastbound for resurfacing.', [51.517, -0.222], undefined, 2),
     road('tfl-blackwall', 'Severe', 'Collision', 'Blackwall Tunnel northbound', 'Northbound closed after a collision; expect long delays.', [51.505, -0.004], undefined, 0),
     road('tfl-towerbr', 'Moderate', 'Event', 'Tower Bridge (SE1)', 'Bridge lift; closed to traffic 14:00–14:20.', [51.505, -0.075], [[51.5068, -0.0779], [51.5068, -0.0721], [51.5038, -0.0721], [51.5038, -0.0779]], 0),
+    airspace('as-london-ctr', 'LONDON CTR', 'ctr', 'D', 0, 'GND', 2500, 'MSL', ringAbout(51.47, -0.46, 22)),
+    airspace('as-london-tma', 'LONDON TMA', 'tma', 'A', 2500, 'MSL', 24500, 'STD', [[52.1, -1.6], [52.2, 0.9], [51.0, 1.2], [50.8, -1.4]]),
+    airspace('as-scottish-tma', 'SCOTTISH TMA', 'tma', 'D', 3500, 'MSL', 24500, 'STD', [[56.4, -5.2], [56.4, -2.6], [55.4, -2.6], [55.4, -5.2]]),
+    airspace('as-d323', 'D323 SALISBURY PLAIN', 'danger', undefined, 0, 'GND', 50000, 'MSL', [[51.32, -2.05], [51.33, -1.62], [51.15, -1.6], [51.12, -2.0]]),
+    airspace('as-r104', 'R104 ALDERMASTON', 'restricted', undefined, 0, 'GND', 2400, 'MSL', ringAbout(51.36, -1.15, 4)),
+    airspace('as-p611', 'P611 SELLAFIELD', 'prohibited', undefined, 0, 'GND', 2200, 'MSL', ringAbout(54.42, -3.5, 3.5)),
+    fire('firms-1', 57.35, -4.9, 42.5, 'nominal', 2),
+    fire('firms-2', 53.52, -1.85, 11.2, 'high', 5),
+    fire('firms-3', 50.62, -3.9, 6.8, 'low', 1),
     airport('EGLL', 'London Heathrow', 51.4706, -0.4619, 'VFR', 'EGLL 171220Z 24012KT 9999 FEW030 14/08 Q1012', 'TAF EGLL 171100Z 1712/1818 24012KT 9999 FEW030 TEMPO 1715/1720 4000 SHRA BKN012 BECMG 1802/1805 BKN008', 'IFR'),
     airport('EGPH', 'Edinburgh', 55.95, -3.3725, 'MVFR', 'EGPH 171220Z 27018G28KT 8000 -RA BKN018 11/09 Q1004', 'TAF EGPH 171100Z 1712/1812 27018G30KT 8000 -RA BKN018 PROB30 TEMPO 1714/1718 3000 RA BKN009', 'MVFR'),
   );
@@ -436,7 +471,7 @@ const ftAlt = (st: MockState, kind: string): string => {
 };
 
 /** Kinds that never move: history needs only their first and latest positions. */
-const FIXED_KINDS = new Set(['sea-windfarm', 'sea-platform', 'land-road-disruption', 'land-airport']);
+const FIXED_KINDS = new Set(['airspace-volume', 'sea-windfarm', 'sea-platform', 'land-road-disruption', 'land-airport']);
 
 /** The worldwide picture at unix time `now`. */
 export function mockGeoTracks(reference: HeimdallTrack[], now: number): HeimdallTrack[] {
@@ -466,6 +501,11 @@ export function mockGeoTracks(reference: HeimdallTrack[], now: number): Heimdall
       topFt: e.topFt,
       level: e.level,
       flightCategory: e.flightCategory,
+      airspaceType: e.airspaceType,
+      icaoClass: e.icaoClass,
+      lowerRef: e.lowerRef,
+      upperRef: e.upperRef,
+      frp: e.frp,
       taf: e.taf,
       tafWorst: e.tafWorst,
       label: e.label,
@@ -488,7 +528,7 @@ export function mockGeoTracks(reference: HeimdallTrack[], now: number): Heimdall
       track: e.anomalous ? 'anomalous' : 'stable',
       hdg: Math.round(st.hdg),
       spd: st.spd,
-      alt: ftAlt(st, e.kind),
+      alt: e.kind === 'event-sigmet' ? `FL${Math.round((e.baseFt ?? 0) / 100)}–FL${Math.round((e.topFt ?? 0) / 100)}` : e.kind === 'airspace-volume' ? `${e.lowerRef === 'GND' ? 'GND' : `${(e.baseFt ?? 0).toLocaleString()} ft`}–${e.upperRef === 'STD' ? `FL${Math.round((e.topFt ?? 0) / 100)}` : `${(e.topFt ?? 0).toLocaleString()} ft`}` : ftAlt(st, e.kind),
       feeds: e.sources.length,
       altFt: air && st.altM !== null ? Math.round(st.altM * FT_PER_M) : undefined,
       detail,

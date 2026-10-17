@@ -34,7 +34,7 @@ export type HeimdallSignatureScheme = 'ML-DSA' | 'SLH-DSA';
 /** Picture layers the operator can toggle. `feeds` is the reference layout's sensor
  *  coverage overlay; the others are Heimdall's wire layers (air, sea, land, space,
  *  events, other) under the console's names. [FR-H-1] */
-export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'space' | 'events' | 'other' | 'feeds';
+export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'space' | 'events' | 'other' | 'feeds' | 'airspace';
 
 // ---- domain types (product-prefixed) ----------------------------------------
 
@@ -149,6 +149,14 @@ export interface HeimdallTrackDetail {
   /** An area entity's outline, [lat, lon] pairs (SIGMETs, weather warnings, wind farms,
    *  road disruptions), from the feed's `polygon` text. [FR-H-1] [FR-P3-3] */
   area?: [number, number][];
+  /** An airspace's type (restricted, danger, ctr, tma…), ICAO class and the references
+   *  of its limits (GND, MSL, STD). Its limits are `baseFt` / `topFt`. [FR-H-1] */
+  airspaceType?: string;
+  icaoClass?: string;
+  lowerRef?: string;
+  upperRef?: string;
+  /** A fire hotspot's radiative power, MW (NASA FIRMS). */
+  frp?: number;
   /** A SIGMET's hazard (TS, TURB, ICE, MTW, VA, TC…) and vertical extent in feet. */
   hazard?: string;
   baseFt?: number;
@@ -417,6 +425,7 @@ const LAYERS: HeimdallLayer[] = [
   { id: 'ground', label: 'Ground', active: true },
   { id: 'space', label: 'Space', active: true },
   { id: 'events', label: 'Events', active: true },
+  { id: 'airspace', label: 'Airspace', active: false },
   { id: 'feeds', label: 'Feed coverage', active: false },
 ];
 

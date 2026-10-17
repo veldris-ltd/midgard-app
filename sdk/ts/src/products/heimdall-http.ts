@@ -32,7 +32,9 @@
  * Areas: SIGMETs, weather warnings, wind farms and road disruptions carry a `polygon`
  * ("lat,lon;lat,lon;…"), parsed into `detail.area`; one without a position is placed at
  * its outline's centre. Space weather (one entity, key SWPC, at 0,0) is not a place: it
- * is lifted out of the tracks into `picture.spaceWeather`.
+ * is lifted out of the tracks into `picture.spaceWeather`. openAIP airspace volumes
+ * (`airspace-volume`, wire layer `airspace`) carry lower/upper limits in feet with their
+ * references; NASA FIRMS fire hotspots (`event-fire`) their radiative power.
  *
  * Alerts: `getAlerts` / `ackAlert` read and acknowledge `GET /heimdall/alerts` and
  * `POST /heimdall/alerts/{id}/ack`; a gateway without them (404) rejects with
@@ -101,7 +103,7 @@ interface WirePicture {
 const ALERT_LABELS = new Set(['emergency', 'radio-failure', 'unlawful-interference']);
 /** Heimdall's wire layer ids → the console's layer ids. Anything else is `other`. */
 const WIRE_LAYERS: Record<string, HeimdallLayerId> = {
-  air: 'air', sea: 'maritime', land: 'ground', space: 'space', events: 'events', other: 'other',
+  air: 'air', sea: 'maritime', land: 'ground', space: 'space', events: 'events', other: 'other', airspace: 'airspace',
 };
 const layerOf = (wire: string): HeimdallLayerId => WIRE_LAYERS[wire] ?? 'other';
 const wireLayer = (id: HeimdallLayerId): string =>
@@ -122,6 +124,8 @@ const KIND_CLASS: Record<string, string> = {
   'sea-windfarm': 'WIND FARM',
   'sea-platform': 'PLATFORM',
   'land-road-disruption': 'ROAD DISRUPTION',
+  'airspace-volume': 'AIRSPACE',
+  'event-fire': 'FIRE HOTSPOT',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -138,6 +142,8 @@ const KIND_FEED: Record<string, string> = {
   'sea-platform': 'offshore platforms',
   'land-road-disruption': 'road disruptions (TfL)',
   'space-weather': 'space weather (NOAA SWPC)',
+  'airspace-volume': 'airspace (openAIP)',
+  'event-fire': 'fire hotspots (NASA FIRMS)',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -168,6 +174,8 @@ function altitude(e: WireEntity): string {
     const d = num(e.attributes.depth_km);
     return d === undefined ? '—' : `${Math.round(d)} km deep`;
   }
+  if (e.kind === 'airspace-volume') return airspaceLimits(e);
+  if (e.kind === 'event-fire') return 'SURFACE';
   if (e.kind === 'event-sigmet') {
     const b = num(e.attributes.base_ft), t = num(e.attributes.top_ft);
     const fl = (ft: number) => (ft <= 0 ? 'SFC' : `FL${String(Math.round(ft / 100)).padStart(3, '0')}`);
@@ -182,6 +190,7 @@ function altitude(e: WireEntity): string {
 
 function classOf(e: WireEntity): string {
   // SIGMETs by hazard, warnings by level: the inspector and the filter read better.
+  if (!e.classification && e.kind === 'airspace-volume' && typeof e.attributes.airspace_type === 'string') return `AIRSPACE ${e.attributes.airspace_type}`.toUpperCase();
   if (!e.classification && e.kind === 'event-sigmet' && typeof e.attributes.hazard === 'string') return `SIGMET ${e.attributes.hazard}`.toUpperCase();
   if (!e.classification && e.kind === 'event-weather-warning' && typeof e.attributes.level === 'string') return `${e.attributes.level} warning`.toUpperCase();
   // Ships without a classification are labelled by their AIS ship type (cargo, tanker…).
@@ -208,6 +217,20 @@ function runwaysOf(geo: string | undefined): [number, number, number, number, nu
     .filter((r) => (r.length === 4 || r.length === 5) && r.every(Number.isFinite))
     .map((r) => [r[0], r[1], r[2], r[3], r[4] || 45] as [number, number, number, number, number]);
   return out.length ? out : undefined;
+}
+
+/** One airspace limit: "GND", "FL195", "2,500 ft MSL". */
+function limitText(ft: number | undefined, ref: string | undefined): string {
+  if (ft === undefined) return '—';
+  if (ft <= 0 && (ref ?? 'GND').toUpperCase() !== 'MSL') return 'GND';
+  if ((ref ?? '').toUpperCase() === 'STD') return `FL${String(Math.round(ft / 100)).padStart(3, '0')}`;
+  return `${Math.round(ft).toLocaleString()} ft ${(ref ?? 'MSL').toUpperCase()}`;
+}
+
+/** An airspace's vertical limits, "GND–FL195". [FR-H-1] */
+function airspaceLimits(e: WireEntity): string {
+  const r = (k: string) => (typeof e.attributes[k] === 'string' ? (e.attributes[k] as string) : undefined);
+  return `${limitText(num(e.attributes.lower_ft), r('lower_ref'))}–${limitText(num(e.attributes.upper_ft), r('upper_ref'))}`;
 }
 
 /** An area's outline from the feed's `lat,lon;lat,lon;…` text (null when absent or bad). */
@@ -272,6 +295,23 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
       rows.push(['HAZARD', [a('qualifier'), a('hazard')].filter(Boolean).join(' ') || undefined],
         ['LEVELS', b !== undefined || top !== undefined ? `${b !== undefined ? `${b.toLocaleString()} ft` : 'SFC'} – ${top !== undefined ? `${top.toLocaleString()} ft` : 'not given'}` : undefined],
         ['FIR', a('fir')], ['VALID', [when(e.attributes.valid_from), when(e.attributes.valid_to)].filter(Boolean).join(' – ') || undefined], ['RAW', a('raw')]);
+      break;
+    }
+    case 'airspace-volume':
+      rows.push(['NAME', a('name')], ['TYPE', a('airspace_type')?.toUpperCase()], ['CLASS', a('icao_class')],
+        ['LOWER', limitText(num(e.attributes.lower_ft), a('lower_ref')) + (a('lower_ref') ? ` (${a('lower_ref')})` : '')],
+        ['UPPER', limitText(num(e.attributes.upper_ft), a('upper_ref')) + (a('upper_ref') ? ` (${a('upper_ref')})` : '')],
+        ['COUNTRY', a('country')]);
+      break;
+    case 'event-fire': {
+      const t = num(e.attributes.acq_time);
+      const conf = a('confidence');
+      rows.push(['FRP', num(e.attributes.frp) !== undefined ? `${num(e.attributes.frp)!.toFixed(1)} MW` : undefined],
+        ['CONFIDENCE', conf ? ({ l: 'low', n: 'nominal', h: 'high' } as Record<string, string>)[conf.toLowerCase()] ?? conf : undefined],
+        ['SATELLITE', [a('satellite'), a('instrument')].filter(Boolean).join(' · ') || undefined],
+        ['ACQUIRED', t !== undefined ? new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : undefined],
+        ['DAY / NIGHT', a('daynight') ? (a('daynight')!.toUpperCase() === 'D' ? 'day' : 'night') : undefined],
+        ['BRIGHTNESS', num(e.attributes.brightness_k) !== undefined ? `${num(e.attributes.brightness_k)!.toFixed(0)} K` : undefined]);
       break;
     }
     case 'event-weather-warning':
@@ -499,8 +539,13 @@ export class HeimdallHttp implements HeimdallGateway {
         facts: factsOf(e),
         area,
         hazard: e.kind === 'event-sigmet' ? text('hazard') : undefined,
-        baseFt: e.kind === 'event-sigmet' ? num(e.attributes.base_ft) : undefined,
-        topFt: e.kind === 'event-sigmet' ? num(e.attributes.top_ft) : undefined,
+        baseFt: e.kind === 'event-sigmet' ? num(e.attributes.base_ft) : e.kind === 'airspace-volume' ? num(e.attributes.lower_ft) : undefined,
+        topFt: e.kind === 'event-sigmet' ? num(e.attributes.top_ft) : e.kind === 'airspace-volume' ? num(e.attributes.upper_ft) : undefined,
+        airspaceType: e.kind === 'airspace-volume' ? text('airspace_type')?.toLowerCase() : undefined,
+        icaoClass: e.kind === 'airspace-volume' ? text('icao_class') : undefined,
+        lowerRef: e.kind === 'airspace-volume' ? text('lower_ref') : undefined,
+        upperRef: e.kind === 'airspace-volume' ? text('upper_ref') : undefined,
+        frp: e.kind === 'event-fire' ? num(e.attributes.frp) : undefined,
         level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : undefined,
         taf: e.kind === 'land-airport' ? text('taf') : undefined,
         tafWorst: e.kind === 'land-airport' ? text('taf_worst_category_12h') : undefined,
