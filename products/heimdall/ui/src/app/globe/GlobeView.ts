@@ -265,6 +265,10 @@ export class GlobeView {
   /** A translucent wall from the selected track's recorded path down to the ground. */
   private readonly pathCurtain: THREE.Mesh;
   private readonly terrain: THREE.Mesh;
+  private readonly globeMaterial: THREE.MeshBasicMaterial;
+  /** Satellite imagery (NASA Blue Marble) on the globe and the terrain, or the plain dark map. */
+  private imagery = false;
+  private textures: { earth: THREE.Texture; uk: THREE.Texture } | null = null;
   /** Airport runway centre lines, on the ground. */
   private readonly runwayLines: THREE.LineSegments;
   private readonly drapedStrips: [number, number][][][];
@@ -299,10 +303,11 @@ export class GlobeView {
     this.cam = new GlobeCamera(this.camera);
 
     // Earth, outlines, graticule, atmosphere.
-    const globe = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 128, 96),
-      new THREE.MeshBasicMaterial({ color: GLOBE_COLOUR, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
-    );
+    this.globeMaterial = new THREE.MeshBasicMaterial({ color: GLOBE_COLOUR, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), this.globeMaterial);
+    // three's sphere starts its texture at longitude -90° in this scene's frame; turn it
+    // so the equirectangular image's left edge sits on the antimeridian.
+    globe.rotation.y = -Math.PI / 2;
     this.scene.add(globe);
     const lines = (pos: Float32Array, colour: string, opacity: number) => {
       const g = new THREE.BufferGeometry();
@@ -481,6 +486,34 @@ export class GlobeView {
     this.requestRender();
   }
 
+  /** Satellite imagery on or off. The images are bundled with the console (public/imagery),
+   *  so this works offline; they load the first time imagery is turned on. [FR-P3-3] */
+  setImagery(on: boolean): void {
+    if (on === this.imagery) return;
+    this.imagery = on;
+    if (on && !this.textures) {
+      const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+      const load = (name: string) => {
+        const tex = new THREE.TextureLoader().load(`${base}imagery/${name}`, () => this.requestRender());
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        return tex;
+      };
+      this.textures = { earth: load('earth-4096.jpg'), uk: load('uk-ie-2560.jpg') };
+    }
+    // Dimmed a little, so tracks and labels stay the brightest things on screen.
+    this.globeMaterial.map = on ? this.textures!.earth : null;
+    this.globeMaterial.color.set(on ? 0x9a9a9a : GLOBE_COLOUR);
+    this.globeMaterial.needsUpdate = true;
+    const tm = this.terrain.material as THREE.MeshLambertMaterial;
+    tm.map = on ? this.textures!.uk : null;
+    tm.vertexColors = !on;
+    tm.color.set(on ? 0x6e6e6e : 0xffffff);
+    tm.needsUpdate = true;
+    this.buildTerrain();
+    this.requestRender();
+  }
+
   setExaggeration(x: number): void {
     if (x === this.exaggeration) return;
     this.exaggeration = x;
@@ -638,7 +671,7 @@ export class GlobeView {
   private buildTerrain(): void {
     const { west, north, step, nx, ny } = TERRAIN;
     const ground = (h: number) => 1 + (h > 0 ? drawnHeight(h, this.exaggeration) : 0) + 0.0001;
-    const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3);
+    const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3), uv = new Float32Array(nx * ny * 2);
     const v = new THREE.Vector3(), c = new THREE.Color();
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
@@ -648,19 +681,24 @@ export class GlobeView {
         pos[k] = v.x; pos[k + 1] = v.y; pos[k + 2] = v.z;
         reliefColour(h, c);
         col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
+        // The UK image covers exactly the terrain grid's box.
+        uv[(j * nx + i) * 2] = i / (nx - 1);
+        uv[(j * nx + i) * 2 + 1] = 1 - j / (ny - 1);
       }
     }
     const index: number[] = [];
     for (let j = 0; j + 1 < ny; j++) {
       for (let i = 0; i + 1 < nx; i++) {
         const a = j * nx + i, b = a + 1, d = a + nx, e = d + 1;
-        if (terrainGrid[a] <= 0 && terrainGrid[b] <= 0 && terrainGrid[d] <= 0 && terrainGrid[e] <= 0) continue;
+        // With imagery the whole box is drawn (the image has the sea in it); without, land only.
+        if (!this.imagery && terrainGrid[a] <= 0 && terrainGrid[b] <= 0 && terrainGrid[d] <= 0 && terrainGrid[e] <= 0) continue;
         index.push(a, d, b, b, d, e);
       }
     }
     const g = this.terrain.geometry;
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     g.setIndex(index);
     g.computeVertexNormals();
     g.computeBoundingSphere();

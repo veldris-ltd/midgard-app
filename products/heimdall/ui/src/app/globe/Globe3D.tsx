@@ -42,6 +42,8 @@ function Control({ label, onClick, active, children }: { label: string; onClick:
   );
 }
 
+const IMAGERY_KEY = 'heimdall.globe.imagery';
+
 export interface Globe3DProps {
   tracks: HeimdallTrack[];
   trails: GlobeTrail[];
@@ -69,6 +71,15 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const [follow, setFollow] = React.useState(false);
   const [tilted, setTilted] = React.useState(true);
   const [heightsOpen, setHeightsOpen] = React.useState(false);
+  // Satellite imagery or the plain dark map, remembered per browser.
+  const [imagery, setImageryState] = React.useState(() => { try { return window.localStorage.getItem(IMAGERY_KEY) !== 'dark'; } catch { return true; } });
+  const setImagery = (on: boolean) => {
+    setImageryState(on);
+    try { window.localStorage.setItem(IMAGERY_KEY, on ? 'satellite' : 'dark'); } catch { /* storage blocked: still switches */ }
+  };
+  const imageryRef = React.useRef(imagery);
+  imageryRef.current = imagery;
+  React.useEffect(() => { viewRef.current?.setImagery(imagery); }, [imagery]);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
   const live = React.useRef({ onSelect, onHover, selected, hover });
@@ -106,6 +117,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
       return;
     }
     viewRef.current = view;
+    view.setImagery(imageryRef.current);
     return () => {
       view.dispose();
       viewRef.current = null;
@@ -206,6 +218,10 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
 
       {/* Vertical exaggeration, labelled so the heights are never read as true scale:
           folded to one chip until asked for. */}
+      <button type="button" onClick={() => setImagery(!imagery)} aria-pressed={imagery} aria-label={imagery ? 'Map: satellite imagery; switch to dark' : 'Map: dark; switch to satellite imagery'}
+        style={{ all: 'unset', cursor: 'pointer', position: 'absolute', top: 52, left: 12, zIndex: 4, minHeight: 32, padding: '0 10px', display: 'inline-flex', alignItems: 'center', ...mono, color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
+        MAP · {imagery ? 'SATELLITE' : 'DARK'}
+      </button>
       {!heightsOpen && (
         <button type="button" onClick={() => setHeightsOpen(true)} aria-expanded={false} aria-label={`Heights stretched ×${exaggeration}; change`}
           style={{ all: 'unset', cursor: 'pointer', position: 'absolute', top: 12, left: 12, zIndex: 4, minHeight: 32, padding: '0 10px', display: 'inline-flex', alignItems: 'center', ...mono, color: 'var(--warn)', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
