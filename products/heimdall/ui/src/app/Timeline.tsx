@@ -15,7 +15,8 @@ export const WINDOWS: { secs: number; label: string }[] = [
   { secs: 24 * 3600, label: '24H' },
 ];
 export const SPEEDS = [1, 10, 60, 300];
-export const TRAILS = [2, 10, 30];
+/** Trail lengths in minutes; 0 is the whole window. */
+export const TRAILS = [2, 10, 30, 0];
 
 export interface ReplayClock {
   live: boolean;
@@ -171,11 +172,13 @@ export function Timeline({ clock, history, windowSecs, setWindow, trailMins, set
       <Group label="WINDOW">
         {WINDOWS.map((w) => <Chip key={w.secs} on={windowSecs === w.secs} onClick={() => setWindow(w.secs)} label={`Window ${w.label}`}>{w.label}</Chip>)}
       </Group>
-      <Group label="SPEED">
-        {SPEEDS.map((s) => <Chip key={s} on={clock.speed === s} onClick={() => clock.setSpeed(s)} label={`Speed ${s}x`}>{s}×</Chip>)}
-      </Group>
+      {!clock.live && (
+        <Group label="SPEED">
+          {SPEEDS.map((s) => <Chip key={s} on={clock.speed === s} onClick={() => clock.setSpeed(s)} label={`Speed ${s}x`}>{s}×</Chip>)}
+        </Group>
+      )}
       <Group label="TRAIL">
-        {TRAILS.map((m) => <Chip key={m} on={trailMins === m} onClick={() => setTrailMins(m)} label={`Trail ${m} minutes`}>{m}M</Chip>)}
+        {TRAILS.map((m) => <Chip key={m} on={trailMins === m} onClick={() => setTrailMins(m)} label={m ? `Trail ${m} minutes` : 'Trail over the whole window'}>{m ? `${m}M` : 'ALL'}</Chip>)}
       </Group>
       <span title={history.message} style={{ ...mono, fontSize: 8, color: unavailable ? 'var(--warn)' : 'var(--text-faint)' }}>
         {unavailable

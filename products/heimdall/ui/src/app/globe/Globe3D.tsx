@@ -64,6 +64,7 @@ export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHov
   const [exaggeration, setExaggeration] = React.useState(() => readNumber(EXAGGERATION_KEY, 15));
   const [follow, setFollow] = React.useState(false);
   const [tilted, setTilted] = React.useState(true);
+  const [heightsOpen, setHeightsOpen] = React.useState(false);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
   const live = React.useRef({ onSelect, onHover, selected, hover });
@@ -194,8 +195,15 @@ export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHov
         </Control>
       </div>
 
-      {/* Vertical exaggeration, labelled so the heights are never read as true scale. */}
-      <label style={{ position: 'absolute', top: 12, left: 12, zIndex: 4, display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--warn)', borderRadius: 'var(--radius-sm)', ...mono }}>
+      {/* Vertical exaggeration, labelled so the heights are never read as true scale:
+          folded to one chip until asked for. */}
+      {!heightsOpen && (
+        <button type="button" onClick={() => setHeightsOpen(true)} aria-expanded={false} aria-label={`Heights stretched ×${exaggeration}; change`}
+          style={{ all: 'unset', cursor: 'pointer', position: 'absolute', top: 12, left: 12, zIndex: 4, minHeight: 32, padding: '0 10px', display: 'inline-flex', alignItems: 'center', ...mono, color: 'var(--warn)', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
+          HEIGHTS ×{exaggeration}
+        </button>
+      )}
+      {heightsOpen && <label style={{ position: 'absolute', top: 12, left: 12, zIndex: 4, display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--warn)', borderRadius: 'var(--radius-sm)', ...mono }}>
         <span style={{ color: 'var(--warn)' }}>VERTICAL ×{exaggeration} · HEIGHTS STRETCHED NEAR THE SURFACE</span>
         <input
           type="range" min={1} max={50} step={1} value={exaggeration}
@@ -204,7 +212,8 @@ export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHov
           style={{ width: 220, height: 28, margin: 0, accentColor: 'var(--warn)', touchAction: 'none' }}
         />
         <span style={{ color: 'var(--text-faint)', fontSize: 8 }}>ORDER KEPT · SATELLITES RAISED BY UP TO {(exaggeration - 1) * STRETCH_KM} KM</span>
-      </label>
+        <button type="button" onClick={() => setHeightsOpen(false)} style={{ all: 'unset', cursor: 'pointer', alignSelf: 'flex-end', color: 'var(--text-faint)', padding: '4px 0' }}>DONE</button>
+      </label>}
     </div>
   );
 }

@@ -134,7 +134,47 @@ const utc = (unix: number) => new Date(unix * 1000).toISOString().slice(11, 19);
  *  Aircraft show their transponder fields; other kinds (balloons, satellites, earthquakes,
  *  flood warnings) the facts their feed reports. In replay the position is the recorded
  *  one at the replay time. [FR-H-1] [FR-P3-7] */
-function LiveTrackPanel({ t, onClose, replayAt, trailNote }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string }) {
+/** The recorded flight of one track over the history window: when Heimdall first and
+ *  last recorded it, how far it went, and its altitude against time. [FR-H-1] */
+function FlightHistory({ points, replayAt }: { points: HeimdallHistoryPoint[]; replayAt: number | null }) {
+  const n = points.length;
+  const t0 = points[0][0], t1 = points[n - 1][0];
+  let nm = 0;
+  for (let i = 1; i < n; i++) {
+    const [, la1, lo1] = points[i - 1], [, la2, lo2] = points[i];
+    const p1 = la1 * Math.PI / 180, p2 = la2 * Math.PI / 180, dl = (lo2 - lo1) * Math.PI / 180;
+    const h = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    nm += 2 * 3440.065 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  const alts = points.map((p) => p[3]).filter((a): a is number => a !== null);
+  const top = Math.max(1, ...alts);
+  const W = 300, H = 64;
+  const x = (tt: number) => (t1 > t0 ? ((tt - t0) / (t1 - t0)) * W : 0);
+  const y = (a: number | null) => H - 4 - ((a ?? 0) / top) * (H - 10);
+  const line = points.map((p) => `${x(p[0]).toFixed(1)},${y(p[3]).toFixed(1)}`).join(' ');
+  const mins = Math.round((t1 - t0) / 60);
+  return (
+    <Card size="sm">
+      <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>FLIGHT HISTORY · RECORDED BY HEIMDALL</div>
+      <Row k="RECORDED" v={`${utc(t0)}–${utc(t1)} UTC · ${mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`}`} />
+      <Row k="POSITIONS" v={n.toLocaleString()} />
+      <Row k="DISTANCE" v={`${Math.round(nm).toLocaleString()} NM along the recorded path`} />
+      {alts.length > 0 && <Row k="ALTITUDE" v={`${Math.round(Math.min(...alts) * 3.28084).toLocaleString()}–${Math.round(Math.max(...alts) * 3.28084).toLocaleString()} ft`} />}
+      {alts.length > 1 && (
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: H, marginTop: 8, display: 'block' }} aria-label="Altitude against time">
+          <polygon points={`0,${H} ${line} ${W},${H}`} fill="var(--accent)" fillOpacity={0.12} />
+          <polyline points={line} fill="none" stroke="var(--accent-hover)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          {replayAt !== null && replayAt >= t0 && replayAt <= t1 && (
+            <line x1={x(replayAt)} x2={x(replayAt)} y1={0} y2={H} stroke="var(--warn)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          )}
+        </svg>
+      )}
+      <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 4 }}>ALTITUDE AGAINST TIME · THE PATH IS DRAWN ON THE MAP AND GLOBE</div>
+    </Card>
+  );
+}
+
+function LiveTrackPanel({ t, onClose, replayAt, trailNote, path }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string; path: HeimdallHistoryPoint[] | null }) {
   const d = t.detail!;
   const colour = colourOf(t);
   const aircraft = d.kind === 'air-track';
@@ -184,6 +224,7 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote }: { t: HeimdallTrack;
         <Row k="SOURCES" v={d.sources.length ? d.sources.join(', ') + ' · ML-DSA signed' : '—'} />
         <Row k="TRAIL" v={trailNote} />
       </Card>
+      {path && path.length > 1 && <FlightHistory points={path} replayAt={replayAt} />}
       <Card size="sm">
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>CLASSIFICATION</div>
         {d.label ? (
@@ -352,7 +393,7 @@ export function OperatingPictureScreen() {
   // The replay timeline and the history behind it, shared by both views. [FR-P3-7]
   const [windowSecs, setWindowSecs] = React.useState(3600);
   const [trailMins, setTrailMins] = React.useState(10);
-  const trailSecs = trailMins * 60;
+  const trailSecs = trailMins ? trailMins * 60 : windowSecs;
   const clock = useReplayClock(windowSecs, view === '3d' ? 100 : 250);
   const history = useHistory(gateway, windowSecs, trailSecs);
   const replay = !clock.live && history.status === 'ready';
@@ -396,7 +437,7 @@ export function OperatingPictureScreen() {
     return () => ro.disconnect();
   }, []);
   const [statsOpenChoice, setStatsOpen] = React.useState<boolean | null>(null);
-  const statsOpen = statsOpenChoice ?? canvasH >= 780;
+  const statsOpen = statsOpenChoice ?? false;
   const tracks = filter ? allTracks.filter((t) => t.cls === filter) : allTracks;
 
   const [layers, setLayers] = React.useState<LayerState | null>(null);
@@ -449,7 +490,7 @@ export function OperatingPictureScreen() {
   const selPath = entityPath ?? (selKey ? history.store.get(selKey)?.points ?? null : null);
   const trailNote = (t: HeimdallTrack) => {
     const n = history.store.get(keyOf(t))?.points.length;
-    if (history.status === 'ready') return n ? `${n.toLocaleString()} recorded positions over the window; trail shows the last ${trailMins} min` : 'no recorded positions in this window';
+    if (history.status === 'ready') return n ? `${n.toLocaleString()} recorded positions over the window; trail shows ${trailMins ? `the last ${trailMins} min` : 'the whole window'}` : 'no recorded positions in this window';
     return `${t.geoTrail?.length ?? t.trail?.length ?? 0} reported positions since this page opened (history unavailable)`;
   };
 
@@ -470,7 +511,7 @@ export function OperatingPictureScreen() {
   const select = (id: string) => { setSel(id); setGate(null); };
   const aside = geoView && picture ? (
     e?.detail ? (
-      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} />
+      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} />
     ) : (
       <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt} />
     )
@@ -597,7 +638,8 @@ export function OperatingPictureScreen() {
       navFooter={
         <div style={{ padding: '10px 10px 4px', display: 'flex', flexDirection: 'column', gap: 9 }}>
           <div className="mg-label" style={{ color: 'var(--text-faint)' }}>LAYERS</div>
-          {layerDefs.map((l) => (
+          {/* Only layers with something on them. */}
+          {layerDefs.filter((l) => geoLive.some((t) => t.layer === l.id)).map((l) => (
             <Switch key={l.id} checked={layerOn(l.id)} onChange={(v) => setLayer(l.id, v)} label={l.label} />
           ))}
         </div>

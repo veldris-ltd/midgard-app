@@ -22,7 +22,9 @@ export interface CameraState {
 export const MIN_DIST = 50 / EARTH_KM;
 export const MAX_DIST = 5;
 /** The opening framing: the UK and Ireland, oblique, looking north. */
-export const UK_VIEW: CameraState = { lat: 54.6, lon: -4, dist: 2800 / EARTH_KM, heading: 0, tilt: 40 };
+/** Over the UK and Ireland, tilted enough that altitude reads as depth while the
+ *  whole region stays in view. [FR-P3-7] */
+export const UK_VIEW: CameraState = { lat: 54.2, lon: -3.6, dist: 2000 / EARTH_KM, heading: -8, tilt: 48 };
 
 /** Most tilt allowed at a distance: near the ground almost to the horizon, none from afar. */
 export const maxTilt = (dist: number) => THREE.MathUtils.clamp(78 - (dist - 0.3) * 24, 0, 78);

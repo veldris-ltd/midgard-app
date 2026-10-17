@@ -173,6 +173,8 @@ export class GlobeView {
   private readonly colourCache = new Map<string, THREE.Color>();
   private readonly drops: THREE.LineSegments;
   private readonly trailLines: THREE.LineSegments;
+  /** A translucent wall from the selected track's recorded path down to the ground. */
+  private readonly pathCurtain: THREE.Mesh;
   private readonly pathLine: THREE.Line;
   private readonly marker: THREE.Mesh;
   // input
@@ -258,12 +260,21 @@ export class GlobeView {
       return g;
     };
     this.drops = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.45, depthWrite: false }));
-    this.trailLines = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false }));
+    this.trailLines = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false }));
     this.pathLine = new THREE.Line(vcLines(), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }));
+    const curtain = (opacity: number) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(0), 4));
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false }));
+      mesh.renderOrder = 2;
+      return mesh;
+    };
+    this.pathCurtain = curtain(1);
     this.marker = new THREE.Mesh(new THREE.RingGeometry(0.78, 1, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }));
     this.marker.renderOrder = 10;
     this.marker.visible = false;
-    this.scene.add(this.drops, this.trailLines, this.pathLine, this.marker);
+    this.scene.add(this.pathCurtain, this.drops, this.trailLines, this.pathLine, this.marker);
 
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
@@ -310,6 +321,7 @@ export class GlobeView {
     this.path = path;
     if (colour) this.pathColour = colour;
     this.buildPath();
+    this.buildDrops();
     if (this.follow) this.followSelected();
     this.requestRender();
   }
@@ -407,17 +419,54 @@ export class GlobeView {
     g.computeBoundingSphere();
   }
 
+  /** A line from each balloon, and from the selected track, down to the ground below
+   *  it, so its height reads against the map; faint at the ground, strong at the top.
+   *  Only those: on every aircraft the lines bury the picture. */
   private buildDrops(): void {
     const pos: number[] = [], col: number[] = [];
     const ground = new THREE.Vector3();
     for (const p of this.placed) {
-      if (p.item.shape !== 'balloon') continue;
+      const { shape, altM } = p.item;
+      if (shape !== 'balloon' && !(p.item.id === this.selected && (altM ?? 0) > 60)) continue;
       toVec(p.item.lat, p.item.lon, 1.0006, ground);
       const c = this.colour(p.item.colour);
+      const top = 1;
       pos.push(ground.x, ground.y, ground.z, p.pos.x, p.pos.y, p.pos.z);
-      col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      col.push(c.r * 0.15, c.g * 0.15, c.b * 0.15, c.r * top, c.g * top, c.b * top);
     }
     this.setLines(this.drops, pos, col);
+  }
+
+  /** Quads from consecutive path points down to the ground, as one curtain mesh: the
+   *  flight path as a wall whose top edge is the route at altitude. Alpha fades to the
+   *  ground and, with `fade`, towards the oldest point. */
+  private setCurtain(mesh: THREE.Mesh, paths: { points: HeimdallHistoryPoint[]; colour: THREE.Color; alpha: number; fade: boolean }[]): void {
+    const pos: number[] = [], col: number[] = [];
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), ag = new THREE.Vector3(), bg = new THREE.Vector3();
+    for (const { points, colour: c, alpha, fade } of paths) {
+      const n = points.length;
+      if (n < 2) continue;
+      this.pointAt(points[0], a);
+      toVec(points[0][1], points[0][2], 1.0006, ag);
+      for (let i = 1; i < n; i++) {
+        this.pointAt(points[i], b);
+        toVec(points[i][1], points[i][2], 1.0006, bg);
+        const fa = fade ? 0.2 + 0.8 * ((i - 1) / (n - 1)) : 1;
+        const fb = fade ? 0.2 + 0.8 * (i / (n - 1)) : 1;
+        // two triangles: a, ag, b and b, ag, bg
+        pos.push(a.x, a.y, a.z, ag.x, ag.y, ag.z, b.x, b.y, b.z, b.x, b.y, b.z, ag.x, ag.y, ag.z, bg.x, bg.y, bg.z);
+        const top = (f: number) => [c.r, c.g, c.b, alpha * f];
+        const low = (f: number) => [c.r, c.g, c.b, alpha * f * 0.08];
+        col.push(...top(fa), ...low(fa), ...top(fb), ...top(fb), ...low(fa), ...low(fb));
+        a.copy(b);
+        ag.copy(bg);
+      }
+    }
+    const g = mesh.geometry;
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
+    g.computeBoundingSphere();
+    mesh.visible = pos.length > 0;
   }
 
   private pointAt(pt: HeimdallHistoryPoint, out: THREE.Vector3): THREE.Vector3 {
@@ -456,6 +505,7 @@ export class GlobeView {
     this.setLines(this.pathLine, pos, col);
     (this.pathLine.material as THREE.LineBasicMaterial).color.copy(c);
     this.pathLine.visible = pos.length >= 6;
+    this.setCurtain(this.pathCurtain, this.path && this.path.length > 1 ? [{ points: this.path, colour: c, alpha: 0.4, fade: false }] : []);
   }
 
   // ---- frames ----------------------------------------------------------------
