@@ -103,6 +103,7 @@ const KIND_CLASS: Record<string, string> = {
   'space-satellite': 'SATELLITE',
   'event-earthquake': 'EARTHQUAKE',
   'event-flood': 'FLOOD WARNING',
+  'sea-vessel': 'VESSEL',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -111,6 +112,7 @@ const KIND_FEED: Record<string, string> = {
   'space-satellite': 'orbital elements',
   'event-earthquake': 'seismic catalogue',
   'event-flood': 'flood warnings',
+  'sea-vessel': 'ship transponders (AIS)',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -148,7 +150,9 @@ function altitude(e: WireEntity): string {
 }
 
 function classOf(e: WireEntity): string {
-  return (e.classification?.label ?? KIND_CLASS[e.kind] ?? e.kind)
+  // Ships without a classification are labelled by their AIS ship type (cargo, tanker…).
+  const shipType = e.kind === 'sea-vessel' && typeof e.attributes.ship_type === 'string' ? e.attributes.ship_type : undefined;
+  return (e.classification?.label ?? shipType ?? KIND_CLASS[e.kind] ?? e.kind)
     .replace(/-/g, ' ')
     .toUpperCase();
 }
@@ -182,6 +186,10 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
         ['PLACE', a('place')], ['TIME', t !== undefined ? new Date(t * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC' : undefined]);
       break;
     }
+    case 'sea-vessel':
+      rows.push(['NAME', a('name')], ['MMSI', a('mmsi')], ['IMO', a('imo')], ['TYPE', a('ship_type')], ['STATUS', a('nav_status')],
+        ['DESTINATION', a('destination')], ['HEADING', num(e.attributes.heading) !== undefined ? `${Math.round(num(e.attributes.heading)!)}°` : undefined]);
+      break;
     case 'event-flood':
       rows.push(['SEVERITY', [a('severity_level'), a('severity')].filter(Boolean).join(' · ') || undefined], ['RIVER', a('river')], ['AREA', a('area')], ['RAISED', a('time_raised')]);
       break;
@@ -341,6 +349,7 @@ export class HeimdallHttp implements HeimdallGateway {
         magnitude: num(e.attributes.mag),
         severityLevel: num(e.attributes.severity_level),
         station: isStation(e) || undefined,
+        shipType: e.kind === 'sea-vessel' ? textAttr(e, 'ship_type') : undefined,
         facts: factsOf(e),
         label: e.classification?.label,
         rationale: e.classification?.rationale,

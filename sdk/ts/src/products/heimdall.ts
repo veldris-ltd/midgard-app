@@ -138,6 +138,8 @@ export interface HeimdallTrackDetail {
   severityLevel?: number;
   /** A crewed space station (highlighted on the globe). */
   station?: boolean;
+  /** A ship's AIS type in words (cargo, tanker, passenger…). */
+  shipType?: string;
   /** Kind-specific reported attributes for the inspector, in display order. */
   facts?: { label: string; value: string }[];
   /** Classification label and the rule rationale, when a rule matched. */

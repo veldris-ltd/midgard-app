@@ -24,6 +24,9 @@ export const MAX_DIST = 5;
 /** The opening framing: the UK and Ireland, oblique, looking north. */
 /** Over the UK and Ireland, tilted enough that altitude reads as depth while the
  *  whole region stays in view. [FR-P3-7] */
+/** The Baltic, where the open (keyless) ship feed reports. [FR-P3-7] */
+export const BALTIC_VIEW: CameraState = { lat: 59.3, lon: 22.5, dist: 1400 / EARTH_KM, heading: 0, tilt: 45 };
+
 export const UK_VIEW: CameraState = { lat: 54.2, lon: -3.6, dist: 2000 / EARTH_KM, heading: -8, tilt: 48 };
 
 /** Most tilt allowed at a distance: near the ground almost to the horizon, none from afar. */

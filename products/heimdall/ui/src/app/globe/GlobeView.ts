@@ -28,7 +28,7 @@ import type { TrackShape } from '../trackStyle';
 import { BORDER_PATH, LAND_PATH } from '../basemap';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
-import { GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
+import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
 import { D2R, drawnHeight, enu, raySphere, toVec } from './geo';
 
 export interface GlobeItem {
@@ -60,8 +60,8 @@ export interface GlobeCallbacks {
 }
 
 /** Marker sizes in CSS pixels. */
-const PX: Record<TrackShape, number> = { aircraft: 17, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
-const SHAPES: TrackShape[] = ['aircraft', 'balloon', 'satellite', 'quake', 'flood', 'point'];
+const PX: Record<TrackShape, number> = { aircraft: 17, vessel: 13, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
+const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'balloon', 'satellite', 'quake', 'flood', 'point'];
 const GLOBE_COLOUR = '#0a0f16';
 /** A screen tap: moved less than this (px) within this long (ms). */
 const TAP_PX = { mouse: 5, touch: 12 };
@@ -112,6 +112,24 @@ function aircraftGeometry(): THREE.BufferGeometry {
   ].map((g) => g.toNonIndexed());
   // The cylinder and cone are built along y already; all parts share one frame.
   const merged = mergeGeometries(parts, false)!;
+  merged.computeVertexNormals();
+  return merged;
+}
+
+/** A small ship, bow along +y, up along +z, one unit long: a pointed hull with a
+ *  superstructure aft, so it reads as a vessel and shows which way it is heading. */
+function vesselGeometry(): THREE.BufferGeometry {
+  const outline = new THREE.Shape();
+  outline.moveTo(0, 0.5);
+  outline.lineTo(0.17, 0.2);
+  outline.lineTo(0.17, -0.45);
+  outline.lineTo(-0.17, -0.45);
+  outline.lineTo(-0.17, 0.2);
+  outline.closePath();
+  const hull = new THREE.ExtrudeGeometry(outline, { depth: 0.1, bevelEnabled: false });
+  const bridge = new THREE.BoxGeometry(0.26, 0.18, 0.14);
+  bridge.translate(0, -0.28, 0.17);
+  const merged = mergeGeometries([hull.toNonIndexed(), bridge.toNonIndexed()], false)!;
   merged.computeVertexNormals();
   return merged;
 }
@@ -330,6 +348,7 @@ export class GlobeView {
 
     // Entity markers, one instanced mesh per shape (grown on demand).
     this.geometries.set('aircraft', aircraftGeometry());
+    this.geometries.set('vessel', vesselGeometry());
     this.geometries.set('balloon', new THREE.SphereGeometry(0.5, 12, 8));
     this.geometries.set('satellite', new THREE.OctahedronGeometry(0.5));
     this.geometries.set('quake', new THREE.RingGeometry(0.72, 1, 40));
@@ -466,7 +485,7 @@ export class GlobeView {
       const up = new THREE.Vector3();
       enu(pos, east, north, up);
       let a: THREE.Vector3, b: THREE.Vector3;
-      if (it.shape === 'aircraft') {
+      if (it.shape === 'aircraft' || it.shape === 'vessel') {
         const h = it.hdg * D2R;
         b = north.clone().multiplyScalar(Math.cos(h)).addScaledVector(east, Math.sin(h)); // forward
         a = new THREE.Vector3().crossVectors(b, up); // right
@@ -712,7 +731,7 @@ export class GlobeView {
         px = (4 + 2.2 * Math.max(0, p.item.magnitude ?? 3)) * pulse;
       }
       const k = px * this.perPx(d);
-      if (s === 'aircraft') scale.set(k, k, k);
+      if (s === 'aircraft' || s === 'vessel') scale.set(k, k, k);
       else scale.set(k, k, k);
       m.makeBasis(p.a, p.b, p.up);
       m.scale(scale);
@@ -791,6 +810,12 @@ export class GlobeView {
     this.cam.flyTo({ heading: 0 }, 600);
     this.requestRender();
   }
+  baltic(): void {
+    this.endFollow();
+    this.cam.flyTo({ ...BALTIC_VIEW }, 1400);
+    this.requestRender();
+  }
+
   home(): void {
     this.endFollow();
     this.cam.flyTo({ ...UK_VIEW }, 1400);

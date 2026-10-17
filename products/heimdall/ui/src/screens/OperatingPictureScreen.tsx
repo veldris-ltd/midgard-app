@@ -721,7 +721,7 @@ export function OperatingPictureScreen() {
         const rad = (en.hdg * Math.PI) / 180;
         // Live: the vector is where the track will be in 3 minutes (speed in NM/min × 3).
         // Satellites move too fast for a vector to mean anything at this scale; events do not move.
-        const moves = shape === 'aircraft' || shape === 'balloon' || shape === 'point';
+        const moves = shape === 'aircraft' || shape === 'vessel' || shape === 'balloon' || shape === 'point';
         const vlen = region ? (en.detail?.onGround || !moves ? 0 : (en.spd / 20) * pxPerNm) : Math.min(46, 12 + en.spd / 14);
         const size = region ? (shape === 'quake' ? 6 + 2 * (en.detail?.magnitude ?? 2) : shape === 'flood' ? 10 : 7) : 14;
         // With hundreds of live tracks, label only the ones that matter right now.

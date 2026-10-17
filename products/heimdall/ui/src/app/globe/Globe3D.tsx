@@ -187,6 +187,7 @@ export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHov
           </span>
         </Control>
         <Control label="Frame the UK and Ireland" onClick={() => { setFollow(false); view()?.home(); }}>UK</Control>
+        <Control label="Frame the Baltic (ships)" onClick={() => { setFollow(false); view()?.baltic(); }}><span style={{ fontSize: 9 }}>BALTIC</span></Control>
         <Control label={tilted ? 'Look straight down' : 'Oblique view'} onClick={() => view()?.toggleTilt()} active={tilted}>
           {tilted ? '3D' : '2D'}
         </Control>
