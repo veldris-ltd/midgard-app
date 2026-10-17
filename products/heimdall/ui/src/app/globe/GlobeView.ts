@@ -39,6 +39,7 @@ import { BORDER_PATH, LAND_PATH } from '../basemap';
 import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../hydro';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
+import { buildDetail, type Box } from './detailPatch';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
 import { D2R, EARTH_KM, drawnHeight, enu, raySphere, toVec } from './geo';
 import { circle, greatCircle, subsolarPoint, type LatLon } from '../geoMath';
@@ -360,7 +361,7 @@ export class GlobeView {
   private path: HeimdallHistoryPoint[] | null = null;
   private pathColour = 'var(--accent-hover)';
   private selected: string | null = null;
-  private exaggeration = 15;
+  private exaggeration = 4;
   private follow = false;
   private width = 1;
   private height = 1;
@@ -420,6 +421,11 @@ export class GlobeView {
   private readonly drapeTexture: THREE.CanvasTexture;
   private readonly radarMesh: THREE.Mesh;
   private readonly trafficMesh: THREE.Mesh;
+  /** Close-up detail laid on the terrain for the area in view (see detailPatch.ts). */
+  private detail: { mesh: THREE.Mesh; key: string } | null = null;
+  private detailWant = '';
+  private detailTimer = 0;
+  private detailAbort: AbortController | null = null;
   private trafficTexture: THREE.Texture | null = null;
   private radarTexture: THREE.Texture | null = null;
   private readonly sun = { value: new THREE.Vector3(1, 0, 0) };
@@ -1308,6 +1314,7 @@ export class GlobeView {
     if (this.disposed) return;
     const animating = this.cam.step(nowMs);
     this.cam.apply();
+    if (!animating) this.scheduleDetail();
     let quakes = false;
     const m = new THREE.Matrix4();
     const scale = new THREE.Vector3();
@@ -1678,7 +1685,95 @@ export class GlobeView {
 
   // ---- teardown ------------------------------------------------------------------
 
+  /** After the camera settles: if close enough, (re)build the detail for the area in
+   *  view; if zoomed out, drop it. */
+  private scheduleDetail(): void {
+    window.clearTimeout(this.detailTimer);
+    this.detailTimer = window.setTimeout(() => this.updateDetail(), 350);
+  }
+
+  private updateDetail(): void {
+    if (this.disposed) return;
+    const s = this.cam.state;
+    const km = s.dist * 6371;
+    if (km > 700) {
+      this.detailWant = '';
+      this.detailAbort?.abort();
+      if (this.detail) {
+        this.scene.remove(this.detail.mesh);
+        this.detail.mesh.geometry.dispose();
+        const m = this.detail.mesh.material as THREE.MeshBasicMaterial;
+        m.map?.dispose();
+        m.dispose();
+        this.detail = null;
+        this.requestRender();
+      }
+      return;
+    }
+    // The area in view, a little generous so a small pan stays covered; snapped so the
+    // same view asks for the same box.
+    const span = Math.min(8, Math.max(0.2, (km * 1.8) / 111));
+    const q = span / 4;
+    const lat = Math.round(s.lat / q) * q, lon = Math.round(s.lon / q) * q;
+    const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+    const box: Box = { west: lon - span / cos / 2, east: lon + span / cos / 2, south: lat - span / 2, north: lat + span / 2 };
+    const key = `${this.mapStyle}:${box.west.toFixed(3)}:${box.south.toFixed(3)}:${span.toFixed(3)}:${this.exaggeration}`;
+    if (key === this.detailWant || key === this.detail?.key) return;
+    this.detailWant = key;
+    this.detailAbort?.abort();
+    const ctrl = new AbortController();
+    this.detailAbort = ctrl;
+    buildDetail(box, this.mapStyle, ctrl.signal)
+      .then((d) => {
+        if (ctrl.signal.aborted || this.disposed || this.detailWant !== key) return;
+        // A grid over the box on the same terrain surface as the base map, so roads,
+        // rivers and overlays keep sitting on it; the detail is in the image.
+        const gw = 256, gh = Math.max(32, Math.round(256 * ((box.north - box.south) / (box.east - box.west)) * cos));
+        const pos = new Float32Array((gw + 1) * (gh + 1) * 3), uv = new Float32Array((gw + 1) * (gh + 1) * 2);
+        const v = new THREE.Vector3();
+        for (let j = 0; j <= gh; j++) {
+          for (let i = 0; i <= gw; i++) {
+            const la = box.north - (j / gh) * (box.north - box.south), lo = box.west + (i / gw) * (box.east - box.west);
+            // The surface from the detail's own elevation, so its shape matches its shading.
+            toVec(la, lo, 1 + drawnHeight(Math.max(0, d.heightAt(la, lo)), this.exaggeration) + 0.00011, v);
+            const k = j * (gw + 1) + i;
+            pos[k * 3] = v.x; pos[k * 3 + 1] = v.y; pos[k * 3 + 2] = v.z;
+            uv[k * 2] = i / gw; uv[k * 2 + 1] = 1 - j / gh;
+          }
+        }
+        const index: number[] = [];
+        for (let j = 0; j < gh; j++) {
+          for (let i = 0; i < gw; i++) {
+            const a = j * (gw + 1) + i, b = a + 1, c = a + gw + 1, e = c + 1;
+            index.push(a, c, b, b, c, e);
+          }
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        g.setIndex(index);
+        const tex = new THREE.CanvasTexture(d.canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+        mesh.renderOrder = 0;
+        if (this.detail) {
+          this.scene.remove(this.detail.mesh);
+          this.detail.mesh.geometry.dispose();
+          const m = this.detail.mesh.material as THREE.MeshBasicMaterial;
+          m.map?.dispose();
+          m.dispose();
+        }
+        this.scene.add(mesh);
+        this.detail = { mesh, key };
+        this.requestRender();
+      })
+      .catch(() => { if (this.detailWant === key) this.detailWant = ''; });
+  }
+
   dispose(): void {
+    window.clearTimeout(this.detailTimer);
+    this.detailAbort?.abort();
     this.disposed = true;
     cancelAnimationFrame(this.frame);
     cancelAnimationFrame(this.hoverFrame);
