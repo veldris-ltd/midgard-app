@@ -18,6 +18,7 @@ import type { HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPi
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
 import { BANDS, KIND_LEGEND, bandOf, colourOf, shapeOf } from '../app/trackStyle';
+import { useFlights, type Flight, type KnownAirport } from '../app/flights';
 import { keyOf, replayTracks, stepFor, trailOf } from '../app/history';
 import { useEntityPath, useHistory } from '../app/useHistory';
 import { Timeline, useReplayClock } from '../app/Timeline';
@@ -174,7 +175,50 @@ function FlightHistory({ points, replayAt }: { points: HeimdallHistoryPoint[]; r
   );
 }
 
-function LiveTrackPanel({ t, onClose, replayAt, trailNote, path }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string; path: HeimdallHistoryPoint[] | null }) {
+/** The selected aircraft's flights over Heimdall's retention window, newest first:
+ *  click one to show its path on the map and its profile below. [FR-H-1] */
+function FlightsCard({ flights, since, pick, setPick }: { flights: Flight[] | null; since: number | null; pick: number | null; setPick: (i: number | null) => void }) {
+  const hm = (s: number) => new Date(s * 1000).toISOString().slice(11, 16);
+  const dur = (s: number) => { const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`; };
+  const place = (a: KnownAirport | null, fallback: string) => (a ? a.icao : fallback);
+  return (
+    <Card size="sm">
+      <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>
+        FLIGHTS · RECORDED BY HEIMDALL{since ? ` SINCE ${hm(since)} UTC` : ''}
+      </div>
+      {flights === null && <div style={{ ...mono, color: 'var(--text-faint)' }}>READING HISTORY…</div>}
+      {flights?.length === 0 && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>No complete flight recorded yet: only ground positions, or under three minutes airborne.</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {flights?.map((f, i) => {
+          const on = pick === i;
+          return (
+            <button key={f.start} type="button" onClick={() => setPick(on ? null : i)} aria-pressed={on}
+              style={{ all: 'unset', cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr auto', gap: '2px 8px', padding: '7px 9px', borderRadius: 'var(--radius-sm)', border: `1px solid ${on ? 'var(--accent)' : 'var(--divider)'}`, background: on ? 'var(--accent-tint)' : 'transparent' }}>
+              <span style={{ ...mono, fontSize: 11, color: 'var(--text-heading)' }}>
+                {place(f.from, 'EN ROUTE')} → {f.current ? 'IN FLIGHT' : place(f.to, f.landed ? 'FIELD' : 'LOST')}
+              </span>
+              <span style={{ ...mono, color: f.current ? 'var(--secure)' : 'var(--text-faint)' }}>{f.current ? '● NOW' : dur(f.end - f.start)}</span>
+              <span style={{ ...mono, color: 'var(--text-muted)' }}>
+                {hm(f.start)}–{f.current ? 'now' : hm(f.end)} UTC · {Math.round(f.distanceNm).toLocaleString()} NM
+              </span>
+              <span style={{ ...mono, color: 'var(--text-muted)' }}>{f.maxAltM !== null ? `FL${String(Math.round((f.maxAltM * 3.28084) / 100)).padStart(3, '0')}` : '—'}</span>
+              {(f.from || f.to) && (
+                <span style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-xs)', color: 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {[f.from?.name, f.to?.name].filter(Boolean).join(' → ')}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6, lineHeight: 1.6 }}>
+        SPLIT FROM RECORDED POSITIONS AT LANDINGS AND GAPS OVER 20 MIN. AIRPORTS ARE THE NEAREST WITHIN 25 KM WHERE A FLIGHT STARTS LOW OR ENDS ON THE GROUND (INFERRED). CLICK A FLIGHT TO SHOW IT.
+      </div>
+    </Card>
+  );
+}
+
+function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string; path: HeimdallHistoryPoint[] | null; flights?: { flights: Flight[] | null; since: number | null; pick: number | null; setPick: (i: number | null) => void } }) {
   const d = t.detail!;
   const colour = colourOf(t);
   const aircraft = d.kind === 'air-track';
@@ -224,6 +268,7 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path }: { t: Heimdall
         <Row k="SOURCES" v={d.sources.length ? d.sources.join(', ') + ' · ML-DSA signed' : '—'} />
         <Row k="TRAIL" v={trailNote} />
       </Card>
+      {flights && <FlightsCard {...flights} />}
       {path && path.length > 1 && <FlightHistory points={path} replayAt={replayAt} />}
       <Card size="sm">
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>CLASSIFICATION</div>
@@ -246,6 +291,33 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path }: { t: Heimdall
 }
 
 /** The inspector with nothing selected: what is in the live picture right now. */
+/** Find a track by callsign, name or ICAO address and select it. [FR-H-1] */
+function FindTrack({ tracks, select }: { tracks: HeimdallTrack[]; select: (id: string) => void }) {
+  const [q, setQ] = React.useState('');
+  const needle = q.trim().toUpperCase();
+  const hits = needle.length < 2 ? [] : tracks.filter((t) =>
+    t.id.toUpperCase().includes(needle) || (t.detail?.key ?? '').toUpperCase().includes(needle) || (t.detail?.name ?? '').toUpperCase().includes(needle),
+  ).slice(0, 6);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <input
+        type="search" value={q} onChange={(ev) => setQ(ev.target.value)} placeholder="Find aircraft, ship or airport (callsign, ICAO, name)"
+        aria-label="Find a track"
+        onKeyDown={(ev) => { if (ev.key === 'Enter' && hits[0]) { select(hits[0].id); setQ(''); } }}
+        style={{ minHeight: 40, padding: '0 10px', ...mono, fontSize: 11, color: 'var(--text-body)', background: 'var(--surface-inset)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', outline: 'none' }}
+      />
+      {hits.map((t) => (
+        <button key={t.id} type="button" onClick={() => { select(t.id); setQ(''); }}
+          style={{ all: 'unset', cursor: 'pointer', display: 'flex', gap: 8, padding: '8px 10px', ...mono, fontSize: 10, borderRadius: 'var(--radius-sm)', border: '1px solid var(--divider)' }}>
+          <span style={{ color: 'var(--text-heading)', flex: 1 }}>{t.id}</span>
+          <span style={{ color: 'var(--text-faint)' }}>{t.cls}</span>
+          <span style={{ color: 'var(--accent-hover)' }}>{t.alt}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt }: {
   picture: HeimdallPicture;
   tracks: HeimdallTrack[];
@@ -282,8 +354,9 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt
         {replayAt === null ? <Badge tone="secure">LIVE</Badge> : <Badge tone="warn">REPLAY</Badge>}
       </div>
       <div style={{ padding: '8px 10px', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        FLIGHT HISTORY: POINT AT ANY AIRCRAFT TO SEE ITS RECORDED PATH; CLICK IT FOR THE FULL HISTORY. TRAIL 30M OR ALL SHOWS EVERY PATH.
+        FLIGHT HISTORY: POINT AT ANY AIRCRAFT TO SEE ITS RECORDED PATH; CLICK IT (OR FIND IT BELOW) FOR ITS FLIGHTS. TRAIL 30M OR ALL SHOWS EVERY PATH.
       </div>
+      <FindTrack tracks={tracks} select={select} />
       <div style={{ ...mono, color: replayAt === null ? 'var(--text-faint)' : 'var(--warn)' }}>
         {replayAt === null
           ? `READ ${fmtAgo(Math.round((Date.now() - (picture.fetchedAt ?? Date.now())) / 1000))} AGO · NEWEST REPORT ${newest ? fmtAgo(secsAgo(newest)) : '—'} AGO`
@@ -492,7 +565,17 @@ export function OperatingPictureScreen() {
   // The selected entity's whole recorded path over the window.
   const selKey = e ? keyOf(e) : null;
   const entityPath = useEntityPath(gateway, history.status === 'ready' ? selKey : null, windowSecs, history.to);
-  const selPath = entityPath ?? (selKey ? history.store.get(selKey)?.points ?? null : null);
+  // The selected aircraft's flights over the whole retention window, and the one picked.
+  const knownAirports = React.useMemo<KnownAirport[]>(
+    () => geoLive.flatMap((t) => (t.detail?.kind === 'land-airport' ? [{ icao: t.detail.key, name: t.detail.name ?? t.detail.key, lat: t.detail.lat, lon: t.detail.lon }] : [])),
+    [geoLive],
+  );
+  const aircraftKey = e?.detail?.kind === 'air-track' ? selKey : null;
+  const flightState = useFlights(gateway, aircraftKey, knownAirports);
+  const [flightPick, setFlightPick] = React.useState<number | null>(null);
+  React.useEffect(() => setFlightPick(null), [aircraftKey]);
+  const picked = flightPick !== null ? flightState.flights?.[flightPick] : undefined;
+  const selPath = picked?.points ?? entityPath ?? (selKey ? history.store.get(selKey)?.points ?? null : null);
   // Pointing at a track shows its recorded flight straight away, before any click.
   const hoverTrack = hover && hover !== sel ? allTracks.find((t) => t.id === hover) : undefined;
   const hoverPath = hoverTrack ? history.store.get(keyOf(hoverTrack))?.points ?? null : null;
@@ -519,7 +602,7 @@ export function OperatingPictureScreen() {
   const select = (id: string) => { setSel(id); setGate(null); };
   const aside = geoView && picture ? (
     e?.detail ? (
-      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} />
+      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} flights={aircraftKey ? { ...flightState, pick: flightPick, setPick: setFlightPick } : undefined} />
     ) : (
       <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt} />
     )
