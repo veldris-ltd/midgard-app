@@ -20,7 +20,14 @@
  *          two fingers dragged vertically together tilt, double-tap flies in.
  *   keys   arrows pan, + / - zoom, Q / E heading, W / S tilt, R resets to the UK.
  * Picking is done in screen space against every instance (nearest marker within 10 px
- * for a mouse, 28 px for touch, ignoring those behind the earth). */
+ * for a mouse, 28 px for touch, ignoring those behind the earth).
+ *
+ * Overlays [FR-H-1] [FR-P3-3]: SIGMETs as translucent volumes from their base to their
+ * top (on the same height stretch as aircraft); weather warnings, wind farms and road
+ * disruptions as fills painted into one texture draped over the UK terrain box, with
+ * outlines; the RainViewer radar image draped the same way; the night side darkened
+ * from the subsolar point (a shader tweak on the globe and terrain, with a faint warm
+ * terminator); the MEASURE line and range rings drawn on the ground. */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { HeimdallHistoryPoint } from '@midgard/sdk';
@@ -29,7 +36,33 @@ import { BORDER_PATH, LAND_PATH } from '../basemap';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
-import { D2R, drawnHeight, enu, raySphere, toVec } from './geo';
+import { D2R, EARTH_KM, drawnHeight, enu, raySphere, toVec } from './geo';
+import { circle, greatCircle, subsolarPoint, type LatLon } from '../geoMath';
+
+/** An area drawn on the globe: a SIGMET volume, or a fill draped on the ground. */
+export interface GlobeArea {
+  id: string;
+  /** `volume`: extruded from baseM to topM; `drape`: on the ground. */
+  mode: 'volume' | 'drape';
+  /** Outline, [lat, lon] pairs. */
+  ring: [number, number][];
+  /** CSS colour (token or literal). */
+  colour: string;
+  /** Fill opacity (0–1). */
+  fill: number;
+  baseM?: number;
+  topM?: number;
+}
+
+/** Camera presets for the controls and the wall display's tour. [FR-P3-7] */
+export const PRESETS: Record<'uk' | 'london' | 'scotland' | 'baltic' | 'globe', CameraState> = {
+  uk: UK_VIEW,
+  london: { lat: 51.48, lon: -0.15, dist: 140 / EARTH_KM, heading: 0, tilt: 50 },
+  scotland: { lat: 57.2, lon: -4.6, dist: 750 / EARTH_KM, heading: 0, tilt: 42 },
+  baltic: BALTIC_VIEW,
+  globe: { lat: 42, lon: -8, dist: 3.1, heading: 0, tilt: 0 },
+};
+export type PresetId = keyof typeof PRESETS;
 
 export interface GlobeItem {
   id: string;
@@ -59,11 +92,25 @@ export interface GlobeCallbacks {
   onFrame: () => void;
   /** Follow-selected was switched off by the user panning. */
   onFollowEnd: () => void;
+  /** A tap on the ground while surface picking is on (the MEASURE tool). */
+  onSurface?: (at: LatLon) => void;
+  /** Any direct input on the canvas (pauses the wall display's tour). */
+  onInteract?: () => void;
 }
 
 /** Marker sizes in CSS pixels. */
-const PX: Record<TrackShape, number> = { aircraft: 17, vessel: 13, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
-const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point'];
+const PX: Record<TrackShape, number> = {
+  aircraft: 17, vessel: 13, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6,
+  sigmet: 9, warning: 9, windfarm: 15, platform: 7, road: 8, airspace: 4, fire: 6,
+};
+const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire'];
+/** Flat marks laid on the ground (unlit, translucent). */
+const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire']);
+/** Marks placed on the terrain surface rather than at an altitude. */
+const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
+/** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
+const DRAPE_W = 2048;
+const DRAPE_H = 1792;
 const GLOBE_COLOUR = '#1a2636';
 /** A screen tap: moved less than this (px) within this long (ms). */
 const TAP_PX = { mouse: 5, touch: 12 };
@@ -136,6 +183,58 @@ function vesselGeometry(): THREE.BufferGeometry {
   const merged = mergeGeometries([hull.toNonIndexed(), bridge.toNonIndexed()], false)!;
   merged.computeVertexNormals();
   return merged;
+}
+
+/** A wind turbine seen from above: three blades about a hub, flat in the xy plane. */
+function turbineGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < 3; k++) {
+    const blade = new THREE.Shape();
+    blade.moveTo(-0.09, 0.12);
+    blade.lineTo(0.0, 1.0);
+    blade.lineTo(0.12, 0.12);
+    blade.closePath();
+    const g = new THREE.ShapeGeometry(blade);
+    g.rotateZ((k * 2 * Math.PI) / 3);
+    parts.push(g.toNonIndexed());
+  }
+  parts.push(new THREE.CircleGeometry(0.2, 12).toNonIndexed());
+  return mergeGeometries(parts, false)!;
+}
+
+/** A ring without its repeated closing point, with long edges split (≤ `stepDeg`) so
+ *  it follows the curve of the earth. */
+function densify(ring: [number, number][], stepDeg: number): [number, number][] {
+  const r = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.slice(0, -1) : ring;
+  const out: [number, number][] = [];
+  for (let i = 0; i < r.length; i++) {
+    const a = r[i], b = r[(i + 1) % r.length];
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])) / stepDeg));
+    for (let k = 0; k < n; k++) out.push([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]);
+  }
+  return out;
+}
+
+/** Day and night: darken the night side of a material from the subsolar direction, with
+ *  a smooth twilight and a faint warm terminator. Works on basic and Lambert materials. */
+function shadeNight(mat: THREE.Material, sun: { value: THREE.Vector3 }, on: { value: number }): void {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uSun = sun;
+    sh.uniforms.uNight = on;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vEarthN;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvEarthN = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uSun;\nuniform float uNight;\nvarying vec3 vEarthN;')
+      .replace('#include <dithering_fragment>', [
+        '#include <dithering_fragment>',
+        'float sunDot = dot(normalize(vEarthN), uSun);',
+        'float day = smoothstep(-0.12, 0.05, sunDot);',
+        'gl_FragColor.rgb *= mix(1.0, mix(0.38, 1.0, day), uNight);',
+        'gl_FragColor.rgb += uNight * vec3(0.09, 0.05, 0.015) * (1.0 - smoothstep(0.0, 0.07, abs(sunDot + 0.02)));',
+      ].join('\n'));
+  };
+  mat.needsUpdate = true;
 }
 
 /** Line strips (lon, lat) → LineSegments positions on a sphere of radius `r`. */
@@ -296,6 +395,26 @@ export class GlobeView {
   private hoverPending: { x: number; y: number } | null = null;
   private hoverFrame = 0;
   private readonly listeners: [EventTarget, string, EventListener, AddEventListenerOptions?][] = [];
+  // overlays [FR-H-1] [FR-P3-3]
+  private areas: GlobeArea[] = [];
+  /** SIGMET volumes (walls and caps). */
+  private readonly areaFill: THREE.Mesh;
+  /** Every area outline, coloured per area. */
+  private readonly areaLines: THREE.LineSegments;
+  /** The UK terrain box at ground height (all cells), for draped textures. */
+  private readonly drapeGeometry = new THREE.BufferGeometry();
+  private readonly areaDrape: THREE.Mesh;
+  private readonly drapeCanvas: HTMLCanvasElement;
+  private readonly drapeTexture: THREE.CanvasTexture;
+  private readonly radarMesh: THREE.Mesh;
+  private radarTexture: THREE.Texture | null = null;
+  private readonly sun = { value: new THREE.Vector3(1, 0, 0) };
+  private readonly night = { value: 1 };
+  private readonly measureLine: THREE.LineSegments;
+  private measurePts: LatLon[] = [];
+  private rings: { centre: LatLon; nms: number[] } | null = null;
+  private markerScale = 1;
+  private pickSurface = false;
 
   constructor(private readonly host: HTMLElement, private readonly cb: GlobeCallbacks) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -346,6 +465,24 @@ export class GlobeView {
     );
     this.runwayStrips.renderOrder = 1;
     this.scene.add(this.runwayStrips);
+
+    // Draped overlays over the terrain box: area fills (painted into a canvas) and radar.
+    this.drapeCanvas = document.createElement('canvas');
+    this.drapeCanvas.width = DRAPE_W;
+    this.drapeCanvas.height = DRAPE_H;
+    this.drapeTexture = new THREE.CanvasTexture(this.drapeCanvas);
+    this.drapeTexture.colorSpace = THREE.SRGBColorSpace;
+    const drapeMat = (map: THREE.Texture | null, units: number) => new THREE.MeshBasicMaterial({
+      map, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: units,
+    });
+    this.areaDrape = new THREE.Mesh(this.drapeGeometry, drapeMat(this.drapeTexture, -3));
+    this.areaDrape.renderOrder = 1;
+    this.areaDrape.visible = false;
+    this.radarMesh = new THREE.Mesh(this.drapeGeometry, drapeMat(null, -2));
+    (this.radarMesh.material as THREE.MeshBasicMaterial).opacity = 0.75;
+    this.radarMesh.renderOrder = 1;
+    this.radarMesh.visible = false;
+    this.scene.add(this.radarMesh, this.areaDrape);
     this.buildTerrain();
     const atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(1.045, 96, 64),
@@ -378,17 +515,25 @@ export class GlobeView {
     this.geometries.set('flood', new THREE.CircleGeometry(1, 28));
     this.geometries.set('airport', new THREE.RingGeometry(0.55, 1, 4, 1, Math.PI / 4));
     this.geometries.set('point', new THREE.SphereGeometry(0.5, 8, 6));
+    this.geometries.set('sigmet', new THREE.OctahedronGeometry(0.5));
+    this.geometries.set('warning', new THREE.CircleGeometry(1, 3));
+    this.geometries.set('windfarm', turbineGeometry());
+    this.geometries.set('platform', new THREE.BoxGeometry(0.7, 0.7, 0.9).translate(0, 0, 0.45));
+    this.geometries.set('road', new THREE.CircleGeometry(1, 4));
+    this.geometries.set('airspace', new THREE.RingGeometry(0.6, 1, 16));
+    this.geometries.set('fire', new THREE.CircleGeometry(1, 16));
     for (const s of SHAPES) {
-      const flat = s === 'quake' || s === 'flood' || s === 'airport';
+      const flat = FLAT.has(s);
       // Solid markers are lit so they shade as 3D objects; flat surface markers are not.
       const Mat = flat ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
       this.materials.set(s, new Mat({
         color: 0xffffff,
         transparent: flat,
-        opacity: s === 'flood' ? 0.6 : s === 'quake' ? 0.9 : 1,
+        opacity: s === 'flood' ? 0.6 : s === 'airspace' ? 0.5 : s === 'quake' || s === 'warning' || s === 'road' || s === 'fire' ? 0.9 : 1,
         side: flat ? THREE.DoubleSide : THREE.FrontSide,
         depthWrite: !flat,
       }));
+      this.materials.get(s)!.userData.base = this.materials.get(s)!.opacity;
     }
 
     const vcLines = () => {
@@ -416,6 +561,19 @@ export class GlobeView {
     this.marker.renderOrder = 10;
     this.marker.visible = false;
     this.scene.add(this.trailRibbons, this.hoverCurtain, this.hoverLine, this.pathCurtain, this.drops, this.trailLines, this.pathLine, this.marker);
+
+    // SIGMET volumes, area outlines, the measured line and range rings.
+    this.areaFill = curtain(1);
+    this.areaFill.renderOrder = 3;
+    this.areaLines = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false }));
+    this.measureLine = new THREE.LineSegments(vcLines(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false }));
+    this.measureLine.renderOrder = 9;
+    this.scene.add(this.areaFill, this.areaLines, this.measureLine);
+
+    // Night side shading on the globe and the terrain.
+    shadeNight(this.globeMaterial, this.sun, this.night);
+    shadeNight(this.terrain.material as THREE.Material, this.sun, this.night);
+    this.setSunTime(Date.now());
 
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
@@ -487,8 +645,8 @@ export class GlobeView {
   setPathsFirst(on: boolean): void {
     for (const s of SHAPES) {
       const m = this.materials.get(s)!;
-      const base = s === 'flood' ? 0.6 : s === 'quake' ? 0.9 : 1;
-      m.transparent = on || s === 'quake' || s === 'flood' || s === 'airport';
+      const base = (m.userData.base as number | undefined) ?? 1;
+      m.transparent = on || FLAT.has(s);
       m.opacity = on ? base * 0.35 : base;
       m.needsUpdate = true;
     }
@@ -531,7 +689,183 @@ export class GlobeView {
     this.place();
     this.buildTrails();
     this.buildPath();
+    this.buildAreas();
+    this.buildMeasure();
     this.requestRender();
+  }
+
+  // ---- overlays [FR-H-1] [FR-P3-3] ------------------------------------------------
+
+  /** Areas: SIGMET volumes, and fills draped on the ground. */
+  setAreas(areas: GlobeArea[]): void {
+    this.areas = areas;
+    this.buildAreas();
+    this.requestRender();
+  }
+
+  /** The radar image over the terrain box (RADAR_BOX), or null to hide it. */
+  setRadar(canvas: HTMLCanvasElement | null): void {
+    this.radarTexture?.dispose();
+    this.radarTexture = null;
+    const m = this.radarMesh.material as THREE.MeshBasicMaterial;
+    if (canvas) {
+      this.radarTexture = new THREE.CanvasTexture(canvas);
+      this.radarTexture.colorSpace = THREE.SRGBColorSpace;
+    }
+    m.map = this.radarTexture;
+    m.needsUpdate = true;
+    this.radarMesh.visible = !!canvas;
+    this.requestRender();
+  }
+
+  /** Shade the night side for this moment (unix ms): live time, or the replay time. */
+  setSunTime(ms: number): void {
+    const s = subsolarPoint(ms);
+    toVec(s.lat, s.lon, 1, this.sun.value).normalize();
+    this.requestRender();
+  }
+
+  setNightShading(on: boolean): void {
+    this.night.value = on ? 1 : 0;
+    this.requestRender();
+  }
+
+  /** The MEASURE tool's points (0, 1 or 2) and the range rings round a point. */
+  setMeasure(points: LatLon[], rings: { centre: LatLon; nms: number[] } | null): void {
+    this.measurePts = points;
+    this.rings = rings;
+    this.buildMeasure();
+    this.requestRender();
+  }
+
+  /** While on, a tap reports the ground point (onSurface) instead of selecting. */
+  setPickSurface(on: boolean): void {
+    this.pickSurface = on;
+  }
+
+  /** Markers drawn larger (the wall display). */
+  setMarkerScale(k: number): void {
+    this.markerScale = k;
+    this.requestRender();
+  }
+
+  flyToPreset(id: PresetId, ms = 2200): void {
+    this.endFollow();
+    this.cam.flyTo({ ...PRESETS[id] }, ms);
+    this.requestRender();
+  }
+
+  /** Fly to a point (an alert with no track in the picture). */
+  flyToPoint(lat: number, lon: number): void {
+    this.endFollow();
+    this.cam.flyTo({ lat, lon, dist: Math.min(this.cam.state.dist, 0.12) }, 1200);
+    this.requestRender();
+  }
+
+  /** CSS-pixel position of a ground point, or null when hidden. */
+  screenOfPoint(lat: number, lon: number): { x: number; y: number } | null {
+    const p = toVec(lat, lon, 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0008);
+    if (this.occluded(p)) return null;
+    const v = p.project(this.camera);
+    if (v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1) return null;
+    return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
+  }
+
+  private buildAreas(): void {
+    const fillPos: number[] = [], fillCol: number[] = [];
+    const linePos: number[] = [], lineCol: number[] = [];
+    const ctx = this.drapeCanvas.getContext('2d')!;
+    ctx.clearRect(0, 0, DRAPE_W, DRAPE_H);
+    let draped = 0;
+    const { west, east, south, north } = TERRAIN;
+    const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0007;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), a2 = new THREE.Vector3(), b2 = new THREE.Vector3();
+    const line = (p: THREE.Vector3, q: THREE.Vector3, c: THREE.Color, k = 1) => {
+      linePos.push(p.x, p.y, p.z, q.x, q.y, q.z);
+      lineCol.push(c.r * k, c.g * k, c.b * k, c.r * k, c.g * k, c.b * k);
+    };
+    for (const ar of this.areas) {
+      const c = this.colour(ar.colour);
+      const ring = densify(ar.ring, ar.mode === 'volume' ? 0.25 : 0.05);
+      if (ring.length < 3) continue;
+      if (ar.mode === 'volume') {
+        const rb = 1 + drawnHeight(ar.baseM ?? 0, this.exaggeration) + 0.0004;
+        const rt = 1 + drawnHeight(ar.topM ?? ar.baseM ?? 3000, this.exaggeration) + 0.0004;
+        const tri = (p: THREE.Vector3, q: THREE.Vector3, r: THREE.Vector3, al: number) => {
+          fillPos.push(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z);
+          for (let k = 0; k < 3; k++) fillCol.push(c.r, c.g, c.b, al);
+        };
+        // walls, with the outline at the top, the base, and down each corner
+        for (let i = 0; i < ring.length; i++) {
+          const p = ring[i], q = ring[(i + 1) % ring.length];
+          toVec(p[0], p[1], rb, a); toVec(q[0], q[1], rb, b); toVec(p[0], p[1], rt, a2); toVec(q[0], q[1], rt, b2);
+          tri(a, b, b2, ar.fill); tri(a, b2, a2, ar.fill);
+          line(a2, b2, c);
+          line(a, b, c, 0.6);
+        }
+        for (const v of ar.ring) { toVec(v[0], v[1], rb, a); toVec(v[0], v[1], rt, a2); line(a, a2, c, 0.5); }
+        // caps
+        const contour = ring.map(([la, lo]) => new THREE.Vector2(lo, la));
+        const faces = THREE.ShapeUtils.triangulateShape(contour, []);
+        for (const r of [rt, rb]) {
+          const al = r === rt ? ar.fill * 1.2 : ar.fill * 0.5;
+          for (const [i, j, k] of faces) {
+            tri(toVec(ring[i][0], ring[i][1], r, new THREE.Vector3()), toVec(ring[j][0], ring[j][1], r, new THREE.Vector3()), toVec(ring[k][0], ring[k][1], r, new THREE.Vector3()), al);
+          }
+        }
+      } else {
+        for (let i = 0; i < ring.length; i++) {
+          const p = ring[i], q = ring[(i + 1) % ring.length];
+          line(toVec(p[0], p[1], drape(p[0], p[1]), a), toVec(q[0], q[1], drape(q[0], q[1]), b), c);
+        }
+        // the fill, painted into the draped texture where it falls in the terrain box
+        if (ar.fill > 0 && ar.ring.every(([la, lo]) => la >= south && la <= north && lo >= west && lo <= east)) {
+          ctx.beginPath();
+          ar.ring.forEach(([la, lo], i) => {
+            const x = ((lo - west) / (east - west)) * DRAPE_W, y = ((north - la) / (north - south)) * DRAPE_H;
+            if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+          });
+          ctx.closePath();
+          ctx.fillStyle = `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${ar.fill})`;
+          ctx.fill();
+          draped++;
+        }
+      }
+    }
+    this.drapeTexture.needsUpdate = true;
+    this.areaDrape.visible = draped > 0;
+    const g = this.areaFill.geometry;
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(fillPos), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(fillCol), 4));
+    g.computeBoundingSphere();
+    this.areaFill.visible = fillPos.length > 0;
+    this.setLines(this.areaLines, linePos, lineCol);
+  }
+
+  private buildMeasure(): void {
+    const pos: number[] = [], col: number[] = [];
+    const drape = (p: LatLon) => 1 + drawnHeight(Math.max(0, terrainAt(p.lat, p.lon)), this.exaggeration) + 0.0009;
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
+    const strip = (pts: LatLon[], c: THREE.Color) => {
+      for (let i = 0; i + 1 < pts.length; i++) {
+        toVec(pts[i].lat, pts[i].lon, drape(pts[i]), a);
+        toVec(pts[i + 1].lat, pts[i + 1].lon, drape(pts[i + 1]), b);
+        pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      }
+    };
+    const white = this.colour('var(--grey-100)');
+    if (this.measurePts.length === 2) strip(greatCircle(this.measurePts[0], this.measurePts[1], 96), white);
+    // a small cross at each measured point
+    for (const p of this.measurePts) {
+      for (const brg of [0, 90]) strip([circle(p, 1.2, 4)[brg === 0 ? 0 : 1], circle(p, 1.2, 4)[brg === 0 ? 2 : 3]], white);
+    }
+    if (this.rings) {
+      const c = this.colour('var(--accent-hover)');
+      for (const nm of this.rings.nms) strip(circle(this.rings.centre, nm, 120), c);
+    }
+    this.setLines(this.measureLine, pos, col);
+    this.measureLine.visible = pos.length > 0;
   }
 
   setFollow(on: boolean): void {
@@ -563,7 +897,7 @@ export class GlobeView {
     const east = new THREE.Vector3(), north = new THREE.Vector3();
     for (const it of this.items) {
       // Surface markers sit on the terrain, not under it.
-      const surface = it.shape === 'quake' || it.shape === 'flood' || it.shape === 'airport';
+      const surface = SURFACE.has(it.shape);
       const r = 1 + (surface ? drawnHeight(Math.max(0, terrainAt(it.lat, it.lon)), this.exaggeration) + 0.0009 : drawnHeight(it.altM, this.exaggeration) + 0.0004);
       const pos = toVec(it.lat, it.lon, r);
       const up = new THREE.Vector3();
@@ -608,7 +942,7 @@ export class GlobeView {
     mesh.setColorAt(0, new THREE.Color(1, 1, 1));
     mesh.frustumCulled = false;
     mesh.count = 0;
-    if (shape === 'quake' || shape === 'flood' || shape === 'airport') mesh.renderOrder = 1;
+    if (FLAT.has(shape)) mesh.renderOrder = 1;
     this.meshes.set(shape, mesh);
     this.scene.add(mesh);
   }
@@ -712,6 +1046,27 @@ export class GlobeView {
     g.setIndex(index);
     g.computeVertexNormals();
     g.computeBoundingSphere();
+    // The draped overlays' surface: every cell of the box, a little above the ground.
+    const dpos = new Float32Array(nx * ny * 3);
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const h = terrainGrid[j * nx + i];
+        toVec(north - j * step, west + i * step, ground(h) + 0.00012, v);
+        const k = (j * nx + i) * 3;
+        dpos[k] = v.x; dpos[k + 1] = v.y; dpos[k + 2] = v.z;
+      }
+    }
+    const full: number[] = [];
+    for (let j = 0; j + 1 < ny; j++) {
+      for (let i = 0; i + 1 < nx; i++) {
+        const a = j * nx + i, b = a + 1, d = a + nx, e = d + 1;
+        full.push(a, d, b, b, d, e);
+      }
+    }
+    this.drapeGeometry.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
+    this.drapeGeometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    this.drapeGeometry.setIndex(full);
+    this.drapeGeometry.computeBoundingSphere();
     const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0006;
     this.draped.forEach((line, n) => {
       line.geometry.setAttribute('position', new THREE.BufferAttribute(stripsToSegments(this.drapedStrips[n], drape), 3));
@@ -848,12 +1203,14 @@ export class GlobeView {
       const d = camPos.distanceTo(p.pos);
       let px = PX[s];
       if (s === 'satellite' && p.item.station) px = 14;
+      // Fire hotspots grow with their radiative power, capped.
+      if (s === 'fire') px = 4 + Math.min(8, Math.sqrt(Math.max(0, p.item.magnitude ?? 1)) * 1.2);
       if (s === 'quake') {
         quakes = true;
         const pulse = 1 + 0.22 * Math.sin(nowMs / 420 + p.shapeIndex);
         px = (4 + 2.2 * Math.max(0, p.item.magnitude ?? 3)) * pulse;
       }
-      const k = px * this.perPx(d);
+      const k = px * this.markerScale * this.perPx(d);
       if (s === 'aircraft' || s === 'vessel') scale.set(k, k, k);
       else scale.set(k, k, k);
       m.makeBasis(p.a, p.b, p.up);
@@ -934,6 +1291,7 @@ export class GlobeView {
     this.requestRender();
   }
   baltic(): void {
+    this.cb.onInteract?.();
     this.endFollow();
     this.cam.flyTo({ ...BALTIC_VIEW }, 1400);
     this.requestRender();
@@ -1009,6 +1367,7 @@ export class GlobeView {
   }
 
   private down(e: PointerEvent): void {
+    this.cb.onInteract?.();
     const el = this.renderer.domElement;
     el.focus({ preventScroll: true });
     try { el.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
@@ -1130,8 +1489,14 @@ export class GlobeView {
         this.flyInAt(p.x, p.y);
       } else {
         this.lastTap = { t: now, x: p.x, y: p.y };
-        const id = this.pick(p.x, p.y, touch ? 28 : 10);
-        if (id) this.cb.onSelect(id);
+        if (this.pickSurface) {
+          const [nx, ny] = this.ndc(p.x, p.y);
+          const at = this.cam.surfaceAt(nx, ny);
+          if (at) this.cb.onSurface?.(at);
+        } else {
+          const id = this.pick(p.x, p.y, touch ? 28 : 10);
+          if (id) this.cb.onSelect(id);
+        }
       }
     } else if (this.mode === 'pan' && this.pointers.size === 0 && this.samples.length >= 2) {
       const a = this.samples[0], b = this.samples[this.samples.length - 1];
@@ -1162,6 +1527,7 @@ export class GlobeView {
 
   private wheel(e: WheelEvent): void {
     e.preventDefault();
+    this.cb.onInteract?.();
     this.cam.stop();
     const [x, y] = this.local(e);
     const [nx, ny] = this.ndc(x, y);
@@ -1204,6 +1570,9 @@ export class GlobeView {
     cancelAnimationFrame(this.hoverFrame);
     window.clearTimeout(this.pulseTimer);
     this.ro.disconnect();
+    this.drapeTexture.dispose();
+    this.radarTexture?.dispose();
+    this.drapeGeometry.dispose();
     for (const [t, type, fn, opts] of this.listeners) t.removeEventListener(type, fn, opts);
     this.scene.traverse((o) => {
       const any = o as THREE.Mesh;

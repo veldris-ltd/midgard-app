@@ -14,10 +14,17 @@ import {
 } from '@midgard/design-system';
 import { useAsync, useGateway } from '@midgard/ui-shared';
 import { HumanGateRequiredError, UK_AND_IRELAND } from '@midgard/sdk';
-import type { HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
+import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
-import { BANDS, KIND_LEGEND, bandOf, colourOf, shapeOf } from '../app/trackStyle';
+import { AREA_LEGEND, BANDS, KIND_LEGEND, areaColour, bandOf, colourOf, isFixedKind, shapeOf } from '../app/trackStyle';
+import { useStatus } from '../app/status';
+import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
+import { radarLabel, useRadar, RADAR_BOX } from '../app/radar';
+import { useWatchlist, type Watchlist } from '../app/watchlist';
+import { AreaLayer, ToolLayer } from '../app/MapOverlays2D';
+import type { LatLon } from '../app/geoMath';
+import type { GlobeArea, PresetId } from '../app/globe/GlobeView';
 import { useFlights, type Flight, type KnownAirport } from '../app/flights';
 import { keyOf, replayTracks, stepFor, trailOf } from '../app/history';
 import { useEntityPath, useHistory } from '../app/useHistory';
@@ -53,7 +60,7 @@ const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9,
 /** The map imagery choice the 3D view stores (satellite unless set to dark). */
 const imageryOn = () => { try { return window.localStorage.getItem('heimdall.globe.imagery') !== 'dark'; } catch { return true; } };
 
-function Basemap({ region }: { region: HeimdallRegion }) {
+function Basemap({ region, radarUrl }: { region: HeimdallRegion; radarUrl?: string }) {
   const { west, east, south, north } = region;
   const lons: number[] = [];
   const lats: number[] = [];
@@ -71,6 +78,10 @@ function Basemap({ region }: { region: HeimdallRegion }) {
           view's MAP chip is set to DARK. [FR-P3-3] */}
       {imageryOn() && (
         <image href={`${import.meta.env.BASE_URL}imagery/uk-ie-2560.jpg`} x={-12} y={-62} width={16} height={14} preserveAspectRatio="none" opacity={0.9} />
+      )}
+      {/* RainViewer radar, reprojected to this map's lat/lon box, under the tracks. [FR-H-1] */}
+      {radarUrl && (
+        <image href={radarUrl} x={RADAR_BOX.west} y={-RADAR_BOX.north} width={RADAR_BOX.east - RADAR_BOX.west} height={RADAR_BOX.north - RADAR_BOX.south} preserveAspectRatio="none" opacity={0.8} />
       )}
       <path d={LAND_PATH} fill="var(--text-faint)" fillOpacity={0.07} stroke="var(--text-faint)" strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       <path d={BORDER_PATH} fill="none" stroke="var(--text-faint)" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
@@ -227,13 +238,14 @@ function FlightsCard({ flights, since, pick, setPick }: { flights: Flight[] | nu
   );
 }
 
-function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string; path: HeimdallHistoryPoint[] | null; flights?: { flights: Flight[] | null; since: number | null; pick: number | null; setPick: (i: number | null) => void } }) {
+function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights, watch, rings, setRings }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string; path: HeimdallHistoryPoint[] | null; flights?: { flights: Flight[] | null; since: number | null; pick: number | null; setPick: (i: number | null) => void }; watch: Watchlist; rings: boolean; setRings: (on: boolean) => void }) {
   const d = t.detail!;
   const colour = colourOf(t);
   const aircraft = d.kind === 'air-track';
   const event = d.kind.startsWith('event-');
-  // Fixed things (airports, events) have no speed, track, trail or flight history.
-  const fixed = event || d.kind === 'land-airport';
+  // Fixed things (airports, events, areas, platforms) have no speed, track, trail or flight history.
+  const fixed = isFixedKind(d.kind);
+  const watched = watch.has(d.key);
   const sq = aircraft && d.squawk ? SQUAWKS[d.squawk] : undefined;
   const title = aircraft ? d.callsign || d.key : d.name || t.id;
   return (
@@ -242,8 +254,15 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights }: { t:
         <Icon name="crosshair" size={17} color={colour} />
         <h2 style={{ fontSize: 'var(--fs-h4)', minWidth: 0 }}>{title}</h2>
         <Badge tone={t.track === 'anomalous' ? 'warn' : 'neutral'}>{t.cls}</Badge>
-        <button onClick={onClose} style={{ all: 'unset', marginLeft: 'auto', cursor: 'pointer', ...mono, color: 'var(--text-faint)', padding: '6px 0' }}>← SUMMARY</button>
+        {/* Watch this track: listed at the top of the summary, toasts as it comes and goes. [FR-H-1] */}
+        <button type="button" onClick={() => watch.toggle(d.key, title)} aria-pressed={watched} aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'} title={watched ? 'Watching: click to stop' : 'Watch this track'}
+          style={{ all: 'unset', cursor: 'pointer', marginLeft: 'auto', fontSize: 17, lineHeight: 1, padding: '6px 4px', color: watched ? 'var(--accent-hover)' : 'var(--text-faint)' }}>{watched ? '★' : '☆'}</button>
+        <button onClick={onClose} style={{ all: 'unset', cursor: 'pointer', ...mono, color: 'var(--text-faint)', padding: '6px 0' }}>← SUMMARY</button>
       </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, ...mono, color: 'var(--text-muted)', cursor: 'pointer' }}>
+        <input type="checkbox" checked={rings} onChange={(ev) => setRings(ev.target.checked)} style={{ accentColor: 'var(--accent)', width: 15, height: 15, margin: 0 }} />
+        RANGE RINGS 10 · 25 · 50 NM
+      </label>
       {replayAt !== null && (
         <div style={{ padding: '7px 12px', border: '1px solid var(--warn)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--warn)' }}>
           REPLAY · RECORDED POSITION AT {utc(replayAt)} UTC
@@ -279,6 +298,14 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights }: { t:
         <Row k="SOURCES" v={d.sources.length ? d.sources.join(', ') + ' · ML-DSA signed' : '—'} />
         {!fixed && <Row k="TRAIL" v={trailNote} />}
       </Card>
+      {d.taf && (
+        <Card size="sm">
+          {/* The airport's forecast, and the worst it says for the next 12 hours. [FR-H-1] */}
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>TAF</div>
+          {d.tafWorst && <Row k="NEXT 12 H" v={`worst: ${d.tafWorst}`} tone={d.tafWorst === 'IFR' || d.tafWorst === 'LIFR' ? 'var(--danger)' : d.tafWorst === 'MVFR' ? 'var(--info)' : undefined} />}
+          <div style={{ ...mono, fontSize: 10, letterSpacing: '0.04em', color: 'var(--text-body)', lineHeight: 1.6, overflowWrap: 'anywhere', marginTop: 4 }}>{d.taf}</div>
+        </Card>
+      )}
       {flights && <FlightsCard {...flights} />}
       {!fixed && path && path.length > 1 && <FlightHistory points={path} replayAt={replayAt} />}
       <Card size="sm">
@@ -329,7 +356,33 @@ function FindTrack({ tracks, select }: { tracks: HeimdallTrack[]; select: (id: s
   );
 }
 
-function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt }: {
+/** Watched tracks with their live state, at the top of the summary. [FR-H-1] */
+function WatchlistCard({ watch, present, select }: { watch: Watchlist; present: Map<string, HeimdallTrack>; select: (id: string) => void }) {
+  if (!watch.entries.length) return null;
+  return (
+    <div>
+      <SectionLabel>WATCHLIST</SectionLabel>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+        {watch.entries.map((w) => {
+          const t = present.get(w.key);
+          return (
+            <div key={w.key} style={{ display: 'flex', alignItems: 'center', gap: 8, ...mono, fontSize: 10 }}>
+              <button type="button" disabled={!t} onClick={() => t && select(t.id)} style={{ all: 'unset', cursor: t ? 'pointer' : 'default', display: 'flex', gap: 8, flex: 1, minWidth: 0, padding: '4px 0' }}>
+                <span style={{ color: t ? 'var(--secure)' : 'var(--text-faint)' }}>{t ? '●' : '○'}</span>
+                <span style={{ color: t ? 'var(--text-heading)' : 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t?.id ?? w.label}</span>
+                <span style={{ color: 'var(--text-faint)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{t ? `IN PICTURE · ${t.alt}` : w.lastSeen ? `LAST SEEN ${agoText(w.lastSeen).toUpperCase()}` : 'NOT SEEN'}</span>
+              </button>
+              <button type="button" aria-label={`Stop watching ${w.label}`} onClick={() => watch.toggle(w.key, w.label)} style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-faint)', padding: '4px 2px' }}>✕</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt, watchCard }: {
+  watchCard?: React.ReactNode;
   picture: HeimdallPicture;
   tracks: HeimdallTrack[];
   filter: string | null;
@@ -364,6 +417,7 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt
         <h2 style={{ fontSize: 'var(--fs-h4)' }}>{replayAt === null ? 'Live picture' : 'Replayed picture'}</h2>
         {replayAt === null ? <Badge tone="secure">LIVE</Badge> : <Badge tone="warn">REPLAY</Badge>}
       </div>
+      {watchCard}
       <div style={{ padding: '8px 10px', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--text-muted)', lineHeight: 1.6 }}>
         FLIGHT HISTORY: POINT AT ANY AIRCRAFT TO SEE ITS RECORDED PATH; CLICK IT (OR FIND IT BELOW) FOR ITS FLIGHTS. TRAIL 30M OR ALL SHOWS EVERY PATH.
       </div>
@@ -460,8 +514,38 @@ function readView(): '2d' | '3d' {
 
 const inBox = (t: HeimdallTrack) => t.x >= 0 && t.x <= 100 && t.y >= 0 && t.y <= 100;
 
+/** The wall display's tour, one stop every 45 s. [FR-P3-7] */
+const TOUR: PresetId[] = ['uk', 'london', 'scotland', 'baltic', 'globe'];
+const TOUR_MS = 45_000;
+/** After any interaction the tour waits this long before carrying on. */
+const TOUR_PAUSE_MS = 120_000;
+const RING_NMS = [10, 25, 50];
+
+/** A small chip on the canvas (RADAR, MEASURE), matching the 3D view's MAP chip. */
+function Chip({ on, onClick, children, label, tone }: { on: boolean; onClick: () => void; children: React.ReactNode; label?: string; tone?: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={on} aria-label={label}
+      style={{ all: 'unset', cursor: 'pointer', minHeight: 32, padding: '0 10px', display: 'inline-flex', alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: tone ?? (on ? 'var(--accent-hover)' : 'var(--text-muted)'), background: on ? 'var(--surface-raised)' : 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: `1px solid ${on ? 'var(--accent)' : 'var(--divider)'}`, borderRadius: 'var(--radius-sm)', whiteSpace: 'nowrap' }}>
+      {children}
+    </button>
+  );
+}
+
 export function OperatingPictureScreen() {
   const gateway = useGateway<HeimdallGateway>();
+  const status = useStatus();
+  const wall = status.wall;
+  const watch = useWatchlist();
+  // Canvas tools, all off until asked for. [FR-H-1]
+  const [radarOn, setRadarOn] = React.useState(false);
+  const radar = useRadar(radarOn);
+  const [measuring, setMeasuring] = React.useState(false);
+  const [measurePts, setMeasurePts] = React.useState<LatLon[]>([]);
+  const [ringsOn, setRingsOn] = React.useState(false);
+  const [flyRequest, setFlyRequest] = React.useState<{ n: number; id?: string; lat?: number; lon?: number; preset?: PresetId } | null>(null);
+  const [alertPin, setAlertPin] = React.useState<LatLon | null>(null);
+  const [tourOn, setTourOn] = React.useState(false);
+  const pausedUntil = React.useRef(0);
   const { data: picture, reload } = useAsync<HeimdallPicture, HeimdallGateway>((c) => c.getPicture(), []);
   // Redraw every 2 s; the live client fetches from the gateway at most every 15 s and
   // moves tracks along their heading in between. [FR-H-1]
@@ -537,7 +621,8 @@ export function OperatingPictureScreen() {
   // Seed the toggle state once the picture's layers resolve.
   React.useEffect(() => {
     if (layerDefs.length && !layers) {
-      setLayers(layerDefs.reduce((acc, l) => ({ ...acc, [l.id]: l.active }), {} as LayerState));
+      // Airspace (about 1,300 volumes) starts off, whatever the feed says. [FR-H-1]
+      setLayers(layerDefs.reduce((acc, l) => ({ ...acc, [l.id]: l.id === 'airspace' ? false : l.active }), {} as LayerState));
     }
   }, [layerDefs, layers]);
 
@@ -596,6 +681,108 @@ export function OperatingPictureScreen() {
     return `${t.geoTrail?.length ?? t.trail?.length ?? 0} reported positions since this page opened (history unavailable)`;
   };
 
+  // ---- watchlist: live state, and a toast as a watched track comes or goes. [FR-H-1]
+  const byKey = React.useMemo(() => {
+    const m = new Map<string, HeimdallTrack>();
+    for (const t of geoLive) m.set(keyOf(t), t);
+    return m;
+  }, [geoLive]);
+  const watchKeys = watch.entries.map((w) => w.key).join('|');
+  const prevPresent = React.useRef<Set<string> | null>(null);
+  React.useEffect(() => {
+    if (!picture) return;
+    const present = new Map<string, string>();
+    for (const w of watch.entries) { const t = byKey.get(w.key); if (t) present.set(w.key, t.id); }
+    const now = Math.floor(Date.now() / 1000);
+    const prev = prevPresent.current;
+    if (prev) {
+      for (const w of watch.entries) {
+        const was = prev.has(w.key), is = present.has(w.key);
+        if (!was && is) status.toast(`WATCHLIST · ${present.get(w.key)} IN THE PICTURE`, 'info');
+        if (was && !is) status.toast(`WATCHLIST · ${w.label} LEFT THE PICTURE`, 'warn');
+      }
+    }
+    prevPresent.current = new Set(present.keys());
+    watch.seen(present, now);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byKey, watchKeys]);
+
+  // ---- areas (SIGMETs, warnings, wind farms, roads, airspace) for both views. [FR-H-1] [FR-P3-3]
+  const areaTracks = React.useMemo(() => visible.filter((t) => t.detail?.area && t.detail.area.length >= 3), [visible]);
+  const globeAreas = React.useMemo<GlobeArea[]>(() => (view !== '3d' ? [] : areaTracks.map((t) => {
+    const d = t.detail!;
+    const ft = (v: number | undefined) => (v === undefined ? undefined : v / 3.28084);
+    if (d.kind === 'event-sigmet' || d.kind === 'airspace-volume') {
+      const air = d.kind === 'airspace-volume';
+      const base = Math.max(0, d.baseFt ?? 0);
+      // A SIGMET without a top is drawn 10,000 ft deep; airspace is capped at FL660.
+      const top = Math.min(66000, d.topFt ?? base + 10000);
+      return { id: `${t.id}:${d.kind}`, mode: 'volume' as const, ring: d.area!, colour: areaColour(d), fill: air ? 0.035 : 0.11, baseM: ft(base), topM: ft(top) };
+    }
+    const fill = d.kind === 'event-weather-warning' ? 0.24 : d.kind === 'land-road-disruption' ? 0.4 : 0.14;
+    return { id: `${t.id}:${d.kind}`, mode: 'drape' as const, ring: d.area!, colour: areaColour(d), fill };
+  })), [areaTracks, view]);
+
+  // ---- measure: Escape clears. 2D clicks are read from the map position. [FR-H-1]
+  React.useEffect(() => {
+    if (!measuring && !measurePts.length) return;
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { setMeasurePts([]); setMeasuring(false); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [measuring, measurePts.length]);
+  const addMeasure = React.useCallback((at: LatLon) => setMeasurePts((p) => (p.length >= 2 ? [at] : [...p, at])), []);
+  const selCentre: LatLon | null = e?.detail ? { lat: e.lat ?? e.detail.lat, lon: e.lon ?? e.detail.lon } : null;
+  const rings = ringsOn && selCentre ? { centre: selCentre, nms: RING_NMS } : null;
+
+  // ---- wall display: tour the presets every 45 s, paused for a while by any input. [FR-P3-7]
+  // A wall display starts with nothing selected, so the inspector stays out of the way.
+  React.useEffect(() => { if (wall) setSel(''); }, [wall]);
+  React.useEffect(() => {
+    if (!wall) { setTourOn(false); return; }
+    const pause = () => { pausedUntil.current = Date.now() + TOUR_PAUSE_MS; };
+    window.addEventListener('pointerdown', pause, true);
+    window.addEventListener('keydown', pause, true);
+    window.addEventListener('wheel', pause, { capture: true, passive: true });
+    // Keep a wall screen awake where the browser allows it.
+    let lock: { release: () => Promise<void> } | null = null;
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
+    nav.wakeLock?.request('screen').then((l) => { lock = l; }).catch(() => { /* not allowed: fine */ });
+    return () => {
+      window.removeEventListener('pointerdown', pause, true);
+      window.removeEventListener('keydown', pause, true);
+      window.removeEventListener('wheel', pause, true);
+      void lock?.release().catch(() => undefined);
+    };
+  }, [wall]);
+  React.useEffect(() => {
+    if (!tourOn) return;
+    let stop = 0;
+    const next = () => {
+      if (Date.now() < pausedUntil.current) return;
+      setFlyRequest((r) => ({ n: (r?.n ?? 0) + 1, preset: TOUR[stop++ % TOUR.length] }));
+    };
+    pausedUntil.current = 0;
+    next();
+    const timer = window.setInterval(next, TOUR_MS);
+    return () => window.clearInterval(timer);
+  }, [tourOn]);
+
+  // ---- alerts: pick one to select its entity and fly to it. [FR-H-1] [FR-H-5]
+  const pickAlert = (a: HeimdallAlert) => {
+    const t = byKey.get(a.entity) ?? geoLive.find((x) => x.id === a.entity);
+    pausedUntil.current = Date.now() + TOUR_PAUSE_MS;
+    if (t) {
+      select(t.id);
+      setAlertPin(null);
+      setFlyRequest((r) => ({ n: (r?.n ?? 0) + 1, id: t.id }));
+    } else if (a.lat !== null && a.lon !== null) {
+      setAlertPin({ lat: a.lat, lon: a.lon });
+      setFlyRequest((r) => ({ n: (r?.n ?? 0) + 1, lat: a.lat!, lon: a.lon! }));
+    } else {
+      status.toast(`${a.entity} IS NOT IN THE PICTURE`, 'info');
+    }
+  };
+
   const authorise = async () => {
     const wfId = WORKFLOW_FOR_RANK[chosen];
     if (!wfId) return;
@@ -613,9 +800,10 @@ export function OperatingPictureScreen() {
   const select = (id: string) => { setSel(id); setGate(null); };
   const aside = geoView && picture ? (
     e?.detail ? (
-      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} flights={aircraftKey ? { ...flightState, pick: flightPick, setPick: setFlightPick } : undefined} />
-    ) : (
-      <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt} />
+      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} flights={aircraftKey ? { ...flightState, pick: flightPick, setPick: setFlightPick } : undefined} watch={watch} rings={ringsOn} setRings={setRingsOn} />
+    ) : wall ? null : (
+      <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt}
+        watchCard={<WatchlistCard watch={watch} present={byKey} select={select} />} />
     )
   ) : e ? (
     <>
@@ -729,9 +917,10 @@ export function OperatingPictureScreen() {
       toolbar={
         <>
           {viewToggle}
-          <IconButton label="Alerts" active>
-            <Icon name="bell" size={17} />
-          </IconButton>
+          {/* Wall display: no side nav, larger text and markers; ?wall=1 opens in it. [FR-P3-7] */}
+          <Chip on={wall} onClick={() => status.setWall(!wall)} label={wall ? 'Leave wall display' : 'Wall display'}>WALL</Chip>
+          {wall && <Chip on={tourOn} onClick={() => { if (!tourOn && view !== '3d') setView('3d'); setTourOn(!tourOn); }} label="Tour the camera presets every 45 seconds">TOUR</Chip>}
+          <AlertsBell />
           <IconButton label="Settings">
             <Icon name="settings" size={17} />
           </IconButton>
@@ -746,7 +935,7 @@ export function OperatingPictureScreen() {
           ))}
         </div>
       }
-      aside={aside}
+      aside={aside ? (wall ? <div style={{ zoom: 1.2, display: 'flex', flexDirection: 'column', gap: 14 }}>{aside}</div> : aside) : undefined}
     >
       {/* The blueprint grid and glow stay in both views; the live view adds the map. */}
       <div ref={canvasRef} className="mg-grid-bg" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
@@ -754,13 +943,17 @@ export function OperatingPictureScreen() {
 
       {view === '3d' && (
         <React.Suspense fallback={<div style={{ position: 'absolute', top: '40%', width: '100%', textAlign: 'center', ...mono, color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}>
-          <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hoverPath={hoverPath} pathsFirst={trailMins === 0 || trailMins >= 30} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH} />
+          <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hoverPath={hoverPath} pathsFirst={trailMins === 0 || trailMins >= 30} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH}
+            areas={globeAreas} radar={radar.status === 'ready' ? radar.frame.canvas : null} sunTime={replayAt !== null ? replayAt * 1000 : Date.now()}
+            measuring={measuring} measure={measurePts} rings={rings} onSurface={addMeasure} markerScale={wall ? 1.6 : 1} flyRequest={flyRequest}
+            onInteract={() => { pausedUntil.current = Date.now() + TOUR_PAUSE_MS; }} />
         </React.Suspense>
       )}
 
       {view === '2d' && region && (
         <>
-          <Basemap region={region} />
+          <Basemap region={region} radarUrl={radar.status === 'ready' ? radar.frame.url : undefined} />
+          {areaTracks.length > 0 && <AreaLayer region={region} areas={areaTracks} selected={sel} />}
           <GraticuleLabels region={region} />
           <GeoRings region={region} height={canvasH} />
         </>
@@ -825,9 +1018,11 @@ export function OperatingPictureScreen() {
         // Satellites move too fast for a vector to mean anything at this scale; events do not move.
         const moves = shape === 'aircraft' || shape === 'vessel' || shape === 'balloon' || shape === 'point';
         const vlen = region ? (en.detail?.onGround || !moves ? 0 : (en.spd / 20) * pxPerNm) : Math.min(46, 12 + en.spd / 14);
-        const size = region ? (shape === 'quake' ? 6 + 2 * (en.detail?.magnitude ?? 2) : shape === 'flood' ? 10 : 7) : 14;
+        const base = region ? (shape === 'quake' ? 6 + 2 * (en.detail?.magnitude ?? 2) : shape === 'flood' ? 10 : shape === 'fire' ? 4 + Math.min(8, Math.sqrt(en.detail?.frp ?? 1) * 1.2) : shape === 'airspace' ? 4 : shape === 'windfarm' ? 11 : 7) : 14;
+        const size = wall ? Math.round(base * 1.5) : base;
         // With hundreds of live tracks, label only the ones that matter right now.
         const labelled = !region || selected || anomalous || en.id === hover || visible.length <= 40;
+        const square = en.layer === 'maritime' || shape === 'satellite' || shape === 'platform' || shape === 'road';
         return (
           <button
             key={en.id}
@@ -860,20 +1055,22 @@ export function OperatingPictureScreen() {
               />
               <span
                 style={{
-                  position: 'absolute', inset: 0, borderRadius: en.layer === 'maritime' || shape === 'satellite' ? 2 : '50%',
-                  background: shape === 'quake' ? 'transparent' : color,
-                  border: shape === 'quake' ? `2px solid ${color}` : undefined,
-                  opacity: shape === 'flood' ? 0.7 : 1,
-                  transform: shape === 'satellite' ? 'rotate(45deg)' : undefined,
+                  position: 'absolute', inset: 0, borderRadius: square ? 2 : '50%',
+                  background: shape === 'quake' || shape === 'windfarm' || shape === 'airspace' ? 'transparent' : color,
+                  border: shape === 'quake' || shape === 'airspace' ? `${shape === 'airspace' ? 1 : 2}px solid ${color}` : undefined,
+                  opacity: shape === 'flood' ? 0.7 : shape === 'airspace' ? 0.7 : 1,
+                  transform: shape === 'satellite' || shape === 'road' ? 'rotate(45deg)' : undefined,
+                  // A wind farm reads as a small turbine at its centre.
+                  ...(shape === 'windfarm' ? { borderRadius: 0, color, fontSize: size + 3, lineHeight: `${size}px`, textAlign: 'center' as const } : {}),
                   boxShadow: selected
                     ? `0 0 0 5px ${anomalous ? 'var(--warn-tint)' : 'var(--accent-tint)'}, 0 0 18px -2px ${anomalous ? 'var(--warn)' : 'var(--accent-glow)'}`
-                    : region ? `0 0 8px -1px ${color}` : 'none',
+                    : region && shape !== 'windfarm' && shape !== 'airspace' ? `0 0 8px -1px ${color}` : 'none',
                   outline: selected ? `1px solid ${color}` : 'none', outlineOffset: 3,
                 }}
-              />
+              >{shape === 'windfarm' ? '✢' : null}</span>
             </span>
             {labelled && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em', color: selected ? 'var(--grey-100)' : 'var(--text-faint)', whiteSpace: 'nowrap', position: region ? 'absolute' : undefined, top: region ? size + 3 : undefined }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: wall ? 12 : 9, letterSpacing: '0.08em', color: selected ? 'var(--grey-100)' : 'var(--text-faint)', whiteSpace: 'nowrap', position: region ? 'absolute' : undefined, top: region ? size + 3 : undefined }}>
                 {en.id}{anomalous ? ' ⚠' : ''}{region ? ` · ${en.alt}` : ` · ${en.hdg}°`}
               </span>
             )}
@@ -887,7 +1084,11 @@ export function OperatingPictureScreen() {
         const rng = Math.round(Math.hypot(t.x - 50, t.y - 50) * 1.3);
         const flipY = t.y < 36;
         const d = t.detail;
-        const rows: [string, string][] = region && d ? [
+        const rows: [string, string][] = region && d?.area ? [
+          ['TYPE', d.airspaceType ? `${d.airspaceType.toUpperCase()}${d.icaoClass ? ` · CLASS ${d.icaoClass}` : ''}` : t.cls],
+          ['LIMITS', t.alt],
+          ['NAME', d.name ?? '—'],
+        ] : region && d ? [
           ['TRK / SPD', String(Math.round(t.hdg)).padStart(3, '0') + '° · ' + t.spd + ' KT'],
           ['ALT', t.alt],
           ['SQUAWK', d.squawk ?? '—'],
@@ -935,8 +1136,39 @@ export function OperatingPictureScreen() {
         </div>
       )}
 
+      {/* MEASURE line, range rings and an alert's place (2D). [FR-H-1] */}
+      {view === '2d' && region && (measurePts.length > 0 || rings) && <ToolLayer region={region} measure={measurePts} rings={rings} />}
+      {view === '2d' && region && alertPin && (
+        <span aria-hidden style={{ position: 'absolute', left: `${((alertPin.lon - region.west) / (region.east - region.west)) * 100}%`, top: `${((region.north - alertPin.lat) / (region.north - region.south)) * 100}%`, width: 26, height: 26, transform: 'translate(-50%,-50%)', border: '2px solid var(--danger)', borderRadius: '50%', boxShadow: '0 0 14px var(--danger)', pointerEvents: 'none', zIndex: 3 }} />
+      )}
+      {view === '2d' && region && measuring && (
+        <div aria-label="Measure: click two points on the map" role="application"
+          onClick={(ev) => {
+            const r = ev.currentTarget.getBoundingClientRect();
+            const fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+            addMeasure({ lat: region.north - fy * (region.north - region.south), lon: region.west + fx * (region.east - region.west) });
+          }}
+          style={{ position: 'absolute', inset: 0, zIndex: 3, cursor: 'crosshair' }} />
+      )}
+
+      {/* Canvas chips: radar and measure (2D top right; 3D under the MAP chip). */}
+      {(view === '3d' || region) && <div style={{ position: 'absolute', zIndex: 4, display: 'flex', gap: 6, flexWrap: 'wrap', ...(view === '3d' ? { top: 92, left: 12 } : { top: 12, right: 14 }) }}>
+        <Chip on={radarOn} onClick={() => setRadarOn(!radarOn)} tone={radar.status === 'unavailable' ? 'var(--warn)' : undefined}
+          label={radarOn ? 'Hide rain radar' : 'Show rain radar (RainViewer, needs the internet)'}>{radarLabel(radar)}</Chip>
+        {(
+          <Chip on={measuring} onClick={() => { if (measuring) { setMeasuring(false); setMeasurePts([]); } else setMeasuring(true); }} label="Measure: click two points; Escape clears">
+            {measuring ? (measurePts.length < 2 ? `MEASURE · CLICK POINT ${measurePts.length + 1}` : 'MEASURE · ESC CLEARS') : 'MEASURE'}
+          </Chip>
+        )}
+      </div>}
+
+      {status.alertsOpen && (
+        <AlertsDrawer onPick={pickAlert} onClose={() => status.setAlertsOpen(false)}
+          style={{ position: 'absolute', top: view === '3d' ? 12 : 54, right: view === '3d' ? 66 : 14, width: 'min(380px, calc(100% - 90px))', maxHeight: '62%', zIndex: 6, zoom: wall ? 1.15 : undefined }} />
+      )}
+
       {/* Picture figures and the replay timeline, stacked along the bottom. [FR-P3-7] */}
-      <div ref={bottomRef} style={{ position: 'absolute', left: 12, right: 12, bottom: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, zIndex: 4, pointerEvents: 'none' }}>
+      <div ref={bottomRef} style={{ position: 'absolute', left: 12, right: 12, bottom: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, zIndex: 4, pointerEvents: 'none', zoom: wall ? 1.15 : undefined }}>
         {!statsOpen && (
           <button type="button" onClick={() => setStatsOpen(true)} aria-expanded={false} style={{ all: 'unset', pointerEvents: 'auto', cursor: 'pointer', minHeight: 32, display: 'inline-flex', alignItems: 'center', gap: 12, padding: '0 12px', ...mono, color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--bg-sunken) 80%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
             <span>{(picture?.entities.length ?? 0).toLocaleString()} TRACKED</span>
@@ -954,7 +1186,7 @@ export function OperatingPictureScreen() {
           {region && view === '2d' && <StatBlock value={String(allTracks.filter((t) => t.detail?.label === 'rotorcraft').length)} label="ROTORCRAFT" size="sm" />}
           {geoView && (
             <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              {[...BANDS.map((b) => ({ label: b.label, color: b.color })), ...KIND_LEGEND].map((b) => (
+              {[...BANDS.map((b) => ({ label: b.label, color: b.color })), ...KIND_LEGEND, ...AREA_LEGEND.filter((a) => visible.some((t) => t.detail?.kind === a.kind))].map((b) => (
                 <span key={b.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, ...mono, fontSize: 8, color: 'var(--text-faint)' }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: b.color }} />{b.label}
                 </span>

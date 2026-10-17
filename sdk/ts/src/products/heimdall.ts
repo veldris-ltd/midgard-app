@@ -34,7 +34,7 @@ export type HeimdallSignatureScheme = 'ML-DSA' | 'SLH-DSA';
 /** Picture layers the operator can toggle. `feeds` is the reference layout's sensor
  *  coverage overlay; the others are Heimdall's wire layers (air, sea, land, space,
  *  events, other) under the console's names. [FR-H-1] */
-export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'space' | 'events' | 'other' | 'feeds';
+export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'space' | 'events' | 'other' | 'feeds' | 'airspace';
 
 // ---- domain types (product-prefixed) ----------------------------------------
 
@@ -146,6 +146,26 @@ export interface HeimdallTrackDetail {
   runways?: [number, number, number, number, number][];
   /** Kind-specific reported attributes for the inspector, in display order. */
   facts?: { label: string; value: string }[];
+  /** An area entity's outline, [lat, lon] pairs (SIGMETs, weather warnings, wind farms,
+   *  road disruptions), from the feed's `polygon` text. [FR-H-1] [FR-P3-3] */
+  area?: [number, number][];
+  /** An airspace's type (restricted, danger, ctr, tma…), ICAO class and the references
+   *  of its limits (GND, MSL, STD). Its limits are `baseFt` / `topFt`. [FR-H-1] */
+  airspaceType?: string;
+  icaoClass?: string;
+  lowerRef?: string;
+  upperRef?: string;
+  /** A fire hotspot's radiative power, MW (NASA FIRMS). */
+  frp?: number;
+  /** A SIGMET's hazard (TS, TURB, ICE, MTW, VA, TC…) and vertical extent in feet. */
+  hazard?: string;
+  baseFt?: number;
+  topFt?: number;
+  /** A weather warning's level (yellow, amber, red) or a road disruption's severity. */
+  level?: string;
+  /** An airport's raw TAF and its worst flight category over the next 12 hours. */
+  taf?: string;
+  tafWorst?: string;
   /** Classification label and the rule rationale, when a rule matched. */
   label?: string;
   rationale?: string;
@@ -225,6 +245,50 @@ export interface HeimdallPicture {
    *  `tracks` keeps only those inside the region). Same objects and ids as `tracks`
    *  where both hold an entity; x/y may fall outside 0–100. [FR-P3-3] */
   geo?: HeimdallTrack[];
+  /** Space weather (NOAA SWPC), when the picture carries it: a global condition with no
+   *  position, so it is shown as a badge and never drawn on the map. [FR-H-1] */
+  spaceWeather?: HeimdallSpaceWeather;
+}
+
+/** NOAA SWPC space weather: planetary K index and the G/S/R storm scales (0–5). */
+export interface HeimdallSpaceWeather {
+  kp: number | null;
+  /** When the Kp value was observed (unix s), if reported. */
+  kpTime?: number;
+  gScale: number;
+  sScale: number;
+  rScale: number;
+  xrayClass?: string;
+}
+
+// ---- alerts -----------------------------------------------------------------
+
+export type HeimdallAlertSeverity = 'critical' | 'warning' | 'info';
+
+/** An alert Heimdall raised on an entity (`GET /heimdall/alerts`). Times are unix
+ *  seconds; `clearedAt` is set once the condition has gone. [FR-H-1] [FR-H-5] */
+export interface HeimdallAlert {
+  id: string;
+  /** The entity key (`HeimdallTrackDetail.key`). */
+  entity: string;
+  kind: string;
+  label: string;
+  severity: HeimdallAlertSeverity;
+  rationale: string;
+  raisedAt: number;
+  clearedAt: number | null;
+  acknowledgedBy: string | null;
+  acknowledgedAt: number | null;
+  lat: number | null;
+  lon: number | null;
+}
+
+/** The gateway serves no alerts yet (404) or cannot reach their store. */
+export class HeimdallAlertsUnavailableError extends Error {
+  constructor(message = 'alerts unavailable') {
+    super(message);
+    this.name = 'HeimdallAlertsUnavailableError';
+  }
 }
 
 // ---- history (replay) -------------------------------------------------------
@@ -299,6 +363,13 @@ export interface HeimdallGateway {
    *  `HeimdallHistoryUnavailableError` when the gateway has none. [FR-P3-7] */
   getHistory(q: HeimdallHistoryQuery): Promise<HeimdallHistory>;
 
+  // Alerts -------------------------------------------------------------------
+  /** Alerts, newest first: `open` (not cleared) or `all`. Rejects with
+   *  `HeimdallAlertsUnavailableError` when the gateway has no alerts endpoint. [FR-H-1] */
+  getAlerts(state?: 'open' | 'all'): Promise<HeimdallAlert[]>;
+  /** Acknowledge an alert as the signed-in user; resolves to the updated alert. [FR-H-5] */
+  ackAlert(id: string): Promise<HeimdallAlert>;
+
   // Decide -------------------------------------------------------------------
   /** Human-gated action workflows (queue / approvals / execution). */
   listWorkflows(): Promise<HeimdallWorkflow[]>;
@@ -354,6 +425,7 @@ const LAYERS: HeimdallLayer[] = [
   { id: 'ground', label: 'Ground', active: true },
   { id: 'space', label: 'Space', active: true },
   { id: 'events', label: 'Events', active: true },
+  { id: 'airspace', label: 'Airspace', active: false },
   { id: 'feeds', label: 'Feed coverage', active: false },
 ];
 
@@ -419,6 +491,8 @@ export class HeimdallMock implements HeimdallGateway {
   private poolIdx = 0;
   private clock = 14 * 3600 + 39 * 60 + 2; // seconds since midnight, seeds "14:39:02"
   private listeners = new Set<(r: AuditRecord) => void>();
+  /** Alerts held in memory (acknowledgements last as long as the page). */
+  private alerts: HeimdallAlert[] | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: HeimdallMockOptions = {}) {
@@ -468,6 +542,7 @@ export class HeimdallMock implements HeimdallGateway {
       // The globe's worldwide entities move on fixed, deterministic paths in time, so
       // the picture and the history agree. [FR-P3-3]
       geo: mockGeoTracks(TRACKS, Date.now() / 1000),
+      spaceWeather: { kp: 3.33, kpTime: Math.floor(Date.now() / 10800000) * 10800, gScale: 0, sScale: 0, rScale: 1, xrayClass: 'C2.1' },
     });
   }
 
@@ -486,6 +561,43 @@ export class HeimdallMock implements HeimdallGateway {
 
   listSyncSites(): Promise<HeimdallSyncSite[]> {
     return this.wait(SYNC_SITES.map((s) => ({ ...s })));
+  }
+
+  // ---- alerts --------------------------------------------------------------
+
+  /** A few plausible alerts on the mock's own entities, raised relative to the first
+   *  read; acknowledging one works in memory. [FR-H-1] [FR-H-5] */
+  private alertList(): HeimdallAlert[] {
+    if (this.alerts) return this.alerts;
+    const now = Math.floor(Date.now() / 1000);
+    const mk = (id: string, entity: string, kind: string, label: string, severity: HeimdallAlert['severity'], rationale: string, minsAgo: number, lat: number | null, lon: number | null, cleared = false): HeimdallAlert => ({
+      id, entity, kind, label, severity, rationale, raisedAt: now - minsAgo * 60,
+      clearedAt: cleared ? now - Math.floor(minsAgo / 2) * 60 : null, acknowledgedBy: null, acknowledgedAt: null, lat, lon,
+    });
+    this.alerts = [
+      mk('AL-1007', 'E-0871', 'air-track', 'anomalous track', 'critical', 'Uncorroborated air track descending through FL212 with no transponder; two feeds disagree on identity.', 3, 57.25, -0.6),
+      mk('AL-1006', 'sigmet-egtt-1', 'event-sigmet', 'SIGMET TS', 'warning', 'Embedded thunderstorms FL100–FL380 over the London FIR intersect 14 tracked aircraft routes.', 12, 51.6, -0.9),
+      mk('AL-1005', 'fw-derwent', 'event-flood', 'severe flood warning', 'warning', 'Environment Agency severity 1 (danger to life) at Cockermouth.', 26, 54.66, -3.36),
+      mk('AL-1004', 'swpc', 'space-weather', 'geomagnetic storm G1', 'info', 'Kp reached 5 (G1 minor): HF propagation and GNSS accuracy may degrade at high latitude.', 55, null, null),
+      mk('AL-1003', 'E-0442', 'sea-vessel', 'AIS gap', 'info', 'Vessel E-0442 stopped reporting AIS for 18 min inside the coverage area.', 140, 53.4, -0.4, true),
+    ];
+    return this.alerts;
+  }
+
+  getAlerts(state: 'open' | 'all' = 'open'): Promise<HeimdallAlert[]> {
+    const list = this.alertList().filter((a) => state === 'all' || a.clearedAt === null);
+    return this.wait(list.map((a) => ({ ...a })).sort((a, b) => b.raisedAt - a.raisedAt));
+  }
+
+  ackAlert(id: string): Promise<HeimdallAlert> {
+    const a = this.alertList().find((x) => x.id === id);
+    if (!a) return Promise.reject(new Error(`no alert ${id}`));
+    if (!a.acknowledgedBy) {
+      a.acknowledgedBy = this.ctx.subject;
+      a.acknowledgedAt = Math.floor(Date.now() / 1000);
+      this.emit({ actor: this.ctx.subject, action: `Acknowledge · ${a.label}`, resource: `alert/${id}`, pqSignature: 'ML-DSA ✓' });
+    }
+    return this.wait({ ...a });
   }
 
   // ---- decide --------------------------------------------------------------

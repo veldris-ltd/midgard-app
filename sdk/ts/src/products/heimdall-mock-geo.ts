@@ -8,7 +8,11 @@
  *
  * The reference layout's five tracks are placed in the UK and Ireland by reading their
  * x/y percentages as positions in that box, so the 2D reference view and the globe show
- * the same entities with the same ids. */
+ * the same entities with the same ids.
+ *
+ * Fixed things the live feeds now carry are mocked too, so the offline demo shows them:
+ * SIGMETs, Met Office warnings, offshore wind farms and platforms, London road
+ * disruptions and two airports with METAR and TAF. [FR-H-1] [FR-P3-3] */
 import type {
   HeimdallHistory,
   HeimdallHistoryPoint,
@@ -57,6 +61,20 @@ interface MockEntity {
   magnitude?: number;
   severityLevel?: number;
   anomalous?: boolean;
+  /** Area kinds: outline [lat, lon][], and the SIGMET / warning fields. */
+  area?: [number, number][];
+  hazard?: string;
+  baseFt?: number;
+  topFt?: number;
+  level?: string;
+  flightCategory?: string;
+  airspaceType?: string;
+  icaoClass?: string;
+  lowerRef?: string;
+  upperRef?: string;
+  frp?: number;
+  taf?: string;
+  tafWorst?: string;
   /** When the entity first appeared (unix s), for the inspector. */
   firstSeen: (t: number) => number;
   /** Where the entity is at unix time `t`, or null while it is not in the picture. */
@@ -242,6 +260,83 @@ function flood(id: string, area: string, river: string, lat: number, lon: number
   };
 }
 
+/** The centre of an outline (mean of its vertices: fine for these small areas). */
+const centreOf = (poly: [number, number][]): [number, number] =>
+  [poly.reduce((s, p) => s + p[0], 0) / poly.length, poly.reduce((s, p) => s + p[1], 0) / poly.length];
+
+/** A fixed thing raised `hoursAgo` before the current hour and in the picture since. */
+function fixed(e: Omit<MockEntity, 'firstSeen' | 'at'>, lat: number, lon: number, hoursAgo: number, facts: { label: string; value: string }[]): MockEntity {
+  const since = (t: number) => Math.floor(t / 3600) * 3600 - hoursAgo * 3600;
+  return { ...e, firstSeen: since, at: (t) => (t < since(t) ? null : { lat, lon, altM: 0, hdg: 0, spd: 0, facts }) };
+}
+
+const HAZARD_WORDS: Record<string, string> = { TS: 'thunderstorms', TURB: 'turbulence', ICE: 'icing', MTW: 'mountain waves', VA: 'volcanic ash', TC: 'tropical cyclone' };
+
+function sigmet(id: string, fir: string, hazard: string, qualifier: string, baseFt: number, topFt: number, poly: [number, number][], hoursAgo: number): MockEntity {
+  const [lat, lon] = centreOf(poly);
+  const fl = (ft: number) => `FL${String(Math.round(ft / 100)).padStart(3, '0')}`;
+  return fixed({ id, kind: 'event-sigmet', layer: 'events', cls: `SIGMET ${hazard}`, sources: ['aviationweather'], name: `${fir} SIGMET ${hazard}`, area: poly, hazard, baseFt, topFt }, lat, lon, hoursAgo, [
+    { label: 'HAZARD', value: `${qualifier} ${hazard} · ${HAZARD_WORDS[hazard] ?? hazard}` },
+    { label: 'LEVELS', value: `${fl(baseFt)}–${fl(topFt)}` },
+    { label: 'FIR', value: fir },
+    { label: 'RAW', value: `${fir} SIGMET 3 VALID · ${qualifier} ${hazard} OBS FCST ${fl(baseFt)}/${fl(topFt)} MOV E 15KT NC` },
+  ]);
+}
+
+function warning(id: string, level: string, weather: string, region: string, at: [number, number], poly: [number, number][] | undefined, hoursAgo: number): MockEntity {
+  const [lat, lon] = poly ? centreOf(poly) : at;
+  return fixed({ id, kind: 'event-weather-warning', layer: 'events', cls: `${level.toUpperCase()} WARNING`, sources: ['metoffice'], name: `${level[0].toUpperCase()}${level.slice(1)} warning of ${weather}`, area: poly, level }, lat, lon, hoursAgo, [
+    { label: 'LEVEL', value: level.toUpperCase() }, { label: 'WEATHER', value: weather }, { label: 'REGION', value: region },
+  ]);
+}
+
+function windfarm(id: string, name: string, mw: number, developer: string, poly: [number, number][]): MockEntity {
+  const [lat, lon] = centreOf(poly);
+  return fixed({ id, kind: 'sea-windfarm', layer: 'maritime', cls: 'WIND FARM', sources: ['crown-estate'], name, area: poly }, lat, lon, 48, [
+    { label: 'NAME', value: name }, { label: 'STATUS', value: 'Operational' }, { label: 'CAPACITY', value: `${mw.toLocaleString()} MW` }, { label: 'DEVELOPER', value: developer },
+  ]);
+}
+
+function platform(id: string, name: string, operator: string, field: string, lat: number, lon: number): MockEntity {
+  return fixed({ id, kind: 'sea-platform', layer: 'maritime', cls: 'PLATFORM', sources: ['nsta'], name }, lat, lon, 48, [
+    { label: 'NAME', value: name }, { label: 'OPERATOR', value: operator }, { label: 'FIELD', value: field }, { label: 'STATUS', value: 'Active' },
+  ]);
+}
+
+function road(id: string, severity: string, category: string, location: string, comments: string, at: [number, number], poly: [number, number][] | undefined, hoursAgo: number): MockEntity {
+  const [lat, lon] = poly ? centreOf(poly) : at;
+  return fixed({ id, kind: 'land-road-disruption', layer: 'ground', cls: 'ROAD DISRUPTION', sources: ['tfl'], name: location, area: poly, level: severity }, lat, lon, hoursAgo, [
+    { label: 'SEVERITY', value: severity }, { label: 'CATEGORY', value: category }, { label: 'LOCATION', value: location }, { label: 'COMMENTS', value: comments },
+  ]);
+}
+
+function airport(icao: string, name: string, lat: number, lon: number, cat: string, metar: string, taf: string, tafWorst: string): MockEntity {
+  return fixed({ id: icao, kind: 'land-airport', layer: 'ground', cls: 'AIRPORT', sources: ['aviationweather'], name, flightCategory: cat, taf, tafWorst }, lat, lon, 24, [
+    { label: 'ICAO', value: icao }, { label: 'NAME', value: name }, { label: 'CONDITIONS', value: cat }, { label: 'METAR', value: metar },
+  ]);
+}
+
+/** An openAIP airspace volume (on the Airspace layer, off by default). [FR-H-1] */
+function airspace(id: string, name: string, type: string, cls: string | undefined, lowerFt: number, lowerRef: string, upperFt: number, upperRef: string, poly: [number, number][]): MockEntity {
+  const [lat, lon] = centreOf(poly);
+  const lim = (ft: number, ref: string) => (ft <= 0 && ref === 'GND' ? 'GND' : ref === 'STD' ? `FL${Math.round(ft / 100)}` : `${ft.toLocaleString()} ft ${ref}`);
+  return fixed({ id, kind: 'airspace-volume', layer: 'airspace', cls: `AIRSPACE ${type.toUpperCase()}`, sources: ['openaip'], name, area: poly, baseFt: lowerFt, topFt: upperFt, airspaceType: type, icaoClass: cls, lowerRef, upperRef }, lat, lon, 72, [
+    { label: 'NAME', value: name }, { label: 'TYPE', value: type.toUpperCase() }, ...(cls ? [{ label: 'CLASS', value: cls }] : []),
+    { label: 'LOWER', value: `${lim(lowerFt, lowerRef)} (${lowerRef})` }, { label: 'UPPER', value: `${lim(upperFt, upperRef)} (${upperRef})` },
+  ]);
+}
+
+/** A NASA FIRMS fire hotspot. */
+function fire(id: string, lat: number, lon: number, frp: number, confidence: string, hoursAgo: number): MockEntity {
+  return fixed({ id, kind: 'event-fire', layer: 'events', cls: 'FIRE HOTSPOT', sources: ['nasa-firms'], name: `Hotspot ${frp.toFixed(1)} MW`, frp }, lat, lon, hoursAgo, [
+    { label: 'FRP', value: `${frp.toFixed(1)} MW` }, { label: 'CONFIDENCE', value: confidence }, { label: 'SATELLITE', value: 'N20 · VIIRS' }, { label: 'DAY / NIGHT', value: 'day' },
+  ]);
+}
+
+/** A rough circle of `km` about a point, as an outline. */
+const ringAbout = (lat: number, lon: number, km: number, n = 24): [number, number][] =>
+  Array.from({ length: n }, (_, i) => offset(lat, lon, (i / n) * 360, km));
+
 let FLEET: MockEntity[] | null = null;
 
 function fleet(reference: HeimdallTrack[]): MockEntity[] {
@@ -330,6 +425,34 @@ function fleet(reference: HeimdallTrack[]): MockEntity[] {
     flood('fw-derwent', 'Cockermouth', 'River Derwent', 54.66, -3.36, 1, 2),
     flood('fw-trent', 'Gainsborough riverside', 'River Trent', 53.4, -0.78, 4, 18),
   );
+  out.push(
+    sigmet('sigmet-egtt-1', 'EGTT', 'TS', 'EMBD', 10000, 38000, [[52.4, -1.9], [52.5, 0.7], [51.3, 1.3], [50.9, -1.3]], 1),
+    sigmet('sigmet-egpx-1', 'EGPX', 'TURB', 'SEV', 24000, 36000, [[58.6, -6.2], [58.9, -2.2], [56.9, -1.6], [56.6, -5.6]], 2),
+    sigmet('sigmet-eisn-1', 'EISN', 'ICE', 'SEV', 8000, 18000, [[54.6, -10.2], [54.4, -7.2], [52.2, -7.4], [52.0, -10.0]], 0),
+    warning('mo-yellow-rain', 'yellow', 'rain', 'Wales, North West England', [52.8, -3.5], [[53.9, -4.6], [54.2, -2.4], [52.9, -2.3], [51.6, -3.0], [51.7, -4.9]], 3),
+    warning('mo-amber-wind', 'amber', 'wind', 'Highlands & Eilean Siar', [57.8, -5.5], [[58.6, -7.5], [58.7, -4.2], [57.2, -4.6], [56.8, -6.7]], 1),
+    warning('mo-yellow-fog', 'yellow', 'fog', 'East Anglia', [52.6, 1.0], undefined, 0),
+    windfarm('wf-hornsea-1', 'Hornsea One', 1218, 'Ørsted', [[53.98, 1.73], [53.98, 2.07], [53.79, 2.12], [53.79, 1.78]]),
+    windfarm('wf-walney', 'Walney Extension', 659, 'Ørsted', [[54.13, -3.73], [54.13, -3.45], [53.98, -3.42], [53.98, -3.70]]),
+    windfarm('wf-beatrice', 'Beatrice', 588, 'SSE Renewables', [[58.30, -3.15], [58.30, -2.85], [58.17, -2.85], [58.17, -3.15]]),
+    platform('pf-forties-alpha', 'Forties Alpha', 'Apache', 'Forties', 57.73, 0.97),
+    platform('pf-clair', 'Clair Ridge', 'BP', 'Clair', 60.74, -2.49),
+    platform('pf-brae-a', 'Brae Alpha', 'TAQA', 'Brae', 58.69, 1.28),
+    road('tfl-a40', 'Serious', 'Works', 'A40 Westway (W12)', 'Lane 2 closed eastbound for resurfacing.', [51.517, -0.222], undefined, 2),
+    road('tfl-blackwall', 'Severe', 'Collision', 'Blackwall Tunnel northbound', 'Northbound closed after a collision; expect long delays.', [51.505, -0.004], undefined, 0),
+    road('tfl-towerbr', 'Moderate', 'Event', 'Tower Bridge (SE1)', 'Bridge lift; closed to traffic 14:00–14:20.', [51.505, -0.075], [[51.5068, -0.0779], [51.5068, -0.0721], [51.5038, -0.0721], [51.5038, -0.0779]], 0),
+    airspace('as-london-ctr', 'LONDON CTR', 'ctr', 'D', 0, 'GND', 2500, 'MSL', ringAbout(51.47, -0.46, 22)),
+    airspace('as-london-tma', 'LONDON TMA', 'tma', 'A', 2500, 'MSL', 24500, 'STD', [[52.1, -1.6], [52.2, 0.9], [51.0, 1.2], [50.8, -1.4]]),
+    airspace('as-scottish-tma', 'SCOTTISH TMA', 'tma', 'D', 3500, 'MSL', 24500, 'STD', [[56.4, -5.2], [56.4, -2.6], [55.4, -2.6], [55.4, -5.2]]),
+    airspace('as-d323', 'D323 SALISBURY PLAIN', 'danger', undefined, 0, 'GND', 50000, 'MSL', [[51.32, -2.05], [51.33, -1.62], [51.15, -1.6], [51.12, -2.0]]),
+    airspace('as-r104', 'R104 ALDERMASTON', 'restricted', undefined, 0, 'GND', 2400, 'MSL', ringAbout(51.36, -1.15, 4)),
+    airspace('as-p611', 'P611 SELLAFIELD', 'prohibited', undefined, 0, 'GND', 2200, 'MSL', ringAbout(54.42, -3.5, 3.5)),
+    fire('firms-1', 57.35, -4.9, 42.5, 'nominal', 2),
+    fire('firms-2', 53.52, -1.85, 11.2, 'high', 5),
+    fire('firms-3', 50.62, -3.9, 6.8, 'low', 1),
+    airport('EGLL', 'London Heathrow', 51.4706, -0.4619, 'VFR', 'EGLL 171220Z 24012KT 9999 FEW030 14/08 Q1012', 'TAF EGLL 171100Z 1712/1818 24012KT 9999 FEW030 TEMPO 1715/1720 4000 SHRA BKN012 BECMG 1802/1805 BKN008', 'IFR'),
+    airport('EGPH', 'Edinburgh', 55.95, -3.3725, 'MVFR', 'EGPH 171220Z 27018G28KT 8000 -RA BKN018 11/09 Q1004', 'TAF EGPH 171100Z 1712/1812 27018G30KT 8000 -RA BKN018 PROB30 TEMPO 1714/1718 3000 RA BKN009', 'MVFR'),
+  );
   FLEET = out;
   return out;
 }
@@ -341,11 +464,14 @@ const ftAlt = (st: MockState, kind: string): string => {
   if (st.altM === null) return '—';
   if (kind === 'space-satellite') return `${Math.round(st.altM / 1000).toLocaleString()} km`;
   if (kind === 'event-earthquake') return `${Math.round(-st.altM / 1000)} km deep`;
-  if (kind.startsWith('event-') || kind === 'sea-vessel') return 'SURFACE';
-  if (kind === 'land-unit') return 'GND';
+  if (kind.startsWith('event-') || kind.startsWith('sea-')) return 'SURFACE';
+  if (kind.startsWith('land-')) return 'GND';
   const ft = Math.round(st.altM * FT_PER_M);
   return ft >= 6000 ? `FL${Math.round(ft / 100).toString().padStart(3, '0')}` : `${ft.toLocaleString()} ft`;
 };
+
+/** Kinds that never move: history needs only their first and latest positions. */
+const FIXED_KINDS = new Set(['airspace-volume', 'sea-windfarm', 'sea-platform', 'land-road-disruption', 'land-airport']);
 
 /** The worldwide picture at unix time `now`. */
 export function mockGeoTracks(reference: HeimdallTrack[], now: number): HeimdallTrack[] {
@@ -369,6 +495,19 @@ export function mockGeoTracks(reference: HeimdallTrack[], now: number): Heimdall
       severityLevel: e.severityLevel,
       station: e.station,
       facts: st.facts,
+      area: e.area,
+      hazard: e.hazard,
+      baseFt: e.baseFt,
+      topFt: e.topFt,
+      level: e.level,
+      flightCategory: e.flightCategory,
+      airspaceType: e.airspaceType,
+      icaoClass: e.icaoClass,
+      lowerRef: e.lowerRef,
+      upperRef: e.upperRef,
+      frp: e.frp,
+      taf: e.taf,
+      tafWorst: e.tafWorst,
       label: e.label,
       rationale: e.rationale,
       sources: e.sources,
@@ -389,7 +528,7 @@ export function mockGeoTracks(reference: HeimdallTrack[], now: number): Heimdall
       track: e.anomalous ? 'anomalous' : 'stable',
       hdg: Math.round(st.hdg),
       spd: st.spd,
-      alt: ftAlt(st, e.kind),
+      alt: e.kind === 'event-sigmet' ? `FL${Math.round((e.baseFt ?? 0) / 100)}–FL${Math.round((e.topFt ?? 0) / 100)}` : e.kind === 'airspace-volume' ? `${e.lowerRef === 'GND' ? 'GND' : `${(e.baseFt ?? 0).toLocaleString()} ft`}–${e.upperRef === 'STD' ? `FL${Math.round((e.topFt ?? 0) / 100)}` : `${(e.topFt ?? 0).toLocaleString()} ft`}` : ftAlt(st, e.kind),
       feeds: e.sources.length,
       altFt: air && st.altM !== null ? Math.round(st.altM * FT_PER_M) : undefined,
       detail,
@@ -414,7 +553,7 @@ export function mockHistory(reference: HeimdallTrack[], q: HeimdallHistoryQuery,
       if (st) points.push([t, +st.lat.toFixed(5), +st.lon.toFixed(5), st.altM === null ? null : Math.round(st.altM)]);
     };
     // Events do not move: their first and latest positions are enough.
-    if (e.layer === 'events') {
+    if (e.layer === 'events' || FIXED_KINDS.has(e.kind)) {
       const t0 = Math.max(from, e.firstSeen(to));
       if (t0 <= to) { push(t0); if (to > t0) push(to); }
     } else {

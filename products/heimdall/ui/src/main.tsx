@@ -5,6 +5,7 @@ import { initMode } from '@midgard/design-system';
 import { AuthGate } from '@midgard/ui-shared';
 import { HeimdallHttp, HeimdallMock, login, type HeimdallGateway } from '@midgard/sdk';
 import { router } from './app/routes';
+import { HeimdallStatusProvider } from './app/status';
 
 import '@midgard/design-system/tokens.css';
 
@@ -33,7 +34,10 @@ createRoot(document.getElementById('root')!).render(
       makeClient={(token) => new HeimdallHttp({ baseUrl, token })}
       login={login}
     >
-      <RouterProvider router={router} />
+      {/* Live header values, alerts, toasts and wall mode for every screen. [FR-H-1] */}
+      <HeimdallStatusProvider>
+        <RouterProvider router={router} />
+      </HeimdallStatusProvider>
     </AuthGate>
   </React.StrictMode>,
 );
