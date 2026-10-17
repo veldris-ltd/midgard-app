@@ -6,6 +6,7 @@ import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { colourOf, shapeOf } from '../trackStyle';
 import { GlobeView, type GlobeItem, type GlobeTrail } from './GlobeView';
+import { STRETCH_KM } from './geo';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em' };
 const EXAGGERATION_KEY = 'heimdall.cop.exaggeration';
@@ -195,14 +196,14 @@ export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHov
 
       {/* Vertical exaggeration, labelled so the heights are never read as true scale. */}
       <label style={{ position: 'absolute', top: 12, left: 12, zIndex: 4, display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--warn)', borderRadius: 'var(--radius-sm)', ...mono }}>
-        <span style={{ color: 'var(--warn)' }}>VERTICAL ×{exaggeration} · EXAGGERATED BELOW 100 KM</span>
+        <span style={{ color: 'var(--warn)' }}>VERTICAL ×{exaggeration} · HEIGHTS STRETCHED NEAR THE SURFACE</span>
         <input
           type="range" min={1} max={50} step={1} value={exaggeration}
           aria-label="Vertical exaggeration below 100 km"
           onChange={(e) => setExaggeration(Number(e.target.value))}
           style={{ width: 220, height: 28, margin: 0, accentColor: 'var(--warn)', touchAction: 'none' }}
         />
-        <span style={{ color: 'var(--text-faint)', fontSize: 8 }}>SATELLITES AND ABOVE 100 KM AT TRUE SCALE</span>
+        <span style={{ color: 'var(--text-faint)', fontSize: 8 }}>ORDER KEPT · SATELLITES RAISED BY UP TO {(exaggeration - 1) * STRETCH_KM} KM</span>
       </label>
     </div>
   );

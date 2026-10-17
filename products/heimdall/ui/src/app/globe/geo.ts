@@ -3,22 +3,26 @@
  * The scene's unit is one earth radius (6371 km), centred on the earth, y up through
  * the north pole, x through (0°, 90°E), z through (0°, 0°).
  *
- * Altitude: below 100 km (aircraft, balloons) heights are multiplied by the vertical
- * exaggeration so the airspace has visible depth; from 100 km up (satellites) heights
- * are true. The two do not join: at ×15, an airliner at 11 km is drawn at 165 km, below
- * a station at 420 km, but a balloon at 33 km is drawn at 495 km, above it. The view
- * labels the exaggeration so this is not read as true scale. */
+ * Altitude: near the surface heights are stretched so the airspace has visible depth,
+ * and the stretch fades out with height, so the drawn order always matches the true
+ * order. Drawn km = h + (k - 1) * L * (1 - e^(-h / L)), with k the exaggeration and
+ * L = 12 km: the slope is k at the ground and falls towards 1, so nothing higher is
+ * ever drawn lower. At ×15 an airliner at 11 km is drawn at 112 km, a balloon at 33 km
+ * at 191 km, and everything high is raised by at most (k - 1) * L = 168 km (the ISS at
+ * 420 km is drawn at 588 km). The view labels this so it is not read as true scale. */
 import * as THREE from 'three';
 
 export const EARTH_KM = 6371;
 export const D2R = Math.PI / 180;
 export const R2D = 180 / Math.PI;
+/** How deep the near-surface stretch reaches (see the altitude note above). */
+export const STRETCH_KM = 12;
 
 /** Drawn height above the surface in earth radii, from true metres. */
 export function drawnHeight(altM: number | null | undefined, exaggeration: number): number {
   if (altM === null || altM === undefined || altM <= 0) return 0;
   const km = altM / 1000;
-  return (km < 100 ? km * exaggeration : km) / EARTH_KM;
+  return (km + (exaggeration - 1) * STRETCH_KM * (1 - Math.exp(-km / STRETCH_KM))) / EARTH_KM;
 }
 
 /** The scene point at lat/lon (degrees), `r` earth radii from the centre. */
