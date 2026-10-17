@@ -140,6 +140,10 @@ export interface HeimdallTrackDetail {
   station?: boolean;
   /** A ship's AIS type in words (cargo, tanker, passenger…). */
   shipType?: string;
+  /** An airport's METAR flight category: VFR, MVFR, IFR or LIFR. */
+  flightCategory?: string;
+  /** An airport's runway centre lines, each [lat, lon, lat, lon]. */
+  runways?: [number, number, number, number][];
   /** Kind-specific reported attributes for the inspector, in display order. */
   facts?: { label: string; value: string }[];
   /** Classification label and the rule rationale, when a rule matched. */

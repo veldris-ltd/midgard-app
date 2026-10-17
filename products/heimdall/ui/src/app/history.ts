@@ -159,6 +159,7 @@ const CLASS_OF_KIND: Record<string, string> = {
   'event-earthquake': 'EARTHQUAKE',
   'event-flood': 'FLOOD WARNING',
   'sea-vessel': 'VESSEL',
+  'land-airport': 'AIRPORT',
 };
 
 /** Every track that has history at replay time `t`, placed there. Metadata comes from the

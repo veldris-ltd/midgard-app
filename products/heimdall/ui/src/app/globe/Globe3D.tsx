@@ -118,6 +118,7 @@ export function Globe3D({ tracks, trails, selected, path, hover, onSelect, onHov
     colour: colourOf(t),
     station: t.detail.station,
     magnitude: t.detail.magnitude,
+    runways: t.detail.runways,
   }] : [])), [tracks]);
 
   React.useEffect(() => { viewRef.current?.setItems(items); }, [items]);

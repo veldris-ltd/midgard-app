@@ -104,6 +104,7 @@ const KIND_CLASS: Record<string, string> = {
   'event-earthquake': 'EARTHQUAKE',
   'event-flood': 'FLOOD WARNING',
   'sea-vessel': 'VESSEL',
+  'land-airport': 'AIRPORT',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -113,6 +114,7 @@ const KIND_FEED: Record<string, string> = {
   'event-earthquake': 'seismic catalogue',
   'event-flood': 'flood warnings',
   'sea-vessel': 'ship transponders (AIS)',
+  'land-airport': 'airport weather (METAR)',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -167,6 +169,13 @@ const isStation = (e: WireEntity): boolean =>
   e.kind === 'space-satellite' &&
   (textAttr(e, 'group') === 'stations' || /\b(ISS|ZARYA|TIANHE|CSS|TIANGONG)\b/i.test(textAttr(e, 'name') ?? ''));
 
+/** Runway centre lines from the feed's `lat,lon,lat,lon;…` text. */
+function runwaysOf(geo: string | undefined): [number, number, number, number][] | undefined {
+  if (!geo) return undefined;
+  const out = geo.split(';').map((r) => r.split(',').map(Number)).filter((r) => r.length === 4 && r.every(Number.isFinite));
+  return out.length ? (out as [number, number, number, number][]) : undefined;
+}
+
 /** The kind-specific attributes the inspector lists, in display order. */
 function factsOf(e: WireEntity): { label: string; value: string }[] {
   const rows: [string, string | undefined][] = [];
@@ -184,6 +193,20 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
       const t = num(e.attributes.event_time);
       rows.push(['MAGNITUDE', num(e.attributes.mag) !== undefined ? `M${num(e.attributes.mag)!.toFixed(1)}` : undefined], ['DEPTH', num(e.attributes.depth_km) !== undefined ? `${num(e.attributes.depth_km)} km` : undefined],
         ['PLACE', a('place')], ['TIME', t !== undefined ? new Date(t * 1000).toISOString().slice(0, 19).replace('T', ' ') + ' UTC' : undefined]);
+      break;
+    }
+    case 'land-airport': {
+      const t = num(e.attributes.metar_time);
+      const wind = num(e.attributes.wind_kt);
+      rows.push(['ICAO / IATA', [a('icao'), a('iata')].filter(Boolean).join(' / ')], ['NAME', a('name')], ['TYPE', a('airport_type')],
+        ['ELEVATION', a('elevation_ft') ? `${a('elevation_ft')} ft` : undefined], ['RUNWAYS', a('runway_names')],
+        ['LONGEST', a('longest_runway_ft') ? `${Number(a('longest_runway_ft')).toLocaleString()} ft` : undefined],
+        ['CONDITIONS', a('flight_category')],
+        ['WIND', wind === undefined ? undefined : `${e.attributes.wind_variable === true ? 'VRB' : String(Math.round(num(e.attributes.wind_dir) ?? 0)).padStart(3, '0') + '°'} ${wind} kt${num(e.attributes.gust_kt) ? ` gust ${num(e.attributes.gust_kt)}` : ''}`],
+        ['VISIBILITY', a('visibility') ? `${a('visibility')} mi` : undefined], ['CLOUD', a('clouds')],
+        ['TEMP / DEW', num(e.attributes.temp_c) !== undefined ? `${num(e.attributes.temp_c)} / ${num(e.attributes.dewpoint_c) ?? '—'} °C` : undefined],
+        ['QNH', a('qnh_hpa') ? `${a('qnh_hpa')} hPa` : undefined],
+        ['METAR', a('metar')], ['OBSERVED', t !== undefined ? new Date(t * 1000).toISOString().slice(11, 16) + ' UTC' : undefined]);
       break;
     }
     case 'sea-vessel':
@@ -350,6 +373,8 @@ export class HeimdallHttp implements HeimdallGateway {
         severityLevel: num(e.attributes.severity_level),
         station: isStation(e) || undefined,
         shipType: e.kind === 'sea-vessel' ? textAttr(e, 'ship_type') : undefined,
+        flightCategory: e.kind === 'land-airport' ? textAttr(e, 'flight_category') : undefined,
+        runways: e.kind === 'land-airport' ? runwaysOf(textAttr(e, 'runways_geo')) : undefined,
         facts: factsOf(e),
         label: e.classification?.label,
         rationale: e.classification?.rationale,

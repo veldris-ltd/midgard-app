@@ -43,6 +43,8 @@ export interface GlobeItem {
   colour: string;
   station?: boolean;
   magnitude?: number;
+  /** Runway centre lines, [lat, lon, lat, lon], drawn on the ground. */
+  runways?: [number, number, number, number][];
 }
 
 export interface GlobeTrail {
@@ -60,8 +62,8 @@ export interface GlobeCallbacks {
 }
 
 /** Marker sizes in CSS pixels. */
-const PX: Record<TrackShape, number> = { aircraft: 17, vessel: 13, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
-const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'balloon', 'satellite', 'quake', 'flood', 'point'];
+const PX: Record<TrackShape, number> = { aircraft: 17, vessel: 13, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6 };
+const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point'];
 const GLOBE_COLOUR = '#0a0f16';
 /** A screen tap: moved less than this (px) within this long (ms). */
 const TAP_PX = { mouse: 5, touch: 12 };
@@ -263,6 +265,8 @@ export class GlobeView {
   /** A translucent wall from the selected track's recorded path down to the ground. */
   private readonly pathCurtain: THREE.Mesh;
   private readonly terrain: THREE.Mesh;
+  /** Airport runway centre lines, on the ground. */
+  private readonly runwayLines: THREE.LineSegments;
   private readonly drapedStrips: [number, number][][][];
   private readonly draped: THREE.LineSegments[];
   /** Short ribbons hanging a little below every trail, so trails read in 3D. */
@@ -323,6 +327,7 @@ export class GlobeView {
       new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
     );
     this.scene.add(this.terrain);
+    this.runwayLines = lines(new Float32Array(0), 'var(--grey-100)', 0.85);
     this.buildTerrain();
     const atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(1.045, 96, 64),
@@ -353,9 +358,10 @@ export class GlobeView {
     this.geometries.set('satellite', new THREE.OctahedronGeometry(0.5));
     this.geometries.set('quake', new THREE.RingGeometry(0.72, 1, 40));
     this.geometries.set('flood', new THREE.CircleGeometry(1, 28));
+    this.geometries.set('airport', new THREE.RingGeometry(0.55, 1, 4, 1, Math.PI / 4));
     this.geometries.set('point', new THREE.SphereGeometry(0.5, 8, 6));
     for (const s of SHAPES) {
-      const flat = s === 'quake' || s === 'flood';
+      const flat = s === 'quake' || s === 'flood' || s === 'airport';
       // Solid markers are lit so they shade as 3D objects; flat surface markers are not.
       const Mat = flat ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
       this.materials.set(s, new Mat({
@@ -479,8 +485,9 @@ export class GlobeView {
     const byId = new Map<string, Placed>();
     const east = new THREE.Vector3(), north = new THREE.Vector3();
     for (const it of this.items) {
-      const surface = it.shape === 'quake' || it.shape === 'flood';
-      const r = 1 + (surface ? 0.0009 : drawnHeight(it.altM, this.exaggeration) + 0.0004);
+      // Surface markers sit on the terrain, not under it.
+      const surface = it.shape === 'quake' || it.shape === 'flood' || it.shape === 'airport';
+      const r = 1 + (surface ? drawnHeight(Math.max(0, terrainAt(it.lat, it.lon)), this.exaggeration) + 0.0009 : drawnHeight(it.altM, this.exaggeration) + 0.0004);
       const pos = toVec(it.lat, it.lon, r);
       const up = new THREE.Vector3();
       enu(pos, east, north, up);
@@ -508,6 +515,7 @@ export class GlobeView {
     this.placed = placed;
     this.byId = byId;
     this.buildDrops();
+    this.buildRunways();
   }
 
   private ensure(shape: TrackShape, n: number): void {
@@ -523,7 +531,7 @@ export class GlobeView {
     mesh.setColorAt(0, new THREE.Color(1, 1, 1));
     mesh.frustumCulled = false;
     mesh.count = 0;
-    if (shape === 'quake' || shape === 'flood') mesh.renderOrder = 1;
+    if (shape === 'quake' || shape === 'flood' || shape === 'airport') mesh.renderOrder = 1;
     this.meshes.set(shape, mesh);
     this.scene.add(mesh);
   }
@@ -627,6 +635,14 @@ export class GlobeView {
       line.geometry.setAttribute('position', new THREE.BufferAttribute(stripsToSegments(this.drapedStrips[n], drape), 3));
       line.geometry.computeBoundingSphere();
     });
+  }
+
+  private buildRunways(): void {
+    const strips: [number, number][][] = [];
+    for (const p of this.placed) for (const [la1, lo1, la2, lo2] of p.item.runways ?? []) strips.push([[lo1, la1], [lo2, la2]]);
+    const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0008;
+    this.runwayLines.geometry.setAttribute('position', new THREE.BufferAttribute(stripsToSegments(strips, drape), 3));
+    this.runwayLines.geometry.computeBoundingSphere();
   }
 
   private pointAt(pt: HeimdallHistoryPoint, out: THREE.Vector3): THREE.Vector3 {

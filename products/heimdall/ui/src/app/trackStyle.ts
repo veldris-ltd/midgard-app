@@ -23,7 +23,7 @@ export const FLOOD_COLOURS: Record<number, string> = {
 
 /** The entity kind a track is drawn as. Reference-layout tracks carry no detail, so
  *  their layer stands in. */
-export type TrackShape = 'aircraft' | 'vessel' | 'balloon' | 'satellite' | 'quake' | 'flood' | 'point';
+export type TrackShape = 'aircraft' | 'vessel' | 'airport' | 'balloon' | 'satellite' | 'quake' | 'flood' | 'point';
 
 export function shapeOf(t: HeimdallTrack): TrackShape {
   const kind = t.detail?.kind ?? (t.layer === 'air' ? 'air-track' : '');
@@ -31,6 +31,7 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'air-track': return 'aircraft';
     case 'air-balloon': return 'balloon';
     case 'sea-vessel': return 'vessel';
+    case 'land-airport': return 'airport';
     case 'space-satellite': return 'satellite';
     case 'event-earthquake': return 'quake';
     case 'event-flood': return 'flood';
@@ -44,6 +45,7 @@ export function colourOf(t: HeimdallTrack): string {
   switch (shapeOf(t)) {
     case 'aircraft': return bandOf(t).color;
     case 'balloon': return 'var(--mimir-300)';
+    case 'airport': return FLIGHT_CATEGORY_COLOURS[t.detail?.flightCategory ?? ''] ?? 'var(--text-muted)';
     case 'vessel': return VESSEL_COLOURS[t.detail?.shipType ?? ''] ?? 'var(--midgard-300)';
     case 'satellite': return t.detail?.station ? 'var(--heimdall-300)' : 'var(--bifrost-300)';
     case 'quake': return (t.detail?.magnitude ?? 0) >= 5 ? 'var(--danger)' : 'var(--warn)';
@@ -53,6 +55,14 @@ export function colourOf(t: HeimdallTrack): string {
 }
 
 /** The legend for the non-aircraft kinds, in the order the views list them. */
+/** Airports by METAR flight category, in the usual aviation colours. */
+export const FLIGHT_CATEGORY_COLOURS: Record<string, string> = {
+  VFR: 'var(--secure)',
+  MVFR: 'var(--info)',
+  IFR: 'var(--danger)',
+  LIFR: 'var(--mimir-500)',
+};
+
 /** Ships by AIS type: the common ones get their own colour, the rest share one. */
 export const VESSEL_COLOURS: Record<string, string> = {
   cargo: 'var(--midgard-300)',
@@ -61,6 +71,10 @@ export const VESSEL_COLOURS: Record<string, string> = {
 };
 
 export const KIND_LEGEND: { label: string; color: string }[] = [
+  { label: 'AIRPORT VFR', color: 'var(--secure)' },
+  { label: 'MVFR', color: 'var(--info)' },
+  { label: 'IFR', color: 'var(--danger)' },
+  { label: 'LIFR', color: 'var(--mimir-500)' },
   { label: 'CARGO SHIP', color: 'var(--midgard-300)' },
   { label: 'TANKER', color: 'var(--forge-300)' },
   { label: 'PASSENGER SHIP', color: 'var(--heimdall-500)' },
