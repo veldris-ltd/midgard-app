@@ -61,7 +61,7 @@ export const WARNING_COLOURS: Record<string, string> = {
 };
 
 /** TfL disruption severity. */
-const ROAD_COLOURS: Record<string, string> = { severe: 'var(--danger)', serious: 'var(--warn)' };
+const ROAD_COLOURS: Record<string, string> = { severe: 'var(--danger)', serious: 'var(--warn)', moderate: 'var(--forge-300)' };
 
 /** The colour an area entity (by its detail) is drawn in. */
 export function areaColour(d: { kind: string; hazard?: string; level?: string; airspaceType?: string }): string {

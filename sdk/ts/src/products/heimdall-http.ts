@@ -242,6 +242,27 @@ export function parsePolygon(text: unknown): [number, number][] | undefined {
   return pts.length >= 3 ? pts : undefined;
 }
 
+/** A road disruption's `line` ("lat,lon;lat,lon;…", the affected stretch of road) as a
+ *  narrow band around it, so it is drawn like any other area: about 4 km wide, enough to
+ *  see at regional zoom. [FR-H-1] */
+export function lineBand(text: unknown, halfKm = 2): [number, number][] | undefined {
+  if (typeof text !== 'string' || !text) return undefined;
+  const pts = text.split(';').map((p) => p.split(',').map(Number))
+    .filter((p) => p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) <= 90);
+  if (pts.length < 2) return undefined;
+  const left: [number, number][] = [], right: [number, number][] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    const k = Math.cos((pts[i][0] * Math.PI) / 180);
+    const dx = (b[1] - a[1]) * k, dy = b[0] - a[0];
+    const len = Math.hypot(dx, dy) || 1;
+    const nLat = (dx / len) * (halfKm / 111.32), nLon = (-dy / len) * (halfKm / 111.32) / k;
+    left.push([pts[i][0] + nLat, pts[i][1] + nLon]);
+    right.push([pts[i][0] - nLat, pts[i][1] - nLon]);
+  }
+  return [...left, ...right.reverse()];
+}
+
 /** A time attribute (unix s or text) as "17 14:00Z". */
 function when(v: unknown): string | undefined {
   if (typeof v === 'number' && Number.isFinite(v)) return new Date(v * 1000).toISOString().slice(8, 16).replace('T', ' ') + 'Z';
@@ -480,7 +501,7 @@ export class HeimdallHttp implements HeimdallGateway {
   private track(e: WireEntity): HeimdallTrack | null {
     // Space weather is global, not a place: it goes to picture.spaceWeather instead.
     if (e.kind === 'space-weather') return null;
-    const area = parsePolygon(e.attributes.polygon);
+    const area = parsePolygon(e.attributes.polygon) ?? (e.kind === 'land-road-disruption' ? lineBand(e.attributes.line) : undefined);
     let reportedLat = num(e.attributes.lat);
     let reportedLon = num(e.attributes.lon);
     if ((reportedLat === undefined || reportedLon === undefined) && area) {

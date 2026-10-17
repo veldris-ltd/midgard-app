@@ -33,6 +33,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { HeimdallHistoryPoint } from '@midgard/sdk';
 import type { TrackShape } from '../trackStyle';
 import { BORDER_PATH, LAND_PATH } from '../basemap';
+import { LAKES, RIVERS } from '../hydro';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
@@ -449,8 +450,11 @@ export class GlobeView {
     lines(stripsToSegments(world, 1.0006), 'var(--text-muted)', 0.6);
     // Europe's coast and borders at 1:50m, draped over the terrain (rebuilt when the
     // height stretch changes).
-    this.drapedStrips = [svgRings(LAND_PATH), svgRings(BORDER_PATH)];
-    this.draped = [lines(new Float32Array(0), 'var(--text-muted)', 0.6), lines(new Float32Array(0), 'var(--text-faint)', 0.4)];
+    // Rivers and lakes (Natural Earth 1:10m) are draped like the coast, in water blue.
+    const hydro = (text: string) => text.split('|').map((ln) => ln.split(' ').map((p) => { const [la, lo] = p.split(',').map(Number); return [lo, la] as [number, number]; }));
+    this.drapedStrips = [svgRings(LAND_PATH), svgRings(BORDER_PATH), hydro(RIVERS), hydro(LAKES)];
+    this.draped = [lines(new Float32Array(0), 'var(--text-muted)', 0.6), lines(new Float32Array(0), 'var(--text-faint)', 0.4),
+      lines(new Float32Array(0), '#5aa9e6', 0.9), lines(new Float32Array(0), '#5aa9e6', 0.9)];
 
     // Shaded relief for the UK and Ireland, lit by the same lights as the markers.
     this.terrain = new THREE.Mesh(
