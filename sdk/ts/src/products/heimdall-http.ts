@@ -27,10 +27,22 @@
  *
  * History: `getHistory` reads `GET /heimdall/history` for replay and trails; until the
  * gateway serves it (404 / 502) it rejects with `HeimdallHistoryUnavailableError` and the
- * console falls back to the trails collected here. [FR-P3-3] [FR-P3-7] */
+ * console falls back to the trails collected here. [FR-P3-3] [FR-P3-7]
+ *
+ * Areas: SIGMETs, weather warnings, wind farms and road disruptions carry a `polygon`
+ * ("lat,lon;lat,lon;…"), parsed into `detail.area`; one without a position is placed at
+ * its outline's centre. Space weather (one entity, key SWPC, at 0,0) is not a place: it
+ * is lifted out of the tracks into `picture.spaceWeather`.
+ *
+ * Alerts: `getAlerts` / `ackAlert` read and acknowledge `GET /heimdall/alerts` and
+ * `POST /heimdall/alerts/{id}/ack`; a gateway without them (404) rejects with
+ * `HeimdallAlertsUnavailableError`. [FR-H-1] [FR-H-5] */
 import type { AuditRecord, PolicyContext } from '../types';
 import {
+  HeimdallAlertsUnavailableError,
   HeimdallHistoryUnavailableError,
+  type HeimdallAlert,
+  type HeimdallSpaceWeather,
   HeimdallMock,
   type HeimdallDecision,
   type HeimdallHistory,
@@ -105,6 +117,11 @@ const KIND_CLASS: Record<string, string> = {
   'event-flood': 'FLOOD WARNING',
   'sea-vessel': 'VESSEL',
   'land-airport': 'AIRPORT',
+  'event-sigmet': 'SIGMET',
+  'event-weather-warning': 'WEATHER WARNING',
+  'sea-windfarm': 'WIND FARM',
+  'sea-platform': 'PLATFORM',
+  'land-road-disruption': 'ROAD DISRUPTION',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -115,6 +132,12 @@ const KIND_FEED: Record<string, string> = {
   'event-flood': 'flood warnings',
   'sea-vessel': 'ship transponders (AIS)',
   'land-airport': 'airport weather (METAR)',
+  'event-sigmet': 'aviation hazards (SIGMET)',
+  'event-weather-warning': 'weather warnings (Met Office)',
+  'sea-windfarm': 'offshore wind farms',
+  'sea-platform': 'offshore platforms',
+  'land-road-disruption': 'road disruptions (TfL)',
+  'space-weather': 'space weather (NOAA SWPC)',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -145,13 +168,22 @@ function altitude(e: WireEntity): string {
     const d = num(e.attributes.depth_km);
     return d === undefined ? '—' : `${Math.round(d)} km deep`;
   }
-  if (e.kind === 'event-flood') return 'SURFACE';
+  if (e.kind === 'event-sigmet') {
+    const b = num(e.attributes.base_ft), t = num(e.attributes.top_ft);
+    const fl = (ft: number) => (ft <= 0 ? 'SFC' : `FL${String(Math.round(ft / 100)).padStart(3, '0')}`);
+    return t !== undefined ? `${fl(b ?? 0)}–${fl(t)}` : b !== undefined ? `ABV ${fl(b)}` : '—';
+  }
+  if (e.kind === 'event-flood' || e.kind === 'event-weather-warning' || e.kind.startsWith('sea-') && e.kind !== 'sea-vessel') return 'SURFACE';
+  if (e.kind === 'land-road-disruption') return 'GND';
   const ft = num(e.attributes.alt_ft) ?? (num(e.attributes.alt_m) !== undefined ? Math.round(num(e.attributes.alt_m)! * FT_PER_M) : undefined);
   if (ft === undefined) return '—';
   return ft >= 6000 ? `FL${Math.round(ft / 100).toString().padStart(3, '0')}` : `${Math.round(ft).toLocaleString()} ft`;
 }
 
 function classOf(e: WireEntity): string {
+  // SIGMETs by hazard, warnings by level: the inspector and the filter read better.
+  if (!e.classification && e.kind === 'event-sigmet' && typeof e.attributes.hazard === 'string') return `SIGMET ${e.attributes.hazard}`.toUpperCase();
+  if (!e.classification && e.kind === 'event-weather-warning' && typeof e.attributes.level === 'string') return `${e.attributes.level} warning`.toUpperCase();
   // Ships without a classification are labelled by their AIS ship type (cargo, tanker…).
   const shipType = e.kind === 'sea-vessel' && typeof e.attributes.ship_type === 'string' ? e.attributes.ship_type : undefined;
   return (e.classification?.label ?? shipType ?? KIND_CLASS[e.kind] ?? e.kind)
@@ -176,6 +208,25 @@ function runwaysOf(geo: string | undefined): [number, number, number, number, nu
     .filter((r) => (r.length === 4 || r.length === 5) && r.every(Number.isFinite))
     .map((r) => [r[0], r[1], r[2], r[3], r[4] || 45] as [number, number, number, number, number]);
   return out.length ? out : undefined;
+}
+
+/** An area's outline from the feed's `lat,lon;lat,lon;…` text (null when absent or bad). */
+export function parsePolygon(text: unknown): [number, number][] | undefined {
+  if (typeof text !== 'string' || !text) return undefined;
+  const pts = text.split(';').map((p) => p.split(',').map(Number))
+    .filter((p) => p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) <= 90)
+    .map((p) => [p[0], p[1]] as [number, number]);
+  return pts.length >= 3 ? pts : undefined;
+}
+
+/** A time attribute (unix s or text) as "17 14:00Z". */
+function when(v: unknown): string | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) return new Date(v * 1000).toISOString().slice(8, 16).replace('T', ' ') + 'Z';
+  if (typeof v === 'string' && v) {
+    const t = Date.parse(v);
+    return Number.isFinite(t) ? new Date(t).toISOString().slice(8, 16).replace('T', ' ') + 'Z' : v;
+  }
+  return undefined;
 }
 
 /** The kind-specific attributes the inspector lists, in display order. */
@@ -209,8 +260,34 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
         ['TEMP / DEW', num(e.attributes.temp_c) !== undefined ? `${num(e.attributes.temp_c)} / ${num(e.attributes.dewpoint_c) ?? '—'} °C` : undefined],
         ['QNH', a('qnh_hpa') ? `${a('qnh_hpa')} hPa` : undefined],
         ['METAR', a('metar')], ['OBSERVED', t !== undefined ? new Date(t * 1000).toISOString().slice(11, 16) + ' UTC' : undefined]);
+      // The TAF itself is shown below the facts, with its worst category. [FR-H-1]
       break;
     }
+    case 'air-track':
+      // Where the position came from: ADS-B from the aircraft, or multilateration. [FR-H-1]
+      rows.push(['POSITION BY', a('pos_source') ? `${a('pos_source')!.replace('adsb_icao', 'ADS-B').replace('mlat', 'MLAT')}${a('pos_feed') ? ` · ${a('pos_feed')}` : ''}` : undefined]);
+      break;
+    case 'event-sigmet': {
+      const b = num(e.attributes.base_ft), top = num(e.attributes.top_ft);
+      rows.push(['HAZARD', [a('qualifier'), a('hazard')].filter(Boolean).join(' ') || undefined],
+        ['LEVELS', b !== undefined || top !== undefined ? `${b !== undefined ? `${b.toLocaleString()} ft` : 'SFC'} – ${top !== undefined ? `${top.toLocaleString()} ft` : 'not given'}` : undefined],
+        ['FIR', a('fir')], ['VALID', [when(e.attributes.valid_from), when(e.attributes.valid_to)].filter(Boolean).join(' – ') || undefined], ['RAW', a('raw')]);
+      break;
+    }
+    case 'event-weather-warning':
+      rows.push(['LEVEL', a('level')?.toUpperCase()], ['WEATHER', a('weather')], ['REGION', a('region')], ['TITLE', a('title')],
+        ['VALID', [when(e.attributes.valid_from), when(e.attributes.valid_to)].filter(Boolean).join(' – ') || undefined], ['LINK', a('link')]);
+      break;
+    case 'sea-windfarm':
+      rows.push(['NAME', a('name')], ['STATUS', a('status')], ['CAPACITY', num(e.attributes.capacity_mw) !== undefined ? `${num(e.attributes.capacity_mw)!.toLocaleString()} MW` : a('capacity_mw')], ['DEVELOPER', a('developer')]);
+      break;
+    case 'sea-platform':
+      rows.push(['NAME', a('name')], ['OPERATOR', a('operator')], ['TYPE', a('type')], ['FIELD', a('field')], ['STATUS', a('status')]);
+      break;
+    case 'land-road-disruption':
+      rows.push(['SEVERITY', a('severity')], ['CATEGORY', a('category')], ['LOCATION', a('location')], ['COMMENTS', a('comments')],
+        ['FROM', when(e.attributes.start)], ['UNTIL', when(e.attributes.end)]);
+      break;
     case 'sea-vessel':
       rows.push(['NAME', a('name')], ['MMSI', a('mmsi')], ['IMO', a('imo')], ['TYPE', a('ship_type')], ['STATUS', a('nav_status')],
         ['DESTINATION', a('destination')], ['HEADING', num(e.attributes.heading) !== undefined ? `${Math.round(num(e.attributes.heading)!)}°` : undefined]);
@@ -220,6 +297,41 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
       break;
   }
   return rows.filter((r): r is [string, string] => r[1] !== undefined).map(([label, value]) => ({ label, value }));
+}
+
+/** Times in unix seconds (a gateway sending milliseconds is read either way). */
+function normaliseAlert(a: HeimdallAlert): HeimdallAlert {
+  const secs = (v: number | null | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? (v > 1e12 ? Math.round(v / 1000) : v) : null);
+  return {
+    ...a,
+    raisedAt: secs(a.raisedAt) ?? 0,
+    clearedAt: secs(a.clearedAt),
+    acknowledgedAt: secs(a.acknowledgedAt),
+    acknowledgedBy: a.acknowledgedBy ?? null,
+    lat: typeof a.lat === 'number' ? a.lat : null,
+    lon: typeof a.lon === 'number' ? a.lon : null,
+  };
+}
+
+/** The SWPC entity's attributes as the picture's space weather. [FR-H-1] */
+function spaceWeatherOf(entities: WireEntity[]): HeimdallSpaceWeather | undefined {
+  const e = entities.find((x) => x.kind === 'space-weather');
+  if (!e) return undefined;
+  // Scales arrive as 0–5, or as text such as "G1".
+  const scale = (k: string) => {
+    const v = e.attributes[k];
+    const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/\D/g, ''));
+    return Number.isFinite(n) ? Math.max(0, Math.min(5, Math.round(n))) : 0;
+  };
+  const kpTime = e.attributes.kp_time;
+  return {
+    kp: num(e.attributes.kp) ?? null,
+    kpTime: typeof kpTime === 'number' ? kpTime : typeof kpTime === 'string' && Number.isFinite(Date.parse(kpTime)) ? Date.parse(kpTime) / 1000 : undefined,
+    gScale: scale('g_scale'),
+    sScale: scale('s_scale'),
+    rScale: scale('r_scale'),
+    xrayClass: textAttr(e, 'xray_class'),
+  };
 }
 
 export class HeimdallHttp implements HeimdallGateway {
@@ -326,8 +438,15 @@ export class HeimdallHttp implements HeimdallGateway {
   }
 
   private track(e: WireEntity): HeimdallTrack | null {
-    const reportedLat = num(e.attributes.lat);
-    const reportedLon = num(e.attributes.lon);
+    // Space weather is global, not a place: it goes to picture.spaceWeather instead.
+    if (e.kind === 'space-weather') return null;
+    const area = parsePolygon(e.attributes.polygon);
+    let reportedLat = num(e.attributes.lat);
+    let reportedLon = num(e.attributes.lon);
+    if ((reportedLat === undefined || reportedLon === undefined) && area) {
+      reportedLat = area.reduce((s, p) => s + p[0], 0) / area.length;
+      reportedLon = area.reduce((s, p) => s + p[1], 0) / area.length;
+    }
     if (reportedLat === undefined || reportedLon === undefined) return null;
     const [lat, lon] = this.estimate(e, reportedLat, reportedLon);
     const [x, y] = this.project(lat, lon);
@@ -363,7 +482,7 @@ export class HeimdallHttp implements HeimdallGateway {
       detail: {
         key: e.id,
         kind: e.kind,
-        name: text('name') ?? text('place') ?? text('area'),
+        name: text('name') ?? text('place') ?? text('area') ?? text('title') ?? text('location') ?? (e.kind === 'event-sigmet' ? [text('fir'), 'SIGMET', text('hazard')].filter(Boolean).join(' ') : undefined),
         callsign: text('callsign'),
         squawk: text('squawk') ?? (num(e.attributes.squawk) !== undefined ? String(e.attributes.squawk) : undefined),
         category: text('category'),
@@ -378,6 +497,13 @@ export class HeimdallHttp implements HeimdallGateway {
         flightCategory: e.kind === 'land-airport' ? textAttr(e, 'flight_category') : undefined,
         runways: e.kind === 'land-airport' ? runwaysOf(textAttr(e, 'runways_geo')) : undefined,
         facts: factsOf(e),
+        area,
+        hazard: e.kind === 'event-sigmet' ? text('hazard') : undefined,
+        baseFt: e.kind === 'event-sigmet' ? num(e.attributes.base_ft) : undefined,
+        topFt: e.kind === 'event-sigmet' ? num(e.attributes.top_ft) : undefined,
+        level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : undefined,
+        taf: e.kind === 'land-airport' ? text('taf') : undefined,
+        tafWorst: e.kind === 'land-airport' ? text('taf_worst_category_12h') : undefined,
         label: e.classification?.label,
         rationale: e.classification?.rationale,
         sources: e.sources,
@@ -421,7 +547,43 @@ export class HeimdallHttp implements HeimdallGateway {
       entities: p.entities.map((e) => this.entity(e)),
       region: this.region,
       fetchedAt: this.fetchedAt,
+      spaceWeather: spaceWeatherOf(p.entities),
     };
+  }
+
+  /** Alerts from `GET /heimdall/alerts?state=…`, newest first. [FR-H-1] */
+  async getAlerts(state: 'open' | 'all' = 'open'): Promise<HeimdallAlert[]> {
+    const body = await this.alertsCall(`/heimdall/alerts?state=${state}`, 'GET');
+    const list = Array.isArray(body?.alerts) ? (body.alerts as HeimdallAlert[]) : null;
+    if (!list) throw new HeimdallAlertsUnavailableError('alerts unavailable: unexpected reply');
+    return list.map(normaliseAlert).sort((a, b) => b.raisedAt - a.raisedAt);
+  }
+
+  /** Acknowledge an alert as the signed-in user (the gateway audits it). [FR-H-5] */
+  async ackAlert(id: string): Promise<HeimdallAlert> {
+    const body = await this.alertsCall(`/heimdall/alerts/${encodeURIComponent(id)}/ack`, 'POST');
+    const alert = (body?.alert ?? body) as HeimdallAlert | null;
+    if (!alert || typeof alert.id !== 'string') throw new Error('acknowledge failed: unexpected reply');
+    return normaliseAlert(alert);
+  }
+
+  private async alertsCall(path: string, method: 'GET' | 'POST'): Promise<any> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}${path}`, { method, headers: { authorization: `Bearer ${this.token}` } });
+    } catch (err) {
+      throw new HeimdallAlertsUnavailableError(`alerts unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (res.status === 401) {
+      this.onUnauthorized?.();
+      throw new Error('session expired: sign in again');
+    }
+    if (res.status === 404 || res.status === 501 || res.status === 502 || res.status === 503) {
+      throw new HeimdallAlertsUnavailableError(`alerts unavailable (HTTP ${res.status})`);
+    }
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+    return body;
   }
 
   async listEntities(): Promise<HeimdallEntity[]> {
