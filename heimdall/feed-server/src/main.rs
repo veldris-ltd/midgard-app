@@ -5,7 +5,7 @@
 //! heimdall-feed --identity-dir DIR --state-dir DIR
 //!               [--service NAME] [--purpose P] [--bind ADDR] [--health-bind ADDR]
 //!               [--track-ttl SECONDS] [--history-retention SECONDS]
-//!               [--history-page-bytes BYTES]
+//!               [--history-page-bytes BYTES] [--picture-page-bytes BYTES]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -22,7 +22,9 @@
 //! Track history (each positioned observation's point, sealed in `history/`) is kept
 //! for `--history-retention` seconds (default 86400) and read with `ReadHistory`, in
 //! pages of at most `--history-page-bytes` (default 921600; smaller only to exercise
-//! paging). [FR-H-1] [RC-13]
+//! paging). `ReadPicture` serves the picture in pages of at most
+//! `--picture-page-bytes` of entities (default 921600; smaller only to exercise paging).
+//! [FR-H-1] [RC-13]
 //!
 //! `ttl.json` in the state directory, when it exists, sets the time-to-live of exact
 //! kinds (see [`heimdall_feed_server::ttl_file`]); other kinds use `--track-ttl`.
@@ -40,7 +42,7 @@ use governance::Governance;
 use heimdall_classify::RulesClassifier;
 use heimdall_feed_server::{
     describe_ttl, parse_alerts, parse_rules, parse_ttl, AlertBook, AlertConfig, FeedService,
-    PictureState, DEFAULT_HISTORY_RETENTION, HISTORY_PAGE_BYTES,
+    PictureState, DEFAULT_HISTORY_RETENTION, HISTORY_PAGE_BYTES, PICTURE_PAGE_BYTES,
 };
 use heimdall_fusion::FusionEngine;
 use heimdall_store::{DurableHistory, DurablePicture};
@@ -56,7 +58,8 @@ use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle}
 
 const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--service NAME] \
                      [--purpose P] [--bind ADDR] [--health-bind ADDR] [--track-ttl SECONDS] \
-                     [--history-retention SECONDS] [--history-page-bytes BYTES]";
+                     [--history-retention SECONDS] [--history-page-bytes BYTES] \
+                     [--picture-page-bytes BYTES]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "heimdall-feed-audit";
@@ -75,6 +78,7 @@ fn main() {
             "track-ttl",
             "history-retention",
             "history-page-bytes",
+            "picture-page-bytes",
         ],
         &[],
     ) {
@@ -116,6 +120,16 @@ fn run(args: &Args) -> Result<(), String> {
                 format!("--history-page-bytes must be 1..={HISTORY_PAGE_BYTES}, not '{s}'")
             })?,
         None => HISTORY_PAGE_BYTES,
+    };
+    let picture_page_bytes = match args.get("picture-page-bytes") {
+        Some(s) => s
+            .parse::<usize>()
+            .ok()
+            .filter(|v| (1..=PICTURE_PAGE_BYTES).contains(v))
+            .ok_or_else(|| {
+                format!("--picture-page-bytes must be 1..={PICTURE_PAGE_BYTES}, not '{s}'")
+            })?,
+        None => PICTURE_PAGE_BYTES,
     };
     let logger = Logger::new(service, &StdoutJsonSink);
 
@@ -225,6 +239,7 @@ fn run(args: &Args) -> Result<(), String> {
     feed_service.set_kind_ttls(kind_ttls);
     feed_service.set_history_retention(history_retention);
     feed_service.set_history_page_bytes(history_page_bytes);
+    feed_service.set_picture_page_bytes(picture_page_bytes);
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
     let gateway = Gateway::new(
         Arc::new(fips_provider()),

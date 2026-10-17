@@ -43,6 +43,8 @@ service-runtime = { path = "../../services/runtime" }
 # Tests issue real mesh identities with an in-enclosure issuer.
 iam = { path = "../../services/iam" }
 attest = { path = "../../crypto/attest" }
+# The browser gateway's Heimdall bridge, to prove it reads a paged picture whole.
+http-gateway = { path = "../../services/http-gateway" }
 
 [[bin]]
 name = "heimdall-feed"

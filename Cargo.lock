@@ -543,6 +543,7 @@ dependencies = [
  "heimdall-fusion",
  "heimdall-picture",
  "heimdall-store",
+ "http-gateway",
  "iam",
  "policy",
  "pq-mtls",

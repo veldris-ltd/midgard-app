@@ -14,7 +14,9 @@ use std::process::{Child, Command, Output, Stdio};
 
 use attest::Keystore;
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
-use heimdall_feed_server::{outcome, ACKNOWLEDGE_ALERT, INGEST, READ_ALERTS, READ_HISTORY};
+use heimdall_feed_server::{
+    outcome, ACKNOWLEDGE_ALERT, INGEST, READ_ALERTS, READ_HISTORY, READ_PICTURE,
+};
 use heimdall_picture::{FeedId, Observation};
 use iam::{Idp, IDP_SIG_ALG};
 use policy::Role;
@@ -881,6 +883,144 @@ fn rules_and_detectors_raise_alerts_analysts_read_and_acknowledge() {
     assert_eq!(all.len(), 2);
     assert_eq!(all[1].str_field("acknowledgedBy"), Some("alice"));
     drop(session);
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A picture larger than one page: `ReadPicture` with an empty body serves the first
+/// page and a cursor; paging with `after` returns every entity once, in id order, with
+/// the layers on every page; a layer filter pages too; `heimdall-source --picture` and
+/// the browser gateway's bridge both read it whole; a malformed query is refused; and
+/// each page is audited. [FR-H-1] [NFR-SEC-1]
+#[test]
+fn a_picture_larger_than_a_page_is_read_whole_through_paging() {
+    let root = scratch("paged");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "adsb", &["feed-source"]);
+    issue(&idp, &clients, "analyst", &["picture-reader"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+    let server = start_with(&server_identity, &state, &["--picture-page-bytes", "2000"]);
+
+    // 40 airspace volumes with ~400-byte polygons, and 5 aircraft.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let polygon = "[[51.0,-1.0],[51.1,-1.0],[51.1,-0.9],[51.0,-0.9]]".repeat(8);
+    let mut lines = Vec::new();
+    for i in 0..40 {
+        lines.push(format!(
+            r#"{{"entity": "AS-{i:02}", "kind": "airspace-volume", "observedAt": {now}, "attrs": {{"polygon": "{polygon}", "upper_ft": 24500}}}}"#
+        ));
+    }
+    for i in 0..5 {
+        lines.push(format!(
+            r#"{{"entity": "AC-{i}", "kind": "air-track", "observedAt": {now}, "attrs": {{"speed": 400}}}}"#
+        ));
+    }
+    let file = root.join("batch.jsonl");
+    std::fs::write(&file, lines.join("\n")).unwrap();
+    let out = source(
+        &clients,
+        "adsb",
+        &server.mesh,
+        &["--batch", &file.display().to_string()],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let mut expected: Vec<String> = (0..5)
+        .map(|i| format!("AC-{i}"))
+        .chain((0..40).map(|i| format!("AS-{i:02}")))
+        .collect();
+    expected.sort();
+
+    let ids_of = |page: &Json| -> Vec<String> {
+        match page.get("entities") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(|e| e.str_field("id").unwrap().to_string())
+                .collect(),
+            _ => panic!("{}", page.encode()),
+        }
+    };
+    let analyst = ServiceIdentity::load(&clients, "analyst").unwrap();
+    let mut session = client::Session::open(&analyst, &server.mesh, PURPOSE).unwrap();
+    let mut read_all = |query: &str| -> (usize, Vec<String>) {
+        let mut pages = 0;
+        let mut ids = Vec::new();
+        // The unfiltered read starts with an empty body, as the CLI's first page does.
+        let mut request: Vec<u8> = if query == "{}" {
+            Vec::new()
+        } else {
+            query.as_bytes().to_vec()
+        };
+        loop {
+            let response = session.call(READ_PICTURE, &request).unwrap();
+            assert_eq!(response[0], outcome::ACCEPTED, "{}", text(&response[1..]));
+            assert!(response.len() < 2000 + 1200, "{} bytes", response.len());
+            pages += 1;
+            let page = parse(&text(&response[1..])).unwrap();
+            assert!(
+                matches!(page.get("layers"), Some(Json::Arr(l)) if l.len() == 2),
+                "every page has the layers: {}",
+                page.encode()
+            );
+            ids.extend(ids_of(&page));
+            match page.get("next") {
+                Some(Json::Null) => break,
+                Some(next) => {
+                    let mut q = parse(query).unwrap();
+                    if let Json::Obj(pairs) = &mut q {
+                        pairs.push(("after".into(), next.clone()));
+                    }
+                    request = q.encode().into_bytes();
+                }
+                None => panic!("no next in {}", page.encode()),
+            }
+        }
+        (pages, ids)
+    };
+    let (pages, ids) = read_all("{}");
+    assert!(pages > 5, "a 2000-byte budget pages ({pages} pages)");
+    assert_eq!(ids, expected, "every entity once, in id order");
+    let (air_pages, air) = read_all(r#"{"layer": "air"}"#);
+    assert_eq!(air, ["AC-0", "AC-1", "AC-2", "AC-3", "AC-4"]);
+    let malformed = session.call(READ_PICTURE, br#"{"after": 7}"#).unwrap();
+    assert_eq!(malformed[0], outcome::MALFORMED);
+    drop(session);
+
+    // The CLI reads every page and prints the merged picture.
+    let whole = picture(&clients, &server.mesh);
+    assert_eq!(ids_of(&whole), expected);
+    assert!(whole.get("next").is_none());
+    let cli_pages = pages;
+
+    // So does the gateway's bridge.
+    let bridge = http_gateway::heimdall_bridge::HeimdallBridge::new(
+        ServiceIdentity::load(&clients, "analyst").unwrap(),
+        &server.mesh,
+        PURPOSE,
+    );
+    let merged = bridge
+        .picture()
+        .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+    assert_eq!(ids_of(&merged), expected);
+    assert!(matches!(merged.get("layers"), Some(Json::Arr(l)) if l.len() == 2));
+    assert!(merged.get("truncated").is_none(), "whole, so not truncated");
+    assert!(merged.get("next").is_none());
+
+    // Audited: 45 submissions and one entry per page read (the analyst's two paged
+    // reads, the malformed one, the CLI's and the bridge's).
+    drop(server);
+    let server = start(&server_identity, &state);
+    assert_eq!(
+        server.recovered,
+        (45 + pages + air_pages + 1 + cli_pages + pages).to_string()
+    );
     drop(server);
     let _ = std::fs::remove_dir_all(&root);
 }
