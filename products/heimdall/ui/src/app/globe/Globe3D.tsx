@@ -1,11 +1,15 @@
 /* The 3D view of the operating picture: the GlobeView scene plus its React overlays
  * (camera controls, the vertical-exaggeration slider, the selected track's label and
  * the hover tooltip). Selection is the screen's, shared with the 2D canvas.
- * [FR-P3-3] [FR-P3-7] */
+ * [FR-P3-3] [FR-P3-7]
+ * Also hands the scene its overlays (areas, radar, day/night time, the MEASURE line and
+ * range rings) and takes camera requests (fly to an alert, the wall display's tour).
+ * [FR-H-1] */
 import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { colourOf, shapeOf } from '../trackStyle';
-import { GlobeView, type GlobeItem, type GlobeTrail } from './GlobeView';
+import { GlobeView, type GlobeArea, type GlobeItem, type GlobeTrail, type PresetId } from './GlobeView';
+import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em' };
@@ -59,9 +63,29 @@ export interface Globe3DProps {
   onHover: (id: string | null) => void;
   /** Height (px) of the panels laid over the bottom of the canvas. */
   bottomInset?: number;
+  /** Areas to draw (SIGMET and airspace volumes, draped fills). Rebuilt only when the set
+   *  of ids changes. */
+  areas?: GlobeArea[];
+  /** The radar image over the terrain box, or null. */
+  radar?: HTMLCanvasElement | null;
+  /** The time the night side is shaded for (unix ms): now, or the replay time. */
+  sunTime?: number;
+  /** MEASURE: surface taps go to `onSurface` instead of selecting. */
+  measuring?: boolean;
+  measure?: LatLon[];
+  rings?: { centre: LatLon; nms: number[] } | null;
+  onSurface?: (at: LatLon) => void;
+  /** Wall display: larger markers. */
+  markerScale?: number;
+  /** A one-off camera request; `n` changes for each new request. */
+  flyRequest?: { n: number; id?: string; lat?: number; lon?: number; preset?: PresetId } | null;
+  /** Any direct input on the globe (pauses the tour). */
+  onInteract?: () => void;
 }
 
-export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0 }: Globe3DProps) {
+export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract }: Globe3DProps) {
+  const measureRef = React.useRef<HTMLDivElement>(null);
+  const ringLabelRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const hostRef = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<GlobeView | null>(null);
   const labelRef = React.useRef<HTMLDivElement>(null);
@@ -82,8 +106,8 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   React.useEffect(() => { viewRef.current?.setImagery(imagery); }, [imagery]);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
-  const live = React.useRef({ onSelect, onHover, selected, hover });
-  live.current = { onSelect, onHover, selected, hover };
+  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings });
+  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings };
 
   /** Move the label, tooltip and compass to follow the camera (after every frame). */
   const overlays = React.useCallback(() => {
@@ -98,6 +122,21 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     place(labelRef.current, live.current.selected || null);
     place(tipRef.current, live.current.hover && live.current.hover !== live.current.selected ? live.current.hover : null);
     if (compassRef.current) compassRef.current.style.transform = `rotate(${-view.state.heading}deg)`;
+    // The measured distance sits at the line's far end; ring labels at each ring's north.
+    const m = live.current.measure;
+    if (measureRef.current) {
+      const at = m.length === 2 ? view.screenOfPoint(m[1].lat, m[1].lon) : null;
+      measureRef.current.style.display = at ? 'block' : 'none';
+      if (at) measureRef.current.style.transform = `translate(${Math.round(at.x)}px, ${Math.round(at.y)}px)`;
+    }
+    const r = live.current.rings;
+    ringLabelRefs.current.forEach((el, i) => {
+      if (!el) return;
+      const nm = r?.nms[i];
+      const at = r && nm !== undefined ? view.screenOfPoint(r.centre.lat + nm / 60, r.centre.lon) : null;
+      el.style.display = at ? 'block' : 'none';
+      if (at) el.style.transform = `translate(${Math.round(at.x)}px, ${Math.round(at.y)}px) translate(-50%, -50%)`;
+    });
     setTilted(view.state.tilt > 5);
   }, []);
 
@@ -111,6 +150,8 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
         onHover: (id) => live.current.onHover(id),
         onFrame: overlays,
         onFollowEnd: () => setFollow(false),
+        onSurface: (at) => live.current.onSurface?.(at),
+        onInteract: () => live.current.onInteract?.(),
       });
     } catch (err) {
       setFailed(err instanceof Error ? err.message : String(err));
@@ -133,9 +174,15 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     hdg: t.hdg,
     colour: colourOf(t),
     station: t.detail.station,
-    magnitude: t.detail.magnitude,
+    magnitude: t.detail.kind === 'event-fire' ? t.detail.frp : t.detail.magnitude,
     runways: t.detail.runways,
-  }] : [])), [tracks]);
+  }] : [])).map((it) => {
+    // A SIGMET's marker floats mid-volume, where it can be picked.
+    const t = tracks.find((x) => x.id === it.id);
+    const d = t?.detail;
+    if (it.shape === 'sigmet' && d) return { ...it, altM: (((d.baseFt ?? 0) + (d.topFt ?? (d.baseFt ?? 0) + 10000)) / 2) / 3.28084 };
+    return it;
+  }), [tracks]);
 
   const itemsRef = React.useRef(items);
   itemsRef.current = items;
@@ -145,6 +192,28 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     if (selected && itemsRef.current.find((it) => it.id === selected)?.shape === 'airport') viewRef.current?.flyClose(selected);
   }, [selected]);
   React.useEffect(() => { viewRef.current?.setInsets(bottomInset); }, [bottomInset]);
+  // Areas rebuild only when the set changes (1,300 airspaces are not rebuilt every redraw).
+  const areasRef = React.useRef(areas);
+  areasRef.current = areas;
+  const areaSig = areas.map((a) => a.id).join('|');
+  React.useEffect(() => { viewRef.current?.setAreas(areasRef.current); }, [areaSig]);
+  React.useEffect(() => { viewRef.current?.setRadar(radar); }, [radar]);
+  // Shade for the minute (a frame per minute is plenty for the terminator).
+  const sunMinute = Math.floor((sunTime ?? Date.now()) / 60000);
+  React.useEffect(() => { viewRef.current?.setSunTime(sunMinute * 60000); }, [sunMinute]);
+  React.useEffect(() => { viewRef.current?.setPickSurface(measuring); }, [measuring]);
+  const ringSig = rings ? `${rings.centre.lat.toFixed(4)},${rings.centre.lon.toFixed(4)},${rings.nms.join(',')}` : '';
+  const measureSig = measure.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(';');
+  React.useEffect(() => { viewRef.current?.setMeasure(live.current.measure, live.current.rings); overlays(); }, [measureSig, ringSig, overlays]);
+  React.useEffect(() => { viewRef.current?.setMarkerScale(markerScale); }, [markerScale]);
+  React.useEffect(() => {
+    const v = viewRef.current;
+    if (!v || !flyRequest) return;
+    if (flyRequest.preset) v.flyToPreset(flyRequest.preset);
+    else if (flyRequest.id && itemsRef.current.some((it) => it.id === flyRequest.id)) v.flyToItem(flyRequest.id);
+    else if (flyRequest.lat !== undefined && flyRequest.lon !== undefined) v.flyToPoint(flyRequest.lat, flyRequest.lon);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyRequest?.n]);
   React.useEffect(() => { viewRef.current?.setTrails(trails); }, [trails]);
   const sel = tracks.find((t) => t.id === selected);
   const selColour = sel ? colourOf(sel) : undefined;
@@ -166,7 +235,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
-      <div ref={hostRef} style={{ position: 'absolute', inset: 0, touchAction: 'none', cursor: hover ? 'pointer' : 'grab' }} />
+      <div ref={hostRef} style={{ position: 'absolute', inset: 0, touchAction: 'none', cursor: measuring ? 'crosshair' : hover ? 'pointer' : 'grab' }} />
       {failed && (
         <div role="alert" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', ...mono, color: 'var(--warn)' }}>
           3D VIEW UNAVAILABLE · WEBGL: {failed}
@@ -188,7 +257,11 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
               <span style={{ ...mono, fontSize: 11, fontWeight: 600, color: 'var(--text-heading)' }}>{tip.detail?.name && tip.detail.kind !== 'air-track' ? tip.detail.name : tip.id}</span>
               <span style={{ ...mono, color: 'var(--text-faint)' }}>{tip.cls}</span>
             </div>
-            {([
+            {(tip.detail?.area ? [
+              // Areas: what it is and its vertical limits. [FR-H-1]
+              ['TYPE', tip.detail.airspaceType ? `${tip.detail.airspaceType.toUpperCase()}${tip.detail.icaoClass ? ` · CLASS ${tip.detail.icaoClass}` : ''}` : tip.cls],
+              ['LIMITS', tip.alt],
+            ] : [
               ['ALT', tip.alt],
               ['TRK / SPD', tip.spd ? `${String(Math.round(tip.hdg)).padStart(3, '0')}° · ${tip.spd.toLocaleString()} KT` : '—'],
               ['POSITION', tip.detail ? `${tip.detail.lat.toFixed(2)}, ${tip.detail.lon.toFixed(2)}` : '—'],
@@ -201,6 +274,18 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
           </div>
         )}
       </div>
+
+      {/* The MEASURE result and range ring labels, placed each frame by `overlays`. */}
+      <div ref={measureRef} aria-live="polite" style={{ position: 'absolute', left: 0, top: 0, display: 'none', pointerEvents: 'none', zIndex: 4 }}>
+        {measure.length === 2 && (() => { const f = fmtMeasure(measure[0], measure[1]); return (
+          <span style={{ position: 'absolute', left: 10, top: -26, whiteSpace: 'nowrap', ...mono, fontSize: 10, color: 'var(--grey-100)', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', border: '1px solid var(--border-strong)', borderRadius: 3, padding: '3px 7px' }}>
+            {f.nm} · {f.km} · {f.brg}
+          </span>
+        ); })()}
+      </div>
+      {(rings?.nms ?? []).map((nm, i) => (
+        <span key={nm} ref={(el) => { ringLabelRefs.current[i] = el; }} aria-hidden style={{ position: 'absolute', left: 0, top: 0, display: 'none', pointerEvents: 'none', zIndex: 3, ...mono, fontSize: 8, color: 'var(--accent-hover)', background: 'color-mix(in srgb, var(--bg-sunken) 75%, transparent)', padding: '0 4px', whiteSpace: 'nowrap' }}>{nm} NM</span>
+      ))}
 
       {/* Camera controls. */}
       <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', flexDirection: 'column', gap: 6, zIndex: 4 }}>
