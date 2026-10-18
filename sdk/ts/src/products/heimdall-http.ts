@@ -468,9 +468,26 @@ export class HeimdallHttp implements HeimdallGateway {
     return this.cached.picture;
   }
 
-  /** One read of the picture, optionally limited to some layers. */
+  /** Boxes the reads are limited to (setRegions), or null for everywhere. */
+  private regions: [number, number, number, number][] | null = null;
+
+  setRegions(boxes: [number, number, number, number][] | null): void {
+    const key = (b: typeof boxes) => JSON.stringify(b);
+    if (key(boxes) === key(this.regions)) return;
+    this.regions = boxes;
+    // Read again now, for the new area.
+    this.cached = null;
+    this.staticLayers = null;
+  }
+
+  private regionParams(): string[] {
+    return (this.regions ?? []).map((b) => `bbox=${b.map((v) => +v.toFixed(3)).join(',')}`);
+  }
+
+  /** One read of the picture, optionally limited to some layers and the regions. */
   private async readPicture(layers?: string[]): Promise<WirePicture> {
-    const q = layers?.length ? `?layers=${layers.join(',')}` : '';
+    const parts = [...(layers?.length ? [`layers=${layers.join(',')}`] : []), ...this.regionParams()];
+    const q = parts.length ? `?${parts.join('&')}` : '';
     const res = await fetch(`${this.base}/heimdall/picture${q}`, {
       headers: { authorization: `Bearer ${this.token}` },
     });
@@ -756,7 +773,7 @@ export class HeimdallHttp implements HeimdallGateway {
     if (q.step) params.set('step', String(Math.round(q.step)));
     let res: Response;
     try {
-      res = await fetch(`${this.base}/heimdall/history?${params}`, {
+      res = await fetch(`${this.base}/heimdall/history?${[params.toString(), ...this.regionParams()].join('&')}`, {
         headers: { authorization: `Bearer ${this.token}` },
       });
     } catch (err) {

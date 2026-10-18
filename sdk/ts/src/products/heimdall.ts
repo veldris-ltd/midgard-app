@@ -367,6 +367,9 @@ export interface HeimdallGateway {
   /** Recorded positions over a window, for replay and trails. Rejects with
    *  `HeimdallHistoryUnavailableError` when the gateway has none. [FR-P3-7] */
   getHistory(q: HeimdallHistoryQuery): Promise<HeimdallHistory>;
+  /** Limit the picture and history to these boxes ([west, south, east, north], degrees);
+   *  null for everywhere. Optional: a gateway without it shows everything. [FR-H-1] */
+  setRegions?(boxes: [number, number, number, number][] | null): void;
 
   // Alerts -------------------------------------------------------------------
   /** Alerts, newest first: `open` (not cleared) or `all`. Rejects with

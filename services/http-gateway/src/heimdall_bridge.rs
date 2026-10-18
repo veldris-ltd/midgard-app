@@ -550,6 +550,132 @@ pub fn picture_layers_param(query: &str) -> Result<Vec<String>, EdgeError> {
     Ok(layers)
 }
 
+/// Geographic boxes from the `bbox` query parameter (repeatable, each
+/// `west,south,east,north` in degrees, at most 32): the picture and history routes then
+/// keep only what lies inside one of them, so a console can ask for just the regions it
+/// shows. Absent means everywhere. [FR-H-1]
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Boxes(pub Vec<[f64; 4]>);
+
+impl Boxes {
+    pub fn from_query(query: &str) -> Result<Self, EdgeError> {
+        let mut boxes = Vec::new();
+        for raw in query.split('&').filter_map(|kv| kv.strip_prefix("bbox=")) {
+            let decoded = percent_decode(raw)?;
+            let n: Vec<f64> = decoded
+                .split(',')
+                .map(|s| s.trim().parse::<f64>())
+                .collect::<Result<_, _>>()
+                .map_err(|_| {
+                    EdgeError::bad_request("bbox must be west,south,east,north in degrees")
+                })?;
+            if n.len() != 4
+                || n.iter().any(|v| !v.is_finite())
+                || n[1] > n[3]
+                || n[1] < -90.0
+                || n[3] > 90.0
+            {
+                return Err(EdgeError::bad_request(
+                    "bbox must be west,south,east,north in degrees",
+                ));
+            }
+            boxes.push([n[0], n[1], n[2], n[3]]);
+        }
+        if boxes.len() > 32 {
+            return Err(EdgeError::bad_request("at most 32 bbox values"));
+        }
+        Ok(Boxes(boxes))
+    }
+
+    /// Whether a point is inside any box (or there are no boxes). A box whose west is
+    /// east of its east crosses the antimeridian.
+    pub fn contains(&self, lat: f64, lon: f64) -> bool {
+        self.0.is_empty()
+            || self.0.iter().any(|[w, s, e, n]| {
+                lat >= *s
+                    && lat <= *n
+                    && if w <= e {
+                        lon >= *w && lon <= *e
+                    } else {
+                        lon >= *w || lon <= *e
+                    }
+            })
+    }
+
+    fn number(v: Option<&Json>) -> Option<f64> {
+        match v {
+            Some(Json::Num(n)) => Some(*n),
+            Some(Json::Int(i)) => Some(*i as f64),
+            _ => None,
+        }
+    }
+
+    /// The picture with only the entities inside a box; the `space` layer (satellites,
+    /// space weather) and entities without a position are always kept.
+    pub fn filter_picture(&self, picture: Json) -> Json {
+        if self.0.is_empty() {
+            return picture;
+        }
+        let Json::Obj(pairs) = picture else {
+            return picture;
+        };
+        Json::Obj(
+            pairs
+                .into_iter()
+                .map(|(k, v)| match (k.as_str(), v) {
+                    ("entities", Json::Arr(items)) => (
+                        k,
+                        Json::Arr(
+                            items
+                                .into_iter()
+                                .filter(|e| {
+                                    if e.str_field("layer") == Some("space") {
+                                        return true;
+                                    }
+                                    let attrs = e.get("attributes");
+                                    match (
+                                        Self::number(attrs.and_then(|a| a.get("lat"))),
+                                        Self::number(attrs.and_then(|a| a.get("lon"))),
+                                    ) {
+                                        (Some(lat), Some(lon)) => self.contains(lat, lon),
+                                        _ => true,
+                                    }
+                                })
+                                .collect(),
+                        ),
+                    ),
+                    (_, v) => (k, v),
+                })
+                .collect(),
+        )
+    }
+
+    /// The history with only the tracks that have a point inside a box.
+    pub fn filter_history(&self, history: Json) -> Json {
+        if self.0.is_empty() {
+            return history;
+        }
+        let Json::Obj(pairs) = history else {
+            return history;
+        };
+        Json::Obj(
+            pairs
+                .into_iter()
+                .map(|(k, v)| match (k.as_str(), v) {
+                    ("tracks", Json::Arr(items)) => (k, Json::Arr(items.into_iter().filter(|tr| {
+                        tr.str_field("layer") == Some("space")
+                            || matches!(tr.get("points"), Some(Json::Arr(pts)) if pts.iter().any(|p| match p {
+                                Json::Arr(v) if v.len() >= 3 => matches!((Self::number(v.get(1)), Self::number(v.get(2))), (Some(la), Some(lo)) if self.contains(la, lo)),
+                                _ => false,
+                            }))
+                    }).collect())),
+                    (_, v) => (k, v),
+                })
+                .collect(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,5 +860,31 @@ mod tests {
                 .status,
             400
         );
+    }
+
+    #[test]
+    fn boxes_keep_what_is_inside_them() {
+        use service_runtime::json::parse;
+        let b = super::Boxes::from_query("bbox=-12,48,4,62&bbox=170,-50,-170,-30").unwrap();
+        assert!(b.contains(51.5, -0.1));
+        assert!(b.contains(-40.0, 179.0) && b.contains(-40.0, -175.0));
+        assert!(!b.contains(40.0, 30.0));
+        assert!(super::Boxes::from_query("bbox=1,2,3").is_err());
+        let pic = parse(
+            r#"{"layers":[],"entities":[
+            {"id":"a","layer":"air","attributes":{"lat":51.5,"lon":-0.1}},
+            {"id":"b","layer":"air","attributes":{"lat":40,"lon":30}},
+            {"id":"c","layer":"space","attributes":{"lat":0,"lon":0}}]}"#,
+        )
+        .unwrap();
+        let kept = b.filter_picture(pic);
+        let ids: Vec<_> = match kept.get("entities") {
+            Some(Json::Arr(e)) => e
+                .iter()
+                .map(|x| x.str_field("id").unwrap().to_string())
+                .collect(),
+            _ => vec![],
+        };
+        assert_eq!(ids, vec!["a", "c"]);
     }
 }

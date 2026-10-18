@@ -121,6 +121,9 @@ export interface Globe3DProps {
   traffic?: TrafficLines | null;
   /** The time the night side is shaded for (unix ms): now, or the replay time. */
   sunTime?: number;
+  /** The ground under the mouse (null off the globe), and the point the camera looks at. */
+  onPointerGround?: (at: LatLon | null) => void;
+  onLookAt?: (at: LatLon) => void;
   /** MEASURE: surface taps go to `onSurface` instead of selecting. */
   measuring?: boolean;
   measure?: LatLon[];
@@ -134,13 +137,14 @@ export interface Globe3DProps {
   onInteract?: () => void;
 }
 
-export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract }: Globe3DProps) {
+export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract, onPointerGround, onLookAt }: Globe3DProps) {
   const measureRef = React.useRef<HTMLDivElement>(null);
   const ringLabelRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const hostRef = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<GlobeView | null>(null);
   const labelRef = React.useRef<HTMLDivElement>(null);
   const placesRef = React.useRef<HTMLDivElement>(null);
+  const lookAtRef = React.useRef<LatLon | null>(null);
   const tipRef = React.useRef<HTMLDivElement>(null);
   const compassRef = React.useRef<HTMLSpanElement>(null);
   const [exaggeration, setExaggeration] = React.useState(() => readNumber(EXAGGERATION_KEY, 4));
@@ -160,8 +164,8 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   React.useEffect(() => { viewRef.current?.setMapStyle(mapStyle); }, [mapStyle]);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
-  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings });
-  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings };
+  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt });
+  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt };
 
   /** Move the label, tooltip and compass to follow the camera (after every frame). */
   const overlays = React.useCallback(() => {
@@ -176,6 +180,13 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     place(labelRef.current, live.current.selected || null);
     place(tipRef.current, live.current.hover && live.current.hover !== live.current.selected ? live.current.hover : null);
     if (compassRef.current) compassRef.current.style.transform = `rotate(${-view.state.heading}deg)`;
+    // The point the camera looks at, reported when it moves by more than ~0.2°.
+    const c = view.state;
+    const last = lookAtRef.current;
+    if (!last || Math.abs(last.lat - c.lat) + Math.abs(last.lon - c.lon) > 0.2) {
+      lookAtRef.current = { lat: c.lat, lon: c.lon };
+      live.current.onLookAt?.({ lat: c.lat, lon: c.lon });
+    }
     if (placesRef.current) drawPlaceLabels(placesRef.current, view);
     // The measured distance sits at the line's far end; ring labels at each ring's north.
     const m = live.current.measure;
@@ -206,6 +217,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
         onFrame: overlays,
         onFollowEnd: () => setFollow(false),
         onSurface: (at) => live.current.onSurface?.(at),
+        onPointerGround: (at) => live.current.onPointerGround?.(at),
         onInteract: () => live.current.onInteract?.(),
       });
     } catch (err) {

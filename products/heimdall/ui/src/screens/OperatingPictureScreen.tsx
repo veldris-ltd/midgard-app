@@ -28,6 +28,7 @@ import { AreaLayer, ToolLayer } from '../app/MapOverlays2D';
 import type { LatLon } from '../app/geoMath';
 import type { GlobeArea, PresetId } from '../app/globe/GlobeView';
 import { useFlights, type Flight, type KnownAirport } from '../app/flights';
+import { REGION_LIST, WORLD_ID, inBox as inRegionBox, readFocus, readRegions, regionAt, saveFocus, saveRegions, type Region } from '../app/regions';
 import { keyOf, replayTracks, stepFor, trailOf } from '../app/history';
 import { useEntityPath, useHistory } from '../app/useHistory';
 import { Timeline, useReplayClock } from '../app/Timeline';
@@ -604,6 +605,18 @@ function Chip({ on, onClick, children, label, tone }: { on: boolean; onClick: ()
 
 export function OperatingPictureScreen() {
   const gateway = useGateway<HeimdallGateway>();
+  const [regionIds, setRegionIdsState] = React.useState<string[]>(readRegions);
+  const setRegionIds = (ids: string[]) => { setRegionIdsState(ids); saveRegions(ids); };
+  const [focusHover, setFocusHoverState] = React.useState<boolean>(readFocus);
+  const setFocusHover = (on: boolean) => { setFocusHoverState(on); saveFocus(on); };
+  const world = regionIds.includes(WORLD_ID);
+  const enabledRegions = React.useMemo(() => REGION_LIST.filter((r) => regionIds.includes(r.id)), [regionIds]);
+  const [pointerRegion, setPointerRegion] = React.useState<Region | null>(null);
+  const [lookRegion, setLookRegion] = React.useState<Region | null>(null);
+  // The gateway reads only the regions switched on.
+  React.useEffect(() => {
+    gateway.setRegions?.(world ? null : enabledRegions.map((r) => r.box));
+  }, [gateway, world, enabledRegions]);
   const status = useStatus();
   const wall = status.wall;
   const watch = useWatchlist();
@@ -703,7 +716,17 @@ export function OperatingPictureScreen() {
   const setLayer = (id: HeimdallLayerId, v: boolean) => setLayers((l) => ({ ...(l ?? ({} as LayerState)), [id]: v }));
 
   const e = tracks.find((t) => t.id === sel);
-  const visible = React.useMemo(() => tracks.filter((t) => layers?.[t.layer] !== false), [tracks, layers]);
+  // Regions: only the ones switched on are read and drawn; with FOCUS, only the one under
+  // the pointer (or the camera's centre). Satellites and space weather are global. [FR-P3-7]
+  const focusRegion = focusHover && !world ? (pointerRegion ?? lookRegion) : null;
+  const visible = React.useMemo(() => tracks.filter((t) => {
+    if (layers?.[t.layer] === false) return false;
+    if (world || t.layer === 'space') return true;
+    const lat = t.lat ?? t.detail?.lat, lon = t.lon ?? t.detail?.lon;
+    if (lat === undefined || lon === undefined) return true;
+    if (focusRegion) return inRegionBox(focusRegion.box, lat, lon) || t.id === sel;
+    return enabledRegions.some((r) => inRegionBox(r.box, lat, lon)) || t.id === sel;
+  }), [tracks, layers, world, focusRegion, enabledRegions, sel]);
   const options = e?.options ?? [];
 
   // Trails: the last `trailMins` of recorded history up to the time shown, joined to the
@@ -796,7 +819,11 @@ export function OperatingPictureScreen() {
     }
     const fill = d.kind === 'event-weather-warning' ? 0.24 : d.kind === 'land-road-disruption' ? 0.4 : d.kind === 'airspace-volume' ? 0.05 : d.kind === 'event-gnss-interference' ? (d.level === 'high' ? 0.4 : d.level === 'medium' ? 0.28 : 0.16) : 0.14;
     return { id: `${t.id}:${d.kind}`, mode: 'drape' as const, ring: d.area!, colour: areaColour(d), fill };
-  })), [areaTracks, view]);
+  })).concat(view !== '3d' || world ? [] : enabledRegions.map((r) => {
+    const [w, s, ea, n] = r.box;
+    // The region's outline; the focused one brighter.
+    return { id: `region:${r.id}`, mode: 'drape' as const, ring: [[n, w], [n, ea], [s, ea], [s, w]] as [number, number][], colour: focusRegion?.id === r.id ? '#ffd27a' : '#6f7f8f', fill: 0 };
+  })), [areaTracks, view, world, enabledRegions, focusRegion]);
 
   // ---- measure: Escape clears. 2D clicks are read from the map position. [FR-H-1]
   React.useEffect(() => {
@@ -1003,7 +1030,16 @@ export function OperatingPictureScreen() {
       }
       navFooter={
         <div style={{ padding: '10px 10px 4px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-          <div className="mg-label" style={{ color: 'var(--text-faint)' }}>LAYERS</div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)' }}>REGIONS</div>
+          <Switch checked={focusHover} onChange={setFocusHover} label="Focus on hover" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
+            {REGION_LIST.map((r) => (
+              <Switch key={r.id} checked={regionIds.includes(r.id)} label={r.label}
+                onChange={(v) => setRegionIds(v ? [...regionIds.filter((x) => x !== WORLD_ID), r.id] : regionIds.filter((x) => x !== r.id))} />
+            ))}
+            <Switch checked={world} label="Whole world (heavy)" onChange={(v) => setRegionIds(v ? [...regionIds, WORLD_ID] : regionIds.filter((x) => x !== WORLD_ID))} />
+          </div>
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginTop: 6 }}>LAYERS</div>
           {/* Only layers with something on them. */}
           {layerDefs.filter((l) => geoLive.some((t) => t.layer === l.id)).map((l) => (
             <Switch key={l.id} checked={layerOn(l.id)} onChange={(v) => setLayer(l.id, v)} label={l.label} />
@@ -1019,6 +1055,8 @@ export function OperatingPictureScreen() {
       {view === '3d' && (
         <React.Suspense fallback={<div style={{ position: 'absolute', top: '40%', width: '100%', textAlign: 'center', ...mono, color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}>
           <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hoverPath={hoverPath} pathsFirst={trailMins === 0 || trailMins >= 30} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH}
+            onPointerGround={(at) => { const r = at ? regionAt(enabledRegions, at.lat, at.lon) : null; setPointerRegion((p) => (p?.id === r?.id ? p : r)); }}
+            onLookAt={(at) => { const r = regionAt(enabledRegions, at.lat, at.lon); setLookRegion((p) => (p?.id === r?.id ? p : r)); }}
             areas={globeAreas} radar={radar.status === 'ready' ? radar.frame.canvas : null} traffic={traffic.status === 'ready' ? traffic.lines : null} sunTime={replayAt !== null ? replayAt * 1000 : Date.now()}
             measuring={measuring} measure={measurePts} rings={rings} onSurface={addMeasure} markerScale={wall ? 1.6 : 1} flyRequest={flyRequest}
             onInteract={() => { pausedUntil.current = Date.now() + TOUR_PAUSE_MS; }} />

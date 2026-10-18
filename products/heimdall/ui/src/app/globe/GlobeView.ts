@@ -127,6 +127,8 @@ export interface GlobeCallbacks {
   onSurface?: (at: LatLon) => void;
   /** Any direct input on the canvas (pauses the wall display's tour). */
   onInteract?: () => void;
+  /** The ground point under the mouse as it moves (null off the globe). */
+  onPointerGround?: (at: LatLon | null) => void;
 }
 
 /** Marker sizes in CSS pixels. */
@@ -1662,7 +1664,13 @@ export class GlobeView {
         if (!this.hoverFrame) {
           this.hoverFrame = requestAnimationFrame(() => {
             this.hoverFrame = 0;
-            if (this.hoverPending) this.cb.onHover(this.pick(this.hoverPending.x, this.hoverPending.y, 10));
+            if (this.hoverPending) {
+              this.cb.onHover(this.pick(this.hoverPending.x, this.hoverPending.y, 10));
+              if (this.cb.onPointerGround) {
+                const [nx, ny] = this.ndc(this.hoverPending.x, this.hoverPending.y);
+                this.cb.onPointerGround(this.cam.surfaceAt(nx, ny));
+              }
+            }
           });
         }
       }
