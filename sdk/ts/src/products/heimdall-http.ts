@@ -127,6 +127,7 @@ const KIND_CLASS: Record<string, string> = {
   'airspace-volume': 'AIRSPACE',
   'event-fire': 'FIRE HOTSPOT',
   'land-train': 'TRAIN',
+  'land-camera': 'CAMERA',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -146,6 +147,7 @@ const KIND_FEED: Record<string, string> = {
   'airspace-volume': 'airspace (openAIP)',
   'event-fire': 'fire hotspots (NASA FIRMS)',
   'land-train': 'train movements (TRUST)',
+  'land-camera': 'traffic and custom cameras',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -350,6 +352,9 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
     case 'land-road-disruption':
       rows.push(['SEVERITY', a('severity')], ['CATEGORY', a('category')], ['LOCATION', a('location')], ['COMMENTS', a('comments')],
         ['FROM', when(e.attributes.start)], ['UNTIL', when(e.attributes.end)]);
+      break;
+    case 'land-camera':
+      rows.push(['VIEW', a('view')], ['TYPE', a('camera_type')], ['OPERATOR', a('operator')]);
       break;
     case 'land-train': {
       const late = num(e.attributes.late_min) ?? 0;
@@ -563,6 +568,10 @@ export class HeimdallHttp implements HeimdallGateway {
         altM,
         magnitude: num(e.attributes.mag),
         lateMin: e.kind === 'land-train' ? num(e.attributes.late_min) : undefined,
+        camera: e.kind === 'land-camera' ? {
+          imageUrl: textAttr(e, 'image_url'), videoUrl: textAttr(e, 'video_url'),
+          streamUrl: textAttr(e, 'stream_url'), streamType: textAttr(e, 'stream_type'),
+        } : undefined,
         severityLevel: num(e.attributes.severity_level),
         station: isStation(e) || undefined,
         shipType: e.kind === 'sea-vessel' ? textAttr(e, 'ship_type') : undefined,

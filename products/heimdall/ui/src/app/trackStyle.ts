@@ -25,7 +25,7 @@ export const FLOOD_COLOURS: Record<number, string> = {
 
 /** The entity kind a track is drawn as. Reference-layout tracks carry no detail, so
  *  their layer stands in. */
-export type TrackShape = 'aircraft' | 'vessel' | 'train' | 'airport' | 'balloon' | 'satellite' | 'quake' | 'flood' | 'point'
+export type TrackShape = 'aircraft' | 'vessel' | 'train' | 'camera' | 'airport' | 'balloon' | 'satellite' | 'quake' | 'flood' | 'point'
   | 'sigmet' | 'warning' | 'windfarm' | 'platform' | 'road' | 'airspace' | 'fire';
 
 /** openAIP airspace by type: restrictions warm, controlled airspace cool, the rest faint. */
@@ -82,6 +82,7 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'air-balloon': return 'balloon';
     case 'sea-vessel': return 'vessel';
     case 'land-train': return 'train';
+    case 'land-camera': return 'camera';
     case 'land-airport': return 'airport';
     case 'space-satellite': return 'satellite';
     case 'event-earthquake': return 'quake';
@@ -104,6 +105,7 @@ export function colourOf(t: HeimdallTrack): string {
     case 'aircraft': return bandOf(t).color;
     case 'balloon': return 'var(--mimir-300)';
     case 'airport': return FLIGHT_CATEGORY_COLOURS[t.detail?.flightCategory ?? ''] ?? 'var(--text-muted)';
+    case 'camera': return '#7fd3ff';
     case 'train': {
       // On time (or early) green, a few minutes late amber, badly late red.
       const late = t.detail?.lateMin ?? 0;
@@ -164,4 +166,5 @@ export const AREA_LEGEND: { label: string; color: string; kind: string }[] = [
 
 /** Kinds that never move: no speed, track, trail or flight history in the inspector. */
 export const isFixedKind = (kind: string) =>
+  kind === 'land-camera' ||
   kind.startsWith('event-') || kind === 'airspace-volume' || kind === 'land-airport' || kind === 'sea-windfarm' || kind === 'sea-platform' || kind === 'land-road-disruption';

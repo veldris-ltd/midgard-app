@@ -107,12 +107,12 @@ export interface GlobeCallbacks {
 
 /** Marker sizes in CSS pixels. */
 const PX: Record<TrackShape, number> = {
-  aircraft: 17, vessel: 13, train: 10, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6,
+  aircraft: 17, vessel: 13, train: 10, camera: 9, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6,
   sigmet: 9, warning: 9, windfarm: 15, platform: 7, road: 8, airspace: 4, fire: 6,
 };
-const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'train', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire'];
+const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'train', 'camera', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire'];
 /** Flat marks laid on the ground (unlit, translucent). */
-const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire', 'train']);
+const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire', 'train', 'camera']);
 /** Marks placed on the terrain surface rather than at an altitude. */
 const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
@@ -595,6 +595,11 @@ export class GlobeView {
     badge.lineTo(-bw + br, bh); badge.quadraticCurveTo(-bw, bh, -bw, bh - br);
     badge.lineTo(-bw, -bh + br); badge.quadraticCurveTo(-bw, -bh, -bw + br, -bh);
     this.geometries.set('train', new THREE.ShapeGeometry(badge));
+    // A camera: a small body with a lens cone, flat on the ground, facing north.
+    const cam = new THREE.Shape();
+    cam.moveTo(-0.45, -0.3); cam.lineTo(0.2, -0.3); cam.lineTo(0.2, -0.12); cam.lineTo(0.5, -0.3);
+    cam.lineTo(0.5, 0.3); cam.lineTo(0.2, 0.12); cam.lineTo(0.2, 0.3); cam.lineTo(-0.45, 0.3); cam.closePath();
+    this.geometries.set('camera', new THREE.ShapeGeometry(cam));
     this.geometries.set('balloon', new THREE.SphereGeometry(0.5, 12, 8));
     this.geometries.set('satellite', new THREE.OctahedronGeometry(0.5));
     this.geometries.set('quake', new THREE.RingGeometry(0.72, 1, 40));

@@ -14,7 +14,7 @@ import {
 } from '@midgard/design-system';
 import { useAsync, useGateway } from '@midgard/ui-shared';
 import { HumanGateRequiredError, UK_AND_IRELAND } from '@midgard/sdk';
-import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
+import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack, HeimdallTrackDetail } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
 import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../app/hydro';
@@ -218,6 +218,53 @@ function FlightHistory({ points, replayAt }: { points: HeimdallHistoryPoint[]; r
   );
 }
 
+/** A camera's live view: the still image (reloaded every 30 s, as its source refreshes
+ *  it), with its short clip or live stream on demand. Images and video come straight from
+ *  the camera's source, so they need the internet. [FR-H-1] */
+function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail['camera']>; name: string }) {
+  const [tick, setTick] = React.useState(() => Date.now());
+  const [mode, setMode] = React.useState<'image' | 'clip' | 'stream'>('image');
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    setMode('image');
+    setFailed(false);
+    const timer = window.setInterval(() => setTick(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [camera.imageUrl, camera.streamUrl]);
+  const bust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}t=${Math.floor(tick / 30_000)}`;
+  const mjpeg = camera.streamType === 'mjpeg';
+  const box: React.CSSProperties = { width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' };
+  return (
+    <Card size="sm">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span className="mg-label" style={{ color: 'var(--text-faint)' }}>CAMERA · {mode === 'image' ? 'LATEST IMAGE' : mode === 'clip' ? 'CLIP' : 'LIVE'}</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {camera.imageUrl && <button type="button" onClick={() => setMode('image')} aria-pressed={mode === 'image'} style={camBtn(mode === 'image')}>IMAGE</button>}
+          {camera.videoUrl && <button type="button" onClick={() => setMode('clip')} aria-pressed={mode === 'clip'} style={camBtn(mode === 'clip')}>CLIP</button>}
+          {camera.streamUrl && <button type="button" onClick={() => setMode('stream')} aria-pressed={mode === 'stream'} style={camBtn(mode === 'stream')}>LIVE</button>}
+        </span>
+      </div>
+      {failed && <div style={{ ...mono, color: 'var(--warn)', padding: '24px 0', textAlign: 'center' }}>CAMERA UNAVAILABLE</div>}
+      {!failed && mode === 'image' && camera.imageUrl && (
+        <img src={bust(camera.imageUrl)} alt={`Latest image from ${name}`} style={box} onError={() => setFailed(true)} />
+      )}
+      {!failed && mode === 'clip' && camera.videoUrl && (
+        <video key={camera.videoUrl} src={bust(camera.videoUrl)} style={box} autoPlay muted loop playsInline controls onError={() => setFailed(true)} />
+      )}
+      {!failed && mode === 'stream' && camera.streamUrl && (mjpeg
+        ? <img src={camera.streamUrl} alt={`Live stream from ${name}`} style={box} onError={() => setFailed(true)} />
+        : <video key={camera.streamUrl} src={camera.streamUrl} style={box} autoPlay muted playsInline controls onError={() => setFailed(true)} />)}
+      <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6 }}>
+        IMAGE RELOADS EVERY 30 S · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
+      </div>
+    </Card>
+  );
+}
+const camBtn = (on: boolean): React.CSSProperties => ({
+  all: 'unset', cursor: 'pointer', ...mono, fontSize: 9, padding: '4px 8px', borderRadius: 'var(--radius-sm)',
+  border: `1px solid ${on ? 'var(--accent)' : 'var(--divider)'}`, color: on ? 'var(--accent-hover)' : 'var(--text-muted)',
+});
+
 /** The selected aircraft's flights over Heimdall's retention window, newest first:
  *  click one to show its path on the map and its profile below. [FR-H-1] */
 function FlightsCard({ flights, since, pick, setPick }: { flights: Flight[] | null; since: number | null; pick: number | null; setPick: (i: number | null) => void }) {
@@ -330,6 +377,7 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights, watch,
         </Card>
       )}
       {flights && <FlightsCard {...flights} />}
+      {d.camera && <CameraCard camera={d.camera} name={title} />}
       {!fixed && path && path.length > 1 && <FlightHistory points={path} replayAt={replayAt} />}
       <Card size="sm">
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 6 }}>CLASSIFICATION</div>

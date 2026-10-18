@@ -136,6 +136,9 @@ export interface HeimdallTrackDetail {
   magnitude?: number;
   /** A train's lateness against its timetable in minutes (negative = early). */
   lateMin?: number;
+  /** A camera's media: a still image (refreshed by its source), a short clip, or a live
+   *  stream (MJPEG or HLS), whichever the feed gives. */
+  camera?: { imageUrl?: string; videoUrl?: string; streamUrl?: string; streamType?: string };
   /** Flood warning severity, 1 (most severe) to 4. */
   severityLevel?: number;
   /** A crewed space station (highlighted on the globe). */
