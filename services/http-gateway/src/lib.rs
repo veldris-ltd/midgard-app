@@ -645,7 +645,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             // Authorised and audited above as `Read` on this path; Heimdall audits the
             // gateway's own read in its ledger.
             ("GET", "/api/v1/heimdall/picture") => match &self.heimdall {
-                Some(bridge) => bridge.picture(),
+                Some(bridge) => heimdall_bridge::picture_layers_param(&req.query)
+                    .and_then(|layers| bridge.picture_layers(&layers)),
                 None => Err(EdgeError::new(
                     404,
                     "this gateway is not connected to Heimdall",

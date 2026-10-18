@@ -392,25 +392,55 @@ impl HeimdallBridge {
     /// unreachable, or refusing the read, is a 502: the gateway is a client there.
     /// [FR-H-1]
     pub fn picture(&self) -> Result<Json, EdgeError> {
+        self.picture_layers(&[])
+    }
+
+    /// The picture restricted to `layers` (each read with Heimdall's `layer` filter and
+    /// merged); all layers when empty. A console can then poll the moving layers often
+    /// and a large static one (airspace) rarely. Same limits as [`Self::picture`]. [FR-H-1]
+    pub fn picture_layers(&self, layers: &[String]) -> Result<Json, EdgeError> {
         let unreachable = |e: String| EdgeError::new(502, &format!("Heimdall is unreachable: {e}"));
         let mut session = client::Session::open(&self.identity, &self.addr, &self.purpose)
             .map_err(unreachable)?;
         let mut merged = MergedPicture::default();
-        let mut request = Vec::new();
         let mut bytes = 0usize;
-        for _ in 0..MAX_PICTURE_PAGES {
-            if bytes >= MAX_PICTURE_BYTES {
-                break;
+        let mut pages = 0usize;
+        let filters: Vec<Option<&String>> = if layers.is_empty() {
+            vec![None]
+        } else {
+            layers.iter().map(Some).collect()
+        };
+        for layer in filters {
+            let query = |after: Option<Json>| {
+                let mut pairs = Vec::new();
+                if let Some(after) = after {
+                    pairs.push(("after", after));
+                }
+                if let Some(layer) = layer {
+                    pairs.push(("layer", Json::s(layer)));
+                }
+                if pairs.is_empty() {
+                    Vec::new()
+                } else {
+                    Json::obj(pairs).encode().into_bytes()
+                }
+            };
+            let mut request = query(None);
+            loop {
+                if pages >= MAX_PICTURE_PAGES || bytes >= MAX_PICTURE_BYTES {
+                    return Ok(merged.into_json(true));
+                }
+                let response = session.call(READ_PICTURE, &request).map_err(unreachable)?;
+                pages += 1;
+                bytes += response.len();
+                let next = merged.add(&picture_page(&response)?)?;
+                if next == Json::Null {
+                    break;
+                }
+                request = query(Some(next));
             }
-            let response = session.call(READ_PICTURE, &request).map_err(unreachable)?;
-            bytes += response.len();
-            let next = merged.add(&picture_page(&response)?)?;
-            if next == Json::Null {
-                return Ok(merged.into_json(false));
-            }
-            request = Json::obj(vec![("after", next)]).encode().into_bytes();
         }
-        Ok(merged.into_json(true))
+        Ok(merged.into_json(false))
     }
 
     /// The alerts as `{"alerts": [..]}`, newest first: only open ones, or all. Heimdall
@@ -491,6 +521,33 @@ impl HeimdallBridge {
             ("truncated", Json::Bool(truncated)),
         ]))
     }
+}
+
+/// The `layers` query parameter of the picture route: comma-separated layer ids (letters,
+/// digits, `-` and `_`), at most 16; absent means every layer. [FR-H-1]
+pub fn picture_layers_param(query: &str) -> Result<Vec<String>, EdgeError> {
+    let Some(raw) = query.split('&').find_map(|kv| kv.strip_prefix("layers=")) else {
+        return Ok(Vec::new());
+    };
+    let layers: Vec<String> = raw
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if layers.len() > 16
+        || layers.iter().any(|l| {
+            l.len() > 32
+                || !l
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        })
+    {
+        return Err(EdgeError::new(
+            400,
+            "layers must be up to 16 comma-separated layer ids",
+        ));
+    }
+    Ok(layers)
 }
 
 #[cfg(test)]
@@ -658,5 +715,24 @@ mod tests {
         );
         assert_eq!(history_page(b"\x00not json").unwrap_err().status, 502);
         assert!(MergedTracks::default().add(&parse("{}").unwrap()).is_err());
+    }
+
+    #[test]
+    fn picture_layers_are_read_from_the_query() {
+        assert!(super::picture_layers_param("").unwrap().is_empty());
+        assert_eq!(
+            super::picture_layers_param("layers=air,sea").unwrap(),
+            vec!["air", "sea"]
+        );
+        assert_eq!(
+            super::picture_layers_param("x=1&layers=airspace").unwrap(),
+            vec!["airspace"]
+        );
+        assert_eq!(
+            super::picture_layers_param("layers=a%20b")
+                .unwrap_err()
+                .status,
+            400
+        );
     }
 }

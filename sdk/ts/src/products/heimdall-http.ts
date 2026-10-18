@@ -108,6 +108,11 @@ const WIRE_LAYERS: Record<string, HeimdallLayerId> = {
 const layerOf = (wire: string): HeimdallLayerId => WIRE_LAYERS[wire] ?? 'other';
 const wireLayer = (id: HeimdallLayerId): string =>
   Object.keys(WIRE_LAYERS).find((k) => WIRE_LAYERS[k] === id) ?? id;
+/** Layers that hardly change, read every STATIC_EVERY_MS rather than with every
+ *  picture read (airspace alone is most of the picture's size). [FR-H-1] */
+const STATIC_LAYERS = ['airspace'];
+const STATIC_EVERY_MS = 15 * 60 * 1000;
+
 /** Reported positions kept per track for its trail (about 15 minutes at 45 s). */
 const TRAIL_POINTS = 20;
 /** The default class label of each entity kind, when no classification rule matched. */
@@ -451,8 +456,10 @@ export class HeimdallHttp implements HeimdallGateway {
     return this.cached.picture;
   }
 
-  private async fetchPicture(): Promise<WirePicture> {
-    const res = await fetch(`${this.base}/heimdall/picture`, {
+  /** One read of the picture, optionally limited to some layers. */
+  private async readPicture(layers?: string[]): Promise<WirePicture> {
+    const q = layers?.length ? `?layers=${layers.join(',')}` : '';
+    const res = await fetch(`${this.base}/heimdall/picture${q}`, {
       headers: { authorization: `Bearer ${this.token}` },
     });
     if (res.status === 401) {
@@ -461,7 +468,28 @@ export class HeimdallHttp implements HeimdallGateway {
     }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-    const picture = body as WirePicture;
+    return body as WirePicture;
+  }
+
+  /** The static layers (airspace: thousands of polygons that change daily), read every
+   *  STATIC_EVERY_MS and kept between reads, so the frequent read stays small. */
+  private staticLayers: { at: number; picture: Promise<WirePicture> } | null = null;
+
+  private async fetchPicture(): Promise<WirePicture> {
+    const now = Date.now();
+    if (!this.staticLayers || now - this.staticLayers.at >= STATIC_EVERY_MS) {
+      const read = this.readPicture(STATIC_LAYERS);
+      this.staticLayers = { at: now, picture: read };
+      read.catch(() => { if (this.staticLayers?.picture === read) this.staticLayers = null; });
+    }
+    // Every other layer: whatever Heimdall serves except the static ones. The layer list
+    // comes from the static read (Heimdall lists every layer on every page).
+    const stat = await this.staticLayers.picture.catch(() => ({ layers: [], entities: [] }) as WirePicture);
+    const moving = stat.layers.length
+      ? stat.layers.map((l) => l.id).filter((id) => !STATIC_LAYERS.includes(id))
+      : undefined;
+    const live = await this.readPicture(moving);
+    const picture: WirePicture = { layers: live.layers.length ? live.layers : stat.layers, entities: [...live.entities, ...stat.entities] };
     this.fetchedAt = Date.now();
     this.remember(picture);
     return picture;
