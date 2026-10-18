@@ -14,7 +14,7 @@ import {
 } from '@midgard/design-system';
 import { useAsync, useGateway } from '@midgard/ui-shared';
 import { HumanGateRequiredError, UK_AND_IRELAND } from '@midgard/sdk';
-import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack, HeimdallTrackDetail } from '@midgard/sdk';
+import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack, HeimdallTrackDetail, HeimdallCameraAnalysis } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
 import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../app/hydro';
@@ -226,6 +226,8 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
   const [tick, setTick] = React.useState(() => Date.now());
   const [mode, setMode] = React.useState<'image' | 'clip' | 'stream'>('image');
   const [failed, setFailed] = React.useState(false);
+  const [showBoxes, setShowBoxes] = React.useState(true);
+  const ai = camera.analysis;
   React.useEffect(() => {
     setMode('image');
     setFailed(false);
@@ -234,7 +236,8 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
   }, [camera.imageUrl, camera.streamUrl]);
   const bust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}t=${Math.floor(tick / 30_000)}`;
   const mjpeg = camera.streamType === 'mjpeg';
-  const box: React.CSSProperties = { width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' };
+  // 'fill', not 'cover': the detection overlay is in the image's own 0-1 coordinates.
+  const box: React.CSSProperties = { width: '100%', aspectRatio: '4 / 3', objectFit: 'fill', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' };
   return (
     <Card size="sm">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -247,20 +250,74 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
       </div>
       {failed && <div style={{ ...mono, color: 'var(--warn)', padding: '24px 0', textAlign: 'center' }}>CAMERA UNAVAILABLE</div>}
       {!failed && mode === 'image' && camera.imageUrl && (
-        <img src={bust(camera.imageUrl)} alt={`Latest image from ${name}`} style={box} onError={() => setFailed(true)} />
+        <div style={{ position: 'relative' }}>
+          <img src={bust(camera.imageUrl)} alt={`Latest image from ${name}`} style={box} onError={() => setFailed(true)} />
+          {ai && showBoxes && <DetectionOverlay boxes={ai.boxes} />}
+        </div>
       )}
       {!failed && mode === 'clip' && camera.videoUrl && (
-        <video key={camera.videoUrl} src={bust(camera.videoUrl)} style={box} autoPlay muted loop playsInline controls onError={() => setFailed(true)} />
+        <div style={{ position: 'relative' }}>
+          <video key={camera.videoUrl} src={bust(camera.videoUrl)} style={box} autoPlay muted loop playsInline controls onError={() => setFailed(true)} />
+          {ai && showBoxes && <DetectionOverlay boxes={ai.boxes} />}
+        </div>
       )}
       {!failed && mode === 'stream' && camera.streamUrl && (mjpeg
         ? <img src={camera.streamUrl} alt={`Live stream from ${name}`} style={box} onError={() => setFailed(true)} />
         : <video key={camera.streamUrl} src={camera.streamUrl} style={box} autoPlay muted playsInline controls onError={() => setFailed(true)} />)}
+      {ai && <AnalysisPanel ai={ai} showBoxes={showBoxes} setShowBoxes={setShowBoxes} />}
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6 }}>
         IMAGE RELOADS EVERY 30 S · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
       </div>
     </Card>
   );
 }
+/** Detection colours by class: vehicles amber, people cyan, the rest violet. */
+const DET_COLOUR: Record<string, string> = { car: '#ffb020', truck: '#ff8a20', bus: '#ffd040', motorcycle: '#ffc070', bicycle: '#7fffb0', person: '#3fe0ff' };
+
+/** Boxes and motion arrows from the analysed clip's last frame, over the camera image. */
+function DetectionOverlay({ boxes }: { boxes: HeimdallCameraAnalysis['boxes'] }) {
+  return (
+    <svg viewBox="0 0 100 75" preserveAspectRatio="none" aria-hidden
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+      {boxes.map((b, i) => {
+        const c = DET_COLOUR[b.cls] ?? '#b48cff';
+        const x = b.x * 100, y = b.y * 75, w = b.w * 100, h = b.h * 75;
+        const cx = x + w / 2, cy = y + h / 2;
+        const moving = Math.hypot(b.dx, b.dy) > 0.004;
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={w} height={h} fill="none" stroke={c} strokeWidth={0.4} vectorEffect="non-scaling-stroke" />
+            {moving && <line x1={cx} y1={cy} x2={cx + b.dx * 300} y2={cy + b.dy * 225} stroke={c} strokeWidth={1.4} vectorEffect="non-scaling-stroke" />}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** What the analytics found: counts by class, moving vs stationary, flow and heading. */
+function AnalysisPanel({ ai, showBoxes, setShowBoxes }: { ai: HeimdallCameraAnalysis; showBoxes: boolean; setShowBoxes: (v: boolean) => void }) {
+  const age = Math.max(0, Math.round(Date.now() / 1000 - ai.at));
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--divider)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span className="mg-label" style={{ color: 'var(--text-faint)' }}>AI ANALYSIS · {age < 120 ? `${age}s` : `${Math.round(age / 60)}m`} AGO</span>
+        {ai.queue && <span style={{ ...mono, fontSize: 9, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 3, padding: '1px 5px' }}>QUEUE</span>}
+        <button type="button" onClick={() => setShowBoxes(!showBoxes)} aria-pressed={showBoxes} style={{ ...camBtn(showBoxes), marginLeft: 'auto' }}>BOXES</button>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', ...mono, fontSize: 10, color: 'var(--text-body)' }}>
+        {ai.counts.map((c) => <span key={c.cls}><span style={{ color: DET_COLOUR[c.cls] ?? '#b48cff' }}>■</span> {c.cls.toUpperCase()} {c.n}</span>)}
+      </div>
+      <Row k="MOVING" v={`${ai.moving ?? 0} moving · ${ai.stationary ?? 0} stationary${ai.stopped ? ` · ${ai.stopped} stopped throughout` : ''}`} />
+      {ai.flow.length > 0 && <Row k="FLOW" v={ai.flow.filter((f) => f.n > 0).map((f) => `${f.dir} ${f.n}`).join(' · ') || '—'} />}
+      {ai.headingText && <Row k="MAIN FLOW" v={`${ai.headingText}${ai.heading !== undefined ? ` (≈${Math.round(ai.heading)}°)` : ''}`} />}
+      <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 4, lineHeight: 1.6 }}>
+        {ai.model ?? 'OBJECT DETECTION'} · {ai.frames ?? '?'} FRAMES · DIRECTIONS FROM THE CAMERA'S VIEW, APPROXIMATE · PEOPLE COUNTED ONLY, NOT IDENTIFIED
+      </div>
+    </div>
+  );
+}
+
 const camBtn = (on: boolean): React.CSSProperties => ({
   all: 'unset', cursor: 'pointer', ...mono, fontSize: 9, padding: '4px 8px', borderRadius: 'var(--radius-sm)',
   border: `1px solid ${on ? 'var(--accent)' : 'var(--divider)'}`, color: on ? 'var(--accent-hover)' : 'var(--text-muted)',

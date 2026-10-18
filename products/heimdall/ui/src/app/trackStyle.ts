@@ -107,7 +107,8 @@ export function colourOf(t: HeimdallTrack): string {
     case 'aircraft': return bandOf(t).color;
     case 'balloon': return 'var(--mimir-300)';
     case 'airport': return FLIGHT_CATEGORY_COLOURS[t.detail?.flightCategory ?? ''] ?? 'var(--text-muted)';
-    case 'camera': return '#7fd3ff';
+    // Cameras: amber where the analytics sees a queue.
+    case 'camera': return t.detail?.camera?.analysis?.queue ? 'var(--warn)' : '#7fd3ff';
     case 'train': {
       // On time (or early) green, a few minutes late amber, badly late red.
       const late = t.detail?.lateMin ?? 0;

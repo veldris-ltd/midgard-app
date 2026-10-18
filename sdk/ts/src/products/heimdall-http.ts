@@ -57,6 +57,7 @@ import {
   type HeimdallLayerId,
   type HeimdallPicture,
   type HeimdallRegion,
+  type HeimdallCameraAnalysis,
   type HeimdallSyncSite,
   type HeimdallTrack,
   type HeimdallWorkflow,
@@ -219,6 +220,34 @@ const textAttr = (e: WireEntity, k: string): string | undefined => {
 const isStation = (e: WireEntity): boolean =>
   e.kind === 'space-satellite' &&
   (textAttr(e, 'group') === 'stations' || /\b(ISS|ZARYA|TIANHE|CSS|TIANGONG)\b/i.test(textAttr(e, 'name') ?? ''));
+
+/** The camera analytics' attributes on a camera, if it has been analysed. [FR-P3-5] */
+function cameraAnalysis(e: WireEntity): HeimdallCameraAnalysis | undefined {
+  const at = num(e.attributes.ai_at);
+  if (at === undefined) return undefined;
+  const pairs = (v: unknown) => (typeof v === 'string' && v ? v.split(',').map((p) => p.split(':')).filter((p) => p.length === 2) : []);
+  const boxes = typeof e.attributes.ai_boxes === 'string' && e.attributes.ai_boxes
+    ? e.attributes.ai_boxes.split(';').map((b) => b.split(',')).filter((b) => b.length >= 8).map((b) => ({
+      cls: b[0], conf: +b[1], x: +b[2], y: +b[3], w: +b[4], h: +b[5], dx: +b[6], dy: +b[7],
+    })).filter((b) => [b.conf, b.x, b.y, b.w, b.h, b.dx, b.dy].every(Number.isFinite))
+    : [];
+  return {
+    at,
+    model: textAttr(e, 'ai_model'),
+    frames: num(e.attributes.ai_frames),
+    counts: pairs(e.attributes.ai_counts).map(([cls, n]) => ({ cls, n: +n })),
+    vehicles: num(e.attributes.ai_vehicles),
+    people: num(e.attributes.ai_people),
+    moving: num(e.attributes.ai_moving),
+    stationary: num(e.attributes.ai_stationary),
+    stopped: num(e.attributes.ai_stopped),
+    queue: e.attributes.ai_queue === true,
+    flow: pairs(e.attributes.ai_flow).map(([dir, n]) => ({ dir, n: +n })),
+    heading: num(e.attributes.ai_heading),
+    headingText: textAttr(e, 'ai_heading_text'),
+    boxes,
+  };
+}
 
 /** Runways from the feed's `lat,lon,lat,lon[,width_m];…` text (width 45 m when absent). */
 function runwaysOf(geo: string | undefined): [number, number, number, number, number][] | undefined {
@@ -468,6 +497,9 @@ export class HeimdallHttp implements HeimdallGateway {
     return this.cached.picture;
   }
 
+  /** Camera analytics by camera entity id, from the last picture. */
+  private cameraAI = new Map<string, HeimdallCameraAnalysis>();
+
   /** Boxes the reads are limited to (setRegions), or null for everywhere. */
   private regions: [number, number, number, number][] | null = null;
 
@@ -628,6 +660,7 @@ export class HeimdallHttp implements HeimdallGateway {
         camera: e.kind === 'land-camera' ? {
           imageUrl: textAttr(e, 'image_url'), videoUrl: textAttr(e, 'video_url'),
           streamUrl: textAttr(e, 'stream_url'), streamType: textAttr(e, 'stream_type'),
+          analysis: this.cameraAI.get(e.id) ?? cameraAnalysis(e),
         } : undefined,
         severityLevel: num(e.attributes.severity_level),
         station: isStation(e) || undefined,
@@ -674,7 +707,17 @@ export class HeimdallHttp implements HeimdallGateway {
     // ICAO address (some transponders send the placeholder callsign 00000000).
     const used = new Set<string>();
     const geo: HeimdallTrack[] = [];
+    // Camera analytics arrive as their own entities (kind land-camera-ai, camera_id naming
+    // the camera); they are joined onto their camera here and not drawn themselves.
+    this.cameraAI = new Map();
     for (const e of p.entities) {
+      if (e.kind !== 'land-camera-ai') continue;
+      const cam = textAttr(e, 'camera_id');
+      const ai = cameraAnalysis(e);
+      if (cam && ai) this.cameraAI.set(cam, ai);
+    }
+    for (const e of p.entities) {
+      if (e.kind === 'land-camera-ai') continue;
       const t = this.track(e);
       if (!t) continue;
       if (used.has(t.id) || /^0+$/.test(t.id)) t.id = e.id;

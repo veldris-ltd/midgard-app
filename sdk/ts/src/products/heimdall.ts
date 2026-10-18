@@ -138,7 +138,7 @@ export interface HeimdallTrackDetail {
   lateMin?: number;
   /** A camera's media: a still image (refreshed by its source), a short clip, or a live
    *  stream (MJPEG or HLS), whichever the feed gives. */
-  camera?: { imageUrl?: string; videoUrl?: string; streamUrl?: string; streamType?: string };
+  camera?: { imageUrl?: string; videoUrl?: string; streamUrl?: string; streamType?: string; analysis?: HeimdallCameraAnalysis };
   /** Flood warning severity, 1 (most severe) to 4. */
   severityLevel?: number;
   /** A crewed space station (highlighted on the globe). */
@@ -180,6 +180,26 @@ export interface HeimdallTrackDetail {
   lastSeen: number;
   /** Seconds the shown position is moved forward from the last report (0 = reported). */
   estimatedSecs: number;
+}
+
+/** What the camera analytics found in a camera's latest clip (object detection and
+ *  tracking; approximate and uncalibrated). [FR-P3-5] */
+export interface HeimdallCameraAnalysis {
+  at: number;
+  model?: string;
+  frames?: number;
+  counts: { cls: string; n: number }[];
+  vehicles?: number;
+  people?: number;
+  moving?: number;
+  stationary?: number;
+  stopped?: number;
+  queue?: boolean;
+  flow: { dir: string; n: number }[];
+  heading?: number;
+  headingText?: string;
+  /** Detections on the clip's last frame, 0-1 image units; dx, dy = motion per second. */
+  boxes: { cls: string; conf: number; x: number; y: number; w: number; h: number; dx: number; dy: number }[];
 }
 
 /** A lat/lon box the canvas maps onto 0–100 %. */
