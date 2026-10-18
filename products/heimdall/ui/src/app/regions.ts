@@ -33,6 +33,12 @@ export const REGION_LIST: Region[] = [
 /** Everything outside the named regions too (no filter at all). */
 export const WORLD_ID = 'world';
 
+/** REGION menu entries that are parts of a region. */
+export const REGION_FOR_PRESET: Record<string, string> = {
+  moscow: 'russia', stpete: 'russia', kaliningrad: 'russia', murmansk: 'russia', blacksea: 'russia',
+  london: 'uk', scotland: 'uk',
+};
+
 export const inBox = ([w, s, e, n]: Region['box'], lat: number, lon: number) =>
   lat >= s && lat <= n && (w <= e ? lon >= w && lon <= e : lon >= w || lon <= e);
 

@@ -28,7 +28,7 @@ import { AreaLayer, ToolLayer } from '../app/MapOverlays2D';
 import type { LatLon } from '../app/geoMath';
 import type { GlobeArea, PresetId } from '../app/globe/GlobeView';
 import { useFlights, type Flight, type KnownAirport } from '../app/flights';
-import { REGION_LIST, WORLD_ID, inBox as inRegionBox, readFocus, readRegions, regionAt, saveFocus, saveRegions, type Region } from '../app/regions';
+import { REGION_FOR_PRESET, REGION_LIST, WORLD_ID, inBox as inRegionBox, readFocus, readRegions, regionAt, saveFocus, saveRegions, type Region } from '../app/regions';
 import { keyOf, replayTracks, stepFor, trailOf } from '../app/history';
 import { useEntityPath, useHistory } from '../app/useHistory';
 import { Timeline, useReplayClock } from '../app/Timeline';
@@ -747,11 +747,33 @@ export function OperatingPictureScreen() {
     }
     return out;
   }, [geoView, visible, history.store, tShown, trailSecs, replay]);
+  // Trails only for moving vehicles inside the view and a margin just beyond it: the
+  // radius follows the camera, so panning and zooming bring trails in and out. [FR-P3-7]
+  const [viewCircle, setViewCircle] = React.useState<{ lat: number; lon: number; km: number } | null>(null);
   const globeTrails = React.useMemo<GlobeTrail[]>(
     // Satellites are left out: their orbits cut straight across the picture. A selected
     // satellite still shows its path.
-    () => (view === '3d' ? visible.flatMap((t) => { const p = shapeOf(t) === 'satellite' ? undefined : trails.get(t.id); return p ? [{ colour: colourOf(t), points: p }] : []; }) : []),
-    [view, visible, trails],
+    () => {
+      if (view !== '3d') return [];
+      // A little more than what is on screen (the view spans about the camera distance).
+      const radiusKm = viewCircle ? Math.max(40, viewCircle.km * 1.15) : Infinity;
+      const near = (t: HeimdallTrack) => {
+        if (!viewCircle || t.id === sel) return true;
+        const lat = t.lat ?? t.detail?.lat, lon = t.lon ?? t.detail?.lon;
+        if (lat === undefined || lon === undefined) return false;
+        const p1 = (viewCircle.lat * Math.PI) / 180, p2 = (lat * Math.PI) / 180, dl = ((lon - viewCircle.lon) * Math.PI) / 180;
+        const h = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+        return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h))) <= radiusKm;
+      };
+      return visible.flatMap((t) => {
+        const shape = shapeOf(t);
+        if (shape !== 'aircraft' && shape !== 'vessel' && shape !== 'balloon' && shape !== 'train' && t.id !== sel) return [];
+        if (!near(t)) return [];
+        const p = trails.get(t.id);
+        return p ? [{ colour: colourOf(t), points: p }] : [];
+      });
+    },
+    [view, visible, trails, viewCircle, sel],
   );
 
   // The selected entity's whole recorded path over the window.
@@ -1056,7 +1078,12 @@ export function OperatingPictureScreen() {
         <React.Suspense fallback={<div style={{ position: 'absolute', top: '40%', width: '100%', textAlign: 'center', ...mono, color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}>
           <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hoverPath={hoverPath} pathsFirst={trailMins === 0 || trailMins >= 30} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH}
             onPointerGround={(at) => { const r = at ? regionAt(enabledRegions, at.lat, at.lon) : null; setPointerRegion((p) => (p?.id === r?.id ? p : r)); }}
-            onLookAt={(at) => { const r = regionAt(enabledRegions, at.lat, at.lon); setLookRegion((p) => (p?.id === r?.id ? p : r)); }}
+            onRegionPick={(preset) => {
+              // Flying to a region switches its data on (sub-areas belong to a region).
+              const id = REGION_FOR_PRESET[preset] ?? REGION_LIST.find((r) => r.preset === preset)?.id;
+              if (id && !regionIds.includes(id) && !world) setRegionIds([...regionIds, id]);
+            }}
+            onLookAt={(at, km) => { const r = regionAt(enabledRegions, at.lat, at.lon); setLookRegion((p) => (p?.id === r?.id ? p : r)); setViewCircle({ lat: at.lat, lon: at.lon, km }); }}
             areas={globeAreas} radar={radar.status === 'ready' ? radar.frame.canvas : null} traffic={traffic.status === 'ready' ? traffic.lines : null} sunTime={replayAt !== null ? replayAt * 1000 : Date.now()}
             measuring={measuring} measure={measurePts} rings={rings} onSurface={addMeasure} markerScale={wall ? 1.6 : 1} flyRequest={flyRequest}
             onInteract={() => { pausedUntil.current = Date.now() + TOUR_PAUSE_MS; }} />

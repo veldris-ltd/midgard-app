@@ -123,7 +123,10 @@ export interface Globe3DProps {
   sunTime?: number;
   /** The ground under the mouse (null off the globe), and the point the camera looks at. */
   onPointerGround?: (at: LatLon | null) => void;
-  onLookAt?: (at: LatLon) => void;
+  /** `km`: the camera's distance from that point, a measure of how much is in view. */
+  onLookAt?: (at: LatLon, km: number) => void;
+  /** A region picked from the REGION menu (so its data can be switched on). */
+  onRegionPick?: (preset: PresetId) => void;
   /** MEASURE: surface taps go to `onSurface` instead of selecting. */
   measuring?: boolean;
   measure?: LatLon[];
@@ -137,14 +140,14 @@ export interface Globe3DProps {
   onInteract?: () => void;
 }
 
-export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract, onPointerGround, onLookAt }: Globe3DProps) {
+export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract, onPointerGround, onLookAt, onRegionPick }: Globe3DProps) {
   const measureRef = React.useRef<HTMLDivElement>(null);
   const ringLabelRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const hostRef = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<GlobeView | null>(null);
   const labelRef = React.useRef<HTMLDivElement>(null);
   const placesRef = React.useRef<HTMLDivElement>(null);
-  const lookAtRef = React.useRef<LatLon | null>(null);
+  const lookAtRef = React.useRef<(LatLon & { km: number }) | null>(null);
   const tipRef = React.useRef<HTMLDivElement>(null);
   const compassRef = React.useRef<HTMLSpanElement>(null);
   const [exaggeration, setExaggeration] = React.useState(() => readNumber(EXAGGERATION_KEY, 4));
@@ -180,12 +183,14 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     place(labelRef.current, live.current.selected || null);
     place(tipRef.current, live.current.hover && live.current.hover !== live.current.selected ? live.current.hover : null);
     if (compassRef.current) compassRef.current.style.transform = `rotate(${-view.state.heading}deg)`;
-    // The point the camera looks at, reported when it moves by more than ~0.2°.
+    // The point the camera looks at, reported when it moves by more than ~0.2° or the
+    // zoom changes by more than 15 %.
     const c = view.state;
+    const km = c.dist * 6371;
     const last = lookAtRef.current;
-    if (!last || Math.abs(last.lat - c.lat) + Math.abs(last.lon - c.lon) > 0.2) {
-      lookAtRef.current = { lat: c.lat, lon: c.lon };
-      live.current.onLookAt?.({ lat: c.lat, lon: c.lon });
+    if (!last || Math.abs(last.lat - c.lat) + Math.abs(last.lon - c.lon) > 0.2 || Math.abs(Math.log(km / last.km)) > 0.15) {
+      lookAtRef.current = { lat: c.lat, lon: c.lon, km };
+      live.current.onLookAt?.({ lat: c.lat, lon: c.lon }, km);
     }
     if (placesRef.current) drawPlaceLabels(placesRef.current, view);
     // The measured distance sits at the line's far end; ring labels at each ring's north.
@@ -372,7 +377,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
         {regionsOpen && (
           <div role="menu" style={{ position: 'absolute', right: 52, top: 150, display: 'flex', flexDirection: 'column', gap: 2, padding: 6, minWidth: 190, background: 'color-mix(in srgb, var(--bg-sunken) 92%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
             {REGIONS.map(([label, id]) => (
-              <button key={id} role="menuitem" type="button" onClick={() => { setFollow(false); setRegionsOpen(false); view()?.flyToPreset(id, 1800); }}
+              <button key={id} role="menuitem" type="button" onClick={() => { setFollow(false); setRegionsOpen(false); onRegionPick?.(id); view()?.flyToPreset(id, 1800); }}
                 style={{ all: 'unset', cursor: 'pointer', ...mono, fontSize: 10, color: 'var(--text-body)', padding: '9px 10px', borderRadius: 'var(--radius-sm)' }}>{label}</button>
             ))}
           </div>
