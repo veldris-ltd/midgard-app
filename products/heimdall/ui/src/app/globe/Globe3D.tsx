@@ -10,7 +10,7 @@ import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { colourOf, shapeOf } from '../trackStyle';
 import type { TrafficLines } from '../traffic';
 import { PLACES } from '../places';
-import { GlobeView, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
+import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
 
@@ -147,6 +147,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const [follow, setFollow] = React.useState(false);
   const [tilted, setTilted] = React.useState(true);
   const [heightsOpen, setHeightsOpen] = React.useState(false);
+  const [regionsOpen, setRegionsOpen] = React.useState(false);
   // Map style (tactical by default, satellite or dark), remembered per browser.
   const [mapStyle, setMapStyleState] = React.useState<MapStyle>(readMapStyle);
   const nextStyle = () => {
@@ -355,7 +356,15 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
           </span>
         </Control>
         <Control label="Frame the UK and Ireland" onClick={() => { setFollow(false); view()?.home(); }}>UK</Control>
-        <Control label="Frame the Baltic (ships)" onClick={() => { setFollow(false); view()?.baltic(); }}><span style={{ fontSize: 9 }}>BALTIC</span></Control>
+        <Control label="Fly to a region" onClick={() => setRegionsOpen((o) => !o)} active={regionsOpen}><span style={{ fontSize: 9 }}>REGION</span></Control>
+        {regionsOpen && (
+          <div role="menu" style={{ position: 'absolute', right: 52, top: 150, display: 'flex', flexDirection: 'column', gap: 2, padding: 6, minWidth: 190, background: 'color-mix(in srgb, var(--bg-sunken) 92%, transparent)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)' }}>
+            {REGIONS.map(([label, id]) => (
+              <button key={id} role="menuitem" type="button" onClick={() => { setFollow(false); setRegionsOpen(false); view()?.flyToPreset(id, 1800); }}
+                style={{ all: 'unset', cursor: 'pointer', ...mono, fontSize: 10, color: 'var(--text-body)', padding: '9px 10px', borderRadius: 'var(--radius-sm)' }}>{label}</button>
+            ))}
+          </div>
+        )}
         <Control label={tilted ? 'Look straight down' : 'Oblique view'} onClick={() => view()?.toggleTilt()} active={tilted}>
           {tilted ? '3D' : '2D'}
         </Control>

@@ -62,13 +62,31 @@ export interface GlobeArea {
 }
 
 /** Camera presets for the controls and the wall display's tour. [FR-P3-7] */
-export const PRESETS: Record<'uk' | 'london' | 'scotland' | 'baltic' | 'globe', CameraState> = {
+export const PRESETS: Record<'uk' | 'london' | 'scotland' | 'baltic' | 'globe' | 'balkans' | 'mideast' | 'gulf' | 'russia' | 'taiwan' | 'singapore' | 'australia' | 'nz' | 'canada' | 'india' | 'safrica', CameraState> = {
   uk: UK_VIEW,
   london: { lat: 51.48, lon: -0.15, dist: 140 / EARTH_KM, heading: 0, tilt: 50 },
   scotland: { lat: 57.2, lon: -4.6, dist: 750 / EARTH_KM, heading: 0, tilt: 42 },
   baltic: BALTIC_VIEW,
   globe: { lat: 42, lon: -8, dist: 3.1, heading: 0, tilt: 0 },
+  // Regions the wider feeds cover.
+  balkans: { lat: 43.5, lon: 20.5, dist: 1500 / EARTH_KM, heading: 0, tilt: 40 },
+  mideast: { lat: 32.5, lon: 36.5, dist: 1500 / EARTH_KM, heading: 0, tilt: 40 },
+  gulf: { lat: 26, lon: 52, dist: 1600 / EARTH_KM, heading: 0, tilt: 40 },
+  russia: { lat: 56.5, lon: 37, dist: 2400 / EARTH_KM, heading: 0, tilt: 35 },
+  taiwan: { lat: 23.8, lon: 120.9, dist: 900 / EARTH_KM, heading: 0, tilt: 45 },
+  singapore: { lat: 1.35, lon: 103.82, dist: 180 / EARTH_KM, heading: 0, tilt: 45 },
+  australia: { lat: -32, lon: 149, dist: 2600 / EARTH_KM, heading: 0, tilt: 35 },
+  nz: { lat: -40.5, lon: 174, dist: 1900 / EARTH_KM, heading: 0, tilt: 35 },
+  canada: { lat: 46, lon: -76, dist: 2600 / EARTH_KM, heading: 0, tilt: 35 },
+  india: { lat: 23, lon: 78, dist: 3200 / EARTH_KM, heading: 0, tilt: 30 },
+  safrica: { lat: -27, lon: 26, dist: 2200 / EARTH_KM, heading: 0, tilt: 35 },
 };
+/** The region menu: label and preset, in menu order. */
+export const REGIONS: [string, PresetId][] = [
+  ['UK & IRELAND', 'uk'], ['BALTIC', 'baltic'], ['BALKANS', 'balkans'], ['EAST MEDITERRANEAN', 'mideast'], ['GULF', 'gulf'],
+  ['WESTERN RUSSIA', 'russia'], ['TAIWAN', 'taiwan'], ['SINGAPORE', 'singapore'], ['INDIA', 'india'],
+  ['EASTERN AUSTRALIA', 'australia'], ['NEW ZEALAND', 'nz'], ['EASTERN CANADA', 'canada'], ['SOUTH AFRICA', 'safrica'], ['WHOLE GLOBE', 'globe'],
+];
 export type PresetId = keyof typeof PRESETS;
 
 export interface GlobeItem {
