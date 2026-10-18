@@ -62,7 +62,7 @@ export interface GlobeArea {
 }
 
 /** Camera presets for the controls and the wall display's tour. [FR-P3-7] */
-export const PRESETS: Record<'uk' | 'london' | 'scotland' | 'baltic' | 'globe' | 'balkans' | 'mideast' | 'gulf' | 'russia' | 'taiwan' | 'singapore' | 'australia' | 'nz' | 'canada' | 'india' | 'safrica', CameraState> = {
+export const PRESETS: Record<'uk' | 'london' | 'scotland' | 'baltic' | 'globe' | 'balkans' | 'mideast' | 'gulf' | 'russia' | 'taiwan' | 'singapore' | 'australia' | 'nz' | 'canada' | 'india' | 'safrica' | 'kaliningrad' | 'moscow' | 'stpete' | 'blacksea' | 'murmansk' | 'fareast', CameraState> = {
   uk: UK_VIEW,
   london: { lat: 51.48, lon: -0.15, dist: 140 / EARTH_KM, heading: 0, tilt: 50 },
   scotland: { lat: 57.2, lon: -4.6, dist: 750 / EARTH_KM, heading: 0, tilt: 42 },
@@ -80,11 +80,17 @@ export const PRESETS: Record<'uk' | 'london' | 'scotland' | 'baltic' | 'globe' |
   canada: { lat: 46, lon: -76, dist: 2600 / EARTH_KM, heading: 0, tilt: 35 },
   india: { lat: 23, lon: 78, dist: 3200 / EARTH_KM, heading: 0, tilt: 30 },
   safrica: { lat: -27, lon: 26, dist: 2200 / EARTH_KM, heading: 0, tilt: 35 },
+  kaliningrad: { lat: 54.7, lon: 20.5, dist: 420 / EARTH_KM, heading: 0, tilt: 45 },
+  moscow: { lat: 55.75, lon: 37.6, dist: 600 / EARTH_KM, heading: 0, tilt: 45 },
+  stpete: { lat: 59.9, lon: 30.3, dist: 500 / EARTH_KM, heading: 0, tilt: 45 },
+  blacksea: { lat: 45, lon: 35, dist: 1400 / EARTH_KM, heading: 0, tilt: 40 },
+  murmansk: { lat: 68.9, lon: 33.1, dist: 900 / EARTH_KM, heading: 0, tilt: 40 },
+  fareast: { lat: 47, lon: 135, dist: 2800 / EARTH_KM, heading: 0, tilt: 35 },
 };
 /** The region menu: label and preset, in menu order. */
 export const REGIONS: [string, PresetId][] = [
   ['UK & IRELAND', 'uk'], ['BALTIC', 'baltic'], ['BALKANS', 'balkans'], ['EAST MEDITERRANEAN', 'mideast'], ['GULF', 'gulf'],
-  ['WESTERN RUSSIA', 'russia'], ['TAIWAN', 'taiwan'], ['SINGAPORE', 'singapore'], ['INDIA', 'india'],
+  ['WESTERN RUSSIA', 'russia'], ['· MOSCOW', 'moscow'], ['· ST PETERSBURG', 'stpete'], ['· KALININGRAD', 'kaliningrad'], ['· MURMANSK / KOLA', 'murmansk'], ['· BLACK SEA / CRIMEA', 'blacksea'], ['· RUSSIAN FAR EAST', 'fareast'], ['TAIWAN', 'taiwan'], ['SINGAPORE', 'singapore'], ['INDIA', 'india'],
   ['EASTERN AUSTRALIA', 'australia'], ['NEW ZEALAND', 'nz'], ['EASTERN CANADA', 'canada'], ['SOUTH AFRICA', 'safrica'], ['WHOLE GLOBE', 'globe'],
 ];
 export type PresetId = keyof typeof PRESETS;

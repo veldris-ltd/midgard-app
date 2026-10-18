@@ -794,7 +794,7 @@ export function OperatingPictureScreen() {
       const top = Math.min(66000, d.topFt ?? base + 10000);
       return { id: `${t.id}:${d.kind}`, mode: 'volume' as const, ring: d.area!, colour: areaColour(d), fill: 0.11, baseM: ft(base), topM: ft(top) };
     }
-    const fill = d.kind === 'event-weather-warning' ? 0.24 : d.kind === 'land-road-disruption' ? 0.4 : d.kind === 'airspace-volume' ? 0.05 : 0.14;
+    const fill = d.kind === 'event-weather-warning' ? 0.24 : d.kind === 'land-road-disruption' ? 0.4 : d.kind === 'airspace-volume' ? 0.05 : d.kind === 'event-gnss-interference' ? (d.level === 'high' ? 0.4 : d.level === 'medium' ? 0.28 : 0.16) : 0.14;
     return { id: `${t.id}:${d.kind}`, mode: 'drape' as const, ring: d.area!, colour: areaColour(d), fill };
   })), [areaTracks, view]);
 

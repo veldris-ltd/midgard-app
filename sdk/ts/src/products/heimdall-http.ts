@@ -126,6 +126,7 @@ const KIND_CLASS: Record<string, string> = {
   'land-airport': 'AIRPORT',
   'event-sigmet': 'SIGMET',
   'event-weather-warning': 'WEATHER WARNING',
+  'event-gnss-interference': 'GPS INTERFERENCE',
   'sea-windfarm': 'WIND FARM',
   'sea-platform': 'PLATFORM',
   'land-road-disruption': 'ROAD DISRUPTION',
@@ -318,8 +319,19 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
     }
     case 'air-track':
       // Where the position came from: ADS-B from the aircraft, or multilateration. [FR-H-1]
-      rows.push(['POSITION BY', a('pos_source') ? `${a('pos_source')!.replace('adsb_icao', 'ADS-B').replace('mlat', 'MLAT')}${a('pos_feed') ? ` · ${a('pos_feed')}` : ''}` : undefined]);
+      rows.push(['POSITION BY', a('pos_source') ? `${a('pos_source')!.replace('adsb_icao', 'ADS-B').replace('mlat', 'MLAT')}${a('pos_feed') ? ` · ${a('pos_feed')}` : ''}` : undefined],
+        ['AIRCRAFT TYPE', a('aircraft_type')], ['REGISTRATION', a('registration')],
+        // GPS integrity: NIC 0 or NACp 0, or a lost GPS fix, usually means jamming or spoofing.
+        ['GPS', e.attributes.gps_lost === true ? 'LOST (jamming or spoofing likely)'
+          : num(e.attributes.nic) === 0 || num(e.attributes.nac_p) === 0 ? `DEGRADED (NIC ${a('nic') ?? '?'}, NACp ${a('nac_p') ?? '?'})`
+          : num(e.attributes.nic) !== undefined ? `OK (NIC ${a('nic')}, NACp ${a('nac_p') ?? '?'})` : undefined]);
       break;
+    case 'event-gnss-interference': {
+      const share = num(e.attributes.share);
+      rows.push(['LEVEL', a('level')?.toUpperCase()], ['AIRCRAFT AFFECTED', `${a('degraded') ?? '?'} of ${a('aircraft') ?? '?'}${share !== undefined ? ` (${Math.round(share * 100)} %)` : ''}`],
+        ['METHOD', a('method')]);
+      break;
+    }
     case 'event-sigmet': {
       const b = num(e.attributes.base_ft), top = num(e.attributes.top_ft);
       rows.push(['HAZARD', [a('qualifier'), a('hazard')].filter(Boolean).join(' ') || undefined],
@@ -615,7 +627,7 @@ export class HeimdallHttp implements HeimdallGateway {
         lowerRef: e.kind === 'airspace-volume' ? text('lower_ref') : undefined,
         upperRef: e.kind === 'airspace-volume' ? text('upper_ref') : undefined,
         frp: e.kind === 'event-fire' ? num(e.attributes.frp) : undefined,
-        level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : undefined,
+        level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : e.kind === 'event-gnss-interference' ? text('level') : undefined,
         taf: e.kind === 'land-airport' ? text('taf') : undefined,
         tafWorst: e.kind === 'land-airport' ? text('taf_worst_category_12h') : undefined,
         label: e.classification?.label,

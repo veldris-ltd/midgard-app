@@ -71,6 +71,8 @@ export function areaColour(d: { kind: string; hazard?: string; level?: string; a
     case 'sea-windfarm': return 'var(--mimir-300)';
     case 'airspace-volume': return airspaceColour(d.airspaceType);
     case 'land-road-disruption': return ROAD_COLOURS[(d.level ?? '').toLowerCase()] ?? 'var(--heimdall-300)';
+    // GPS interference cells: magenta, deeper with the share of aircraft affected.
+    case 'event-gnss-interference': return d.level === 'high' ? '#ff2bd6' : d.level === 'medium' ? '#c04dff' : '#8a6bff';
     default: return 'var(--text-muted)';
   }
 }
@@ -162,9 +164,11 @@ export const AREA_LEGEND: { label: string; color: string; kind: string }[] = [
   { label: 'ROAD', color: 'var(--warn)', kind: 'land-road-disruption' },
   { label: 'FIRE', color: 'var(--forge-500)', kind: 'event-fire' },
   { label: 'AIRSPACE R/D/P · CTR/TMA', color: 'var(--info)', kind: 'airspace-volume' },
+  { label: 'GPS INTERFERENCE', color: '#ff2bd6', kind: 'event-gnss-interference' },
 ];
 
 /** Kinds that never move: no speed, track, trail or flight history in the inspector. */
 export const isFixedKind = (kind: string) =>
+  kind === 'event-gnss-interference' ||
   kind === 'land-camera' ||
   kind.startsWith('event-') || kind === 'airspace-volume' || kind === 'land-airport' || kind === 'sea-windfarm' || kind === 'sea-platform' || kind === 'land-road-disruption';
