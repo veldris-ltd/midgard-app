@@ -10,6 +10,7 @@ import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { CAMERA_LEVEL_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
 import type { TrafficLines } from '../traffic';
 import { PLACES } from '../places';
+import { INFO_MAX_KM, markStyle, type AlertMark } from '../alertMarks';
 import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
@@ -120,6 +121,53 @@ function drawCameraLabels(host: HTMLDivElement, view: GlobeView, tracks: Heimdal
   }
 }
 
+/** Open alerts as rings on the globe, critical and warning everywhere, info close in;
+ *  the label shows beside a ring close in, or always for a critical one. Clicking a ring
+ *  hands its alert id to `pick`. [FR-H-1] [FR-H-4] */
+function drawAlertMarks(host: HTMLDivElement, view: GlobeView, marks: AlertMark[], pick: (id: string) => void): void {
+  const km = view.state.dist * 6371;
+  const shown: { m: AlertMark; x: number; y: number }[] = [];
+  for (const m of marks) {
+    if (shown.length >= 150) break;
+    if (m.severity === 'info' && km > INFO_MAX_KM) continue;
+    const at = view.screenOfPoint(m.lat, m.lon);
+    if (at) shown.push({ m, x: at.x, y: at.y });
+  }
+  while (host.childElementCount < shown.length) {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.style.cssText = 'all:unset;position:absolute;left:0;top:0;cursor:pointer;pointer-events:auto;display:flex;align-items:center;gap:5px;';
+    const ring = document.createElement('span');
+    ring.style.cssText = 'display:block;border-radius:50%;border:2px solid;box-sizing:border-box;flex:none;';
+    const label = document.createElement('span');
+    label.style.cssText = 'font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:0.06em;white-space:nowrap;text-shadow:0 0 3px #000,0 0 6px #000;';
+    el.append(ring, label);
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); if (el.dataset.id) pick(el.dataset.id); });
+    host.appendChild(el);
+  }
+  for (let i = 0; i < host.childElementCount; i++) {
+    const el = host.children[i] as HTMLButtonElement;
+    const p = shown[i];
+    if (!p) { el.style.display = 'none'; continue; }
+    const s = markStyle(p.m);
+    const ring = el.children[0] as HTMLSpanElement, label = el.children[1] as HTMLSpanElement;
+    el.style.display = 'flex';
+    el.dataset.id = p.m.id;
+    el.title = p.m.title;
+    el.setAttribute('aria-label', `Alert: ${p.m.title}`);
+    el.style.opacity = String(s.opacity);
+    ring.style.width = ring.style.height = `${s.size}px`;
+    ring.style.borderColor = s.colour;
+    ring.style.background = `color-mix(in srgb, ${s.colour} 18%, transparent)`;
+    ring.style.setProperty('--mg-alert-c', s.colour);
+    ring.className = s.pulse ? 'mg-alert-pulse' : '';
+    const text = km < 900 || p.m.severity === 'critical' ? p.m.text : '';
+    if (label.textContent !== text) label.textContent = text;
+    label.style.color = s.colour;
+    el.style.transform = `translate(${Math.round(p.x - s.size / 2)}px, ${Math.round(p.y - s.size / 2)}px)`;
+  }
+}
+
 /** The stored map style; tactical unless the browser chose another. */
 export const readMapStyle = (): MapStyle => {
   try {
@@ -160,6 +208,9 @@ export interface Globe3DProps {
   onLookAt?: (at: LatLon, km: number) => void;
   /** A region picked from the REGION menu (so its data can be switched on). */
   onRegionPick?: (preset: PresetId) => void;
+  /** Open alerts to ring on the globe, and what a click on one does. [FR-H-4] */
+  alerts?: AlertMark[];
+  onAlertPick?: (id: string) => void;
   /** MEASURE: surface taps go to `onSurface` instead of selecting. */
   measuring?: boolean;
   measure?: LatLon[];
@@ -173,7 +224,7 @@ export interface Globe3DProps {
   onInteract?: () => void;
 }
 
-export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract, onPointerGround, onLookAt, onRegionPick }: Globe3DProps) {
+export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract, onPointerGround, onLookAt, onRegionPick, alerts, onAlertPick }: Globe3DProps) {
   const measureRef = React.useRef<HTMLDivElement>(null);
   const ringLabelRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const hostRef = React.useRef<HTMLDivElement>(null);
@@ -181,6 +232,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const labelRef = React.useRef<HTMLDivElement>(null);
   const placesRef = React.useRef<HTMLDivElement>(null);
   const cameraLabelsRef = React.useRef<HTMLDivElement>(null);
+  const alertMarksRef = React.useRef<HTMLDivElement>(null);
   const lookAtRef = React.useRef<(LatLon & { km: number }) | null>(null);
   const tipRef = React.useRef<HTMLDivElement>(null);
   const compassRef = React.useRef<HTMLSpanElement>(null);
@@ -201,8 +253,8 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   React.useEffect(() => { viewRef.current?.setMapStyle(mapStyle); }, [mapStyle]);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
-  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks });
-  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks };
+  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks, alerts, onAlertPick });
+  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks, alerts, onAlertPick };
 
   /** Move the label, tooltip and compass to follow the camera (after every frame). */
   const overlays = React.useCallback(() => {
@@ -228,6 +280,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     }
     if (placesRef.current) drawPlaceLabels(placesRef.current, view);
     if (cameraLabelsRef.current) drawCameraLabels(cameraLabelsRef.current, view, live.current.tracks);
+    if (alertMarksRef.current) drawAlertMarks(alertMarksRef.current, view, live.current.alerts ?? [], (id) => live.current.onAlertPick?.(id));
     // The measured distance sits at the line's far end; ring labels at each ring's north.
     const m = live.current.measure;
     if (measureRef.current) {
@@ -354,6 +407,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
       {/* Town and city names, thinned by zoom so they never overlap. */}
       <div ref={placesRef} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, overflow: 'hidden' }} />
       <div ref={cameraLabelsRef} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, overflow: 'hidden' }} />
+      <div ref={alertMarksRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3, overflow: 'hidden' }} />
       <div ref={labelRef} aria-hidden style={{ position: 'absolute', left: 0, top: 0, display: 'none', pointerEvents: 'none', zIndex: 3 }}>
         {sel && (
           <span style={{ position: 'absolute', left: 14, top: -9, whiteSpace: 'nowrap', ...mono, fontSize: 10, color: 'var(--grey-100)', background: 'color-mix(in srgb, var(--bg-sunken) 75%, transparent)', padding: '2px 6px', borderRadius: 3, border: `1px solid ${selColour}` }}>

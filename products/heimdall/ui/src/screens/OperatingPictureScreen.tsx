@@ -35,6 +35,7 @@ import { Timeline, useReplayClock } from '../app/Timeline';
 import type { GlobeTrail } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
+import { ALERT_COLOURS, ALERT_PULSE_CSS, alertText, markStyle, type AlertMark } from '../app/alertMarks';
 
 type LayerState = Record<HeimdallLayerId, boolean>;
 type GateState = { rank: number; state: 'pending' | 'authorised' | 'rejected'; auditId?: string } | null;
@@ -848,6 +849,7 @@ export function OperatingPictureScreen() {
   const [radarOn, setRadarOn] = React.useState(false);
   const radar = useRadar(radarOn);
   const [trafficOn, setTrafficOn] = React.useState(false);
+  const [alertsOnMap, setAlertsOnMap] = React.useState(true);
   const traffic = useTraffic(trafficOn);
   const [measuring, setMeasuring] = React.useState(false);
   const [measurePts, setMeasurePts] = React.useState<LatLon[]>([]);
@@ -1147,6 +1149,30 @@ export function OperatingPictureScreen() {
     }
   };
 
+  // ---- open alerts on the map and in the strip over it, in the regions shown. [FR-H-4]
+  const openAlerts = React.useMemo(() => (status.alerts ?? []).filter((a) => a.clearedAt === null), [status.alerts]);
+  const alertMarks = React.useMemo<AlertMark[]>(() => {
+    if (!alertsOnMap || replayAt !== null) return [];
+    const rank = { critical: 0, warning: 1, info: 2 } as const;
+    return openAlerts.flatMap((a) => {
+      const t = byKey.get(a.entity);
+      const lat = t?.lat ?? a.lat, lon = t?.lon ?? a.lon;
+      if (lat === null || lon === null || lat === undefined || lon === undefined) return [];
+      if (!world && !enabledRegions.some((r) => inRegionBox(r.box, lat, lon))) return [];
+      const text = alertText(a.label);
+      return [{ id: a.id, lat, lon, severity: a.severity, text, acked: !!a.acknowledgedBy,
+        title: `${a.severity.toUpperCase()} · ${text} · ${a.entity}${a.rationale ? ` · ${a.rationale}` : ''}` }];
+    }).sort((x, y) => rank[x.severity] - rank[y.severity]);
+  }, [alertsOnMap, replayAt, openAlerts, byKey, world, enabledRegions]);
+  const pickAlertId = (id: string) => { const a = openAlerts.find((x) => x.id === id); if (a) pickAlert(a); };
+  // The strip: the newest unacknowledged critical and warning alerts on the map (so in
+  // the regions shown).
+  const stripAlerts = React.useMemo(() => {
+    const onMap = new Set(alertMarks.map((m) => m.id));
+    return openAlerts.filter((a) => onMap.has(a.id) && !a.acknowledgedBy && a.severity !== 'info')
+      .sort((a, b) => (a.severity === b.severity ? b.raisedAt - a.raisedAt : a.severity === 'critical' ? -1 : 1));
+  }, [openAlerts, alertMarks]);
+
   const authorise = async () => {
     const wfId = WORKFLOW_FOR_RANK[chosen];
     if (!wfId) return;
@@ -1327,7 +1353,8 @@ export function OperatingPictureScreen() {
             onLookAt={(at, km) => { const r = regionAt(enabledRegions, at.lat, at.lon); setLookRegion((p) => (p?.id === r?.id ? p : r)); setViewCircle({ lat: at.lat, lon: at.lon, km }); }}
             areas={globeAreas} radar={radar.status === 'ready' ? radar.frame.canvas : null} traffic={traffic.status === 'ready' ? traffic.lines : null} sunTime={replayAt !== null ? replayAt * 1000 : Date.now()}
             measuring={measuring} measure={measurePts} rings={rings} onSurface={addMeasure} markerScale={wall ? 1.6 : 1} flyRequest={flyRequest}
-            onInteract={() => { pausedUntil.current = Date.now() + TOUR_PAUSE_MS; }} />
+            onInteract={() => { pausedUntil.current = Date.now() + TOUR_PAUSE_MS; }}
+            alerts={alertMarks} onAlertPick={pickAlertId} />
         </React.Suspense>
       )}
 
@@ -1519,6 +1546,39 @@ export function OperatingPictureScreen() {
 
       {/* MEASURE line, range rings and an alert's place (2D). [FR-H-1] */}
       {view === '2d' && region && (measurePts.length > 0 || rings) && <ToolLayer region={region} measure={measurePts} rings={rings} />}
+      {view === '2d' && region && alertMarks.map((m) => {
+        if (m.lat < region.south || m.lat > region.north || m.lon < region.west || m.lon > region.east) return null;
+        const s = markStyle(m);
+        return (
+          <button key={m.id} type="button" title={m.title} aria-label={`Alert: ${m.title}`} onClick={() => pickAlertId(m.id)}
+            className={s.pulse ? 'mg-alert-pulse' : undefined}
+            style={{ all: 'unset', cursor: 'pointer', position: 'absolute', zIndex: 3, left: `${((m.lon - region.west) / (region.east - region.west)) * 100}%`, top: `${((region.north - m.lat) / (region.north - region.south)) * 100}%`,
+              width: s.size, height: s.size, transform: 'translate(-50%,-50%)', boxSizing: 'border-box', border: `2px solid ${s.colour}`, borderRadius: '50%',
+              background: `color-mix(in srgb, ${s.colour} 18%, transparent)`, opacity: s.opacity, ['--mg-alert-c' as string]: s.colour } as React.CSSProperties} />
+        );
+      })}
+      {replayAt === null && alertsOnMap && stripAlerts.length > 0 && (
+        <div role="status" aria-label="Latest alerts" style={{ position: 'absolute', zIndex: 5, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 240,
+            // 2D: centred under the chips; 3D: left of the globe controls, clear of the chips.
+            ...(view === '2d' ? { top: 56, left: '50%', transform: 'translateX(-50%)', width: 'min(520px, calc(100% - 340px))' } : { top: 12, right: 66, width: 'min(460px, calc(100% - 640px))' }) }}>
+          {stripAlerts.slice(0, 3).map((a) => (
+            <button key={a.id} type="button" onClick={() => pickAlert(a)} title={a.rationale}
+              style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.06em',
+                background: 'color-mix(in srgb, var(--bg-sunken) 88%, transparent)', border: `1px solid ${ALERT_COLOURS[a.severity]}`, borderLeftWidth: 4, borderRadius: 'var(--radius-sm)', color: 'var(--text-body)' }}>
+              <span style={{ color: ALERT_COLOURS[a.severity], fontWeight: 700 }}>{a.severity.toUpperCase()}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{alertText(a.label)} · {a.entity}</span>
+              <span style={{ color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{agoText(a.raisedAt).toUpperCase()}</span>
+            </button>
+          ))}
+          {stripAlerts.length > 3 && (
+            <button type="button" onClick={() => status.setAlertsOpen(true)}
+              style={{ all: 'unset', cursor: 'pointer', alignSelf: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-muted)', padding: '2px 8px', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', borderRadius: 'var(--radius-sm)' }}>
+              +{stripAlerts.length - 3} MORE UNACKNOWLEDGED · OPEN ALERTS
+            </button>
+          )}
+        </div>
+      )}
+      <style>{ALERT_PULSE_CSS}</style>
       {view === '2d' && region && alertPin && (
         <span aria-hidden style={{ position: 'absolute', left: `${((alertPin.lon - region.west) / (region.east - region.west)) * 100}%`, top: `${((region.north - alertPin.lat) / (region.north - region.south)) * 100}%`, width: 26, height: 26, transform: 'translate(-50%,-50%)', border: '2px solid var(--danger)', borderRadius: '50%', boxShadow: '0 0 14px var(--danger)', pointerEvents: 'none', zIndex: 3 }} />
       )}
@@ -1534,6 +1594,8 @@ export function OperatingPictureScreen() {
 
       {/* Canvas chips: radar and measure (2D top right; 3D under the MAP chip). */}
       {(view === '3d' || region) && <div style={{ position: 'absolute', zIndex: 4, display: 'flex', gap: 6, flexWrap: 'wrap', ...(view === '3d' ? { top: 92, left: 12 } : { top: 12, right: 14 }) }}>
+        <Chip on={alertsOnMap} onClick={() => setAlertsOnMap(!alertsOnMap)} tone={alertsOnMap && openAlerts.some((a) => a.severity === 'critical' && !a.acknowledgedBy) ? 'var(--danger)' : undefined}
+          label={alertsOnMap ? 'Hide alerts on the map' : 'Show open alerts on the map'}>ALERTS {alertMarks.length || openAlerts.length}</Chip>
         <Chip on={radarOn} onClick={() => setRadarOn(!radarOn)} tone={radar.status === 'unavailable' ? 'var(--warn)' : undefined}
           label={radarOn ? 'Hide rain radar' : 'Show rain radar (RainViewer, needs the internet)'}>{radarLabel(radar)}</Chip>
         <Chip on={trafficOn} onClick={() => setTrafficOn(!trafficOn)} tone={traffic.status === 'unavailable' ? 'var(--warn)' : undefined}
