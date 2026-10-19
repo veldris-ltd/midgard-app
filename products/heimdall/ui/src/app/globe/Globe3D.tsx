@@ -10,7 +10,7 @@ import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { CAMERA_LEVEL_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
 import type { TrafficLines } from '../traffic';
 import { PLACES } from '../places';
-import { LABEL_MAX_KM, markStyle, type AlertMark } from '../alertMarks';
+import { LABEL_MAX_KM, alertIconSvg, markStyle, type AlertMark } from '../alertMarks';
 import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
@@ -121,35 +121,36 @@ function drawCameraLabels(host: HTMLDivElement, view: GlobeView, tracks: Heimdal
   }
 }
 
-/** Open alerts as rings on the globe, critical and warning everywhere, info close in;
- *  the label shows beside a ring close in, or always for a critical one. Clicking a ring
- *  hands its alert id to `pick`. [FR-H-1] [FR-H-4] */
+/** Open alerts on the globe as hazard triangles in the severity colour, pinging until
+ *  acknowledged (critical ones also flash), each with a tag naming it when there is room
+ *  (critical always). Clicking one hands its alert id to `pick`. [FR-H-1] [FR-H-4] */
 function drawAlertMarks(host: HTMLDivElement, view: GlobeView, marks: AlertMark[], pick: (id: string) => void): void {
   const km = view.state.dist * 6371;
   const shown: { m: AlertMark; x: number; y: number; label: boolean }[] = [];
-  // Labels that would overlap one already placed are left off (most severe first).
+  // Tags that would overlap one already placed are left off (most severe first).
   const boxes: [number, number, number, number][] = [];
+  const named = new Set<string>(); // one tag per wording (a warning over several regions)
   for (const m of marks) {
     if (shown.length >= 150) break;
     const at = view.screenOfPoint(m.lat, m.lon);
     if (!at) continue;
-    let label = km < LABEL_MAX_KM || m.severity === 'critical';
+    let label = (km < LABEL_MAX_KM || m.severity === 'critical') && !named.has(m.text);
     if (label) {
-      const b: [number, number, number, number] = [at.x + 8, at.y - 8, at.x + 16 + m.text.length * 6.2, at.y + 8];
+      const b: [number, number, number, number] = [at.x + 10, at.y - 10, at.x + 60 + m.text.length * 6.4, at.y + 10];
       label = !boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
-      if (label) boxes.push(b);
+      if (label) { boxes.push(b); named.add(m.text); }
     }
     shown.push({ m, x: at.x, y: at.y, label });
   }
   while (host.childElementCount < shown.length) {
     const el = document.createElement('button');
     el.type = 'button';
-    el.style.cssText = 'all:unset;position:absolute;left:0;top:0;cursor:pointer;pointer-events:auto;display:flex;align-items:center;gap:5px;';
-    const ring = document.createElement('span');
-    ring.style.cssText = 'display:block;border-radius:50%;border:2px solid;box-sizing:border-box;flex:none;';
-    const label = document.createElement('span');
-    label.style.cssText = 'font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:0.06em;white-space:nowrap;text-shadow:0 0 3px #000,0 0 6px #000;';
-    el.append(ring, label);
+    el.style.cssText = 'all:unset;position:absolute;left:0;top:0;cursor:pointer;pointer-events:auto;display:flex;align-items:center;gap:4px;';
+    const icon = document.createElement('span');
+    const tag = document.createElement('span');
+    tag.className = 'mg-alert-tag';
+    tag.append(document.createElement('b'), document.createTextNode(''));
+    el.append(icon, tag);
     el.addEventListener('click', (ev) => { ev.stopPropagation(); if (el.dataset.id) pick(el.dataset.id); });
     host.appendChild(el);
   }
@@ -158,21 +159,27 @@ function drawAlertMarks(host: HTMLDivElement, view: GlobeView, marks: AlertMark[
     const p = shown[i];
     if (!p) { el.style.display = 'none'; continue; }
     const s = markStyle(p.m);
-    const ring = el.children[0] as HTMLSpanElement, label = el.children[1] as HTMLSpanElement;
+    const icon = el.children[0] as HTMLSpanElement, tag = el.children[1] as HTMLSpanElement;
     el.style.display = 'flex';
     el.dataset.id = p.m.id;
     el.title = p.m.title;
     el.setAttribute('aria-label', `Alert: ${p.m.title}`);
     el.style.opacity = String(s.opacity);
-    ring.style.width = ring.style.height = `${s.size}px`;
-    ring.style.borderColor = s.colour;
-    ring.style.background = `color-mix(in srgb, ${s.colour} 18%, transparent)`;
-    ring.style.setProperty('--mg-alert-c', s.colour);
-    ring.className = s.pulse ? 'mg-alert-pulse' : '';
-    const text = p.label ? p.m.text : '';
-    if (label.textContent !== text) label.textContent = text;
-    label.style.color = s.colour;
-    el.style.transform = `translate(${Math.round(p.x - s.size / 2)}px, ${Math.round(p.y - s.size / 2)}px)`;
+    el.style.setProperty('--mg-alert-c', s.colour);
+    el.style.setProperty('--mg-alert-s', `${s.pingS}s`);
+    el.style.zIndex = p.m.severity === 'critical' ? '3' : p.m.severity === 'warning' ? '2' : '1';
+    const key = `${s.colour}|${s.size}`;
+    if (icon.dataset.key !== key) { icon.innerHTML = alertIconSvg(s.colour, s.size); icon.dataset.key = key; }
+    icon.className = `mg-alert-icon${s.pulse ? ' mg-ping' : ''}${s.flash ? ' mg-flash' : ''}`;
+    icon.style.width = icon.style.height = `${s.size}px`;
+    tag.style.display = p.label ? 'inline-flex' : 'none';
+    if (p.label) {
+      const sev = p.m.severity === 'critical' ? 'CRITICAL' : p.m.severity === 'warning' ? 'WARNING' : 'INFO';
+      if (tag.children[0].textContent !== sev) tag.children[0].textContent = sev;
+      if (tag.lastChild!.textContent !== p.m.text) tag.lastChild!.textContent = p.m.text;
+    }
+    // The triangle's centre on the point.
+    el.style.transform = `translate(${Math.round(p.x - s.size / 2)}px, ${Math.round(p.y - s.size * 0.6)}px)`;
   }
 }
 

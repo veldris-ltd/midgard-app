@@ -35,7 +35,7 @@ import { Timeline, useReplayClock } from '../app/Timeline';
 import type { GlobeTrail } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
-import { ALERT_COLOURS, ALERT_PULSE_CSS, alertText, markStyle, type AlertMark } from '../app/alertMarks';
+import { ALERT_COLOURS, ALERT_PULSE_CSS, WARNING_LEVEL_COLOURS, alertIconSvg, alertText, markStyle, type AlertMark } from '../app/alertMarks';
 
 type LayerState = Record<HeimdallLayerId, boolean>;
 type GateState = { rank: number; state: 'pending' | 'authorised' | 'rejected'; auditId?: string } | null;
@@ -1161,8 +1161,9 @@ export function OperatingPictureScreen() {
       if (lat === null || lon === null || lat === undefined || lon === undefined) return [];
       if (!world && !enabledRegions.some((r) => inRegionBox(r.box, lat, lon))) return [];
       // A weather warning says what and when (they are often issued days ahead).
-      const text = t?.detail?.kind === 'event-weather-warning' ? warningText(t.detail) : alertText(a.label);
-      return [{ id: a.id, lat, lon, severity: a.severity, text, acked: !!a.acknowledgedBy,
+      const warning = t?.detail?.kind === 'event-weather-warning' ? t.detail : undefined;
+      const text = warning ? warningText(warning) : alertText(a.label);
+      return [{ id: a.id, lat, lon, severity: a.severity, text, acked: !!a.acknowledgedBy, colour: WARNING_LEVEL_COLOURS[warning?.level ?? ''],
         title: `${a.severity.toUpperCase()} · ${text} · ${a.entity}${a.rationale ? ` · ${a.rationale}` : ''}` }];
     }).sort((x, y) => rank[x.severity] - rank[y.severity]);
   }, [alertsOnMap, replayAt, openAlerts, byKey, world, enabledRegions]);
@@ -1548,22 +1549,23 @@ export function OperatingPictureScreen() {
 
       {/* MEASURE line, range rings and an alert's place (2D). [FR-H-1] */}
       {view === '2d' && region && (measurePts.length > 0 || rings) && <ToolLayer region={region} measure={measurePts} rings={rings} />}
-      {view === '2d' && region && alertMarks.map((m) => {
+      {view === '2d' && region && alertMarks.map((m, i) => {
         if (m.lat < region.south || m.lat > region.north || m.lon < region.west || m.lon > region.east) return null;
         const s = markStyle(m);
-        const left = `${((m.lon - region.west) / (region.east - region.west)) * 100}%`, top = `${((region.north - m.lat) / (region.north - region.south)) * 100}%`;
+        const sev = m.severity === 'critical' ? 'CRITICAL' : m.severity === 'warning' ? 'WARNING' : 'INFO';
+        // Tags for critical alerts always, the rest while there are few enough to read;
+        // one tag per wording (a warning covering several regions is named once).
+        const tagged = m.severity === 'critical' || (alertMarks.length <= 12 && alertMarks.findIndex((x) => x.text === m.text) === i);
         return (
-          <React.Fragment key={m.id}>
-          <button type="button" title={m.title} aria-label={`Alert: ${m.title}`} onClick={() => pickAlertId(m.id)}
-            className={s.pulse ? 'mg-alert-pulse' : undefined}
-            style={{ all: 'unset', cursor: 'pointer', position: 'absolute', zIndex: 3, left: `${((m.lon - region.west) / (region.east - region.west)) * 100}%`, top: `${((region.north - m.lat) / (region.north - region.south)) * 100}%`,
-              width: s.size, height: s.size, transform: 'translate(-50%,-50%)', boxSizing: 'border-box', border: `2px solid ${s.colour}`, borderRadius: '50%',
-              background: `color-mix(in srgb, ${s.colour} 18%, transparent)`, opacity: s.opacity, ['--mg-alert-c' as string]: s.colour } as React.CSSProperties} />
-          {m.severity === 'critical' || alertMarks.length <= 40 ? (
-            <span aria-hidden style={{ position: 'absolute', zIndex: 3, left, top, transform: `translate(${s.size / 2 + 5}px, -50%)`, pointerEvents: 'none', whiteSpace: 'nowrap',
-              fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', color: s.colour, opacity: s.opacity, textShadow: '0 0 3px #000, 0 0 6px #000' }}>{m.text}</span>
-          ) : null}
-          </React.Fragment>
+          <button key={m.id} type="button" title={m.title} aria-label={`Alert: ${m.title}`} onClick={() => pickAlertId(m.id)}
+            style={{ all: 'unset', cursor: 'pointer', position: 'absolute', zIndex: m.severity === 'critical' ? 5 : 4, display: 'flex', alignItems: 'center', gap: 4,
+              left: `${((m.lon - region.west) / (region.east - region.west)) * 100}%`, top: `${((region.north - m.lat) / (region.north - region.south)) * 100}%`,
+              transform: `translate(${-s.size / 2}px, ${-s.size * 0.6}px)`, opacity: s.opacity,
+              ['--mg-alert-c' as string]: s.colour, ['--mg-alert-s' as string]: `${s.pingS}s` } as React.CSSProperties}>
+            <span className={`mg-alert-icon${s.pulse ? ' mg-ping' : ''}${s.flash ? ' mg-flash' : ''}`} style={{ width: s.size, height: s.size }}
+              dangerouslySetInnerHTML={{ __html: alertIconSvg(s.colour, s.size) }} />
+            {tagged && <span className="mg-alert-tag"><b>{sev}</b>{m.text}</span>}
+          </button>
         );
       })}
       {replayAt === null && alertsOnMap && stripAlerts.length > 0 && (
