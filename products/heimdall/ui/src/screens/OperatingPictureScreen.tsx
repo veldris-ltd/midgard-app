@@ -35,6 +35,7 @@ import { Timeline, useReplayClock } from '../app/Timeline';
 import type { GlobeTrail } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
+import { AlertsPanel } from '../app/AlertsPanel';
 import { ALERT_COLOURS, ALERT_PULSE_CSS, WARNING_LEVEL_COLOURS, alertIconSvg, alertText, markStyle, type AlertMark } from '../app/alertMarks';
 
 type LayerState = Record<HeimdallLayerId, boolean>;
@@ -1168,13 +1169,7 @@ export function OperatingPictureScreen() {
     }).sort((x, y) => rank[x.severity] - rank[y.severity]);
   }, [alertsOnMap, replayAt, openAlerts, byKey, world, enabledRegions]);
   const pickAlertId = (id: string) => { const a = openAlerts.find((x) => x.id === id); if (a) pickAlert(a); };
-  // The strip: the newest unacknowledged critical and warning alerts on the map (so in
-  // the regions shown).
-  const stripAlerts = React.useMemo(() => {
-    const onMap = new Set(alertMarks.map((m) => m.id));
-    return openAlerts.filter((a) => onMap.has(a.id) && !a.acknowledgedBy && a.severity !== 'info')
-      .sort((a, b) => (a.severity === b.severity ? b.raisedAt - a.raisedAt : a.severity === 'critical' ? -1 : 1));
-  }, [openAlerts, alertMarks]);
+  const alertName = React.useCallback((a: HeimdallAlert) => byKey.get(a.entity)?.detail?.name, [byKey]);
 
   const authorise = async () => {
     const wfId = WORKFLOW_FOR_RANK[chosen];
@@ -1568,26 +1563,11 @@ export function OperatingPictureScreen() {
           </button>
         );
       })}
-      {replayAt === null && alertsOnMap && stripAlerts.length > 0 && (
-        <div role="status" aria-label="Latest alerts" style={{ position: 'absolute', zIndex: 5, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 240,
-            // 2D: centred under the chips; 3D: left of the globe controls, clear of the chips.
-            ...(view === '2d' ? { top: 56, left: '50%', transform: 'translateX(-50%)', width: 'min(520px, calc(100% - 340px))' } : { top: 12, right: 66, width: 'min(460px, calc(100% - 640px))' }) }}>
-          {stripAlerts.slice(0, 3).map((a) => (
-            <button key={a.id} type="button" onClick={() => pickAlert(a)} title={a.rationale}
-              style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.06em',
-                background: 'color-mix(in srgb, var(--bg-sunken) 88%, transparent)', border: `1px solid ${ALERT_COLOURS[a.severity]}`, borderLeftWidth: 4, borderRadius: 'var(--radius-sm)', color: 'var(--text-body)' }}>
-              <span style={{ color: ALERT_COLOURS[a.severity], fontWeight: 700 }}>{a.severity.toUpperCase()}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{alertText(a.label)} · {a.entity}</span>
-              <span style={{ color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{agoText(a.raisedAt).toUpperCase()}</span>
-            </button>
-          ))}
-          {stripAlerts.length > 3 && (
-            <button type="button" onClick={() => status.setAlertsOpen(true)}
-              style={{ all: 'unset', cursor: 'pointer', alignSelf: 'center', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-muted)', padding: '2px 8px', background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', borderRadius: 'var(--radius-sm)' }}>
-              +{stripAlerts.length - 3} MORE UNACKNOWLEDGED · OPEN ALERTS
-            </button>
-          )}
-        </div>
+      {/* The alerts on the map, listed top right (hidden while the alerts drawer is open). */}
+      {replayAt === null && alertsOnMap && !status.alertsOpen && (
+        <AlertsPanel marks={alertMarks} alerts={openAlerts} nameOf={alertName} onPick={pickAlert} onOpenAll={() => status.setAlertsOpen(true)}
+          style={{ position: 'absolute', zIndex: 5, maxHeight: '55%', width: 'min(340px, calc(100% - 120px))', minWidth: 240,
+            zoom: wall ? 1.15 : undefined, ...(view === '2d' ? { top: 56, right: 14 } : { top: 12, right: 66 }) }} />
       )}
       <style>{ALERT_PULSE_CSS}</style>
       {view === '2d' && region && alertPin && (
