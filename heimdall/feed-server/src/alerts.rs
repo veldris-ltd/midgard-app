@@ -19,8 +19,14 @@
 //! - **`source_disagreement`.** When two different feeds report one entity's position
 //!   within `window_s` seconds of each other (observation time) more than `max_km`
 //!   apart, a `source-disagreement` alert is raised (one open per entity); it clears
-//!   when the feeds have agreed for [`AGREEMENT_CLEARS_SECS`], or when acknowledged
-//!   (after which it is not raised again for that entity until its feeds next agree).
+//!   when the feeds have agreed for [`AGREEMENT_CLEARS_SECS`], when the entity expires,
+//!   or when acknowledged (after which it is not raised again for that entity until its
+//!   feeds next agree). Two positions are compared only when at least one is the
+//!   aircraft's own broadcast (`pos_source` `adsb_*` or `adsr_*`): positions estimated
+//!   by ground receivers (MLAT, TIS-B), or of unknown origin, are worked out separately
+//!   by each network and routinely differ by several km, which says nothing about the
+//!   aircraft; an estimate disagreeing with a broadcast position (a spoofing sign) still
+//!   alerts.
 //!
 //! Both detectors and `labels` are optional; unknown keys, an unknown severity, a
 //! label given twice or a label that names a detector refuse the file. Acknowledging
@@ -430,6 +436,13 @@ impl AlertChange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownAlert(pub String);
 
+/// Whether a position is the aircraft's own broadcast (ADS-B, or ADS-B rebroadcast).
+fn broadcast(pos_source: &Option<String>) -> bool {
+    pos_source
+        .as_deref()
+        .is_some_and(|s| s.starts_with("adsb") || s.starts_with("adsr"))
+}
+
 /// A feed's latest position report for an entity.
 struct Report {
     t: u64,
@@ -639,6 +652,10 @@ impl AlertBook {
             if *other == feed || t.abs_diff(r.t) > window {
                 continue;
             }
+            // Two estimates (or unknowns) disagreeing is expected, not a sign.
+            if !broadcast(&pos_source) && !broadcast(&r.pos_source) {
+                continue;
+            }
             compared = true;
             let km = distance_km(lat, lon, r.lat, r.lon);
             if km > max_km && worst.as_ref().is_none_or(|w| km > w.1) {
@@ -684,7 +701,9 @@ impl AlertBook {
     pub fn expired(&mut self, entities: &[TrackedEntity], now: u64) {
         for entity in entities {
             let id = entity.id.0.as_str();
-            self.clear_where(now, |a| a.entity == id && a.is_label_alert());
+            self.clear_where(now, |a| {
+                a.entity == id && (a.is_label_alert() || a.label == SOURCE_DISAGREEMENT)
+            });
             self.reports.remove(id);
             self.agreeing_since.remove(id);
             self.suppressed.remove(id);
@@ -1061,6 +1080,41 @@ mod tests {
     }
 
     #[test]
+    fn estimated_positions_disagreeing_raise_nothing() {
+        let mut b = book();
+        let ac = entity("AC", "air-track", None, &[]);
+        // Two networks' MLAT, and MLAT against a feed that does not say: ~11 km apart.
+        b.observed(&ac, &report("fi", 100, 51.0, -1.0, "mlat"), 100);
+        b.observed(&ac, &report("lol", 101, 51.1, -1.0, "mlat"), 101);
+        let unknown = Observation::new("lol-102", FeedId("lol".into()), "air-track", "AC", 102)
+            .with_attr("lat", Attr::Float(51.1))
+            .with_attr("lon", Attr::Float(-1.0));
+        b.observed(&ac, &unknown, 102);
+        assert!(b.take_changes().is_empty());
+        // A broadcast position against the estimate still alerts.
+        b.observed(&ac, &report("adsb", 103, 51.0, -1.0, "adsb_icao"), 103);
+        assert_eq!(
+            actions(&b.take_changes()),
+            [("RaiseAlert", SOURCE_DISAGREEMENT.to_string())]
+        );
+    }
+
+    #[test]
+    fn a_disagreement_clears_when_the_aircraft_expires() {
+        let mut b = book();
+        let ac = entity("AC", "air-track", None, &[]);
+        b.observed(&ac, &report("adsb", 100, 51.0, -1.0, "adsb_icao"), 100);
+        b.observed(&ac, &report("mlat", 101, 51.1, -1.0, "mlat"), 101);
+        b.take_changes();
+        b.expired(&[ac], 500);
+        assert_eq!(
+            actions(&b.take_changes()),
+            [("ClearAlert", SOURCE_DISAGREEMENT.to_string())]
+        );
+        assert_eq!(b.newest_first(true).count(), 0);
+    }
+
+    #[test]
     fn feeds_that_disagree_raise_and_clear_after_agreeing_for_five_minutes() {
         let mut b = book();
         let ac = entity("AC", "air-track", None, &[]);
@@ -1090,10 +1144,14 @@ mod tests {
         // Agreement (within 5 km) for under 5 minutes leaves it open; for 5, clears it.
         // (The radar report has left the window by then.)
         for t in (400..=700).step_by(10) {
-            let feed = if t % 20 == 0 { "adsb" } else { "mlat" };
+            let (feed, src) = if t % 20 == 0 {
+                ("adsb", "adsb_icao")
+            } else {
+                ("mlat", "mlat")
+            };
             b.observed(
                 &ac,
-                &report(feed, t, 51.0, -1.0 + (t % 20) as f64 * 0.001, "x"),
+                &report(feed, t, 51.0, -1.0 + (t % 20) as f64 * 0.001, src),
                 t,
             );
             assert!(b.take_changes().is_empty(), "{t}");
