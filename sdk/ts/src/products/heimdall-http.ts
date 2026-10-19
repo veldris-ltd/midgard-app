@@ -243,6 +243,9 @@ function cameraAnalysis(e: WireEntity): HeimdallCameraAnalysis | undefined {
     stationary: num(e.attributes.ai_stationary),
     stopped: num(e.attributes.ai_stopped),
     queue: e.attributes.ai_queue === true,
+    blocking: num(e.attributes.ai_blocking),
+    wrongWay: num(e.attributes.ai_wrong_way),
+    personRoad: num(e.attributes.ai_person_road),
     flow: pairs(e.attributes.ai_flow).map(([dir, n]) => ({ dir, n: +n })),
     heading: num(e.attributes.ai_heading),
     headingText: textAttr(e, 'ai_heading_text'),
@@ -257,6 +260,7 @@ function playbackOf(v: any): HeimdallCameraPlayback | undefined {
     .filter((t: any) => t && typeof t.id === 'number' && typeof t.cls === 'string' && Array.isArray(t.obs))
     .map((t: any) => ({
       id: t.id, cls: t.cls, moving: t.moving === true,
+      flag: t.flag === 'stopped' || t.flag === 'wrong-way' || t.flag === 'person-road' ? t.flag : undefined,
       obs: t.obs.filter((o: any) => Array.isArray(o) && o.length === 5 && o.every(Number.isFinite)) as [number, number, number, number, number][],
     }))
     .filter((t: HeimdallCameraPlayback['tracks'][number]) => t.obs.length > 0);
@@ -438,8 +442,12 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
 /** Times in unix seconds (a gateway sending milliseconds is read either way). */
 function normaliseAlert(a: HeimdallAlert): HeimdallAlert {
   const secs = (v: number | null | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? (v > 1e12 ? Math.round(v / 1000) : v) : null);
+  // Camera analytics alerts are raised on the analysis entity (AI-<camera>), which is not
+  // drawn: point them at the camera itself, so picking one selects it. [FR-P3-5]
+  const onCamera = a.kind === 'land-camera-ai' && typeof a.entity === 'string' && a.entity.startsWith('AI-');
   return {
     ...a,
+    ...(onCamera ? { entity: a.entity.slice(3), kind: 'land-camera' } : {}),
     raisedAt: secs(a.raisedAt) ?? 0,
     clearedAt: secs(a.clearedAt),
     acknowledgedAt: secs(a.acknowledgedAt),

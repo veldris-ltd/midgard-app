@@ -363,7 +363,7 @@ function PlaybackOverlay({ playback, video }: { playback: HeimdallCameraPlayback
         const k = b[0] > a[0] ? Math.min(1, Math.max(0, (frame - a[0]) / (b[0] - a[0]))) : 0;
         const at = (j: number) => a[j] + (b[j] - a[j]) * k;
         const x = at(1) * 100, y = at(2) * 75, w = at(3) * 100, h = at(4) * 75;
-        const c = DET_COLOUR[t.cls] ?? '#b48cff';
+        const c = t.flag ? FLAG_COLOUR : DET_COLOUR[t.cls] ?? '#b48cff';
         const trail = t.obs.filter((o) => o[0] <= frame && o[0] >= frame - TRAIL)
           .map((o) => `${(o[1] + o[3] / 2) * 100},${(o[2] + o[4] / 2) * 75}`);
         trail.push(`${x + w / 2},${y + h / 2}`);
@@ -371,13 +371,19 @@ function PlaybackOverlay({ playback, video }: { playback: HeimdallCameraPlayback
           <g key={t.id}>
             {t.moving && trail.length > 1 && <polyline points={trail.join(' ')} fill="none" stroke={c} strokeWidth={1.2} strokeOpacity={0.7} vectorEffect="non-scaling-stroke" />}
             <rect x={x} y={y} width={w} height={h} fill="none" stroke={c} strokeWidth={t.moving ? 1.4 : 0.8} strokeDasharray={t.moving ? undefined : '2 1.5'} vectorEffect="non-scaling-stroke" />
-            <text x={x + 0.4} y={Math.max(2.4, y - 0.6)} fontSize={2.4} fill={c} style={{ fontFamily: 'var(--font-mono)' }}>{t.cls.toUpperCase()} {t.id}</text>
+            <text x={x + 0.4} y={Math.max(2.4, y - 0.6)} fontSize={2.4} fill={c} style={{ fontFamily: 'var(--font-mono)' }}>{t.cls.toUpperCase()} {t.id}{t.flag ? ` · ${FLAG_TEXT[t.flag]}` : ''}</text>
           </g>
         );
       })}
     </svg>
   );
 }
+
+/** Flagged objects (incidents) are drawn in red with what was seen. */
+const FLAG_COLOUR = '#ff3b30';
+const FLAG_TEXT: Record<NonNullable<HeimdallCameraPlayback['tracks'][number]['flag']>, string> = {
+  stopped: 'STOPPED IN FLOW', 'wrong-way': 'WRONG WAY?', 'person-road': 'ON ROAD',
+};
 
 /** Boxes and motion arrows from the analysed clip's last frame, over the camera image. */
 function DetectionOverlay({ boxes }: { boxes: HeimdallCameraAnalysis['boxes'] }) {
@@ -420,7 +426,10 @@ function AnalysisPanel({ ai, showBoxes, setShowBoxes, canAnalyse, running, failu
         <span className="mg-label" style={{ color: 'var(--text-faint)' }}>
           AI ANALYSIS{running ? ' · ANALYSING…' : ai ? ` · ${age < 120 ? `${age}s` : `${Math.round(age / 60)}m`} AGO` : ''}
         </span>
-        {ai?.queue && <span style={{ ...mono, fontSize: 9, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 3, padding: '1px 5px' }}>QUEUE</span>}
+        {ai?.queue && <span style={flagChip('var(--warn)')}>QUEUE</span>}
+        {!!ai?.wrongWay && <span style={flagChip('var(--danger)')}>WRONG WAY?</span>}
+        {!!ai?.blocking && <span style={flagChip('var(--danger)')}>STOPPED IN FLOW</span>}
+        {!!ai?.personRoad && <span style={flagChip('var(--info)')}>PERSON ON ROAD</span>}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           {ai && <button type="button" onClick={() => setShowBoxes(!showBoxes)} aria-pressed={showBoxes} style={camBtn(showBoxes)}>BOXES</button>}
           {canAnalyse && (
@@ -446,6 +455,8 @@ function AnalysisPanel({ ai, showBoxes, setShowBoxes, canAnalyse, running, failu
   );
 }
 
+const flagChip = (c: string): React.CSSProperties => ({ ...mono, fontSize: 9, color: c, border: `1px solid ${c}`, borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' });
+
 function AnalysisBody({ ai }: { ai: HeimdallCameraAnalysis }) {
   return (
     <>
@@ -454,6 +465,13 @@ function AnalysisBody({ ai }: { ai: HeimdallCameraAnalysis }) {
       </div>
       <Row k="MOVING" v={`${ai.moving ?? 0} moving · ${ai.stationary ?? 0} stationary${ai.stopped ? ` · ${ai.stopped} stopped throughout` : ''}`} />
       {ai.flow.length > 0 && <Row k="FLOW" v={ai.flow.filter((f) => f.n > 0).map((f) => `${f.dir} ${f.n}`).join(' · ') || '—'} />}
+      {(!!ai.wrongWay || !!ai.blocking || !!ai.personRoad) && (
+        <Row k="INCIDENTS" tone="var(--warn)" v={[
+          ai.wrongWay ? `${ai.wrongWay} possibly wrong way` : '',
+          ai.blocking ? `${ai.blocking} stopped in the flow` : '',
+          ai.personRoad ? `${ai.personRoad} ${ai.personRoad === 1 ? 'person' : 'people'} on the road` : '',
+        ].filter(Boolean).join(' · ')} />
+      )}
       {ai.headingText && <Row k="MAIN FLOW" v={`${ai.headingText}${ai.heading !== undefined ? ` (≈${Math.round(ai.heading)}°)` : ''}`} />}
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 4, lineHeight: 1.6 }}>
         {ai.model ?? 'OBJECT DETECTION'} · {ai.frames ?? '?'} FRAMES · DIRECTIONS FROM THE CAMERA'S VIEW, APPROXIMATE · PEOPLE COUNTED ONLY, NOT IDENTIFIED

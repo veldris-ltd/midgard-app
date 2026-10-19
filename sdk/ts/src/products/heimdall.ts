@@ -195,6 +195,11 @@ export interface HeimdallCameraAnalysis {
   stationary?: number;
   stopped?: number;
   queue?: boolean;
+  /** Approximate incidents: vehicles stopped in the flow, going against it, and people on
+   *  the road vehicles use. */
+  blocking?: number;
+  wrongWay?: number;
+  personRoad?: number;
   flow: { dir: string; n: number }[];
   heading?: number;
   headingText?: string;
@@ -210,7 +215,7 @@ export interface HeimdallCameraAnalysis {
 export interface HeimdallCameraPlayback {
   fps: number;
   frames: number;
-  tracks: { id: number; cls: string; moving: boolean; obs: [number, number, number, number, number][] }[];
+  tracks: { id: number; cls: string; moving: boolean; flag?: 'stopped' | 'wrong-way' | 'person-road'; obs: [number, number, number, number, number][] }[];
 }
 
 /** A lat/lon box the canvas maps onto 0–100 %. */
