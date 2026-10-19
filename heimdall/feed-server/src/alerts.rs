@@ -86,6 +86,12 @@ pub struct WentDark {
     pub kinds: BTreeSet<String>,
     /// The least last speed, in knots, that makes going quiet suspicious.
     pub min_speed_kt: f64,
+    /// Only entities that were reported steadily count: at least this many reports
+    /// (`min_reports`) at no less than this rate (`min_reports_per_hour`) over their life.
+    /// Something that drifts out of patchy coverage has few, sparse reports, so its going
+    /// quiet is coverage, not behaviour. Both default to 0 (off).
+    pub min_reports: u64,
+    pub min_reports_per_hour: f64,
     /// The alert's severity.
     pub severity: Severity,
 }
@@ -182,7 +188,17 @@ pub fn parse_alerts(text: &str) -> Result<AlertConfig, String> {
     )?;
     if let Some(w) = detectors.get("went_dark") {
         let at = "detectors.went_dark";
-        only_keys(w, at, &["kinds", "min_speed_kt", "severity"])?;
+        only_keys(
+            w,
+            at,
+            &[
+                "kinds",
+                "min_speed_kt",
+                "min_reports",
+                "min_reports_per_hour",
+                "severity",
+            ],
+        )?;
         let Some(Json::Arr(items)) = w.get("kinds") else {
             return Err(format!("{at}: \"kinds\" must be an array of kinds"));
         };
@@ -202,9 +218,27 @@ pub fn parse_alerts(text: &str) -> Result<AlertConfig, String> {
         if min_speed_kt < 0.0 {
             return Err(format!("{at}: \"min_speed_kt\" must not be negative"));
         }
+        let optional = |key: &str| -> Result<f64, String> {
+            match w.get(key) {
+                None => Ok(0.0),
+                Some(_) => {
+                    let v = number(w, at, key)?;
+                    if v < 0.0 {
+                        return Err(format!("{at}: \"{key}\" must not be negative"));
+                    }
+                    Ok(v)
+                }
+            }
+        };
+        let min_reports = optional("min_reports")?;
+        if min_reports.fract() != 0.0 {
+            return Err(format!("{at}: \"min_reports\" must be a whole number"));
+        }
         config.went_dark = Some(WentDark {
             kinds,
             min_speed_kt,
+            min_reports: min_reports as u64,
+            min_reports_per_hour: optional("min_reports_per_hour")?,
             severity: severity_of(w.get("severity"), at)?,
         });
     }
@@ -662,8 +696,18 @@ impl AlertBook {
                 Some(Attr::Int(i)) => *i as f64,
                 _ => continue,
             };
+            let reports = entity.track.observation_count;
+            let hours = entity
+                .track
+                .last_seen
+                .saturating_sub(entity.track.first_seen) as f64
+                / 3600.0;
+            let steady = reports >= w.min_reports
+                && (w.min_reports_per_hour <= 0.0
+                    || (hours > 0.0 && reports as f64 / hours >= w.min_reports_per_hour));
             if w.kinds.contains(&entity.kind)
                 && speed >= w.min_speed_kt
+                && steady
                 && !self.has_open(id, WENT_DARK)
             {
                 let severity = w.severity;
@@ -1167,5 +1211,44 @@ mod tests {
         let d = distance_km(51.0, -1.0, 51.1, -1.0);
         assert!((d - 11.12).abs() < 0.01, "{d}");
         assert_eq!(distance_km(10.0, 20.0, 10.0, 20.0), 0.0);
+    }
+
+    #[test]
+    fn went_dark_can_require_steady_reporting() {
+        let c = parse_alerts(r#"{"version": 1, "detectors": {"went_dark": {"kinds": ["sea-vessel"], "min_speed_kt": 5, "min_reports": 10, "min_reports_per_hour": 30, "severity": "warning"}}}"#).unwrap();
+        let w = c.went_dark.as_ref().unwrap();
+        assert_eq!((w.min_reports, w.min_reports_per_hour), (10, 30.0));
+        assert!(parse_alerts(r#"{"version": 1, "detectors": {"went_dark": {"kinds": ["s"], "min_speed_kt": 1, "min_reports": 2.5, "severity": "info"}}}"#).is_err());
+        let defaults = parse_alerts(r#"{"version": 1, "detectors": {"went_dark": {"kinds": ["s"], "min_speed_kt": 1, "severity": "info"}}}"#).unwrap();
+        assert_eq!(defaults.went_dark.unwrap().min_reports, 0);
+    }
+
+    #[test]
+    fn a_sparsely_reported_vessel_going_quiet_is_not_went_dark() {
+        let mut b = AlertBook::in_memory(parse_alerts(r#"{"version": 1, "detectors": {"went_dark": {"kinds": ["sea-vessel"], "min_speed_kt": 2, "min_reports": 10, "min_reports_per_hour": 30, "severity": "warning"}}}"#).unwrap());
+        let vessel = |id: &str, reports: u64, minutes: u64| {
+            let mut e = entity(id, "sea-vessel", None, &[("speed", Attr::Float(12.0))]);
+            e.track = Track {
+                first_seen: 0,
+                last_seen: minutes * 60,
+                observation_count: reports,
+            };
+            e
+        };
+        // Steady: 40 reports over 40 minutes (60 an hour). Sparse: 12 over 3 hours. Few: 4.
+        b.expired(
+            &[
+                vessel("STEADY", 40, 40),
+                vessel("SPARSE", 12, 180),
+                vessel("FEW", 4, 4),
+            ],
+            10_000,
+        );
+        let raised: Vec<String> = b
+            .take_changes()
+            .iter()
+            .map(|c| c.alert().entity.clone())
+            .collect();
+        assert_eq!(raised, vec!["STEADY".to_string()]);
     }
 }
