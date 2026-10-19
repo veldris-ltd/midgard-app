@@ -58,6 +58,7 @@ import {
   type HeimdallPicture,
   type HeimdallRegion,
   type HeimdallCameraAnalysis,
+  type HeimdallCameraPlayback,
   type HeimdallSyncSite,
   type HeimdallTrack,
   type HeimdallWorkflow,
@@ -247,6 +248,19 @@ function cameraAnalysis(e: WireEntity): HeimdallCameraAnalysis | undefined {
     headingText: textAttr(e, 'ai_heading_text'),
     boxes,
   };
+}
+
+/** The per-frame tracks in an analysis answer, checked; undefined when absent or malformed. */
+function playbackOf(v: any): HeimdallCameraPlayback | undefined {
+  if (!v || typeof v.fps !== 'number' || !(v.fps > 0) || typeof v.frames !== 'number' || !Array.isArray(v.tracks)) return undefined;
+  const tracks = v.tracks
+    .filter((t: any) => t && typeof t.id === 'number' && typeof t.cls === 'string' && Array.isArray(t.obs))
+    .map((t: any) => ({
+      id: t.id, cls: t.cls, moving: t.moving === true,
+      obs: t.obs.filter((o: any) => Array.isArray(o) && o.length === 5 && o.every(Number.isFinite)) as [number, number, number, number, number][],
+    }))
+    .filter((t: HeimdallCameraPlayback['tracks'][number]) => t.obs.length > 0);
+  return { fps: v.fps, frames: v.frames, tracks };
 }
 
 /** Runways from the feed's `lat,lon,lat,lon[,width_m];…` text (width 45 m when absent). */
@@ -774,6 +788,7 @@ export class HeimdallHttp implements HeimdallGateway {
       ? cameraAnalysis({ attributes: body.attrs } as WireEntity)
       : undefined;
     if (!ai) throw new Error('camera analytics sent no result');
+    ai.playback = playbackOf(body.playback);
     this.cameraAI.set(id, ai);
     return ai;
   }

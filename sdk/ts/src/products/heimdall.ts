@@ -200,6 +200,17 @@ export interface HeimdallCameraAnalysis {
   headingText?: string;
   /** Detections on the clip's last frame, 0-1 image units; dx, dy = motion per second. */
   boxes: { cls: string; conf: number; x: number; y: number; w: number; h: number; dx: number; dy: number }[];
+  /** Every tracked object frame by frame, for playing the boxes in step with the clip.
+   *  Only on a result just asked for (the picture does not carry it). */
+  playback?: HeimdallCameraPlayback;
+}
+
+/** Tracks through an analysed clip: frame f is at f / fps seconds from its start; each
+ *  `obs` entry is [frame, x, y, w, h] in 0-1 image units. [FR-P3-5] */
+export interface HeimdallCameraPlayback {
+  fps: number;
+  frames: number;
+  tracks: { id: number; cls: string; moving: boolean; obs: [number, number, number, number, number][] }[];
 }
 
 /** A lat/lon box the canvas maps onto 0–100 %. */

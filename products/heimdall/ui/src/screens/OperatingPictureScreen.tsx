@@ -14,7 +14,7 @@ import {
 } from '@midgard/design-system';
 import { useAsync, useGateway } from '@midgard/ui-shared';
 import { HumanGateRequiredError, UK_AND_IRELAND } from '@midgard/sdk';
-import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack, HeimdallTrackDetail, HeimdallCameraAnalysis } from '@midgard/sdk';
+import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLayerId, HeimdallPicture, HeimdallRegion, HeimdallTrack, HeimdallTrackDetail, HeimdallCameraAnalysis, HeimdallCameraPlayback } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
 import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../app/hydro';
@@ -229,6 +229,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
   const [failed, setFailed] = React.useState(false);
   const [showBoxes, setShowBoxes] = React.useState(true);
   const [expanded, setExpanded] = React.useState(false);
+  const [clipEl, setClipEl] = React.useState<HTMLVideoElement | null>(null);
   // Analysis runs only when asked (ANALYSE); the answer shows at once, and the picture's
   // copy of it (shared with other users) takes over when it is newer. [FR-P3-5]
   const [asked, setAsked] = React.useState<{ status: 'idle' } | { status: 'running' } | { status: 'done'; ai: HeimdallCameraAnalysis } | { status: 'failed'; reason: string }>({ status: 'idle' });
@@ -260,7 +261,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
   const mjpeg = camera.streamType === 'mjpeg';
   // 'fill', not 'cover': the detection overlay is in the image's own 0-1 coordinates.
   const box: React.CSSProperties = expanded
-    ? { width: 'min(92vw, calc(82vh * 4 / 3))', aspectRatio: '4 / 3', objectFit: 'fill', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' }
+    ? { width: '100%', maxWidth: 'calc(80vh * 4 / 3)', aspectRatio: '4 / 3', objectFit: 'fill', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' }
     : { width: '100%', aspectRatio: '4 / 3', objectFit: 'fill', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' };
   const media = (
     <>
@@ -273,8 +274,10 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
       )}
       {!failed && mode === 'clip' && camera.videoUrl && (
         <div style={{ position: 'relative' }}>
-          <video key={camera.videoUrl} src={bust(camera.videoUrl)} style={box} autoPlay muted loop playsInline controls onError={() => setFailed(true)} />
-          {ai && showBoxes && <DetectionOverlay boxes={ai.boxes} />}
+          <video key={camera.videoUrl} ref={setClipEl} src={bust(camera.videoUrl)} style={box} autoPlay muted loop playsInline controls onError={() => setFailed(true)} />
+          {ai && showBoxes && (ai.playback && clipEl
+            ? <PlaybackOverlay playback={ai.playback} video={clipEl} />
+            : <DetectionOverlay boxes={ai.boxes} />)}
         </div>
       )}
       {!failed && mode === 'stream' && camera.streamUrl && (mjpeg
@@ -310,12 +313,15 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
         <div role="dialog" aria-label={`Camera ${name}`} onClick={() => setExpanded(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(4,8,12,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--surface-raised, #0d141b)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-md, 8px)', padding: 12, maxWidth: '96vw', maxHeight: '96vh', overflow: 'auto' }}>
+            style={{ background: 'var(--surface-raised, #0d141b)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-md, 8px)', padding: 12, width: '96vw', maxHeight: '96vh', overflow: 'auto', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               {label}<span style={{ ...mono, fontSize: 10, color: 'var(--text-body)' }}>{name}</span>{buttons}
             </div>
-            {media}
-            {analysis}
+            {/* The analysis sits beside the picture on a wide screen, below it on a narrow one. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+              <div style={{ flex: '1 1 480px', minWidth: 0, display: 'flex', justifyContent: 'center' }}><div style={{ width: '100%', maxWidth: 'calc(80vh * 4 / 3)' }}>{media}</div></div>
+              <div style={{ flex: '0 1 320px', minWidth: 260 }}>{analysis}</div>
+            </div>
           </div>
         </div>
       )}
@@ -324,6 +330,53 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
 }
 /** Detection colours by class: vehicles amber, people cyan, the rest violet. */
 const DET_COLOUR: Record<string, string> = { car: '#ffb020', truck: '#ff8a20', bus: '#ffd040', motorcycle: '#ffc070', bicycle: '#7fffb0', person: '#3fe0ff' };
+
+/** The analysed clip's tracks played in step with the video: each object's box at the
+ *  video's current time (interpolated between the sampled frames), its track number, and
+ *  a short trail of where it has been. Beyond the analysed part of the clip nothing shows.
+ *  The boxes follow the clip that was analysed; if the camera has published a newer clip
+ *  since, they no longer line up (RE-ANALYSE). [FR-P3-5] */
+function PlaybackOverlay({ playback, video }: { playback: HeimdallCameraPlayback; video: HTMLVideoElement }) {
+  const [frame, setFrame] = React.useState(0);
+  React.useEffect(() => {
+    let raf = 0;
+    const step = () => {
+      const f = Math.round(video.currentTime * playback.fps * 20) / 20;
+      setFrame((old) => (old === f ? old : f));
+      raf = window.requestAnimationFrame(step);
+    };
+    raf = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(raf);
+  }, [video, playback]);
+  const TRAIL = 2 * playback.fps; // two seconds of trail
+  return (
+    <svg viewBox="0 0 100 75" preserveAspectRatio="none" aria-hidden
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+      {playback.tracks.map((t) => {
+        const first = t.obs[0][0], last = t.obs[t.obs.length - 1][0];
+        if (frame < first || frame > last + 0.5) return null;
+        // The observations either side of now, and the box between them.
+        let i = 0;
+        while (i < t.obs.length - 1 && t.obs[i + 1][0] <= frame) i++;
+        const a = t.obs[i], b = t.obs[Math.min(i + 1, t.obs.length - 1)];
+        const k = b[0] > a[0] ? Math.min(1, Math.max(0, (frame - a[0]) / (b[0] - a[0]))) : 0;
+        const at = (j: number) => a[j] + (b[j] - a[j]) * k;
+        const x = at(1) * 100, y = at(2) * 75, w = at(3) * 100, h = at(4) * 75;
+        const c = DET_COLOUR[t.cls] ?? '#b48cff';
+        const trail = t.obs.filter((o) => o[0] <= frame && o[0] >= frame - TRAIL)
+          .map((o) => `${(o[1] + o[3] / 2) * 100},${(o[2] + o[4] / 2) * 75}`);
+        trail.push(`${x + w / 2},${y + h / 2}`);
+        return (
+          <g key={t.id}>
+            {t.moving && trail.length > 1 && <polyline points={trail.join(' ')} fill="none" stroke={c} strokeWidth={1.2} strokeOpacity={0.7} vectorEffect="non-scaling-stroke" />}
+            <rect x={x} y={y} width={w} height={h} fill="none" stroke={c} strokeWidth={t.moving ? 1.4 : 0.8} strokeDasharray={t.moving ? undefined : '2 1.5'} vectorEffect="non-scaling-stroke" />
+            <text x={x + 0.4} y={Math.max(2.4, y - 0.6)} fontSize={2.4} fill={c} style={{ fontFamily: 'var(--font-mono)' }}>{t.cls.toUpperCase()} {t.id}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
 
 /** Boxes and motion arrows from the analysed clip's last frame, over the camera image. */
 function DetectionOverlay({ boxes }: { boxes: HeimdallCameraAnalysis['boxes'] }) {
@@ -383,6 +436,11 @@ function AnalysisPanel({ ai, showBoxes, setShowBoxes, canAnalyse, running, failu
         </div>
       )}
       {ai && <AnalysisBody ai={ai} />}
+      {ai?.playback && (
+        <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 4, lineHeight: 1.6 }}>
+          CLIP · BOXES FOLLOW THE VIDEO ({ai.playback.tracks.length} TRACKS, FIRST {Math.round(ai.playback.frames / ai.playback.fps)} S) · DASHED = STATIONARY
+        </div>
+      )}
     </div>
   );
 }
