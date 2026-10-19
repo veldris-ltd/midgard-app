@@ -210,6 +210,16 @@ export interface HeimdallCameraAnalysis {
   playback?: HeimdallCameraPlayback;
 }
 
+/** A camera's analysis results over the last day, oldest first, and its watch (the
+ *  camera re-analysed every few minutes until `until`), if any. [FR-P3-5] */
+export interface HeimdallCameraTrend {
+  points: {
+    at: number; vehicles?: number; people?: number; moving?: number; stationary?: number; stopped?: number;
+    queue?: boolean; blocking?: number; wrongWay?: number; personRoad?: number;
+  }[];
+  watch: { until: number; by: string; everyS: number } | null;
+}
+
 /** Tracks through an analysed clip: frame f is at f / fps seconds from its start; each
  *  `obs` entry is [frame, x, y, w, h] in 0-1 image units. [FR-P3-5] */
 export interface HeimdallCameraPlayback {
@@ -417,6 +427,11 @@ export interface HeimdallGateway {
    *  and audits it as an action); resolves to the result, which also reaches Heimdall.
    *  Optional: a gateway without camera analytics leaves it out. [FR-P3-5] */
   analyseCamera?(id: string): Promise<HeimdallCameraAnalysis>;
+  /** The camera's results over the last day, and its watch. [FR-P3-5] */
+  cameraTrend?(id: string): Promise<HeimdallCameraTrend>;
+  /** Watch the camera for `hours` (re-analysed every few minutes; 0 stops), as the
+   *  signed-in user (audited as an action). Resolves to the watch, or null. [FR-P3-5] */
+  watchCamera?(id: string, hours: number): Promise<HeimdallCameraTrend['watch']>;
 
   // Decide -------------------------------------------------------------------
   /** Human-gated action workflows (queue / approvals / execution). */

@@ -7,6 +7,12 @@
 //! the bearer token from `--analytics-token-file`). The service sends its result to
 //! Heimdall as a signed observation and returns it here, so the browser sees it at once.
 //! Nothing is analysed unless someone asks.
+//!
+//! A user can also ask for a camera to be watched for a few hours,
+//! `POST /api/v1/heimdall/cameras/{id}/watch?hours=N` (0 stops it; `Apply` like an
+//! analysis): the service then re-analyses it every few minutes, so its trend builds up.
+//! `GET /api/v1/heimdall/cameras/{id}/trend` (`Read`) returns the camera's results over
+//! the last day (numbers only, never images) and whether it is being watched.
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -23,10 +29,37 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 /// The largest response accepted from the service.
 const MAX_RESPONSE: usize = 256 * 1024;
 
+/// The longest watch a user can ask for.
+pub const MAX_WATCH_HOURS: i64 = 12;
+
 /// The camera id in `/api/v1/heimdall/cameras/{id}/analyse`, if the path is that route.
 pub fn analyse_target(path: &str) -> Option<Result<String, EdgeError>> {
+    target(path, "/analyse")
+}
+
+/// The camera id in `/api/v1/heimdall/cameras/{id}/watch`, if the path is that route.
+pub fn watch_target(path: &str) -> Option<Result<String, EdgeError>> {
+    target(path, "/watch")
+}
+
+/// The camera id in `/api/v1/heimdall/cameras/{id}/trend`, if the path is that route.
+pub fn trend_target(path: &str) -> Option<Result<String, EdgeError>> {
+    target(path, "/trend")
+}
+
+/// The hours in a watch request's `hours` (0 to [`MAX_WATCH_HOURS`]; 0 stops the watch).
+pub fn watch_hours(raw: Option<&str>) -> Result<i64, EdgeError> {
+    match raw.map(|s| s.parse::<i64>()) {
+        Some(Ok(h)) if (0..=MAX_WATCH_HOURS).contains(&h) => Ok(h),
+        _ => Err(EdgeError::bad_request(&format!(
+            "hours must be a whole number from 0 to {MAX_WATCH_HOURS}"
+        ))),
+    }
+}
+
+fn target(path: &str, suffix: &str) -> Option<Result<String, EdgeError>> {
     let rest = path.strip_prefix(CAMERAS_PATH)?.strip_prefix('/')?;
-    let raw = rest.strip_suffix("/analyse")?;
+    let raw = rest.strip_suffix(suffix)?;
     let ok = !raw.is_empty()
         && raw.len() <= 64
         && raw
@@ -59,9 +92,33 @@ impl AnalyticsClient {
     /// An unknown camera is a 404, a bad id a 400; the service being unreachable or
     /// failing is a 502.
     pub fn analyse(&self, camera: &str, by: &str) -> Result<Json, EdgeError> {
+        self.call(
+            "/analyse",
+            Json::obj(vec![("camera", Json::s(camera)), ("by", Json::s(by))]),
+        )
+    }
+
+    /// Watch `camera` for `hours` on behalf of `by` (0 stops the watch).
+    pub fn watch(&self, camera: &str, hours: i64, by: &str) -> Result<Json, EdgeError> {
+        self.call(
+            "/watch",
+            Json::obj(vec![
+                ("camera", Json::s(camera)),
+                ("hours", Json::Num(hours as f64)),
+                ("by", Json::s(by)),
+            ]),
+        )
+    }
+
+    /// The camera's results over the last day and its watch.
+    pub fn trend(&self, camera: &str) -> Result<Json, EdgeError> {
+        self.call("/trend", Json::obj(vec![("camera", Json::s(camera))]))
+    }
+
+    fn call(&self, path: &str, body: Json) -> Result<Json, EdgeError> {
         let unreachable =
             |e: String| EdgeError::new(502, &format!("camera analytics is unreachable: {e}"));
-        let body = Json::obj(vec![("camera", Json::s(camera)), ("by", Json::s(by))]).encode();
+        let body = body.encode();
         let addr = self
             .addr
             .to_socket_addrs()
@@ -73,7 +130,8 @@ impl AnalyticsClient {
         stream.set_read_timeout(Some(TIMEOUT)).ok();
         stream.set_write_timeout(Some(TIMEOUT)).ok();
         let request = format!(
-            "POST /analyse HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "POST {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            path,
             self.addr,
             self.token,
             body.len(),
@@ -136,6 +194,24 @@ mod tests {
         assert_eq!(id("/api/v1/heimdall/cameras/a%20b/analyse"), Some(Err(400)));
         assert_eq!(id("/api/v1/heimdall/cameras//analyse"), Some(Err(400)));
         assert_eq!(id("/api/v1/heimdall/alerts/A-1/ack"), None);
+        assert_eq!(
+            watch_target("/api/v1/heimdall/cameras/CAM-1/watch").map(|r| r.ok()),
+            Some(Some("CAM-1".into()))
+        );
+        assert_eq!(
+            trend_target("/api/v1/heimdall/cameras/CAM-1/trend").map(|r| r.ok()),
+            Some(Some("CAM-1".into()))
+        );
+        assert!(analyse_target("/api/v1/heimdall/cameras/CAM-1/trend").is_none());
+    }
+
+    #[test]
+    fn a_watch_is_zero_to_twelve_hours() {
+        assert_eq!(watch_hours(Some("4")).ok(), Some(4));
+        assert_eq!(watch_hours(Some("0")).ok(), Some(0));
+        for bad in [Some("13"), Some("-1"), Some("two"), None] {
+            assert_eq!(watch_hours(bad).unwrap_err().status, 400);
+        }
     }
 
     /// A one-shot service on a free port that checks the token and answers `reply`.

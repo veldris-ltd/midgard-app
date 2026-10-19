@@ -59,6 +59,7 @@ import {
   type HeimdallRegion,
   type HeimdallCameraAnalysis,
   type HeimdallCameraPlayback,
+  type HeimdallCameraTrend,
   type HeimdallSyncSite,
   type HeimdallTrack,
   type HeimdallWorkflow,
@@ -251,6 +252,10 @@ function cameraAnalysis(e: WireEntity): HeimdallCameraAnalysis | undefined {
     headingText: textAttr(e, 'ai_heading_text'),
     boxes,
   };
+}
+
+function watchOf(w: any): HeimdallCameraTrend['watch'] {
+  return w && typeof w.until === 'number' ? { until: w.until, by: String(w.by ?? ''), everyS: typeof w.every_s === 'number' ? w.every_s : 300 } : null;
 }
 
 /** The per-frame tracks in an analysis answer, checked; undefined when absent or malformed. */
@@ -799,6 +804,42 @@ export class HeimdallHttp implements HeimdallGateway {
     ai.playback = playbackOf(body.playback);
     this.cameraAI.set(id, ai);
     return ai;
+  }
+
+  /** `GET /heimdall/cameras/{id}/trend`. [FR-P3-5] */
+  async cameraTrend(id: string): Promise<HeimdallCameraTrend> {
+    const body = await this.camerasCall(`/heimdall/cameras/${encodeURIComponent(id)}/trend`, 'GET');
+    const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const points = (Array.isArray(body?.points) ? body.points : [])
+      .filter((p: any) => p && typeof p.at === 'number')
+      .map((p: any) => ({
+        at: p.at, vehicles: n(p.vehicles), people: n(p.people), moving: n(p.moving), stationary: n(p.stationary),
+        stopped: n(p.stopped), queue: p.queue === true, blocking: n(p.blocking), wrongWay: n(p.wrong_way), personRoad: n(p.person_road),
+      }))
+      .sort((a: { at: number }, b: { at: number }) => a.at - b.at);
+    return { points, watch: watchOf(body?.watch) };
+  }
+
+  /** `POST /heimdall/cameras/{id}/watch?hours=N` (audited as an action). [FR-P3-5] */
+  async watchCamera(id: string, hours: number): Promise<HeimdallCameraTrend['watch']> {
+    const body = await this.camerasCall(`/heimdall/cameras/${encodeURIComponent(id)}/watch?hours=${Math.round(hours)}`, 'POST');
+    return watchOf(body?.watch);
+  }
+
+  private async camerasCall(path: string, method: 'GET' | 'POST'): Promise<any> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}${path}`, { method, headers: { authorization: `Bearer ${this.token}` } });
+    } catch (err) {
+      throw new Error(`camera analytics unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (res.status === 401) {
+      this.onUnauthorized?.();
+      throw new Error('session expired: sign in again');
+    }
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error ?? `camera analytics failed (HTTP ${res.status})`);
+    return body;
   }
 
   private async alertsCall(path: string, method: 'GET' | 'POST'): Promise<any> {

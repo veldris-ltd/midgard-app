@@ -699,6 +699,24 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     _ => Err(EdgeError::new(404, "this gateway has no camera analytics")),
                 }
             }
+            // Watching a camera (re-analysed every few minutes for `hours`), an action
+            // like an analysis; its trend is a read. [FR-P3-5]
+            ("POST", path) if camera_analytics::watch_target(path).is_some() => {
+                match (&self.analytics, camera_analytics::watch_target(path)) {
+                    (Some(client), Some(id)) => id.and_then(|id| {
+                        let hours =
+                            camera_analytics::watch_hours(req.query_param("hours").as_deref())?;
+                        client.watch(&id, hours, &claims.subject)
+                    }),
+                    _ => Err(EdgeError::new(404, "this gateway has no camera analytics")),
+                }
+            }
+            ("GET", path) if camera_analytics::trend_target(path).is_some() => {
+                match (&self.analytics, camera_analytics::trend_target(path)) {
+                    (Some(client), Some(id)) => id.and_then(|id| client.trend(&id)),
+                    _ => Err(EdgeError::new(404, "this gateway has no camera analytics")),
+                }
+            }
             // An acknowledgement, authorised and audited as `Apply` above under the
             // signed-in user, whose name Heimdall records as `by`. [FR-H-4]
             ("POST", path) if heimdall_bridge::ack_target(path).is_some() => {
@@ -755,10 +773,20 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             }
             // Asking for camera analytics runs a model and writes to Heimdall: an action.
             // [FR-P3-5]
-            ("POST", path) if camera_analytics::analyse_target(path).is_some() => (
+            ("POST", path)
+                if camera_analytics::analyse_target(path).is_some()
+                    || camera_analytics::watch_target(path).is_some() =>
+            {
+                (
+                    path.to_string(),
+                    self.marking_for(camera_analytics::CAMERAS_PATH),
+                    "Apply",
+                )
+            }
+            ("GET", path) if camera_analytics::trend_target(path).is_some() => (
                 path.to_string(),
                 self.marking_for(camera_analytics::CAMERAS_PATH),
-                "Apply",
+                "Read",
             ),
             // Acknowledging a Heimdall alert changes it: a write, like an action.
             // [FR-H-4]

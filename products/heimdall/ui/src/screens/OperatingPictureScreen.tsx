@@ -34,6 +34,7 @@ import { useEntityPath, useHistory } from '../app/useHistory';
 import { Timeline, useReplayClock } from '../app/Timeline';
 import type { GlobeTrail } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
+import { CameraTrend } from '../app/CameraTrend';
 
 type LayerState = Record<HeimdallLayerId, boolean>;
 type GateState = { rank: number; state: 'pending' | 'authorised' | 'rejected'; auditId?: string } | null;
@@ -300,6 +301,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
       canAnalyse={!!gateway.analyseCamera} running={asked.status === 'running'}
       failure={asked.status === 'failed' ? asked.reason : null} analyse={analyse} />
   );
+  const trend = <CameraTrend gateway={gateway} cameraId={camera.id} refresh={mine?.at ?? 0} />;
   return (
     <Card size="sm">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>{label}{buttons}</div>
@@ -307,6 +309,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
         ? <div style={{ ...mono, fontSize: 9, color: 'var(--text-faint)', padding: '12px 0', textAlign: 'center' }}>SHOWING IN THE LARGE VIEW</div>
         : media}
       {analysis}
+      {!expanded && trend}
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6 }}>
         IMAGE RELOADS EVERY 30 S · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
       </div>
@@ -321,7 +324,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
             {/* The analysis sits beside the picture on a wide screen, below it on a narrow one. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 480px', minWidth: 0, display: 'flex', justifyContent: 'center' }}><div style={{ width: '100%', maxWidth: 'calc(80vh * 4 / 3)' }}>{media}</div></div>
-              <div style={{ flex: '0 1 320px', minWidth: 260 }}>{analysis}</div>
+              <div style={{ flex: '0 1 320px', minWidth: 260 }}>{analysis}{trend}</div>
             </div>
           </div>
         </div>
