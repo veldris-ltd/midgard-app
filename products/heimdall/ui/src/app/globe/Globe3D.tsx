@@ -7,7 +7,7 @@
  * [FR-H-1] */
 import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
-import { colourOf, shapeOf } from '../trackStyle';
+import { CAMERA_LEVEL_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
 import type { TrafficLines } from '../traffic';
 import { PLACES } from '../places';
 import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
@@ -87,6 +87,39 @@ function drawPlaceLabels(host: HTMLDivElement, view: GlobeView): void {
     s.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -125%)`;
   }
 }
+/** Close in, each analysed camera's counts beside it in its level colour. [FR-P3-5] */
+function drawCameraLabels(host: HTMLDivElement, view: GlobeView, tracks: HeimdallTrack[]): void {
+  const km = view.state.dist * 6371;
+  const shown: { text: string; x: number; y: number; colour: string }[] = [];
+  if (km < 250) {
+    for (const t of tracks) {
+      if (shown.length >= 80) break;
+      const ai = t.detail?.camera?.analysis;
+      const level = cameraLevel(ai);
+      if (!ai || !level || t.lat === undefined || t.lon === undefined) continue;
+      const at = view.screenOfPoint(t.lat, t.lon);
+      if (!at) continue;
+      const text = `${ai.vehicles ?? 0}V${ai.people ? ` ${ai.people}P` : ''}${ai.queue ? ' Q' : ''}`;
+      shown.push({ text, x: at.x, y: at.y, colour: CAMERA_LEVEL_COLOURS[level] });
+    }
+  }
+  while (host.childElementCount < shown.length) {
+    const s = document.createElement('span');
+    s.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap;font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:0.04em;padding:0 3px;border-radius:2px;background:rgba(6,10,14,0.72);';
+    host.appendChild(s);
+  }
+  for (let i = 0; i < host.childElementCount; i++) {
+    const s = host.children[i] as HTMLSpanElement;
+    const p = shown[i];
+    if (!p) { s.style.display = 'none'; continue; }
+    s.style.display = 'block';
+    if (s.textContent !== p.text) s.textContent = p.text;
+    s.style.color = p.colour;
+    s.style.border = `1px solid ${p.colour}`;
+    s.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(8px, -50%)`;
+  }
+}
+
 /** The stored map style; tactical unless the browser chose another. */
 export const readMapStyle = (): MapStyle => {
   try {
@@ -147,6 +180,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const viewRef = React.useRef<GlobeView | null>(null);
   const labelRef = React.useRef<HTMLDivElement>(null);
   const placesRef = React.useRef<HTMLDivElement>(null);
+  const cameraLabelsRef = React.useRef<HTMLDivElement>(null);
   const lookAtRef = React.useRef<(LatLon & { km: number }) | null>(null);
   const tipRef = React.useRef<HTMLDivElement>(null);
   const compassRef = React.useRef<HTMLSpanElement>(null);
@@ -167,8 +201,8 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   React.useEffect(() => { viewRef.current?.setMapStyle(mapStyle); }, [mapStyle]);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
-  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt });
-  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt };
+  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks });
+  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks };
 
   /** Move the label, tooltip and compass to follow the camera (after every frame). */
   const overlays = React.useCallback(() => {
@@ -193,6 +227,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
       live.current.onLookAt?.({ lat: c.lat, lon: c.lon }, km);
     }
     if (placesRef.current) drawPlaceLabels(placesRef.current, view);
+    if (cameraLabelsRef.current) drawCameraLabels(cameraLabelsRef.current, view, live.current.tracks);
     // The measured distance sits at the line's far end; ring labels at each ring's north.
     const m = live.current.measure;
     if (measureRef.current) {
@@ -318,6 +353,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
       {/* Selected track label and hover tooltip, positioned each frame by `overlays`. */}
       {/* Town and city names, thinned by zoom so they never overlap. */}
       <div ref={placesRef} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, overflow: 'hidden' }} />
+      <div ref={cameraLabelsRef} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, overflow: 'hidden' }} />
       <div ref={labelRef} aria-hidden style={{ position: 'absolute', left: 0, top: 0, display: 'none', pointerEvents: 'none', zIndex: 3 }}>
         {sel && (
           <span style={{ position: 'absolute', left: 14, top: -9, whiteSpace: 'nowrap', ...mono, fontSize: 10, color: 'var(--grey-100)', background: 'color-mix(in srgb, var(--bg-sunken) 75%, transparent)', padding: '2px 6px', borderRadius: 3, border: `1px solid ${selColour}` }}>

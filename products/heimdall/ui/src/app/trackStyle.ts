@@ -4,7 +4,7 @@
  * design-system tokens; the globe resolves them to RGB at run time. [FR-H-1] [FR-P3-3]
  * Area kinds (SIGMETs by hazard, weather warnings by level, wind farms, road
  * disruptions) and offshore platforms have their own shapes and colours too. */
-import type { HeimdallTrack } from '@midgard/sdk';
+import type { HeimdallCameraAnalysis, HeimdallTrack } from '@midgard/sdk';
 
 /** Altitude bands that colour aircraft. */
 export const BANDS = [
@@ -100,6 +100,27 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
   }
 }
 
+export type CameraLevel = 'light' | 'moderate' | 'heavy';
+
+/** Colours by camera level, matching the road traffic colours. */
+export const CAMERA_LEVEL_COLOURS: Record<CameraLevel, string> = { light: '#2fd16b', moderate: '#ffb020', heavy: '#ff3b30' };
+
+/** An analysis older than this no longer colours its camera. */
+const CAMERA_FRESH_S = 30 * 60;
+
+/** How busy a camera's last analysis saw the road: heavy for a queue or most vehicles
+ *  stopped, moderate for many vehicles or many standing, light otherwise. A still image
+ *  (no movement) is judged on its count alone. Null when not analysed or stale. [FR-P3-5] */
+export function cameraLevel(ai: HeimdallCameraAnalysis | undefined, now = Date.now() / 1000): CameraLevel | null {
+  if (!ai || now - ai.at > CAMERA_FRESH_S) return null;
+  const v = ai.vehicles ?? 0;
+  if (ai.moving === undefined) return v >= 15 ? 'heavy' : v >= 7 ? 'moderate' : 'light';
+  const standing = ai.stationary ?? 0;
+  if (ai.queue || (v >= 5 && (ai.stopped ?? 0) >= 0.5 * v)) return 'heavy';
+  if (v >= 12 || (v >= 4 && standing >= 0.4 * v)) return 'moderate';
+  return 'light';
+}
+
 /** The colour (a CSS value) a track is drawn in, in either view. */
 export function colourOf(t: HeimdallTrack): string {
   if (t.track === 'anomalous') return 'var(--warn)';
@@ -107,8 +128,11 @@ export function colourOf(t: HeimdallTrack): string {
     case 'aircraft': return bandOf(t).color;
     case 'balloon': return 'var(--mimir-300)';
     case 'airport': return FLIGHT_CATEGORY_COLOURS[t.detail?.flightCategory ?? ''] ?? 'var(--text-muted)';
-    // Cameras: amber where the analytics sees a queue.
-    case 'camera': return t.detail?.camera?.analysis?.queue ? 'var(--warn)' : '#7fd3ff';
+    // Cameras: by how busy the analytics last saw them; pale blue when not analysed.
+    case 'camera': {
+      const level = cameraLevel(t.detail?.camera?.analysis);
+      return level ? CAMERA_LEVEL_COLOURS[level] : '#7fd3ff';
+    }
     case 'train': {
       // On time (or early) green, a few minutes late amber, badly late red.
       const late = t.detail?.lateMin ?? 0;

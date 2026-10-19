@@ -33,6 +33,7 @@ import { keyOf, replayTracks, stepFor, trailOf } from '../app/history';
 import { useEntityPath, useHistory } from '../app/useHistory';
 import { Timeline, useReplayClock } from '../app/Timeline';
 import type { GlobeTrail } from '../app/globe/GlobeView';
+import { AreaCamerasCard } from '../app/AreaCameras';
 
 type LayerState = Record<HeimdallLayerId, boolean>;
 type GateState = { rank: number; state: 'pending' | 'authorised' | 'rejected'; auditId?: string } | null;
@@ -653,8 +654,9 @@ function WatchlistCard({ watch, present, select }: { watch: Watchlist; present: 
   );
 }
 
-function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt, watchCard }: {
+function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt, watchCard, areaCard }: {
   watchCard?: React.ReactNode;
+  areaCard?: React.ReactNode;
   picture: HeimdallPicture;
   tracks: HeimdallTrack[];
   filter: string | null;
@@ -690,6 +692,7 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt
         {replayAt === null ? <Badge tone="secure">LIVE</Badge> : <Badge tone="warn">REPLAY</Badge>}
       </div>
       {watchCard}
+      {areaCard}
       <div style={{ padding: '8px 10px', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--text-muted)', lineHeight: 1.6 }}>
         FLIGHT HISTORY: POINT AT ANY AIRCRAFT TO SEE ITS RECORDED PATH; CLICK IT (OR FIND IT BELOW) FOR ITS FLIGHTS. TRAIL 30M OR ALL SHOWS EVERY PATH.
       </div>
@@ -976,6 +979,22 @@ export function OperatingPictureScreen() {
     [view, visible, trails, viewCircle, sel],
   );
 
+  // Cameras on screen (the view spans about the camera distance), nearest the centre
+  // first, for analysing an area. [FR-P3-5]
+  const camerasInView = React.useMemo<HeimdallTrack[]>(() => {
+    if (view !== '3d' || !viewCircle || viewCircle.km > 400) return [];
+    const p1 = (viewCircle.lat * Math.PI) / 180;
+    const out: [number, HeimdallTrack][] = [];
+    for (const t of visible) {
+      if (shapeOf(t) !== 'camera' || !t.detail?.camera || t.lat === undefined || t.lon === undefined) continue;
+      const p2 = (t.lat * Math.PI) / 180, dl = ((t.lon - viewCircle.lon) * Math.PI) / 180;
+      const h = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+      const d = 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+      if (d <= viewCircle.km * 0.6) out.push([d, t]);
+    }
+    return out.sort((a, b) => a[0] - b[0]).map(([, t]) => t);
+  }, [view, visible, viewCircle]);
+
   // The selected entity's whole recorded path over the window.
   const selKey = e ? keyOf(e) : null;
   const entityPath = useEntityPath(gateway, history.status === 'ready' ? selKey : null, windowSecs, history.to);
@@ -1127,7 +1146,8 @@ export function OperatingPictureScreen() {
       <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} flights={aircraftKey ? { ...flightState, pick: flightPick, setPick: setFlightPick } : undefined} watch={watch} rings={ringsOn} setRings={setRingsOn} />
     ) : wall ? null : (
       <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt}
-        watchCard={<WatchlistCard watch={watch} present={byKey} select={select} />} />
+        watchCard={<WatchlistCard watch={watch} present={byKey} select={select} />}
+        areaCard={replayAt === null && camerasInView.length > 0 ? <AreaCamerasCard gateway={gateway} cameras={camerasInView} select={select} /> : undefined} />
     )
   ) : e ? (
     <>
