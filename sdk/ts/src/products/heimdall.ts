@@ -168,6 +168,11 @@ export interface HeimdallTrackDetail {
   topFt?: number;
   /** A weather warning's level (yellow, amber, red) or a road disruption's severity. */
   level?: string;
+  /** When a warning or SIGMET applies, unix seconds (a warning can be issued days ahead). */
+  validFrom?: number;
+  validTo?: number;
+  /** A weather warning's weather (wind, rain, snow…). */
+  weather?: string;
   /** An airport's raw TAF and its worst flight category over the next 12 hours. */
   taf?: string;
   tafWorst?: string;

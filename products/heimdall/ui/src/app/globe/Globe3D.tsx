@@ -10,7 +10,7 @@ import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
 import { CAMERA_LEVEL_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
 import type { TrafficLines } from '../traffic';
 import { PLACES } from '../places';
-import { INFO_MAX_KM, markStyle, type AlertMark } from '../alertMarks';
+import { LABEL_MAX_KM, markStyle, type AlertMark } from '../alertMarks';
 import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
@@ -126,12 +126,20 @@ function drawCameraLabels(host: HTMLDivElement, view: GlobeView, tracks: Heimdal
  *  hands its alert id to `pick`. [FR-H-1] [FR-H-4] */
 function drawAlertMarks(host: HTMLDivElement, view: GlobeView, marks: AlertMark[], pick: (id: string) => void): void {
   const km = view.state.dist * 6371;
-  const shown: { m: AlertMark; x: number; y: number }[] = [];
+  const shown: { m: AlertMark; x: number; y: number; label: boolean }[] = [];
+  // Labels that would overlap one already placed are left off (most severe first).
+  const boxes: [number, number, number, number][] = [];
   for (const m of marks) {
     if (shown.length >= 150) break;
-    if (m.severity === 'info' && km > INFO_MAX_KM) continue;
     const at = view.screenOfPoint(m.lat, m.lon);
-    if (at) shown.push({ m, x: at.x, y: at.y });
+    if (!at) continue;
+    let label = km < LABEL_MAX_KM || m.severity === 'critical';
+    if (label) {
+      const b: [number, number, number, number] = [at.x + 8, at.y - 8, at.x + 16 + m.text.length * 6.2, at.y + 8];
+      label = !boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
+      if (label) boxes.push(b);
+    }
+    shown.push({ m, x: at.x, y: at.y, label });
   }
   while (host.childElementCount < shown.length) {
     const el = document.createElement('button');
@@ -161,7 +169,7 @@ function drawAlertMarks(host: HTMLDivElement, view: GlobeView, marks: AlertMark[
     ring.style.background = `color-mix(in srgb, ${s.colour} 18%, transparent)`;
     ring.style.setProperty('--mg-alert-c', s.colour);
     ring.className = s.pulse ? 'mg-alert-pulse' : '';
-    const text = km < 900 || p.m.severity === 'critical' ? p.m.text : '';
+    const text = p.label ? p.m.text : '';
     if (label.textContent !== text) label.textContent = text;
     label.style.color = s.colour;
     el.style.transform = `translate(${Math.round(p.x - s.size / 2)}px, ${Math.round(p.y - s.size / 2)}px)`;

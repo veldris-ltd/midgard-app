@@ -4,7 +4,7 @@
  * line and the range rings round the selected track. [FR-H-1] [FR-P3-3] */
 import * as React from 'react';
 import type { HeimdallRegion, HeimdallTrack } from '@midgard/sdk';
-import { areaColour } from './trackStyle';
+import { areaColour, inForce } from './trackStyle';
 import { circle, fmtMeasure, greatCircle, type LatLon } from './geoMath';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em' };
@@ -39,11 +39,12 @@ export function AreaLayer({ region, areas, selected }: { region: HeimdallRegion;
           : kind === 'event-weather-warning' ? c
           : kind === 'land-road-disruption' ? c
           : kind === 'sea-windfarm' ? c : 'none';
-        const fillOpacity = kind === 'event-weather-warning' ? 0.18 : kind === 'sea-windfarm' ? 0.12 : kind === 'land-road-disruption' ? 0.35 : kind === 'airspace-volume' ? 0 : 1;
+        // A warning issued ahead is outlined only until it comes into force.
+        const fillOpacity = kind === 'event-weather-warning' ? (inForce(d) ? 0.18 : 0.03) : kind === 'sea-windfarm' ? 0.12 : kind === 'land-road-disruption' ? 0.35 : kind === 'airspace-volume' ? 0 : 1;
         return (
           <polygon key={a.id} points={pts} fill={fill} fillOpacity={fillOpacity} stroke={c}
             strokeOpacity={on ? 1 : kind === 'airspace-volume' ? 0.45 : 0.8} strokeWidth={on ? 2 : 1}
-            strokeDasharray={kind === 'event-sigmet' ? '5 3' : undefined} vectorEffect="non-scaling-stroke" />
+            strokeDasharray={kind === 'event-sigmet' || (kind === 'event-weather-warning' && !inForce(d)) ? '5 3' : undefined} vectorEffect="non-scaling-stroke" />
         );
       })}
     </svg>

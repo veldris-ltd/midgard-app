@@ -100,6 +100,22 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
   }
 }
 
+/** Whether a warning (or SIGMET) applies now; one issued ahead is not yet in force. */
+export const inForce = (d: { validFrom?: number; validTo?: number }, now = Date.now() / 1000): boolean =>
+  (d.validFrom === undefined || d.validFrom <= now) && (d.validTo === undefined || d.validTo > now);
+
+/** "THU 06:00Z" */
+export const dayTime = (s: number): string =>
+  `${new Date(s * 1000).toUTCString().slice(0, 3).toUpperCase()} ${new Date(s * 1000).toISOString().slice(11, 16)}Z`;
+
+/** A weather warning in words, with when it applies: "YELLOW WIND WARNING · FROM THU 06:00Z". */
+export function warningText(d: { level?: string; weather?: string; validFrom?: number; validTo?: number }, now = Date.now() / 1000): string {
+  const what = [d.level, d.weather].filter(Boolean).join(' ').toUpperCase();
+  const when = d.validFrom !== undefined && d.validFrom > now ? `FROM ${dayTime(d.validFrom)}`
+    : d.validTo !== undefined ? `IN FORCE TO ${dayTime(d.validTo)}` : 'IN FORCE';
+  return `${what ? `${what} ` : ''}WARNING · ${when}`;
+}
+
 export type CameraLevel = 'light' | 'moderate' | 'heavy';
 
 /** Colours by camera level, matching the road traffic colours. */

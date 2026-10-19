@@ -18,7 +18,7 @@ import type { HeimdallAlert, HeimdallGateway, HeimdallHistoryPoint, HeimdallLaye
 import { ConsolePage } from '../app/ConsolePage';
 import { BORDER_PATH, LAND_PATH } from '../app/basemap';
 import { LAKES, MOTORWAYS, RAILWAYS, RIVERS, ROADS } from '../app/hydro';
-import { AREA_LEGEND, BANDS, KIND_LEGEND, areaColour, bandOf, colourOf, isFixedKind, shapeOf } from '../app/trackStyle';
+import { AREA_LEGEND, BANDS, KIND_LEGEND, areaColour, bandOf, colourOf, inForce, isFixedKind, shapeOf, warningText } from '../app/trackStyle';
 import { useStatus } from '../app/status';
 import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
 import { radarLabel, useRadar, RADAR_BOX } from '../app/radar';
@@ -1081,7 +1081,8 @@ export function OperatingPictureScreen() {
       const top = Math.min(66000, d.topFt ?? base + 10000);
       return { id: `${t.id}:${d.kind}`, mode: 'volume' as const, ring: d.area!, colour: areaColour(d), fill: 0.11, baseM: ft(base), topM: ft(top) };
     }
-    const fill = d.kind === 'event-weather-warning' ? 0.24 : d.kind === 'land-road-disruption' ? 0.4 : d.kind === 'airspace-volume' ? 0.05 : d.kind === 'event-gnss-interference' ? (d.level === 'high' ? 0.4 : d.level === 'medium' ? 0.28 : 0.16) : 0.14;
+    // A warning issued ahead is outlined only until it comes into force.
+    const fill = d.kind === 'event-weather-warning' ? (inForce(d) ? 0.2 : 0.04) : d.kind === 'land-road-disruption' ? 0.4 : d.kind === 'airspace-volume' ? 0.05 : d.kind === 'event-gnss-interference' ? (d.level === 'high' ? 0.4 : d.level === 'medium' ? 0.28 : 0.16) : 0.14;
     return { id: `${t.id}:${d.kind}`, mode: 'drape' as const, ring: d.area!, colour: areaColour(d), fill };
   })).concat(view !== '3d' || world ? [] : enabledRegions.map((r) => {
     const [w, s, ea, n] = r.box;
@@ -1159,7 +1160,8 @@ export function OperatingPictureScreen() {
       const lat = t?.lat ?? a.lat, lon = t?.lon ?? a.lon;
       if (lat === null || lon === null || lat === undefined || lon === undefined) return [];
       if (!world && !enabledRegions.some((r) => inRegionBox(r.box, lat, lon))) return [];
-      const text = alertText(a.label);
+      // A weather warning says what and when (they are often issued days ahead).
+      const text = t?.detail?.kind === 'event-weather-warning' ? warningText(t.detail) : alertText(a.label);
       return [{ id: a.id, lat, lon, severity: a.severity, text, acked: !!a.acknowledgedBy,
         title: `${a.severity.toUpperCase()} · ${text} · ${a.entity}${a.rationale ? ` · ${a.rationale}` : ''}` }];
     }).sort((x, y) => rank[x.severity] - rank[y.severity]);
@@ -1549,12 +1551,19 @@ export function OperatingPictureScreen() {
       {view === '2d' && region && alertMarks.map((m) => {
         if (m.lat < region.south || m.lat > region.north || m.lon < region.west || m.lon > region.east) return null;
         const s = markStyle(m);
+        const left = `${((m.lon - region.west) / (region.east - region.west)) * 100}%`, top = `${((region.north - m.lat) / (region.north - region.south)) * 100}%`;
         return (
-          <button key={m.id} type="button" title={m.title} aria-label={`Alert: ${m.title}`} onClick={() => pickAlertId(m.id)}
+          <React.Fragment key={m.id}>
+          <button type="button" title={m.title} aria-label={`Alert: ${m.title}`} onClick={() => pickAlertId(m.id)}
             className={s.pulse ? 'mg-alert-pulse' : undefined}
             style={{ all: 'unset', cursor: 'pointer', position: 'absolute', zIndex: 3, left: `${((m.lon - region.west) / (region.east - region.west)) * 100}%`, top: `${((region.north - m.lat) / (region.north - region.south)) * 100}%`,
               width: s.size, height: s.size, transform: 'translate(-50%,-50%)', boxSizing: 'border-box', border: `2px solid ${s.colour}`, borderRadius: '50%',
               background: `color-mix(in srgb, ${s.colour} 18%, transparent)`, opacity: s.opacity, ['--mg-alert-c' as string]: s.colour } as React.CSSProperties} />
+          {m.severity === 'critical' || alertMarks.length <= 40 ? (
+            <span aria-hidden style={{ position: 'absolute', zIndex: 3, left, top, transform: `translate(${s.size / 2 + 5}px, -50%)`, pointerEvents: 'none', whiteSpace: 'nowrap',
+              fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', color: s.colour, opacity: s.opacity, textShadow: '0 0 3px #000, 0 0 6px #000' }}>{m.text}</span>
+          ) : null}
+          </React.Fragment>
         );
       })}
       {replayAt === null && alertsOnMap && stripAlerts.length > 0 && (

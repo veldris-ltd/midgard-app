@@ -1,7 +1,7 @@
 /* Open alerts drawn on the map, in both views: a ring in the severity colour at the
  * alerted entity (where it is now, if it is in the picture; else where the alert was
- * raised), pulsing while a critical or warning alert is unacknowledged. Info alerts show
- * only close in, so a wide view is not crowded with them. [FR-H-1] [FR-H-4] */
+ * raised), pulsing while a critical or warning alert is unacknowledged; info alerts are
+ * smaller and steady. [FR-H-1] [FR-H-4] */
 import type { HeimdallAlert } from '@midgard/sdk';
 
 export interface AlertMark {
@@ -22,8 +22,8 @@ export const ALERT_COLOURS: Record<HeimdallAlert['severity'], string> = {
   info: '#5ab8ff',
 };
 
-/** Info alerts show within this many km of view only. */
-export const INFO_MAX_KM = 700;
+/** Alert names show beside their rings within this many km of view (critical always). */
+export const LABEL_MAX_KM = 4500;
 
 export const alertText = (label: string) => label.replace(/[-_]+/g, ' ').toUpperCase();
 
