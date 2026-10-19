@@ -53,6 +53,7 @@ usage:
   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
                [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR [--heimdall-service NAME]
+               [--analytics-addr HOST:PORT --analytics-token-file FILE]
                 [--heimdall-purpose P]]";
 
 fn main() {
@@ -86,6 +87,8 @@ fn main() {
     let mut heimdall_identity_dir = None;
     let mut heimdall_service = "picture-analyst".to_string();
     let mut heimdall_purpose = "situational-awareness".to_string();
+    let mut analytics_addr = None;
+    let mut analytics_token_file = None;
     let mut args = argv.iter();
     while let Some(flag) = args.next() {
         let Some(value) = args.next().filter(|v| !v.starts_with("--")) else {
@@ -103,6 +106,8 @@ fn main() {
             "--heimdall-identity-dir" => heimdall_identity_dir = Some(value.clone()),
             "--heimdall-service" => heimdall_service = value.clone(),
             "--heimdall-purpose" => heimdall_purpose = value.clone(),
+            "--analytics-addr" => analytics_addr = Some(value.clone()),
+            "--analytics-token-file" => analytics_token_file = Some(value.clone()),
             "--state-dir" => fail_usage("--state-dir given twice"),
             other => fail_usage(&format!("unknown option {other}")),
         }
@@ -115,6 +120,9 @@ fn main() {
     }
     if heimdall_addr.is_some() != heimdall_identity_dir.is_some() {
         fail_usage("--heimdall-addr and --heimdall-identity-dir go together");
+    }
+    if analytics_addr.is_some() != analytics_token_file.is_some() {
+        fail_usage("--analytics-addr and --analytics-token-file go together");
     }
 
     let served = match open_state_dir(&StateDir::new(&state_dir), origins) {
@@ -153,6 +161,19 @@ fn main() {
         };
         gateway = gateway.with_heimdall(HeimdallBridge::new(identity, &addr, &heimdall_purpose));
         eprintln!("http-gateway: serving Heimdall's picture from {addr} as {heimdall_service}");
+    }
+    if let (Some(addr), Some(file)) = (analytics_addr, analytics_token_file) {
+        let token = match std::fs::read_to_string(&file) {
+            Ok(t) if !t.trim().is_empty() => t,
+            _ => {
+                eprintln!("http-gateway: cannot read the camera analytics token from {file}");
+                exit(1);
+            }
+        };
+        gateway = gateway.with_analytics(http_gateway::camera_analytics::AnalyticsClient::new(
+            &addr, &token,
+        ));
+        eprintln!("http-gateway: camera analytics on request via {addr}");
     }
     let gateway = Arc::new(gateway);
 

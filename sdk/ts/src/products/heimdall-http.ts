@@ -658,7 +658,7 @@ export class HeimdallHttp implements HeimdallGateway {
         magnitude: num(e.attributes.mag),
         lateMin: e.kind === 'land-train' ? num(e.attributes.late_min) : undefined,
         camera: e.kind === 'land-camera' ? {
-          imageUrl: textAttr(e, 'image_url'), videoUrl: textAttr(e, 'video_url'),
+          id: e.id, imageUrl: textAttr(e, 'image_url'), videoUrl: textAttr(e, 'video_url'),
           streamUrl: textAttr(e, 'stream_url'), streamType: textAttr(e, 'stream_type'),
           analysis: this.cameraAI.get(e.id) ?? cameraAnalysis(e),
         } : undefined,
@@ -751,6 +751,31 @@ export class HeimdallHttp implements HeimdallGateway {
     const alert = (body?.alert ?? body) as HeimdallAlert | null;
     if (!alert || typeof alert.id !== 'string') throw new Error('acknowledge failed: unexpected reply');
     return normaliseAlert(alert);
+  }
+
+  /** Analyse one camera now via `POST /heimdall/cameras/{id}/analyse` (audited as an
+   *  action). Nothing is analysed unless asked. [FR-P3-5] */
+  async analyseCamera(id: string): Promise<HeimdallCameraAnalysis> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}/heimdall/cameras/${encodeURIComponent(id)}/analyse`, {
+        method: 'POST', headers: { authorization: `Bearer ${this.token}` },
+      });
+    } catch (err) {
+      throw new Error(`camera analytics unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (res.status === 401) {
+      this.onUnauthorized?.();
+      throw new Error('session expired: sign in again');
+    }
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error ?? `camera analytics failed (HTTP ${res.status})`);
+    const ai = body?.attrs && typeof body.attrs === 'object'
+      ? cameraAnalysis({ attributes: body.attrs } as WireEntity)
+      : undefined;
+    if (!ai) throw new Error('camera analytics sent no result');
+    this.cameraAI.set(id, ai);
+    return ai;
   }
 
   private async alertsCall(path: string, method: 'GET' | 'POST'): Promise<any> {

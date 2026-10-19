@@ -223,31 +223,47 @@ function FlightHistory({ points, replayAt }: { points: HeimdallHistoryPoint[]; r
  *  it), with its short clip or live stream on demand. Images and video come straight from
  *  the camera's source, so they need the internet. [FR-H-1] */
 function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail['camera']>; name: string }) {
+  const gateway = useGateway<HeimdallGateway>();
   const [tick, setTick] = React.useState(() => Date.now());
   const [mode, setMode] = React.useState<'image' | 'clip' | 'stream'>('image');
   const [failed, setFailed] = React.useState(false);
   const [showBoxes, setShowBoxes] = React.useState(true);
-  const ai = camera.analysis;
+  const [expanded, setExpanded] = React.useState(false);
+  // Analysis runs only when asked (ANALYSE); the answer shows at once, and the picture's
+  // copy of it (shared with other users) takes over when it is newer. [FR-P3-5]
+  const [asked, setAsked] = React.useState<{ status: 'idle' } | { status: 'running' } | { status: 'done'; ai: HeimdallCameraAnalysis } | { status: 'failed'; reason: string }>({ status: 'idle' });
+  const mine = asked.status === 'done' ? asked.ai : undefined;
+  const ai = mine && (!camera.analysis || mine.at >= camera.analysis.at) ? mine : camera.analysis;
   React.useEffect(() => {
     setMode('image');
     setFailed(false);
+    setAsked({ status: 'idle' });
     const timer = window.setInterval(() => setTick(Date.now()), 30_000);
     return () => window.clearInterval(timer);
-  }, [camera.imageUrl, camera.streamUrl]);
+  }, [camera.id, camera.imageUrl, camera.streamUrl]);
+  React.useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
+  const analyse = () => {
+    if (!gateway.analyseCamera || asked.status === 'running') return;
+    const id = camera.id;
+    setAsked({ status: 'running' });
+    gateway.analyseCamera(id).then(
+      (res) => setAsked((s) => (camera.id === id ? { status: 'done', ai: res } : s)),
+      (err) => setAsked({ status: 'failed', reason: err instanceof Error ? err.message : String(err) }),
+    );
+  };
   const bust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}t=${Math.floor(tick / 30_000)}`;
   const mjpeg = camera.streamType === 'mjpeg';
   // 'fill', not 'cover': the detection overlay is in the image's own 0-1 coordinates.
-  const box: React.CSSProperties = { width: '100%', aspectRatio: '4 / 3', objectFit: 'fill', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' };
-  return (
-    <Card size="sm">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span className="mg-label" style={{ color: 'var(--text-faint)' }}>CAMERA · {mode === 'image' ? 'LATEST IMAGE' : mode === 'clip' ? 'CLIP' : 'LIVE'}</span>
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {camera.imageUrl && <button type="button" onClick={() => setMode('image')} aria-pressed={mode === 'image'} style={camBtn(mode === 'image')}>IMAGE</button>}
-          {camera.videoUrl && <button type="button" onClick={() => setMode('clip')} aria-pressed={mode === 'clip'} style={camBtn(mode === 'clip')}>CLIP</button>}
-          {camera.streamUrl && <button type="button" onClick={() => setMode('stream')} aria-pressed={mode === 'stream'} style={camBtn(mode === 'stream')}>LIVE</button>}
-        </span>
-      </div>
+  const box: React.CSSProperties = expanded
+    ? { width: 'min(92vw, calc(82vh * 4 / 3))', aspectRatio: '4 / 3', objectFit: 'fill', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' }
+    : { width: '100%', aspectRatio: '4 / 3', objectFit: 'fill', display: 'block', background: '#000', borderRadius: 'var(--radius-sm)' };
+  const media = (
+    <>
       {failed && <div style={{ ...mono, color: 'var(--warn)', padding: '24px 0', textAlign: 'center' }}>CAMERA UNAVAILABLE</div>}
       {!failed && mode === 'image' && camera.imageUrl && (
         <div style={{ position: 'relative' }}>
@@ -264,10 +280,45 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
       {!failed && mode === 'stream' && camera.streamUrl && (mjpeg
         ? <img src={camera.streamUrl} alt={`Live stream from ${name}`} style={box} onError={() => setFailed(true)} />
         : <video key={camera.streamUrl} src={camera.streamUrl} style={box} autoPlay muted playsInline controls onError={() => setFailed(true)} />)}
-      {ai && <AnalysisPanel ai={ai} showBoxes={showBoxes} setShowBoxes={setShowBoxes} />}
+    </>
+  );
+  const buttons = (
+    <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+      {camera.imageUrl && <button type="button" onClick={() => setMode('image')} aria-pressed={mode === 'image'} style={camBtn(mode === 'image')}>IMAGE</button>}
+      {camera.videoUrl && <button type="button" onClick={() => setMode('clip')} aria-pressed={mode === 'clip'} style={camBtn(mode === 'clip')}>CLIP</button>}
+      {camera.streamUrl && <button type="button" onClick={() => setMode('stream')} aria-pressed={mode === 'stream'} style={camBtn(mode === 'stream')}>LIVE</button>}
+      <button type="button" onClick={() => setExpanded(!expanded)} aria-pressed={expanded} style={camBtn(expanded)}>{expanded ? 'CLOSE' : 'EXPAND'}</button>
+    </span>
+  );
+  const label = <span className="mg-label" style={{ color: 'var(--text-faint)' }}>CAMERA · {mode === 'image' ? 'LATEST IMAGE' : mode === 'clip' ? 'CLIP' : 'LIVE'}</span>;
+  const analysis = (
+    <AnalysisPanel ai={ai} showBoxes={showBoxes} setShowBoxes={setShowBoxes}
+      canAnalyse={!!gateway.analyseCamera} running={asked.status === 'running'}
+      failure={asked.status === 'failed' ? asked.reason : null} analyse={analyse} />
+  );
+  return (
+    <Card size="sm">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>{label}{buttons}</div>
+      {expanded
+        ? <div style={{ ...mono, fontSize: 9, color: 'var(--text-faint)', padding: '12px 0', textAlign: 'center' }}>SHOWING IN THE LARGE VIEW</div>
+        : media}
+      {analysis}
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6 }}>
         IMAGE RELOADS EVERY 30 S · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
       </div>
+      {expanded && (
+        <div role="dialog" aria-label={`Camera ${name}`} onClick={() => setExpanded(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(4,8,12,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--surface-raised, #0d141b)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-md, 8px)', padding: 12, maxWidth: '96vw', maxHeight: '96vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              {label}<span style={{ ...mono, fontSize: 10, color: 'var(--text-body)' }}>{name}</span>{buttons}
+            </div>
+            {media}
+            {analysis}
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
@@ -295,16 +346,50 @@ function DetectionOverlay({ boxes }: { boxes: HeimdallCameraAnalysis['boxes'] })
   );
 }
 
-/** What the analytics found: counts by class, moving vs stationary, flow and heading. */
-function AnalysisPanel({ ai, showBoxes, setShowBoxes }: { ai: HeimdallCameraAnalysis; showBoxes: boolean; setShowBoxes: (v: boolean) => void }) {
-  const age = Math.max(0, Math.round(Date.now() / 1000 - ai.at));
+interface AnalysisProps {
+  ai: HeimdallCameraAnalysis | undefined;
+  showBoxes: boolean;
+  setShowBoxes: (v: boolean) => void;
+  canAnalyse: boolean;
+  running: boolean;
+  failure: string | null;
+  analyse: () => void;
+}
+
+/** What the analytics found: counts by class, moving vs stationary, flow and heading;
+ *  ANALYSE asks for a fresh analysis of the camera's latest clip. [FR-P3-5] */
+function AnalysisPanel({ ai, showBoxes, setShowBoxes, canAnalyse, running, failure, analyse }: AnalysisProps) {
+  const age = ai ? Math.max(0, Math.round(Date.now() / 1000 - ai.at)) : 0;
   return (
     <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--divider)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span className="mg-label" style={{ color: 'var(--text-faint)' }}>AI ANALYSIS · {age < 120 ? `${age}s` : `${Math.round(age / 60)}m`} AGO</span>
-        {ai.queue && <span style={{ ...mono, fontSize: 9, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 3, padding: '1px 5px' }}>QUEUE</span>}
-        <button type="button" onClick={() => setShowBoxes(!showBoxes)} aria-pressed={showBoxes} style={{ ...camBtn(showBoxes), marginLeft: 'auto' }}>BOXES</button>
+        <span className="mg-label" style={{ color: 'var(--text-faint)' }}>
+          AI ANALYSIS{running ? ' · ANALYSING…' : ai ? ` · ${age < 120 ? `${age}s` : `${Math.round(age / 60)}m`} AGO` : ''}
+        </span>
+        {ai?.queue && <span style={{ ...mono, fontSize: 9, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 3, padding: '1px 5px' }}>QUEUE</span>}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {ai && <button type="button" onClick={() => setShowBoxes(!showBoxes)} aria-pressed={showBoxes} style={camBtn(showBoxes)}>BOXES</button>}
+          {canAnalyse && (
+            <button type="button" onClick={analyse} disabled={running} style={{ ...camBtn(running), opacity: running ? 0.6 : 1, cursor: running ? 'progress' : 'pointer' }}>
+              {running ? 'ANALYSING' : ai ? 'RE-ANALYSE' : 'ANALYSE'}
+            </button>
+          )}
+        </span>
       </div>
+      {failure && <div style={{ ...mono, fontSize: 9, color: 'var(--warn)', marginBottom: 4, overflowWrap: 'anywhere' }}>ANALYSIS FAILED · {failure.toUpperCase()}</div>}
+      {!ai && !running && (
+        <div style={{ ...mono, fontSize: 9, color: 'var(--text-faint)', lineHeight: 1.6 }}>
+          {canAnalyse ? 'NOT ANALYSED YET · PRESS ANALYSE TO DETECT VEHICLES AND PEOPLE IN THE LATEST CLIP' : 'CAMERA ANALYTICS NOT AVAILABLE ON THIS GATEWAY'}
+        </div>
+      )}
+      {ai && <AnalysisBody ai={ai} />}
+    </div>
+  );
+}
+
+function AnalysisBody({ ai }: { ai: HeimdallCameraAnalysis }) {
+  return (
+    <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', ...mono, fontSize: 10, color: 'var(--text-body)' }}>
         {ai.counts.map((c) => <span key={c.cls}><span style={{ color: DET_COLOUR[c.cls] ?? '#b48cff' }}>■</span> {c.cls.toUpperCase()} {c.n}</span>)}
       </div>
@@ -314,7 +399,7 @@ function AnalysisPanel({ ai, showBoxes, setShowBoxes }: { ai: HeimdallCameraAnal
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 4, lineHeight: 1.6 }}>
         {ai.model ?? 'OBJECT DETECTION'} · {ai.frames ?? '?'} FRAMES · DIRECTIONS FROM THE CAMERA'S VIEW, APPROXIMATE · PEOPLE COUNTED ONLY, NOT IDENTIFIED
       </div>
-    </div>
+    </>
   );
 }
 

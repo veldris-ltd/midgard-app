@@ -20,6 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod admin_api;
 pub mod boot;
+pub mod camera_analytics;
 pub mod data;
 pub mod enclosure;
 pub mod heimdall_bridge;
@@ -124,6 +125,7 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     availability: Mutex<AvailabilitySlo>,
     /// The read path to Heimdall's picture, where one is configured. [FR-H-1]
     heimdall: Option<heimdall_bridge::HeimdallBridge>,
+    analytics: Option<camera_analytics::AnalyticsClient>,
 }
 
 impl<L: LedgerStore> SecuredGateway<InMemoryStore, L> {
@@ -177,6 +179,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 AVAILABILITY_OBJECTIVE,
             )),
             heimdall: None,
+            analytics: None,
         }
     }
 
@@ -186,6 +189,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// for chaining. [FR-H-1]
     pub fn with_heimdall(mut self, bridge: heimdall_bridge::HeimdallBridge) -> Self {
         self.heimdall = Some(bridge);
+        self
+    }
+
+    /// Serve camera analytics on request at `POST /api/v1/heimdall/cameras/{id}/analyse`
+    /// through `client`, authorised and audited as `Apply`. [FR-P3-5]
+    pub fn with_analytics(mut self, client: camera_analytics::AnalyticsClient) -> Self {
+        self.analytics = Some(client);
         self
     }
 
@@ -679,6 +689,16 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     "this gateway is not connected to Heimdall",
                 )),
             },
+            // Camera analytics on request, authorised and audited as `Apply` above under
+            // the signed-in user, whose name the service records as `by`. [FR-P3-5]
+            ("POST", path) if camera_analytics::analyse_target(path).is_some() => {
+                match (&self.analytics, camera_analytics::analyse_target(path)) {
+                    (Some(client), Some(id)) => {
+                        id.and_then(|id| client.analyse(&id, &claims.subject))
+                    }
+                    _ => Err(EdgeError::new(404, "this gateway has no camera analytics")),
+                }
+            }
             // An acknowledgement, authorised and audited as `Apply` above under the
             // signed-in user, whose name Heimdall records as `by`. [FR-H-4]
             ("POST", path) if heimdall_bridge::ack_target(path).is_some() => {
@@ -733,6 +753,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             ("POST", "/api/v1/actions") => {
                 (req.path.clone(), self.marking_for("__actions__"), "Apply")
             }
+            // Asking for camera analytics runs a model and writes to Heimdall: an action.
+            // [FR-P3-5]
+            ("POST", path) if camera_analytics::analyse_target(path).is_some() => (
+                path.to_string(),
+                self.marking_for(camera_analytics::CAMERAS_PATH),
+                "Apply",
+            ),
             // Acknowledging a Heimdall alert changes it: a write, like an action.
             // [FR-H-4]
             ("POST", path) if heimdall_bridge::ack_target(path).is_some() => (
