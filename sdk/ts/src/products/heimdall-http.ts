@@ -564,6 +564,11 @@ function spaceWeatherOf(entities: WireEntity[]): HeimdallSpaceWeather | undefine
   };
 }
 
+/** Feeds of reference data, resent about once a day. */
+const REFERENCE_FEED = /-infra$|^openaip$|^crown-estate-wind$|^nsta-platforms$/;
+/** Feeds whose newest item is normally older than half an hour, in seconds. */
+const SLOW_FEED_S: Record<string, number> = { 'nasa-firms': 3 * 3600, 'noaa-swpc': 3600 };
+
 export class HeimdallHttp implements HeimdallGateway {
   private readonly base: string;
   private readonly token: string;
@@ -1019,6 +1024,7 @@ export class HeimdallHttp implements HeimdallGateway {
 
   /** One row per feed that has contributed to the picture: every observation was
    *  admitted only after its ML-DSA source signature verified. */
+  /** Every feed that has contributed to the picture, with how fresh it is. */
   async listFeeds(): Promise<HeimdallFeed[]> {
     const p = await this.picture();
     const feeds = new Map<string, { tracks: number; newest: number; kind: string }>();
@@ -1031,7 +1037,14 @@ export class HeimdallHttp implements HeimdallGateway {
       }
     }
     return [...feeds.entries()].map(([name, f]) => {
-      const stale = Date.now() / 1000 - f.newest > 300;
+      // Feeds send only new or changed items, so "newest item" ages differ by kind:
+      // reference data (infrastructure maps, airspace, wind farms, platforms) is resent
+      // daily, satellite fire detections lag by hours, and warnings can be quiet for
+      // a while. Each kind is stale only past its own expected interval.
+      const age = Date.now() / 1000 - f.newest;
+      const reference = REFERENCE_FEED.test(name);
+      const stale = age > (reference ? 26 * 3600 : SLOW_FEED_S[name] ?? 30 * 60);
+      const label = stale ? `Stale ${ago(f.newest)}` : reference ? 'Reference data' : age < 600 ? 'Live' : `Updated ${ago(f.newest)}`;
       return {
         name,
         kind: f.kind,
@@ -1041,7 +1054,7 @@ export class HeimdallHttp implements HeimdallGateway {
         auth: true,
         scheme: 'ML-DSA',
         status: stale ? 'warn' : 'online',
-        statusLabel: stale ? `Stale ${ago(f.newest)}` : 'Live',
+        statusLabel: label,
       } satisfies HeimdallFeed;
     });
   }

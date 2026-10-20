@@ -79,9 +79,9 @@ export function FeedsScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Feed manager</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="12" label="REGISTERED" size="sm" />
-        <StatBlock value="11" label="IN FUSION" size="sm" />
-        <StatBlock value="1" label="QUARANTINED" size="sm" accent />
+        <StatBlock value={String(rows.length)} label="FEEDS" size="sm" />
+        <StatBlock value={String(rows.filter((r) => r.status === 'online').length)} label="IN FUSION" size="sm" />
+        <StatBlock value={String(rows.filter((r) => r.status !== 'online').length)} label="STALE" size="sm" accent />
       </div>
       <div style={{ overflowX: 'auto' }}>
         <Table<HeimdallFeed>
