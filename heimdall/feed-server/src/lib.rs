@@ -67,6 +67,7 @@ use service_runtime::json::Json;
 use telemetry::MetricsRegistry;
 
 pub mod alerts;
+pub mod fabric_out;
 pub mod rules_file;
 pub mod ttl_file;
 pub use alerts::{parse_alerts, Alert, AlertBook, AlertChange, AlertConfig};
@@ -471,6 +472,21 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
 
     /// Serve [`ADVISE_OPTIONS`] through `advisor` (typically Mimir over PQ-mTLS).
     /// Without one, the method answers that decision support is not configured.
+    /// This round of the fabric sync: the significant items that changed, as batches
+    /// for the gateway's `SyncRecords` door. Built under the picture lock. [FR-H-2]
+    pub fn fabric_round(&self, out: &mut fabric_out::FabricOut) -> fabric_out::Round {
+        let now = (self.clock)();
+        let state = lock(&self.state);
+        out.round(state.picture(), state.alerts(), now)
+    }
+
+    /// Record a fabric sync batch's outcome in Heimdall's ledger (the gateway records
+    /// the same sync in the enclosure's). [FR-H-4]
+    pub fn audit_fabric_sync(&self, detail: &str) {
+        let now = (self.clock)();
+        let _ = lock(&self.governance).record_event("heimdall-feed", "SyncToFabric", detail, now);
+    }
+
     pub fn set_advisor(&self, advisor: Arc<dyn OptionProvider + Send + Sync>) {
         *lock(&self.advisor) = Some(advisor);
     }

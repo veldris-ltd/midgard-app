@@ -60,7 +60,8 @@ const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--
                      [--purpose P] [--bind ADDR] [--health-bind ADDR] [--track-ttl SECONDS] \
                      [--history-retention SECONDS] [--history-page-bytes BYTES] \
                      [--picture-page-bytes BYTES] \
-                     [--mimir-addr HOST:PORT --mimir-identity-dir DIR [--mimir-service NAME]]";
+                     [--mimir-addr HOST:PORT --mimir-identity-dir DIR [--mimir-service NAME]] \
+                     [--fabric-addr HOST:PORT --fabric-identity-dir DIR [--fabric-service NAME] [--fabric-every SECONDS]]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "heimdall-feed-audit";
@@ -83,6 +84,10 @@ fn main() {
             "mimir-addr",
             "mimir-identity-dir",
             "mimir-service",
+            "fabric-addr",
+            "fabric-identity-dir",
+            "fabric-service",
+            "fabric-every",
         ],
         &[],
     ) {
@@ -271,6 +276,29 @@ fn run(args: &Args) -> Result<(), String> {
         (None, None) => "off".to_string(),
         _ => return Err("--mimir-addr and --mimir-identity-dir go together".into()),
     };
+    // The significant items, written back to the Midgard fabric through the gateway's
+    // SyncRecords door, as their own identity (role heimdall-sync). [FR-H-2] [DD-1]
+    let fabric = match (args.get("fabric-addr"), args.get("fabric-identity-dir")) {
+        (Some(addr), Some(dir)) => {
+            let who = args
+                .get("fabric-service")
+                .unwrap_or("heimdall-fabric")
+                .to_string();
+            let every = match args.get("fabric-every") {
+                Some(s) => s
+                    .parse::<u64>()
+                    .map_err(|_| format!("--fabric-every must be seconds, not {s}"))?
+                    .max(10),
+                None => 60,
+            };
+            let ident = ServiceIdentity::load(dir, &who)?;
+            let (svc, addr_s) = (feed_service.clone(), addr.to_string());
+            std::thread::spawn(move || fabric_loop(svc, ident, addr_s, every));
+            format!("{addr} as {who} every {every} s")
+        }
+        (None, None) => "off".to_string(),
+        _ => return Err("--fabric-addr and --fabric-identity-dir go together".into()),
+    };
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
     let gateway = Gateway::new(
         Arc::new(fips_provider()),
@@ -303,8 +331,92 @@ fn run(args: &Args) -> Result<(), String> {
             ("open_alerts", &open_alerts.to_string()),
             ("history_points", &history_points.to_string()),
             ("decision_support", &advisor),
+            ("fabric_sync", &fabric),
             ("history_retention", &history_retention.to_string()),
         ],
     );
     serve_mesh(service, listener, gateway, metrics)
+}
+
+/// Send the fabric sync's batches every `every` seconds, for ever. A refused or failed
+/// batch is forgotten so its items go again; an airport link the enclosure cannot
+/// resolve is dropped for good. [FR-H-2]
+fn fabric_loop<S: audit_writer::LedgerStore + Send + 'static>(
+    svc: Arc<heimdall_feed_server::FeedService<S>>,
+    identity: ServiceIdentity,
+    addr: String,
+    every: u64,
+) {
+    use heimdall_feed_server::fabric_out::FabricOut;
+    let mut out = FabricOut::default();
+    let call = |body: &str| -> Result<String, String> {
+        let raw = service_runtime::client::call(
+            &identity,
+            &addr,
+            "data-integration",
+            "SyncRecords",
+            body.as_bytes(),
+        )?;
+        let (code, msg) = raw
+            .split_first()
+            .ok_or("the gateway sent an empty response")?;
+        let msg = String::from_utf8_lossy(msg).into_owned();
+        if *code == 0 {
+            Ok(msg)
+        } else {
+            Err(msg)
+        }
+    };
+    loop {
+        let round = svc.fabric_round(&mut out);
+        for batch in &round.batches {
+            match call(batch) {
+                Ok(m) => svc.audit_fabric_sync(&format!("records:{} {m}", batch.lines().count())),
+                Err(e) => {
+                    eprintln!(
+                        "heimdall-feed: fabric refused {} records: {e}",
+                        batch.lines().count()
+                    );
+                    out.forget(batch);
+                    svc.audit_fabric_sync(&format!(
+                        "refused records:{} {}",
+                        batch.lines().count(),
+                        e.chars().take(160).collect::<String>()
+                    ));
+                }
+            }
+        }
+        for (tracks, body) in &round.link_batches {
+            let mut body = body.clone();
+            // Drop links to airports the enclosure does not hold, one refusal at a time.
+            for _ in 0..10 {
+                match call(&body) {
+                    Ok(_) => {
+                        out.airports_done(tracks);
+                        break;
+                    }
+                    Err(e) => {
+                        let Some(icao) = e
+                            .split(" names ")
+                            .nth(1)
+                            .and_then(|r| r.split(',').next())
+                            .map(|s| s.trim().to_string())
+                        else {
+                            break;
+                        };
+                        out.airport_missing(&icao);
+                        body = body
+                            .lines()
+                            .filter(|l| !l.contains(&format!("\"to\":\"{icao}\"")))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if body.is_empty() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(every));
+    }
 }
