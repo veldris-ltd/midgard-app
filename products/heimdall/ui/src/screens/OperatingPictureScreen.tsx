@@ -1602,7 +1602,7 @@ export function OperatingPictureScreen() {
           fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.04em', lineHeight: 1.5, color: 'var(--text-faint)', textShadow: '0 0 3px #000' }}>
           UTILITIES: Contains BMRS data © Elexon Limited · NESO Carbon Intensity (CC BY 4.0) · UK Power Networks (CC BY 4.0) ·{' '}
           <a href="https://northernpowergrid.opendatasoft.com/p/opendatalicence/" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>Supported by Northern Powergrid Open Data</a>{' '}
-          · NGED · storm overflows via Stream (CC BY 4.0) · Environment Agency (OGL) · National Gas Transmission Data Portal · IODA, Georgia Tech · © OpenStreetMap contributors
+          · NGED · storm overflows via Stream (CC BY 4.0) · Environment Agency (OGL) · National Gas Transmission Data Portal · IODA, Georgia Tech · Cloudflare Radar (CC BY-NC 4.0) · © OpenStreetMap contributors
         </div>
       )}
       {view === '2d' && region && alertPin && (

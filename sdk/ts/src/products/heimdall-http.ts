@@ -391,7 +391,11 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
         ['INTO STORAGE', unit('storage_injection_mcmd', 'mcm/d', 1)], ['GAS DAY', a('gas_day')], ['PUBLISHED', hm('published')]);
       return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
     case 'utility-telecom-outage':
-      rows.push(['COUNTRY', a('country')], ['SIGNALS', a('signals')], ['SCORE', a('score')], ['EVENTS (6 H)', a('events')], ['SOURCE', 'IODA, Georgia Tech']);
+      rows.push(['COUNTRY', a('country')], ['CAUSE', a('cause')?.replace(/_/g, ' ').toLowerCase()], ['TYPE', a('outage_type')],
+        ['WHAT', a('description')], ['NETWORKS', a('networks')], ['SINCE', hm('started')],
+        ['STATUS', e.attributes.ongoing === true ? 'Ongoing' : e.attributes.ongoing === false ? `Ended ${hm('ended') ?? ''}` : undefined],
+        ['SIGNALS', a('signals')], ['SCORE', a('score')], ['EVENTS (6 H)', a('events')], ['LINK', a('link')],
+        ['SOURCE', a('source') === 'cloudflare-radar' ? 'Cloudflare Radar (CC BY-NC 4.0)' : 'IODA, Georgia Tech']);
       return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
     default:
       if (e.kind.startsWith('infra-')) {
