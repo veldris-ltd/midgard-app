@@ -18,6 +18,7 @@ backend-fips = [
     "heimdall-feed-gateway/backend-fips",
     "heimdall-fusion/backend-fips",
     "heimdall-store/backend-fips",
+    "mimir-bridge/backend-fips",
 ]
 
 [dependencies]
@@ -28,6 +29,9 @@ heimdall-fusion = { path = "../fusion" }
 # The rules classifier a deployment's rules.json configures.
 heimdall-classify = { path = "../classify" }
 heimdall-store = { path = "../store" }
+# Decision support (A.8 options via Mimir), optional at run time: --mimir-addr. [FR-H-4]
+heimdall-decision-support = { path = "../decision-support" }
+mimir-bridge = { path = "../../mimir/bridge", default-features = false }
 audit-writer = { path = "../../crypto/audit-writer" }
 pqc-agility = { path = "../../crypto/pqc-agility" }
 pq-mtls = { path = "../../crypto/pq-mtls" }

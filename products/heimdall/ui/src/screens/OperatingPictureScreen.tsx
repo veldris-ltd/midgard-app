@@ -36,6 +36,7 @@ import type { GlobeTrail, InfraLineGroup } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
 import { AlertsPanel } from '../app/AlertsPanel';
+import { AdviceCard } from '../app/AdviceCard';
 import { utilityLineGroups, utilityLineKey } from '../app/utilityLines';
 import { ALERT_COLOURS, ALERT_PULSE_CSS, WARNING_LEVEL_COLOURS, alertIconSvg, alertText, markStyle, type AlertMark } from '../app/alertMarks';
 
@@ -539,7 +540,7 @@ function FlightsCard({ flights, since, pick, setPick }: { flights: Flight[] | nu
   );
 }
 
-function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights, watch, rings, setRings }: { t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string; path: HeimdallHistoryPoint[] | null; flights?: { flights: Flight[] | null; since: number | null; pick: number | null; setPick: (i: number | null) => void }; watch: Watchlist; rings: boolean; setRings: (on: boolean) => void }) {
+function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights, watch, rings, setRings, advice }: { advice?: React.ReactNode; t: HeimdallTrack; onClose: () => void; replayAt: number | null; trailNote: string; path: HeimdallHistoryPoint[] | null; flights?: { flights: Flight[] | null; since: number | null; pick: number | null; setPick: (i: number | null) => void }; watch: Watchlist; rings: boolean; setRings: (on: boolean) => void }) {
   const d = t.detail!;
   const colour = colourOf(t);
   const aircraft = d.kind === 'air-track';
@@ -608,6 +609,7 @@ function LiveTrackPanel({ t, onClose, replayAt, trailNote, path, flights, watch,
         </Card>
       )}
       {flights && <FlightsCard {...flights} />}
+      {replayAt === null && advice}
       {d.camera && <CameraCard camera={d.camera} name={title} />}
       {!fixed && path && path.length > 1 && <FlightHistory points={path} replayAt={replayAt} />}
       <Card size="sm">
@@ -1211,7 +1213,9 @@ export function OperatingPictureScreen() {
   const select = (id: string) => { setSel(id); setGate(null); };
   const aside = geoView && picture ? (
     e?.detail ? (
-      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} flights={aircraftKey ? { ...flightState, pick: flightPick, setPick: setFlightPick } : undefined} watch={watch} rings={ringsOn} setRings={setRingsOn} />
+      <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} flights={aircraftKey ? { ...flightState, pick: flightPick, setPick: setFlightPick } : undefined} watch={watch} rings={ringsOn} setRings={setRingsOn}
+        advice={e.detail ? <AdviceCard gateway={gateway} subject={keyOf(e)} alertId={openAlerts.find((x) => x.entity === keyOf(e) && !x.acknowledgedBy)?.id ?? openAlerts.find((x) => x.entity === keyOf(e))?.id}
+          pick={(key) => { const hit = byKey.get(key); if (hit) select(hit.id); }} /> : undefined} />
     ) : wall ? null : (
       <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt}
         watchCard={<WatchlistCard watch={watch} present={byKey} select={select} />}

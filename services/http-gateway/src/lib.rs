@@ -689,6 +689,24 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     "this gateway is not connected to Heimdall",
                 )),
             },
+            // Decision support on an alert or entity (Mimir via Heimdall), authorised and
+            // audited as a read: it advises and changes nothing. [FR-H-4]
+            ("POST", path) if heimdall_bridge::advise_target(path).is_some() => {
+                match (&self.heimdall, heimdall_bridge::advise_target(path)) {
+                    (Some(bridge), Some(target)) => target.and_then(|(kind, id)| {
+                        bridge.advise(
+                            kind,
+                            &id,
+                            &claims.subject,
+                            req.query_param("question").as_deref(),
+                        )
+                    }),
+                    _ => Err(EdgeError::new(
+                        404,
+                        "this gateway is not connected to Heimdall",
+                    )),
+                }
+            }
             // Camera analytics on request, authorised and audited as `Apply` above under
             // the signed-in user, whose name the service records as `by`. [FR-P3-5]
             ("POST", path) if camera_analytics::analyse_target(path).is_some() => {
@@ -783,6 +801,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     "Apply",
                 )
             }
+            ("POST", path) if heimdall_bridge::advise_target(path).is_some() => (
+                path.to_string(),
+                self.marking_for(heimdall_bridge::ALERTS_PATH),
+                "Read",
+            ),
             ("GET", path) if camera_analytics::trend_target(path).is_some() => (
                 path.to_string(),
                 self.marking_for(camera_analytics::CAMERAS_PATH),

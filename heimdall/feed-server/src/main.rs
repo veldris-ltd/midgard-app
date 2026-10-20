@@ -59,7 +59,8 @@ use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle}
 const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--service NAME] \
                      [--purpose P] [--bind ADDR] [--health-bind ADDR] [--track-ttl SECONDS] \
                      [--history-retention SECONDS] [--history-page-bytes BYTES] \
-                     [--picture-page-bytes BYTES]";
+                     [--picture-page-bytes BYTES] \
+                     [--mimir-addr HOST:PORT --mimir-identity-dir DIR [--mimir-service NAME]]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "heimdall-feed-audit";
@@ -79,6 +80,9 @@ fn main() {
             "history-retention",
             "history-page-bytes",
             "picture-page-bytes",
+            "mimir-addr",
+            "mimir-identity-dir",
+            "mimir-service",
         ],
         &[],
     ) {
@@ -240,6 +244,33 @@ fn run(args: &Args) -> Result<(), String> {
     feed_service.set_history_retention(history_retention);
     feed_service.set_history_page_bytes(history_page_bytes);
     feed_service.set_picture_page_bytes(picture_page_bytes);
+    // Decision support through Mimir, when configured: its own consumer identity
+    // (role inference-consumer), separate from this service's. [FR-H-4] [FR-MI-8]
+    let advisor = match (args.get("mimir-addr"), args.get("mimir-identity-dir")) {
+        (Some(addr), Some(dir)) => {
+            let who = args.get("mimir-service").unwrap_or("heimdall-advisor");
+            let mimir = ServiceIdentity::load(dir, who)?;
+            let signing_key = Arc::try_unwrap(mimir.signing_key)
+                .map_err(|_| "the Mimir identity key is shared".to_string())?;
+            let client = mimir_bridge::PqMtlsClient::new(mimir_bridge::MimirEndpoint {
+                addr: addr.to_string(),
+                anchor: mimir.anchor,
+                cert: mimir.cert,
+                signing_key,
+                purpose: "investigation".into(),
+                posture: pq_mtls::Posture {
+                    level: ClassificationLevel::UNCLASSIFIED,
+                    compartments: BTreeSet::new(),
+                },
+            });
+            feed_service.set_advisor(Arc::new(
+                heimdall_decision_support::MimirOptionProvider::new(client).with_max_tokens(700),
+            ));
+            format!("{addr} as {who}")
+        }
+        (None, None) => "off".to_string(),
+        _ => return Err("--mimir-addr and --mimir-identity-dir go together".into()),
+    };
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
     let gateway = Gateway::new(
         Arc::new(fips_provider()),
@@ -271,6 +302,7 @@ fn run(args: &Args) -> Result<(), String> {
             ("alerts", &alerts_source),
             ("open_alerts", &open_alerts.to_string()),
             ("history_points", &history_points.to_string()),
+            ("decision_support", &advisor),
             ("history_retention", &history_retention.to_string()),
         ],
     );

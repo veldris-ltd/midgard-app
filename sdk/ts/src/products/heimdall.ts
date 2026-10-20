@@ -238,6 +238,23 @@ export interface HeimdallCameraTrend {
   watch: { until: number; by: string; everyS: number } | null;
 }
 
+/** Mimir's decision support on an alert or entity: ranked courses of action, each
+ *  citing the picture evidence it rests on and marked grounded when every citation
+ *  names a real entity or feed. Advisory only: nothing is acted on. [FR-H-4] */
+export interface HeimdallAdvice {
+  subject: string;
+  decisionPoint: string;
+  /** How many entities Mimir was shown (the subject and its nearest). */
+  considered: number;
+  options: {
+    rank: number; title: string; summary: string; expectedEffect: string; risks: string[];
+    citations: string[]; grounded: boolean; unresolved: string[];
+  }[];
+  /** Why no option could be supported, when none was. */
+  unsupported: string | null;
+  ms: number;
+}
+
 /** Tracks through an analysed clip: frame f is at f / fps seconds from its start; each
  *  `obs` entry is [frame, x, y, w, h] in 0-1 image units. [FR-P3-5] */
 export interface HeimdallCameraPlayback {
@@ -445,6 +462,10 @@ export interface HeimdallGateway {
    *  and audits it as an action); resolves to the result, which also reaches Heimdall.
    *  Optional: a gateway without camera analytics leaves it out. [FR-P3-5] */
   analyseCamera?(id: string): Promise<HeimdallCameraAnalysis>;
+  /** Ask Mimir for ranked, cited courses of action about an alert or an entity, with
+   *  an optional question. Slow on a laptop (about a minute). Optional: a gateway
+   *  without decision support leaves it out or answers 404. [FR-H-4] */
+  advise?(target: { alert: string } | { entity: string }, question?: string): Promise<HeimdallAdvice>;
   /** The camera's results over the last day, and its watch. [FR-P3-5] */
   cameraTrend?(id: string): Promise<HeimdallCameraTrend>;
   /** Watch the camera for `hours` (re-analysed every few minutes; 0 stops), as the

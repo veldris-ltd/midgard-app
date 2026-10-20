@@ -90,7 +90,14 @@ pub struct OptionSet {
 impl OptionSet {
     /// Parse an A.8 JSON response. Fails closed on malformed structure.
     pub fn parse(text: &str) -> Result<Self, DecisionError> {
-        let root = json::parse(text).map_err(DecisionError::Parse)?;
+        // A model may wrap the JSON in a code fence or a sentence: take the outermost
+        // object. Anything that is still not the A.8 shape fails closed below.
+        let root = json::parse(text)
+            .or_else(|e| match (text.find('{'), text.rfind('}')) {
+                (Some(a), Some(b)) if a < b => json::parse(&text[a..=b]),
+                _ => Err(e),
+            })
+            .map_err(DecisionError::Parse)?;
 
         let unsupported = match root.get("unsupported") {
             None => None,
@@ -162,4 +169,19 @@ fn str_field(v: &JsonValue, key: &str) -> String {
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string()
+}
+
+#[cfg(test)]
+mod fence_tests {
+    use super::*;
+
+    #[test]
+    fn json_in_a_code_fence_is_read_and_prose_alone_fails_closed() {
+        let fenced =
+            "Here you go:\n```json\n{\"options\": [], \"unsupported\": \"no evidence\"}\n```";
+        let set = OptionSet::parse(fenced).unwrap();
+        assert!(set.options.is_empty());
+        assert_eq!(set.unsupported.as_deref(), Some("no evidence"));
+        assert!(OptionSet::parse("I would re-route the vessel.").is_err());
+    }
 }

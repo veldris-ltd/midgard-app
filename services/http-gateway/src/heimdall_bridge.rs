@@ -50,6 +50,11 @@ const NOT_FOUND: u8 = 4;
 const READ_ALERTS: &str = "ReadAlerts";
 /// The `heimdall-feed` method that acknowledges an alert.
 const ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
+const ADVISE_OPTIONS: &str = "AdviseOptions";
+/// The path prefix of entity routes (`.../entities/{id}/advise`).
+pub const ENTITIES_PATH: &str = "/api/v1/heimdall/entities";
+/// How long decision support may think before the gateway gives up.
+pub const ADVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(150);
 /// The path alerts are read at; an acknowledgement is `{ALERTS_PATH}/{id}/ack`.
 pub const ALERTS_PATH: &str = "/api/v1/heimdall/alerts";
 
@@ -78,6 +83,31 @@ pub fn alerts_state(query: &str) -> Result<bool, EdgeError> {
 /// The alert id an acknowledgement path names: `Some` for any path of the form
 /// `/api/v1/heimdall/alerts/{id}/ack`, with the id or a 400 for one that is not an
 /// alert id (1-64 letters, digits, `-` or `_`, after percent-decoding). [FR-H-4]
+/// What `POST .../alerts/{id}/advise` or `.../entities/{id}/advise` asks advice on:
+/// ("alert" | "entity", id). Ids are letters, digits and `.` `_` `:` `-`, up to 128.
+pub fn advise_target(path: &str) -> Option<Result<(&'static str, String), EdgeError>> {
+    let (kind, rest) = if let Some(r) = path.strip_prefix(ALERTS_PATH) {
+        ("alert", r)
+    } else {
+        ("entity", path.strip_prefix(ENTITIES_PATH)?)
+    };
+    let raw = rest.strip_prefix('/')?.strip_suffix("/advise")?;
+    Some(percent_decode(raw).and_then(|id| {
+        let ok = !id.is_empty()
+            && id.len() <= 128
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'));
+        if ok {
+            Ok((kind, id))
+        } else {
+            Err(EdgeError::bad_request(&format!(
+                "'{id}' is not an {kind} id"
+            )))
+        }
+    }))
+}
+
 pub fn ack_target(path: &str) -> Option<Result<String, EdgeError>> {
     let rest = path.strip_prefix(ALERTS_PATH)?.strip_prefix('/')?;
     let raw = rest.strip_suffix("/ack")?;
@@ -480,6 +510,30 @@ impl HeimdallBridge {
         alerts_response(&response)
     }
 
+    /// Decision support on an alert or an entity, asked for by `by`, with an optional
+    /// question: Heimdall's ranked, cited and grounded options (advisory only). Waits
+    /// up to [`ADVICE_TIMEOUT`]; Heimdall without decision support is a 404. [FR-H-4]
+    pub fn advise(
+        &self,
+        kind: &str,
+        id: &str,
+        by: &str,
+        question: Option<&str>,
+    ) -> Result<Json, EdgeError> {
+        let mut fields = vec![(kind, Json::s(id)), ("by", Json::s(by))];
+        if let Some(q) = question.filter(|q| !q.trim().is_empty()) {
+            fields.push(("question", Json::s(q)));
+        }
+        let unreachable = |e: String| EdgeError::new(502, &format!("Heimdall is unreachable: {e}"));
+        let mut session = client::Session::open(&self.identity, &self.addr, &self.purpose)
+            .map_err(unreachable)?;
+        session.set_timeout(ADVICE_TIMEOUT).map_err(unreachable)?;
+        let response = session
+            .call(ADVISE_OPTIONS, Json::obj(fields).encode().as_bytes())
+            .map_err(unreachable)?;
+        alerts_response(&response)
+    }
+
     /// Track history as `{"from", "to", "tracks": [{"id", "kind", "layer", "points":
     /// [[t, lat, lon, alt_m|null], ..]}], "truncated"}`: every page Heimdall serves for
     /// the query, read over one session and merged, up to [`MAX_HISTORY_PAGES`] pages or
@@ -841,6 +895,22 @@ mod tests {
         );
         assert_eq!(history_page(b"\x00not json").unwrap_err().status, 502);
         assert!(MergedTracks::default().add(&parse("{}").unwrap()).is_err());
+    }
+
+    #[test]
+    fn advice_is_asked_on_an_alert_or_an_entity() {
+        let t = |p: &str| advise_target(p).map(|r| r.map_err(|e| e.status));
+        assert_eq!(
+            t("/api/v1/heimdall/alerts/A-12/advise"),
+            Some(Ok(("alert", "A-12".into())))
+        );
+        assert_eq!(
+            t("/api/v1/heimdall/entities/PWR-UKPN-INCD-633783-Z/advise"),
+            Some(Ok(("entity", "PWR-UKPN-INCD-633783-Z".into())))
+        );
+        assert_eq!(t("/api/v1/heimdall/entities/a%20b/advise"), Some(Err(400)));
+        assert_eq!(t("/api/v1/heimdall/alerts/A-12/ack"), None);
+        assert_eq!(t("/api/v1/heimdall/picture"), None);
     }
 
     #[test]

@@ -60,6 +60,7 @@ import {
   type HeimdallCameraAnalysis,
   type HeimdallCameraPlayback,
   type HeimdallCameraTrend,
+  type HeimdallAdvice,
   type HeimdallSyncSite,
   type HeimdallTrack,
   type HeimdallWorkflow,
@@ -893,6 +894,39 @@ export class HeimdallHttp implements HeimdallGateway {
     ai.playback = playbackOf(body.playback);
     this.cameraAI.set(id, ai);
     return ai;
+  }
+
+  /** `POST /heimdall/alerts/{id}/advise` or `/heimdall/entities/{id}/advise`. [FR-H-4] */
+  async advise(target: { alert: string } | { entity: string }, question?: string): Promise<HeimdallAdvice> {
+    const path = 'alert' in target
+      ? `/heimdall/alerts/${encodeURIComponent(target.alert)}/advise`
+      : `/heimdall/entities/${encodeURIComponent(target.entity)}/advise`;
+    const q = question?.trim() ? `?question=${encodeURIComponent(question.trim())}` : '';
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}${path}${q}`, { method: 'POST', headers: { authorization: `Bearer ${this.token}` } });
+    } catch (err) {
+      throw new Error(`decision support unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (res.status === 401) {
+      this.onUnauthorized?.();
+      throw new Error('session expired: sign in again');
+    }
+    const b = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(b?.error ?? `decision support failed (HTTP ${res.status})`);
+    const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    return {
+      subject: String(b?.subject ?? ''),
+      decisionPoint: String(b?.decision_point ?? ''),
+      considered: Number(b?.considered ?? 0),
+      options: (Array.isArray(b?.options) ? b.options : []).map((o: any) => ({
+        rank: Number(o?.rank ?? 0), title: String(o?.title ?? ''), summary: String(o?.summary ?? ''),
+        expectedEffect: String(o?.expected_effect ?? ''), risks: strs(o?.risks), citations: strs(o?.citations),
+        grounded: o?.grounded === true, unresolved: strs(o?.unresolved),
+      })).sort((a: { rank: number }, b: { rank: number }) => a.rank - b.rank),
+      unsupported: typeof b?.unsupported === 'string' ? b.unsupported : null,
+      ms: Number(b?.ms ?? 0),
+    };
   }
 
   /** `GET /heimdall/cameras/{id}/trend`. [FR-P3-5] */

@@ -70,6 +70,7 @@ pub mod alerts;
 pub mod rules_file;
 pub mod ttl_file;
 pub use alerts::{parse_alerts, Alert, AlertBook, AlertChange, AlertConfig};
+use heimdall_decision_support::OptionProvider;
 pub use rules_file::parse_rules;
 pub use ttl_file::{describe_ttl, parse_ttl};
 
@@ -106,10 +107,19 @@ pub const READ_ALERTS: &str = "ReadAlerts";
 /// The method an analyst acknowledges an alert with; its payload is `{"id", "by"}`
 /// (see [`FeedService::acknowledge_alert`]).
 pub const ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
+/// Method: ask decision support (Mimir, via the A.8 prompt) for ranked, cited courses
+/// of action about an alert or an entity. Advisory only. [FR-H-4] [NFR-AI-1]
+pub const ADVISE_OPTIONS: &str = "AdviseOptions";
 /// The policy action an alert read is authorised as.
 pub const ACTION_READ_ALERTS: &str = "ReadAlerts";
 /// The policy action an acknowledgement is authorised as.
 pub const ACTION_ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
+/// Policy action for [`ADVISE_OPTIONS`].
+pub const ACTION_ADVISE_OPTIONS: &str = "AdviseOptions";
+/// The most entities a decision-support picture carries (the subject and its nearest).
+pub const ADVISE_MAX_ENTITIES: usize = 16;
+/// How far from the subject decision support looks for context, in km.
+pub const ADVISE_RADIUS_KM: f64 = 80.0;
 /// The most bytes of alerts one [`READ_ALERTS`] response carries (under 900 KiB);
 /// past it the oldest are left out and `"truncated"` is true.
 pub const ALERTS_PAGE_BYTES: usize = 900 * 1024 - 1024;
@@ -400,6 +410,8 @@ pub struct FeedService<S: LedgerStore> {
     last_history_maintenance: AtomicU64,
     history_page_bytes: AtomicUsize,
     picture_page_bytes: AtomicUsize,
+    /// Decision support (Mimir), when configured: [`ADVISE_OPTIONS`] needs it.
+    advisor: Mutex<Option<Arc<dyn OptionProvider + Send + Sync>>>,
 }
 
 impl<S: LedgerStore + Send + 'static> FeedService<S> {
@@ -446,7 +458,14 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             last_history_maintenance: AtomicU64::new(0),
             history_page_bytes: AtomicUsize::new(HISTORY_PAGE_BYTES),
             picture_page_bytes: AtomicUsize::new(PICTURE_PAGE_BYTES),
+            advisor: Mutex::new(None),
         })
+    }
+
+    /// Serve [`ADVISE_OPTIONS`] through `advisor` (typically Mimir over PQ-mTLS).
+    /// Without one, the method answers that decision support is not configured.
+    pub fn set_advisor(&self, advisor: Arc<dyn OptionProvider + Send + Sync>) {
+        *lock(&self.advisor) = Some(advisor);
     }
 
     /// Remove entities not seen for `seconds` (0, the default, keeps them for ever).
@@ -598,6 +617,102 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             .route(READ_HISTORY, history)
             .route(READ_ALERTS, alerts)
             .route(ACKNOWLEDGE_ALERT, ack)
+            .route(ADVISE_OPTIONS, {
+                let service = self.clone();
+                Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| {
+                    service.advise_options(peer, body)
+                }) as Arc<dyn RequestHandler>
+            })
+    }
+
+    /// Decision support: the body is `{"alert": "A-1"}` or `{"entity": "<id>"}`, with
+    /// `"by"` (who asks) and an optional `"question"`. The subject and up to
+    /// [`ADVISE_MAX_ENTITIES`] of its nearest neighbours within [`ADVISE_RADIUS_KM`]
+    /// are sent to the advisor with the A.8 prompt; every citation in the answer is
+    /// resolved against that picture. The response is the options, each marked
+    /// grounded or not, and is advisory only: nothing is acted on. Authorised as
+    /// [`ACTION_ADVISE_OPTIONS`] and audited as an `AdviseOptions` event. The picture
+    /// is not locked while the advisor thinks. [FR-H-4] [NFR-AI-1] [AC-H-3]
+    pub fn advise_options(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+        let now = (self.clock)();
+        let request = parse_advise_request(body);
+        let action = if request.is_ok() {
+            ACTION_ADVISE_OPTIONS
+        } else {
+            "AdviseOptions:MALFORMED"
+        };
+        let decision =
+            lock(&self.governance).authorize(&self.context(peer), &self.resource, action, now);
+        let request = match (decision, request) {
+            (Err(_), _) => {
+                return self.reply(
+                    ADVISE_OPTIONS,
+                    outcome::FAILED,
+                    "the request could not be audited",
+                )
+            }
+            (Ok(_), Err(e)) => return self.reply(ADVISE_OPTIONS, outcome::MALFORMED, &e),
+            (Ok(d), Ok(_)) if !d.permitted => {
+                return self.reply(
+                    ADVISE_OPTIONS,
+                    outcome::DENIED,
+                    "policy does not permit this identity to ask for decision support",
+                )
+            }
+            (Ok(_), Ok(r)) => r,
+        };
+        let Some(advisor) = lock(&self.advisor).clone() else {
+            return self.reply(
+                ADVISE_OPTIONS,
+                outcome::NOT_FOUND,
+                "decision support is not configured",
+            );
+        };
+        // The subject, its context and the decision point, under the lock; then release it.
+        let built = {
+            let state = lock(&self.state);
+            advise_picture(state.picture(), state.alerts(), &request)
+        };
+        let (picture, decision_point, subject) = match built {
+            Ok(b) => b,
+            Err(e) => return self.reply(ADVISE_OPTIONS, outcome::NOT_FOUND, &e),
+        };
+        let started = std::time::Instant::now();
+        let answer =
+            heimdall_decision_support::request_options(&picture, &decision_point, advisor.as_ref());
+        let ms = started.elapsed().as_millis();
+        let (body, summary) = match &answer {
+            Ok(a) => (
+                advise_json(a, &subject, &decision_point, picture.entity_count(), ms),
+                format!(
+                    "options:{} grounded:{}",
+                    a.option_set.options.len(),
+                    a.all_grounded()
+                ),
+            ),
+            Err(e) => (Json::Null, format!("failed:{e}")),
+        };
+        let recorded = lock(&self.governance).record_event(
+            &peer.id.0,
+            "AdviseOptions",
+            &format!("subject:{subject} by:{} {summary} ms:{ms}", request.by),
+            now,
+        );
+        if recorded.is_err() {
+            return self.reply(
+                ADVISE_OPTIONS,
+                outcome::FAILED,
+                "the request could not be audited",
+            );
+        }
+        match answer {
+            Ok(_) => self.reply(ADVISE_OPTIONS, outcome::ACCEPTED, &body.encode()),
+            Err(e) => self.reply(
+                ADVISE_OPTIONS,
+                outcome::FAILED,
+                &format!("decision support failed: {e}"),
+            ),
+        }
     }
 
     /// Admit, fuse and persist one signed observation.
@@ -1204,6 +1319,177 @@ pub const MAX_ACK_BY: usize = 64;
 
 /// Parse an [`ACKNOWLEDGE_ALERT`] request: the alert id and who acknowledges it (control
 /// characters stripped, at most [`MAX_ACK_BY`] characters).
+/// An [`ADVISE_OPTIONS`] request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdviseRequest {
+    pub alert: Option<String>,
+    pub entity: Option<String>,
+    pub question: Option<String>,
+    pub by: String,
+}
+
+/// Parse an [`ADVISE_OPTIONS`] body: `{"alert"|"entity": id, "by": name, "question"?}`.
+pub fn parse_advise_request(body: &[u8]) -> Result<AdviseRequest, String> {
+    let json = request_object(body)?;
+    if let Json::Obj(pairs) = &json {
+        if let Some((key, _)) = pairs
+            .iter()
+            .find(|(k, _)| !["alert", "entity", "question", "by"].contains(&k.as_str()))
+        {
+            return Err(format!("unknown key \"{key}\""));
+        }
+    }
+    let id = |k: &str| {
+        json.str_field(k)
+            .filter(|s| !s.trim().is_empty() && s.len() <= 128)
+            .map(str::to_string)
+    };
+    let (alert, entity) = (id("alert"), id("entity"));
+    if alert.is_none() == entity.is_none() {
+        return Err("name exactly one of \"alert\" or \"entity\"".into());
+    }
+    let clean =
+        |s: &str, n: usize| -> String { s.chars().filter(|c| !c.is_control()).take(n).collect() };
+    let by = clean(json.str_field("by").unwrap_or(""), MAX_ACK_BY);
+    if by.trim().is_empty() {
+        return Err("\"by\" must name who asks".into());
+    }
+    let question = json
+        .str_field("question")
+        .map(|q| clean(q, 400))
+        .filter(|q| !q.trim().is_empty());
+    Ok(AdviseRequest {
+        alert,
+        entity,
+        question,
+        by,
+    })
+}
+
+/// The decision-support picture for a request: the subject entity first, then its
+/// nearest neighbours (within [`ADVISE_RADIUS_KM`], up to [`ADVISE_MAX_ENTITIES`] in
+/// all), and the decision point in words. Returns (picture, decision point, subject id).
+fn advise_picture(
+    full: &Picture,
+    alerts: &AlertBook,
+    r: &AdviseRequest,
+) -> Result<(Picture, String, String), String> {
+    let alert = match &r.alert {
+        Some(id) => Some(
+            alerts
+                .alerts()
+                .iter()
+                .find(|a| &a.id == id)
+                .ok_or_else(|| format!("there is no alert {id}"))?,
+        ),
+        None => None,
+    };
+    let subject_id = alert
+        .map(|a| a.entity.clone())
+        .or_else(|| r.entity.clone())
+        .unwrap_or_default();
+    let subject = full
+        .entity(&EntityId(subject_id.clone()))
+        .ok_or_else(|| format!("{subject_id} is not in the picture"))?;
+    let pos = |e: &TrackedEntity| -> Option<(f64, f64)> {
+        let n = |k: &str| match e.latest_attrs.get(k) {
+            Some(Attr::Float(f)) if f.is_finite() => Some(*f),
+            Some(Attr::Int(i)) => Some(*i as f64),
+            _ => None,
+        };
+        Some((n("lat")?, n("lon")?))
+    };
+    let mut picture = Picture::new();
+    let add = |e: &TrackedEntity, picture: &mut Picture| {
+        picture.ensure_layer(heimdall_picture::Layer::new(
+            e.layer.0.clone(),
+            e.layer.0.clone(),
+        ));
+        picture.upsert_entity(e.clone());
+    };
+    add(subject, &mut picture);
+    if let Some((la, lo)) = pos(subject) {
+        let mut near: Vec<(f64, &TrackedEntity)> = full
+            .entities()
+            .filter(|e| {
+                e.id != subject.id && !e.kind.starts_with("infra-") && e.kind != "airspace-volume"
+            })
+            .filter_map(|e| pos(e).map(|(a, b)| (alerts::distance_km(la, lo, a, b), e)))
+            .filter(|(d, _)| *d <= ADVISE_RADIUS_KM)
+            .collect();
+        near.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (_, e) in near.into_iter().take(ADVISE_MAX_ENTITIES - 1) {
+            add(e, &mut picture);
+        }
+    }
+    let mut point = match alert {
+        Some(a) => format!(
+            "Alert {} ({}) on entity:{}: {}. What should the operator do next?",
+            a.label, a.severity.as_str(), a.entity, a.rationale
+        ),
+        None => format!("The operator has selected entity:{subject_id}. What, if anything, should they do about it?"),
+    };
+    if let Some(q) = &r.question {
+        point.push_str(&format!(" The operator asks: {q}"));
+    }
+    Ok((picture, point, subject_id))
+}
+
+fn advise_json(
+    a: &heimdall_decision_support::AdvisoryOptions,
+    subject: &str,
+    point: &str,
+    considered: usize,
+    ms: u128,
+) -> Json {
+    let options = a
+        .option_set
+        .options
+        .iter()
+        .map(|o| {
+            let g = a.grounding_for(o.rank);
+            Json::obj(vec![
+                ("rank", Json::Num(o.rank as f64)),
+                ("title", Json::s(&o.title)),
+                ("summary", Json::s(&o.summary)),
+                ("expected_effect", Json::s(&o.expected_effect)),
+                (
+                    "risks",
+                    Json::Arr(o.risks.iter().map(|r| Json::s(r)).collect()),
+                ),
+                (
+                    "citations",
+                    Json::Arr(o.citations.iter().map(|c| Json::s(&c.raw)).collect()),
+                ),
+                ("grounded", Json::Bool(g.is_some_and(|g| g.grounded))),
+                (
+                    "unresolved",
+                    Json::Arr(
+                        g.map(|g| g.unresolved.iter().map(|c| Json::s(&c.raw)).collect())
+                            .unwrap_or_default(),
+                    ),
+                ),
+            ])
+        })
+        .collect();
+    Json::obj(vec![
+        ("subject", Json::s(subject)),
+        ("decision_point", Json::s(point)),
+        ("considered", Json::Num(considered as f64)),
+        ("options", Json::Arr(options)),
+        (
+            "unsupported",
+            a.option_set
+                .unsupported
+                .as_deref()
+                .map(Json::s)
+                .unwrap_or(Json::Null),
+        ),
+        ("advisory", Json::Bool(true)),
+        ("ms", Json::Num(ms as f64)),
+    ])
+}
+
 pub fn parse_ack_request(body: &[u8]) -> Result<(String, String), String> {
     let json = request_object(body)?;
     if let Json::Obj(pairs) = &json {
@@ -1366,6 +1652,30 @@ mod tests {
         ] {
             assert!(
                 parse_history_query(bad, 3600).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn an_advice_request_names_one_subject_and_who_asks() {
+        let ok = parse_advise_request(br#"{"alert":"A-7","by":"analyst","question":"what next?"}"#)
+            .unwrap();
+        assert_eq!(
+            (ok.alert.as_deref(), ok.entity, ok.by.as_str()),
+            (Some("A-7"), None, "analyst")
+        );
+        assert_eq!(ok.question.as_deref(), Some("what next?"));
+        assert!(parse_advise_request(br#"{"entity":"E-1","by":"a"}"#).is_ok());
+        for bad in [
+            &br#"{"alert":"A-1","entity":"E-1","by":"a"}"#[..],
+            br#"{"by":"a"}"#,
+            br#"{"alert":"A-1"}"#,
+            br#"{"alert":"A-1","by":"a","act":"now"}"#,
+        ] {
+            assert!(
+                parse_advise_request(bad).is_err(),
                 "{}",
                 String::from_utf8_lossy(bad)
             );

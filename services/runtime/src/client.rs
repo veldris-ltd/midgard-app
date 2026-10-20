@@ -69,6 +69,14 @@ impl Session {
         })
     }
 
+    /// Wait up to `timeout` for each response on this session instead of the default
+    /// 30 s, for a method known to take long (decision support thinking).
+    pub fn set_timeout(&mut self, timeout: Duration) -> Result<(), String> {
+        self.stream
+            .set_read_timeout(Some(timeout))
+            .map_err(|e| format!("cannot set a timeout on the connection: {e}"))
+    }
+
     /// Call `method` with `payload` and return the handler's response. An unknown
     /// method and a malformed request are errors.
     pub fn call(&mut self, method: &str, payload: &[u8]) -> Result<Vec<u8>, String> {

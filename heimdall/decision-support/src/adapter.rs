@@ -59,7 +59,7 @@ impl AdvisoryOptions {
 /// over `picture`. The result is always advisory and every option is grounded
 /// against the picture. Fails closed if inference fails or the response is
 /// malformed. [FR-H-4] [AC-H-3]
-pub fn request_options<P: OptionProvider>(
+pub fn request_options<P: OptionProvider + ?Sized>(
     picture: &Picture,
     decision_point: &str,
     provider: &P,
