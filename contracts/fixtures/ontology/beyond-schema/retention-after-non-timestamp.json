@@ -1,0 +1,3 @@
+{"version": 1, "objectTypes": [{"id": "note", "title": "Note",
+  "properties": [{"name": "seen", "type": "text"}],
+  "retention": {"after": ["seen"], "hours": 24}}]}

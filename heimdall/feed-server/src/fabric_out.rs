@@ -15,6 +15,10 @@
 //! [`MOVING_RESEND_S`] for their position. An airport track is linked `track_of_airport`
 //! to the enclosure's airport object of the same ICAO code, in batches of their own: a
 //! link to an airport the enclosure does not hold is dropped and not tried again.
+//! Every record carries `synced_at`, the time it was sent, and the fabric's retention
+//! windows ([`TRACK_RETENTION_H`], [`ALERT_RETENTION_H`]) run from the latest of it and
+//! the item's own times, so what Heimdall stops sending ages out of the fabric while
+//! what it still holds is refreshed well inside its window. [SAD_00 §8.5]
 //! Every object is marked `internal` for the `operations` purpose, as Forge's live
 //! objects are (observations carry no marking of their own yet).
 
@@ -37,7 +41,13 @@ pub const TRACK_OF_AIRPORT: &str = "track_of_airport";
 /// A moving item's position is resent at most this often.
 pub const MOVING_RESEND_S: u64 = 300;
 /// Fixed items are resent this often.
-pub const STATIC_RESEND_S: u64 = 86_400;
+pub const STATIC_RESEND_S: u64 = 6 * 3600;
+/// An open alert is resent this often, so its `synced_at` stays inside its window.
+pub const ALERT_RESEND_S: u64 = 3600;
+/// How long the fabric keeps a track after it was last synced or seen.
+pub const TRACK_RETENTION_H: u64 = 12;
+/// How long the fabric keeps an alert after it was last synced or cleared.
+pub const ALERT_RETENTION_H: u64 = 24;
 /// The most bytes in one batch (frames are 1 MiB).
 pub const BATCH_BYTES: usize = 700 * 1024;
 /// The marking and purpose every synced object carries.
@@ -61,7 +71,7 @@ pub fn key(id: &str) -> String {
 #[derive(Default)]
 pub struct FabricOut {
     sent: BTreeMap<String, (u64, u64)>,
-    alerts: BTreeMap<String, u64>,
+    alerts: BTreeMap<String, (u64, u64)>,
     airports_linked: BTreeSet<String>,
     airports_missing: BTreeSet<String>,
 }
@@ -129,7 +139,7 @@ impl FabricOut {
                 continue;
             }
             self.sent.insert(k.clone(), (now, sig));
-            lines.push(track_record(e, &k).encode());
+            lines.push(track_record(e, &k, now).encode());
             tracks += 1;
         }
         // Alerts: new or changed (acknowledged, cleared) ones, linked to their track when
@@ -139,14 +149,19 @@ impl FabricOut {
             let mut h = std::collections::hash_map::DefaultHasher::new();
             (a.cleared_at, &a.acknowledged_by).hash(&mut h);
             let sig = h.finish();
-            if self.alerts.get(&a.id) == Some(&sig) {
-                continue;
+            match self.alerts.get(&a.id) {
+                Some((at, s))
+                    if *s == sig && (!a.is_open() || now.saturating_sub(*at) < ALERT_RESEND_S) =>
+                {
+                    continue
+                }
+                _ => {}
             }
             if !a.is_open() && !self.alerts.contains_key(&a.id) {
                 continue; // cleared before it was ever sent: nothing to update
             }
-            self.alerts.insert(a.id.clone(), sig);
-            lines.push(alert_record(a).encode());
+            self.alerts.insert(a.id.clone(), (now, sig));
+            lines.push(alert_record(a, now).encode());
             let track = key(&a.entity);
             if present.contains(&track) && self.sent.contains_key(&track) {
                 lines.push(
@@ -266,7 +281,7 @@ fn object(kind: &str, k: &str, props: Vec<(&str, Json)>) -> Json {
     ])
 }
 
-fn track_record(e: &TrackedEntity, k: &str) -> Json {
+fn track_record(e: &TrackedEntity, k: &str, now: u64) -> Json {
     let clip = |s: String, n: usize| s.chars().take(n).collect::<String>();
     let opt_s = |v: Option<String>| v.map(|s| Json::s(&clip(s, 200))).unwrap_or(Json::Null);
     let opt_f = |v: Option<f64>| v.map(Json::Num).unwrap_or(Json::Null);
@@ -303,11 +318,12 @@ fn track_record(e: &TrackedEntity, k: &str) -> Json {
             ("observations", Json::Int(e.track.observation_count as i64)),
             ("first_seen", Json::Int(e.track.first_seen as i64)),
             ("last_seen", Json::Int(e.track.last_seen as i64)),
+            ("synced_at", Json::Int(now as i64)),
         ],
     )
 }
 
-fn alert_record(a: &Alert) -> Json {
+fn alert_record(a: &Alert, now: u64) -> Json {
     let ts = |v: Option<u64>| v.map(|t| Json::Int(t as i64)).unwrap_or(Json::Null);
     object(
         ALERT_TYPE,
@@ -332,8 +348,19 @@ fn alert_record(a: &Alert) -> Json {
                     .unwrap_or(Json::Null),
             ),
             ("acknowledged_at", ts(a.acknowledged_at)),
+            ("synced_at", Json::Int(now as i64)),
         ],
     )
+}
+
+fn retention(after: &[&str], hours: u64) -> Json {
+    Json::obj(vec![
+        (
+            "after",
+            Json::Arr(after.iter().map(|a| Json::s(a)).collect()),
+        ),
+        ("hours", Json::Int(hours as i64)),
+    ])
 }
 
 /// The ontology additions the sync needs, for an enclosure's `ontology.json`.
@@ -369,7 +396,12 @@ pub fn ontology_additions() -> Json {
                             p("observations", "int", false),
                             p("first_seen", "timestamp", false),
                             p("last_seen", "timestamp", false),
+                            p("synced_at", "timestamp", false),
                         ]),
+                    ),
+                    (
+                        "retention",
+                        retention(&["synced_at", "last_seen"], TRACK_RETENTION_H),
                     ),
                 ]),
                 Json::obj(vec![
@@ -388,7 +420,12 @@ pub fn ontology_additions() -> Json {
                             p("cleared_at", "timestamp", false),
                             p("acknowledged_by", "text", false),
                             p("acknowledged_at", "timestamp", false),
+                            p("synced_at", "timestamp", false),
                         ]),
+                    ),
+                    (
+                        "retention",
+                        retention(&["synced_at", "cleared_at", "raised_at"], ALERT_RETENTION_H),
                     ),
                 ]),
             ]),

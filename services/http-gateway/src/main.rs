@@ -203,6 +203,9 @@ fn main() {
         eprintln!("http-gateway: camera analytics on request via {addr}");
     }
     let gateway = Arc::new(gateway);
+    if gateway.has_retention() {
+        start_retention(gateway.clone());
+    }
 
     if let (Some(mesh_bind), Some(identity_dir)) = (mesh_bind, mesh_identity_dir) {
         match start_mesh(
@@ -250,6 +253,31 @@ fn start_mesh(
         purpose,
     )
     .map_err(|e| format!("cannot bind {bind}: {e}"))
+}
+
+/// Apply the ontology's retention windows once a minute: each sweep is audited, and a
+/// backlog larger than one sweep's limit clears over the following ones. [SAD_00 §8.5]
+fn start_retention(gateway: Arc<DurableGateway>) {
+    eprintln!("http-gateway: enforcing the ontology's retention windows every 60 s");
+    std::thread::spawn(move || loop {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        match gateway.enforce_retention(now) {
+            Ok(swept) => {
+                for s in swept {
+                    eprintln!(
+                        "http-gateway: retention removed {} {}{}",
+                        s.removed,
+                        s.object_type,
+                        if s.more { " (more to follow)" } else { "" }
+                    );
+                }
+            }
+            Err(e) => eprintln!("http-gateway: retention sweep failed: {e}"),
+        }
+        std::thread::sleep(std::time::Duration::from_secs(60));
+    });
 }
 
 fn fail_usage(message: &str) -> ! {

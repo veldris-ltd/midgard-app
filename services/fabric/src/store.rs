@@ -24,6 +24,9 @@ pub trait ObjectStore {
     fn put_link(&mut self, link: LinkInstance);
     /// Objects reachable from `source_id` over `link_type` (search-around).
     fn neighbors(&self, source_id: &str, link_type: &str) -> Vec<&ObjectInstance>;
+    /// Remove an object with its index entries and every link from or to it, returning
+    /// it; `None` (and no change) when there is no such object. Used by retention.
+    fn remove_object(&mut self, id: &str) -> Option<ObjectInstance>;
 }
 
 /// A boxed store is a store, so a service can pick its backend (in-memory or
@@ -47,6 +50,9 @@ impl<T: ObjectStore + ?Sized> ObjectStore for Box<T> {
     fn neighbors(&self, source_id: &str, link_type: &str) -> Vec<&ObjectInstance> {
         (**self).neighbors(source_id, link_type)
     }
+    fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
+        (**self).remove_object(id)
+    }
 }
 
 /// A non-durable, fully-indexed in-memory store.
@@ -58,6 +64,9 @@ pub struct InMemoryStore {
     prop_index: BTreeMap<(String, String, String), BTreeSet<String>>,
     // (source_id, link_type) -> target ids
     adjacency: BTreeMap<(String, String), Vec<String>>,
+    // target_id -> (source_id, link_type): the reverse of `adjacency`, so removing an
+    // object drops the links into it without a scan
+    incoming: BTreeMap<String, BTreeSet<(String, String)>>,
 }
 
 impl InMemoryStore {
@@ -127,8 +136,12 @@ impl ObjectStore for InMemoryStore {
     }
 
     fn put_link(&mut self, link: LinkInstance) {
+        self.incoming
+            .entry(link.target_id.clone())
+            .or_default()
+            .insert((link.source_id.clone(), link.link_type.clone()));
         self.adjacency
-            .entry((link.source_id.clone(), link.link_type.clone()))
+            .entry((link.source_id, link.link_type))
             .or_default()
             .push(link.target_id);
     }
@@ -144,5 +157,29 @@ impl ObjectStore for InMemoryStore {
                 .collect(),
             None => Vec::new(),
         }
+    }
+
+    fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
+        let obj = self.objects.remove(id)?;
+        self.deindex(&obj);
+        let outgoing: Vec<(String, String)> = self
+            .adjacency
+            .range((id.to_string(), String::new())..)
+            .take_while(|((source, _), _)| source == id)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in outgoing {
+            for target in self.adjacency.remove(&key).unwrap_or_default() {
+                if let Some(set) = self.incoming.get_mut(&target) {
+                    set.remove(&key);
+                }
+            }
+        }
+        for (source, link_type) in self.incoming.remove(id).unwrap_or_default() {
+            if let Some(targets) = self.adjacency.get_mut(&(source, link_type)) {
+                targets.retain(|t| t != id);
+            }
+        }
+        Some(obj)
     }
 }

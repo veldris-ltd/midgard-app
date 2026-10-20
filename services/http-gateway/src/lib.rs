@@ -29,6 +29,7 @@ pub mod import_file;
 pub mod mesh_sync;
 pub mod mimir_observer;
 pub mod ontology_file;
+pub mod retention;
 pub mod state_dir;
 use service_runtime::strict_json;
 /// The JSON codec and the policy file, shared with the mesh services.

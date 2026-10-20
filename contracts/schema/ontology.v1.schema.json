@@ -71,6 +71,9 @@
           "items": {
             "$ref": "#/$defs/property"
           }
+        },
+        "retention": {
+          "$ref": "#/$defs/retention"
         }
       }
     },
@@ -97,6 +100,28 @@
         "required": {
           "type": "boolean",
           "default": false
+        }
+      }
+    },
+    "retention": {
+      "description": "How long the type's objects are kept: hours after the latest of the named timestamp properties. Each name must be a timestamp property the type declares and hours at least 1 (checked by the parser).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "after",
+        "hours"
+      ],
+      "properties": {
+        "after": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "hours": {
+          "type": "integer"
         }
       }
     },

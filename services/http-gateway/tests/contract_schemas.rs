@@ -27,7 +27,7 @@ use http_gateway::import_file::{parse_import, LINK_RECORD_KEYS, OBJECT_RECORD_KE
 use http_gateway::json::{parse, Json};
 use http_gateway::ontology_file::{
     parse_ontology, Ontology, ACTION_KEYS, CYCLE_PROPERTY_KEYS, LINK_TYPE_KEYS, OBJECT_TYPE_KEYS,
-    PROPERTY_KEYS, ROOT_KEYS, SET_PROPERTY_KEYS,
+    PROPERTY_KEYS, RETENTION_KEYS, ROOT_KEYS, SET_PROPERTY_KEYS,
 };
 use service_runtime::marking::BANDS;
 
@@ -287,6 +287,7 @@ fn the_ontology_schema_allows_exactly_the_keys_the_parser_allows() {
     assert_eq!(keys(&schema, None), set(ROOT_KEYS));
     assert_eq!(keys(&schema, Some("objectType")), set(OBJECT_TYPE_KEYS));
     assert_eq!(keys(&schema, Some("property")), set(PROPERTY_KEYS));
+    assert_eq!(keys(&schema, Some("retention")), set(RETENTION_KEYS));
     assert_eq!(keys(&schema, Some("linkType")), set(LINK_TYPE_KEYS));
     assert_eq!(keys(&schema, Some("action")), set(ACTION_KEYS));
     assert_eq!(keys(&schema, Some("setProperty")), set(SET_PROPERTY_KEYS));
@@ -441,8 +442,9 @@ fn an_unknown_key_on_any_object_of_an_ontology_is_refused_by_both() {
     let schema = schema("ontology.v1.schema.json");
     let (text, _) = full_ontology();
     let variants = with_an_unknown_key(&parse(&text).expect("valid/full.json is JSON"));
-    // The file, 2 object types, 8 properties, 1 link type, 2 actions and 2 effects.
-    assert_eq!(variants.len(), 16);
+    // The file, 2 object types, 1 retention window, 8 properties, 1 link type, 2 actions
+    // and 2 effects.
+    assert_eq!(variants.len(), 17);
     for variant in variants {
         let text = variant.encode();
         assert!(check(&schema, &text).is_err(), "the schema accepts {text}");
@@ -457,6 +459,7 @@ fn the_full_fixture_exercises_every_key_the_schema_declares() {
         ROOT_KEYS,
         OBJECT_TYPE_KEYS,
         PROPERTY_KEYS,
+        RETENTION_KEYS,
         LINK_TYPE_KEYS,
         ACTION_KEYS,
         SET_PROPERTY_KEYS,

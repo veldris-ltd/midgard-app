@@ -229,3 +229,22 @@ fn tampered_on_disk_record_is_detected_on_load() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_removal_is_journalled_and_survives_restart() {
+    let dir = scratch("remove");
+    let path = dir.join("fabric.store");
+    {
+        let mut store = open(&path);
+        seed(&mut store);
+        assert!(store.remove_object_durable("p2").unwrap());
+        assert!(!store.remove_object_durable("p2").unwrap(), "already gone");
+        assert!(!store.remove_object_durable("nobody").unwrap());
+        assert!(store.poisoned().is_none());
+    }
+    let store = open(&path);
+    let (people, engineers, assigned) = snapshot(&store);
+    assert_eq!(people, vec!["p1", "p3"]);
+    assert!(engineers.is_empty(), "the removed object left the index");
+    assert_eq!(assigned, vec!["p1"], "its link went with it");
+}

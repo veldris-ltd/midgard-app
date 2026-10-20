@@ -30,7 +30,13 @@
           "name": "last_seen",
           "type": "timestamp"
         }
-      ]
+      ],
+      "retention": {
+        "after": [
+          "last_seen"
+        ],
+        "hours": 72
+      }
     },
     {
       "id": "facility",

@@ -1,7 +1,7 @@
 //! The durable, at-rest-encrypted [`DurableObjectStore`]. [DD-1]
 //!
 //! Persistence is a **KMS-sealed, append-only write-ahead journal** of store
-//! mutations (`PutObject` / `PutLink`), each framed, encrypted at rest (via a
+//! mutations (`PutObject` / `PutLink` / `RemoveObject`), each framed, encrypted at rest (via a
 //! [`Sealer`] — the production impl is `kms::KmsSealer`, AES-256-GCM under
 //! ML-KEM-1024), `fsync`ed, and written with `0600` perms. On [`DurableObjectStore::open`]
 //! the journal is decrypted and **replayed** into an in-memory [`InMemoryStore`],
@@ -25,6 +25,8 @@ use crate::value::Value;
 const JOURNAL_DS: &[u8] = b"midgard-fabric-store-v1";
 const OP_PUT_OBJECT: u8 = 0;
 const OP_PUT_LINK: u8 = 1;
+// Added with retention: a journal holding one cannot be read by an older build.
+const OP_REMOVE_OBJECT: u8 = 2;
 
 /// A durable object store: an [`InMemoryStore`] for reads/indexes, backed by an
 /// encrypted append-only journal that makes every write survive a restart.
@@ -79,6 +81,9 @@ impl DurableObjectStore {
                 match decode_op(&plaintext)? {
                     Op::PutObject(o) => inner.put_object(o),
                     Op::PutLink(l) => inner.put_link(l),
+                    Op::RemoveObject(id) => {
+                        inner.remove_object(&id);
+                    }
                 }
                 op_seq += 1;
             }
@@ -123,6 +128,19 @@ impl DurableObjectStore {
         self.journal(&bytes)?;
         self.inner.put_link(link);
         Ok(())
+    }
+
+    /// Durably remove an object and its links, returning whether there was one (nothing
+    /// is journalled when there was not). See [`DurableObjectStore::put_object_durable`].
+    pub fn remove_object_durable(&mut self, id: &str) -> Result<bool, FabricError> {
+        if self.inner.get_object(id).is_none() {
+            return Ok(false);
+        }
+        let mut bytes = vec![OP_REMOVE_OBJECT];
+        put_str(&mut bytes, id);
+        self.journal(&bytes)?;
+        self.inner.remove_object(id);
+        Ok(true)
     }
 
     /// The latched persistence error, if a prior infallible write failed to
@@ -177,6 +195,16 @@ impl ObjectStore for DurableObjectStore {
     fn neighbors(&self, source_id: &str, link_type: &str) -> Vec<&ObjectInstance> {
         self.inner.neighbors(source_id, link_type)
     }
+    fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
+        let obj = self.inner.get_object(id).cloned()?;
+        match self.remove_object_durable(id) {
+            Ok(_) => Some(obj),
+            Err(e) => {
+                self.poison = Some(e.to_string());
+                None
+            }
+        }
+    }
 }
 
 fn io(e: std::io::Error) -> FabricError {
@@ -198,6 +226,7 @@ fn aad(store_id: &str, seq: u64) -> Vec<u8> {
 enum Op {
     PutObject(ObjectInstance),
     PutLink(LinkInstance),
+    RemoveObject(String),
 }
 
 fn put_str(o: &mut Vec<u8>, s: &str) {
@@ -347,6 +376,7 @@ fn decode_op(b: &[u8]) -> Result<Op, FabricError> {
             source_id: r.string()?,
             target_id: r.string()?,
         }),
+        OP_REMOVE_OBJECT => Op::RemoveObject(r.string()?),
         t => return Err(FabricError::Store(format!("unknown op tag {t}"))),
     };
     if r.pos != b.len() {

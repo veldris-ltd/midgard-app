@@ -24,6 +24,7 @@ pub mod fabric;
 pub mod inference;
 pub mod object;
 pub mod query;
+pub mod retention;
 pub mod store;
 pub mod types;
 pub mod value;
@@ -41,6 +42,7 @@ pub use governance::{GovContext as PolicyContext, Governance, GOV_SIG_ALG as FAB
 pub use inference::Inference;
 pub use object::{LinkInstance, ObjectInstance};
 pub use query::Query;
+pub use retention::Retention;
 pub use store::{InMemoryStore, ObjectStore};
 pub use types::{
     ActionType, Cardinality, Interface, LinkType, ObjectType, PropertyType, TypeRegistry,

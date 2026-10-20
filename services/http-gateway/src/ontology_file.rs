@@ -11,7 +11,9 @@
 //!       "properties": [ { "name": "tail", "type": "text", "required": true },
 //!                      { "name": "status", "type": "text" } ] },
 //!     { "id": "facility", "title": "Facility",
-//!       "properties": [ { "name": "name", "type": "text", "required": true } ] }
+//!       "properties": [ { "name": "name", "type": "text", "required": true },
+//!                      { "name": "seen", "type": "timestamp" } ],
+//!       "retention": { "after": ["seen"], "hours": 24 } }
 //!   ],
 //!   "linkTypes": [
 //!     { "id": "aircraft_base", "name": "based at", "from": "aircraft", "to": "facility",
@@ -37,6 +39,10 @@
 //!   `confidential` — with optional `compartments` a caller must also hold.
 //!   `humanGated` defaults to **true**: an action runs without a named human's
 //!   authorisation only when the file says so.
+//! - `retention` (optional) is how long the type's objects are kept: `hours` after
+//!   the latest of the `after` timestamp properties the type declares. The enclosure
+//!   removes older objects and audits each sweep; an object holding none of them is
+//!   kept. A type without it is kept indefinitely. [SAD_00 §8.5]
 //! - Effects: `set-property` sets a text property of every target to `value`;
 //!   `cycle-property` advances a text property to the next of `values`. Either must
 //!   name a text property the action's object type declares.
@@ -47,7 +53,7 @@
 
 use std::collections::BTreeSet;
 
-use fabric::{Cardinality, LinkType, ObjectType, PropertyType, ValueType};
+use fabric::{Cardinality, LinkType, ObjectType, PropertyType, Retention, ValueType};
 use policy::{Compartment, Marking, Purpose};
 
 use crate::enclosure::level_of;
@@ -67,7 +73,9 @@ pub const ONTOLOGY_FILE_VERSION: i64 = 1;
 /// Keys of the file itself.
 pub const ROOT_KEYS: &[&str] = &["version", "objectTypes", "linkTypes", "actions"];
 /// Keys of an object type.
-pub const OBJECT_TYPE_KEYS: &[&str] = &["id", "title", "properties"];
+pub const OBJECT_TYPE_KEYS: &[&str] = &["id", "title", "properties", "retention"];
+/// Keys of an object type's retention window.
+pub const RETENTION_KEYS: &[&str] = &["after", "hours"];
 /// Keys of a property.
 pub const PROPERTY_KEYS: &[&str] = &["name", "type", "required"];
 /// Keys of a link type.
@@ -98,6 +106,8 @@ pub struct Ontology {
     pub link_types: Vec<LinkType>,
     /// Actions, in file order.
     pub actions: Vec<ActionDecl>,
+    /// Retention windows, one per object type that declares one, in file order.
+    pub retention: Vec<Retention>,
 }
 
 /// An action as the ontology file declares it.
@@ -161,11 +171,14 @@ fn parse_document(text: &str) -> Result<Ontology, String> {
         None => return Err("missing \"version\"".into()),
     }
 
-    let object_types = array(&doc, here, "objectTypes")?
+    let (object_types, retention): (Vec<_>, Vec<_>) = array(&doc, here, "objectTypes")?
         .iter()
         .enumerate()
         .map(|(i, item)| object_type(i, item))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .unzip();
+    let retention = retention.into_iter().flatten().collect();
     unique(object_types.iter().map(|t| t.id.as_str()), "object type id")?;
 
     let link_types = optional_array(&doc, here, "linkTypes")?
@@ -187,10 +200,11 @@ fn parse_document(text: &str) -> Result<Ontology, String> {
         object_types,
         link_types,
         actions,
+        retention,
     })
 }
 
-fn object_type(index: usize, item: &Json) -> Result<ObjectType, String> {
+fn object_type(index: usize, item: &Json) -> Result<(ObjectType, Option<Retention>), String> {
     let at = format!("objectTypes[{index}]");
     only_keys(object(item, &at)?, &at, OBJECT_TYPE_KEYS)?;
     let id = identifier(item, &at, "id")?;
@@ -204,12 +218,68 @@ fn object_type(index: usize, item: &Json) -> Result<ObjectType, String> {
         properties.iter().map(|p| p.api_name.as_str()),
         &format!("{at}: property name"),
     )?;
-    Ok(ObjectType {
-        id: id.to_string(),
-        api_name: id.to_string(),
-        title: text(item, &at, "title")?.to_string(),
-        properties,
-        interfaces: Vec::new(),
+    let retention = match item.get("retention") {
+        None => None,
+        Some(window) => Some(retention(&at, id, window, &properties)?),
+    };
+    Ok((
+        ObjectType {
+            id: id.to_string(),
+            api_name: id.to_string(),
+            title: text(item, &at, "title")?.to_string(),
+            properties,
+            interfaces: Vec::new(),
+        },
+        retention,
+    ))
+}
+
+fn retention(
+    owner: &str,
+    type_id: &str,
+    item: &Json,
+    properties: &[PropertyType],
+) -> Result<Retention, String> {
+    let at = format!("{owner}: retention");
+    only_keys(object(item, &at)?, &at, RETENTION_KEYS)?;
+    let after = strings(item, &at, "after")?;
+    if after.is_empty() {
+        return Err(format!("{at}: \"after\" must name at least one property"));
+    }
+    unique(
+        after.iter().map(String::as_str),
+        &format!("{at}: \"after\" property"),
+    )?;
+    for name in &after {
+        match properties.iter().find(|p| &p.api_name == name) {
+            Some(p) if p.value_type == ValueType::Timestamp => {}
+            Some(_) => {
+                return Err(format!(
+                    "{at}: \"after\" names \"{name}\", which is not a timestamp property"
+                ))
+            }
+            None => {
+                return Err(format!(
+                    "{at}: \"after\" names \"{name}\", which the type does not declare"
+                ))
+            }
+        }
+    }
+    let hours = match item.get("hours") {
+        Some(Json::Int(h)) if *h >= 1 => *h as u64,
+        Some(Json::Num(h)) if h.fract() == 0.0 && *h >= 1.0 => *h as u64,
+        Some(other) => {
+            return Err(format!(
+                "{at}: \"hours\" must be a whole number of at least 1, not {}",
+                other.encode()
+            ))
+        }
+        None => return Err(format!("{at}: missing \"hours\"")),
+    };
+    Ok(Retention {
+        object_type: type_id.to_string(),
+        after,
+        seconds: hours.saturating_mul(3600),
     })
 }
 

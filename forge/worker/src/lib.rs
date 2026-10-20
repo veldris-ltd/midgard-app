@@ -749,6 +749,12 @@ impl ObjectStore for Collector {
     fn neighbors(&self, _source_id: &str, _link_type: &str) -> Vec<&ObjectInstance> {
         Vec::new()
     }
+    fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
+        let at = self.objects.iter().position(|o| o.id == id)?;
+        self.links
+            .retain(|l| l.source_id != id && l.target_id != id);
+        Some(self.objects.remove(at))
+    }
 }
 
 /// The collected instances as import-format JSON Lines: one object or link per line,
