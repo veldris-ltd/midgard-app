@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { initMode } from '@midgard/design-system';
 import { AuthGate } from '@midgard/ui-shared';
-import { MockGateway, createHttpGateway, login, type GatewayClient } from '@midgard/sdk';
+import { MockGateway, createHttpGateway, login, type GatewayClient, type MarkingLevel } from '@midgard/sdk';
 import { router } from './app/routes';
 
 import '@midgard/design-system/tokens.css';
@@ -30,12 +30,14 @@ createRoot(document.getElementById('root')!).render(
       mode={mode}
       baseUrl={baseUrl}
       mockClient={new MockGateway()}
-      makeClient={(token, subject) =>
+      makeClient={(token, who) =>
         createHttpGateway({
           baseUrl,
           token,
           // Who the console shows as acting; the edge takes identity from the token.
-          ...(subject ? { policy: { subject, purpose: 'operations', clearance: 'confidential', roles: ['operator'] } } : {}),
+          ...(who.subject
+            ? { policy: { subject: who.subject, purpose: 'operations', clearance: (who.clearance ?? 'internal') as MarkingLevel, roles: who.roles ?? [] } }
+            : {}),
         })
       }
       login={login}

@@ -13,6 +13,6 @@ export type { PanelHandleProps } from './responsive';
 export { DataProvider, useGateway, useAsync, useAuditStream } from './DataProvider';
 export type { AsyncState } from './DataProvider';
 export { AuthGate } from './AuthGate';
-export type { AuthGateProps } from './AuthGate';
+export type { AuthGateProps, Session } from './AuthGate';
 export { ModeToggle } from './ModeToggle';
 export { useResolvedMode } from './useResolvedMode';

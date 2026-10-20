@@ -14,6 +14,10 @@ export interface LoginResult {
   token: string;
   /** The authenticated subject. */
   subject: string;
+  /** The clearance band the token grants (`open` … `confidential`), for display. */
+  clearance?: string;
+  /** The roles the token grants, for display. */
+  roles?: string[];
   /** Token expiry (unix seconds, as a string). */
   expiresAt: string;
 }

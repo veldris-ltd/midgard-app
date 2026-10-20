@@ -10,7 +10,14 @@ import { DataProvider } from './DataProvider';
  * through with the in-process mock — no auth. [RC-37] */
 
 const TOKEN_KEY = 'midgard.session.token';
-const SUBJECT_KEY = 'midgard.session.subject';
+const SESSION_KEY = 'midgard.session.who';
+
+/** Who signed in, as the login reported it (display only; the token decides). */
+export interface Session {
+  subject?: string;
+  clearance?: string;
+  roles?: string[];
+}
 
 export interface AuthGateProps<C> {
   /** `http` = authenticate against the edge; `mock` = offline demo, no auth. */
@@ -21,9 +28,9 @@ export interface AuthGateProps<C> {
   mockClient: C;
   /** Build the authenticated client from a token and its signed-in subject (http
    *  mode, post-login). */
-  makeClient: (token: string, subject: string) => C;
+  makeClient: (token: string, session: Session) => C;
   /** Exchange credentials for a token (the SDK `login`). */
-  login: (baseUrl: string, creds: { username: string; password: string }) => Promise<{ token: string; subject: string }>;
+  login: (baseUrl: string, creds: { username: string; password: string }) => Promise<{ token: string; subject: string; clearance?: string; roles?: string[] }>;
   children: React.ReactNode;
 }
 
@@ -38,11 +45,11 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
       return null;
     }
   });
-  const [subject, setSubject] = React.useState<string>(() => {
+  const [session, setSession] = React.useState<Session>(() => {
     try {
-      return sessionStorage.getItem(SUBJECT_KEY) ?? '';
+      return JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? '{}') as Session;
     } catch {
-      return '';
+      return {};
     }
   });
   const [username, setUsername] = React.useState('');
@@ -51,8 +58,8 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
   const [error, setError] = React.useState<string | null>(null);
 
   const client = React.useMemo<C>(
-    () => (mode === 'mock' || !token ? mockClient : makeClient(token, subject)),
-    [mode, token, subject, mockClient, makeClient],
+    () => (mode === 'mock' || !token ? mockClient : makeClient(token, session)),
+    [mode, token, session, mockClient, makeClient],
   );
 
   // Mock mode, or already authenticated → render the app with its gateway.
@@ -68,11 +75,16 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
       const res = await login(baseUrl, { username, password });
       try {
         sessionStorage.setItem(TOKEN_KEY, res.token);
-        sessionStorage.setItem(SUBJECT_KEY, res.subject);
       } catch {
         /* session storage unavailable (private mode) — keep the token in memory */
       }
-      setSubject(res.subject);
+      const next: Session = { subject: res.subject, clearance: res.clearance, roles: res.roles };
+      try {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+      } catch {
+        /* as above */
+      }
+      setSession(next);
       setToken(res.token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

@@ -318,21 +318,38 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             )
         };
         let (event, response) = match outcome {
-            Ok(token) => (
-                "LOGIN succeeded",
-                Response::json(
-                    200,
-                    Json::obj(vec![
-                        ("token", Json::s(&hex_encode(&token))),
-                        ("subject", Json::s(username)),
-                        (
-                            "expiresAt",
-                            Json::s(&now.saturating_add(TOKEN_TTL).to_string()),
-                        ),
-                    ])
-                    .encode(),
-                ),
-            ),
+            Ok(token) => {
+                let claims = verify_token(&self.provider, &self.issuer_vk, &token, now).ok();
+                (
+                    "LOGIN succeeded",
+                    Response::json(
+                        200,
+                        Json::obj(vec![
+                            ("token", Json::s(&hex_encode(&token))),
+                            ("subject", Json::s(username)),
+                            // What the token grants, so a console shows the session as the
+                            // enclosure will enforce it (display only; the token decides).
+                            (
+                                "clearance",
+                                claims
+                                    .as_ref()
+                                    .map_or(Json::Null, |c| Json::s(enclosure::band(c.level))),
+                            ),
+                            (
+                                "roles",
+                                claims.as_ref().map_or(Json::Null, |c| {
+                                    Json::Arr(c.roles.iter().map(|r| Json::s(&r.0)).collect())
+                                }),
+                            ),
+                            (
+                                "expiresAt",
+                                Json::s(&now.saturating_add(TOKEN_TTL).to_string()),
+                            ),
+                        ])
+                        .encode(),
+                    ),
+                )
+            }
             Err(AuthError::Issue(IssueError::Token(e))) => (
                 "LOGIN failed",
                 Response::json(
