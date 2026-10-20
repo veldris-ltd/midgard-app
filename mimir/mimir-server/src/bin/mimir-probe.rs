@@ -84,6 +84,7 @@ fn run(args: &Args) -> Result<String, String> {
             backend_override: None,
             max_tokens,
             prompt: args.get("prompt").unwrap_or("ping").to_string(),
+            context: None,
         })
         .map_err(|e| e.to_string())?;
     Ok(format!(

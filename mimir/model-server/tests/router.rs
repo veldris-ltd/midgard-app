@@ -110,6 +110,7 @@ fn request(workload: WorkloadClass) -> InferenceRequest {
         backend_override: None,
         max_tokens: 16,
         prompt: NEUTRAL_PROMPT.into(),
+        context: None,
     }
 }
 

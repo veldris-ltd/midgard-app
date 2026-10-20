@@ -262,6 +262,10 @@ fn read_sessions<S: audit_writer::LedgerStore>(
                 ("caller", Json::s(&c.caller)),
                 ("purpose", Json::s(&c.purpose)),
                 ("workload", Json::s(&c.workload)),
+                (
+                    "context",
+                    c.context.as_deref().map(Json::s).unwrap_or(Json::Null),
+                ),
                 ("outcome", Json::s(&c.outcome)),
                 (
                     "model",

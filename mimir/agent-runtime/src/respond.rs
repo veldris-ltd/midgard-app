@@ -164,6 +164,7 @@ pub fn respond(
         backend_override: None,
         max_tokens: cfg.max_tokens,
         prompt: assembled.text.clone(),
+        context: None,
     };
     match server.infer(server.prepare(&req)) {
         Ok(c) => Ok(GroundedResponse {

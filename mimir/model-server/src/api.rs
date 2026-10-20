@@ -73,7 +73,15 @@ pub struct InferenceRequest {
     /// The prompt (already assembled by the caller; the 8-layer assembly pipeline
     /// arrives in Prompt 2.c).
     pub prompt: String,
+    /// A short label from the calling product saying what the call is for and who asked
+    /// (e.g. "heimdall · advice on alert A-1 · asked by analyst"), shown in the Mimir
+    /// console's session traces. Optional and not policy-checked; encoded only when
+    /// present, so a request without one is byte-for-byte as before. [FR-MI-8]
+    pub context: Option<String>,
 }
+
+/// The longest [`InferenceRequest::context`] kept, in characters.
+pub const MAX_CONTEXT_CHARS: usize = 160;
 
 /// A typed inference response: either a served completion or a fail-closed
 /// refusal. Both carry the sequence number of the PQ-signed audit entry that
@@ -233,6 +241,13 @@ impl InferenceRequest {
         put_opt_str(&mut o, &self.backend_override);
         put_u32(&mut o, self.max_tokens);
         put_str(&mut o, &self.prompt);
+        // Trailing and optional: absent, the encoding is unchanged.
+        if let Some(c) = &self.context {
+            put_str(
+                &mut o,
+                &c.chars().take(MAX_CONTEXT_CHARS).collect::<String>(),
+            );
+        }
         o
     }
     /// Decode from bytes; fails closed on any defect.
@@ -245,6 +260,11 @@ impl InferenceRequest {
         let backend_override = r.opt_string()?;
         let max_tokens = r.u32()?;
         let prompt = r.string()?;
+        let context = if r.pos < r.b.len() {
+            Some(r.string()?.chars().take(MAX_CONTEXT_CHARS).collect())
+        } else {
+            None
+        };
         r.finish()?;
         Ok(Self {
             purpose,
@@ -253,6 +273,7 @@ impl InferenceRequest {
             backend_override,
             max_tokens,
             prompt,
+            context,
         })
     }
 }
@@ -330,5 +351,39 @@ impl InferenceResponse {
         };
         r.finish()?;
         Ok(resp)
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    fn req(context: Option<&str>) -> InferenceRequest {
+        InferenceRequest {
+            purpose: "investigation".into(),
+            workload_class: WorkloadClass::Balanced,
+            quant_pref: None,
+            backend_override: None,
+            max_tokens: 8,
+            prompt: "ping".into(),
+            context: context.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_label_round_trips_and_its_absence_leaves_the_encoding_unchanged() {
+        let labelled = req(Some("heimdall · advice on alert A-1 · asked by analyst"));
+        assert_eq!(
+            InferenceRequest::decode(&labelled.encode()).unwrap(),
+            labelled
+        );
+        let plain = req(None);
+        let bytes = plain.encode();
+        assert_eq!(InferenceRequest::decode(&bytes).unwrap(), plain);
+        // Exactly the pre-label encoding: purpose, workload, quant, override, budget, prompt.
+        assert!(bytes.ends_with(b"ping"));
+        let long = req(Some(&"x".repeat(500)));
+        let back = InferenceRequest::decode(&long.encode()).unwrap();
+        assert_eq!(back.context.unwrap().chars().count(), MAX_CONTEXT_CHARS);
     }
 }

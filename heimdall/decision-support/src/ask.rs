@@ -167,9 +167,13 @@ pub fn answer_question<P: OptionProvider + ?Sized>(
     question: &str,
     purpose: &str,
     provider: &P,
+    label: Option<&str>,
 ) -> Result<Answer, DecisionError> {
     let prompt = assemble_question(&render_grounding(entities, summary), question, purpose);
-    let raw = provider.complete(&prompt)?;
+    let raw = match label {
+        Some(l) => provider.complete_labelled(&prompt, l)?,
+        None => provider.complete(&prompt)?,
+    };
     let mut known: BTreeSet<String> = entities.iter().map(|e| e.id.0.clone()).collect();
     known.insert(AREA_SUMMARY_ID.to_string());
     parse_answer(&raw, &known)
@@ -231,7 +235,15 @@ mod tests {
         }
         let mock =
             MockOptionProvider::new(r#"{"answer":"None.","citations":["obj:AREA-SUMMARY"]}"#);
-        let a = answer_question(&[], "nothing", "Any cuts?", "investigation", &mock).unwrap();
+        let a = answer_question(
+            &[],
+            "nothing",
+            "Any cuts?",
+            "investigation",
+            &mock,
+            Some("test"),
+        )
+        .unwrap();
         assert!(a.grounded());
     }
 }

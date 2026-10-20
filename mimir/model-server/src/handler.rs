@@ -71,6 +71,8 @@ pub struct ServeStat {
     pub caller: String,
     pub purpose: String,
     pub workload: String,
+    /// The calling product's label for the call, if it gave one.
+    pub context: Option<String>,
     /// `served`, `denied` or `failed`.
     pub outcome: String,
     pub model: Option<String>,
@@ -243,6 +245,7 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
             caller: ctx.subject.clone(),
             purpose: req.purpose.clone(),
             workload: format!("{:?}", req.workload_class),
+            context: req.context.clone(),
             outcome: outcome.to_string(),
             model: None,
             prompt_tokens: 0,

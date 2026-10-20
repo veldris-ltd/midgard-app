@@ -686,12 +686,24 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         };
         let refs: Vec<&TrackedEntity> = evidence.iter().collect();
         let started = std::time::Instant::now();
+        // What the model plane records for this call: who asked and what about.
+        let q: String = request.question.chars().take(60).collect();
+        let label = format!(
+            "heimdall · question \"{q}{}\" · asked by {}",
+            if request.question.chars().count() > 60 {
+                "…"
+            } else {
+                ""
+            },
+            request.by
+        );
         let answer = heimdall_decision_support::answer_question(
             &refs,
             &summary,
             &request.question,
             self.purpose.0.as_str(),
             advisor.as_ref(),
+            Some(&label),
         );
         let ms = started.elapsed().as_millis();
         let summary_line = match &answer {
@@ -783,8 +795,17 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Err(e) => return self.reply(ADVISE_OPTIONS, outcome::NOT_FOUND, &e),
         };
         let started = std::time::Instant::now();
-        let answer =
-            heimdall_decision_support::request_options(&picture, &decision_point, advisor.as_ref());
+        let what = match (&request.alert, &request.entity) {
+            (Some(a), _) => format!("alert {a}"),
+            _ => format!("entity {subject}"),
+        };
+        let label = format!("heimdall · advice on {what} · asked by {}", request.by);
+        let answer = heimdall_decision_support::request_options_labelled(
+            &picture,
+            &decision_point,
+            advisor.as_ref(),
+            Some(&label),
+        );
         let ms = started.elapsed().as_millis();
         let (body, summary) = match &answer {
             Ok(a) => (

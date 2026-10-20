@@ -72,6 +72,7 @@ export function SessionTracesScreen() {
           </div>
           <Terminal title="SESSION LEDGER" lines={live ? [
             `caller   ${live.caller} · purpose ${live.purpose}`,
+            ...(live.context ? [`request  ${live.context}`] : []),
             `outcome  ${live.outcome} · ${live.promptTokens} in · ${live.tokens} out`,
             live.ledger ? `entry    #${live.ledger.seq} ${live.ledger.action}` : 'entry    older than the newest reported',
             live.ledger ? `hash     ${live.ledger.entryHash.slice(0, 32)}…` : 'hash     —',
@@ -108,7 +109,7 @@ export function SessionTracesScreen() {
               style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid var(--divider)',
                 background: x.id === (session?.id ?? id) ? 'var(--surface-raised)' : 'transparent', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
               <span style={{ color: 'var(--accent-hover)', width: 64, flex: 'none' }}>{x.id}</span>
-              <span style={{ color: 'var(--text-heading)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.agent} · {x.live?.purpose}</span>
+              <span style={{ color: 'var(--text-heading)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.live?.context ?? `${x.agent} · ${x.live?.purpose}`}</span>
               <span style={{ color: x.live?.outcome === 'served' ? 'var(--secure)' : 'var(--warn)', width: 56 }}>{x.live?.outcome?.toUpperCase()}</span>
               <span style={{ color: 'var(--text-muted)', width: 86, textAlign: 'right' }}>{x.live?.tokens ?? 0} TOKENS</span>
               <span style={{ color: 'var(--text-muted)', width: 50, textAlign: 'right' }}>{x.total}</span>

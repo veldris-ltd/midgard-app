@@ -49,37 +49,70 @@ impl<I: Inference> MimirOptionProvider<I> {
     }
 }
 
-impl<I: Inference> OptionProvider for MimirOptionProvider<I> {
-    fn complete(&self, prompt: &str) -> Result<String, DecisionError> {
+impl<I: Inference> MimirOptionProvider<I> {
+    fn call(
+        &self,
+        workload_class: WorkloadClass,
+        max_tokens: u32,
+        prompt: String,
+        label: Option<&str>,
+    ) -> Result<String, DecisionError> {
         let request = InferenceRequest {
             purpose: self.purpose.clone(),
-            workload_class: WorkloadClass::Balanced,
+            workload_class,
             quant_pref: None,
             backend_override: None,
-            // An answer is shorter than an option set: keep it quick.
-            max_tokens: self.max_tokens.min(ANSWER_MAX_TOKENS),
-            prompt: prompt.to_string(),
+            max_tokens,
+            prompt,
+            context: label.map(str::to_string),
         };
         self.inference
             .infer(request)
             .map(|c| c.text)
             .map_err(|e| DecisionError::Infer(e.to_string()))
     }
+}
 
+impl<I: Inference> OptionProvider for MimirOptionProvider<I> {
     fn generate(&self, prompt: &AssembledPrompt) -> Result<String, DecisionError> {
-        let request = InferenceRequest {
-            purpose: self.purpose.clone(),
-            workload_class: WorkloadClass::DeepReasoning,
-            quant_pref: None,
-            backend_override: None,
-            max_tokens: self.max_tokens,
-            prompt: prompt.full_text(),
-        };
-        let completion = self
-            .inference
-            .infer(request)
-            .map_err(|e| DecisionError::Infer(e.to_string()))?;
-        Ok(completion.text)
+        self.call(
+            WorkloadClass::DeepReasoning,
+            self.max_tokens,
+            prompt.full_text(),
+            None,
+        )
+    }
+
+    // An answer is shorter than an option set: keep it quick.
+    fn complete(&self, prompt: &str) -> Result<String, DecisionError> {
+        self.call(
+            WorkloadClass::Balanced,
+            self.max_tokens.min(ANSWER_MAX_TOKENS),
+            prompt.to_string(),
+            None,
+        )
+    }
+
+    fn generate_labelled(
+        &self,
+        prompt: &AssembledPrompt,
+        label: &str,
+    ) -> Result<String, DecisionError> {
+        self.call(
+            WorkloadClass::DeepReasoning,
+            self.max_tokens,
+            prompt.full_text(),
+            Some(label),
+        )
+    }
+
+    fn complete_labelled(&self, prompt: &str, label: &str) -> Result<String, DecisionError> {
+        self.call(
+            WorkloadClass::Balanced,
+            self.max_tokens.min(ANSWER_MAX_TOKENS),
+            prompt.to_string(),
+            Some(label),
+        )
     }
 }
 

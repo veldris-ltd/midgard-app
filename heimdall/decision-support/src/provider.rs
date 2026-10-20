@@ -21,6 +21,21 @@ pub trait OptionProvider {
             "this provider answers only option requests".into(),
         ))
     }
+
+    /// [`OptionProvider::generate`] with a label saying what the call is for and who
+    /// asked, which the model plane records with the call. [FR-MI-8]
+    fn generate_labelled(
+        &self,
+        prompt: &AssembledPrompt,
+        _label: &str,
+    ) -> Result<String, DecisionError> {
+        self.generate(prompt)
+    }
+
+    /// [`OptionProvider::complete`] with a label (see [`OptionProvider::generate_labelled`]).
+    fn complete_labelled(&self, prompt: &str, _label: &str) -> Result<String, DecisionError> {
+        self.complete(prompt)
+    }
 }
 
 /// A deterministic provider returning a fixed JSON response — the Mimir stand-in for

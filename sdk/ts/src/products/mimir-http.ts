@@ -17,7 +17,7 @@ export interface MimirHttpOptions {
 }
 
 interface WireSession {
-  audit_seq: number; at: number; caller: string; purpose: string; workload: string; outcome: string;
+  audit_seq: number; at: number; caller: string; purpose: string; workload: string; outcome: string; context?: string | null;
   model: string | null; prompt_tokens: number; tokens: number; first_token_ms: number; total_ms: number;
   detail: string | null;
   ledger: { seq: number; actor: string; action: string; resource: string; ts: string; entry_hash: string; sig_alg: string } | null;
@@ -105,7 +105,8 @@ export class MimirHttp extends MimirMock implements MimirGateway {
 function toSession(s: WireSession): MimirSession {
   const gen = Math.max(0, s.total_ms - s.first_token_ms);
   const steps: MimirTraceStep[] = [
-    { kind: 'guard', label: `Channel · ${s.caller}`, detail: `PQ-mTLS peer ${s.caller}, purpose "${s.purpose}", workload ${s.workload}.`, ms: null, ok: true },
+    { kind: 'guard', label: s.context ? `Request · ${s.context}` : `Channel · ${s.caller}`,
+      detail: `PQ-mTLS peer ${s.caller}, purpose "${s.purpose}", workload ${s.workload}.${s.context ? ` The caller labelled it "${s.context}".` : ''}`, ms: null, ok: true },
     { kind: 'eval', label: s.ledger ? `${s.ledger.action} · ledger #${s.ledger.seq}` : `Policy decision · ledger #${s.audit_seq}`,
       detail: s.ledger
         ? `One ${s.ledger.sig_alg} signed ledger entry on ${s.ledger.resource}: hash ${s.ledger.entry_hash.slice(0, 16)}…`
@@ -131,7 +132,7 @@ function toSession(s: WireSession): MimirSession {
     steps,
     memory: [],
     live: {
-      caller: s.caller, purpose: s.purpose, at: s.at, outcome: s.outcome as 'served' | 'denied' | 'failed', model: s.model,
+      caller: s.caller, purpose: s.purpose, context: s.context ?? null, at: s.at, outcome: s.outcome as 'served' | 'denied' | 'failed', model: s.model,
       promptTokens: s.prompt_tokens, tokens: s.tokens,
       ledger: s.ledger ? { seq: s.ledger.seq, action: s.ledger.action, resource: s.ledger.resource, entryHash: s.ledger.entry_hash, sigAlg: s.ledger.sig_alg } : null,
     },

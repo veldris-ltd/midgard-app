@@ -64,8 +64,22 @@ pub fn request_options<P: OptionProvider + ?Sized>(
     decision_point: &str,
     provider: &P,
 ) -> Result<AdvisoryOptions, DecisionError> {
+    request_options_labelled(picture, decision_point, provider, None)
+}
+
+/// [`request_options`] with a label for the model plane's record of the call (what
+/// it is for and who asked). [FR-MI-8]
+pub fn request_options_labelled<P: OptionProvider + ?Sized>(
+    picture: &Picture,
+    decision_point: &str,
+    provider: &P,
+    label: Option<&str>,
+) -> Result<AdvisoryOptions, DecisionError> {
     let prompt = assemble(picture, decision_point);
-    let raw = provider.generate(&prompt)?;
+    let raw = match label {
+        Some(l) => provider.generate_labelled(&prompt, l)?,
+        None => provider.generate(&prompt)?,
+    };
     let option_set = OptionSet::parse(&raw)?;
 
     // The grounding sets: valid entity ids and the feeds that actually contributed.

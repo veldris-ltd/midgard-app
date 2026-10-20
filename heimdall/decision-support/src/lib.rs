@@ -30,7 +30,7 @@ pub mod options;
 pub mod prompt;
 pub mod provider;
 
-pub use adapter::{request_options, AdvisoryOptions, OptionGrounding};
+pub use adapter::{request_options, request_options_labelled, AdvisoryOptions, OptionGrounding};
 pub use ask::{answer_question, Answer, AREA_SUMMARY_ID};
 pub use error::DecisionError;
 pub use evals::{

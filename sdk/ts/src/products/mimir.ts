@@ -215,6 +215,8 @@ export interface MimirSession {
   live?: {
     caller: string;
     purpose: string;
+    /** The calling product's label: what the call was for and who asked. */
+    context: string | null;
     at: number;
     outcome: 'served' | 'denied' | 'failed';
     model: string | null;

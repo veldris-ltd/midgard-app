@@ -184,6 +184,7 @@ fn request() -> InferenceRequest {
         backend_override: None,
         max_tokens: 16,
         prompt: "who is assigned to case 42?".to_string(),
+        context: None,
     }
 }
 

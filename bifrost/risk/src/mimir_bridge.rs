@@ -49,6 +49,7 @@ impl<I: Inference> RiskAdvisor for MimirAdvisor<I> {
             backend_override: None,
             max_tokens: self.max_tokens,
             prompt: prompt.full_text(),
+            context: None,
         };
         let completion = self
             .inference

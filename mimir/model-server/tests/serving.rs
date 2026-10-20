@@ -19,6 +19,7 @@ fn req(prompt: &str, quant: Option<Quant>) -> InferenceRequest {
         backend_override: None,
         max_tokens: 32,
         prompt: prompt.to_string(),
+        context: None,
     }
 }
 
