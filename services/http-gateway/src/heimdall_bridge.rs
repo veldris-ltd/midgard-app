@@ -51,10 +51,13 @@ const READ_ALERTS: &str = "ReadAlerts";
 /// The `heimdall-feed` method that acknowledges an alert.
 const ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
 const ADVISE_OPTIONS: &str = "AdviseOptions";
+const ASK_PICTURE: &str = "AskPicture";
+/// The route of a question over the picture.
+pub const ASK_PATH: &str = "/api/v1/heimdall/ask";
 /// The path prefix of entity routes (`.../entities/{id}/advise`).
 pub const ENTITIES_PATH: &str = "/api/v1/heimdall/entities";
 /// How long decision support may think before the gateway gives up.
-pub const ADVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(150);
+pub const ADVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(240);
 /// The path alerts are read at; an acknowledgement is `{ALERTS_PATH}/{id}/ack`.
 pub const ALERTS_PATH: &str = "/api/v1/heimdall/alerts";
 
@@ -106,6 +109,27 @@ pub fn advise_target(path: &str) -> Option<Result<(&'static str, String), EdgeEr
             )))
         }
     }))
+}
+
+/// The `focus` query parameter of a question: `lat,lon,km`, absent when not given.
+pub fn ask_focus(raw: Option<&str>) -> Result<Option<(f64, f64, f64)>, EdgeError> {
+    let Some(raw) = raw else { return Ok(None) };
+    let v: Vec<f64> = raw
+        .split(',')
+        .map(|s| s.trim().parse::<f64>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| EdgeError::bad_request("focus must be lat,lon,km"))?;
+    match v.as_slice() {
+        [la, lo, km]
+            if (-90.0..=90.0).contains(la)
+                && (-180.0..=180.0).contains(lo)
+                && *km > 0.0
+                && *km <= 20000.0 =>
+        {
+            Ok(Some((*la, *lo, *km)))
+        }
+        _ => Err(EdgeError::bad_request("focus must be lat,lon,km")),
+    }
 }
 
 pub fn ack_target(path: &str) -> Option<Result<String, EdgeError>> {
@@ -534,6 +558,45 @@ impl HeimdallBridge {
         alerts_response(&response)
     }
 
+    /// A question over the picture in `boxes` (or around `focus`: lat, lon, km), asked
+    /// by `by`: Mimir's cited answer, its citations resolved (advisory only). Waits up
+    /// to [`ADVICE_TIMEOUT`]. [FR-MI-3] [FR-H-4]
+    pub fn ask(
+        &self,
+        question: &str,
+        by: &str,
+        boxes: &Boxes,
+        focus: Option<(f64, f64, f64)>,
+    ) -> Result<Json, EdgeError> {
+        let mut fields = vec![("question", Json::s(question)), ("by", Json::s(by))];
+        if !boxes.0.is_empty() {
+            fields.push((
+                "boxes",
+                Json::Arr(
+                    boxes
+                        .0
+                        .iter()
+                        .map(|b| Json::Arr(b.iter().map(|v| Json::Num(*v)).collect()))
+                        .collect(),
+                ),
+            ));
+        }
+        if let Some((la, lo, km)) = focus {
+            fields.push((
+                "focus",
+                Json::Arr(vec![Json::Num(la), Json::Num(lo), Json::Num(km)]),
+            ));
+        }
+        let unreachable = |e: String| EdgeError::new(502, &format!("Heimdall is unreachable: {e}"));
+        let mut session = client::Session::open(&self.identity, &self.addr, &self.purpose)
+            .map_err(unreachable)?;
+        session.set_timeout(ADVICE_TIMEOUT).map_err(unreachable)?;
+        let response = session
+            .call(ASK_PICTURE, Json::obj(fields).encode().as_bytes())
+            .map_err(unreachable)?;
+        alerts_response(&response)
+    }
+
     /// Track history as `{"from", "to", "tracks": [{"id", "kind", "layer", "points":
     /// [[t, lat, lon, alt_m|null], ..]}], "truncated"}`: every page Heimdall serves for
     /// the query, read over one session and merged, up to [`MAX_HISTORY_PAGES`] pages or
@@ -895,6 +958,18 @@ mod tests {
         );
         assert_eq!(history_page(b"\x00not json").unwrap_err().status, 502);
         assert!(MergedTracks::default().add(&parse("{}").unwrap()).is_err());
+    }
+
+    #[test]
+    fn a_question_focus_is_lat_lon_km() {
+        assert_eq!(ask_focus(None).unwrap(), None);
+        assert_eq!(
+            ask_focus(Some("53.8,-1.55,40")).unwrap(),
+            Some((53.8, -1.55, 40.0))
+        );
+        for bad in ["53.8,-1.55", "x,1,2", "95,0,10", "50,0,0"] {
+            assert_eq!(ask_focus(Some(bad)).unwrap_err().status, 400, "{bad}");
+        }
     }
 
     #[test]

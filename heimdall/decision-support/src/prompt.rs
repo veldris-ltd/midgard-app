@@ -67,7 +67,7 @@ pub fn render_picture(picture: &Picture) -> String {
 /// What an entity reports, briefly, so options can rest on it: up to
 /// [`MAX_FACTS`] short attributes (name first), long values (geometry, encoded lists)
 /// left out. Empty when it reports none.
-fn facts(attrs: &std::collections::BTreeMap<String, Attr>) -> String {
+pub(crate) fn facts(attrs: &std::collections::BTreeMap<String, Attr>) -> String {
     let short = |a: &Attr| -> Option<String> {
         let s = match a {
             Attr::Text(t) => t.clone(),

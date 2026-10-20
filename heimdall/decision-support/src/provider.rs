@@ -12,6 +12,15 @@ use crate::prompt::AssembledPrompt;
 pub trait OptionProvider {
     /// Produce the model's raw JSON completion for `prompt`, or fail closed.
     fn generate(&self, prompt: &AssembledPrompt) -> Result<String, DecisionError>;
+
+    /// Produce the model's raw completion for an already-assembled prompt (used by
+    /// questions over the picture, which assemble the A.1 core agent). Providers that
+    /// only serve A.8 fail closed. [FR-MI-3]
+    fn complete(&self, _prompt: &str) -> Result<String, DecisionError> {
+        Err(DecisionError::Infer(
+            "this provider answers only option requests".into(),
+        ))
+    }
 }
 
 /// A deterministic provider returning a fixed JSON response — the Mimir stand-in for
@@ -31,6 +40,10 @@ impl MockOptionProvider {
 
 impl OptionProvider for MockOptionProvider {
     fn generate(&self, _prompt: &AssembledPrompt) -> Result<String, DecisionError> {
+        Ok(self.response.clone())
+    }
+
+    fn complete(&self, _prompt: &str) -> Result<String, DecisionError> {
         Ok(self.response.clone())
     }
 }

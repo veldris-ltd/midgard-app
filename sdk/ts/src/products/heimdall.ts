@@ -255,6 +255,22 @@ export interface HeimdallAdvice {
   ms: number;
 }
 
+/** Mimir's answer to a question over the picture in an area: what it says, the items
+ *  it cites (AREA-SUMMARY for the area's counts), which of those could not be found,
+ *  its labelled inferences, a refusal when it could not answer from the evidence, and
+ *  any actions it proposed (shown only; never executed). [FR-MI-3] [FR-H-4] */
+export interface HeimdallAnswer {
+  answer: string | null;
+  citations: string[];
+  unresolved: string[];
+  grounded: boolean;
+  inferences: string[];
+  refusal: { code: string; detail: string } | null;
+  proposed: string[];
+  considered: number;
+  ms: number;
+}
+
 /** Tracks through an analysed clip: frame f is at f / fps seconds from its start; each
  *  `obs` entry is [frame, x, y, w, h] in 0-1 image units. [FR-P3-5] */
 export interface HeimdallCameraPlayback {
@@ -466,6 +482,9 @@ export interface HeimdallGateway {
    *  an optional question. Slow on a laptop (about a minute). Optional: a gateway
    *  without decision support leaves it out or answers 404. [FR-H-4] */
   advise?(target: { alert: string } | { entity: string }, question?: string): Promise<HeimdallAdvice>;
+  /** Ask Mimir a question over the picture in `area` (a view circle, else the regions
+   *  shown). Slow on a laptop (about a minute). [FR-MI-3] */
+  ask?(question: string, area?: { focus?: { lat: number; lon: number; km: number } }): Promise<HeimdallAnswer>;
   /** The camera's results over the last day, and its watch. [FR-P3-5] */
   cameraTrend?(id: string): Promise<HeimdallCameraTrend>;
   /** Watch the camera for `hours` (re-analysed every few minutes; 0 stops), as the

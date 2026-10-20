@@ -37,6 +37,7 @@ import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
 import { AlertsPanel } from '../app/AlertsPanel';
 import { AdviceCard } from '../app/AdviceCard';
+import { AskCard } from '../app/AskCard';
 import { utilityLineGroups, utilityLineKey } from '../app/utilityLines';
 import { ALERT_COLOURS, ALERT_PULSE_CSS, WARNING_LEVEL_COLOURS, alertIconSvg, alertText, markStyle, type AlertMark } from '../app/alertMarks';
 
@@ -685,7 +686,8 @@ function WatchlistCard({ watch, present, select }: { watch: Watchlist; present: 
   );
 }
 
-function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt, watchCard, areaCard }: {
+function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt, watchCard, areaCard, askCard }: {
+  askCard?: React.ReactNode;
   watchCard?: React.ReactNode;
   areaCard?: React.ReactNode;
   picture: HeimdallPicture;
@@ -722,6 +724,7 @@ function LiveSummaryPanel({ picture, tracks, filter, setFilter, select, replayAt
         <h2 style={{ fontSize: 'var(--fs-h4)' }}>{replayAt === null ? 'Live picture' : 'Replayed picture'}</h2>
         {replayAt === null ? <Badge tone="secure">LIVE</Badge> : <Badge tone="warn">REPLAY</Badge>}
       </div>
+      {replayAt === null && askCard}
       {watchCard}
       {areaCard}
       <div style={{ padding: '8px 10px', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', ...mono, color: 'var(--text-muted)', lineHeight: 1.6 }}>
@@ -1019,6 +1022,11 @@ export function OperatingPictureScreen() {
   visibleRef.current = visible;
   const utilityLines2d = React.useMemo(() => (lineKey2d ? utilityLineGroups(visibleRef.current) : []), [lineKey2d]);
 
+  // Ask Mimir about what is on screen: in 3D the view circle (once close enough to mean
+  // an area), else the regions shown. [FR-MI-3]
+  const askFocus = view === '3d' && viewCircle && viewCircle.km < 1500
+    ? { lat: viewCircle.lat, lon: viewCircle.lon, km: Math.max(20, viewCircle.km * 0.6) } : null;
+
   // Cameras on screen (the view spans about the camera distance), nearest the centre
   // first, for analysing an area. [FR-P3-5]
   const camerasInView = React.useMemo<HeimdallTrack[]>(() => {
@@ -1219,7 +1227,9 @@ export function OperatingPictureScreen() {
     ) : wall ? null : (
       <LiveSummaryPanel picture={picture} tracks={allTracks} filter={filter} setFilter={setFilter} select={select} replayAt={replayAt}
         watchCard={<WatchlistCard watch={watch} present={byKey} select={select} />}
-        areaCard={replayAt === null && camerasInView.length > 0 ? <AreaCamerasCard gateway={gateway} cameras={camerasInView} select={select} /> : undefined} />
+        areaCard={replayAt === null && camerasInView.length > 0 ? <AreaCamerasCard gateway={gateway} cameras={camerasInView} select={select} /> : undefined}
+        askCard={<AskCard gateway={gateway} focus={askFocus} pick={(key) => { const hit = byKey.get(key); if (hit) select(hit.id); }}
+          areaLabel={askFocus ? `AROUND ${askFocus.lat.toFixed(2)}, ${askFocus.lon.toFixed(2)} · ${Math.round(askFocus.km)} KM` : world ? 'WHOLE WORLD' : `${enabledRegions.map((r) => r.label).join(' · ').toUpperCase() || 'REGIONS SHOWN'}`} />} />
     )
   ) : e ? (
     <>

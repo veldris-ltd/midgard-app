@@ -21,6 +21,7 @@
 //! reported ungrounded — which is exactly what the EV-A8 evals assert. [FR-H-4]
 
 pub mod adapter;
+pub mod ask;
 pub mod error;
 pub mod evals;
 pub mod json;
@@ -30,6 +31,7 @@ pub mod prompt;
 pub mod provider;
 
 pub use adapter::{request_options, AdvisoryOptions, OptionGrounding};
+pub use ask::{answer_question, Answer, AREA_SUMMARY_ID};
 pub use error::DecisionError;
 pub use evals::{
     ev_a8_advisory, ev_a8_cited, ev_a8_grounded, ev_a8_insuff, ev_a8_neutral, ev_a8_ranked,

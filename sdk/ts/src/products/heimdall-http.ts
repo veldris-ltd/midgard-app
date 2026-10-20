@@ -61,6 +61,7 @@ import {
   type HeimdallCameraPlayback,
   type HeimdallCameraTrend,
   type HeimdallAdvice,
+  type HeimdallAnswer,
   type HeimdallSyncSite,
   type HeimdallTrack,
   type HeimdallWorkflow,
@@ -926,6 +927,34 @@ export class HeimdallHttp implements HeimdallGateway {
       })).sort((a: { rank: number }, b: { rank: number }) => a.rank - b.rank),
       unsupported: typeof b?.unsupported === 'string' ? b.unsupported : null,
       ms: Number(b?.ms ?? 0),
+    };
+  }
+
+  /** `POST /heimdall/ask?question=…` over the regions shown (bbox), or around a view
+   *  circle (focus=lat,lon,km). [FR-MI-3] */
+  async ask(question: string, area?: { focus?: { lat: number; lon: number; km: number } }): Promise<HeimdallAnswer> {
+    const params = [`question=${encodeURIComponent(question.trim())}`, ...this.regionParams()];
+    const f = area?.focus;
+    if (f) params.push(`focus=${f.lat.toFixed(4)},${f.lon.toFixed(4)},${Math.round(f.km)}`);
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}/heimdall/ask?${params.join('&')}`, { method: 'POST', headers: { authorization: `Bearer ${this.token}` } });
+    } catch (err) {
+      throw new Error(`Mimir unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (res.status === 401) {
+      this.onUnauthorized?.();
+      throw new Error('session expired: sign in again');
+    }
+    const b = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(b?.error ?? `Mimir could not answer (HTTP ${res.status})`);
+    const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    return {
+      answer: typeof b?.answer === 'string' ? b.answer : null,
+      citations: strs(b?.citations), unresolved: strs(b?.unresolved), grounded: b?.grounded === true,
+      inferences: strs(b?.inferences), proposed: strs(b?.proposed),
+      refusal: b?.refusal && typeof b.refusal.code === 'string' ? { code: b.refusal.code, detail: String(b.refusal.detail ?? '') } : null,
+      considered: Number(b?.considered ?? 0), ms: Number(b?.ms ?? 0),
     };
   }
 

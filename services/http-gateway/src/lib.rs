@@ -689,6 +689,24 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     "this gateway is not connected to Heimdall",
                 )),
             },
+            // A question over the picture (the Mimir core agent via Heimdall), a read like
+            // decision support: it answers and changes nothing. [FR-MI-3] [FR-H-4]
+            ("POST", heimdall_bridge::ASK_PATH) => match &self.heimdall {
+                Some(bridge) => match req.query_param("question") {
+                    Some(q) if q.trim().chars().count() >= 3 => {
+                        heimdall_bridge::Boxes::from_query(&req.query).and_then(|boxes| {
+                            let focus =
+                                heimdall_bridge::ask_focus(req.query_param("focus").as_deref())?;
+                            bridge.ask(&q, &claims.subject, &boxes, focus)
+                        })
+                    }
+                    _ => Err(EdgeError::bad_request("ask a question (?question=...)")),
+                },
+                None => Err(EdgeError::new(
+                    404,
+                    "this gateway is not connected to Heimdall",
+                )),
+            },
             // Decision support on an alert or entity (Mimir via Heimdall), authorised and
             // audited as a read: it advises and changes nothing. [FR-H-4]
             ("POST", path) if heimdall_bridge::advise_target(path).is_some() => {
@@ -801,6 +819,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     "Apply",
                 )
             }
+            ("POST", heimdall_bridge::ASK_PATH) => (
+                heimdall_bridge::ASK_PATH.to_string(),
+                self.marking_for(heimdall_bridge::ALERTS_PATH),
+                "Read",
+            ),
             ("POST", path) if heimdall_bridge::advise_target(path).is_some() => (
                 path.to_string(),
                 self.marking_for(heimdall_bridge::ALERTS_PATH),

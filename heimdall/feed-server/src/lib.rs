@@ -110,12 +110,19 @@ pub const ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
 /// Method: ask decision support (Mimir, via the A.8 prompt) for ranked, cited courses
 /// of action about an alert or an entity. Advisory only. [FR-H-4] [NFR-AI-1]
 pub const ADVISE_OPTIONS: &str = "AdviseOptions";
+/// Method: ask the Mimir core agent (A.1) a question over the picture in an area,
+/// answered from cited evidence. Advisory only. [FR-MI-3] [FR-H-4]
+pub const ASK_PICTURE: &str = "AskPicture";
 /// The policy action an alert read is authorised as.
 pub const ACTION_READ_ALERTS: &str = "ReadAlerts";
 /// The policy action an acknowledgement is authorised as.
 pub const ACTION_ACKNOWLEDGE_ALERT: &str = "AcknowledgeAlert";
 /// Policy action for [`ADVISE_OPTIONS`].
 pub const ACTION_ADVISE_OPTIONS: &str = "AdviseOptions";
+/// Policy action for [`ASK_PICTURE`].
+pub const ACTION_ASK_PICTURE: &str = "AskPicture";
+/// The most entities a question's grounding carries.
+pub const ASK_MAX_ENTITIES: usize = 20;
 /// The most entities a decision-support picture carries (the subject and its nearest).
 pub const ADVISE_MAX_ENTITIES: usize = 16;
 /// How far from the subject decision support looks for context, in km.
@@ -617,12 +624,110 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             .route(READ_HISTORY, history)
             .route(READ_ALERTS, alerts)
             .route(ACKNOWLEDGE_ALERT, ack)
+            .route(ASK_PICTURE, {
+                let service = self.clone();
+                Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| {
+                    service.ask_picture(peer, body)
+                }) as Arc<dyn RequestHandler>
+            })
             .route(ADVISE_OPTIONS, {
                 let service = self.clone();
                 Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| {
                     service.advise_options(peer, body)
                 }) as Arc<dyn RequestHandler>
             })
+    }
+
+    /// A question over the picture: the body is `{"question", "by"}` with the area as
+    /// `"boxes": [[w, s, e, n], ..]` and/or `"focus": [lat, lon, km]`. The entities in
+    /// the area most relevant to the question (words in their kind, label, name and
+    /// facts; open alerts first), up to [`ASK_MAX_ENTITIES`], and an area summary are
+    /// the A.1 grounding; every citation in the answer is resolved against them.
+    /// Authorised as [`ACTION_ASK_PICTURE`], audited as an `AskPicture` event, and the
+    /// picture is not locked while Mimir thinks. [FR-MI-3] [FR-H-4] [NFR-AI-1]
+    pub fn ask_picture(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+        let now = (self.clock)();
+        let request = parse_ask_request(body);
+        let action = if request.is_ok() {
+            ACTION_ASK_PICTURE
+        } else {
+            "AskPicture:MALFORMED"
+        };
+        let decision =
+            lock(&self.governance).authorize(&self.context(peer), &self.resource, action, now);
+        let request = match (decision, request) {
+            (Err(_), _) => {
+                return self.reply(
+                    ASK_PICTURE,
+                    outcome::FAILED,
+                    "the question could not be audited",
+                )
+            }
+            (Ok(_), Err(e)) => return self.reply(ASK_PICTURE, outcome::MALFORMED, &e),
+            (Ok(d), Ok(_)) if !d.permitted => {
+                return self.reply(
+                    ASK_PICTURE,
+                    outcome::DENIED,
+                    "policy does not permit this identity to ask Mimir",
+                )
+            }
+            (Ok(_), Ok(r)) => r,
+        };
+        let Some(advisor) = lock(&self.advisor).clone() else {
+            return self.reply(
+                ASK_PICTURE,
+                outcome::NOT_FOUND,
+                "decision support is not configured",
+            );
+        };
+        let (evidence, summary) = {
+            let state = lock(&self.state);
+            ask_evidence(state.picture(), state.alerts(), &request)
+        };
+        let refs: Vec<&TrackedEntity> = evidence.iter().collect();
+        let started = std::time::Instant::now();
+        let answer = heimdall_decision_support::answer_question(
+            &refs,
+            &summary,
+            &request.question,
+            self.purpose.0.as_str(),
+            advisor.as_ref(),
+        );
+        let ms = started.elapsed().as_millis();
+        let summary_line = match &answer {
+            Ok(a) => format!("citations:{} grounded:{}", a.citations.len(), a.grounded()),
+            Err(e) => format!("failed:{e}"),
+        };
+        let recorded = lock(&self.governance).record_event(
+            &peer.id.0,
+            "AskPicture",
+            &format!(
+                "by:{} question_chars:{} evidence:{} {summary_line} ms:{ms}",
+                request.by,
+                request.question.chars().count(),
+                refs.len()
+            ),
+            now,
+        );
+        if recorded.is_err() {
+            return self.reply(
+                ASK_PICTURE,
+                outcome::FAILED,
+                "the question could not be audited",
+            );
+        }
+        match answer {
+            Ok(a) => self.reply(
+                ASK_PICTURE,
+                outcome::ACCEPTED,
+                &ask_json(&a, refs.len(), ms).encode(),
+            ),
+            Err(e) => self.reply(
+                ASK_PICTURE,
+                outcome::FAILED,
+                &format!("Mimir could not answer: {e}"),
+            ),
+        }
     }
 
     /// Decision support: the body is `{"alert": "A-1"}` or `{"entity": "<id>"}`, with
@@ -1319,6 +1424,238 @@ pub const MAX_ACK_BY: usize = 64;
 
 /// Parse an [`ACKNOWLEDGE_ALERT`] request: the alert id and who acknowledges it (control
 /// characters stripped, at most [`MAX_ACK_BY`] characters).
+/// An [`ASK_PICTURE`] request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AskRequest {
+    pub question: String,
+    pub by: String,
+    /// Areas, `[west, south, east, north]` in degrees.
+    pub boxes: Vec<[f64; 4]>,
+    /// The view's centre and radius: `(lat, lon, km)`.
+    pub focus: Option<(f64, f64, f64)>,
+}
+
+/// Parse an [`ASK_PICTURE`] body.
+pub fn parse_ask_request(body: &[u8]) -> Result<AskRequest, String> {
+    let json = request_object(body)?;
+    if let Json::Obj(pairs) = &json {
+        if let Some((key, _)) = pairs
+            .iter()
+            .find(|(k, _)| !["question", "by", "boxes", "focus"].contains(&k.as_str()))
+        {
+            return Err(format!("unknown key \"{key}\""));
+        }
+    }
+    let clean =
+        |s: &str, n: usize| -> String { s.chars().filter(|c| !c.is_control()).take(n).collect() };
+    let question = clean(json.str_field("question").unwrap_or(""), 400);
+    if question.trim().len() < 3 {
+        return Err("\"question\" must be a question".into());
+    }
+    let by = clean(json.str_field("by").unwrap_or(""), MAX_ACK_BY);
+    if by.trim().is_empty() {
+        return Err("\"by\" must name who asks".into());
+    }
+    let nums = |v: &Json| -> Option<Vec<f64>> {
+        match v {
+            Json::Arr(a) => a
+                .iter()
+                .map(|x| match x {
+                    Json::Num(n) if n.is_finite() => Some(*n),
+                    Json::Int(i) => Some(*i as f64),
+                    _ => None,
+                })
+                .collect(),
+            _ => None,
+        }
+    };
+    let mut boxes = Vec::new();
+    if let Some(Json::Arr(list)) = json.get("boxes") {
+        for b in list.iter().take(32) {
+            match nums(b).as_deref() {
+                Some([w, s, e, n])
+                    if (-90.0..=90.0).contains(s) && (-90.0..=90.0).contains(n) && s < n =>
+                {
+                    boxes.push([*w, *s, *e, *n])
+                }
+                _ => return Err("each box must be [west, south, east, north]".into()),
+            }
+        }
+    }
+    let focus = match json.get("focus") {
+        None | Some(Json::Null) => None,
+        Some(v) => match nums(v).as_deref() {
+            Some([la, lo, km]) if (-90.0..=90.0).contains(la) && *km > 0.0 => Some((*la, *lo, *km)),
+            _ => return Err("\"focus\" must be [lat, lon, km]".into()),
+        },
+    };
+    Ok(AskRequest {
+        question,
+        by,
+        boxes,
+        focus,
+    })
+}
+
+/// The evidence for a question: the area's most relevant entities and its summary.
+fn ask_evidence(
+    full: &Picture,
+    alerts: &AlertBook,
+    r: &AskRequest,
+) -> (Vec<TrackedEntity>, String) {
+    const STOP: &[&str] = &[
+        "the", "and", "are", "any", "what", "which", "where", "how", "many", "there", "near",
+        "with", "for", "from", "this", "that", "show", "tell", "about", "have", "has", "is", "in",
+        "of", "on", "to", "a", "an", "me",
+    ];
+    let words: Vec<String> = r
+        .question
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 3 && !STOP.contains(w))
+        .map(|w| w.trim_end_matches('s').to_string())
+        .collect();
+    let pos = |e: &TrackedEntity| -> Option<(f64, f64)> {
+        let n = |k: &str| match e.latest_attrs.get(k) {
+            Some(Attr::Float(f)) if f.is_finite() => Some(*f),
+            Some(Attr::Int(i)) => Some(*i as f64),
+            _ => None,
+        };
+        Some((n("lat")?, n("lon")?))
+    };
+    let in_area = |e: &TrackedEntity| -> bool {
+        let Some((la, lo)) = pos(e) else { return false };
+        if let Some((fl, fo, km)) = r.focus {
+            return alerts::distance_km(fl, fo, la, lo) <= km;
+        }
+        r.boxes.is_empty()
+            || r.boxes.iter().any(|[w, s, e, n]| {
+                la >= *s
+                    && la <= *n
+                    && if w <= e {
+                        lo >= *w && lo <= *e
+                    } else {
+                        lo >= *w || lo <= *e
+                    }
+            })
+    };
+    let open: BTreeMap<&str, Vec<&Alert>> =
+        alerts
+            .alerts()
+            .iter()
+            .filter(|a| a.is_open())
+            .fold(BTreeMap::new(), |mut m, a| {
+                m.entry(a.entity.as_str()).or_default().push(a);
+                m
+            });
+    let mut kinds: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut labels: BTreeMap<String, usize> = BTreeMap::new();
+    let mut scored: Vec<(f64, &TrackedEntity)> = Vec::new();
+    for e in full.entities().filter(|e| in_area(e)) {
+        *kinds.entry(e.kind.as_str()).or_default() += 1;
+        let alerted = open.get(e.id.0.as_str());
+        if let Some(list) = alerted {
+            for a in list {
+                *labels
+                    .entry(format!("{} ({})", a.label, a.severity.as_str()))
+                    .or_default() += 1;
+            }
+        }
+        let kind = e.kind.to_lowercase().replace('-', " ");
+        let label = e
+            .classification
+            .as_ref()
+            .map(|c| c.label.to_lowercase().replace('-', " "))
+            .unwrap_or_default();
+        let text: String = e
+            .latest_attrs
+            .values()
+            .filter_map(|v| match v {
+                Attr::Text(t) if t.len() <= 120 => Some(t.to_lowercase()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut score = 0.0;
+        for w in &words {
+            if kind.contains(w.as_str()) || label.contains(w.as_str()) {
+                score += 3.0;
+            }
+            if text.contains(w.as_str()) {
+                score += 1.0;
+            }
+        }
+        if alerted.is_some() {
+            score += if score > 0.0 { 4.0 } else { 1.0 };
+        }
+        if e.kind.starts_with("infra-") || e.kind == "airspace-volume" {
+            score *= 0.5;
+        }
+        if score > 0.0 {
+            scored.push((score, e));
+        }
+    }
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let evidence: Vec<TrackedEntity> = scored
+        .into_iter()
+        .take(ASK_MAX_ENTITIES)
+        .map(|(_, e)| e.clone())
+        .collect();
+    let mut k: Vec<(&str, usize)> = kinds.into_iter().collect();
+    k.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut l: Vec<(String, usize)> = labels.into_iter().collect();
+    l.sort_by(|a, b| b.1.cmp(&a.1));
+    let summary = format!(
+        "entities in the area by kind: {}; open alerts in the area by label: {}",
+        if k.is_empty() {
+            "none".to_string()
+        } else {
+            k.iter()
+                .take(20)
+                .map(|(a, n)| format!("{a} {n}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        },
+        if l.is_empty() {
+            "none".to_string()
+        } else {
+            l.iter()
+                .take(15)
+                .map(|(a, n)| format!("{a} {n}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        },
+    );
+    (evidence, summary)
+}
+
+fn ask_json(a: &heimdall_decision_support::Answer, considered: usize, ms: u128) -> Json {
+    let strs = |v: &[String]| Json::Arr(v.iter().map(|s| Json::s(s)).collect());
+    Json::obj(vec![
+        (
+            "answer",
+            a.answer.as_deref().map(Json::s).unwrap_or(Json::Null),
+        ),
+        ("citations", strs(&a.citations)),
+        ("unresolved", strs(&a.unresolved)),
+        ("grounded", Json::Bool(a.grounded())),
+        ("inferences", strs(&a.inferences)),
+        (
+            "refusal",
+            match &a.refusal {
+                Some((code, detail)) => {
+                    Json::obj(vec![("code", Json::s(code)), ("detail", Json::s(detail))])
+                }
+                None => Json::Null,
+            },
+        ),
+        ("proposed", strs(&a.proposed)),
+        ("considered", Json::Num(considered as f64)),
+        ("advisory", Json::Bool(true)),
+        ("ms", Json::Num(ms as f64)),
+    ])
+}
+
 /// An [`ADVISE_OPTIONS`] request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdviseRequest {
@@ -1652,6 +1989,32 @@ mod tests {
         ] {
             assert!(
                 parse_history_query(bad, 3600).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn a_question_names_who_asks_and_an_optional_area() {
+        let q = parse_ask_request(br#"{"question":"Any power cuts near Leeds?","by":"analyst","boxes":[[-12,48,4,62]],"focus":[53.8,-1.55,40]}"#).unwrap();
+        assert_eq!(q.boxes, vec![[-12.0, 48.0, 4.0, 62.0]]);
+        assert_eq!(q.focus, Some((53.8, -1.55, 40.0)));
+        assert!(
+            parse_ask_request(br#"{"question":"What is open?","by":"a"}"#)
+                .unwrap()
+                .boxes
+                .is_empty()
+        );
+        for bad in [
+            &br#"{"question":"?","by":"a"}"#[..],
+            br#"{"question":"What now?"}"#,
+            br#"{"question":"What now?","by":"a","boxes":[[1,2,3]]}"#,
+            br#"{"question":"What now?","by":"a","focus":[53,-1,0]}"#,
+            br#"{"question":"What now?","by":"a","act":1}"#,
+        ] {
+            assert!(
+                parse_ask_request(bad).is_err(),
                 "{}",
                 String::from_utf8_lossy(bad)
             );

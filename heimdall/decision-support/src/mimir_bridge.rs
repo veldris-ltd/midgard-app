@@ -14,6 +14,9 @@ use crate::error::DecisionError;
 use crate::prompt::AssembledPrompt;
 use crate::provider::OptionProvider;
 
+/// The most tokens an answer to a question may take.
+pub const ANSWER_MAX_TOKENS: u32 = 450;
+
 /// An [`OptionProvider`] backed by a live Mimir [`Inference`] transport (typically a
 /// `mimir_bridge::PqMtlsClient`).
 pub struct MimirOptionProvider<I: Inference> {
@@ -47,6 +50,22 @@ impl<I: Inference> MimirOptionProvider<I> {
 }
 
 impl<I: Inference> OptionProvider for MimirOptionProvider<I> {
+    fn complete(&self, prompt: &str) -> Result<String, DecisionError> {
+        let request = InferenceRequest {
+            purpose: self.purpose.clone(),
+            workload_class: WorkloadClass::Balanced,
+            quant_pref: None,
+            backend_override: None,
+            // An answer is shorter than an option set: keep it quick.
+            max_tokens: self.max_tokens.min(ANSWER_MAX_TOKENS),
+            prompt: prompt.to_string(),
+        };
+        self.inference
+            .infer(request)
+            .map(|c| c.text)
+            .map_err(|e| DecisionError::Infer(e.to_string()))
+    }
+
     fn generate(&self, prompt: &AssembledPrompt) -> Result<String, DecisionError> {
         let request = InferenceRequest {
             purpose: self.purpose.clone(),
