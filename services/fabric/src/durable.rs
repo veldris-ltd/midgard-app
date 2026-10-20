@@ -9,6 +9,11 @@
 //! — so after a restart every object, link, and index is recovered and queries
 //! return identical results. A tampered on-disk record fails AEAD authentication
 //! and the open fails closed. [SAD_00 §8.3] [RC-10]
+//!
+//! Every update appends a whole object, so the journal outgrows the data it holds.
+//! [`DurableObjectStore::compact`] rewrites it as one `PutObject` per object and one
+//! `PutLink` per link, sealed afresh, and swaps it in with an atomic rename, so a
+//! crash leaves the old journal or the new one, never a mix.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -141,6 +146,76 @@ impl DurableObjectStore {
         self.journal(&bytes)?;
         self.inner.remove_object(id);
         Ok(true)
+    }
+
+    /// Journal records written since the journal began (or was last compacted).
+    pub fn journal_records(&self) -> u64 {
+        self.op_seq
+    }
+
+    /// Records a compacted journal would hold: one per object and one per link.
+    pub fn live_records(&self) -> u64 {
+        let (objects, links) = self.inner.len();
+        (objects + links) as u64
+    }
+
+    /// Rewrite the journal to hold only what the store holds now, returning the record
+    /// counts before and after. Written beside the journal, fsynced, then renamed over
+    /// it; on any error the old journal is untouched and still in use.
+    pub fn compact(&mut self) -> Result<(u64, u64), FabricError> {
+        let before = self.op_seq;
+        let tmp = self.path.with_extension("compacting");
+        let mut opts = OpenOptions::new();
+        opts.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut out = opts.open(&tmp).map_err(io)?;
+        let mut seq = 0u64;
+        let mut write = |plaintext: &[u8], seq: &mut u64| -> Result<(), FabricError> {
+            let sealed = self
+                .sealer
+                .seal(&aad(&self.store_id, *seq), plaintext)
+                .map_err(|e| FabricError::Store(e.to_string()))?;
+            out.write_all(&(sealed.len() as u32).to_le_bytes())
+                .map_err(io)?;
+            out.write_all(&sealed).map_err(io)?;
+            *seq += 1;
+            Ok(())
+        };
+        let written = (|| {
+            for obj in self.inner.objects() {
+                let mut bytes = vec![OP_PUT_OBJECT];
+                encode_object(&mut bytes, obj);
+                write(&bytes, &mut seq)?;
+            }
+            for link in self.inner.links() {
+                let mut bytes = vec![OP_PUT_LINK];
+                encode_link(&mut bytes, &link);
+                write(&bytes, &mut seq)?;
+            }
+            Ok::<(), FabricError>(())
+        })();
+        let synced = written.and_then(|()| out.sync_all().map_err(io));
+        drop(out);
+        if let Err(e) = synced {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+        std::fs::rename(&tmp, &self.path).map_err(io)?;
+        if let Some(dir) = self.path.parent() {
+            if let Ok(d) = File::open(dir) {
+                let _ = d.sync_all();
+            }
+        }
+        self.file = OpenOptions::new()
+            .append(true)
+            .open(&self.path)
+            .map_err(io)?;
+        self.op_seq = seq;
+        Ok((before, seq))
     }
 
     /// The latched persistence error, if a prior infallible write failed to

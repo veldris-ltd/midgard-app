@@ -203,9 +203,7 @@ fn main() {
         eprintln!("http-gateway: camera analytics on request via {addr}");
     }
     let gateway = Arc::new(gateway);
-    if gateway.has_retention() {
-        start_retention(gateway.clone());
-    }
+    start_upkeep(gateway.clone());
 
     if let (Some(mesh_bind), Some(identity_dir)) = (mesh_bind, mesh_identity_dir) {
         match start_mesh(
@@ -255,10 +253,13 @@ fn start_mesh(
     .map_err(|e| format!("cannot bind {bind}: {e}"))
 }
 
-/// Apply the ontology's retention windows once a minute: each sweep is audited, and a
-/// backlog larger than one sweep's limit clears over the following ones. [SAD_00 §8.5]
-fn start_retention(gateway: Arc<DurableGateway>) {
-    eprintln!("http-gateway: enforcing the ontology's retention windows every 60 s");
+/// Store upkeep once a minute: the ontology's retention windows (each sweep audited; a
+/// backlog larger than one sweep's limit clears over the following ones), then journal
+/// compaction when the journal has outgrown its data. [SAD_00 §8.5]
+fn start_upkeep(gateway: Arc<DurableGateway>) {
+    if gateway.has_retention() {
+        eprintln!("http-gateway: enforcing the ontology's retention windows every 60 s");
+    }
     std::thread::spawn(move || loop {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -275,6 +276,13 @@ fn start_retention(gateway: Arc<DurableGateway>) {
                 }
             }
             Err(e) => eprintln!("http-gateway: retention sweep failed: {e}"),
+        }
+        match gateway.compact_store_if_due(now) {
+            Ok(Some((before, after))) => eprintln!(
+                "http-gateway: compacted the object store journal from {before} to {after} records"
+            ),
+            Ok(None) => {}
+            Err(e) => eprintln!("http-gateway: {e}"),
         }
         std::thread::sleep(std::time::Duration::from_secs(60));
     });

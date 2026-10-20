@@ -102,6 +102,32 @@ impl InMemoryStore {
         }
     }
 
+    /// Every object, in id order.
+    pub fn objects(&self) -> impl Iterator<Item = &ObjectInstance> {
+        self.objects.values()
+    }
+
+    /// Every link, grouped by source and link type, each group in insertion order.
+    pub fn links(&self) -> impl Iterator<Item = LinkInstance> + '_ {
+        self.adjacency
+            .iter()
+            .flat_map(|((source, link_type), targets)| {
+                targets.iter().map(move |target| LinkInstance {
+                    link_type: link_type.clone(),
+                    source_id: source.clone(),
+                    target_id: target.clone(),
+                })
+            })
+    }
+
+    /// How many objects and links the store holds.
+    pub fn len(&self) -> (usize, usize) {
+        (
+            self.objects.len(),
+            self.adjacency.values().map(Vec::len).sum(),
+        )
+    }
+
     fn resolve(&self, ids: &BTreeSet<String>) -> Vec<&ObjectInstance> {
         ids.iter().filter_map(|id| self.objects.get(id)).collect()
     }

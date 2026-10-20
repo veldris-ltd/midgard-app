@@ -443,11 +443,12 @@ fn a_batch_fuses_over_one_session_replays_are_refused_and_stale_tracks_expire() 
     assert_eq!(attributes.get("on_ground"), Some(&Json::Bool(false)));
 
     // Recovery: the sealed picture holds the expiry, and the ledger the sweep and the
-    // refusal (three submissions, the replay's decision and refusal, the sweep, a read).
+    // refusal (the batch's decision and its one IngestBatch entry, counting the replay,
+    // the sweep, a read).
     drop(server);
     let server = start_with(&server_identity, &state, &["--track-ttl", "300"]);
     assert_eq!(server.entities, "2");
-    assert_eq!(server.recovered, "7");
+    assert_eq!(server.recovered, "4");
     drop(server);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -621,11 +622,12 @@ fn positions_become_track_history_that_pages_is_audited_and_survives_a_restart()
     assert_eq!(denied[0], outcome::DENIED, "a source cannot read history");
     drop(session);
 
-    // Every read was audited once: 41 submissions, the history pages, the decimated
+    // Every read was audited once: the batch of 41 (its decision and its entry), the
+    // history pages, the decimated
     // pages, two malformed reads and the source's refused read.
     drop(server);
     let server = start_with(&server_identity, &state, &flags);
-    let audited = 41 + sizes.len() + decimated_pages.len() + 3;
+    let audited = 2 + sizes.len() + decimated_pages.len() + 3;
     assert_eq!(server.recovered, audited.to_string());
     assert_eq!(server.history_points, "40", "history is recovered");
     let mut session = client::Session::open(&analyst, &server.mesh, PURPOSE).unwrap();
@@ -872,7 +874,15 @@ fn rules_and_detectors_raise_alerts_analysts_read_and_acknowledge() {
         "{rows:?}"
     );
     assert!(!rows.iter().any(|(_, _, r)| r.contains("mallory")));
-    assert_eq!(rows.len(), 3 + 2 + 1 + 4 + 5 + 1 + 2, "{rows:?}");
+    // The batch of 3 is audited as its decision and one IngestBatch entry.
+    assert!(
+        rows.iter().any(|(a, b, c)| a == "adsb"
+            && b == "IngestBatch"
+            && c.starts_with("feed:adsb items:3 accepted:3 duplicates:0")
+            && c.contains(" sha256:")),
+        "{rows:?}"
+    );
+    assert_eq!(rows.len(), 2 + 2 + 1 + 4 + 5 + 1 + 2, "{rows:?}");
     drop(ledger);
 
     // The alerts survive a restart.
@@ -1013,13 +1023,13 @@ fn a_picture_larger_than_a_page_is_read_whole_through_paging() {
     assert!(merged.get("truncated").is_none(), "whole, so not truncated");
     assert!(merged.get("next").is_none());
 
-    // Audited: 45 submissions and one entry per page read (the analyst's two paged
+    // Audited: the batch of 45 (its decision and its entry) and one entry per page read (the analyst's two paged
     // reads, the malformed one, the CLI's and the bridge's).
     drop(server);
     let server = start(&server_identity, &state);
     assert_eq!(
         server.recovered,
-        (45 + pages + air_pages + 1 + cli_pages + pages).to_string()
+        (2 + pages + air_pages + 1 + cli_pages + pages).to_string()
     );
     drop(server);
     let _ = std::fs::remove_dir_all(&root);

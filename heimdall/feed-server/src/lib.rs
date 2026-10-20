@@ -51,7 +51,7 @@ use audit_writer::LedgerStore;
 use gateway::{RequestHandler, Router};
 use governance::{GovContext, Governance};
 use heimdall_feed_gateway::{
-    decode_signed_observation, FeedGateway, FeedRegistry, VerifiedObservation,
+    decode_signed_observation, FeedGateway, FeedRegistry, SignedObservation, VerifiedObservation,
 };
 use heimdall_fusion::FusionEngine;
 use heimdall_picture::{
@@ -863,7 +863,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         let admitted = self.admit(peer, body, now, &BTreeSet::new());
         let (verified, audit_seq) = match admitted {
             Ok(ok) => ok,
-            Err(Refusal { code, message }) => return self.reply(INGEST, code, &message),
+            Err(Refusal { code, message, .. }) => return self.reply(INGEST, code, &message),
         };
         let fused = lock(&self.state).fuse(&verified, now);
         self.sweep(now);
@@ -884,11 +884,15 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
     }
 
-    /// Admit, fuse and persist a batch of signed observations ([`encode_batch`]). Each
-    /// observation passes the same gates as [`FeedService::ingest`] and is authorised
-    /// and audited on its own; the admitted ones are fused in order and the picture is
-    /// sealed once, so a batch costs one write instead of one per observation. The
-    /// response is `{"accepted": N, "refused": [{"index", "code", "message"}]}`.
+    /// Admit, fuse and persist a batch of signed observations ([`encode_batch`]). The
+    /// batch is authorised once, as [`ACTION_INGEST`], and audited as a whole: one
+    /// `IngestBatch` entry, written before anything is fused, records the counts and the
+    /// SHA-256 of the batch as received, so the ledger grows per batch rather than per
+    /// observation. Each observation still passes the other gates of
+    /// [`FeedService::ingest`]; one from another feed or with a rejected signature is
+    /// also audited on its own, while malformed and duplicate ones are counted. The
+    /// admitted ones are fused in order and the picture is sealed once. The response is
+    /// `{"accepted": N, "refused": [{"index", "code", "message"}]}`. [NFR-SEC-1]
     pub fn ingest_batch(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
         let now = (self.clock)();
         let items = match decode_batch(body) {
@@ -904,21 +908,87 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 return self.reply(INGEST_BATCH, outcome::MALFORMED, &e);
             }
         };
+        let decision = lock(&self.governance).authorize(
+            &self.context(peer),
+            &self.resource,
+            ACTION_INGEST,
+            now,
+        );
+        match decision {
+            Err(_) => {
+                return self.reply(
+                    INGEST_BATCH,
+                    outcome::FAILED,
+                    "the batch could not be audited",
+                )
+            }
+            Ok(d) if !d.permitted => {
+                return self.reply(
+                    INGEST_BATCH,
+                    outcome::DENIED,
+                    "policy does not permit this identity to submit observations",
+                )
+            }
+            Ok(_) => {}
+        }
         let mut admitted = Vec::with_capacity(items.len());
         let mut pending = BTreeSet::new();
         let mut refused = Vec::new();
+        let (mut duplicates, mut malformed) = (0usize, 0usize);
         for (index, item) in items.iter().enumerate() {
-            match self.admit(peer, item, now, &pending) {
-                Ok((verified, _)) => {
+            let screened = decode_signed_observation(item)
+                .map_err(|e| Refusal::new(outcome::MALFORMED, &e.to_string()))
+                .and_then(|signed| self.screen(peer, signed, now, &pending, false));
+            match screened {
+                Ok(verified) => {
                     pending.insert(verified.observation().id.0.clone());
                     admitted.push(verified);
                 }
-                Err(Refusal { code, message }) => refused.push(Json::obj(vec![
-                    ("index", count(index as u64)),
-                    ("code", Json::Int(i64::from(code))),
-                    ("message", Json::s(&message)),
-                ])),
+                Err(Refusal {
+                    code,
+                    message,
+                    duplicate,
+                }) => {
+                    if duplicate {
+                        duplicates += 1;
+                    } else if code == outcome::MALFORMED {
+                        malformed += 1;
+                    }
+                    refused.push(Json::obj(vec![
+                        ("index", count(index as u64)),
+                        ("code", Json::Int(i64::from(code))),
+                        ("message", Json::s(&message)),
+                    ]))
+                }
             }
+        }
+        let digest =
+            pqc_agility::sha256(body)
+                .iter()
+                .fold(String::with_capacity(64), |mut s, b| {
+                    use std::fmt::Write;
+                    let _ = write!(s, "{b:02x}");
+                    s
+                });
+        let recorded = lock(&self.governance).record_event(
+            &peer.id.0,
+            "IngestBatch",
+            &format!(
+                "feed:{} items:{} accepted:{} duplicates:{duplicates} malformed:{malformed} \
+                 refused:{} sha256:{digest}",
+                peer.id.0,
+                items.len(),
+                admitted.len(),
+                refused.len() - duplicates - malformed
+            ),
+            now,
+        );
+        if recorded.is_err() {
+            return self.reply(
+                INGEST_BATCH,
+                outcome::FAILED,
+                "the batch could not be audited; nothing was fused",
+            );
         }
         let fused = lock(&self.state).fuse_many(&admitted, now);
         self.sweep(now);
@@ -963,7 +1033,22 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 "policy does not permit this identity to submit observations",
             ));
         }
+        let verified = self.screen(peer, signed, now, pending, true)?;
+        Ok((verified, decision.audit_seq))
+    }
 
+    /// The gates after authorisation: from the caller's own feed, signed by the key its
+    /// certificate binds, and not already fused (or `pending`). The first two refusals
+    /// are always audited; a duplicate is audited only when `audit_duplicates` (a batch
+    /// counts them in its one entry instead).
+    fn screen(
+        &self,
+        peer: &WorkloadIdentity,
+        signed: SignedObservation,
+        now: u64,
+        pending: &BTreeSet<String>,
+        audit_duplicates: bool,
+    ) -> Result<VerifiedObservation, Refusal> {
         let feed = signed.observation.feed_id.0.clone();
         if feed != peer.id.0 {
             return Err(self.refuse(
@@ -990,15 +1075,23 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
 
         let observation_id = verified.observation().id.0.clone();
         if pending.contains(&observation_id) || lock(&self.state).already_fused(&observation_id) {
-            return Err(self.refuse(
-                peer,
-                now,
-                "Ingest refused: duplicate observation",
-                &feed,
-                &format!("observation {observation_id} was already fused"),
-            ));
+            let message = format!("observation {observation_id} was already fused");
+            return Err(if audit_duplicates {
+                self.refuse(
+                    peer,
+                    now,
+                    "Ingest refused: duplicate observation",
+                    &feed,
+                    &message,
+                )
+            } else {
+                Refusal {
+                    duplicate: true,
+                    ..Refusal::new(outcome::DENIED, &message)
+                }
+            });
         }
-        Ok((verified, decision.audit_seq))
+        Ok(verified)
     }
 
     /// A page of the picture as JSON: `{"layers": [..], "entities": [..], "next"}`.
@@ -1314,6 +1407,8 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
 struct Refusal {
     code: u8,
     message: String,
+    // A replay of an observation already fused (counted, not audited, in a batch).
+    duplicate: bool,
 }
 
 impl Refusal {
@@ -1321,6 +1416,7 @@ impl Refusal {
         Self {
             code,
             message: message.to_string(),
+            duplicate: false,
         }
     }
 }

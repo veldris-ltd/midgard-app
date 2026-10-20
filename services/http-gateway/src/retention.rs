@@ -3,6 +3,11 @@
 //! with their links. The removal is audited in the enclosure's one ledger *before*
 //! anything is removed, as a sync is, and each removal is journalled, so a restart
 //! does not bring them back. [SAD_00 §8.5] [NFR-SEC-2] [AC-M-4]
+//!
+//! The same upkeep compacts the store's journal once it holds more than
+//! [`COMPACT_RATIO`] times the records the data needs (every update appends a whole
+//! object), so the journal stays near the size of the data. Compaction changes no
+//! object; it is still recorded in the ledger first.
 
 use audit_writer::LedgerStore;
 use fabric::DurableObjectStore;
@@ -17,6 +22,12 @@ pub const ACTION_EXPIRE: &str = "RETAIN expire";
 /// cleared over several sweeps and the enclosure is not held for long. Each removal is
 /// an fsynced journal write.
 pub const SWEEP_LIMIT: usize = 1000;
+/// The audited action of a journal compaction.
+pub const ACTION_COMPACT: &str = "COMPACT store";
+/// Compact once the journal holds this many times the records the data needs...
+pub const COMPACT_RATIO: u64 = 2;
+/// ...and at least this many more, so a small store is not rewritten for nothing.
+pub const COMPACT_SLACK: u64 = 20_000;
 
 /// What one sweep removed from one object type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +46,44 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
         self.ontology
             .as_ref()
             .is_some_and(|o| !o.retention.is_empty())
+    }
+
+    /// Compact the store's journal at `now` if it has outgrown its data, returning the
+    /// record counts before and after, or `None` when it has not.
+    pub fn compact_store_if_due(&self, now: u64) -> Result<Option<(u64, u64)>, String> {
+        self.compact_store_with_slack(now, COMPACT_SLACK)
+    }
+
+    /// [`Self::compact_store_if_due`] with a chosen slack in place of [`COMPACT_SLACK`].
+    pub fn compact_store_with_slack(
+        &self,
+        now: u64,
+        slack: u64,
+    ) -> Result<Option<(u64, u64)>, String> {
+        let mut enclosure = self
+            .enclosure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let store = enclosure.fabric().store();
+        let (journal, live) = (store.journal_records(), store.live_records());
+        if journal <= live.saturating_mul(COMPACT_RATIO) + slack {
+            return Ok(None);
+        }
+        enclosure
+            .governance_mut()
+            .record_event(
+                RETENTION_ACTOR,
+                ACTION_COMPACT,
+                &format!("store:{journal}-records:to-{live}"),
+                now,
+            )
+            .map_err(|e| format!("the compaction could not be audited: {e}"))?;
+        enclosure
+            .fabric_mut()
+            .store_mut()
+            .compact()
+            .map(Some)
+            .map_err(|e| format!("the compaction failed; the journal is unchanged: {e}"))
     }
 
     /// One retention sweep at `now`. A type whose sweep cannot be audited is left as it

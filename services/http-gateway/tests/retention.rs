@@ -172,3 +172,62 @@ fn a_sweep_removes_expired_objects_and_their_links_and_is_audited_first() {
     assert_eq!(store.neighbors("aircraft/AC-NEW", "aircraft_base").len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn an_outgrown_journal_is_compacted_audited_and_reopens_identically() {
+    let dir = scratch("compact");
+    let state = provision(&dir);
+    let worker = workload("forge-worker", "forge-worker");
+    let records = [
+        aircraft("AC-1", Some(NOW)),
+        FACILITY.to_string(),
+        link("AC-1"),
+    ]
+    .join("\n");
+    {
+        let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+        let sync = |r: &str| split(&gateway.sync_records(&worker, PURPOSE, r.as_bytes(), NOW));
+        assert_eq!(sync(&records).0, outcome::ACCEPTED);
+        assert_eq!(
+            gateway.compact_store_if_due(NOW).unwrap(),
+            None,
+            "not outgrown yet"
+        );
+        // 50 aircraft updated 10 times: far more records than data.
+        let update = (0..50)
+            .map(|i| aircraft(&format!("AC-{i}"), Some(NOW)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for _ in 0..10 {
+            assert_eq!(sync(&update).0, outcome::ACCEPTED);
+        }
+    }
+    let before = audit_entries(&state);
+    {
+        let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+        assert_eq!(
+            gateway.compact_store_if_due(NOW).unwrap(),
+            None,
+            "within the slack"
+        );
+        let (was, now) = gateway
+            .compact_store_with_slack(NOW, 100)
+            .unwrap()
+            .expect("outgrown");
+        // AC-1 was already there; the others were created by the first round.
+        assert_eq!((was, now), (3 + 10 * 50, 50 + 1 + 1));
+        assert_eq!(gateway.compact_store_with_slack(NOW, 100).unwrap(), None);
+    }
+    assert_eq!(
+        audit_entries(&state),
+        before + 1,
+        "the compaction is audited"
+    );
+    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
+    let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
+    assert!(store.get_object("aircraft/AC-1").is_some());
+    assert_eq!(store.neighbors("aircraft/AC-1", "aircraft_base").len(), 1);
+    assert_eq!(store.journal_records(), 52);
+    let _ = std::fs::remove_dir_all(&dir);
+}

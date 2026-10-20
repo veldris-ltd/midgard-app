@@ -248,3 +248,44 @@ fn a_removal_is_journalled_and_survives_restart() {
     assert!(engineers.is_empty(), "the removed object left the index");
     assert_eq!(assigned, vec!["p1"], "its link went with it");
 }
+
+#[test]
+fn compaction_keeps_exactly_what_the_store_holds_and_survives_restart() {
+    let dir = scratch("compact");
+    let path = dir.join("fabric.store");
+    let before = {
+        let mut store = open(&path);
+        seed(&mut store);
+        // Rewrite p3 many times and remove p2: the journal outgrows the data.
+        for _ in 0..50 {
+            store.put_object(person(
+                "p3",
+                "Carol",
+                "legal",
+                ClassificationLevel::UNCLASSIFIED,
+            ));
+        }
+        assert!(store.remove_object_durable("p2").unwrap());
+        let size = std::fs::metadata(&path).unwrap().len();
+        let (was, now) = store.compact().unwrap();
+        assert_eq!(
+            was,
+            7 + 50 + 1,
+            "the seed (4 objects, 2 links, 1 update), 50 rewrites, 1 removal"
+        );
+        assert_eq!(now, store.live_records());
+        assert!(
+            std::fs::metadata(&path).unwrap().len() < size / 5,
+            "much smaller"
+        );
+        // Writes after compaction land in the new journal.
+        store.put_object(case("case-2", "Operation Borealis"));
+        assert!(store.poisoned().is_none());
+        snapshot(&store)
+    };
+    assert!(!path.with_extension("compacting").exists());
+    let store = open(&path);
+    assert_eq!(snapshot(&store), before, "identical after restart");
+    assert!(store.get_object("case-2").is_some());
+    assert!(store.get_object("p2").is_none());
+}
