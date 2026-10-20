@@ -7,11 +7,12 @@
  * [FR-H-1] */
 import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
-import { CAMERA_LEVEL_COLOURS, FLOW_COLOURS, NETWORK_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
+import { CAMERA_LEVEL_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
+import { utilityLineGroups, utilityLineKey } from '../utilityLines';
 import type { TrafficLines } from '../traffic';
 import { PLACES } from '../places';
 import { LABEL_MAX_KM, alertIconSvg, markStyle, type AlertMark } from '../alertMarks';
-import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type InfraLineGroup, type MapStyle, type PresetId } from './GlobeView';
+import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
 
@@ -344,36 +345,12 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     };
   }, [overlays]);
 
-  // Utility network lines (power lines, pipelines, cables, interconnectors), grouped by
-  // look; whatever layers are switched off are absent from `tracks`. [FR-H-1]
-  // Rebuilt only when the set of lines (or a link's direction) changes, not on every
-  // 2-second redraw of the moving tracks.
-  const lineTracks = tracks.filter((t) => t.detail?.lines);
-  const lineKey = lineTracks.map((t) => `${t.id}:${t.detail?.direction ?? ''}:${t.detail?.lines?.length}`).join('|');
-  const lineTracksRef = React.useRef(lineTracks);
-  lineTracksRef.current = lineTracks;
-  const infraGroups = React.useMemo<InfraLineGroup[]>(() => {
-    const groups = new Map<string, InfraLineGroup>();
-    const add = (key: string, look: Omit<InfraLineGroup, 'key' | 'lines'>, lines: [number, number][][]) => {
-      const g = groups.get(key) ?? { key, ...look, lines: [] };
-      g.lines.push(...lines);
-      groups.set(key, g);
-    };
-    for (const t of lineTracksRef.current) {
-      const d = t.detail;
-      if (!d?.lines) continue;
-      if (d.kind === 'infra-power-line') {
-        const kv = Number(/(\d+) kV/.exec(d.name ?? '')?.[1] ?? 132);
-        add(`power-${kv}`, kv >= 400 ? { colour: NETWORK_COLOURS.power, px: 1.8, opacity: 0.85 } : kv >= 275 ? { colour: '#ffb020', px: 1.5, opacity: 0.8 } : { colour: '#b8962a', px: 1.1, opacity: 0.65 }, d.lines);
-      } else if (d.kind === 'infra-gas-pipeline') add('gas', { colour: NETWORK_COLOURS.gas, px: 1.4, opacity: 0.75, dashed: true }, d.lines);
-      else if (d.kind === 'infra-telecom-cable') add('telecom', { colour: NETWORK_COLOURS.telecom, px: 1.2, opacity: 0.7 }, d.lines);
-      else if (d.kind.endsWith('-interconnector')) {
-        const dir = d.direction ?? 'idle';
-        add(`link-${dir}`, { colour: FLOW_COLOURS[dir] ?? FLOW_COLOURS.idle, px: 2.8, opacity: 0.95 }, d.lines);
-      }
-    }
-    return [...groups.values()];
-  }, [lineKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Utility network lines, rebuilt only when the set of lines (or a link's direction)
+  // changes, not on every 2-second redraw of the moving tracks. [FR-H-1]
+  const lineKey = utilityLineKey(tracks);
+  const tracksRef = React.useRef(tracks);
+  tracksRef.current = tracks;
+  const infraGroups = React.useMemo(() => utilityLineGroups(tracksRef.current), [lineKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fixed utility sites (substations, works, exchanges: thousands) show only close in;
   // their network lines show at every distance.

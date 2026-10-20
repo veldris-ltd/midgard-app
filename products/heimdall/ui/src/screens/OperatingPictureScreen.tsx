@@ -32,10 +32,11 @@ import { REGION_FOR_PRESET, REGION_LIST, WORLD_ID, inBox as inRegionBox, readFoc
 import { keyOf, replayTracks, stepFor, trailOf } from '../app/history';
 import { useEntityPath, useHistory } from '../app/useHistory';
 import { Timeline, useReplayClock } from '../app/Timeline';
-import type { GlobeTrail } from '../app/globe/GlobeView';
+import type { GlobeTrail, InfraLineGroup } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
 import { AlertsPanel } from '../app/AlertsPanel';
+import { utilityLineGroups, utilityLineKey } from '../app/utilityLines';
 import { ALERT_COLOURS, ALERT_PULSE_CSS, WARNING_LEVEL_COLOURS, alertIconSvg, alertText, markStyle, type AlertMark } from '../app/alertMarks';
 
 type LayerState = Record<HeimdallLayerId, boolean>;
@@ -73,7 +74,7 @@ const HYDRO_2D = (() => {
 /** The map style the 3D view stores (tactical unless set otherwise). */
 const mapStyle2d = () => { try { const v = window.localStorage.getItem('heimdall.globe.imagery'); return v === 'satellite' || v === 'dark' ? v : 'tactical'; } catch { return 'tactical'; } };
 
-function Basemap({ region, radarUrl, traffic }: { region: HeimdallRegion; radarUrl?: string; traffic?: TrafficLines }) {
+function Basemap({ region, radarUrl, traffic, utilityLines }: { region: HeimdallRegion; radarUrl?: string; traffic?: TrafficLines; utilityLines?: InfraLineGroup[] }) {
   const { west, east, south, north } = region;
   const lons: number[] = [];
   const lats: number[] = [];
@@ -107,6 +108,11 @@ function Basemap({ region, radarUrl, traffic }: { region: HeimdallRegion; radarU
       <path d={HYDRO_2D.motorways} fill="none" stroke="#3b82e0" strokeWidth={2.6} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.rail} fill="none" stroke="#111" strokeOpacity={0.9} strokeWidth={3} vectorEffect="non-scaling-stroke" />
       <path d={HYDRO_2D.rail} fill="none" stroke="#f2f2f2" strokeWidth={1.4} strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />
+      {/* Utility networks: power lines by voltage, gas pipelines, cables, interconnectors. [FR-H-1] */}
+      {utilityLines?.map((g) => (
+        <path key={g.key} d={g.lines.map((l) => 'M' + l.map(([la, lo]) => `${lo} ${-la}`).join(' ')).join('')} fill="none" stroke={g.colour}
+          strokeOpacity={g.opacity ?? 0.85} strokeWidth={g.px} strokeDasharray={g.dashed ? '5 3' : undefined} vectorEffect="non-scaling-stroke" />
+      ))}
       {/* Live traffic (TomTom), crisp lines over the roads: light, moderate, heavy, closed. [FR-H-1] */}
       {traffic && (['light', 'moderate', 'closed', 'heavy'] as const).map((cls) => (
         <path key={cls} d={traffic[cls].map((l) => 'M' + l.map(([la, lo]) => `${lo} ${-la}`).join(' ')).join('')} fill="none" stroke={TRAFFIC_COLOURS[cls]} strokeWidth={cls === 'heavy' ? 2.4 : 1.8} vectorEffect="non-scaling-stroke" />
@@ -935,8 +941,8 @@ export function OperatingPictureScreen() {
   React.useEffect(() => {
     if (layerDefs.length && !layers) {
       // Airspace (about 1,300 volumes) starts off, whatever the feed says. [FR-H-1]
-      // Airspace and the fixed utility networks are dense: off until asked for.
-      setLayers(layerDefs.reduce((acc, l) => ({ ...acc, [l.id]: l.id === 'airspace' || l.id === 'infrastructure' ? false : l.active }), {} as LayerState));
+      // Airspace is dense: off until asked for (the fixed utility sites show only close in).
+      setLayers(layerDefs.reduce((acc, l) => ({ ...acc, [l.id]: l.id === 'airspace' ? false : l.active }), {} as LayerState));
     }
   }, [layerDefs, layers]);
 
@@ -1003,6 +1009,13 @@ export function OperatingPictureScreen() {
     },
     [view, visible, trails, viewCircle, sel],
   );
+
+  // Utility network lines for the 2D map (the globe builds its own), rebuilt only when the
+  // lines change. [FR-H-1]
+  const lineKey2d = view === '2d' ? utilityLineKey(visible) : '';
+  const visibleRef = React.useRef(visible);
+  visibleRef.current = visible;
+  const utilityLines2d = React.useMemo(() => (lineKey2d ? utilityLineGroups(visibleRef.current) : []), [lineKey2d]);
 
   // Cameras on screen (the view spans about the camera distance), nearest the centre
   // first, for analysing an area. [FR-P3-5]
@@ -1170,7 +1183,16 @@ export function OperatingPictureScreen() {
     }).sort((x, y) => rank[x.severity] - rank[y.severity]);
   }, [alertsOnMap, replayAt, openAlerts, byKey, world, enabledRegions]);
   const pickAlertId = (id: string) => { const a = openAlerts.find((x) => x.id === id); if (a) pickAlert(a); };
-  const alertName = React.useCallback((a: HeimdallAlert) => byKey.get(a.entity)?.detail?.name, [byKey]);
+  const alertName = React.useCallback((a: HeimdallAlert) => {
+    const d = byKey.get(a.entity)?.detail;
+    // A power cut by where it is and how many customers are off.
+    if (d?.kind === 'utility-power-outage') {
+      const f = (l: string) => d.facts?.find((x) => x.label === l)?.value;
+      const where = f('AREA') ?? f('POSTCODES')?.split(/[;,]\s*/).slice(0, 2).join(', ') ?? f('OPERATOR');
+      return where ? `${where}${f('CUSTOMERS') ? ` (${f('CUSTOMERS')})` : ''}` : undefined;
+    }
+    return d?.name;
+  }, [byKey]);
 
   const authorise = async () => {
     const wfId = WORKFLOW_FOR_RANK[chosen];
@@ -1359,7 +1381,7 @@ export function OperatingPictureScreen() {
 
       {view === '2d' && region && (
         <>
-          <Basemap region={region} radarUrl={radar.status === 'ready' ? radar.frame.url : undefined} traffic={traffic.status === 'ready' ? traffic.lines : undefined} />
+          <Basemap region={region} radarUrl={radar.status === 'ready' ? radar.frame.url : undefined} traffic={traffic.status === 'ready' ? traffic.lines : undefined} utilityLines={utilityLines2d} />
           {areaTracks.length > 0 && <AreaLayer region={region} areas={areaTracks} selected={sel} />}
           <GraticuleLabels region={region} />
           <GeoRings region={region} height={canvasH} />
@@ -1420,8 +1442,9 @@ export function OperatingPictureScreen() {
         const selected = en.id === sel;
         const color = region ? colourOf(en) : anomalous ? 'var(--warn)' : 'var(--accent)';
         const shape = shapeOf(en);
-        // Network lines (power lines, pipelines, cables) are drawn on the globe only.
-        if (shape === 'line') return null;
+        // Network lines are drawn by the basemap; the thousands of fixed sites (substations,
+        // works, exchanges) only on the globe, close in.
+        if (shape === 'line' || en.detail?.kind.startsWith('infra-')) return null;
         const rad = (en.hdg * Math.PI) / 180;
         // Live: the vector is where the track will be in 3 minutes (speed in NM/min × 3).
         // Satellites move too fast for a vector to mean anything at this scale; events do not move.
