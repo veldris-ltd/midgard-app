@@ -1343,10 +1343,12 @@ export function OperatingPictureScreen() {
         </>
       }
       navFooter={
-        <div style={{ padding: '10px 10px 4px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+        // Scrolls on its own when the regions and layers outgrow the window (the nav
+        // above keeps its place).
+        <div style={{ padding: '10px 10px 4px', display: 'flex', flexDirection: 'column', gap: 9, maxHeight: 'max(180px, calc(100vh - 430px))', overflowY: 'auto' }}>
           <div className="mg-label" style={{ color: 'var(--text-faint)' }}>REGIONS</div>
           <Switch checked={focusHover} onChange={setFocusHover} label="Focus on hover" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto', paddingRight: 4, flex: 'none' }}>
             {REGION_LIST.map((r) => (
               <Switch key={r.id} checked={regionIds.includes(r.id)} label={r.label}
                 onChange={(v) => setRegionIds(v ? [...regionIds.filter((x) => x !== WORLD_ID), r.id] : regionIds.filter((x) => x !== r.id))} />
