@@ -7,10 +7,11 @@
 //! channel before [`InferenceHandler::handle`] runs; this layer adds the
 //! per-call authorisation-and-audit envelope and the actual serving.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use audit_writer::{InMemoryLedger, LedgerStore};
 use gateway::RequestHandler;
@@ -53,6 +54,44 @@ pub struct InferenceHandler<S: LedgerStore = InMemoryLedger> {
     governance: Mutex<Governance<S>>,
     resource: Resource,
     clock: Arc<dyn Clock>,
+    /// How the most recent calls were served, keyed by their audit entry; held in
+    /// memory only (the ledger keeps exactly one signed entry per call). [AC-MI-8]
+    recent: Mutex<VecDeque<ServeStat>>,
+}
+
+/// How many recent calls [`InferenceHandler::recent_calls`] keeps.
+pub const RECENT_CALLS: usize = 500;
+
+/// How one call was served: the operator's view of a session, joined to its audit
+/// entry by `audit_seq`. [FR-MI-8]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServeStat {
+    pub audit_seq: u64,
+    pub at: u64,
+    pub caller: String,
+    pub purpose: String,
+    pub workload: String,
+    /// `served`, `denied` or `failed`.
+    pub outcome: String,
+    pub model: Option<String>,
+    pub prompt_tokens: u32,
+    pub tokens: u32,
+    pub first_token_ms: u32,
+    pub total_ms: u64,
+    pub detail: Option<String>,
+}
+
+/// One sealed ledger entry, as an observer sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditView {
+    pub seq: u64,
+    pub actor: String,
+    pub action: String,
+    pub resource: String,
+    pub ts: String,
+    /// Hex of the entry hash the PQ signature covers.
+    pub entry_hash: String,
+    pub sig_alg: String,
 }
 
 impl<S: LedgerStore> InferenceHandler<S> {
@@ -74,6 +113,59 @@ impl<S: LedgerStore> InferenceHandler<S> {
             governance: Mutex::new(governance),
             resource,
             clock,
+            recent: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    /// The most recent calls (newest last), up to [`RECENT_CALLS`].
+    pub fn recent_calls(&self) -> Vec<ServeStat> {
+        self.recent
+            .lock()
+            .expect("recent poisoned")
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// The last `n` sealed ledger entries (oldest first).
+    pub fn recent_audit(&self, n: usize) -> Vec<AuditView> {
+        let gov = self.governance.lock().expect("gov poisoned");
+        let entries = gov.audit_entries();
+        entries[entries.len().saturating_sub(n)..]
+            .iter()
+            .map(|e| AuditView {
+                seq: e.seq,
+                actor: e.record.actor.0.clone(),
+                action: e.record.action.0.clone(),
+                resource: e.record.resource.0.clone(),
+                ts: e.record.ts.0.clone(),
+                entry_hash: e.entry_hash.iter().fold(String::new(), |mut s, b| {
+                    use std::fmt::Write;
+                    let _ = write!(s, "{b:02x}");
+                    s
+                }),
+                sig_alg: format!("{:?}", e.sig_alg),
+            })
+            .collect()
+    }
+
+    /// Authorise **and audit** an observer read (`action`, e.g. `ReadSessions`) by
+    /// `peer`: true when policy permits it. An audit failure is a refusal. [NFR-SEC-1]
+    pub fn authorize_observer(&self, peer: &WorkloadIdentity, purpose: &str, action: &str) -> bool {
+        let ctx = Self::context(peer, purpose);
+        let now = self.clock.now();
+        self.governance
+            .lock()
+            .expect("gov poisoned")
+            .authorize(&ctx, &self.resource, action, now)
+            .is_ok_and(|d| d.permitted)
+    }
+
+    fn remember(&self, stat: ServeStat) {
+        let mut recent = self.recent.lock().expect("recent poisoned");
+        recent.push_back(stat);
+        while recent.len() > RECENT_CALLS {
+            recent.pop_front();
         }
     }
 
@@ -145,7 +237,22 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
             }
         };
 
+        let stat = |outcome: &str| ServeStat {
+            audit_seq: decision.audit_seq,
+            at: now,
+            caller: ctx.subject.clone(),
+            purpose: req.purpose.clone(),
+            workload: format!("{:?}", req.workload_class),
+            outcome: outcome.to_string(),
+            model: None,
+            prompt_tokens: 0,
+            tokens: 0,
+            first_token_ms: 0,
+            total_ms: 0,
+            detail: None,
+        };
         if !decision.permitted {
+            self.remember(stat("denied"));
             return InferenceResponse::Denied {
                 reason: "POLICY_DENIED".to_string(),
                 audit_seq: decision.audit_seq,
@@ -154,17 +261,35 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
         }
 
         // Serve locally, then stamp the audit evidence onto the completion.
+        let started = Instant::now();
         let prepared = self.server.prepare(&req);
-        match self.server.infer(prepared) {
+        let result = self.server.infer(prepared);
+        let total_ms = started.elapsed().as_millis() as u64;
+        match result {
             Ok(mut c) => {
                 c.audit_seq = decision.audit_seq;
+                self.remember(ServeStat {
+                    model: Some(c.model_id.clone()),
+                    prompt_tokens: c.prompt_tokens,
+                    tokens: c.completion_tokens,
+                    first_token_ms: c.first_token_ms,
+                    total_ms,
+                    ..stat("served")
+                });
                 InferenceResponse::Ok(c).encode()
             }
-            Err(e) => InferenceResponse::Denied {
-                reason: format!("INFER_ERROR:{e}"),
-                audit_seq: decision.audit_seq,
+            Err(e) => {
+                self.remember(ServeStat {
+                    total_ms,
+                    detail: Some(e.to_string().chars().take(240).collect()),
+                    ..stat("failed")
+                });
+                InferenceResponse::Denied {
+                    reason: format!("INFER_ERROR:{e}"),
+                    audit_seq: decision.audit_seq,
+                }
+                .encode()
             }
-            .encode(),
         }
     }
 }

@@ -17,6 +17,7 @@ export type { LoginCredentials, LoginResult } from './http/login';
 // are product-prefixed to avoid collisions across the shared barrel.
 export * from './products/forge';
 export * from './products/mimir';
+export * from './products/mimir-http';
 export * from './products/bifrost';
 export * from './products/heimdall';
 export * from './products/heimdall-http';

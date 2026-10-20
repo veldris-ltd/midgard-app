@@ -850,6 +850,7 @@ name = "mimir-server"
 version = "0.1.0-rc.1"
 dependencies = [
  "attest",
+ "audit-writer",
  "gateway",
  "governance",
  "iam",

@@ -123,6 +123,33 @@ export interface MimirModel {
   tps: string;
   status: MimirHealth;
   statusLabel: string;
+  /** From the running plane, when the console is live (absent offline). [FR-MI-8] */
+  live?: MimirModelLive;
+}
+
+/** What the running plane reports about a served model. [FR-MI-1] [FR-MI-8] */
+export interface MimirModelLive {
+  family: string;
+  version: string;
+  file: string | null;
+  sizeBytes: number | null;
+  sha256: string;
+  licence: string;
+  osiApproved: boolean;
+  redistributable: boolean;
+  signature: string;
+  engine: string;
+  sidecarHealthy: boolean | null;
+  node: string;
+  firstTokenMs: number | null;
+  avgTotalMs: number | null;
+  calls: number;
+  served: number;
+  failed: number;
+  denied: number;
+  ledgerEntries: number;
+  /** Who has called the plane recently, by caller identity. */
+  consumers: { caller: string; calls: number; lastAt: number; purposes: string[] }[];
 }
 
 export type MimirLogicKind =
@@ -184,6 +211,18 @@ export interface MimirSession {
   total: string;
   steps: MimirTraceStep[];
   memory: MimirMemoryRecord[];
+  /** From the running plane, when the console is live (absent offline). [FR-MI-8] */
+  live?: {
+    caller: string;
+    purpose: string;
+    at: number;
+    outcome: 'served' | 'denied' | 'failed';
+    model: string | null;
+    promptTokens: number;
+    tokens: number;
+    /** The call's PQ-signed ledger entry, if it is still among the newest entries. */
+    ledger: { seq: number; action: string; resource: string; entryHash: string; sigAlg: string } | null;
+  };
 }
 
 export type MimirFeedbackKind = 'correction' | 'regression' | 'rating';

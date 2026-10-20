@@ -27,6 +27,7 @@ pub mod heimdall_bridge;
 pub mod http;
 pub mod import_file;
 pub mod mesh_sync;
+pub mod mimir_observer;
 pub mod ontology_file;
 pub mod state_dir;
 use service_runtime::strict_json;
@@ -126,6 +127,7 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// The read path to Heimdall's picture, where one is configured. [FR-H-1]
     heimdall: Option<heimdall_bridge::HeimdallBridge>,
     analytics: Option<camera_analytics::AnalyticsClient>,
+    mimir: Option<mimir_observer::MimirObserver>,
 }
 
 impl<L: LedgerStore> SecuredGateway<InMemoryStore, L> {
@@ -180,6 +182,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             )),
             heimdall: None,
             analytics: None,
+            mimir: None,
         }
     }
 
@@ -196,6 +199,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// through `client`, authorised and audited as `Apply`. [FR-P3-5]
     pub fn with_analytics(mut self, client: camera_analytics::AnalyticsClient) -> Self {
         self.analytics = Some(client);
+        self
+    }
+
+    /// Serve the Mimir console's live view (`/api/v1/mimir/models`, `/sessions`) from
+    /// `observer`, authorised and audited as `Read`. [FR-MI-8]
+    pub fn with_mimir(mut self, observer: mimir_observer::MimirObserver) -> Self {
+        self.mimir = Some(observer);
         self
     }
 
@@ -687,6 +697,22 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 None => Err(EdgeError::new(
                     404,
                     "this gateway is not connected to Heimdall",
+                )),
+            },
+            // The Mimir console's live view, authorised and audited as `Read`. [FR-MI-8]
+            ("GET", mimir_observer::MODELS_PATH) => match &self.mimir {
+                Some(m) => m.models(),
+                None => Err(EdgeError::new(
+                    404,
+                    "this gateway is not connected to Mimir",
+                )),
+            },
+            ("GET", mimir_observer::SESSIONS_PATH) => match &self.mimir {
+                Some(m) => mimir_observer::sessions_limit(req.query_param("limit").as_deref())
+                    .and_then(|n| m.sessions(n)),
+                None => Err(EdgeError::new(
+                    404,
+                    "this gateway is not connected to Mimir",
                 )),
             },
             // A question over the picture (the Mimir core agent via Heimdall), a read like

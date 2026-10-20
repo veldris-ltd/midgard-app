@@ -11,6 +11,7 @@ default = ["backend-fips"]
 backend-fips = [
     "pqc-agility/backend-fips",
     "pq-mtls/backend-fips",
+    "audit-writer/backend-fips",
     "gateway/backend-fips",
     "governance/backend-fips",
     "model-server/backend-fips",
@@ -21,6 +22,8 @@ backend-fips = [
 [dependencies]
 pqc-agility = { path = "../../crypto/pqc-agility" }
 pq-mtls = { path = "../../crypto/pq-mtls" }
+# The ledger store the observer reads entries through.
+audit-writer = { path = "../../crypto/audit-writer" }
 policy = { path = "../../crypto/policy" }
 gateway = { path = "../../services/gateway" }
 governance = { path = "../../services/governance" }

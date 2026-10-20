@@ -53,6 +53,7 @@ usage:
   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
                [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR [--heimdall-service NAME]
+               [--mimir-observe-addr HOST:PORT --mimir-identity-dir DIR [--mimir-service NAME]]
                [--analytics-addr HOST:PORT --analytics-token-file FILE]
                 [--heimdall-purpose P]]";
 
@@ -86,6 +87,9 @@ fn main() {
     let mut heimdall_addr = None;
     let mut heimdall_identity_dir = None;
     let mut heimdall_service = "picture-analyst".to_string();
+    let mut mimir_addr = None;
+    let mut mimir_identity_dir = None;
+    let mut mimir_service = "mimir-observer".to_string();
     let mut heimdall_purpose = "situational-awareness".to_string();
     let mut analytics_addr = None;
     let mut analytics_token_file = None;
@@ -105,6 +109,9 @@ fn main() {
             "--heimdall-addr" => heimdall_addr = Some(value.clone()),
             "--heimdall-identity-dir" => heimdall_identity_dir = Some(value.clone()),
             "--heimdall-service" => heimdall_service = value.clone(),
+            "--mimir-observe-addr" => mimir_addr = Some(value.clone()),
+            "--mimir-identity-dir" => mimir_identity_dir = Some(value.clone()),
+            "--mimir-service" => mimir_service = value.clone(),
             "--heimdall-purpose" => heimdall_purpose = value.clone(),
             "--analytics-addr" => analytics_addr = Some(value.clone()),
             "--analytics-token-file" => analytics_token_file = Some(value.clone()),
@@ -120,6 +127,9 @@ fn main() {
     }
     if heimdall_addr.is_some() != heimdall_identity_dir.is_some() {
         fail_usage("--heimdall-addr and --heimdall-identity-dir go together");
+    }
+    if mimir_addr.is_some() != mimir_identity_dir.is_some() {
+        fail_usage("--mimir-observe-addr and --mimir-identity-dir go together");
     }
     if analytics_addr.is_some() != analytics_token_file.is_some() {
         fail_usage("--analytics-addr and --analytics-token-file go together");
@@ -161,6 +171,23 @@ fn main() {
         };
         gateway = gateway.with_heimdall(HeimdallBridge::new(identity, &addr, &heimdall_purpose));
         eprintln!("http-gateway: serving Heimdall's picture from {addr} as {heimdall_service}");
+    }
+    if let (Some(addr), Some(dir)) = (mimir_addr, mimir_identity_dir) {
+        let identity = match ServiceIdentity::load(&dir, &mimir_service) {
+            Ok(identity) => identity,
+            Err(e) => {
+                eprintln!("http-gateway: cannot load the Mimir observer identity: {e}");
+                exit(1);
+            }
+        };
+        gateway = gateway.with_mimir(http_gateway::mimir_observer::MimirObserver::new(
+            identity,
+            &addr,
+            "investigation",
+        ));
+        eprintln!(
+            "http-gateway: serving Mimir's model plane and sessions from {addr} as {mimir_service}"
+        );
     }
     if let (Some(addr), Some(file)) = (analytics_addr, analytics_token_file) {
         let token = match std::fs::read_to_string(&file) {

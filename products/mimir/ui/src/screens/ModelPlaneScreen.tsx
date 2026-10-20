@@ -43,12 +43,20 @@ export function ModelPlaneScreen() {
       <Card size="sm">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <StatBlock value={m.tps} label="THROUGHPUT" size="sm" />
-          <StatBlock value="0.42s" label="FIRST TOKEN · NFR-PERF-1" size="sm" />
+          <StatBlock value={m.live ? (m.live.firstTokenMs != null ? `${m.live.firstTokenMs} ms` : '—') : '0.42s'} label={m.live ? 'FIRST TOKEN · AVERAGE' : 'FIRST TOKEN · NFR-PERF-1'} size="sm" />
         </div>
       </Card>
       <div>
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>WEIGHTS PROVENANCE</div>
-        {([
+        {(m.live ? [
+          ['Source', `${m.live.file ?? 'weights'}${m.live.sizeBytes ? ` · ${(m.live.sizeBytes / 1e9).toFixed(2)} GB` : ''}`],
+          ['Digest', `sha256:${m.live.sha256.slice(0, 12)}…${m.live.sha256.slice(-4)}`],
+          ['Licence', `${m.live.licence}${m.live.osiApproved ? ' · OSI' : ''}${m.live.redistributable ? ' · redistributable' : ''}`],
+          ['Signature', `${m.live.signature} · fails closed`],
+          ['Serving', `${m.live.engine} sidecar · ${m.live.sidecarHealthy === false ? 'DOWN' : 'healthy'}`],
+          ['Node', m.live.node],
+          ['Egress', 'none · weights never leave'],
+        ] : [
           ['Source', 'open weights · vendored'],
           ['Digest', 'sha3:77aa…41c9'],
           ['Signature', 'ML-DSA verified on load · fails closed'],
@@ -61,7 +69,14 @@ export function ModelPlaneScreen() {
           </div>
         ))}
       </div>
-      <Terminal title="CANARY PROMPTS" lines={['> mimir models canary ' + m.name.toLowerCase().replace(' ', '-'), 'grounding   24/24 OK', 'refusals    18/18 OK', 'latency     p99 0.61s', '# canary battery clean']} />
+      {m.live ? (
+        <Terminal title="LIVE · SINCE THE PLANE STARTED" lines={[
+          '> mimir models describe',
+          `calls    ${m.live.calls} · served ${m.live.served} · failed ${m.live.failed} · denied ${m.live.denied}`,
+          `latency  first token ${m.live.firstTokenMs ?? '—'} ms · total ${m.live.avgTotalMs != null ? (m.live.avgTotalMs / 1000).toFixed(1) + ' s' : '—'} (avg)`,
+          `ledger   ${m.live.ledgerEntries} PQ-signed entries · one per call`,
+        ]} />
+      ) : <Terminal title="CANARY PROMPTS" lines={['> mimir models canary ' + m.name.toLowerCase().replace(' ', '-'), 'grounding   24/24 OK', 'refusals    18/18 OK', 'latency     p99 0.61s', '# canary battery clean']} />}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
         <ProvenanceTag id="DD-4" title="Local AI processing via the Mimir layer" />
         <ProvenanceTag id="FR-MI-8" title="Expose inference to Forge, Bifrost, Heimdall over internal PQ-mTLS" />
@@ -83,8 +98,8 @@ export function ModelPlaneScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Model serving</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="3" label="FAMILIES" size="sm" />
-        <StatBlock value="8×" label="GPU POOL" size="sm" />
+        <StatBlock value={String(rows.length || '—')} label={rows[0]?.live ? 'SERVED NOW' : 'FAMILIES'} size="sm" />
+        <StatBlock value={rows[0]?.live ? rows[0].gpu : '8×'} label={rows[0]?.live ? 'HARDWARE' : 'GPU POOL'} size="sm" />
         <StatBlock value="0" label="EXTERNAL CALLS" size="sm" accent />
       </div>
 
@@ -113,9 +128,11 @@ export function ModelPlaneScreen() {
               { header: 'Consumer', key: 'c', mono: true },
               { header: 'Use', key: 'u' },
               { header: 'Model', key: 'm', mono: true, width: 110 },
-              { header: 'Calls · 24h', key: 'n', mono: true, align: 'right', width: 100 },
+              { header: rows[0]?.live ? 'Calls · since start' : 'Calls · 24h', key: 'n', mono: true, align: 'right', width: 120 },
             ]}
-            rows={CONSUMERS}
+            rows={rows[0]?.live
+              ? rows[0].live.consumers.map((c) => ({ c: c.caller, u: `purpose: ${c.purposes.join(', ')} · last ${new Date(c.lastAt * 1000).toISOString().slice(11, 16)}Z`, m: rows[0].name, n: String(c.calls) }))
+              : CONSUMERS}
             style={{ minWidth: 640 }}
           />
         </div>
