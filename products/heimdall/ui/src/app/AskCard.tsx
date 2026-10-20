@@ -1,4 +1,4 @@
-/* Ask Mimir: a question about the picture in the area on screen, answered by the
+/* Mimir: a question about the picture in the area on screen, answered by the
  * enclosure's own model (the Mimir core agent, A.1) from the items Heimdall gives it as
  * evidence, every one cited and checked. Strictly advisory: actions it proposes are
  * shown, never executed, and the question is recorded in Heimdall's audit ledger.
@@ -43,7 +43,7 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
   return (
     <Card size="sm">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span className="mg-label" style={{ color: 'var(--accent-hover)' }}>ASK MIMIR</span>
+        <span className="mg-label" style={{ color: 'var(--accent-hover)' }}>MIMIR</span>
         <span style={{ marginLeft: 'auto', ...mono, color: 'var(--text-faint)', textAlign: 'right' }}>{areaLabel}</span>
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
