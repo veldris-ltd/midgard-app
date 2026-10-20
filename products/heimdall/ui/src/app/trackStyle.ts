@@ -26,7 +26,33 @@ export const FLOOD_COLOURS: Record<number, string> = {
 /** The entity kind a track is drawn as. Reference-layout tracks carry no detail, so
  *  their layer stands in. */
 export type TrackShape = 'aircraft' | 'vessel' | 'train' | 'camera' | 'airport' | 'balloon' | 'satellite' | 'quake' | 'flood' | 'point'
-  | 'sigmet' | 'warning' | 'windfarm' | 'platform' | 'road' | 'airspace' | 'fire';
+  | 'sigmet' | 'warning' | 'windfarm' | 'platform' | 'road' | 'airspace' | 'fire'
+  // utilities: power cut, water (overflow, reservoir), plant or gas site, fixed site, a
+  // whole system's status, and a network line (drawn as a line, not a marker)
+  | 'outage' | 'drop' | 'hexagon' | 'site' | 'hub' | 'line';
+
+/** Utility networks' colours. [FR-H-1] */
+export const NETWORK_COLOURS: Record<string, string> = { power: '#ffd23f', water: '#3fa9ff', gas: '#ff8c1a', telecom: '#b48cff' };
+/** Power stations by fuel (OpenStreetMap plant:source). */
+const PLANT_COLOURS: Record<string, string> = {
+  wind: '#7fd3ff', solar: '#ffe066', gas: '#ff8c1a', nuclear: '#c77dff', hydro: '#3fa9ff', coal: '#9a9a9a', oil: '#9a9a9a',
+  biomass: '#8bc34a', biofuel: '#8bc34a', waste: '#a1887f', battery: '#2fd16b', tidal: '#4dd0e1',
+};
+/** Interconnector flow direction (into GB, out of GB, idle). */
+export const FLOW_COLOURS: Record<string, string> = { import: '#2fd16b', export: '#ff9f1a', idle: '#6f7f8f' };
+
+/** A utility entity's colour from its kind and what it reports. */
+export function utilityColour(d: { kind: string; network?: string; planned?: boolean; status?: string; flowing?: boolean; direction?: string; fuel?: string; voltageKv?: number }): string {
+  switch (d.kind) {
+    case 'utility-power-outage': return d.planned ? '#ffd23f' : '#ff4d2e';
+    case 'utility-water-overflow': return d.status === 'discharging' ? '#d9a441' : '#7f8c99';
+    case 'utility-gas-terminal': case 'utility-gas-storage': return d.flowing ? '#ff8c1a' : '#8a6a4a';
+    case 'utility-power-interconnector': case 'utility-gas-interconnector': return FLOW_COLOURS[d.direction ?? 'idle'] ?? FLOW_COLOURS.idle;
+    case 'utility-telecom-outage': return '#ff4dd2';
+    case 'infra-power-plant': return PLANT_COLOURS[(d.fuel ?? '').split(';')[0].toLowerCase()] ?? NETWORK_COLOURS.power;
+    default: return NETWORK_COLOURS[d.network ?? ''] ?? 'var(--text-muted)';
+  }
+}
 
 /** openAIP airspace by type: restrictions warm, controlled airspace cool, the rest faint. */
 export function airspaceColour(type: string | undefined): string {
@@ -96,7 +122,17 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'land-road-disruption': return 'road';
     case 'airspace-volume': return 'airspace';
     case 'event-fire': return 'fire';
-    default: return 'point';
+    case 'utility-power-outage': return 'outage';
+    case 'utility-water-overflow': case 'utility-water-reservoir': return 'drop';
+    case 'utility-gas-terminal': case 'utility-gas-storage': case 'infra-power-plant': return 'hexagon';
+    case 'utility-power-grid': case 'utility-gas-system': case 'utility-telecom-outage': return 'hub';
+    case 'utility-power-interconnector': case 'utility-gas-interconnector':
+    case 'infra-power-substation': case 'infra-water-works': case 'infra-water-treatment':
+    case 'infra-telecom-exchange': case 'infra-telecom-datacentre': return 'site';
+    default:
+      // Network lines (power lines, pipelines, cables) are drawn as lines.
+      if (kind.startsWith('infra-') && t.detail?.lines) return 'line';
+      return 'point';
   }
 }
 
@@ -161,6 +197,8 @@ export function colourOf(t: HeimdallTrack): string {
     case 'fire': return FIRE_COLOUR;
     case 'sigmet': case 'warning': case 'windfarm': case 'road': case 'airspace': return t.detail ? areaColour(t.detail) : 'var(--text-muted)';
     case 'platform': return 'var(--forge-300)';
+    case 'outage': case 'drop': case 'hexagon': case 'site': case 'hub': case 'line':
+      return t.detail ? utilityColour(t.detail) : 'var(--text-muted)';
     default: return 'var(--text-muted)';
   }
 }
@@ -204,6 +242,20 @@ export const AREA_LEGEND: { label: string; color: string; kind: string }[] = [
   { label: 'PLATFORM', color: 'var(--forge-300)', kind: 'sea-platform' },
   { label: 'ROAD', color: 'var(--warn)', kind: 'land-road-disruption' },
   { label: 'FIRE', color: 'var(--forge-500)', kind: 'event-fire' },
+  // utilities [FR-H-1]
+  { label: 'POWER CUT', color: '#ff4d2e', kind: 'utility-power-outage' },
+  { label: 'PLANNED WORK', color: '#ffd23f', kind: 'utility-power-outage' },
+  { label: 'INTERCONNECTOR IMPORT / EXPORT', color: '#2fd16b', kind: 'utility-power-interconnector' },
+  { label: 'STORM OVERFLOW (NOW / 48 H)', color: '#d9a441', kind: 'utility-water-overflow' },
+  { label: 'RESERVOIR', color: '#3fa9ff', kind: 'utility-water-reservoir' },
+  { label: 'GAS TERMINAL / STORAGE', color: '#ff8c1a', kind: 'utility-gas-terminal' },
+  { label: 'INTERNET DISRUPTION', color: '#ff4dd2', kind: 'utility-telecom-outage' },
+  { label: 'POWER LINE 400 / 275 / 132 KV', color: '#ffd23f', kind: 'infra-power-line' },
+  { label: 'SUBSTATION', color: '#ffd23f', kind: 'infra-power-substation' },
+  { label: 'POWER STATION (BY FUEL)', color: '#7fd3ff', kind: 'infra-power-plant' },
+  { label: 'GAS PIPELINE', color: '#ff8c1a', kind: 'infra-gas-pipeline' },
+  { label: 'WATER / WASTEWATER WORKS', color: '#3fa9ff', kind: 'infra-water-works' },
+  { label: 'SUBMARINE CABLE / EXCHANGE', color: '#b48cff', kind: 'infra-telecom-cable' },
   { label: 'AIRSPACE R/D/P · CTR/TMA', color: 'var(--info)', kind: 'airspace-volume' },
   { label: 'GPS INTERFERENCE', color: '#ff2bd6', kind: 'event-gnss-interference' },
 ];

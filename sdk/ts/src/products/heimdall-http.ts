@@ -107,13 +107,14 @@ const ALERT_LABELS = new Set(['emergency', 'radio-failure', 'unlawful-interferen
 /** Heimdall's wire layer ids → the console's layer ids. Anything else is `other`. */
 const WIRE_LAYERS: Record<string, HeimdallLayerId> = {
   air: 'air', sea: 'maritime', land: 'ground', space: 'space', events: 'events', other: 'other', airspace: 'airspace',
+  utilities: 'utilities', infrastructure: 'infrastructure',
 };
 const layerOf = (wire: string): HeimdallLayerId => WIRE_LAYERS[wire] ?? 'other';
 const wireLayer = (id: HeimdallLayerId): string =>
   Object.keys(WIRE_LAYERS).find((k) => WIRE_LAYERS[k] === id) ?? id;
 /** Layers that hardly change, read every STATIC_EVERY_MS rather than with every
  *  picture read (airspace alone is most of the picture's size). [FR-H-1] */
-const STATIC_LAYERS = ['airspace'];
+const STATIC_LAYERS = ['airspace', 'infrastructure'];
 const STATIC_EVERY_MS = 15 * 60 * 1000;
 
 /** Reported positions kept per track for its trail (about 15 minutes at 45 s). */
@@ -304,6 +305,15 @@ export function parsePolygon(text: unknown): [number, number][] | undefined {
   return pts.length >= 3 ? pts : undefined;
 }
 
+/** A utility line's `line`: parts separated by "|", each "lat,lon;lat,lon;…". */
+export function parseLines(text: unknown): [number, number][][] | undefined {
+  if (typeof text !== 'string' || !text) return undefined;
+  const parts = text.split('|').map((part) => part.split(';').map((p) => p.split(',').map(Number))
+    .filter((p) => p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) <= 90)
+    .map((p) => [p[0], p[1]] as [number, number])).filter((part) => part.length >= 2);
+  return parts.length ? parts : undefined;
+}
+
 /** A road disruption's `line` ("lat,lon;lat,lon;…", the affected stretch of road) as a
  *  narrow band around it, so it is drawn like any other area: about 4 km wide, enough to
  *  see at regional zoom. [FR-H-1] */
@@ -339,6 +349,57 @@ function when(v: unknown): string | undefined {
 function factsOf(e: WireEntity): { label: string; value: string }[] {
   const rows: [string, string | undefined][] = [];
   const a = (k: string) => textAttr(e, k);
+  const n = (k: string) => num(e.attributes[k]);
+  const hm = (k: string) => { const s = n(k); return s === undefined ? undefined : new Date(s * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; };
+  const unit = (k: string, u: string, dp = 0) => { const v = n(k); return v === undefined ? undefined : `${v.toLocaleString(undefined, { maximumFractionDigits: dp })} ${u}`; };
+  // Utilities. [FR-H-1]
+  switch (e.kind) {
+    case 'utility-power-outage':
+      rows.push(['OPERATOR', a('operator')], ['TYPE', e.attributes.planned === true ? 'Planned work' : 'Unplanned power cut'],
+        ['CUSTOMERS', a('customers')], ['SINCE', hm('started')], ['RESTORE BY', hm('etr')], ['AREA', a('area')],
+        ['POSTCODES', a('postcodes')], ['VOLTAGE', a('voltage')], ['CAUSE', a('cause')], ['REFERENCE', a('ref')]);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-power-grid':
+      rows.push(['FREQUENCY', unit('frequency_hz', 'Hz', 3)], ['5-MIN RANGE', n('frequency_min_5m') !== undefined ? `${n('frequency_min_5m')} – ${n('frequency_max_5m')} Hz` : undefined],
+        ['DEMAND', unit('demand_mw', 'MW')], ['GENERATION', unit('generation_mw', 'MW')], ['NET IMPORT', unit('net_import_mw', 'MW')],
+        ['WIND', n('wind_pct') !== undefined ? `${n('wind_pct')} %` : undefined], ['LOW CARBON', n('low_carbon_pct') !== undefined ? `${n('low_carbon_pct')} %` : undefined],
+        ['CARBON', n('carbon_g_kwh') !== undefined ? `${n('carbon_g_kwh')} gCO₂/kWh (${a('carbon_index') ?? '—'})` : undefined],
+        ['MIX (MW)', a('mix')?.replace(/,/g, ' · ').replace(/:/g, ' ')], ['READING', hm('frequency_at')]);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-power-interconnector':
+      rows.push(['TO / FROM', a('country')], ['FLOW', n('flow_mw') !== undefined ? `${Math.abs(n('flow_mw')!).toLocaleString()} MW ${a('direction') ?? ''}` : undefined],
+        ['CAPACITY', unit('capacity_mw', 'MW')], ['USE', n('flow_pct') !== undefined ? `${n('flow_pct')} %` : undefined], ['HALF HOUR FROM', hm('flow_at')], ['ROUTE', 'approximate']);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-water-overflow':
+      rows.push(['COMPANY', a('operator')], ['STATUS', a('status') === 'discharging' ? 'Discharging now' : 'Stopped (last 48 h)'],
+        ['SINCE', hm('since')], ['LAST EVENT', [hm('last_start'), hm('last_end')].filter(Boolean).join(' → ') || undefined],
+        ['INTO', a('watercourse')], ['SITE', a('site') ?? a('ref')], ['UPDATED', hm('updated')]);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-water-reservoir':
+      rows.push(['LEVEL', unit('level_m', 'm', 2)], ['SPILLWAY', unit('spillway_m', 'm', 2)], ['READING', hm('reading_at')], ['SOURCE', 'Environment Agency']);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-gas-terminal': case 'utility-gas-storage':
+      rows.push(['FLOW', unit(e.kind === 'utility-gas-storage' ? 'withdrawal_mcmd' : 'flow_mcmd', 'mcm/d', 2)], ['ENTRY POINTS', a('entries')?.replace(/,/g, ' · ').replace(/:/g, ' ')],
+        ['TYPE', a('site_type')], ['ESTIMATED', e.attributes.estimated === true ? 'yes' : undefined], ['AT', hm('flow_at')]);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-gas-interconnector':
+      rows.push(['TO / FROM', a('country')], ['FLOW', n('flow_mcmd') !== undefined ? `${n('flow_mcmd')} mcm/d ${a('direction') ?? ''}` : undefined], ['AT', hm('flow_at')], ['ROUTE', 'approximate']);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-gas-system':
+      rows.push(['SUPPLY', unit('supply_mcmd', 'mcm/d', 1)], ['DEMAND', unit('demand_mcmd', 'mcm/d', 1)], ['LINEPACK', unit('linepack_mcm', 'mcm', 1)],
+        ['HOMES & BUSINESSES', unit('ldz_mcmd', 'mcm/d', 1)], ['POWER STATIONS', unit('power_mcmd', 'mcm/d', 1)], ['EXPORTS', unit('export_mcmd', 'mcm/d', 1)],
+        ['INTO STORAGE', unit('storage_injection_mcmd', 'mcm/d', 1)], ['GAS DAY', a('gas_day')], ['PUBLISHED', hm('published')]);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-telecom-outage':
+      rows.push(['COUNTRY', a('country')], ['SIGNALS', a('signals')], ['SCORE', a('score')], ['EVENTS (6 H)', a('events')], ['SOURCE', 'IODA, Georgia Tech']);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    default:
+      if (e.kind.startsWith('infra-')) {
+        rows.push(['OPERATOR', a('operator')], ['VOLTAGE', unit('voltage_kv', 'kV')], ['FUEL', a('fuel')], ['OUTPUT', unit('output_mw', 'MW', 1)],
+          ['LINES', a('lines_n')], ['SOURCE', '© OpenStreetMap contributors']);
+        return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+      }
+  }
   switch (e.kind) {
     case 'air-balloon':
       rows.push(['TYPE', a('type')], ['ASCENT', num(e.attributes.vel_v) !== undefined ? `${num(e.attributes.vel_v)!.toFixed(1)} m/s` : undefined],
@@ -707,6 +768,13 @@ export class HeimdallHttp implements HeimdallGateway {
         validFrom: e.kind === 'event-weather-warning' || e.kind === 'event-sigmet' ? num(e.attributes.valid_from) : undefined,
         validTo: e.kind === 'event-weather-warning' || e.kind === 'event-sigmet' ? num(e.attributes.valid_to) : undefined,
         weather: e.kind === 'event-weather-warning' ? text('weather') : undefined,
+        lines: e.kind.startsWith('infra-') || e.kind.endsWith('-interconnector') ? parseLines(e.attributes.line) : undefined,
+        network: e.kind.startsWith('infra-') || e.kind.startsWith('utility-') ? text('network') : undefined,
+        planned: e.kind === 'utility-power-outage' ? e.attributes.planned === true : undefined,
+        status: e.kind.startsWith('utility-') ? text('status') : undefined,
+        flowing: e.kind.startsWith('utility-gas') ? e.attributes.flowing === true : undefined,
+        direction: e.kind.endsWith('-interconnector') ? text('direction') : undefined,
+        fuel: e.kind === 'infra-power-plant' ? text('fuel') : undefined,
         level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : e.kind === 'event-gnss-interference' ? text('level') : undefined,
         taf: e.kind === 'land-airport' ? text('taf') : undefined,
         tafWorst: e.kind === 'land-airport' ? text('taf_worst_category_12h') : undefined,

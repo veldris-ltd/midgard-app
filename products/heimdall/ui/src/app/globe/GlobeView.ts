@@ -47,6 +47,17 @@ import { D2R, EARTH_KM, drawnHeight, enu, raySphere, toVec } from './geo';
 import { circle, greatCircle, subsolarPoint, type LatLon } from '../geoMath';
 
 /** An area drawn on the globe: a SIGMET volume, or a fill draped on the ground. */
+/** One look of utility network line: colour, width in CSS pixels, dashed or not. */
+export interface InfraLineGroup {
+  key: string;
+  colour: string;
+  px: number;
+  opacity?: number;
+  dashed?: boolean;
+  /** Polylines of [lat, lon]. */
+  lines: [number, number][][];
+}
+
 export interface GlobeArea {
   id: string;
   /** `volume`: extruded from baseM to topM; `drape`: on the ground. */
@@ -135,10 +146,14 @@ export interface GlobeCallbacks {
 const PX: Record<TrackShape, number> = {
   aircraft: 17, vessel: 13, train: 10, camera: 9, airport: 10, balloon: 7, satellite: 8, quake: 9, flood: 8, point: 6,
   sigmet: 9, warning: 9, windfarm: 15, platform: 7, road: 8, airspace: 4, fire: 6,
+  outage: 12, drop: 8, hexagon: 9, site: 5, hub: 13, line: 0,
 };
-const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'train', 'camera', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire'];
+// 'line' has no marker: network lines are drawn by setInfraLines.
+const SHAPES: TrackShape[] = ['aircraft', 'vessel', 'train', 'camera', 'airport', 'balloon', 'satellite', 'quake', 'flood', 'point', 'sigmet', 'warning', 'windfarm', 'platform', 'road', 'airspace', 'fire',
+  'outage', 'drop', 'hexagon', 'site', 'hub'];
 /** Flat marks laid on the ground (unlit, translucent). */
-const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire', 'train', 'camera']);
+const FLAT = new Set<TrackShape>(['quake', 'flood', 'airport', 'warning', 'windfarm', 'road', 'airspace', 'fire', 'train', 'camera',
+  'outage', 'drop', 'hexagon', 'site', 'hub']);
 /** Marks placed on the terrain surface rather than at an altitude. */
 const SURFACE = new Set<TrackShape>([...FLAT, 'platform']);
 /** The draped overlays' texture size over the UK terrain box (about 0.4 km a pixel). */
@@ -459,6 +474,9 @@ export class GlobeView {
   private trafficAbort: AbortController | null = null;
   private trafficTimer = 0;
   private readonly trafficFat: { cls: keyof TrafficLines | 'casing'; obj: LineSegments2 }[] = [];
+  /** Utility networks' lines (power lines, pipelines, cables), one crisp line object per
+   *  group (colour and width). */
+  private readonly infraFat = new Map<string, LineSegments2>();
   /** Close-up detail laid on the terrain for the area in view (see detailPatch.ts). */
   private detail: { mesh: THREE.Mesh; key: string } | null = null;
   private detailWant = '';
@@ -639,6 +657,19 @@ export class GlobeView {
     this.geometries.set('road', new THREE.CircleGeometry(1, 4));
     this.geometries.set('airspace', new THREE.RingGeometry(0.6, 1, 16));
     this.geometries.set('fire', new THREE.CircleGeometry(1, 16));
+    // Utilities: a lightning bolt (power cut), a drop (water), a hexagon (plant, gas
+    // site), a small square (fixed site) and a ring (a whole system's status).
+    const bolt = new THREE.Shape();
+    bolt.moveTo(0.15, 1); bolt.lineTo(-0.55, -0.05); bolt.lineTo(-0.05, -0.05); bolt.lineTo(-0.2, -1);
+    bolt.lineTo(0.55, 0.12); bolt.lineTo(0.05, 0.12); bolt.closePath();
+    this.geometries.set('outage', new THREE.ShapeGeometry(bolt));
+    const drop = new THREE.Shape();
+    drop.moveTo(0, 1); drop.quadraticCurveTo(0.75, 0, 0.6, -0.4); drop.absarc(0, -0.4, 0.6, 0, Math.PI, true);
+    drop.quadraticCurveTo(-0.75, 0, 0, 1);
+    this.geometries.set('drop', new THREE.ShapeGeometry(drop, 12));
+    this.geometries.set('hexagon', new THREE.CircleGeometry(1, 6));
+    this.geometries.set('site', new THREE.CircleGeometry(1, 4).rotateZ(Math.PI / 4));
+    this.geometries.set('hub', new THREE.RingGeometry(0.62, 1, 32));
     for (const s of SHAPES) {
       const flat = FLAT.has(s);
       // Solid markers are lit so they shade as 3D objects; flat surface markers are not.
@@ -874,6 +905,42 @@ export class GlobeView {
     }
     this.buildTrafficLines();
     this.scheduleDetail();
+  }
+
+  /** Utility network lines, grouped by look; an empty list clears them. Lines over land
+   *  sit on the terrain, under the traffic; submarine cables lie on the sea. [FR-H-1] */
+  setInfraLines(groups: InfraLineGroup[]): void {
+    const keep = new Set(groups.map((g) => g.key));
+    for (const [key, obj] of this.infraFat) {
+      if (!keep.has(key)) {
+        this.scene.remove(obj);
+        obj.geometry.dispose();
+        (obj.material as LineMaterial).dispose();
+        this.infraFat.delete(key);
+      }
+    }
+    const drape = (lat: number, lon: number) => 1 + drawnHeight(Math.max(0, terrainAt(lat, lon)), this.exaggeration) + 0.0002;
+    for (const g of groups) {
+      let obj = this.infraFat.get(g.key);
+      if (!obj) {
+        obj = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({
+          color: new THREE.Color(g.colour).getHex(), linewidth: g.px, transparent: true, opacity: g.opacity ?? 0.85, depthWrite: false,
+          dashed: !!g.dashed, dashSize: 0.002, gapSize: 0.0015,
+        }));
+        (obj.material as LineMaterial).resolution.set(this.width, this.height);
+        obj.frustumCulled = false;
+        obj.renderOrder = 8;
+        this.scene.add(obj);
+        this.infraFat.set(g.key, obj);
+      }
+      // A fresh geometry each time (an instanced geometry keeps its first segment count).
+      obj.geometry.dispose();
+      const geo = new LineSegmentsGeometry();
+      geo.setPositions(stripsToSegments(g.lines.map((l) => l.map(([la, lo]) => [lo, la] as [number, number])), drape));
+      obj.geometry = geo;
+      if (g.dashed) obj.computeLineDistances();
+    }
+    this.requestRender();
   }
 
   private buildTrafficLines(): void {
@@ -1419,6 +1486,7 @@ export class GlobeView {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(w, h, false);
     for (const f of [...this.fatLines, ...this.trafficFat]) (f.obj.material as LineMaterial).resolution.set(w, h);
+    for (const obj of this.infraFat.values()) (obj.material as LineMaterial).resolution.set(w, h);
     this.frameView();
     this.requestRender();
   }

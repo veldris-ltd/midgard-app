@@ -34,7 +34,7 @@ export type HeimdallSignatureScheme = 'ML-DSA' | 'SLH-DSA';
 /** Picture layers the operator can toggle. `feeds` is the reference layout's sensor
  *  coverage overlay; the others are Heimdall's wire layers (air, sea, land, space,
  *  events, other) under the console's names. [FR-H-1] */
-export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'space' | 'events' | 'other' | 'feeds' | 'airspace';
+export type HeimdallLayerId = 'air' | 'maritime' | 'ground' | 'space' | 'events' | 'other' | 'feeds' | 'airspace' | 'utilities' | 'infrastructure';
 
 // ---- domain types (product-prefixed) ----------------------------------------
 
@@ -173,6 +173,19 @@ export interface HeimdallTrackDetail {
   validTo?: number;
   /** A weather warning's weather (wind, rain, snow…). */
   weather?: string;
+  /** A utility network's line (power line, pipeline, cable): its parts, each [lat, lon]
+   *  points; drawn as lines, not as a marker. [FR-H-1] */
+  lines?: [number, number][][];
+  /** The utility network an entity belongs to: power, water, gas or telecom. */
+  network?: string;
+  /** Utilities: planned work (a power cut), the reported status (a storm overflow:
+   *  discharging / recent), whether a gas site is flowing, a link's flow direction
+   *  (import / export / idle), a power station's fuel. [FR-H-1] */
+  planned?: boolean;
+  status?: string;
+  flowing?: boolean;
+  direction?: string;
+  fuel?: string;
   /** An airport's raw TAF and its worst flight category over the next 12 hours. */
   taf?: string;
   tafWorst?: string;

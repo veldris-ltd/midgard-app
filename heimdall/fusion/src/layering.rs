@@ -8,7 +8,8 @@ use heimdall_picture::{Layer, LayerId};
 
 /// Maps an observation/entity kind to the layer it belongs on. A default prefix
 /// convention (`air-*`, `airspace-*`, `sea-*`, `land-*`, `space-*`, `cyber-*`/`sigint`,
-/// `event-*`) covers common feeds; explicit overrides take precedence.
+/// `event-*`, `utility-*`, `infra-*`) covers common feeds; explicit overrides take
+/// precedence.
 #[derive(Debug, Clone, Default)]
 pub struct LayerPolicy {
     overrides: BTreeMap<String, (String, String)>,
@@ -45,6 +46,8 @@ impl LayerPolicy {
             "space" => ("space", "Space"),
             "cyber" => ("cyber", "Cyber"),
             "events" => ("events", "Events"),
+            "utilities" => ("utilities", "Utilities"),
+            "infrastructure" => ("infrastructure", "Infrastructure"),
             _ => ("other", "Other"),
         };
         (LayerId(id.to_string()), Layer::new(id, name))
@@ -71,6 +74,14 @@ fn domain_of(kind: &str) -> &'static str {
     } else if k.starts_with("event") {
         // Incidents and alerts (`event-*`) are their own layer. [FR-H-1]
         "events"
+    } else if k.starts_with("utility") {
+        // Live utility status (`utility-*`: power cuts, sewage overflows, gas flows, grid
+        // and internet status) is its own layer. [FR-H-1]
+        "utilities"
+    } else if k.starts_with("infra") {
+        // Fixed utility networks (`infra-*`: lines, pipelines, cables, plants), which
+        // hardly change, are their own layer so a console can read them rarely. [FR-H-1]
+        "infrastructure"
     } else {
         "other"
     }
@@ -97,6 +108,17 @@ mod tests {
         assert_eq!(layer.name, "Events");
         assert_eq!(p.layer_for("Event").0, LayerId("events".into()));
         assert_eq!(p.layer_for("eventual").0, LayerId("events".into()));
+    }
+
+    #[test]
+    fn utilities_and_infrastructure_have_their_own_layers() {
+        let p = LayerPolicy::new();
+        let (id, layer) = p.layer_for("utility-power-outage");
+        assert_eq!(id, LayerId("utilities".into()));
+        assert_eq!(layer.name, "Utilities");
+        let (id, layer) = p.layer_for("infra-power-line");
+        assert_eq!(id, LayerId("infrastructure".into()));
+        assert_eq!(layer.name, "Infrastructure");
     }
 
     #[test]

@@ -935,7 +935,8 @@ export function OperatingPictureScreen() {
   React.useEffect(() => {
     if (layerDefs.length && !layers) {
       // Airspace (about 1,300 volumes) starts off, whatever the feed says. [FR-H-1]
-      setLayers(layerDefs.reduce((acc, l) => ({ ...acc, [l.id]: l.id === 'airspace' ? false : l.active }), {} as LayerState));
+      // Airspace and the fixed utility networks are dense: off until asked for.
+      setLayers(layerDefs.reduce((acc, l) => ({ ...acc, [l.id]: l.id === 'airspace' || l.id === 'infrastructure' ? false : l.active }), {} as LayerState));
     }
   }, [layerDefs, layers]);
 
@@ -1419,6 +1420,8 @@ export function OperatingPictureScreen() {
         const selected = en.id === sel;
         const color = region ? colourOf(en) : anomalous ? 'var(--warn)' : 'var(--accent)';
         const shape = shapeOf(en);
+        // Network lines (power lines, pipelines, cables) are drawn on the globe only.
+        if (shape === 'line') return null;
         const rad = (en.hdg * Math.PI) / 180;
         // Live: the vector is where the track will be in 3 minutes (speed in NM/min × 3).
         // Satellites move too fast for a vector to mean anything at this scale; events do not move.
@@ -1570,6 +1573,15 @@ export function OperatingPictureScreen() {
             zoom: wall ? 1.15 : undefined, ...(view === '2d' ? { top: 56, right: 14 } : { top: 12, right: 66 }) }} />
       )}
       <style>{ALERT_PULSE_CSS}</style>
+      {/* Credits the utility sources ask for, while their layers are on. [FR-H-1] */}
+      {(layerOn('utilities') || layerOn('infrastructure')) && visible.some((t) => t.layer === 'utilities' || t.layer === 'infrastructure') && (
+        <div style={{ position: 'absolute', right: 10, bottom: bottomH + 6, zIndex: 4, maxWidth: 'min(560px, 70%)', textAlign: 'right',
+          fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.04em', lineHeight: 1.5, color: 'var(--text-faint)', textShadow: '0 0 3px #000' }}>
+          UTILITIES: Contains BMRS data © Elexon Limited · NESO Carbon Intensity (CC BY 4.0) · UK Power Networks (CC BY 4.0) ·{' '}
+          <a href="https://northernpowergrid.opendatasoft.com/p/opendatalicence/" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>Supported by Northern Powergrid Open Data</a>{' '}
+          · NGED · storm overflows via Stream (CC BY 4.0) · Environment Agency (OGL) · National Gas Transmission Data Portal · IODA, Georgia Tech · © OpenStreetMap contributors
+        </div>
+      )}
       {view === '2d' && region && alertPin && (
         <span aria-hidden style={{ position: 'absolute', left: `${((alertPin.lon - region.west) / (region.east - region.west)) * 100}%`, top: `${((region.north - alertPin.lat) / (region.north - region.south)) * 100}%`, width: 26, height: 26, transform: 'translate(-50%,-50%)', border: '2px solid var(--danger)', borderRadius: '50%', boxShadow: '0 0 14px var(--danger)', pointerEvents: 'none', zIndex: 3 }} />
       )}

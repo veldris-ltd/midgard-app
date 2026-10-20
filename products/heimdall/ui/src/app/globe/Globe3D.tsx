@@ -7,11 +7,11 @@
  * [FR-H-1] */
 import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
-import { CAMERA_LEVEL_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
+import { CAMERA_LEVEL_COLOURS, FLOW_COLOURS, NETWORK_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
 import type { TrafficLines } from '../traffic';
 import { PLACES } from '../places';
 import { LABEL_MAX_KM, alertIconSvg, markStyle, type AlertMark } from '../alertMarks';
-import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type MapStyle, type PresetId } from './GlobeView';
+import { GlobeView, REGIONS, type GlobeArea, type GlobeItem, type GlobeTrail, type InfraLineGroup, type MapStyle, type PresetId } from './GlobeView';
 import { fmtMeasure, type LatLon } from '../geoMath';
 import { STRETCH_KM } from './geo';
 
@@ -88,6 +88,9 @@ function drawPlaceLabels(host: HTMLDivElement, view: GlobeView): void {
     s.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -125%)`;
   }
 }
+/** Fixed utility sites show within this camera distance (km). */
+const SITES_MAX_KM = 600;
+
 /** Close in, each analysed camera's counts beside it in its level colour. [FR-P3-5] */
 function drawCameraLabels(host: HTMLDivElement, view: GlobeView, tracks: HeimdallTrack[]): void {
   const km = view.state.dist * 6371;
@@ -291,6 +294,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     const last = lookAtRef.current;
     if (!last || Math.abs(last.lat - c.lat) + Math.abs(last.lon - c.lon) > 0.2 || Math.abs(Math.log(km / last.km)) > 0.15) {
       lookAtRef.current = { lat: c.lat, lon: c.lon, km };
+      setSitesClose(km < SITES_MAX_KM);
       live.current.onLookAt?.({ lat: c.lat, lon: c.lon }, km);
     }
     if (placesRef.current) drawPlaceLabels(placesRef.current, view);
@@ -340,7 +344,42 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     };
   }, [overlays]);
 
-  const items = React.useMemo<GlobeItem[]>(() => tracks.flatMap((t) => (t.detail ? [{
+  // Utility network lines (power lines, pipelines, cables, interconnectors), grouped by
+  // look; whatever layers are switched off are absent from `tracks`. [FR-H-1]
+  // Rebuilt only when the set of lines (or a link's direction) changes, not on every
+  // 2-second redraw of the moving tracks.
+  const lineTracks = tracks.filter((t) => t.detail?.lines);
+  const lineKey = lineTracks.map((t) => `${t.id}:${t.detail?.direction ?? ''}:${t.detail?.lines?.length}`).join('|');
+  const lineTracksRef = React.useRef(lineTracks);
+  lineTracksRef.current = lineTracks;
+  const infraGroups = React.useMemo<InfraLineGroup[]>(() => {
+    const groups = new Map<string, InfraLineGroup>();
+    const add = (key: string, look: Omit<InfraLineGroup, 'key' | 'lines'>, lines: [number, number][][]) => {
+      const g = groups.get(key) ?? { key, ...look, lines: [] };
+      g.lines.push(...lines);
+      groups.set(key, g);
+    };
+    for (const t of lineTracksRef.current) {
+      const d = t.detail;
+      if (!d?.lines) continue;
+      if (d.kind === 'infra-power-line') {
+        const kv = Number(/(\d+) kV/.exec(d.name ?? '')?.[1] ?? 132);
+        add(`power-${kv}`, kv >= 400 ? { colour: NETWORK_COLOURS.power, px: 1.8, opacity: 0.85 } : kv >= 275 ? { colour: '#ffb020', px: 1.5, opacity: 0.8 } : { colour: '#b8962a', px: 1.1, opacity: 0.65 }, d.lines);
+      } else if (d.kind === 'infra-gas-pipeline') add('gas', { colour: NETWORK_COLOURS.gas, px: 1.4, opacity: 0.75, dashed: true }, d.lines);
+      else if (d.kind === 'infra-telecom-cable') add('telecom', { colour: NETWORK_COLOURS.telecom, px: 1.2, opacity: 0.7 }, d.lines);
+      else if (d.kind.endsWith('-interconnector')) {
+        const dir = d.direction ?? 'idle';
+        add(`link-${dir}`, { colour: FLOW_COLOURS[dir] ?? FLOW_COLOURS.idle, px: 2.8, opacity: 0.95 }, d.lines);
+      }
+    }
+    return [...groups.values()];
+  }, [lineKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fixed utility sites (substations, works, exchanges: thousands) show only close in;
+  // their network lines show at every distance.
+  const [sitesClose, setSitesClose] = React.useState(false);
+  const shown = (t: HeimdallTrack) => shapeOf(t) !== 'line' && (sitesClose || !t.detail?.kind.startsWith('infra-'));
+  const items = React.useMemo<GlobeItem[]>(() => tracks.flatMap((t) => (t.detail && shown(t) ? [{
     id: t.id,
     shape: shapeOf(t),
     lat: t.lat ?? t.detail.lat,
@@ -357,7 +396,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     const d = t?.detail;
     if (it.shape === 'sigmet' && d) return { ...it, altM: (((d.baseFt ?? 0) + (d.topFt ?? (d.baseFt ?? 0) + 10000)) / 2) / 3.28084 };
     return it;
-  }), [tracks]);
+  }), [tracks, sitesClose]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const itemsRef = React.useRef(items);
   itemsRef.current = items;
@@ -374,6 +413,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   React.useEffect(() => { viewRef.current?.setAreas(areasRef.current); }, [areaSig]);
   React.useEffect(() => { viewRef.current?.setRadar(radar); }, [radar]);
   React.useEffect(() => { viewRef.current?.setTraffic(traffic); }, [traffic]);
+  React.useEffect(() => { viewRef.current?.setInfraLines(infraGroups); }, [infraGroups]);
   // Shade for the minute (a frame per minute is plenty for the terminator).
   const sunMinute = Math.floor((sunTime ?? Date.now()) / 60000);
   React.useEffect(() => { viewRef.current?.setSunTime(sunMinute * 60000); }, [sunMinute]);
