@@ -19,7 +19,13 @@ import { ExplorerBody, ObjectCard } from './ObjectExplorer';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 export function ObjectFabricScreen() {
-  const { data: types, loading } = useAsync((c) => c.listObjectTypes(), []);
+  const { data: types, loading, reload: reloadTypes } = useAsync((c) => c.listObjectTypes(), []);
+  // Types carry their actions; refresh them now and then, so actions added to the
+  // ontology appear without reloading the page.
+  React.useEffect(() => {
+    const t = window.setInterval(reloadTypes, 60_000);
+    return () => window.clearInterval(t);
+  }, [reloadTypes]);
   const { data: auditSeed } = useAsync((c) => c.getAudit(8), []);
   const live = useAuditStream(auditSeed ?? [], 40);
 
@@ -37,11 +43,13 @@ export function ObjectFabricScreen() {
   const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n.toLocaleString());
 
   const openObject = (id: string) => {
+    reloadTypes();
     const typeId = id.slice(0, id.indexOf('/'));
     if (typeId && typeId !== explore) setExplore(typeId);
     setTrail((t) => (t[t.length - 1] === id ? t : [...t, id]));
   };
   const startExploring = (apiName: string) => {
+    reloadTypes();
     setExplore(apiName);
     setTrail([]);
   };
@@ -150,7 +158,7 @@ export function ObjectFabricScreen() {
             <h2 style={{ fontSize: 'var(--fs-h4)' }}>{exploring.name}</h2>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>{exploring.instanceCount} INSTANCES · LIVE</span>
           </div>
-          <ExplorerBody type={exploring} selectedId={trail[trail.length - 1] ?? null} onOpen={(id) => setTrail([id])} />
+          <ExplorerBody type={exploring} selectedId={trail[trail.length - 1] ?? null} onOpen={(id) => { reloadTypes(); setTrail([id]); }} />
         </>
       ) : (
       <div style={{ overflowX: 'auto', flexShrink: 0 }}>
