@@ -30,19 +30,27 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: 'agent', label: 'agent activity' },
 ];
 
+// Live ledger entries read "PERMIT Read", "HUMAN-GATE approve", "PERMIT toggleRunwayStatus",
+// "SYNC records", "RETAIN expire" …; the sample gateway's read "Action · …", "Query · …".
+const isQuery = (a: string) => a.startsWith('Query') || /^(PERMIT|DENY) Read\b/.test(a);
+const isWrite = (a: string) => a.startsWith('Write') || /^(SYNC|RETAIN|COMPACT)\b|SyncRecords/.test(a);
+const isLogin = (a: string) => a.startsWith('LOGIN');
+
 function matchesCategory(r: AuditRecord, cat: Category): boolean {
   switch (cat) {
-    case 'actions': return r.action.startsWith('Action');
-    case 'queries': return r.action.startsWith('Query');
-    case 'writes': return r.action.startsWith('Write');
+    case 'actions': return r.action.startsWith('Action') || r.action.startsWith('HUMAN-GATE') || (!isQuery(r.action) && !isWrite(r.action) && !isLogin(r.action) && /^(PERMIT|DENY) /.test(r.action) && !/\bApply$/.test(r.action));
+    case 'queries': return isQuery(r.action);
+    case 'writes': return isWrite(r.action);
     case 'agent': return r.actor.startsWith('agent:');
     default: return true;
   }
 }
 
 export function AuditScreen() {
-  const { data: seed } = useAsync((c) => c.getAudit(40), []);
-  const live = useAuditStream(seed ?? [], 80);
+  // Enough history that a filter still finds an approval made a few minutes ago: the
+  // console's own reads alone add an entry every few seconds.
+  const { data: seed } = useAsync((c) => c.getAudit(500), []);
+  const live = useAuditStream(seed ?? [], 500);
 
   const [query, setQuery] = React.useState('');
   const [cat, setCat] = React.useState<Category>('all');

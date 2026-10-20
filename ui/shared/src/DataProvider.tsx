@@ -81,7 +81,8 @@ export function useAuditStream(seed: AuditRecord[] = [], max = 60): AuditRecord[
 
   React.useEffect(() => {
     const off = client.auditStream((rec) => {
-      setRecords((prev) => [rec, ...prev].slice(0, max));
+      // The stream can repeat an entry the seed already holds.
+      setRecords((prev) => (prev.some((p) => p.id === rec.id) ? prev : [rec, ...prev].slice(0, max)));
     });
     return off;
   }, [client, max]);
