@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { Card } from '@midgard/design-system';
 import type { HeimdallAdvice, HeimdallGateway } from '@midgard/sdk';
+import { getPrepared, preparedKey, putPrepared } from './preparedAnswers';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em' };
 const btn = (primary: boolean): React.CSSProperties => ({
@@ -34,9 +35,20 @@ export function AdviceCard({ gateway, subject, alertId, pick }: { gateway: Heimd
   const ask = () => {
     if (state.status === 'thinking') return;
     const asked = subject;
+    // Mimir's advice on this alert (or item) for this question in the last two hours:
+    // show it at once (its footer keeps the original call's figures).
+    const key = preparedKey('advise', alertId ?? subject, question);
+    const prepared = getPrepared<HeimdallAdvice>(key);
+    if (prepared) {
+      setState({ status: 'done', advice: prepared.value });
+      return;
+    }
     setState({ status: 'thinking', since: Date.now() });
     gateway.advise!(alertId ? { alert: alertId } : { entity: subject }, question).then(
-      (advice) => { if (current.current === asked) setState({ status: 'done', advice }); },
+      (advice) => {
+        if (advice.options.length) putPrepared(key, advice);
+        if (current.current === asked) setState({ status: 'done', advice });
+      },
       (err) => { if (current.current === asked) setState({ status: 'failed', reason: err instanceof Error ? err.message : String(err) }); },
     );
   };

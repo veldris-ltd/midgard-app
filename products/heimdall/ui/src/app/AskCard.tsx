@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { Card } from '@midgard/design-system';
 import type { HeimdallAnswer, HeimdallGateway } from '@midgard/sdk';
+import { getPrepared, preparedKey, putPrepared } from './preparedAnswers';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em' };
 const EXAMPLES = ['Which power cuts affect the most customers?', 'Are any storm overflows discharging near here?', 'What are the most serious alerts in this area?'];
@@ -33,9 +34,20 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
   const ask = (q: string) => {
     const text = q.trim();
     if (text.length < 3 || state.status === 'thinking') return;
+    // The same question about the same area, answered by Mimir in the last two hours:
+    // show that answer at once (its footer keeps the original call's figures).
+    const key = preparedKey('ask', areaLabel, text);
+    const prepared = getPrepared<HeimdallAnswer>(key);
+    if (prepared) {
+      setState({ status: 'done', question: text, answer: prepared.value });
+      return;
+    }
     setState({ status: 'thinking', since: Date.now(), question: text });
     gateway.ask!(text, focus ? { focus } : undefined).then(
-      (answer) => setState({ status: 'done', question: text, answer }),
+      (answer) => {
+        if (answer.answer) putPrepared(key, answer);
+        setState({ status: 'done', question: text, answer });
+      },
       (err) => setState({ status: 'failed', question: text, reason: err instanceof Error ? err.message : String(err) }),
     );
   };
