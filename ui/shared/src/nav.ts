@@ -60,10 +60,10 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
     seals: [['secure', 'PQ-SEALED', false]],
     sections: [
       { title: 'DATA OPS', items: [
-        { id: 'pipeline', label: 'Pipelines', icon: 'workflow', href: '/', badge: '38' },
+        { id: 'pipeline', label: 'Pipelines', icon: 'workflow', href: '/' },
         { id: 'connectors', label: 'Connectors', icon: 'database', href: '/connectors' },
-        { id: 'datasets', label: 'Datasets', icon: 'table', href: '/datasets', badge: '412' },
-        { id: 'health', label: 'Data health', icon: 'activity', href: '/health', badge: '3' },
+        { id: 'datasets', label: 'Datasets', icon: 'table', href: '/datasets' },
+        { id: 'health', label: 'Data health', icon: 'activity', href: '/health' },
         { id: 'schedules', label: 'Schedules', icon: 'clock', href: '/schedules' },
         { id: 'ide', label: 'Transform IDE', icon: 'code', href: '/ide' },
       ] },
@@ -77,7 +77,7 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
     seals: [['online', 'INFERENCE · LOCAL', true], ['secure', 'NO EGRESS', false]],
     sections: [
       { title: 'BUILD', items: [
-        { id: 'agents', label: 'Agents', icon: 'bot', href: '/', badge: '12' },
+        { id: 'agents', label: 'Agents', icon: 'bot', href: '/' },
         { id: 'logic', label: 'Logic (no-code)', icon: 'workflow', href: '/logic' },
         { id: 'sessions', label: 'Session traces', icon: 'terminal', href: '/sessions' },
       ] },
@@ -87,7 +87,7 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
         { id: 'feedback', label: 'Governed feedback', icon: 'refresh-cw', href: '/feedback' },
       ] },
       { title: 'SERVE', items: [
-        { id: 'models', label: 'Model plane', icon: 'cpu', href: '/models', badge: '3' },
+        { id: 'models', label: 'Model plane', icon: 'cpu', href: '/models' },
       ] },
     ],
   },
@@ -97,9 +97,9 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
     sections: [
       { title: 'DELIVERY', items: [
         { id: 'releases', label: 'Releases', icon: 'rocket', href: '/' },
-        { id: 'artefacts', label: 'Artefacts', icon: 'package', href: '/artefacts', badge: '58' },
-        { id: 'channels', label: 'Channels', icon: 'git-branch', href: '/channels', badge: '3' },
-        { id: 'bundles', label: 'Offline bundles', icon: 'download', href: '/bundles', badge: '2' },
+        { id: 'artefacts', label: 'Artefacts', icon: 'package', href: '/artefacts' },
+        { id: 'channels', label: 'Channels', icon: 'git-branch', href: '/channels' },
+        { id: 'bundles', label: 'Offline bundles', icon: 'download', href: '/bundles' },
       ] },
       { title: 'FLEET', items: [
         { id: 'fleet', label: 'Fleet & drift', icon: 'server', href: '/fleet' },
@@ -113,12 +113,12 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
     sections: [
       { title: 'PICTURE', items: [
         { id: 'cop', label: 'Operating picture', icon: 'map', href: '/' },
-        { id: 'feeds', label: 'Feeds', icon: 'radio-tower', href: '/feeds', badge: '12' },
-        { id: 'entities', label: 'Entities', icon: 'crosshair', href: '/entities', badge: '1,204' },
+        { id: 'feeds', label: 'Feeds', icon: 'radio-tower', href: '/feeds' },
+        { id: 'entities', label: 'Entities', icon: 'crosshair', href: '/entities' },
         { id: 'sync', label: 'Picture sync', icon: 'network', href: '/sync' },
       ] },
       { title: 'DECIDE', items: [
-        { id: 'workflows', label: 'Action workflows', icon: 'workflow', href: '/workflows', badge: '2' },
+        { id: 'workflows', label: 'Action workflows', icon: 'workflow', href: '/workflows' },
         { id: 'lineage', label: 'Decision lineage', icon: 'scroll-text', href: '/lineage' },
       ] },
     ],
@@ -129,7 +129,7 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
     sections: [
       { title: 'OVERSEE', items: [
         { id: 'overview', label: 'Overview', icon: 'gauge', href: '/' },
-        { id: 'approvals', label: 'Approvals', icon: 'users', href: '/approvals', badge: '3' },
+        { id: 'approvals', label: 'Approvals', icon: 'users', href: '/approvals' },
       ] },
       { title: 'ADMINISTER', items: [
         { id: 'iam', label: 'Identity & roles', icon: 'fingerprint', href: '/iam' },
@@ -138,7 +138,7 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
         { id: 'ledger', label: 'Audit ledger', icon: 'scroll-text', href: '/ledger' },
       ] },
       { title: 'EMERGENCY', items: [
-        { id: 'breakglass', label: 'Break-glass', icon: 'alert-triangle', href: '/breakglass', badge: '1' },
+        { id: 'breakglass', label: 'Break-glass', icon: 'alert-triangle', href: '/breakglass' },
       ] },
       { title: 'ASSIST', items: [
         { id: 'copilot', label: 'Admin copilot', icon: 'sparkles', href: '/copilot' },

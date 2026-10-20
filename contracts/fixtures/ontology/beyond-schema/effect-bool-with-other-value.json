@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "runway",
+      "title": "Runway",
+      "properties": [
+        {
+          "name": "closed",
+          "type": "bool"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "close",
+      "name": "close",
+      "title": "Close",
+      "objectType": "runway",
+      "marking": "open",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "closed",
+        "values": [
+          "open",
+          "shut"
+        ]
+      }
+    }
+  ]
+}

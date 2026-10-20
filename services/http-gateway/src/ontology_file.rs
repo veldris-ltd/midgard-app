@@ -43,10 +43,12 @@
 //!   the latest of the `after` timestamp properties the type declares. The enclosure
 //!   removes older objects and audits each sweep; an object holding none of them is
 //!   kept. A type without it is kept indefinitely. [SAD_00 §8.5]
-//! - Effects: `set-property` sets a text property of every target to `value`;
+//! - Effects: `set-property` sets a text (or true/false) property of every target to
+//!   `value`;
 //!   `cycle-property` advances a text property to the next of `values` (an object
 //!   without it counts as at the first, so the first run sets the second). Either must
-//!   name a text property the action's object type declares.
+//!   name a text or bool property the action's object type declares; for a bool the
+//!   values are `"true"` and `"false"`.
 //!
 //! Loading is strict in the same way as the policy file. Unknown or repeated keys,
 //! missing or blank fields, wrong types, unknown values, duplicate ids, and a link or
@@ -393,12 +395,14 @@ fn effect(owner: &str, item: Option<&Json>, target: &ObjectType) -> Result<Actio
     let at = format!("{owner}: effect");
     let item = item.ok_or_else(|| format!("{owner}: missing \"effect\""))?;
     object(item, &at)?;
-    let text_property = |key: &str| -> Result<String, String> {
+    // The property an effect sets, and whether it is true/false (else text).
+    let text_property = |key: &str| -> Result<(String, bool), String> {
         let name = identifier(item, &at, key)?;
         match target.property(name) {
-            Some(p) if p.value_type == ValueType::Text => Ok(name.to_string()),
+            Some(p) if p.value_type == ValueType::Text => Ok((name.to_string(), false)),
+            Some(p) if p.value_type == ValueType::Bool => Ok((name.to_string(), true)),
             Some(_) => Err(format!(
-                "{at}: \"{name}\" is not a text property of \"{}\"",
+                "{at}: \"{name}\" is not a text or bool property of \"{}\"",
                 target.id
             )),
             None => Err(format!(
@@ -410,10 +414,14 @@ fn effect(owner: &str, item: Option<&Json>, target: &ObjectType) -> Result<Actio
     match text(item, &at, "kind")? {
         "set-property" => {
             only_keys(object(item, &at)?, &at, SET_PROPERTY_KEYS)?;
-            Ok(ActionEffect::SetProperty {
-                property: text_property("property")?,
-                value: text(item, &at, "value")?.to_string(),
-            })
+            let (property, boolean) = text_property("property")?;
+            let value = text(item, &at, "value")?.to_string();
+            if boolean && value != "true" && value != "false" {
+                return Err(format!(
+                    "{at}: \"{property}\" is true/false, so \"value\" must be \"true\" or \"false\""
+                ));
+            }
+            Ok(ActionEffect::SetProperty { property, value })
         }
         "cycle-property" => {
             only_keys(object(item, &at)?, &at, CYCLE_PROPERTY_KEYS)?;
@@ -424,10 +432,13 @@ fn effect(owner: &str, item: Option<&Json>, target: &ObjectType) -> Result<Actio
                 ));
             }
             unique(values.iter().map(String::as_str), &format!("{at}: value"))?;
-            Ok(ActionEffect::CycleProperty {
-                property: text_property("property")?,
-                values,
-            })
+            let (property, boolean) = text_property("property")?;
+            if boolean && values.iter().any(|v| v != "true" && v != "false") {
+                return Err(format!(
+                    "{at}: \"{property}\" is true/false, so \"values\" must be \"true\" and \"false\""
+                ));
+            }
+            Ok(ActionEffect::CycleProperty { property, values })
         }
         other => Err(format!(
             "{at}: \"kind\" must be set-property or cycle-property, not \"{other}\""

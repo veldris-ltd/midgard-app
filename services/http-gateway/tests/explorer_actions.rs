@@ -24,13 +24,18 @@ const ONTOLOGY: &str = r#"{
   "objectTypes": [
     { "id": "airport", "title": "Airport",
       "properties": [ { "name": "name", "type": "text", "required": true },
-                      { "name": "status", "type": "text" } ] }
+                      { "name": "status", "type": "text" },
+                      { "name": "closed", "type": "bool" } ] }
   ],
   "actions": [
     { "id": "toggle_airport", "name": "toggleAirport", "title": "Open or close airport",
       "objectType": "airport", "humanGated": true, "marking": "internal",
       "purposes": ["operations"],
-      "effect": { "kind": "cycle-property", "property": "status", "values": ["open", "closed"] } }
+      "effect": { "kind": "cycle-property", "property": "status", "values": ["open", "closed"] } },
+    { "id": "shut_airport", "name": "shutAirport", "title": "Shut airport",
+      "objectType": "airport", "humanGated": false, "marking": "internal",
+      "purposes": ["operations"],
+      "effect": { "kind": "cycle-property", "property": "closed", "values": ["false", "true"] } }
   ]
 }"#;
 
@@ -46,8 +51,12 @@ fn rule(id: &str, action: &str) -> Rule {
 }
 
 fn enclosure() -> Enclosure {
-    let policy =
-        PolicySet::new(vec![rule("read", "Read"), rule("toggle", "toggleAirport")]).unwrap();
+    let policy = PolicySet::new(vec![
+        rule("read", "Read"),
+        rule("toggle", "toggleAirport"),
+        rule("shut", "shutAirport"),
+    ])
+    .unwrap();
     let governance = Governance::new(DefaultPdp::new(policy), &mut OsRng).unwrap();
     let mut enclosure = Enclosure::new(governance);
     enclosure
@@ -208,4 +217,25 @@ fn a_gated_action_on_one_object_records_who_approved_it_and_why_first() {
     )
     .unwrap();
     assert_eq!(status(&enc, "airport/EGLL").as_deref(), Some("open"));
+}
+
+#[test]
+fn a_true_false_property_is_cycled_as_a_boolean() {
+    let mut enc = enclosure();
+    let target: BTreeMap<String, String> =
+        [("target".to_string(), "airport/EGKK".to_string())].into();
+    let closed = |enc: &Enclosure| {
+        let o = enc.fabric().store().get_object("airport/EGKK").unwrap();
+        o.properties.get("closed").cloned()
+    };
+    enc.apply_action(&alice(), "Shut airport", target.clone(), None, NOW)
+        .unwrap();
+    assert_eq!(
+        closed(&enc),
+        Some(Value::Bool(true)),
+        "missing counts as false"
+    );
+    enc.apply_action(&alice(), "Shut airport", target, None, NOW)
+        .unwrap();
+    assert_eq!(closed(&enc), Some(Value::Bool(false)));
 }

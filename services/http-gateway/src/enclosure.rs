@@ -806,14 +806,25 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                     marking: a.marking.clone(),
                     allowed_purposes: a.purposes.clone(),
                 })?;
+            // A true/false property is written as a boolean, anything else as text.
+            let boolean = |property: &str| {
+                ontology
+                    .object_types
+                    .iter()
+                    .find(|t| t.id == a.object_type)
+                    .and_then(|t| t.property(property))
+                    .is_some_and(|p| p.value_type == ValueType::Bool)
+            };
             let function: Box<dyn ActionFunction> = match &a.effect {
                 ActionEffect::SetProperty { property, value } => Box::new(SetProperty {
                     property: property.clone(),
                     value: value.clone(),
+                    boolean: boolean(property),
                 }),
                 ActionEffect::CycleProperty { property, values } => Box::new(CycleProperty {
                     property: property.clone(),
                     values: values.clone(),
+                    boolean: boolean(property),
                 }),
             };
             self.fabric.runtime_mut().register(&function_id, function);
@@ -1399,6 +1410,7 @@ fn dev_function(action_id: &str) -> Box<dyn ActionFunction> {
         Box::new(SetProperty {
             property: property.into(),
             value: value.into(),
+            boolean: false,
         })
     };
     match action_id {
@@ -1407,6 +1419,7 @@ fn dev_function(action_id: &str) -> Box<dyn ActionFunction> {
         "change_facility_status" => Box::new(CycleProperty {
             property: "status".into(),
             values: vec!["operational".into(), "degraded".into()],
+            boolean: false,
         }),
         "request_clearance_review" => set("clearance_review", "requested"),
         "recalibrate_sensor" => set("status", "calibrating"),
@@ -1438,6 +1451,17 @@ fn existing<'a>(store: &'a dyn ObjectStore, id: &str) -> Result<&'a ObjectInstan
 struct SetProperty {
     property: String,
     value: String,
+    // The property is true/false: `value` is "true" or "false".
+    boolean: bool,
+}
+
+/// An effect's value as the property's type: a boolean for a true/false property.
+fn effect_value(value: &str, boolean: bool) -> Value {
+    if boolean {
+        Value::Bool(value == "true")
+    } else {
+        Value::Text(value.to_string())
+    }
 }
 
 impl ActionFunction for SetProperty {
@@ -1452,7 +1476,7 @@ impl ActionFunction for SetProperty {
                 let mut obj = existing(store, id)?.clone();
                 obj.properties.insert(
                     self.property.to_string(),
-                    Value::Text(self.value.to_string()),
+                    effect_value(&self.value, self.boolean),
                 );
                 Ok(Effect::PutObject(obj))
             })
@@ -1464,6 +1488,8 @@ impl ActionFunction for SetProperty {
 struct CycleProperty {
     property: String,
     values: Vec<String>,
+    // The property is true/false: `values` are "true" and "false".
+    boolean: bool,
 }
 
 impl ActionFunction for CycleProperty {
@@ -1478,6 +1504,7 @@ impl ActionFunction for CycleProperty {
                 let mut obj = existing(store, id)?.clone();
                 let current = match obj.properties.get(&self.property) {
                     Some(Value::Text(s)) => self.values.iter().position(|v| v == s),
+                    Some(Value::Bool(b)) => self.values.iter().position(|v| *v == b.to_string()),
                     _ => None,
                 };
                 // An object without the property is at the cycle's first value, so the
@@ -1485,7 +1512,7 @@ impl ActionFunction for CycleProperty {
                 let next = &self.values
                     [current.map_or(1 % self.values.len(), |i| (i + 1) % self.values.len())];
                 obj.properties
-                    .insert(self.property.clone(), Value::Text(next.clone()));
+                    .insert(self.property.clone(), effect_value(next, self.boolean));
                 Ok(Effect::PutObject(obj))
             })
             .collect()
