@@ -46,7 +46,7 @@ export function utilityColour(d: { kind: string; network?: string; planned?: boo
   switch (d.kind) {
     case 'utility-power-outage': return d.planned ? '#ffd23f' : '#ff4d2e';
     case 'utility-water-overflow': return d.status === 'discharging' ? '#d9a441' : '#7f8c99';
-    case 'utility-gas-terminal': case 'utility-gas-storage': return d.flowing ? '#ff8c1a' : '#8a6a4a';
+    case 'utility-gas-terminal': case 'utility-gas-storage': case 'utility-gas-lng': return d.flowing ? '#ff8c1a' : '#8a6a4a';
     case 'utility-power-interconnector': case 'utility-gas-interconnector': return FLOW_COLOURS[d.direction ?? 'idle'] ?? FLOW_COLOURS.idle;
     case 'utility-telecom-outage': return '#ff4dd2';
     case 'infra-power-plant': return PLANT_COLOURS[(d.fuel ?? '').split(';')[0].toLowerCase()] ?? NETWORK_COLOURS.power;
@@ -124,7 +124,7 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'event-fire': return 'fire';
     case 'utility-power-outage': return 'outage';
     case 'utility-water-overflow': case 'utility-water-reservoir': return 'drop';
-    case 'utility-gas-terminal': case 'utility-gas-storage': case 'infra-power-plant': return 'hexagon';
+    case 'utility-gas-terminal': case 'utility-gas-storage': case 'utility-gas-lng': case 'infra-power-plant': return 'hexagon';
     case 'utility-power-grid': case 'utility-gas-system': case 'utility-telecom-outage': return 'hub';
     case 'utility-power-interconnector': case 'utility-gas-interconnector':
     case 'infra-power-substation': case 'infra-water-works': case 'infra-water-treatment':
@@ -249,6 +249,7 @@ export const AREA_LEGEND: { label: string; color: string; kind: string }[] = [
   { label: 'STORM OVERFLOW (NOW / 48 H)', color: '#d9a441', kind: 'utility-water-overflow' },
   { label: 'RESERVOIR', color: '#3fa9ff', kind: 'utility-water-reservoir' },
   { label: 'GAS TERMINAL / STORAGE', color: '#ff8c1a', kind: 'utility-gas-terminal' },
+  { label: 'LNG TERMINAL (EUROPE)', color: '#ff8c1a', kind: 'utility-gas-lng' },
   { label: 'INTERNET DISRUPTION', color: '#ff4dd2', kind: 'utility-telecom-outage' },
   { label: 'POWER LINE 400 / 275 / 132 KV', color: '#ffd23f', kind: 'infra-power-line' },
   { label: 'SUBSTATION', color: '#ffd23f', kind: 'infra-power-substation' },

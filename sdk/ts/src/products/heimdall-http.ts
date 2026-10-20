@@ -378,7 +378,21 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
     case 'utility-water-reservoir':
       rows.push(['LEVEL', unit('level_m', 'm', 2)], ['SPILLWAY', unit('spillway_m', 'm', 2)], ['READING', hm('reading_at')], ['SOURCE', 'Environment Agency']);
       return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
-    case 'utility-gas-terminal': case 'utility-gas-storage':
+    case 'utility-gas-lng':
+      rows.push(['OPERATOR', a('operator')], ['COUNTRY', a('country')], ['STOCK', unit('inventory_gwh', 'GWh')],
+        ['FULL', n('full_pct') !== undefined ? `${n('full_pct')} %` : undefined], ['SEND-OUT', unit('sendout_gwh_d', 'GWh/d', 1)],
+        ['CAPACITY', unit('capacity_gwh_d', 'GWh/d', 1)], ['GAS DAY', a('gas_day')], ['SOURCE', 'GIE ALSI']);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-gas-storage':
+      if (a('scope') === 'country') {
+        rows.push(['COUNTRY', a('country')], ['FULL', n('full_pct') !== undefined ? `${n('full_pct')} %` : undefined],
+          ['IN STORAGE', unit('storage_twh', 'TWh', 1)], ['WORKING VOLUME', unit('working_twh', 'TWh', 1)],
+          ['INJECTION', unit('injection_gwh_d', 'GWh/d', 1)], ['WITHDRAWAL', unit('withdrawal_gwh_d', 'GWh/d', 1)],
+          ['DAY CHANGE', n('trend_pct') !== undefined ? `${n('trend_pct')} %` : undefined], ['GAS DAY', a('gas_day')], ['SOURCE', 'GIE AGSI+']);
+        return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+      }
+    // falls through: a GB storage site (National Gas flows)
+    case 'utility-gas-terminal':
       rows.push(['FLOW', unit(e.kind === 'utility-gas-storage' ? 'withdrawal_mcmd' : 'flow_mcmd', 'mcm/d', 2)], ['ENTRY POINTS', a('entries')?.replace(/,/g, ' · ').replace(/:/g, ' ')],
         ['TYPE', a('site_type')], ['ESTIMATED', e.attributes.estimated === true ? 'yes' : undefined], ['AT', hm('flow_at')]);
       return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
