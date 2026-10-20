@@ -304,6 +304,7 @@ fn indexed_query_by_type_and_property() {
                 filter: BTreeMap::new(),
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             100,
         )
@@ -321,6 +322,7 @@ fn indexed_query_by_type_and_property() {
                 filter,
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             101,
         )
@@ -345,6 +347,7 @@ fn indexed_query_by_type_and_property() {
                 filter,
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             102,
         )
@@ -369,6 +372,7 @@ fn unknown_object_type_is_rejected() {
                 filter: BTreeMap::new(),
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             1,
         )
@@ -421,6 +425,7 @@ fn query_enforces_marking_purpose_and_role() {
                 filter: BTreeMap::new(),
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             1,
         )
@@ -444,6 +449,7 @@ fn query_enforces_marking_purpose_and_role() {
                 filter: BTreeMap::new(),
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             2,
         )
@@ -496,6 +502,7 @@ fn search_around_traverses_links_under_policy() {
                 filter: BTreeMap::new(),
                 link_traversals: vec!["assigned_to".into()],
                 max_results: 10,
+                search: None,
             },
             1,
         )
@@ -539,6 +546,7 @@ fn action_mutates_and_is_audited() {
                 filter,
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             1001,
         )
@@ -648,6 +656,7 @@ fn compartments_are_enforced_on_read() {
                 filter: BTreeMap::new(),
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             1,
         )

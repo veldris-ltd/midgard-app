@@ -27,6 +27,8 @@ pub struct Query {
     pub link_traversals: Vec<String>,
     /// Maximum number of objects to return.
     pub max_results: usize,
+    /// Only objects whose key or a text property contains this, ignoring case.
+    pub search: Option<String>,
 }
 
 /// The read-authorization check for one object: mandatory marking dominance +
@@ -43,8 +45,9 @@ fn can_read<L: LedgerStore>(gov: &Governance<L>, ctx: &GovContext, obj: &ObjectI
 }
 
 /// Run a query. Uses the inverted index for the first equality filter, then
-/// applies the rest as predicates, authorises each survivor, and expands by any
-/// requested link traversals. Fails closed on an unknown object type.
+/// applies the rest as predicates (and the text search), authorises each survivor,
+/// and expands by any requested link traversals. Fails closed on an unknown object
+/// type.
 pub fn run_query<L: LedgerStore>(
     registry: &TypeRegistry,
     store: &dyn ObjectStore,
@@ -52,6 +55,18 @@ pub fn run_query<L: LedgerStore>(
     ctx: &GovContext,
     q: &Query,
 ) -> Result<Vec<ObjectInstance>, FabricError> {
+    run_query_counted(registry, store, gov, ctx, q).map(|(out, _)| out)
+}
+
+/// [`run_query`], with how many readable objects matched before `max_results`
+/// truncated them (link traversals not counted).
+pub fn run_query_counted<L: LedgerStore>(
+    registry: &TypeRegistry,
+    store: &dyn ObjectStore,
+    gov: &Governance<L>,
+    ctx: &GovContext,
+    q: &Query,
+) -> Result<(Vec<ObjectInstance>, usize), FabricError> {
     let ot = registry
         .object_type(&q.object_type)
         .ok_or_else(|| FabricError::UnknownObjectType(q.object_type.clone()))?;
@@ -61,10 +76,10 @@ pub fn run_query<L: LedgerStore>(
     let mut filters: Vec<(String, String)> = Vec::new();
     for (prop, val) in &q.filter {
         let Some(pt) = ot.property(prop) else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), 0));
         };
         let Some(v) = Value::parse(pt.value_type, val) else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), 0));
         };
         filters.push((prop.clone(), v.as_index_key()));
     }
@@ -77,6 +92,21 @@ pub fn run_query<L: LedgerStore>(
     // Remaining filters as predicates (intersection).
     for (p, k) in filters.iter().skip(1) {
         candidates.retain(|o| o.properties.get(p).map(|v| v.as_index_key()) == Some(k.clone()));
+    }
+
+    if let Some(needle) = q
+        .search
+        .as_deref()
+        .map(str::to_lowercase)
+        .filter(|s| !s.is_empty())
+    {
+        candidates.retain(|o| {
+            o.id.to_lowercase().contains(&needle)
+                || o.properties.values().any(|v| match v {
+                    Value::Text(t) => t.to_lowercase().contains(&needle),
+                    _ => false,
+                })
+        });
     }
 
     // Authorise base results.
@@ -106,6 +136,7 @@ pub fn run_query<L: LedgerStore>(
         }
     }
 
+    let matched = base.len();
     out.truncate(q.max_results);
-    Ok(out)
+    Ok((out, matched))
 }

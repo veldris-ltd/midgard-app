@@ -175,6 +175,7 @@ fn status_of(fab: &mut Fabric<InMemoryStore>) -> String {
                 filter,
                 link_traversals: vec![],
                 max_results: 10,
+                search: None,
             },
             1,
         )

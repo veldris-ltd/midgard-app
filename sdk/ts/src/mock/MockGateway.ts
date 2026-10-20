@@ -136,7 +136,13 @@ export class MockGateway implements GatewayClient {
         },
       ],
     }));
-    return this.wait({ results, auditId: audit.id });
+    const needle = req.search?.toLowerCase();
+    const found = results.filter(
+      (o) =>
+        (!req.id || o.id === req.id) &&
+        (!needle || o.id.toLowerCase().includes(needle) || Object.values(o.propertyValues).some((v) => v.toLowerCase().includes(needle))),
+    );
+    return this.wait({ results: found, matched: found.length, auditId: audit.id });
   }
 
   async applyAction(req: ApplyActionRequest): Promise<ApplyActionResponse> {

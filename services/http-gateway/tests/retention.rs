@@ -231,3 +231,50 @@ fn an_outgrown_journal_is_compacted_audited_and_reopens_identically() {
     assert_eq!(store.journal_records(), 52);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_feed_refresh_keeps_what_actions_own() {
+    let dir = scratch("owned");
+    let state = provision(&dir);
+    // An ontology whose aircraft carry an action-owned status.
+    let ontology = ONTOLOGY
+        .replace(
+            r#"{ "name": "seen", "type": "timestamp" } ],"#,
+            r#"{ "name": "seen", "type": "timestamp" },
+                      { "name": "status", "type": "text" } ],"#,
+        )
+        .replace(
+            r#""actions": []"#,
+            r#""actions": [ { "id": "ground", "name": "ground", "title": "Ground",
+                "objectType": "aircraft", "marking": "internal", "purposes": ["operations"],
+                "effect": { "kind": "set-property", "property": "status", "value": "grounded" } } ]"#,
+        );
+    assert_ne!(ontology, ONTOLOGY);
+    std::fs::write(state.ontology(), ontology).unwrap();
+    let worker = workload("forge-worker", "forge-worker");
+    let with_status = r#"{"object":"aircraft","key":"AC-1","marking":"internal","purposes":["operations"],"properties":{"tail":"AC-1","status":"grounded","flight_hours":1}}"#;
+    let without = r#"{"object":"aircraft","key":"AC-1","marking":"internal","purposes":["operations"],"properties":{"tail":"AC-1","flight_hours":2}}"#;
+    {
+        let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+        for records in [with_status, without] {
+            let (code, message) =
+                split(&gateway.sync_records(&worker, PURPOSE, records.as_bytes(), NOW));
+            assert_eq!(code, outcome::ACCEPTED, "{message}");
+        }
+    }
+    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
+    let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
+    let props = &store.get_object("aircraft/AC-1").unwrap().properties;
+    assert_eq!(
+        props.get("status"),
+        Some(&fabric::Value::Text("grounded".into())),
+        "kept"
+    );
+    assert_eq!(
+        props.get("flight_hours"),
+        Some(&fabric::Value::Int(2)),
+        "refreshed"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

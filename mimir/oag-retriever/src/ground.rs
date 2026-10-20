@@ -97,6 +97,7 @@ pub fn ground(
             filter: r.filter.clone(),
             link_traversals: r.link_traversals.clone(),
             max_results: r.max_results,
+            search: None,
         };
         let retrieved = match src.retrieve(ctx, &q, now + i as u64) {
             Ok(r) => r,

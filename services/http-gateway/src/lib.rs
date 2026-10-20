@@ -637,7 +637,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     let object_type = body.str_field("objectType").unwrap_or("").to_string();
                     let max = body.get("maxResults").and_then(|v| v.as_i64()).unwrap_or(5);
                     let filter = body.get("filter").map(Json::str_map).unwrap_or_default();
-                    self.lock().query(&ctx, &object_type, max, filter, now)
+                    let search = body.str_field("search").map(str::to_string);
+                    let id = body.str_field("id").map(str::to_string);
+                    self.lock()
+                        .query(&ctx, &object_type, max, filter, search, id, now)
                 }),
             ("POST", "/api/v1/actions") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))

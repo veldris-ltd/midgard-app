@@ -120,7 +120,15 @@ fn operator() -> PolicyContext {
 /// An aircraft's `status`, read through the governed query path.
 fn status_of(enclosure: &mut DurableEnclosure, id: &str) -> String {
     let result = enclosure
-        .query(&operator(), "aircraft", 50, BTreeMap::new(), NOW)
+        .query(
+            &operator(),
+            "aircraft",
+            50,
+            BTreeMap::new(),
+            None,
+            None,
+            NOW,
+        )
         .unwrap_or_else(|e| panic!("query refused: {}", e.body.encode()));
     let Some(Json::Arr(objects)) = result.get("results") else {
         panic!("no results: {}", result.encode());

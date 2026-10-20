@@ -12,59 +12,38 @@ import {
   Tabs,
   Terminal,
 } from '@midgard/design-system';
-import { useAsync, useAuditStream, useGateway } from '@midgard/ui-shared';
-import { HumanGate } from '@midgard/design-system';
+import { useAsync, useAuditStream } from '@midgard/ui-shared';
 import type { AuditRecord, ObjectType } from '@midgard/sdk';
-import { HumanGateRequiredError } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { ExplorerBody, ObjectCard } from './ObjectExplorer';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
-type GateState = { action: string; state: 'pending' | 'authorised' | 'rejected'; auditId?: string } | null;
-
 export function ObjectFabricScreen() {
-  const gateway = useGateway();
   const { data: types, loading } = useAsync((c) => c.listObjectTypes(), []);
   const { data: auditSeed } = useAsync((c) => c.getAudit(8), []);
   const live = useAuditStream(auditSeed ?? [], 40);
 
   const [tab, setTab] = React.useState(0);
   const [sel, setSel] = React.useState(0);
-  const [gate, setGate] = React.useState<GateState>(null);
-  const [busy, setBusy] = React.useState(false);
+  // The type whose objects are being explored, and the objects opened in turn (the
+  // last is on the card; earlier ones are where Back goes).
+  const [explore, setExplore] = React.useState<string | null>(null);
+  const [trail, setTrail] = React.useState<string[]>([]);
 
   const rows: ObjectType[] = types ?? [];
   const o = rows[sel];
+  const exploring = rows.find((t) => t.apiName === explore) ?? null;
+  const instances = rows.reduce((n, t) => n + (Number(String(t.instanceCount).replace(/[^0-9]/g, '')) || 0), 0);
+  const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n.toLocaleString());
 
-  const triggerAction = async (action: string, humanGated: boolean) => {
-    if (!o) return;
-    if (humanGated) {
-      setGate({ action, state: 'pending' });
-      return;
-    }
-    setBusy(true);
-    try {
-      await gateway.applyAction({ policy: gateway.policy(), actionType: action, params: { target: `${o.apiName}/*` } });
-    } finally {
-      setBusy(false);
-    }
+  const openObject = (id: string) => {
+    const typeId = id.slice(0, id.indexOf('/'));
+    if (typeId && typeId !== explore) setExplore(typeId);
+    setTrail((t) => (t[t.length - 1] === id ? t : [...t, id]));
   };
-
-  const authorise = async () => {
-    if (!gate || !o) return;
-    setBusy(true);
-    try {
-      const res = await gateway.applyAction({
-        policy: gateway.policy(),
-        actionType: gate.action,
-        params: { target: `${o.apiName}/*` },
-        humanGateToken: `HG-${Date.now().toString(36)}`,
-      });
-      setGate({ action: gate.action, state: 'authorised', auditId: res.auditId });
-    } catch (e) {
-      if (e instanceof HumanGateRequiredError) setGate({ action: gate.action, state: 'pending' });
-    } finally {
-      setBusy(false);
-    }
+  const startExploring = (apiName: string) => {
+    setExplore(apiName);
+    setTrail([]);
   };
 
   const aside = o ? (
@@ -91,12 +70,11 @@ export function ObjectFabricScreen() {
       </div>
       <div>
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>ACTION TYPES</div>
+        {o.actions.length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>NONE DECLARED</div>}
         {o.actions.map((a, i) => (
-          <button
+          <div
             key={i}
-            type="button"
-            onClick={() => triggerAction(a.name, a.humanGated)}
-            style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-sm)', color: 'var(--text-body)' }}
+            style={{ boxSizing: 'border-box', width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-sm)', color: 'var(--text-body)' }}
           >
             <Icon name="zap" size={13} color="var(--accent)" />
             {a.name}
@@ -105,18 +83,12 @@ export function ObjectFabricScreen() {
                 <Badge tone="warn">HUMAN GATE</Badge>
               </span>
             )}
-          </button>
+          </div>
         ))}
+        {o.actions.length > 0 && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)', marginTop: 6 }}>EXPLORE INSTANCES AND OPEN ONE TO ACT ON IT</div>
+        )}
       </div>
-      {gate && (
-        <HumanGate
-          title={`${gate.action} · ${o.name}`}
-          state={gate.state}
-          auditId={gate.auditId}
-          onAuthorise={busy ? undefined : authorise}
-          onReject={() => setGate(null)}
-        />
-      )}
       <div>
         <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PROVENANCE</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -127,9 +99,18 @@ export function ObjectFabricScreen() {
       </div>
       <div style={{ marginTop: 'auto', display: 'flex', gap: 8 }}>
         <Button variant="secondary" size="sm" fullWidth>Edit schema</Button>
-        <Button variant="primary" size="sm" fullWidth iconRight={<Icon name="arrow-right" size={14} />}>Explore instances</Button>
+        <Button variant="primary" size="sm" fullWidth iconRight={<Icon name="arrow-right" size={14} />} onClick={() => startExploring(o.apiName)}>Explore instances</Button>
       </div>
     </>
+  ) : null;
+
+  const card = trail.length > 0 ? (
+    <ObjectCard
+      id={trail[trail.length - 1]}
+      types={rows}
+      onOpen={openObject}
+      onBack={() => setTrail((t) => t.slice(0, -1))}
+    />
   ) : null;
 
   return (
@@ -139,7 +120,7 @@ export function ObjectFabricScreen() {
       asideWidth={340}
       toolbar={<ConsoleToolbar />}
       navFooter={<Terminal lines={['> midgard status', '# ALL SYSTEMS NOMINAL']} style={{ fontSize: 10 }} />}
-      aside={aside}
+      aside={exploring ? card ?? aside : aside}
     >
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
@@ -147,14 +128,14 @@ export function ObjectFabricScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Object types</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="312" label="OBJECT TYPES" size="sm" />
-        <StatBlock value="1.2M" label="INSTANCES" size="sm" />
+        <StatBlock value={String(rows.length)} label="OBJECT TYPES" size="sm" />
+        <StatBlock value={fmt(instances)} label="INSTANCES" size="sm" />
         <StatBlock value="100%" label="LINEAGE SIGNED" size="sm" accent />
         <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New object type</Button>
       </div>
 
       <Tabs
-        tabs={[{ label: 'All types', badge: '312' }, { label: 'Interfaces' }, { label: 'Shared properties' }, { label: 'Change requests', badge: '4' }]}
+        tabs={[{ label: 'All types', badge: String(rows.length) }, { label: 'Interfaces' }, { label: 'Shared properties' }, { label: 'Change requests' }]}
         active={tab}
         onChange={setTab}
       />
@@ -162,6 +143,16 @@ export function ObjectFabricScreen() {
       {/* flexShrink 0: an overflow wrapper may otherwise be squeezed to zero height
        * inside the shell's fixed-height <main> as the live audit list grows; the
        * page scrolls instead. */}
+      {exploring ? (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Button variant="secondary" size="sm" onClick={() => { setExplore(null); setTrail([]); }}>All object types</Button>
+            <h2 style={{ fontSize: 'var(--fs-h4)' }}>{exploring.name}</h2>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>{exploring.instanceCount} INSTANCES · LIVE</span>
+          </div>
+          <ExplorerBody type={exploring} selectedId={trail[trail.length - 1] ?? null} onOpen={(id) => setTrail([id])} />
+        </>
+      ) : (
       <div style={{ overflowX: 'auto', flexShrink: 0 }}>
         <Table<ObjectType>
           columns={[
@@ -174,11 +165,12 @@ export function ObjectFabricScreen() {
           ]}
           rows={rows}
           selectedIndex={sel}
-          onRowClick={(i) => { setSel(i); setGate(null); }}
+          onRowClick={(i) => setSel(i)}
           style={{ minWidth: 720 }}
         />
         {loading && <div style={{ padding: '12px 4px', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>QUERYING FABRIC…</div>}
       </div>
+      )}
 
       <div>
         <SectionLabel number={3} muted>AUDIT LINEAGE · LIVE</SectionLabel>

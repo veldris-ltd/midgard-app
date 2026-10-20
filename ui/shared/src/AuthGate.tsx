@@ -10,6 +10,7 @@ import { DataProvider } from './DataProvider';
  * through with the in-process mock — no auth. [RC-37] */
 
 const TOKEN_KEY = 'midgard.session.token';
+const SUBJECT_KEY = 'midgard.session.subject';
 
 export interface AuthGateProps<C> {
   /** `http` = authenticate against the edge; `mock` = offline demo, no auth. */
@@ -18,8 +19,9 @@ export interface AuthGateProps<C> {
   baseUrl: string;
   /** The client used in `mock` mode. */
   mockClient: C;
-  /** Build the authenticated client from a token (http mode, post-login). */
-  makeClient: (token: string) => C;
+  /** Build the authenticated client from a token and its signed-in subject (http
+   *  mode, post-login). */
+  makeClient: (token: string, subject: string) => C;
   /** Exchange credentials for a token (the SDK `login`). */
   login: (baseUrl: string, creds: { username: string; password: string }) => Promise<{ token: string; subject: string }>;
   children: React.ReactNode;
@@ -36,14 +38,21 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
       return null;
     }
   });
+  const [subject, setSubject] = React.useState<string>(() => {
+    try {
+      return sessionStorage.getItem(SUBJECT_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  });
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const client = React.useMemo<C>(
-    () => (mode === 'mock' || !token ? mockClient : makeClient(token)),
-    [mode, token, mockClient, makeClient],
+    () => (mode === 'mock' || !token ? mockClient : makeClient(token, subject)),
+    [mode, token, subject, mockClient, makeClient],
   );
 
   // Mock mode, or already authenticated → render the app with its gateway.
@@ -59,9 +68,11 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
       const res = await login(baseUrl, { username, password });
       try {
         sessionStorage.setItem(TOKEN_KEY, res.token);
+        sessionStorage.setItem(SUBJECT_KEY, res.subject);
       } catch {
         /* session storage unavailable (private mode) — keep the token in memory */
       }
+      setSubject(res.subject);
       setToken(res.token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

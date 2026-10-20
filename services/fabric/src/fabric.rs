@@ -15,7 +15,7 @@ use pqc_agility::VerifyingKey;
 use crate::action::{Effect, FunctionRuntime};
 use crate::error::FabricError;
 use crate::object::ObjectInstance;
-use crate::query::{run_query, Query};
+use crate::query::{run_query_counted, Query};
 use crate::store::ObjectStore;
 use crate::types::TypeRegistry;
 use crate::value::Value;
@@ -25,6 +25,8 @@ use crate::value::Value;
 pub struct QueryResponse {
     /// Authorised, marking-filtered results.
     pub results: Vec<ObjectInstance>,
+    /// How many readable objects matched, before `max_results` cut them.
+    pub matched: usize,
     /// The audit entry recording the read decision.
     pub audit_seq: u64,
 }
@@ -134,9 +136,11 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         if !decision.permitted {
             return Err(FabricError::Denied);
         }
-        let results = run_query(&self.registry, &self.store, &self.governance, ctx, q)?;
+        let (results, matched) =
+            run_query_counted(&self.registry, &self.store, &self.governance, ctx, q)?;
         Ok(QueryResponse {
             results,
+            matched,
             audit_seq: decision.audit_seq,
         })
     }

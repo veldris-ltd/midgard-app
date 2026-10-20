@@ -61,10 +61,16 @@ export interface QueryRequest {
   filter?: Record<string, string>;
   linkTraversals?: string[];
   maxResults?: number;
+  /** Only objects whose key or a text property contains this, ignoring case. */
+  search?: string;
+  /** One object by full id (`<type>/<key>`): at most one result. */
+  id?: string;
 }
 
 export interface QueryResponse {
   results: ObjectInstance[];
+  /** How many readable objects matched before `maxResults` cut them. */
+  matched?: number;
   auditId: string;
 }
 
@@ -72,13 +78,16 @@ export interface ApplyActionRequest {
   policy: PolicyContext;
   actionType: string;
   params?: Record<string, string>;
-  /** Human-gate authorisation token; required for gated actions. `[NFR-AI-1]` */
+  /** Human-gate approval: the approving person's reason, recorded under their name
+   *  before the action runs. Required for gated actions. `[NFR-AI-1]` */
   humanGateToken?: string;
 }
 
 export interface ApplyActionResponse {
   auditId: string;
   applied: boolean;
+  /** The ledger entry recording who approved a gated action, and why. */
+  approvalAuditId?: string;
 }
 
 // ---- fabric type registry (view models) ------------------------------------

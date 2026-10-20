@@ -30,7 +30,14 @@ createRoot(document.getElementById('root')!).render(
       mode={mode}
       baseUrl={baseUrl}
       mockClient={new MockGateway()}
-      makeClient={(token) => createHttpGateway({ baseUrl, token })}
+      makeClient={(token, subject) =>
+        createHttpGateway({
+          baseUrl,
+          token,
+          // Who the console shows as acting; the edge takes identity from the token.
+          ...(subject ? { policy: { subject, purpose: 'operations', clearance: 'confidential', roles: ['operator'] } } : {}),
+        })
+      }
       login={login}
     >
       <RouterProvider router={router} />

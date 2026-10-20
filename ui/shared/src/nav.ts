@@ -38,7 +38,7 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
     seals: [['secure', 'PQ-SEALED', true], ['online', 'AIR-GAP', false]],
     sections: [
       { title: 'FABRIC', items: [
-        { id: 'objects', label: 'Object types', icon: 'boxes', href: '/', badge: '312' },
+        { id: 'objects', label: 'Object types', icon: 'boxes', href: '/' },
         { id: 'search', label: 'Search-around', icon: 'search', href: '/search' },
       ] },
       { title: 'GOVERNANCE', items: [

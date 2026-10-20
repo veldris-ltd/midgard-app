@@ -46,9 +46,14 @@ pub use service_runtime::marking::{band, level_of};
 /// Most root objects a `<type>/*` search-around starts from.
 const MAX_ROOTS: usize = 25;
 /// Most nodes a search-around returns.
-const MAX_NODES: usize = 60;
+const MAX_NODES: usize = 120;
+/// Most new nodes one node adds over one link type, so a type with thousands of links
+/// (passenger statistics at an airport) does not crowd out the others.
+const MAX_PER_LINK: usize = 12;
 /// Deepest search-around.
 const MAX_HOPS: i64 = 4;
+/// The audited action of a person approving a human-gated action.
+pub const ACTION_HUMAN_GATE: &str = "HUMAN-GATE approve";
 
 /// A request the enclosure refused, already mapped to its HTTP status.
 #[derive(Debug)]
@@ -323,29 +328,46 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
 
     /// `POST /query`: a typed fabric query, authorised and audited once, with every
     /// result marking-filtered against the caller.
+    /// `POST /query`: objects of a type, by equality `filter`, by `search` (a key or
+    /// text property containing it, ignoring case) or by full `id` (at most one
+    /// result: the object, if it exists and the caller may read it). `matched` is how
+    /// many readable objects matched before `maxResults` cut them.
+    #[allow(clippy::too_many_arguments)]
     pub fn query(
         &mut self,
         ctx: &PolicyContext,
         object_type: &str,
         max_results: i64,
         filter: BTreeMap<String, String>,
+        search: Option<String>,
+        id: Option<String>,
         now: u64,
     ) -> Result<Json, EdgeError> {
         let q = Query {
             object_type: object_type.to_string(),
             filter,
             link_traversals: Vec::new(),
-            max_results: usize::try_from(max_results.clamp(1, 500)).unwrap_or(500),
+            max_results: if id.is_some() {
+                500
+            } else {
+                usize::try_from(max_results.clamp(1, 500)).unwrap_or(500)
+            },
+            search: id.clone().or(search),
         };
-        let resp = match self.fabric.query(ctx, &q, now) {
+        let mut resp = match self.fabric.query(ctx, &q, now) {
             Ok(resp) => resp,
             Err(e) => return Err(self.refusal(e)),
         };
+        if let Some(id) = &id {
+            resp.results.retain(|o| &o.id == id);
+            resp.matched = resp.results.len();
+        }
         Ok(Json::obj(vec![
             (
                 "results",
                 Json::Arr(resp.results.iter().map(object_json).collect()),
             ),
+            ("matched", Json::Int(resp.matched as i64)),
             ("auditId", Json::s(&audit_id(resp.audit_seq))),
         ]))
     }
@@ -353,7 +375,10 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     /// `POST /actions`: a governed fabric action.
     ///
     /// The human gate is checked first, at the edge, because it is a workflow control
-    /// the fabric does not model. The console's `target` is then resolved to the
+    /// the fabric does not model. A gated action carries the approving person's reason
+    /// as its `humanGateToken`; the approval is recorded in the ledger, under the
+    /// signed-in caller's name, before the action runs, so the record says who
+    /// authorised what and why. [NFR-AI-1] The console's `target` is then resolved to the
     /// concrete objects **the caller may read** and handed to the fabric as one
     /// `targets` parameter, so the action is validated, authorised and audited once.
     /// The fabric authorises an action type rather than a target instance; resolving
@@ -384,6 +409,32 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             .unwrap_or_else(|| format!("{}/*", entry.object_type));
         let targets = self.readable_targets(ctx, &entry.object_type, &target)?;
         params.insert("targets".into(), targets.join(","));
+        let gate_seq = match human_gate_token.filter(|_| entry.human_gated) {
+            Some(reason) => {
+                let reason: String = reason
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(200)
+                    .collect();
+                let seq = self
+                    .fabric
+                    .governance_mut()
+                    .record_event(
+                        &ctx.subject,
+                        ACTION_HUMAN_GATE,
+                        &format!(
+                            "action:{} target:{target} objects:{} reason:{}",
+                            entry.id,
+                            targets.len(),
+                            reason.trim()
+                        ),
+                        now,
+                    )
+                    .map_err(|_| EdgeError::new(503, "the approval could not be audited"))?;
+                Some(seq)
+            }
+            None => None,
+        };
 
         let resp = match self.fabric.apply_action(ctx, &entry.id, &params, now) {
             Ok(resp) => resp,
@@ -392,10 +443,14 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         if resp.applied {
             self.updated.insert(entry.object_type, now);
         }
-        Ok(Json::obj(vec![
+        let mut out = vec![
             ("auditId", Json::s(&audit_id(resp.audit_seq))),
             ("applied", Json::Bool(resp.applied)),
-        ]))
+        ];
+        if let Some(seq) = gate_seq {
+            out.push(("approvalAuditId", Json::s(&audit_id(seq))));
+        }
+        Ok(Json::obj(out))
     }
 
     /// Resolve a console `target` to object ids the caller may read. `<type>/*`
@@ -533,14 +588,19 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                         }
                     }
                 }
+                let mut per_link: BTreeMap<&str, usize> = BTreeMap::new();
                 for (lt, source, target) in adjacent {
                     let other = if source.id == node.id { target } else { source };
                     if !can_read(gov, ctx, other) {
                         continue;
                     }
                     let is_new = !seen.contains(&other.id);
-                    if is_new && nodes.len() >= MAX_NODES {
-                        continue;
+                    if is_new {
+                        let n = per_link.entry(lt.id.as_str()).or_default();
+                        if nodes.len() >= MAX_NODES || *n >= MAX_PER_LINK {
+                            continue;
+                        }
+                        *n += 1;
                     }
                     if edge_keys.insert((lt.id.clone(), source.id.clone(), target.id.clone())) {
                         edges.push(Json::obj(vec![
@@ -1420,7 +1480,10 @@ impl ActionFunction for CycleProperty {
                     Some(Value::Text(s)) => self.values.iter().position(|v| v == s),
                     _ => None,
                 };
-                let next = &self.values[current.map_or(0, |i| (i + 1) % self.values.len())];
+                // An object without the property is at the cycle's first value, so the
+                // first run moves it on (an airport not yet given a status is open).
+                let next = &self.values
+                    [current.map_or(1 % self.values.len(), |i| (i + 1) % self.values.len())];
                 obj.properties
                     .insert(self.property.clone(), Value::Text(next.clone()));
                 Ok(Effect::PutObject(obj))

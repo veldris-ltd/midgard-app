@@ -94,7 +94,13 @@ class HttpGateway implements GatewayClient {
     return this.get<ObjectType[]>('/object-types');
   }
   query(req: QueryRequest): Promise<QueryResponse> {
-    return this.post<QueryResponse>('/query', { objectType: req.objectType, maxResults: req.maxResults ?? 5 });
+    return this.post<QueryResponse>('/query', {
+      objectType: req.objectType,
+      maxResults: req.maxResults ?? 5,
+      ...(req.filter ? { filter: req.filter } : {}),
+      ...(req.search ? { search: req.search } : {}),
+      ...(req.id ? { id: req.id } : {}),
+    });
   }
   applyAction(req: ApplyActionRequest): Promise<ApplyActionResponse> {
     return this.post<ApplyActionResponse>('/actions', {

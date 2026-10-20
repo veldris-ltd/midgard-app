@@ -13,7 +13,9 @@
 //!    added again.
 //!
 //! Unlike an offline import, a sync replaces objects: it is how a source's changes reach
-//! the fabric, so syncing the same source twice leaves the fabric as it was.
+//! the fabric, so syncing the same source twice leaves the fabric as it was. The
+//! exception is what people set: a property an ontology action sets is kept when the
+//! synced record does not carry it, so a feed's refresh does not undo a decision.
 //!
 //! Responses are one outcome byte ([`outcome`]) followed by a UTF-8 message.
 
@@ -182,8 +184,26 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
             );
         }
         let added = links.len();
+        let owned = self
+            .ontology
+            .as_ref()
+            .map(action_owned_properties)
+            .unwrap_or_default();
         let store = enclosure.fabric_mut().store_mut();
-        for object in import.objects {
+        for mut object in import.objects {
+            // What people set through actions survives a feed's refresh of the object,
+            // unless the feed itself carries that property.
+            if let (Some(props), Some(stored)) =
+                (owned.get(&object.type_id), store.get_object(&object.id))
+            {
+                for p in props {
+                    if !object.properties.contains_key(p) {
+                        if let Some(v) = stored.properties.get(p) {
+                            object.properties.insert(p.clone(), v.clone());
+                        }
+                    }
+                }
+            }
             if let Err(e) = store.put_object_durable(object) {
                 return reply(
                     outcome::FAILED,
@@ -241,4 +261,23 @@ pub fn spawn_mesh_listener<L: LedgerStore + Send + 'static>(
         serve_mesh(&service, listener, mesh, Arc::new(MetricsRegistry::new()));
     });
     Ok(addr)
+}
+
+/// The properties each object type's actions set: owned by people, not by feeds.
+fn action_owned_properties(
+    ontology: &crate::ontology_file::Ontology,
+) -> std::collections::BTreeMap<String, BTreeSet<String>> {
+    use crate::ontology_file::ActionEffect;
+    let mut owned: std::collections::BTreeMap<String, BTreeSet<String>> = Default::default();
+    for a in &ontology.actions {
+        let property = match &a.effect {
+            ActionEffect::SetProperty { property, .. }
+            | ActionEffect::CycleProperty { property, .. } => property,
+        };
+        owned
+            .entry(a.object_type.clone())
+            .or_default()
+            .insert(property.clone());
+    }
+    owned
 }

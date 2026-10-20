@@ -44,7 +44,8 @@
 //!   removes older objects and audits each sweep; an object holding none of them is
 //!   kept. A type without it is kept indefinitely. [SAD_00 §8.5]
 //! - Effects: `set-property` sets a text property of every target to `value`;
-//!   `cycle-property` advances a text property to the next of `values`. Either must
+//!   `cycle-property` advances a text property to the next of `values` (an object
+//!   without it counts as at the first, so the first run sets the second). Either must
 //!   name a text property the action's object type declares.
 //!
 //! Loading is strict in the same way as the policy file. Unknown or repeated keys,
@@ -145,7 +146,8 @@ pub enum ActionEffect {
     CycleProperty {
         /// The property.
         property: String,
-        /// The cycle, in order; a value outside it restarts at the first.
+        /// The cycle, in order; a value outside it restarts at the first, and a missing
+        /// one counts as the first (so the first run sets the second).
         values: Vec<String>,
     },
 }
