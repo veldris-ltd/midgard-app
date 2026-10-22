@@ -1,0 +1,10 @@
+# Runtime files when run from this folder; secrets are never committed.
+secrets/
+state/
+out/
+__pycache__/
+*.log
+*.out
+*.pid
+*.bak*
+cameras.json
