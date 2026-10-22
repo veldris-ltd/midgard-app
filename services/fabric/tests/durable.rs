@@ -289,3 +289,236 @@ fn compaction_keeps_exactly_what_the_store_holds_and_survives_restart() {
     assert!(store.get_object("case-2").is_some());
     assert!(store.get_object("p2").is_none());
 }
+
+// --- batches: one flush for many records -------------------------------------
+
+use audit_writer::{AuditError, Sealer};
+use fabric::StoreOp;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+fn assigned(source: &str, target: &str) -> LinkInstance {
+    LinkInstance {
+        link_type: "assigned".into(),
+        source_id: source.into(),
+        target_id: target.into(),
+    }
+}
+
+/// The ops [`seed`] performs, as one batch.
+fn seed_ops() -> Vec<StoreOp> {
+    vec![
+        StoreOp::PutObject(person(
+            "p1",
+            "Alice",
+            "eng",
+            ClassificationLevel::CONFIDENTIAL,
+        )),
+        StoreOp::PutObject(person("p2", "Bob", "eng", ClassificationLevel::SECRET)),
+        StoreOp::PutObject(person(
+            "p3",
+            "Carol",
+            "legal",
+            ClassificationLevel::UNCLASSIFIED,
+        )),
+        StoreOp::PutObject(case("case-1", "Operation Aurora")),
+        StoreOp::PutLink(assigned("case-1", "p1")),
+        StoreOp::PutLink(assigned("case-1", "p2")),
+        StoreOp::PutObject(person(
+            "p1",
+            "Alice",
+            "ops",
+            ClassificationLevel::CONFIDENTIAL,
+        )),
+    ]
+}
+
+/// The (offset, length) of every frame in a journal file.
+fn frames(path: &PathBuf) -> Vec<(usize, usize)> {
+    let bytes = std::fs::read(path).unwrap();
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        let len = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
+        out.push((pos, 4 + len));
+        pos += 4 + len;
+    }
+    out
+}
+
+#[test]
+fn a_batch_applies_every_op_with_one_flush_and_survives_restart() {
+    let dir = scratch("batch");
+    let path = dir.join("fabric.store");
+    let pre = {
+        let mut store = open(&path);
+        let flushes = store.flushes();
+        let mut ops = seed_ops();
+        ops.push(StoreOp::RemoveObject("p3".into()));
+        // Nothing to remove: not journalled, as with a single removal.
+        ops.push(StoreOp::RemoveObject("p3".into()));
+        ops.push(StoreOp::RemoveObject("nobody".into()));
+        assert_eq!(store.apply_batch(ops).unwrap(), 8, "records journalled");
+        assert_eq!(store.flushes(), flushes + 1, "one flush for the batch");
+        assert_eq!(store.journal_records(), 8);
+        assert!(store.get_object("p3").is_none());
+        snapshot(&store)
+    };
+    assert_eq!(pre.0, vec!["p1", "p2"]);
+    assert_eq!(pre.1, vec!["p2"], "the in-batch update re-indexed p1");
+    assert_eq!(pre.2, vec!["p1", "p2"]);
+    let store = open(&path);
+    assert_eq!(snapshot(&store), pre, "identical after restart");
+    assert!(store.get_object("p3").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_empty_batch_writes_and_flushes_nothing() {
+    let dir = scratch("batch-empty");
+    let path = dir.join("fabric.store");
+    let mut store = open(&path);
+    let flushes = store.flushes();
+    assert_eq!(store.apply_batch(Vec::new()).unwrap(), 0);
+    assert_eq!(
+        store
+            .apply_batch(vec![StoreOp::RemoveObject("nobody".into())])
+            .unwrap(),
+        0
+    );
+    assert_eq!(store.flushes(), flushes);
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn single_writes_still_flush_each_record() {
+    let dir = scratch("single");
+    let path = dir.join("fabric.store");
+    let mut store = open(&path);
+    let flushes = store.flushes();
+    seed(&mut store);
+    assert!(store.remove_object_durable("p3").unwrap());
+    assert!(!store.remove_object_durable("p3").unwrap());
+    assert_eq!(
+        store.flushes(),
+        flushes + 8,
+        "seven seed writes and one removal"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_crash_part_way_through_a_batch_recovers_to_a_prefix_of_it() {
+    let dir = scratch("batch-crash");
+    let path = dir.join("fabric.store");
+    {
+        let mut store = open(&path);
+        store.put_object(case("case-0", "Before"));
+        store.apply_batch(seed_ops()).unwrap();
+    }
+    let whole = std::fs::read(&path).unwrap();
+    let frames = frames(&path);
+    assert_eq!(frames.len(), 8, "one frame per record, as before");
+
+    // The process died after the first four of the batch's seven records reached disk.
+    let (at, _) = frames[1 + 4];
+    std::fs::write(&path, &whole[..at]).unwrap();
+    let store = open(&path);
+    assert!(
+        store.get_object("case-0").is_some(),
+        "the earlier write survives"
+    );
+    let (people, engineers, links) = snapshot(&store);
+    assert_eq!(people, vec!["p1", "p2", "p3"]);
+    assert_eq!(
+        engineers,
+        vec!["p1", "p2"],
+        "p1's in-batch update never landed"
+    );
+    assert!(links.is_empty(), "nor did the links after it");
+    assert_eq!(store.journal_records(), 5);
+    drop(store);
+
+    // Torn inside a frame: open fails closed, exactly as a torn single write does.
+    let (at, len) = frames[1 + 4];
+    std::fs::write(&path, &whole[..at + len / 2]).unwrap();
+    assert!(DurableObjectStore::open(&path, Box::new(sealer()), "object-fabric").is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Seals until its budget runs out, then fails.
+struct Failing {
+    inner: KmsSealer<SoftwareTrustRoot>,
+    budget: Arc<AtomicUsize>,
+}
+impl Sealer for Failing {
+    fn seal(&self, aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, AuditError> {
+        if self.budget.fetch_sub(1, Ordering::SeqCst) == 0 {
+            self.budget.store(0, Ordering::SeqCst);
+            return Err(AuditError::Store("out of budget".into()));
+        }
+        self.inner.seal(aad, plaintext)
+    }
+    fn unseal(&self, aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>, AuditError> {
+        self.inner.unseal(aad, sealed)
+    }
+}
+
+#[test]
+fn a_failed_batch_applies_nothing_and_the_store_carries_on() {
+    let dir = scratch("batch-fail");
+    let path = dir.join("fabric.store");
+    let budget = Arc::new(AtomicUsize::new(1 + 3));
+    {
+        let mut store = DurableObjectStore::open(
+            &path,
+            Box::new(Failing {
+                inner: sealer(),
+                budget: budget.clone(),
+            }),
+            "object-fabric",
+        )
+        .unwrap();
+        store.put_object(case("case-0", "Before"));
+        let len = std::fs::metadata(&path).unwrap().len();
+        assert!(
+            store.apply_batch(seed_ops()).is_err(),
+            "the fourth seal fails"
+        );
+        assert!(
+            store.get_object("p1").is_none(),
+            "nothing applied to memory"
+        );
+        assert_eq!(store.journal_records(), 1);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), len, "nor to disk");
+        budget.store(usize::MAX / 2, Ordering::SeqCst);
+        store.apply_batch(seed_ops()).unwrap();
+    }
+    let store = open(&path);
+    assert!(store.get_object("case-0").is_some());
+    assert_eq!(snapshot(&store).2, vec!["p1", "p2"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_store_trait_applies_a_batch_with_one_flush() {
+    // How the fabric applies an action's effects: through the trait, in one go.
+    let dir = scratch("batch-trait");
+    let path = dir.join("fabric.store");
+    let mut store = open(&path);
+    let flushes = store.flushes();
+    {
+        let dynamic: &mut dyn ObjectStore = &mut store;
+        dynamic.apply_all(seed_ops());
+    }
+    assert_eq!(store.flushes(), flushes + 1);
+    assert!(store.poisoned().is_none());
+    assert_eq!(snapshot(&store).2, vec!["p1", "p2"]);
+
+    // The in-memory store applies the same ops in the same order.
+    let mut memory = fabric::InMemoryStore::new();
+    memory.apply_all(seed_ops());
+    assert_eq!(snapshot(&memory), snapshot(&store));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -3,12 +3,18 @@
 //! Persistence is a **KMS-sealed, append-only write-ahead journal** of store
 //! mutations (`PutObject` / `PutLink` / `RemoveObject`), each framed, encrypted at rest (via a
 //! [`Sealer`] — the production impl is `kms::KmsSealer`, AES-256-GCM under
-//! ML-KEM-1024), `fsync`ed, and written with `0600` perms. On [`DurableObjectStore::open`]
-//! the journal is decrypted and **replayed** into an in-memory [`InMemoryStore`],
+//! ML-KEM-1024), `fsync`ed before the write returns, and written with `0600` perms. On
+//! [`DurableObjectStore::open`] the journal is decrypted and **replayed** into an in-memory [`InMemoryStore`],
 //! which rebuilds the type + inverted-property indexes and adjacency incrementally
 //! — so after a restart every object, link, and index is recovered and queries
 //! return identical results. A tampered on-disk record fails AEAD authentication
 //! and the open fails closed. [SAD_00 §8.3] [RC-10]
+//!
+//! [`DurableObjectStore::apply_batch`] makes many mutations durable with one flush
+//! (on macOS a flush is a full `F_FULLFSYNC`, several milliseconds, so one per record
+//! stalls a large sync). The journal is the same: one sealed frame per record, so a
+//! crash part-way through a batch leaves whole records from its start, which replay
+//! to a consistent prefix; a torn final frame fails the open closed, as ever.
 //!
 //! Every update appends a whole object, so the journal outgrows the data it holds.
 //! [`DurableObjectStore::compact`] rewrites it as one `PutObject` per object and one
@@ -24,7 +30,7 @@ use policy::{ClassificationLevel, Compartment, Marking, Purpose};
 
 use crate::error::FabricError;
 use crate::object::{LinkInstance, ObjectInstance};
-use crate::store::{InMemoryStore, ObjectStore};
+use crate::store::{InMemoryStore, ObjectStore, StoreOp};
 use crate::value::Value;
 
 const JOURNAL_DS: &[u8] = b"midgard-fabric-store-v1";
@@ -43,6 +49,7 @@ pub struct DurableObjectStore {
     store_id: String,
     op_seq: u64,
     poison: Option<String>,
+    flushes: u64,
 }
 
 impl DurableObjectStore {
@@ -111,6 +118,7 @@ impl DurableObjectStore {
             store_id,
             op_seq,
             poison: None,
+            flushes: 0,
         })
     }
 
@@ -119,33 +127,82 @@ impl DurableObjectStore {
     /// method). On error nothing is applied to memory, so disk and memory stay
     /// consistent.
     pub fn put_object_durable(&mut self, obj: ObjectInstance) -> Result<(), FabricError> {
-        let mut bytes = vec![OP_PUT_OBJECT];
-        encode_object(&mut bytes, &obj);
-        self.journal(&bytes)?;
-        self.inner.put_object(obj);
-        Ok(())
+        self.apply_batch(vec![StoreOp::PutObject(obj)]).map(drop)
     }
 
     /// Durably insert a link. See [`DurableObjectStore::put_object_durable`].
     pub fn put_link_durable(&mut self, link: LinkInstance) -> Result<(), FabricError> {
-        let mut bytes = vec![OP_PUT_LINK];
-        encode_link(&mut bytes, &link);
-        self.journal(&bytes)?;
-        self.inner.put_link(link);
-        Ok(())
+        self.apply_batch(vec![StoreOp::PutLink(link)]).map(drop)
     }
 
     /// Durably remove an object and its links, returning whether there was one (nothing
     /// is journalled when there was not). See [`DurableObjectStore::put_object_durable`].
     pub fn remove_object_durable(&mut self, id: &str) -> Result<bool, FabricError> {
-        if self.inner.get_object(id).is_none() {
-            return Ok(false);
+        self.apply_batch(vec![StoreOp::RemoveObject(id.to_string())])
+            .map(|written| written == 1)
+    }
+
+    /// Durably apply `ops`, in order, with **one** flush, returning how many records
+    /// were journalled (a removal of an object that is not there at that point writes
+    /// none). Every record is sealed and framed exactly as a single write's is, all are
+    /// appended, the journal is flushed once, and only then are they applied to memory:
+    /// so when this returns `Ok` every op is on disk, and on `Err` none is applied and
+    /// the journal is cut back to where it was.
+    pub fn apply_batch(&mut self, ops: Vec<StoreOp>) -> Result<usize, FabricError> {
+        // Which removals find an object, given the ops before them in the batch.
+        let mut present: std::collections::BTreeMap<String, bool> = Default::default();
+        let mut kept = Vec::with_capacity(ops.len());
+        for op in ops {
+            match &op {
+                StoreOp::PutObject(o) => {
+                    present.insert(o.id.clone(), true);
+                }
+                StoreOp::PutLink(_) => {}
+                StoreOp::RemoveObject(id) => {
+                    let there = match present.get(id) {
+                        Some(there) => *there,
+                        None => self.inner.get_object(id).is_some(),
+                    };
+                    if !there {
+                        continue;
+                    }
+                    present.insert(id.clone(), false);
+                }
+            }
+            kept.push(op);
         }
-        let mut bytes = vec![OP_REMOVE_OBJECT];
-        put_str(&mut bytes, id);
-        self.journal(&bytes)?;
-        self.inner.remove_object(id);
-        Ok(true)
+        if kept.is_empty() {
+            return Ok(0);
+        }
+
+        let mut frames = Vec::new();
+        for (i, op) in kept.iter().enumerate() {
+            let sealed = self
+                .sealer
+                .seal(&aad(&self.store_id, self.op_seq + i as u64), &encode_op(op))
+                .map_err(|e| FabricError::Store(e.to_string()))?;
+            frames.extend_from_slice(&(sealed.len() as u32).to_le_bytes());
+            frames.extend_from_slice(&sealed);
+        }
+        self.append(&frames)?;
+        self.op_seq += kept.len() as u64;
+
+        let written = kept.len();
+        for op in kept {
+            match op {
+                StoreOp::PutObject(o) => self.inner.put_object(o),
+                StoreOp::PutLink(l) => self.inner.put_link(l),
+                StoreOp::RemoveObject(id) => {
+                    self.inner.remove_object(&id);
+                }
+            }
+        }
+        Ok(written)
+    }
+
+    /// How many times the journal has been flushed to disk since it was opened.
+    pub fn flushes(&self) -> u64 {
+        self.flushes
     }
 
     /// Journal records written since the journal began (or was last compacted).
@@ -229,18 +286,24 @@ impl DurableObjectStore {
         &self.path
     }
 
-    /// Seal + frame + fsync one op's plaintext, advancing the sequence.
-    fn journal(&mut self, plaintext: &[u8]) -> Result<(), FabricError> {
-        let sealed = self
-            .sealer
-            .seal(&aad(&self.store_id, self.op_seq), plaintext)
-            .map_err(|e| FabricError::Store(e.to_string()))?;
-        let mut frame = Vec::with_capacity(4 + sealed.len());
-        frame.extend_from_slice(&(sealed.len() as u32).to_le_bytes());
-        frame.extend_from_slice(&sealed);
-        self.file.write_all(&frame).map_err(io)?;
-        self.file.sync_all().map_err(io)?;
-        self.op_seq += 1;
+    /// Append sealed frames to the journal and flush it. On failure the journal is cut
+    /// back to its old length: a record left on disk but not in memory would come back
+    /// after a restart, and the next write would reuse its sequence number.
+    fn append(&mut self, frames: &[u8]) -> Result<(), FabricError> {
+        let start = self.file.metadata().map_err(io)?.len();
+        let mut done = self.file.write_all(frames);
+        if done.is_ok() {
+            self.flushes += 1;
+            done = self.file.sync_all();
+        }
+        if let Err(e) = done {
+            if let Err(cut) = self.file.set_len(start).and_then(|()| self.file.sync_all()) {
+                self.poison = Some(format!(
+                    "a failed write could not be taken back off the journal: {cut}"
+                ));
+            }
+            return Err(io(e));
+        }
         Ok(())
     }
 }
@@ -270,6 +333,11 @@ impl ObjectStore for DurableObjectStore {
     fn neighbors(&self, source_id: &str, link_type: &str) -> Vec<&ObjectInstance> {
         self.inner.neighbors(source_id, link_type)
     }
+    fn apply_all(&mut self, ops: Vec<StoreOp>) {
+        if let Err(e) = self.apply_batch(ops) {
+            self.poison = Some(e.to_string());
+        }
+    }
     fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
         let obj = self.inner.get_object(id).cloned()?;
         match self.remove_object_durable(id) {
@@ -297,6 +365,26 @@ fn aad(store_id: &str, seq: u64) -> Vec<u8> {
 }
 
 // --- codec (no serde; length-prefixed, injective) -------------------------
+
+fn encode_op(op: &StoreOp) -> Vec<u8> {
+    match op {
+        StoreOp::PutObject(obj) => {
+            let mut bytes = vec![OP_PUT_OBJECT];
+            encode_object(&mut bytes, obj);
+            bytes
+        }
+        StoreOp::PutLink(link) => {
+            let mut bytes = vec![OP_PUT_LINK];
+            encode_link(&mut bytes, link);
+            bytes
+        }
+        StoreOp::RemoveObject(id) => {
+            let mut bytes = vec![OP_REMOVE_OBJECT];
+            put_str(&mut bytes, id);
+            bytes
+        }
+    }
+}
 
 enum Op {
     PutObject(ObjectInstance),

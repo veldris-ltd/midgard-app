@@ -278,3 +278,35 @@ fn a_feed_refresh_keeps_what_actions_own() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_sweep_is_flushed_to_disk_once_however_many_objects_it_removes() {
+    let dir = scratch("sweep-one-flush");
+    let state = provision(&dir);
+    let worker = workload("forge-worker", "forge-worker");
+    let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+    let records: Vec<String> = (0..100)
+        .map(|i| aircraft(&format!("AC-{i}"), Some(NOW - 7200)))
+        .collect();
+    let (code, message) =
+        split(&gateway.sync_records(&worker, PURPOSE, records.join("\n").as_bytes(), NOW));
+    assert_eq!(code, outcome::ACCEPTED, "{message}");
+    let before = gateway.store_flushes();
+    let swept = gateway.enforce_retention(NOW).unwrap();
+    assert_eq!(swept[0].removed, 100);
+    assert_eq!(
+        gateway.store_flushes(),
+        before + 1,
+        "one flush for 100 removals"
+    );
+    drop(gateway);
+    drop(_lock);
+    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
+    let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
+    assert!(
+        store.objects_of_type("aircraft").is_empty(),
+        "removed, durably"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

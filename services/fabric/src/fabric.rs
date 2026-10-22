@@ -16,7 +16,7 @@ use crate::action::{Effect, FunctionRuntime};
 use crate::error::FabricError;
 use crate::object::ObjectInstance;
 use crate::query::{run_query_counted, Query};
-use crate::store::ObjectStore;
+use crate::store::{ObjectStore, StoreOp};
 use crate::types::TypeRegistry;
 use crate::value::Value;
 
@@ -204,12 +204,16 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
                 .ok_or_else(|| FabricError::UnknownFunction(at.function_id.clone()))?;
             func.apply(&params, &self.store)?
         };
-        for effect in effects {
-            match effect {
-                Effect::PutObject(obj) => self.store.put_object(obj),
-                Effect::PutLink(link) => self.store.put_link(link),
-            }
-        }
+        // All of an action's effects are made durable together.
+        self.store.apply_all(
+            effects
+                .into_iter()
+                .map(|effect| match effect {
+                    Effect::PutObject(obj) => StoreOp::PutObject(obj),
+                    Effect::PutLink(link) => StoreOp::PutLink(link),
+                })
+                .collect(),
+        );
 
         Ok(ApplyActionResponse {
             audit_seq: decision.audit_seq,
