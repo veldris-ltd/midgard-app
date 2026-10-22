@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "objectTypes": [
+    { "id": "matter", "title": "Matter",
+      "properties": [ { "name": "reference", "type": "text", "required": true },
+                      { "name": "title", "type": "text", "required": true },
+                      { "name": "practice_area", "type": "text" },
+                      { "name": "status", "type": "text" },
+                      { "name": "hold", "type": "text" } ] },
+    { "id": "party", "title": "Party",
+      "properties": [ { "name": "name", "type": "text", "required": true },
+                      { "name": "capacity", "type": "text" } ] },
+    { "id": "document", "title": "Document",
+      "properties": [ { "name": "reference", "type": "text", "required": true },
+                      { "name": "title", "type": "text" },
+                      { "name": "kind", "type": "text" },
+                      { "name": "pages", "type": "int" },
+                      { "name": "review", "type": "text" } ] }
+  ],
+  "linkTypes": [
+    { "id": "party_matter", "name": "party to", "from": "party", "to": "matter",
+      "cardinality": "many-to-many" },
+    { "id": "document_matter", "name": "filed under", "from": "document", "to": "matter",
+      "cardinality": "many-to-many" }
+  ],
+  "actions": [
+    { "id": "place_hold", "name": "placeLegalHold", "title": "Place legal hold",
+      "objectType": "matter", "humanGated": true, "marking": "restricted",
+      "purposes": ["operations", "case-work"],
+      "effect": { "kind": "set-property", "property": "hold", "value": "active" } },
+    { "id": "privilege_review", "name": "privilegeReview", "title": "Privilege review",
+      "objectType": "document", "humanGated": true, "marking": "restricted",
+      "purposes": ["operations", "case-work"],
+      "effect": { "kind": "cycle-property", "property": "review",
+                  "values": ["unreviewed", "privileged", "disclosable"] } }
+  ]
+}

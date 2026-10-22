@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "operator-read", "role": "operator", "action": "Read", "resource": "*", "effect": "permit" },
+    { "id": "operator-apply", "role": "operator", "action": "Apply", "resource": "*", "effect": "permit" },
+    { "id": "operator-flag", "role": "operator", "action": "flagTransformer", "resource": "*", "effect": "permit" },
+    { "id": "operator-isolate", "role": "operator", "action": "isolateSubstation", "resource": "*", "effect": "permit" },
+    { "id": "viewer-read", "role": "viewer", "action": "Read", "resource": "*", "effect": "permit" },
+    { "id": "worker-channel", "role": "forge-worker", "action": "OpenChannel", "resource": "*", "effect": "permit" },
+    { "id": "worker-sync", "role": "forge-worker", "action": "SyncRecords", "resource": "*", "effect": "permit" }
+  ]
+}

@@ -11,6 +11,7 @@ Midgard is a **Veldris Ltd** project. This repository holds three things that fi
 The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md); in the full working history, one commit maps to each playbook prompt. This public repository begins from a squashed initial import of that verified state.
 
 - **Just want to see it?** → [Run the design system](#run-the-design-system) (static files, no toolchain).
+- **Want it on a server?** → [Install on a server](#install-on-a-server): one guided installer, with profiles for legal, healthcare, defence, space and utilities.
 - **Want to run it?** → [Run the platform locally](#run-the-platform-locally) (gateway edge + console, step by step).
 - **Want to verify it?** → [Verify the platform](#verify-the-platform) (build, test, and the 72-criterion air-gapped gate).
 - **Want to understand how it was built?** → [GETTING_STARTED.md](GETTING_STARTED.md) and [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md).
@@ -128,6 +129,18 @@ midgard/
 | Running a console | **Node ≥ 22** (`engines`) and **pnpm 9.12.0** (`packageManager`) |
 
 The Cargo workspace is pinned to Rust 1.82 (`rust-toolchain.toml`) with every dependency **vendored** (`vendor/` + `.cargo/config.toml`), so builds and tests need no network. Where a command below must reach the network, it says so.
+
+---
+
+## Install on a server
+
+`deploy/installer/mg-install` installs the suite, whole or in part, on one Linux server, for someone who has not installed Midgard before:
+
+```bash
+sudo deploy/installer/mg-install
+```
+
+It checks the server, asks what Midgard is for (evaluation, legal, healthcare, defence, space or utilities), recommends the products, model and security settings for that use, enrols the first user (and two administrators for dual control where the use calls for it), builds and starts the services under docker compose, then signs in as the first user to check the data is readable. Everything listens on the server's loopback address only, reached through an SSH tunnel. Afterwards `mg-install` also reports status, enrols users, takes backups and uninstalls. Like the compose deployment it drives, it builds from source, not from a signed release. The guide, with sizing tiers and a worked Hetzner GEX131 example, is [deploy/installer/README.md](deploy/installer/README.md).
 
 ---
 

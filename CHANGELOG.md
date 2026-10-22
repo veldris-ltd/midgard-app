@@ -10,6 +10,26 @@ CONTRIBUTING.md for the version policy.
 ## [Unreleased]
 
 ### Added
+- **A guided installer for one server.** `deploy/installer/mg-install` installs the
+  suite, whole or in part, on a Linux server, and manages it afterwards. [RC-33]
+  [NFR-SEC-1]
+  - A server check: architecture, distribution, sizing tier, disk, Docker, ports, Plesk
+    and network; it can install Docker from Docker's own repository.
+  - Six use-case profiles (evaluation, legal, healthcare, defence, space, utilities),
+    each with the products, model, second-factor and dual-control settings for that use,
+    a starter schema, a policy with `operator` and `viewer` roles, and Forge jobs over
+    fictional sample data. Each was checked by installing it and signing in.
+  - The first user and, where the profile calls for it, two IAM administrators are
+    enrolled before anything starts. Passwords are never stored or logged; the
+    authenticator key is shown once.
+  - An optional web console image (`console.Dockerfile`), served read-only on
+    `127.0.0.1:5173` with a strict content security policy.
+  - Checks after start: the gateway answers, Forge syncs, the first user signs in
+    (with a computed authenticator code) and reads the synced data, Mimir answers over
+    PQ-mTLS, Bifrost and Heimdall answer reads, the console is served.
+  - `status`, `start`, `stop`, `logs`, `add-user`, `backup`, `handed-over` and
+    `uninstall [--purge]`; unattended installs from an answers file; every step safe
+    to repeat, so a failed install resumes.
 - **The console signs in principals with a second factor.** `AuthGate` has an
   authenticator-code field, and the SDK's `login` sends the code when one is entered.
   Before this, a principal enrolled with `--totp` could sign in over the API but not

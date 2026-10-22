@@ -1,0 +1,45 @@
+# Answers for an unattended install:  sudo deploy/installer/mg-install --answers FILE
+# Read as KEY=VALUE lines, never executed. Any key left out takes the profile's default,
+# except OPERATOR and OPERATOR_PASSWORD_FILE, and ADMIN_1 and ADMIN_2 where the profile
+# needs administrators. [RC-33]
+
+# Where Midgard is installed. Default /opt/midgard.
+INSTALL_DIR=/opt/midgard
+
+# evaluation, legal, medical, defence, space or utilities. See deploy/installer/README.md.
+PROFILE=legal
+
+# Products besides the core, space separated: any of forge mimir bifrost heimdall.
+# Leave the line out to take the profile's choice; leave it empty for the core alone.
+# COMPONENTS=forge mimir
+
+# granite (a real model on the CPU) or reference (fixed answers, for testing only).
+MODEL=granite
+# A Granite GGUF already on this server, for a server that cannot reach huggingface.co.
+# MODEL_FILE=/root/granite-3.3-2b-instruct-Q4_K_M.gguf
+
+# Build and serve the web console on 127.0.0.1:5173: yes or no.
+CONSOLE=yes
+
+# The first user. The password is the first line of a file only root can read:
+#   install -m 0600 /dev/null /root/operator.pw && nano /root/operator.pw
+# Delete that file after the install.
+OPERATOR=j.smith
+OPERATOR_PASSWORD_FILE=/root/operator.pw
+# Require an authenticator code (yes or no). Regulated profiles always require it.
+OPERATOR_TOTP=yes
+
+# Two administrators for dual control (legal, medical, defence, space, utilities).
+ADMIN_1=a.jones
+ADMIN_2=b.patel
+
+# Install Docker from Docker's package repository if it is missing: yes or no.
+INSTALL_DOCKER=no
+
+# Must be yes for an unattended install to change anything.
+CONFIRM=yes
+
+# Only when re-running against an install made with a DIFFERENT profile: DELETE starts a
+# fresh enclosure for the new profile, deleting the old users, keys and data. Without it
+# the install keeps its original profile.
+# FRESH=DELETE

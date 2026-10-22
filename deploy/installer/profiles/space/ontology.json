@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "objectTypes": [
+    { "id": "spacecraft", "title": "Spacecraft",
+      "properties": [ { "name": "designator", "type": "text", "required": true },
+                      { "name": "orbit", "type": "text" },
+                      { "name": "mode", "type": "text" } ] },
+    { "id": "ground_station", "title": "Ground station",
+      "properties": [ { "name": "name", "type": "text", "required": true },
+                      { "name": "band", "type": "text" } ] },
+    { "id": "contact", "title": "Contact window",
+      "properties": [ { "name": "reference", "type": "text", "required": true },
+                      { "name": "aos", "type": "text" },
+                      { "name": "los", "type": "text" },
+                      { "name": "max_elevation_deg", "type": "float" },
+                      { "name": "status", "type": "text" } ] },
+    { "id": "anomaly", "title": "Anomaly",
+      "properties": [ { "name": "reference", "type": "text", "required": true },
+                      { "name": "subsystem", "type": "text" },
+                      { "name": "severity", "type": "text" },
+                      { "name": "status", "type": "text" } ] }
+  ],
+  "linkTypes": [
+    { "id": "contact_spacecraft", "name": "with spacecraft", "from": "contact", "to": "spacecraft",
+      "cardinality": "many-to-many" },
+    { "id": "contact_station", "name": "through station", "from": "contact", "to": "ground_station",
+      "cardinality": "many-to-many" },
+    { "id": "anomaly_spacecraft", "name": "raised on", "from": "anomaly", "to": "spacecraft",
+      "cardinality": "many-to-many" }
+  ],
+  "actions": [
+    { "id": "triage_anomaly", "name": "triageAnomaly", "title": "Advance anomaly triage",
+      "objectType": "anomaly", "humanGated": true, "marking": "internal",
+      "purposes": ["operations", "mission-ops"],
+      "effect": { "kind": "cycle-property", "property": "status",
+                  "values": ["open", "investigating", "resolved"] } },
+    { "id": "safe_mode", "name": "commandSafeMode", "title": "Record safe-mode decision",
+      "objectType": "spacecraft", "humanGated": true, "marking": "restricted",
+      "purposes": ["operations", "mission-ops"],
+      "effect": { "kind": "set-property", "property": "mode", "value": "safe" } }
+  ]
+}

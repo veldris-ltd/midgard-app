@@ -24,6 +24,12 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   PQ-mTLS. `smoke.sh` builds, starts, probes and restarts a throwaway copy. The image
   is built from source (`compose/Dockerfile`), **not** the signed release image.
   [RC-33] [NFR-SEC-1]
+- **`installer/`**: `mg-install`, the guided installer for one server: a server check,
+  use-case profiles (each with a starter schema, policy and sample Forge jobs), the choice
+  of products, first users and administrators enrolled before anything starts, an
+  optional web console image, and checks that each chosen service answers. It drives
+  `compose/` and adds a site overlay; it also manages the install afterwards (status,
+  users, backups, removal). See [installer/README.md](installer/README.md). [RC-33]
 - **`kind/`** — Midgard on a local three-node Kubernetes cluster: `up.sh` creates
   the kind cluster, builds and loads the image, installs the chart and provisions
   the secrets (`bootstrap-secrets.sh` mints the enclosure's keys and every mesh

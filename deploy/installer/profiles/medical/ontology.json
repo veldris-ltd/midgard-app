@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "objectTypes": [
+    { "id": "patient", "title": "Patient (pseudonymised)",
+      "properties": [ { "name": "pseudonym", "type": "text", "required": true },
+                      { "name": "birth_year", "type": "int" },
+                      { "name": "pathway", "type": "text" } ] },
+    { "id": "care_unit", "title": "Care unit",
+      "properties": [ { "name": "name", "type": "text", "required": true },
+                      { "name": "specialty", "type": "text" } ] },
+    { "id": "encounter", "title": "Encounter",
+      "properties": [ { "name": "reference", "type": "text", "required": true },
+                      { "name": "kind", "type": "text" },
+                      { "name": "occurred", "type": "text" },
+                      { "name": "review", "type": "text" } ] }
+  ],
+  "linkTypes": [
+    { "id": "encounter_patient", "name": "for patient", "from": "encounter", "to": "patient",
+      "cardinality": "many-to-many" },
+    { "id": "encounter_unit", "name": "at unit", "from": "encounter", "to": "care_unit",
+      "cardinality": "many-to-many" }
+  ],
+  "actions": [
+    { "id": "request_review", "name": "requestClinicalReview", "title": "Request clinical review",
+      "objectType": "encounter", "humanGated": true, "marking": "confidential",
+      "purposes": ["operations", "direct-care"],
+      "effect": { "kind": "set-property", "property": "review", "value": "requested" } }
+  ]
+}
