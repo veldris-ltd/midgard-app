@@ -6,7 +6,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use fabric::{ObjectInstance, ObjectStore, PolicyContext, Value};
+use fabric::{
+    FabricError, InMemoryStore, LinkInstance, ObjectInstance, ObjectStore, PolicyContext, StoreOp,
+    Value,
+};
 use governance::Governance;
 use http_gateway::demo_operator;
 use http_gateway::enclosure::{Enclosure, ACTION_HUMAN_GATE};
@@ -51,6 +54,10 @@ fn rule(id: &str, action: &str) -> Rule {
 }
 
 fn enclosure() -> Enclosure {
+    enclosure_over(InMemoryStore::new())
+}
+
+fn enclosure_over<S: ObjectStore>(store: S) -> Enclosure<S> {
     let policy = PolicySet::new(vec![
         rule("read", "Read"),
         rule("toggle", "toggleAirport"),
@@ -58,7 +65,7 @@ fn enclosure() -> Enclosure {
     ])
     .unwrap();
     let governance = Governance::new(DefaultPdp::new(policy), &mut OsRng).unwrap();
-    let mut enclosure = Enclosure::new(governance);
+    let mut enclosure = Enclosure::with_store(store, governance);
     enclosure
         .load_ontology(&parse_ontology(ONTOLOGY).unwrap(), NOW)
         .unwrap();
@@ -238,4 +245,82 @@ fn a_true_false_property_is_cycled_as_a_boolean() {
     enc.apply_action(&alice(), "Shut airport", target, None, NOW)
         .unwrap();
     assert_eq!(closed(&enc), Some(Value::Bool(false)));
+}
+
+/// An in-memory store whose batched writes fail once `broken` is set, as the durable
+/// store's do when its disk does.
+struct Breakable {
+    inner: InMemoryStore,
+    broken: bool,
+}
+impl ObjectStore for Breakable {
+    fn put_object(&mut self, obj: ObjectInstance) {
+        self.inner.put_object(obj)
+    }
+    fn get_object(&self, id: &str) -> Option<&ObjectInstance> {
+        self.inner.get_object(id)
+    }
+    fn objects_of_type(&self, type_id: &str) -> Vec<&ObjectInstance> {
+        self.inner.objects_of_type(type_id)
+    }
+    fn by_property(&self, type_id: &str, property: &str, key: &str) -> Vec<&ObjectInstance> {
+        self.inner.by_property(type_id, property, key)
+    }
+    fn put_link(&mut self, link: LinkInstance) {
+        self.inner.put_link(link)
+    }
+    fn neighbors(&self, source_id: &str, link_type: &str) -> Vec<&ObjectInstance> {
+        self.inner.neighbors(source_id, link_type)
+    }
+    fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
+        self.inner.remove_object(id)
+    }
+    fn try_apply_all(&mut self, ops: Vec<StoreOp>) -> Result<(), FabricError> {
+        if self.broken {
+            return Err(FabricError::Store("the disk is gone".into()));
+        }
+        self.inner.try_apply_all(ops)
+    }
+}
+
+#[test]
+fn an_action_that_cannot_be_written_is_an_error_and_the_approval_stays_recorded() {
+    let mut enc = enclosure_over(Breakable {
+        inner: InMemoryStore::new(),
+        broken: false,
+    });
+    enc.fabric_mut().store_mut().broken = true;
+    let target: BTreeMap<String, String> =
+        [("target".to_string(), "airport/EGLL".to_string())].into();
+    let before = enc.fabric().audit_entries().len();
+    let err = enc
+        .apply_action(
+            &alice(),
+            "Open or close airport",
+            target,
+            Some("runway inspection"),
+            NOW,
+        )
+        .unwrap_err();
+    assert_eq!(err.status, 500, "{}", err.body.encode());
+    assert!(
+        err.body.encode().contains("the disk is gone"),
+        "{}",
+        err.body.encode()
+    );
+    let status = enc
+        .fabric()
+        .store()
+        .get_object("airport/EGLL")
+        .unwrap()
+        .properties
+        .get("status")
+        .cloned();
+    assert_eq!(status, None, "nothing applied");
+    // Who approved it and the permit are recorded before the write, as always; the
+    // error tells the caller it did not happen.
+    let entries = enc.fabric().audit_entries();
+    assert_eq!(entries.len(), before + 2);
+    assert_eq!(entries[before].record.action.0, ACTION_HUMAN_GATE);
+    assert_eq!(entries[before + 1].record.action.0, "PERMIT toggleAirport");
 }

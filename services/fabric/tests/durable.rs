@@ -510,7 +510,7 @@ fn the_store_trait_applies_a_batch_with_one_flush() {
     let flushes = store.flushes();
     {
         let dynamic: &mut dyn ObjectStore = &mut store;
-        dynamic.apply_all(seed_ops());
+        dynamic.try_apply_all(seed_ops()).unwrap();
     }
     assert_eq!(store.flushes(), flushes + 1);
     assert!(store.poisoned().is_none());
@@ -518,7 +518,7 @@ fn the_store_trait_applies_a_batch_with_one_flush() {
 
     // The in-memory store applies the same ops in the same order.
     let mut memory = fabric::InMemoryStore::new();
-    memory.apply_all(seed_ops());
+    memory.try_apply_all(seed_ops()).unwrap();
     assert_eq!(snapshot(&memory), snapshot(&store));
     let _ = std::fs::remove_dir_all(&dir);
 }

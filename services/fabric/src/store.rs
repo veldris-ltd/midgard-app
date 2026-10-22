@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::object::{LinkInstance, ObjectInstance};
 
-/// One store mutation, for applying several at once with [`ObjectStore::apply_all`].
+/// One store mutation, for applying several at once with [`ObjectStore::try_apply_all`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum StoreOp {
     /// Insert or replace an object.
@@ -38,9 +38,9 @@ pub trait ObjectStore {
     /// Remove an object with its index entries and every link from or to it, returning
     /// it; `None` (and no change) when there is no such object. Used by retention.
     fn remove_object(&mut self, id: &str) -> Option<ObjectInstance>;
-    /// Apply `ops` in order. A durable store makes them durable together, with one
-    /// flush, rather than one flush per op.
-    fn apply_all(&mut self, ops: Vec<StoreOp>) {
+    /// Apply `ops` in order, reporting a persistence failure. A durable store makes
+    /// them durable together, with one flush, and on failure applies none of them.
+    fn try_apply_all(&mut self, ops: Vec<StoreOp>) -> Result<(), crate::FabricError> {
         for op in ops {
             match op {
                 StoreOp::PutObject(o) => self.put_object(o),
@@ -50,6 +50,7 @@ pub trait ObjectStore {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -77,8 +78,8 @@ impl<T: ObjectStore + ?Sized> ObjectStore for Box<T> {
     fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
         (**self).remove_object(id)
     }
-    fn apply_all(&mut self, ops: Vec<StoreOp>) {
-        (**self).apply_all(ops)
+    fn try_apply_all(&mut self, ops: Vec<StoreOp>) -> Result<(), crate::FabricError> {
+        (**self).try_apply_all(ops)
     }
 }
 

@@ -204,8 +204,10 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
                 .ok_or_else(|| FabricError::UnknownFunction(at.function_id.clone()))?;
             func.apply(&params, &self.store)?
         };
-        // All of an action's effects are made durable together.
-        self.store.apply_all(
+        // All of an action's effects are made durable together, or none is: the
+        // decision is already in the ledger, and an error tells the caller the action
+        // did not happen.
+        self.store.try_apply_all(
             effects
                 .into_iter()
                 .map(|effect| match effect {
@@ -213,7 +215,7 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
                     Effect::PutLink(link) => StoreOp::PutLink(link),
                 })
                 .collect(),
-        );
+        )?;
 
         Ok(ApplyActionResponse {
             audit_seq: decision.audit_seq,

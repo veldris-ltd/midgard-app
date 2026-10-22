@@ -8,7 +8,8 @@ use audit_writer::verify_chain;
 use fabric::{
     ActionFunction, ActionType, Cardinality, Effect, Fabric, FabricError, FunctionRuntime,
     Governance, InMemoryStore, Interface, LinkInstance, LinkType, ObjectInstance, ObjectStore,
-    ObjectType, PolicyContext, PropertyType, Query, TypeRegistry, Value, ValueType, FABRIC_SIG_ALG,
+    ObjectType, PolicyContext, PropertyType, Query, StoreOp, TypeRegistry, Value, ValueType,
+    FABRIC_SIG_ALG,
 };
 use policy::{
     Action, ClassificationLevel, Clearance, Compartment, DefaultPdp, Effect as PolicyEffect,
@@ -183,6 +184,10 @@ fn close_case_action() -> ActionType {
 
 /// Build a populated fabric: schema, a link, a function, and a policy.
 fn build_fabric() -> Fabric<InMemoryStore> {
+    build_fabric_over(InMemoryStore::new())
+}
+
+fn build_fabric_over<S: ObjectStore>(store: S) -> Fabric<S> {
     let mut registry = TypeRegistry::new();
     registry.register_interface(named_interface()).unwrap();
     registry.register_object_type(person_type()).unwrap();
@@ -202,7 +207,7 @@ fn build_fabric() -> Fabric<InMemoryStore> {
     runtime.register("fn_close_case", Box::new(CloseCase));
 
     let governance = Governance::new(analyst_pdp(), &mut SeedRng(1)).unwrap();
-    Fabric::new(registry, InMemoryStore::new(), runtime, governance)
+    Fabric::new(registry, store, runtime, governance)
 }
 
 // ---- semantic schema validation -------------------------------------------
@@ -665,4 +670,73 @@ fn compartments_are_enforced_on_read() {
         res.results.is_empty(),
         "missing compartment must exclude the object"
     );
+}
+
+/// An in-memory store whose batched writes fail once `broken` is set, as a durable
+/// store's do when its disk does.
+struct Breakable {
+    inner: InMemoryStore,
+    broken: bool,
+}
+impl ObjectStore for Breakable {
+    fn put_object(&mut self, obj: ObjectInstance) {
+        self.inner.put_object(obj)
+    }
+    fn get_object(&self, id: &str) -> Option<&ObjectInstance> {
+        self.inner.get_object(id)
+    }
+    fn objects_of_type(&self, type_id: &str) -> Vec<&ObjectInstance> {
+        self.inner.objects_of_type(type_id)
+    }
+    fn by_property(&self, type_id: &str, property: &str, key: &str) -> Vec<&ObjectInstance> {
+        self.inner.by_property(type_id, property, key)
+    }
+    fn put_link(&mut self, link: LinkInstance) {
+        self.inner.put_link(link)
+    }
+    fn neighbors(&self, source_id: &str, link_type: &str) -> Vec<&ObjectInstance> {
+        self.inner.neighbors(source_id, link_type)
+    }
+    fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
+        self.inner.remove_object(id)
+    }
+    fn try_apply_all(&mut self, ops: Vec<StoreOp>) -> Result<(), FabricError> {
+        if self.broken {
+            return Err(FabricError::Store("the disk is gone".into()));
+        }
+        self.inner.try_apply_all(ops)
+    }
+}
+
+#[test]
+fn an_action_whose_effects_cannot_be_written_fails_and_changes_nothing() {
+    let mut fab = build_fabric_over(Breakable {
+        inner: InMemoryStore::new(),
+        broken: false,
+    });
+    fab.store_mut().put_object(case("c1", "Case One", "open"));
+    fab.store_mut().broken = true;
+    let c = ctx(
+        "alice",
+        &["analyst"],
+        ClassificationLevel::SECRET,
+        "investigation",
+    );
+    let params: BTreeMap<String, String> = [("case_id".into(), "c1".into())].into();
+    let before = fab.audit_entries().len();
+    let err = fab
+        .apply_action(&c, "close_case", &params, 1000)
+        .unwrap_err();
+    assert!(matches!(err, FabricError::Store(_)), "{err:?}");
+    assert_eq!(
+        fab.store()
+            .get_object("c1")
+            .unwrap()
+            .properties
+            .get("status"),
+        Some(&Value::Text("open".into())),
+        "nothing applied"
+    );
+    // The permit was recorded before the effects ran, as it always is.
+    assert_eq!(fab.audit_entries().len(), before + 1);
 }
