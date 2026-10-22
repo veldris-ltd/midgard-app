@@ -1,14 +1,20 @@
 //! A recording on disk (format version 1, see the phase 2 plan). [design §2]
 use service_runtime::json::{parse, Json};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+/// Unix seconds a recording's start must lie between (as the time shifting assumes).
+const MIN_UNIX: i64 = 1_000_000_000;
+const MAX_UNIX: i64 = 4_000_000_000;
 
 pub enum Event {
-    /// A Heimdall batch: the feed it came from and its observations as recorded.
+    /// A Heimdall batch: the feed it came from and its observations as recorded, one
+    /// encoded JSON object per line (kept as text: resident memory is about file size).
     Batch {
         offset: u64,
         feed: String,
-        observations: Vec<Json>,
+        lines: String,
     },
     /// A Forge source file version: written as `file` at `offset`.
     Forge {
@@ -37,33 +43,66 @@ fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The batches file, through macOS's gzip when compressed (no compression crate needed).
-fn heimdall_lines(dir: &Path) -> Result<String, String> {
+/// Call `each` with every line of the batches file (numbered from 1), streamed
+/// through macOS's gzip when compressed, so the whole file is never held at once.
+fn heimdall_lines(
+    dir: &Path,
+    mut each: impl FnMut(usize, &str) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut feed = |r: &mut dyn BufRead| -> Result<(), String> {
+        for (n, line) in r.lines().enumerate() {
+            let line = line.map_err(|e| format!("heimdall batch {}: {e}", n + 1))?;
+            each(n + 1, &line)?;
+        }
+        Ok(())
+    };
     let gz = dir.join("heimdall.jsonl.gz");
     if gz.exists() {
-        let out = Command::new("/usr/bin/gzip")
+        let mut child = Command::new("/usr/bin/gzip")
             .arg("-dc")
             .arg(&gz)
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|e| format!("gzip: {e}"))?;
-        if !out.status.success() {
-            return Err(format!("gzip could not read {}", gz.display()));
+        let mut out = BufReader::new(child.stdout.take().ok_or("gzip: no stdout")?);
+        let r = feed(&mut out);
+        if r.is_err() {
+            let _ = child.kill();
         }
-        return String::from_utf8(out.stdout).map_err(|_| "heimdall.jsonl.gz is not UTF-8".into());
+        drop(out);
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = e.read_to_string(&mut err);
+        }
+        let status = child.wait().map_err(|e| format!("gzip: {e}"))?;
+        r?;
+        if !status.success() {
+            return Err(format!(
+                "gzip could not read {}: {}",
+                gz.display(),
+                err.trim()
+            ));
+        }
+        return Ok(());
     }
     let plain = dir.join("heimdall.jsonl");
-    if plain.exists() {
-        read(&plain)
-    } else {
-        Ok(String::new())
+    if !plain.exists() {
+        return Ok(());
     }
+    let f = std::fs::File::open(&plain).map_err(|e| format!("{}: {e}", plain.display()))?;
+    feed(&mut BufReader::new(f))
 }
 
-/// A non-negative offset in seconds; `what` names the entry in the error.
-fn offset(v: &Json, what: &str) -> Result<u64, String> {
+/// An offset in seconds within the recording (0 to duration - 1); `what` names the
+/// entry in the error.
+fn offset(v: &Json, duration: u64, what: &str) -> Result<u64, String> {
     match v.get("offset").and_then(Json::as_i64) {
-        Some(n) if n >= 0 => Ok(n as u64),
-        Some(n) => Err(format!("{what}: negative offset {n}")),
+        Some(n) if n < 0 => Err(format!("{what}: negative offset {n}")),
+        Some(n) if n as u64 >= duration => Err(format!(
+            "{what}: offset {n} is not within the duration {duration}"
+        )),
+        Some(n) => Ok(n as u64),
         None => Err(format!("{what}: no offset")),
     }
 }
@@ -86,7 +125,11 @@ fn inside(dir: &Path, rel: &str) -> Result<PathBuf, String> {
     if !ok {
         return Err(format!("forge path {rel} is outside the recording"));
     }
-    Ok(dir.join(p))
+    let path = dir.join(p);
+    if !path.is_file() {
+        return Err(format!("forge path {rel} is not a file"));
+    }
+    Ok(path)
 }
 
 impl Recording {
@@ -98,34 +141,45 @@ impl Recording {
         let recorded_from = meta
             .get("recordedFrom")
             .and_then(Json::as_i64)
-            .ok_or("meta.json: no recordedFrom")?;
+            .filter(|t| (MIN_UNIX..=MAX_UNIX).contains(t))
+            .ok_or("meta.json: no recordedFrom Unix time")?;
         let duration = meta
             .get("duration")
             .and_then(Json::as_i64)
             .filter(|d| *d > 0)
-            .ok_or("meta.json: no duration")? as u64;
+            .ok_or("meta.json: no positive duration")? as u64;
         let mut events = Vec::new();
-        for (n, line) in heimdall_lines(dir)?.lines().enumerate() {
+        heimdall_lines(dir, |n, line| {
             if line.trim().is_empty() {
-                continue;
+                return Ok(());
             }
-            let what = format!("heimdall batch {}", n + 1);
+            let what = format!("heimdall batch {n}");
             let b = parse(line).map_err(|e| format!("{what}: {e}"))?;
-            let offset = offset(&b, &what)?;
+            let offset = offset(&b, duration, &what)?;
             let feed = b
                 .str_field("feed")
                 .ok_or_else(|| format!("{what}: no feed"))?;
             let feed = plain_name(feed, "feed name")?.to_string();
-            let observations = match b.get("observations") {
-                Some(Json::Arr(a)) => a.clone(),
-                _ => Vec::new(),
+            let Some(Json::Arr(observations)) = b.get("observations") else {
+                return Err(format!("{what}: observations is not a list"));
             };
-            events.push(Event::Batch {
-                offset,
-                feed,
-                observations,
-            });
-        }
+            let mut lines = String::new();
+            for o in observations {
+                if !matches!(o, Json::Obj(_)) {
+                    return Err(format!("{what}: an observation is not an object"));
+                }
+                lines.push_str(&o.encode());
+                lines.push('\n');
+            }
+            if !lines.is_empty() {
+                events.push(Event::Batch {
+                    offset,
+                    feed,
+                    lines,
+                });
+            }
+            Ok(())
+        })?;
         let manifest = dir.join("forge/manifest.json");
         if manifest.exists() {
             let Json::Arr(items) = parse(&read(&manifest)?)? else {
@@ -133,7 +187,7 @@ impl Recording {
             };
             for (n, it) in items.iter().enumerate() {
                 let what = format!("forge entry {}", n + 1);
-                let offset = offset(it, &what)?;
+                let offset = offset(it, duration, &what)?;
                 let file = it
                     .str_field("file")
                     .ok_or_else(|| format!("{what}: no file"))?;
@@ -144,6 +198,9 @@ impl Recording {
                 let path = inside(dir, rel)?;
                 events.push(Event::Forge { offset, file, path });
             }
+        }
+        if events.is_empty() {
+            return Err("the recording has no events".into());
         }
         // Stable: batches keep file order, then Forge entries, within an offset.
         events.sort_by_key(|e| (e.offset(), matches!(e, Event::Forge { .. })));
