@@ -1,0 +1,14 @@
+[
+  {
+    "id": "harbour-cam-1",
+    "name": "Harbour entrance",
+    "lat": 50.8,
+    "lon": -1.1,
+    "view": "South",
+    "camera_type": "harbour",
+    "operator": "Example port authority",
+    "image_url": "https://example.org/cams/harbour.jpg",
+    "stream_url": "https://example.org/cams/harbour/index.m3u8",
+    "stream_type": "hls"
+  }
+]
