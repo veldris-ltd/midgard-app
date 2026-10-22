@@ -248,18 +248,29 @@ class SelectTest(unittest.TestCase):
         ]
         self.assertEqual(sorted(self.ids(alerts)), ["g2", "p3"])
 
-    def test_panel_key_for_weather_warnings(self):
-        def ww(id, ent, weather, valid_to):
-            return alert(id, ent, "weather-warning-yellow", "info", kind="event-weather-warning"), \
-                {"id": ent, "kind": "event-weather-warning", "attributes": {"level": "Yellow", "weather": weather, "valid_to": valid_to}}
-        (a1, e1), (a2, e2), (a3, e3) = ww("w1", "x1", "wind", 2000000000), ww("w2", "x2", "rain", 2000000000), ww("w3", "x3", "wind", 2000000010)
+    def test_row_keys_for_weather_warnings(self):
+        def ww(id, ent, weather, valid_to, valid_from=None, label="weather-warning-yellow"):
+            attrs = {"level": "Yellow", "weather": weather, "valid_to": valid_to}
+            if valid_from is not None:
+                attrs["valid_from"] = valid_from
+            return alert(id, ent, label, "info", kind="event-weather-warning"), {"id": ent, "kind": "event-weather-warning", "attributes": attrs}
+        (a1, e1), (a2, e2) = ww("w1", "x1", "wind", 2000000000), ww("w2", "x2", "rain", 2000000000)
+        # Same minute, one not yet in force (FROM …): still the same row.
+        a3, e3 = ww("w3", "x3", "wind", 2000000010, valid_from=NOW + 3600)
         ents = {e["id"]: e for e in (e1, e2, e3)}
-        key = lambda a: pa.panel_key(a, ents.get(a["entity"]), NOW)  # noqa: E731
+        key = lambda a: pa.row_of(a, ents.get(a["entity"]))  # noqa: E731
+        self.assertEqual(key(a1), ("warning", "info", "weather-warning-yellow", ("YELLOW", "WIND", 2000000000 // 60)))
         self.assertNotEqual(key(a1), key(a2))
-        self.assertEqual(key(a1), key(a3))  # the same minute: the same row text
-        got = [a["id"] for a in pa.select_alerts([a1, a2, a3], 5, NOW, panel_key=key)]
-        self.assertEqual(got, ["w2"])
-        self.assertEqual(pa.panel_key(alert("z", "z", "power-cut-major"), None, NOW), "warning|POWER CUT MAJOR")
+        self.assertEqual(key(a1), key(a3))
+        self.assertEqual([a["id"] for a in pa.select_alerts([a1, a2, a3], 5, NOW, row_key=key)], ["w2"])
+        # Details unknown for one: it may be the same row as any of its severity and label.
+        a4 = alert("w4", "x4", "weather-warning-yellow", "info", kind="event-weather-warning")
+        self.assertEqual(pa.select_alerts([a2, a4], 5, NOW, row_key=key), [])
+        a5 = alert("w5", "x5", "weather-warning-amber", "warning", kind="event-weather-warning")
+        self.assertEqual(sorted(a["id"] for a in pa.select_alerts([a2, a5], 5, NOW, row_key=key)), ["w2", "w5"])
+        self.assertEqual(pa.row_of(alert("z", "z", "power-cut-major"), None), ("text", "warning", "POWER CUT MAJOR"))
+        self.assertEqual(pa.alert_label(a2, dict(e2, attributes=dict(e2["attributes"], name="Yellow warning of rain affecting Wales"))),
+                         "Yellow rain warning · Wales")
 
     def test_limit(self):
         alerts = [alert(f"a{i}", f"e{i}", f"x-{i}") for i in range(9)]
@@ -404,13 +415,17 @@ class RunTest(Base):
         self.recording(["x1", "x2", "x3"])
         s.alerts = [alert(i, e, "weather-warning-yellow", "info", kind="event-weather-warning", lat=51.0, lon=-1.0)
                     for i, e in (("w1", "x1"), ("w2", "x2"), ("w3", "x3"))]
+        # Not eligible (too young): its details are never read.
+        s.alerts.append(alert("w9", "x9", "weather-warning-amber", "warning", kind="event-weather-warning", age_s=60, lat=57.0, lon=-4.0))
         s.entities = [{"id": e, "kind": "event-weather-warning", "attributes": {"level": "Yellow", "weather": w, "valid_to": 2000000000,
                                                                                "name": f"Yellow warning of {w} affecting Wales"}}
                       for e, w in (("x1", "wind"), ("x2", "rain"), ("x3", "wind"))]
         code, out = self.run_main("--timeout", "5")
         self.assertEqual(code, 0, out)
         g = self.file()["guide"]["alerts"]
-        self.assertEqual([(x["subject"], x["label"]) for x in g], [("x2", "Weather warning · Wales")])
+        self.assertEqual([(x["subject"], x["label"]) for x in g], [("x2", "Yellow rain warning · Wales")])
+        boxes = [c[2]["bbox"][0] for c in s.calls if c[1].endswith("/heimdall/picture")]
+        self.assertEqual(boxes, ["-1.5,50.5,-0.5,51.5"] * 3)  # one read per eligible alert, cached
 
     def test_only_subjects_seen_all_hour(self):
         self.recording(["e1"], first_only=["e2"])

@@ -31,13 +31,16 @@ Heimdall's console asks:
   default) the open alerts are read again at the end and any subject no longer open is
   dropped. An alert that would share its row in the console's ALERTS IN VIEW panel
   (same severity and text; a click there selects only the newest) with another open
-  alert is skipped. Each `guide.alerts` entry carries the `region` containing the alert (Gulf
+  alert is skipped; weather warnings are compared by severity, level, weather and
+  valid-to time, and one whose details are not read (only eligible alerts' are)
+  counts as possibly the same row. Each `guide.alerts` entry carries the `region` containing the alert (Gulf
   watch alerts are clickable only with the Gulf region on).
   Remaining limit: being observed all hour and open at the start and end of the
   capture does not prove the alert stays open through every replay loop (Heimdall may
   clear and re-raise it, under a new id; the shipped key is by subject, so that is
   harmless), and a subject Heimdall derives itself (not in the recording, e.g. a GPS
-  interference cell computed from aircraft) is never picked.
+  interference cell computed from aircraft) is never picked. Panel rows are judged at
+  capture time: alerts raised later may still come to share a picked alert's row.
 
 `--recording` is the packed recording: a directory holding `heimdall.jsonl.gz` (and
 `meta.json`), that file itself, or a name under
@@ -334,44 +337,64 @@ def alert_text(label):
     return re.sub(r"[-_]+", " ", label).upper()
 
 
-def panel_key(a, entity, now):
-    """The ALERTS IN VIEW panel's row for an alert (AlertsPanel: severity and the mark's
-    text): a weather warning's level, weather and validity (warningText, to the minute,
-    as its row shows it) when its entity is known, else alertText(label)."""
-    sev = a.get("severity")
-    attrs = (entity or {}).get("attributes") or {}
-    if (entity or {}).get("kind") == "event-weather-warning":
-        def n(k):
-            v = attrs.get(k)
-            return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
-        what = " ".join(ts_str(attrs.get(k)).upper() for k in ("level", "weather") if attrs.get(k))
-        vf, vt = n("valid_from"), n("valid_to")
-        when = f"FROM {int(vf // 60)}" if vf is not None and vf > now else f"TO {int(vt // 60)}" if vt is not None else "IN FORCE"
-        return f"{sev}|WARNING {what}|{when}"
-    return f"{sev}|{alert_text(str(a.get('label', '')))}"
+def weather_of(entity):
+    """A weather warning entity's (level, weather, valid-to minute), upper-cased as its
+    panel row shows them (warningText), or None for any other entity."""
+    if (entity or {}).get("kind") != "event-weather-warning":
+        return None
+    attrs = entity.get("attributes") or {}
+    vt = attrs.get("valid_to")
+    vt = int(vt // 60) if isinstance(vt, (int, float)) and not isinstance(vt, bool) and math.isfinite(vt) else None
+    return (ts_str(attrs.get("level")).upper(), ts_str(attrs.get("weather")).upper(), vt)
 
 
-def select_alerts(alerts, n, now, all_hour=None, panel_key=None):
-    """Up to n open alerts raised at least MIN_OPEN_S ago: most severe first, then the
-    longest open; one per kind before any second of a kind. Shipped advice is keyed by
-    subject, so a subject with more than one open alert is skipped (its advice would
-    stand for whichever alert is clicked). With `all_hour` (a set of entity keys), only
-    subjects in it. The alerts panel merges alerts of one severity and text into a row
-    and a click selects only the newest subject, so an alert sharing its row
-    (`panel_key(a)`; default without entity details) with another open alert is skipped."""
-    key = panel_key or (lambda a: globals()["panel_key"](a, None, now))
+def row_of(a, entity):
+    """The ALERTS IN VIEW panel's row for an alert (AlertsPanel groups by severity and
+    the mark's text). A weather warning (alert kind event-weather-warning) is
+    ("warning", severity, label, (level, weather, valid-to minute)) — its row's FROM /
+    IN FORCE wording is ignored, so rows that might merge later count as one — with
+    None for the details when its entity is not known; anything else is
+    ("text", severity, alertText(label))."""
+    sev, label = a.get("severity"), str(a.get("label", ""))
+    if a.get("kind") == "event-weather-warning" or weather_of(entity):
+        return ("warning", sev, label, weather_of(entity))
+    return ("text", sev, alert_text(label))
+
+
+def same_row(r1, r2):
+    """Whether two rows may be one in the panel: equal, or two weather warnings of one
+    severity and label where either one's details are unknown (errs towards skipping)."""
+    if r1 == r2:
+        return True
+    return r1[0] == r2[0] == "warning" and r1[1:3] == r2[1:3] and (r1[3] is None or r2[3] is None)
+
+
+def eligible(a, now, all_hour=None):
+    """A normalised alert that may be picked, before the subject and row checks: open,
+    raised at least MIN_OPEN_S ago, its subject (if `all_hour` is given) seen all hour."""
+    return (isinstance(a.get("id"), str) and isinstance(a.get("entity"), str) and bool(a["entity"])
+            and a.get("clearedAt") is None and 0 < a["raisedAt"] <= now - MIN_OPEN_S
+            and (all_hour is None or a["entity"] in all_hour))
+
+
+def select_alerts(alerts, n, now, all_hour=None, row_key=None):
+    """Up to n eligible alerts (see `eligible`): most severe first, then the longest
+    open; one per kind before any second of a kind. Shipped advice is keyed by subject,
+    so a subject with more than one open alert is skipped (its advice would stand for
+    whichever alert is clicked). The alerts panel merges alerts of one severity and
+    text into a row and a click selects only the newest subject, so an alert whose row
+    (`row_key(a)`, default `row_of(a, None)`) may be shared with another open alert is
+    skipped."""
+    key = row_key or (lambda a: row_of(a, None))
     alerts = [a for a in map(normalise_alert, alerts) if isinstance(a, dict)]
-    per_subject, per_row = {}, {}
-    for a in alerts:
-        if a.get("clearedAt") is None and isinstance(a.get("entity"), str):
+    open_ = [a for a in alerts if a.get("clearedAt") is None]
+    per_subject = {}
+    for a in open_:
+        if isinstance(a.get("entity"), str):
             per_subject[a["entity"]] = per_subject.get(a["entity"], 0) + 1
-        if a.get("clearedAt") is None:
-            per_row[key(a)] = per_row.get(key(a), 0) + 1
-    ok = [a for a in alerts
-          if isinstance(a.get("id"), str) and isinstance(a.get("entity"), str) and a["entity"]
-          and a.get("clearedAt") is None and 0 < a["raisedAt"] <= now - MIN_OPEN_S
-          and per_subject.get(a["entity"]) == 1 and per_row.get(key(a)) == 1
-          and (all_hour is None or a["entity"] in all_hour)]
+    ok = [a for a in alerts if eligible(a, now, all_hour) and per_subject.get(a["entity"]) == 1]
+    rows = {id(a): key(a) for a in open_}
+    ok = [a for a in ok if not any(b is not a and same_row(rows[id(a)], rows[id(b)]) for b in open_)]
     ok.sort(key=lambda a: (SEVERITY_RANK.get(a.get("severity"), 3), a["raisedAt"], a["id"]))
     picked, kinds, subjects = [], set(), set()
     for distinct in (True, False):
@@ -401,6 +424,10 @@ def alert_label(a, entity):
         v = attrs.get(k)
         return v if isinstance(v, str) and v else ts_str(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
+    w = weather_of(entity)
+    if w:
+        what = " ".join(x for x in w[:2] if x).lower()
+        words = f"{what.capitalize()} warning" if what else "Weather warning"
     if (entity or {}).get("kind") == "utility-power-outage":
         postcodes = text("postcodes")
         where = text("area") or (", ".join(re.split(r"[;,]\s*", postcodes)[:2]) if postcodes else None) or text("operator")
@@ -604,8 +631,11 @@ def main(argv=None):
         return found[a.get("id")]
 
     now = time.time()
-    # Weather warnings' panel rows depend on their entity's details; the rest on the label.
-    row = lambda a: panel_key(a, entity_of(a) if a.get("kind") == "event-weather-warning" else None, now)  # noqa: E731
+    # Details are read only for eligible weather warnings (others count as unknown).
+    def row(a):
+        details = a.get("kind") == "event-weather-warning" and eligible(a, now, all_hour)
+        return row_of(a, entity_of(a) if details else None)
+
     picked = select_alerts(alerts, args.alerts, now, all_hour, row)
     if len(picked) < args.alerts:
         print(f"note {len(picked)} of {args.alerts} alerts found open for at least {MIN_OPEN_S // 60} min,"
