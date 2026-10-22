@@ -53,10 +53,16 @@ public struct SessionInfo: Sendable, Equatable {
     }
 }
 
-extension SessionInfo: CustomStringConvertible {
+extension SessionInfo: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     /// Without the token.
     public var description: String {
         "SessionInfo(\(subject), clearance: \(clearance ?? "none"), roles: \(roles), expires: \(expiresAt))"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror {
+        Mirror(self, children: ["token": "<redacted>", "subject": subject, "clearance": clearance as Any,
+                                "roles": roles, "expiresAt": expiresAt],
+               displayStyle: .struct)
     }
 }
 
@@ -121,23 +127,31 @@ public enum Session {
         }
     }
 
+    /// The soonest a refresh is scheduled, so a short-lived or already-expired token (a
+    /// misconfigured TTL, clock skew) cannot drive a tight sign-in loop.
+    public static let minimumRefreshDelay: TimeInterval = 30
+
     /// When to sign in again: ten minutes before expiry, or halfway through the remaining
-    /// life if that is sooner; now if it has already expired.
+    /// life if that is sooner, but never sooner than `minimumRefreshDelay` from now.
     public static func refreshDate(for info: SessionInfo, now: Date = Date()) -> Date {
+        let floor = now.addingTimeInterval(minimumRefreshDelay)
         let remaining = info.expiresAt.timeIntervalSince(now)
-        guard remaining > 0 else { return now }
-        return info.expiresAt.addingTimeInterval(-min(600, remaining / 2))
+        guard remaining > 0 else { return floor }
+        return max(floor, info.expiresAt.addingTimeInterval(-min(600, remaining / 2)))
     }
 
     /// JavaScript to run at document start in every console page: where the gateway and the
-    /// Midgard console are, and the signed-in session as `AuthGate` reads it. Every value is
-    /// embedded as an escaped JSON literal.
-    public static func injectionScript(gatewayURL: String, midgardConsoleURL: String,
+    /// Midgard console are, and the signed-in session as `AuthGate` reads it. It does
+    /// nothing unless the page's `location.origin` is exactly `origin` (the app's own web
+    /// server, e.g. `http://127.0.0.1:61235`), so the token never reaches another page.
+    /// Every value is embedded as an escaped JSON literal.
+    public static func injectionScript(origin: String, gatewayURL: String, midgardConsoleURL: String,
                                        session: SessionInfo) -> String {
         var who: [String: Any] = ["subject": session.subject, "roles": session.roles]
         if let clearance = session.clearance { who["clearance"] = clearance }
         return """
             (function () {
+              if (typeof location === 'undefined' || location.origin !== \(literal(origin))) { return; }
               window.__MIDGARD_GATEWAY__ = \(literal(gatewayURL));
               window.__MIDGARD_CONSOLE__ = \(literal(midgardConsoleURL));
               try {

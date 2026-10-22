@@ -212,6 +212,7 @@ final class SessionTests: XCTestCase {
         respond(500, #"{"error":"idp unavailable"}"#)
         do {
             _ = try await Session.login(gateway: gateway, user: user, session: session)
+            XCTFail("expected an error")
         } catch {
             XCTAssertFalse(String(describing: error).contains(user.password))
         }
@@ -240,11 +241,28 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(Session.refreshDate(for: info, now: now), now.addingTimeInterval(300))
     }
 
-    func testRefreshNowWhenExpired() {
+    func testRefreshSoonButNotImmediatelyWhenExpired() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let info = SessionInfo(token: "t", subject: "s", clearance: nil, roles: [],
                                expiresAt: now.addingTimeInterval(-5))
-        XCTAssertEqual(Session.refreshDate(for: info, now: now), now)
+        XCTAssertEqual(Session.refreshDate(for: info, now: now), now.addingTimeInterval(30))
+    }
+
+    func testRefreshNeverSoonerThanThirtySeconds() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let info = SessionInfo(token: "t", subject: "s", clearance: nil, roles: [],
+                               expiresAt: now.addingTimeInterval(40))
+        XCTAssertEqual(Session.refreshDate(for: info, now: now), now.addingTimeInterval(30))
+    }
+
+    func testSessionInfoNeverShowsToken() {
+        let info = SessionInfo(token: "tok-SECRET-123", subject: "s", clearance: "open", roles: [],
+                               expiresAt: Date())
+        XCTAssertFalse(String(describing: info).contains("SECRET"))
+        XCTAssertFalse(String(reflecting: info).contains("SECRET"))
+        var dumped = ""
+        dump(info, to: &dumped)
+        XCTAssertFalse(dumped.contains("SECRET"))
     }
 
     // MARK: Injection
@@ -256,12 +274,15 @@ final class SessionTests: XCTestCase {
         var who: [String: Any]?
     }
 
-    private func evaluate(_ script: String) throws -> Injected {
+    static let origin = "http://127.0.0.1:61235"
+
+    private func evaluate(_ script: String, origin: String = SessionTests.origin) throws -> Injected {
         let context = try XCTUnwrap(JSContext())
         var exception: String?
         context.exceptionHandler = { _, value in exception = value?.toString() }
         context.evaluateScript("""
             var window = {};
+            var location = { origin: \(Session.literal(origin)) };
             var sessionStorage = { store: {}, setItem: function (k, v) { this.store[k] = String(v); } };
             """)
         context.evaluateScript(script)
@@ -283,7 +304,7 @@ final class SessionTests: XCTestCase {
         let info = SessionInfo(token: "deadbeef", subject: "analyst", clearance: "restricted",
                                roles: ["analyst", "viewer"], expiresAt: Date())
         let got = try evaluate(Session.injectionScript(
-            gatewayURL: "http://127.0.0.1:61234/api/v1",
+            origin: Self.origin, gatewayURL: "http://127.0.0.1:61234/api/v1",
             midgardConsoleURL: "http://127.0.0.1:61235/", session: info))
         XCTAssertEqual(got.gateway, "http://127.0.0.1:61234/api/v1")
         XCTAssertEqual(got.console, "http://127.0.0.1:61235/")
@@ -297,7 +318,7 @@ final class SessionTests: XCTestCase {
         let nasty = "a'b\"c\\d</script><script>alert(1)</script>\u{2028}e\u{2029}f\n\u{0}g${x}`h"
         let info = SessionInfo(token: nasty, subject: nasty, clearance: nasty,
                                roles: [nasty, "plain"], expiresAt: Date())
-        let script = Session.injectionScript(gatewayURL: nasty, midgardConsoleURL: nasty, session: info)
+        let script = Session.injectionScript(origin: Self.origin, gatewayURL: nasty, midgardConsoleURL: nasty, session: info)
         XCTAssertFalse(script.contains("</script"))
         XCTAssertFalse(script.contains("\u{2028}"))
         XCTAssertFalse(script.contains("\u{2029}"))
@@ -312,8 +333,32 @@ final class SessionTests: XCTestCase {
 
     func testInjectionOmitsMissingClearance() throws {
         let info = SessionInfo(token: "t", subject: "s", clearance: nil, roles: [], expiresAt: Date())
-        let got = try evaluate(Session.injectionScript(gatewayURL: "g", midgardConsoleURL: "c", session: info))
+        let got = try evaluate(Session.injectionScript(origin: Self.origin, gatewayURL: "g", midgardConsoleURL: "c", session: info))
         XCTAssertNil(got.who?["clearance"])
         XCTAssertEqual(got.who?["roles"] as? [String], [])
+    }
+
+    func testInjectionOnlyRunsOnItsOrigin() throws {
+        let info = SessionInfo(token: "t", subject: "s", clearance: nil, roles: [], expiresAt: Date())
+        let script = Session.injectionScript(origin: Self.origin, gatewayURL: "g",
+                                             midgardConsoleURL: "c", session: info)
+        let matching = try evaluate(script, origin: Self.origin)
+        XCTAssertEqual(matching.token, "t")
+        XCTAssertEqual(matching.gateway, "g")
+        for other in ["http://127.0.0.1:9999", "https://evil.example", "null", ""] {
+            let got = try evaluate(script, origin: other)
+            XCTAssertNil(got.token, other)
+            XCTAssertNil(got.who, other)
+            XCTAssertNil(got.gateway, other)
+            XCTAssertNil(got.console, other)
+        }
+    }
+
+    func testInjectionOriginIsEscaped() throws {
+        let info = SessionInfo(token: "t", subject: "s", clearance: nil, roles: [], expiresAt: Date())
+        let odd = "http://a'b\"c</script>\u{2028}"
+        let script = Session.injectionScript(origin: odd, gatewayURL: "g", midgardConsoleURL: "c", session: info)
+        XCTAssertFalse(script.contains("</script"))
+        XCTAssertEqual(try evaluate(script, origin: odd).token, "t")
     }
 }

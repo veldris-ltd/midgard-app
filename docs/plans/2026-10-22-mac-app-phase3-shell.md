@@ -102,8 +102,8 @@ Commit: `mac app: working copy and Reset demo`.
 **Files:** `Sources/MidgardShellCore/Session.swift`, tests.
 
 - `DemoUsers` read from `starting-state/demo-users.json` (`[{"username","password","label"}]`, label e.g. "Analyst (INTERNAL)").
-- `Session.login(gateway:, user:)` → `{token, subject, clearance, roles, expiresAt}`; refreshes 10 minutes before `expiresAt`.
-- `Session.injectionScript(gatewayURL:, midgardConsoleURL:)` → JavaScript run at document start: sets `window.__MIDGARD_GATEWAY__`, `window.__MIDGARD_CONSOLE__`, and `sessionStorage` `midgard.session.token` / `midgard.session.who`.
+- `Session.login(gateway:, user:)` → `{token, subject, clearance, roles, expiresAt}`; `Session.refreshDate` schedules the next sign-in 10 minutes before `expiresAt`, or halfway through the remaining life if that is sooner, but never sooner than 30 s from now (so a short-lived or already-expired token cannot cause a tight sign-in loop).
+- `Session.injectionScript(origin:, gatewayURL:, midgardConsoleURL:, session:)` → JavaScript run at document start that does nothing unless `location.origin` is the app's own web server; it sets `window.__MIDGARD_GATEWAY__`, `window.__MIDGARD_CONSOLE__`, and `sessionStorage` `midgard.session.token` / `midgard.session.who`.
 - Tests with a URLProtocol stub: successful login parsed; 401 → error; the script contains properly escaped JSON (quotes and backslashes in values).
 
 Commit: `mac app: presenter sign-in`.
