@@ -9,7 +9,7 @@ import type { HeimdallAnswer, HeimdallGateway } from '@midgard/sdk';
 import { getPrepared, preparedKey, putPrepared } from './preparedAnswers';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em' };
-const EXAMPLES = ['Which power cuts affect the most customers?', 'Are any storm overflows discharging near here?', 'What are the most serious alerts in this area?'];
+const EXAMPLES = ['What has changed in the Gulf watch?', 'Which power cuts affect the most customers?', 'Are any storm overflows discharging near here?', 'What are the most serious alerts in this area?'];
 
 type State = { status: 'idle' } | { status: 'thinking'; since: number; question: string } | { status: 'done'; question: string; answer: HeimdallAnswer } | { status: 'failed'; question: string; reason: string };
 
