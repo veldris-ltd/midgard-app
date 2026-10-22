@@ -16,7 +16,7 @@ Terminal or browser.
 | Data | Baked-in snapshot only; the app never uses the network |
 | Snapshot | A recorded hour of real data, replayed on a loop as if live |
 | Products | Midgard, Heimdall, Mimir, Forge (the four that run for real). Bifrost, Admin and Clients are left out |
-| Hardware | One universal app: Intel (x86_64) and Apple Silicon (arm64), macOS 13+, 8 GB+ |
+| Hardware | One universal app: Intel (x86_64) and Apple Silicon (arm64), macOS 13.3+ (what llama.cpp's macOS builds need), 8 GB+ |
 | Mimir | Real model shipped, plus prepared real answers for the scripted moments |
 | Experience | One app with its own window; home screen with four product tiles; signed in automatically |
 | Signing | No Apple Developer account: unsigned, with a one-page "Open Anyway" install sheet. Build ready to sign and notarise later |
@@ -142,5 +142,5 @@ From the phase 3 build (`tools/mac-app/build-app.sh`, ad-hoc signed; service bin
   in the install sheet.
 - **Test plan**: round-trip the app through a `ditto` zip, set the quarantine attribute
   (`xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" Midgard.app`, or
-  download it through a browser), open it on macOS 13, 14 and 15, and record exactly what
+  download it through a browser), open it on macOS 13.3, 14 and 15, and record exactly what
   each shows (dialogs, the Open Anyway path, verification time).

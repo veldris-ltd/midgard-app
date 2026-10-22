@@ -7,15 +7,17 @@
 # release build; then the bundle, assembled next to the old one, signed, verified, and only
 # then swapped in:
 #   Contents/Info.plist, MacOS/Midgard, Helpers/<service binaries>,
+#   Helpers/llama/{arm64,x64}/ (llama-server and its dylibs, from fetch-llama.sh),
 #   Resources/{consoles,home,starting-state,models/{granite,trust}[,recording]}
 # The starting state comes from make-starting-state.sh (~/Library/Caches/midgard-build/
 # starting-state) and the model from ~/Desktop/Midgard/mimir-models; both are copied as
 # APFS clones (cp -c), so they share disk with their sources; across volumes the script
 # falls back to a plain copy after checking free space. The bundle must hold no symlinks
-# (codesign and the home page's web server refuse them). It is signed ad hoc: each helper,
-# then the bundle. llama-server is not bundled yet (phase 5): the app uses Homebrew's.
+# (codesign and the home page's web server refuse them). It is signed ad hoc: each helper
+# and every Mach-O of the model server, then the bundle. The shell runs the model server
+# for the Mac's chip (arm64 with Metal, x64 on the CPU).
 #
-#   bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles]
+#   bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles] [--skip-llama]
 #                                   [--recording DIR] [--out DIR]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -29,19 +31,24 @@ DEFAULT_RECORDING="$HOME/Library/Application Support/Midgard-dev/recordings/hour
 PREPARED=apps/mac/Resources/home/prepared-answers.json
 SKIP_SERVICES=0
 SKIP_CONSOLES=0
+SKIP_LLAMA=0
 STATE="$BUILD/starting-state"
 MODELS="${MIDGARD_MODELS:-$HOME/Desktop/Midgard/mimir-models}"
 BIN=dist/mac/bin
 CONSOLES=dist/mac/consoles
+LLAMA="$BUILD/llama/current"     # fetch-llama.sh's layout: {arm64,x64}/llama-server + dylibs
+LLAMA_ARCHES=(arm64 x64)
 BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay)
 PRODUCTS=(midgard heimdall mimir forge)
 
 usage() {
   cat >&2 <<'EOF'
-usage: bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles]
+usage: bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles] [--skip-llama]
                                        [--recording DIR] [--out DIR]
   --skip-services   reuse dist/mac/bin as it is (warns if Rust sources are newer)
   --skip-consoles   reuse dist/mac/consoles as it is (warns if console sources are newer)
+  --skip-llama      reuse ~/Library/Caches/midgard-build/llama/current as it is (no
+                    fetch-llama.sh run)
   --recording DIR   a phase 2 recording to bundle and replay (or MIDGARD_RECORDING); it
                     must contain meta.json; its raw/ capture is left out. Not given: the
                     recorded hour (recordings/hour-1 in ~/Library/Application Support/
@@ -55,6 +62,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --skip-services) SKIP_SERVICES=1 ;;
     --skip-consoles) SKIP_CONSOLES=1 ;;
+    --skip-llama) SKIP_LLAMA=1 ;;
     --recording) [ $# -ge 2 ] || usage; RECORDING="$2"; RECORDING_GIVEN=1; shift ;;
     --out) [ $# -ge 2 ] || usage; OUT="$2"; shift ;;
     -h|--help) usage ;;
@@ -160,6 +168,16 @@ else
   echo "== consoles"
   bash tools/mac-app/build-consoles.sh
 fi
+
+if [ "$SKIP_LLAMA" = 1 ]; then
+  echo "== model server: reusing $LLAMA"
+else
+  echo "== model server"
+  MIDGARD_BUILD_DIR="$BUILD" bash tools/mac-app/fetch-llama.sh
+fi
+for a in "${LLAMA_ARCHES[@]}"; do
+  [ -x "$LLAMA/$a/llama-server" ] || die "no $LLAMA/$a/llama-server: run bash tools/mac-app/fetch-llama.sh"
+done
 T_DEPS=$(now)
 
 # --- the shell ------------------------------------------------------------------------
@@ -218,7 +236,7 @@ cat > "$C/Info.plist" <<EOF
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>MidgardGitCommit</key><string>$SHORT_SHA</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>13.3</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.business</string>
@@ -229,6 +247,9 @@ plutil -lint "$C/Info.plist"
 
 cp "$SHELL_BIN" "$C/MacOS/Midgard"
 for b in "${BINARIES[@]}"; do cp "$BIN/$b" "$C/Helpers/$b"; done
+# The model server: real files (-L dereferences the current symlink and anything inside).
+mkdir "$C/Helpers/llama"
+for a in "${LLAMA_ARCHES[@]}"; do cp -RL "$LLAMA/$a" "$C/Helpers/llama/$a"; done
 cp -RL "$CONSOLES" "$R/consoles"
 cp -RL apps/mac/Resources/home "$R/home"          # fonts is a symlink in the repo
 clone_copy "$STATE" "$R/starting-state"
@@ -254,12 +275,29 @@ $links"
 echo "== signing (ad hoc)"
 xattr -cr "$NEW"
 for b in "${BINARIES[@]}"; do codesign --force --sign - "$C/Helpers/$b"; done
+# Every Mach-O of the model server (llama-server and its dylibs; not LICENSE).
+LLAMA_MACHOS=()
+while IFS= read -r -d '' f; do
+  case "$(file -b "$f")" in Mach-O*) LLAMA_MACHOS+=("$f") ;; esac
+done < <(find "$C/Helpers/llama" -type f -print0)
+[ ${#LLAMA_MACHOS[@]} -gt 0 ] || die "no Mach-O files in Helpers/llama"
+for a in "${LLAMA_ARCHES[@]}"; do
+  case " ${LLAMA_MACHOS[*]} " in *" $C/Helpers/llama/$a/llama-server "*) ;;
+    *) die "no Mach-O llama-server in Helpers/llama/$a" ;; esac
+done
+for f in "${LLAMA_MACHOS[@]}"; do codesign --force --sign - "$f"; done
+echo "model server: ${#LLAMA_MACHOS[@]} Mach-O files signed"
 codesign --force --sign - "$NEW"
 
 echo "== codesign verify"
 for b in "${BINARIES[@]}"; do
   codesign --verify --strict "$C/Helpers/$b" || die "helper $b fails codesign --verify"
 done
+for f in "${LLAMA_MACHOS[@]}"; do
+  codesign --verify --strict "$f" || die "${f#"$C/"} fails codesign --verify"
+done
+[ "$(lipo -archs "$C/Helpers/llama/arm64/llama-server")" = arm64 ] || die "Helpers/llama/arm64/llama-server is not arm64"
+[ "$(lipo -archs "$C/Helpers/llama/x64/llama-server")" = x86_64 ] || die "Helpers/llama/x64/llama-server is not x86_64"
 codesign --verify --deep --strict --verbose=1 "$NEW" 2>&1 || die "the bundle fails codesign --verify"
 
 # Swap in: the old bundle aside, the new one in place; the trap restores the old one if
@@ -275,10 +313,10 @@ T_END=$(now)
 FREE_AFTER=$(free_kb "$OUT")
 echo "== sizes (clones count in full here but share disk with their sources)"
 du -sh "$APP"
-for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Resources/*; do
+for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Helpers/llama/* "$APP"/Contents/Resources/*; do
   du -sh "$part" | sed "s|$APP/Contents/||"
 done
 echo "free disk: $((FREE_BEFORE / 1024)) MB before, $((FREE_AFTER / 1024)) MB after ($(((FREE_BEFORE - FREE_AFTER) / 1024)) MB used, including any rebuilt dist/ and swift outputs)"
-echo "times: services+consoles $((T_DEPS - T0)) s, shell $((T_SWIFT - T_DEPS)) s, bundle $((T_END - T_SWIFT)) s"
+echo "times: services+consoles+model server $((T_DEPS - T0)) s, shell $((T_SWIFT - T_DEPS)) s, bundle $((T_END - T_SWIFT)) s"
 echo "built $APP (1.0, build $BUILD_NUMBER, $SHORT_SHA)"
 echo "open it with: open \"$APP\""

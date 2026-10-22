@@ -84,26 +84,29 @@ public struct SuitePorts: Sendable, Equatable {
 /// the shell's web origin and issues 12-hour tokens, and there are no camera analytics.
 public enum SuiteSpecs {
     /// In start order: llama, mimir, gateway, heimdall, forge, then replay if `recording`.
+    /// llama is the bundled server `ModelServer.choose` picks for `hardware` under `bin`
+    /// (`bin/llama/{arm64,x64}/llama-server`).
     public static func make(bin: URL, models: URL, home: URL, logs: URL, ports: SuitePorts,
-                            webOrigin: String, recording: URL?) -> [ServiceSpec] {
+                            webOrigin: String, recording: URL?,
+                            hardware: ModelServer.Hardware) -> [ServiceSpec] {
         func h(_ path: String) -> String { home.appendingPathComponent(path).path }
         func m(_ path: String) -> String { models.appendingPathComponent(path).path }
         func local(_ port: UInt16) -> String { "127.0.0.1:\(port)" }
         func spec(_ name: String, _ binary: String, _ readiness: ServiceSpec.Readiness,
                   _ arguments: [String]) -> ServiceSpec {
-            ServiceSpec(name: name, executable: bin.appendingPathComponent(binary), arguments: arguments,
+            spec(name, at: bin.appendingPathComponent(binary), readiness, arguments)
+        }
+        func spec(_ name: String, at executable: URL, _ readiness: ServiceSpec.Readiness,
+                  _ arguments: [String]) -> ServiceSpec {
+            ServiceSpec(name: name, executable: executable, arguments: arguments,
                         readiness: readiness, logFile: logs.appendingPathComponent("\(name).log"),
                         readyTimeout: 180)  // llama-server too
         }
 
+        let llama = ModelServer.choose(hardware: hardware, helpers: bin, models: models, port: ports.llama)
         var specs = [
-            spec("llama", "llama-server", .health(URL(string: "http://\(local(ports.llama))/health")!), [
-                    "-m", m("granite/granite-3.3-2b-instruct-Q4_K_M.gguf"),
-                    "--alias", "granite-3.3-2b-instruct-q4km",
-                    "--host", "127.0.0.1", "--port", "\(ports.llama)", "--ctx-size", "8192",
-                    "--parallel", "1", "--temp", "0.2", "--json-schema", "{\"type\":\"object\"}",
-                    "--n-gpu-layers", "99",
-                 ]),
+            spec("llama", at: llama.executable, .health(URL(string: "http://\(local(ports.llama))/health")!),
+                 llama.arguments),
             spec("mimir", "mimir-server", .logLine("\"serving\""), [
                 "--identity-dir", h("airports-mesh/mimir"), "--state-dir", h("mimir-state"),
                 "--purposes", "investigation",

@@ -361,25 +361,32 @@ final class AppModel: ObservableObject {
 
     /// Everything `SuiteSpecs.make` needs besides the ports.
     private struct Launch: Sendable {
-        var bin: URL, models: URL, home: URL, logs: URL, origin: String, recording: URL?, llama: URL
+        var bin: URL, models: URL, home: URL, logs: URL, origin: String, recording: URL?
+        var hardware: ModelServer.Hardware
+        /// The model server to run instead of the bundled one (development runs only).
+        var llama: URL?
 
         func specs(_ ports: SuitePorts) -> [ServiceSpec] {
             SuiteSpecs.make(bin: bin, models: models, home: home, logs: logs, ports: ports,
-                            webOrigin: origin, recording: recording)
+                            webOrigin: origin, recording: recording, hardware: hardware)
                 .map { spec in
                     var spec = spec
-                    if spec.name == "llama" { spec.executable = llama }
+                    if spec.name == "llama", let llama { spec.executable = llama }
                     return spec
                 }
         }
     }
 
-    private func llamaServer() -> URL? {
+    /// The bundled model server for this Mac's chip (`Helpers/llama/{arm64,x64}`); without
+    /// it (a development run with no bundle) `bin/llama-server`, then Homebrew's.
+    private func llamaServer(_ models: URL, _ hardware: ModelServer.Hardware) -> (URL, bundled: Bool)? {
         let fm = FileManager.default
-        let candidates = [bin.appendingPathComponent("llama-server"),
-                          URL(fileURLWithPath: "/opt/homebrew/bin/llama-server"),
-                          URL(fileURLWithPath: "/usr/local/bin/llama-server")]
-        return candidates.first { fm.isExecutableFile(atPath: $0.path) }
+        let bundled = ModelServer.choose(hardware: hardware, helpers: bin, models: models, port: 0).executable
+        if fm.isExecutableFile(atPath: bundled.path) { return (bundled, true) }
+        let fallbacks = [bin.appendingPathComponent("llama-server"),
+                         URL(fileURLWithPath: "/opt/homebrew/bin/llama-server"),
+                         URL(fileURLWithPath: "/usr/local/bin/llama-server")]
+        return fallbacks.first { fm.isExecutableFile(atPath: $0.path) }.map { ($0, false) }
     }
 
     private func recording() -> URL? {
@@ -391,20 +398,22 @@ final class AppModel: ObservableObject {
     private func startServices(_ gen: Int) async {
         showStarting(startingTitle, step: nil)
         statuses = [:]
-        guard let llama = llamaServer() else {
-            log("llama-server not found in \(bin.path) or Homebrew")
+        let models = resources.appendingPathComponent("models", isDirectory: true)
+        let hardware = ModelServer.Hardware.thisMac()
+        guard let (llama, bundled) = llamaServer(models, hardware) else {
+            log("llama-server not found in \(bin.path)/llama/\(hardware.arm64 ? "arm64" : "x64"), \(bin.path) or Homebrew")
             return fail("Midgard is incomplete",
                         "The model server (llama-server) is missing from this copy of Midgard. Install Midgard again.",
                         canRetry: false)
         }
-        let launch = Launch(bin: bin, models: resources.appendingPathComponent("models", isDirectory: true),
-                            home: paths.home, logs: paths.logs, origin: origin, recording: recording(),
-                            llama: llama)
+        let launch = Launch(bin: bin, models: models, home: paths.home, logs: paths.logs, origin: origin,
+                            recording: recording(), hardware: hardware, llama: bundled ? nil : llama)
         replaying = launch.recording != nil
         serviceOrder = launch.specs(SuitePorts(gatewayHTTP: 0, gatewayMesh: 0, mimirMesh: 0, mimirObserver: 0,
                                                mimirHealth: 0, heimdallMesh: 0, heimdallHealth: 0, llama: 0))
             .map(\.name)
         log("starting services \(serviceOrder.joined(separator: ", ")) (llama-server \(llama.path)"
+            + (hardware.arm64 ? ", Apple Silicon, Metal" : ", Intel, CPU, \(hardware.physicalCores) threads")
             + (launch.recording.map { ", replaying \($0.path)" } ?? ", no recording") + ")")
         let supervisor = supervisor
         let log = log

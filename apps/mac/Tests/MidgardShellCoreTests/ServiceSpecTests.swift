@@ -11,9 +11,11 @@ final class ServiceSpecTests: XCTestCase {
                            mimirHealth: 1005, heimdallMesh: 1006, heimdallHealth: 1007, llama: 1008)
     let origin = "http://127.0.0.1:2000"
 
-    func specs(recording: URL? = nil) -> [ServiceSpec] {
+    let appleSilicon = ModelServer.Hardware(arm64: true, physicalCores: 10)
+
+    func specs(recording: URL? = nil, hardware: ModelServer.Hardware? = nil) -> [ServiceSpec] {
         SuiteSpecs.make(bin: bin, models: models, home: home, logs: logs, ports: ports,
-                        webOrigin: origin, recording: recording)
+                        webOrigin: origin, recording: recording, hardware: hardware ?? appleSilicon)
     }
 
     func spec(_ name: String, _ all: [ServiceSpec]) throws -> ServiceSpec {
@@ -37,18 +39,33 @@ final class ServiceSpecTests: XCTestCase {
         XCTAssertEqual(replay.logFile.path, "/L/replay.log")
     }
 
-    func testLlama() throws {
+    let llamaCommon = [
+        "-m", "/R/models/granite/granite-3.3-2b-instruct-Q4_K_M.gguf",
+        "--alias", "granite-3.3-2b-instruct-q4km",
+        "--host", "127.0.0.1", "--port", "1008", "--ctx-size", "8192", "--parallel", "1",
+        "--temp", "0.2", "--json-schema", "{\"type\":\"object\"}",
+    ]
+
+    func testLlamaOnAppleSilicon() throws {
         let llama = try spec("llama", specs())
-        XCTAssertEqual(llama.executable.path, "/R/bin/llama-server")
-        XCTAssertEqual(llama.arguments, [
-            "-m", "/R/models/granite/granite-3.3-2b-instruct-Q4_K_M.gguf",
-            "--alias", "granite-3.3-2b-instruct-q4km",
-            "--host", "127.0.0.1", "--port", "1008", "--ctx-size", "8192", "--parallel", "1",
-            "--temp", "0.2", "--json-schema", "{\"type\":\"object\"}", "--n-gpu-layers", "99",
-        ])
+        XCTAssertEqual(llama.executable.path, "/R/bin/llama/arm64/llama-server")
+        XCTAssertEqual(llama.arguments, llamaCommon + ["--n-gpu-layers", "99"])
         XCTAssertEqual(llama.readiness, .health(URL(string: "http://127.0.0.1:1008/health")!))
         XCTAssertEqual(llama.readyTimeout, 180)
         XCTAssertEqual(llama.logFile.path, "/L/llama.log")
+    }
+
+    func testLlamaOnIntel() throws {
+        let llama = try spec("llama", specs(hardware: .init(arm64: false, physicalCores: 4)))
+        XCTAssertEqual(llama.executable.path, "/R/bin/llama/x64/llama-server")
+        XCTAssertEqual(llama.arguments, llamaCommon + ["--n-gpu-layers", "0", "--threads", "4"])
+        XCTAssertEqual(llama.readiness, .health(URL(string: "http://127.0.0.1:1008/health")!))
+        XCTAssertEqual(llama.logFile.path, "/L/llama.log")
+    }
+
+    func testOnlyLlamaDependsOnTheChip() {
+        let intel = specs(hardware: .init(arm64: false, physicalCores: 2))
+        XCTAssertEqual(intel.dropFirst(), specs().dropFirst())
     }
 
     func testMimir() throws {
