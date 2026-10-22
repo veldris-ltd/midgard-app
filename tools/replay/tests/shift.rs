@@ -1,4 +1,4 @@
-use midgard_replay::shift::{is_time_key, shift_observation};
+use midgard_replay::shift::{is_time_key, shift_csv, shift_observation};
 use service_runtime::json::parse;
 
 #[test]
@@ -37,4 +37,24 @@ fn time_keys() {
     for k in ["lat", "frp", "timeline", "name"] {
         assert!(!is_time_key(k), "{k}");
     }
+}
+
+#[test]
+fn shifts_time_columns_and_keeps_every_other_byte() {
+    let csv = "key,message,time_raised,severity,observed_at\n\
+               A,\"Rivers Bure, Ant and \"\"Thurne\"\"\",1792153093,3,\n\
+               B,plain,1792000000,2,1792000100\n";
+    let out = shift_csv(csv, 60);
+    assert_eq!(
+        out,
+        "key,message,time_raised,severity,observed_at\n\
+                     A,\"Rivers Bure, Ant and \"\"Thurne\"\"\",1792153153,3,\n\
+                     B,plain,1792000060,2,1792000160\n"
+    );
+}
+
+#[test]
+fn csv_without_time_columns_is_unchanged() {
+    let csv = "key,name,intensity\nX,North,120\n";
+    assert_eq!(shift_csv(csv, 999), csv);
 }
