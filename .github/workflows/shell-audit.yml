@@ -10,6 +10,11 @@
 # never written for a UI that did not run — so this workflow is red until all six
 # shells exist. That is the gate working, not the workflow failing.
 #
+# The `gate` job alone decides the result: a failed audit leaves no record, and the
+# gate refuses a missing record. The audit jobs therefore do not fail the workflow by
+# themselves, so a pre-release waived in clients/shells/audit-waivers.txt can proceed.
+# A final release cannot be waived.
+#
 # Runs on its own from the Actions tab, and as part of a release (release.yml).
 name: shell-audit
 
@@ -24,6 +29,8 @@ jobs:
   audit:
     name: ${{ matrix.shell }}
     runs-on: ${{ matrix.runner }}
+    # The gate decides; see the header.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
