@@ -1,23 +1,25 @@
 // Unit tests for the prepared Mimir answers (`node --test`, types stripped by Node).
 // Each case imports a fresh copy of the module (a distinct `?case=` query), since the
 // shipped store is loaded once per page.
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 type Fetch = (url: string, init?: unknown) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
 
 let n = 0;
+type Module = typeof import('../src/app/preparedAnswers.ts');
+
 async function fresh(opts: { prepared?: string; fetch?: Fetch; local?: Record<string, string> } = {}) {
   const local = { ...(opts.local ?? {}) };
-  (globalThis as any).window = {
+  (globalThis as { window?: unknown }).window = {
     __MIDGARD_PREPARED__: opts.prepared,
     localStorage: {
       getItem: (k: string) => (k in local ? local[k] : null),
       setItem: (k: string, v: string) => { local[k] = v; },
     },
   };
-  (globalThis as any).fetch = opts.fetch ?? (() => Promise.reject(new Error('no fetch expected')));
-  return import(`../src/app/preparedAnswers.ts?case=${++n}`);
+  (globalThis as { fetch?: unknown }).fetch = opts.fetch ?? (() => Promise.reject(new Error('no fetch expected')));
+  return (await import(`../src/app/preparedAnswers.ts?case=${++n}`)) as Module;
 }
 
 const answer = { answer: 'Shipped.', grounded: true, citations: [], unresolved: [], inferences: [], proposed: [], considered: 3, ms: 15000 };
@@ -83,11 +85,43 @@ test('errors and bad files are ignored', async () => {
 
 test('parseShipped keeps only well-formed entries', async () => {
   const m = await fresh();
-  assert.deepEqual(m.parseShipped(file({
+  const got = m.parseShipped(file({
     good: { value: answer, at: 1 },
     noAt: { value: answer },
     noValue: { at: 1 },
     scalar: { value: 'text', at: 1 },
     junk: 3,
-  })), { good: { value: answer, at: 1 } });
+  }));
+  assert.equal(Object.getPrototypeOf(got), null);
+  assert.deepEqual({ ...got }, { good: { value: answer, at: 1 } });
+});
+
+test('a shipped file that does not arrive within 4 s is given up on', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    let aborted = false;
+    const hang: Fetch = (_url, init) => new Promise((_resolve, reject) => {
+      (init as { signal: AbortSignal }).signal.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); });
+    });
+    const m = await fresh({ prepared: 'u', fetch: hang });
+    let settled = false;
+    const found = m.findPrepared('ask|*|q').then((p) => { settled = true; return p; });
+    const flush = () => new Promise<void>((r) => setImmediate(r));
+    mock.timers.tick(3999);
+    await flush();
+    assert.equal(settled, false);
+    assert.equal(aborted, false);
+    mock.timers.tick(1);
+    assert.equal(await found, null);
+    assert.equal(aborted, true);
+    assert.equal(settled, true);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('prototype names are plain keys', async () => {
+  const m = await fresh({ prepared: 'u', fetch: serve({ version: 1, entries: JSON.parse('{"__proto__":{"value":{"x":1},"at":1}}') }) });
+  assert.equal(await m.findPrepared('constructor', 'toString'), null);
+  assert.deepEqual(await m.findPrepared('__proto__'), { value: { x: 1 }, at: 1 });
 });

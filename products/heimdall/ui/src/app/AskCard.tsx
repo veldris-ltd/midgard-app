@@ -24,7 +24,10 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
   const [state, setState] = React.useState<State>({ status: 'idle' });
   const [question, setQuestion] = React.useState('');
   const [, tick] = React.useState(0);
-  const looking = React.useRef(false);
+  // The latest request: a result is applied only if no later question has superseded
+  // it and the card is still shown.
+  const latest = React.useRef(0);
+  React.useEffect(() => () => { latest.current += 1; }, []);
   React.useEffect(() => {
     if (state.status !== 'thinking') return;
     const t = window.setInterval(() => tick((n) => n + 1), 1000);
@@ -34,26 +37,29 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
 
   const ask = (q: string) => {
     const text = q.trim();
-    if (text.length < 3 || state.status === 'thinking' || looking.current) return;
+    if (text.length < 3 || state.status === 'thinking') return;
+    const request = ++latest.current;
+    const live = () => latest.current === request;
     // A shipped answer to this question (any area), or the same question about the same
     // area answered by Mimir in the last two hours: show it at once (its footer keeps the
     // original call's figures). The shipped answers are a local file, loaded before
-    // deciding, so a shipped answer never flashes "thinking".
+    // deciding, so a shipped answer never flashes "thinking"; a click meanwhile
+    // supersedes this one.
     const key = preparedKey('ask', areaLabel, text);
-    looking.current = true;
+    const where = focus ? { focus } : undefined;
     void findPrepared<HeimdallAnswer>(shippedKey('ask', '*', text), key).then((prepared) => {
-      looking.current = false;
+      if (!live()) return;
       if (prepared) {
         setState({ status: 'done', question: text, answer: prepared.value });
         return;
       }
       setState({ status: 'thinking', since: Date.now(), question: text });
-      gateway.ask!(text, focus ? { focus } : undefined).then(
+      gateway.ask!(text, where).then(
         (answer) => {
           if (answer.answer) putPrepared(key, answer);
-          setState({ status: 'done', question: text, answer });
+          if (live()) setState({ status: 'done', question: text, answer });
         },
-        (err) => setState({ status: 'failed', question: text, reason: err instanceof Error ? err.message : String(err) }),
+        (err) => { if (live()) setState({ status: 'failed', question: text, reason: err instanceof Error ? err.message : String(err) }); },
       );
     });
   };

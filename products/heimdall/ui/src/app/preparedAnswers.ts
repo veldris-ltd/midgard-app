@@ -76,7 +76,7 @@ export function shippedKey(kind: 'ask' | 'advise', about: string, question: stri
   return kind === 'ask' ? preparedKey('ask', '*', question) : preparedKey('advise', `entity:${about}`, question);
 }
 
-let shipped: Store = {};
+let shipped: Store = Object.create(null) as Store;
 let shippedLoad: Promise<void> | null = null;
 
 /** The shipped file's entries, or {} if it is not a version 1 file. */
@@ -84,7 +84,8 @@ export function parseShipped(file: unknown): Store {
   if (!file || typeof file !== 'object') return {};
   const { version, entries } = file as { version?: unknown; entries?: unknown };
   if (version !== 1 || !entries || typeof entries !== 'object' || Array.isArray(entries)) return {};
-  const out: Store = {};
+  // No prototype: a key such as `constructor` or `__proto__` is just a key.
+  const out: Store = Object.create(null) as Store;
   for (const [k, p] of Object.entries(entries as Record<string, unknown>)) {
     if (p && typeof p === 'object' && 'value' in p && typeof (p as Prepared<unknown>).at === 'number'
       && (p as Prepared<unknown>).value && typeof (p as Prepared<unknown>).value === 'object') {
@@ -112,9 +113,9 @@ export function loadShipped(): Promise<void> {
 
 /** The first of `keys` found: each in the shipped store, then in this browser. */
 export function getPrepared<T>(...keys: string[]): Prepared<T> | null {
-  for (const k of keys) if (shipped[k]) return shipped[k] as Prepared<T>;
+  for (const k of keys) if (Object.hasOwn(shipped, k)) return shipped[k] as Prepared<T>;
   const local = load();
-  for (const k of keys) if (local[k]) return local[k] as Prepared<T>;
+  for (const k of keys) if (Object.hasOwn(local, k)) return local[k] as Prepared<T>;
   return null;
 }
 

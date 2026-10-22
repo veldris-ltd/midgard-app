@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true
+  },
+  "include": ["test", "src/app/preparedAnswers.ts", "../../../ui/shared/src/gateway.ts"]
+}
