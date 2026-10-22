@@ -1,4 +1,4 @@
-use midgard_replay::player::{log_line, Clock, Player, Sink};
+use midgard_replay::player::{log_line, Clock, Player, Sink, SystemClock};
 use midgard_replay::recording::{Event, Recording};
 use service_runtime::json::{parse, Json};
 use std::cell::RefCell;
@@ -205,4 +205,16 @@ fn a_log_line_is_one_valid_json_object() {
     assert_eq!(j.str_field("message"), Some("say \"hi\"\n"));
     assert_eq!(j.str_field("result"), Some("FAILED \"x\"\\y\n"));
     assert!(matches!(j, Json::Obj(_)));
+}
+
+#[test]
+fn system_clock_sleeps_to_the_instant_and_not_for_the_past() {
+    let c = SystemClock;
+    let start = std::time::Instant::now();
+    c.sleep_until(c.now() - 10);
+    assert!(start.elapsed() < std::time::Duration::from_millis(100));
+    let t = c.now() + 1;
+    c.sleep_until(t);
+    assert!(c.now() >= t);
+    assert!(start.elapsed() < std::time::Duration::from_millis(2100));
 }

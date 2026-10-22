@@ -18,6 +18,9 @@ pub trait Sink {
     fn forge(&self, file: &str, csv: &str) -> Result<(), String>;
 }
 
+/// The longest single sleep: how late a wait can end after the Mac wakes.
+const SLEEP_PIECE: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub struct SystemClock;
 impl Clock for SystemClock {
     fn now(&self) -> i64 {
@@ -26,12 +29,18 @@ impl Clock for SystemClock {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0)
     }
-    /// Sleep to the exact instant `t`, not to the whole second after it.
+    /// Sleep to the exact instant `t`, not to the whole second after it: in pieces of
+    /// at most `SLEEP_PIECE`, the wall clock read again after each, since a sleeping
+    /// Mac may not count towards `thread::sleep` and a wait spanning a lid close must
+    /// end as soon as it wakes.
     fn sleep_until(&self, t: i64) {
         let Ok(t) = u64::try_from(t) else { return };
         let target = std::time::UNIX_EPOCH + std::time::Duration::from_secs(t);
-        if let Ok(left) = target.duration_since(std::time::SystemTime::now()) {
-            std::thread::sleep(left);
+        while let Ok(left) = target.duration_since(std::time::SystemTime::now()) {
+            if left.is_zero() {
+                return;
+            }
+            std::thread::sleep(left.min(SLEEP_PIECE));
         }
     }
 }
@@ -50,16 +59,21 @@ pub fn log_line(message: &str, fields: &[(&str, String)]) -> String {
 }
 
 /// Print one JSON log line (the run script waits for `"replay started"`).
+/// Flushed at once, so a reader of a redirected file sees each line as it is logged.
 pub fn log(message: &str, fields: &[(&str, String)]) {
-    println!("{}", log_line(message, fields));
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{}", log_line(message, fields));
+    let _ = out.flush();
 }
 
 impl Player<'_> {
     /// Play `loops` loops (None: forever). A late event is played at once, never skipped,
     /// so a slow Mac lags rather than losing data; but once more than `MAX_LAG` behind,
     /// the rest of the loop is dropped and the next loop starts from now (re-anchored, its
-    /// shift from that start). Each loop waits for its own start, so an empty recording
-    /// sleeps a loop at a time instead of spinning.
+    /// shift from that start). Each loop waits for its own start, so a loop whose events
+    /// all come early still lasts the recording's duration (a recording always has at
+    /// least one event: `Recording::load` refuses an empty one).
     pub fn run(&self, loops: Option<u64>) {
         let mut loop_start = self.clock.now();
         let mut k = 0u64;
