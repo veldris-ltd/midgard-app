@@ -6,8 +6,9 @@ Silicon) and run from a folder, without Docker.
 
 | Script | What it does |
 |---|---|
-| `build-services.sh` | Builds `http-gateway`, `heimdall-feed`, `heimdall-source`, `mimir-server` and `forge-worker` for `aarch64-apple-darwin` and `x86_64-apple-darwin`, and merges each pair with `lipo` into `dist/mac/bin` (gitignored) |
+| `build-services.sh` | Builds `http-gateway`, `heimdall-feed`, `heimdall-source`, `mimir-server`, `forge-worker` and `midgard-replay` for `aarch64-apple-darwin` and `x86_64-apple-darwin`, and merges each pair with `lipo` into `dist/mac/bin` (gitignored) |
 | `run-native.sh start \| stop \| status` | Runs the suite from `dist/mac/bin` against an enclosure home (default `~/Desktop/Midgard`, override with `MIDGARD_HOME`). Logs and pids in `$MIDGARD_HOME/native-run/` |
+| `record.py record \| pack` | Records the live feeds for offline replay (see [Recording and replay](#recording-and-replay)) |
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
 
 ## Prerequisites
@@ -60,3 +61,59 @@ Never start the containers while the native suite is running: containers built b
 (`rotate-gateway-ledger.sh`) only acts on the container.
 
 On a 2026 Apple Silicon Mac the native suite is ready in about 30 seconds.
+
+## Recording and replay
+
+The offline app plays a recording of the live feeds instead of fetching them:
+`midgard-replay` (`tools/replay`) sends the recorded Heimdall batches through
+`heimdall-source` and rewrites the recorded Forge source files, as the live feeds would.
+
+### Recording (development Mac)
+
+With the Docker suite and the live feeds running:
+
+```bash
+python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
+```
+
+- Recordings are kept in `~/Library/Application Support/Midgard-dev/recordings/<name>`
+  (`MIDGARD_RECORDINGS` overrides), outside the suite folder because of its 3.5 GB budget.
+  The raw capture stays in `<name>/raw` unless `--drop-raw`. Delete old recordings when done.
+- It restarts the feeds runner (`heimdall-poc/feeds`) with its last-sent memory cleared, so
+  every source is sent, and so recorded, from the start.
+- Heimdall batches come from a recording hook in `feeds.py` (which is outside git):
+  `state/record_to` holds `"<dir>\npid=<n>"`; while that pid lives, `feeds.py` copies each batch
+  it sends there as `<time_ns>-<feed>.jsonl`, and removes a stale hook itself. The full contract
+  is in `record.py`'s docstring.
+- Ctrl-C stops early and still packs. After a crash, re-pack the raw capture with
+  `python3 tools/mac-app/record.py pack RAW OUT`.
+
+### Replaying
+
+1. Build with `build-services.sh` (it includes `midgard-replay`).
+2. Stop the Docker containers and the feeds as in "To run natively" above.
+3. Start the suite with the recording:
+
+   ```bash
+   MIDGARD_REPLAY="$HOME/Library/Application Support/Midgard-dev/recordings/NAME" \
+     bash tools/mac-app/run-native.sh start
+   ```
+
+   `start` checks the recording (it must contain `meta.json`) and the binary, then runs the
+   replay after Forge is ready. `stop` stops the replay first, with its `heimdall-source`
+   runs; `status` lists it. Without `MIDGARD_REPLAY`, nothing changes.
+
+The replay logs JSON lines to `$MIDGARD_HOME/native-run/replay.log`:
+
+| Line | Meaning |
+|---|---|
+| `replay started` | The recording is loaded and playback has begun |
+| `loop started` | A pass over the recording begins (`loop` counts from 0) |
+| `batch sent` | One Heimdall batch played (`feed`, `offset`, `lag` = how late it went out); `result` is `heimdall-source`'s summary, or `FAILED <error>` for the first failure of a kind |
+| `batches failing` | The same error keeps repeating; `dropped` counts the repeats not logged one by one |
+| `batches recovered` | Sends work again after failures (`failed`, `dropped`) |
+| `behind; restarting the loop` | Playback fell too far behind (e.g. after the Mac slept): the rest of this loop is dropped and the next starts now |
+
+The recording loops; each loop shifts its times to now, so the picture always looks current.
+The replay overwrites the Forge CSVs in `live-feeds/data`; the live fetcher rewrites them the
+next time it runs.
