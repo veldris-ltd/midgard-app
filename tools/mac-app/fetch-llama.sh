@@ -3,44 +3,67 @@
 # out for the app bundle:
 #   $MIDGARD_BUILD_DIR/llama/<build>/llama-<build>-bin-macos-{arm64,x64}.tar.gz  (downloads)
 #   $MIDGARD_BUILD_DIR/llama/<build>/{arm64,x64}/  llama-server + the dylibs it loads, LICENSE
+#   $MIDGARD_BUILD_DIR/llama/<build>/{arm64,x64}.stamp  (what each folder was made from)
 #   $MIDGARD_BUILD_DIR/llama/current -> <build>    (stable path for build-app.sh)
 # (MIDGARD_BUILD_DIR defaults to ~/Library/Caches/midgard-build, outside the suite folder.)
 #
-# A download already present is kept only if its SHA-256 matches llama.lock; a fresh one
-# must match or the script fails. Each archive is extracted into a staging folder, and the
-# dylibs llama-server needs are found by walking `otool -L` recursively. They are copied as
-# real files (no symlinks: the bundle must hold none) under the name the loader asks for
-# (e.g. libggml.0.dylib). Libraries referenced by an absolute path outside /usr/lib and
-# /System are rewritten to @loader_path with install_name_tool (b11669 needs none: it uses
-# @rpath with an @loader_path rpath), and any Mach-O changed is re-signed ad hoc. The Metal
-# shaders are embedded in libggml-metal (no default.metallib in the release). Extended
-# attributes (quarantine, provenance) are cleared, and Mach-Os that are unsigned (the x64
-# release) are signed ad hoc. Prints the layout, sizes and
-# `llama-server --version` of each (x64 under Rosetta, if installed).
+# A download already present is kept only if its SHA-256 matches llama.lock; a new one is
+# fetched over HTTPS only and checked before it takes its final name. Each archive is
+# extracted into a staging folder (removed on exit), and the dylibs llama-server needs are
+# found by walking `otool -L` recursively. Only references to system libraries (/usr/lib,
+# /System) and `@rpath/<name>` or `@loader_path/<name>` naming a file in the release are
+# accepted; anything else, or a library missing from the release, fails the script (no
+# library is ever taken from this Mac). Libraries are copied as real files (the bundle must
+# hold no symlinks) under the name the loader asks for (e.g. libggml.0.dylib). b11669 uses
+# @rpath with an @loader_path rpath, and its Metal shaders are built into libggml-metal.
+# Extended attributes are cleared and any Mach-O that does not verify (the x64 release is
+# unsigned) is signed ad hoc. The new folder replaces the old one only when complete.
+#
+# Re-runs are a no-op: an arch folder whose stamp matches the archive's SHA-256 and this
+# script's hash is left untouched (no re-signing, no new mtimes). Prints the layout, sizes
+# and `llama-server --version` of each (x64 under Rosetta, if installed).
 #
 #   bash tools/mac-app/fetch-llama.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 LOCK=tools/mac-app/llama.lock
+SELF=tools/mac-app/fetch-llama.sh
 BUILD_ROOT="${MIDGARD_BUILD_DIR:-$HOME/Library/Caches/midgard-build}"
 ARCHES=(arm64 x64)
 
+CLEANUP=()
+cleanup() { [ ${#CLEANUP[@]} -eq 0 ] || rm -rf "${CLEANUP[@]}"; }
+trap cleanup EXIT
+
+die() { echo "$*" >&2; exit 1; }
+
 lock() {
   local v
-  v=$(grep -E "^$1=" "$LOCK" | head -n1 | cut -d= -f2-)
-  if [ -z "$v" ]; then
-    echo "$LOCK: no $1" >&2
-    exit 1
-  fi
+  v=$(grep -E "^$1=" "$LOCK" | head -n1 | cut -d= -f2-) || true
+  [ -n "$v" ] || die "$LOCK: no $1"
   printf '%s\n' "$v"
 }
 
 sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# --- the lock ---
 BUILD=$(lock build)
-DIR="$BUILD_ROOT/llama/$BUILD"
+[[ $BUILD =~ ^b[0-9]+$ ]] || die "$LOCK: build '$BUILD' is not b<number>"
+for a in "${ARCHES[@]}"; do
+  url=$(lock "${a}_url")
+  sum=$(lock "${a}_sha256")
+  [[ $url =~ ^https://[^[:space:]]+\.tar\.gz$ ]] || die "$LOCK: ${a}_url is not an https .tar.gz URL"
+  [[ $sum =~ ^[0-9a-f]{64}$ ]] || die "$LOCK: ${a}_sha256 is not 64 hex digits"
+done
+
+LLAMA="$BUILD_ROOT/llama"
+DIR="$LLAMA/$BUILD"
+if [ -e "$LLAMA/current" ] && [ ! -L "$LLAMA/current" ]; then
+  die "$LLAMA/current is a real folder, not a symlink: move it away and re-run"
+fi
 mkdir -p "$DIR"
+SCRIPT_SHA=$(sha256 "$SELF")
 
 # --- download and verify ---
 for a in "${ARCHES[@]}"; do
@@ -49,45 +72,47 @@ for a in "${ARCHES[@]}"; do
   tgz="$DIR/$(basename "$url")"
   if [ -f "$tgz" ] && [ "$(sha256 "$tgz")" = "$want" ]; then
     echo "== $a: $(basename "$tgz") present, SHA-256 matches"
-  else
-    echo "== $a: downloading $url"
-    curl -fL --retry 3 -sS -o "$tgz.part" "$url"
-    mv "$tgz.part" "$tgz"
+    continue
   fi
-  got=$(sha256 "$tgz")
-  if [ "$got" != "$want" ]; then
-    echo "$tgz: SHA-256 $got does not match llama.lock ($want)" >&2
-    exit 1
-  fi
+  echo "== $a: downloading $url"
+  CLEANUP+=("$tgz.part")
+  curl --proto '=https' --proto-redir '=https' -fL --retry 3 -sS -o "$tgz.part" "$url"
+  got=$(sha256 "$tgz.part")
+  [ "$got" = "$want" ] || die "$url: SHA-256 $got does not match llama.lock ($want)"
+  mv -f "$tgz.part" "$tgz"
 done
 
 # --- lay out llama-server and its libraries per architecture ---
-is_system() { case "$1" in /usr/lib/*|/System/*) return 0 ;; *) return 1 ;; esac; }
 
 # The libraries a Mach-O loads (its own install name left out).
 deps() {
-  local id
-  id=$(otool -D "$1" | sed -n 2p)
-  otool -L "$1" | tail -n +2 | awk '{print $1}' | while read -r d; do
+  local f=$1 id lst
+  id=$(otool -D "$f") || die "otool -D failed on $f"
+  id=$(sed -n 2p <<<"$id")
+  lst=$(otool -L "$f") || die "otool -L failed on $f"
+  tail -n +2 <<<"$lst" | awk '{print $1}' | while read -r d; do
     [ "$d" = "$id" ] || printf '%s\n' "$d"
   done
 }
 
-has_rpath() { otool -l "$1" | grep -A2 LC_RPATH | grep -q "path $2 "; }
+rpaths() {
+  local out
+  out=$(otool -l "$1") || die "otool -l failed on $1"
+  awk '/cmd LC_RPATH/ { getline; getline; print $2 }' <<<"$out"
+}
 
 layout() {
-  local a=$1 tgz=$2 stage out top queue f d name src changed
+  local a=$1 tgz=$2 stage out top topreal queue f d name src real changed list rp
   stage="$DIR/staging-$a"
   out="$DIR/$a.new"
+  CLEANUP+=("$stage" "$out")
   rm -rf "$stage" "$out"
   mkdir -p "$stage" "$out"
   tar xzf "$tgz" -C "$stage"
   top=$(find "$stage" -name llama-server -type f -perm -u+x | head -n1)
-  if [ -z "$top" ]; then
-    echo "$tgz: no llama-server inside" >&2
-    exit 1
-  fi
+  [ -n "$top" ] || die "$tgz: no llama-server inside"
   top=$(dirname "$top")
+  topreal=$(cd "$top" && pwd -P)
   cp "$top/llama-server" "$out/"
   [ -f "$top/LICENSE" ] && cp "$top/LICENSE" "$out/"
 
@@ -96,75 +121,78 @@ layout() {
     f=${queue[0]}
     queue=("${queue[@]:1}")
     changed=0
+    list=$(deps "$f")
     while read -r d; do
       [ -n "$d" ] || continue
-      is_system "$d" && continue
-      name=$(basename "$d")
       case "$d" in
-        @rpath/*|@loader_path/*|@executable_path/*) ;;
-        /*)
-          # Absolute path outside the system: load it from beside the binary instead.
-          install_name_tool -change "$d" "@loader_path/$name" "$f" 2>/dev/null
+        /usr/lib/*|/System/*) continue ;;
+        @rpath/*|@loader_path/*) name=${d#*/} ;;
+        *) die "$(basename "$f") ($a): library reference $d is not @rpath/@loader_path or a system library" ;;
+      esac
+      case "$name" in
+        ''|*/*) die "$(basename "$f") ($a): library reference $d has a subpath" ;;
+      esac
+      if [[ $d == @rpath/* ]]; then
+        rp=$(rpaths "$f")
+        if ! grep -qx '@loader_path' <<<"$rp"; then
+          install_name_tool -add_rpath @loader_path "$f"
           changed=1
-          ;;
-        *) echo "$f: unexpected library reference $d" >&2; exit 1 ;;
-      esac
-      case "$d" in
-        @rpath/*)
-          if ! has_rpath "$f" @loader_path; then
-            install_name_tool -add_rpath @loader_path "$f" 2>/dev/null
-            changed=1
-          fi
-          ;;
-      esac
+        fi
+      fi
       [ -e "$out/$name" ] && continue
       src="$top/$name"
-      [ -e "$src" ] || src="$d"   # absolute path not in the release
-      if [ ! -e "$src" ]; then
-        echo "$f needs $d, which is not in the release" >&2
-        exit 1
-      fi
-      cp -L "$src" "$out/$name"   # follow the release's version symlinks
+      [ -e "$src" ] || die "$(basename "$f") ($a) needs $name, which is not in the release"
+      real=$(realpath "$src")
+      [[ $real == "$topreal"/* ]] || die "$src ($a) points outside the release ($real)"
+      cp "$real" "$out/$name"   # the release's version symlinks, resolved
       chmod u+w "$out/$name"
-      case "$d" in
-        /*) install_name_tool -id "@rpath/$name" "$out/$name" 2>/dev/null ;;
-      esac
       queue+=("$out/$name")
-    done < <(deps "$f")
+    done <<<"$list"
     if [ $changed = 1 ]; then
-      echo "   rewrote library paths in $(basename "$f"); re-signing ad hoc"
-      codesign --force -s - "$f" 2>/dev/null
+      echo "   added an @loader_path rpath to $(basename "$f"); re-signing ad hoc"
+      codesign --force -s - "$f"
     fi
   done
-  # Sign ad hoc whatever does not verify: copies whose install name changed, and the x64
-  # release, which ships unsigned (arm64's is linker-signed).
+  # Sign ad hoc whatever does not verify (the x64 release ships unsigned; arm64's is
+  # linker-signed), then check every signature.
   xattr -cr "$out"
   for f in "$out"/llama-server "$out"/*.dylib; do
     if ! codesign -v "$f" 2>/dev/null; then
-      echo "   signing $(basename "$f") ad hoc (unsigned or changed)"
-      codesign --force -s - "$f" 2>/dev/null
+      echo "   signing $(basename "$f") ad hoc (unsigned)"
+      codesign --force -s - "$f"
     fi
   done
   for f in "$out"/llama-server "$out"/*.dylib; do
-    if ! codesign -v "$f" 2>/dev/null; then
-      echo "$f: signature does not verify" >&2
-      exit 1
-    fi
+    codesign -v "$f" || die "$f: signature does not verify"
   done
-  rm -rf "$stage" "$DIR/$a"
+  # Swap in: old folder aside first, so an interruption never leaves a half folder in place
+  # (and the stamp is gone, so the next run lays it out again).
+  rm -f "$DIR/$a.stamp"
+  rm -rf "$DIR/$a.old"
+  [ -e "$DIR/$a" ] && mv "$DIR/$a" "$DIR/$a.old"
   mv "$out" "$DIR/$a"
+  rm -rf "$DIR/$a.old" "$stage"
 }
 
 for a in "${ARCHES[@]}"; do
+  want=$(lock "${a}_sha256")
+  stamp="archive_sha256=$want script_sha256=$SCRIPT_SHA"
+  if [ -x "$DIR/$a/llama-server" ] && [ -f "$DIR/$a.stamp" ] && [ "$(cat "$DIR/$a.stamp")" = "$stamp" ]; then
+    echo "== $a: up to date (stamp matches)"
+    continue
+  fi
   echo "== laying out $a"
   layout "$a" "$DIR/$(basename "$(lock "${a}_url")")"
+  printf '%s\n' "$stamp" > "$DIR/$a.stamp"
 done
 
-ln -sfn "$BUILD" "$BUILD_ROOT/llama/current"
+if [ "$(readlink "$LLAMA/current" 2>/dev/null || true)" != "$BUILD" ]; then
+  ln -sfn "$BUILD" "$LLAMA/current"
+fi
 
 # --- report ---
 for a in "${ARCHES[@]}"; do
-  echo "== $a: $BUILD_ROOT/llama/current/$a ($(du -sh "$DIR/$a" | awk '{print $1}'))"
+  echo "== $a: $LLAMA/current/$a ($(du -sh "$DIR/$a" | awk '{print $1}'))"
   (cd "$DIR/$a" && ls -l | tail -n +2 | awk '{printf "   %10d  %s\n", $5, $9}')
   echo "   $(file -b "$DIR/$a/llama-server")"
 done
@@ -176,4 +204,4 @@ if arch -x86_64 /usr/bin/true 2>/dev/null; then
 else
   echo "   skipped: Rosetta is not installed (softwareupdate --install-rosetta)"
 fi
-echo "== done: $BUILD_ROOT/llama/current/{arm64,x64} -> $DIR"
+echo "== done: $LLAMA/current/{arm64,x64} -> $DIR"
