@@ -32,6 +32,10 @@ kms = { path = "../kms" }
 # Liveness, readiness and metrics — zero-dependency, cannot egress. [NFR-PRV-1]
 telemetry = { path = "../telemetry" }
 
+# A lock holder's start time, which macOS exposes only through `proc_pidinfo`. [RC-09]
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # Tests certify service identities with a real issuer, as `mg-admin mesh issue` does.
 iam = { path = "../iam" }

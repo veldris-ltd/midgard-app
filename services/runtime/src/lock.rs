@@ -112,66 +112,33 @@ fn may_be_running(_pid: u32) -> bool {
     false
 }
 
-/// "No such process" from `<sys/errno.h>`.
-#[cfg(target_os = "macos")]
-const ESRCH: i32 = 3;
-
 /// A process's start time in microseconds since the epoch (`pbi_start_tvsec` and
 /// `pbi_start_tvusec` of `proc_pidinfo(PROC_PIDTBSDINFO)`), or the errno that refused it.
 #[cfg(target_os = "macos")]
 fn bsd_start(pid: u32) -> Result<u64, i32> {
-    use std::ffi::{c_int, c_void};
-
-    /// `struct proc_bsdinfo` from `<sys/proc_info.h>`.
-    #[repr(C)]
-    struct ProcBsdInfo {
-        flags: u32,
-        status: u32,
-        xstatus: u32,
-        pid: u32,
-        ppid: u32,
-        uid: u32,
-        gid: u32,
-        ruid: u32,
-        rgid: u32,
-        svuid: u32,
-        svgid: u32,
-        rfu_1: u32,
-        comm: [u8; 16],
-        name: [u8; 32],
-        nfiles: u32,
-        pgid: u32,
-        pjobc: u32,
-        e_tdev: u32,
-        e_tpgid: u32,
-        nice: i32,
-        start_tvsec: u64,
-        start_tvusec: u64,
-    }
-    const PROC_PIDTBSDINFO: c_int = 3;
-    extern "C" {
-        fn proc_pidinfo(
-            pid: c_int,
-            flavor: c_int,
-            arg: u64,
-            buffer: *mut c_void,
-            buffersize: c_int,
-        ) -> c_int;
-    }
+    use std::mem::{size_of, MaybeUninit};
 
     // No process can have a pid outside `pid_t`.
-    let pid = c_int::try_from(pid).map_err(|_| ESRCH)?;
-    let mut info = std::mem::MaybeUninit::<ProcBsdInfo>::uninit();
-    let size = std::mem::size_of::<ProcBsdInfo>() as c_int;
-    // SAFETY: the buffer is a writable `proc_bsdinfo` of exactly `size` bytes; the kernel
+    let pid = libc::pid_t::try_from(pid).map_err(|_| libc::ESRCH)?;
+    let mut info = MaybeUninit::<libc::proc_bsdinfo>::uninit();
+    let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is a writable `proc_bsdinfo` of exactly `size` bytes; the kernel
     // writes at most that many and returns how many it wrote.
-    let written = unsafe { proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size) };
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
     if written != size {
         return Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(0));
     }
     // SAFETY: the kernel filled the whole struct, and every bit pattern is valid for it.
     let info = unsafe { info.assume_init() };
-    Ok(info.start_tvsec * 1_000_000 + info.start_tvusec)
+    Ok(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
 }
 
 #[cfg(target_os = "macos")]
@@ -183,7 +150,7 @@ fn process_start(pid: u32) -> Option<u64> {
 /// proves the holder gone.
 #[cfg(target_os = "macos")]
 fn may_be_running(pid: u32) -> bool {
-    bsd_start(pid).map_or_else(|errno| errno != ESRCH, |_| true)
+    bsd_start(pid).map_or_else(|errno| errno != libc::ESRCH, |_| true)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]

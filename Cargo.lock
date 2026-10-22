@@ -986,6 +986,7 @@ dependencies = [
  "governance",
  "iam",
  "kms",
+ "libc",
  "policy",
  "pq-mtls",
  "pqc-agility",
