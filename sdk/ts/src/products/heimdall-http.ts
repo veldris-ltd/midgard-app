@@ -140,6 +140,10 @@ const KIND_CLASS: Record<string, string> = {
   'event-fire': 'FIRE HOTSPOT',
   'land-train': 'TRAIN',
   'land-camera': 'CAMERA',
+  'airspace-advisory': 'AIRSPACE ADVISORY',
+  'utility-telecom-censorship': 'CENSORSHIP',
+  'event-tsunami': 'TSUNAMI BULLETIN',
+  'event-news': 'NEWS',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -160,6 +164,10 @@ const KIND_FEED: Record<string, string> = {
   'event-fire': 'fire hotspots (NASA FIRMS)',
   'land-train': 'train movements (TRUST)',
   'land-camera': 'traffic and custom cameras',
+  'airspace-advisory': 'airspace warnings (EASA, FAA)',
+  'utility-telecom-censorship': 'censorship tests (OONI)',
+  'event-tsunami': 'tsunami bulletins (NOAA)',
+  'event-news': 'news volume (GDELT)',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -413,6 +421,13 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
         ['SIGNALS', a('signals')], ['SCORE', a('score')], ['EVENTS (6 H)', a('events')], ['LINK', a('link')],
         ['SOURCE', a('source') === 'cloudflare-radar' ? 'Cloudflare Radar (CC BY-NC 4.0)' : 'IODA, Georgia Tech']);
       return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
+    case 'utility-telecom-censorship':
+      rows.push(['COUNTRY', a('country')],
+        ['INTERFERENCE', n('interference_pct') !== undefined ? `${n('interference_pct')} % of ${a('tests') ?? '?'} web tests since ${a('since') ?? '?'}` : undefined],
+        ['CONFIRMED BLOCKED', a('confirmed_blocked')], ['ANOMALIES', a('anomalies')],
+        ['PREVIOUS 7 DAYS', n('baseline_pct') !== undefined ? `${n('baseline_pct')} %` : undefined],
+        ['TREND', e.attributes.rising === true ? 'RISING (new blocking likely)' : 'steady'], ['LINK', a('url')], ['SOURCE', a('source')]);
+      return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }));
     default:
       if (e.kind.startsWith('infra-')) {
         rows.push(['OPERATOR', a('operator')], ['VOLTAGE', unit('voltage_kv', 'kV')], ['FUEL', a('fuel')], ['OUTPUT', unit('output_mw', 'MW', 1)],
@@ -454,6 +469,7 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
       // Where the position came from: ADS-B from the aircraft, or multilateration. [FR-H-1]
       rows.push(['POSITION BY', a('pos_source') ? `${a('pos_source')!.replace('adsb_icao', 'ADS-B').replace('mlat', 'MLAT')}${a('pos_feed') ? ` · ${a('pos_feed')}` : ''}` : undefined],
         ['AIRCRAFT TYPE', a('aircraft_type')], ['REGISTRATION', a('registration')],
+        ['MILITARY', e.attributes.military === true ? 'yes (adsb.fi database flag)' : undefined],
         // GPS integrity: NIC 0 or NACp 0, or a lost GPS fix, usually means jamming or spoofing.
         ['GPS', e.attributes.gps_lost === true ? 'LOST (jamming or spoofing likely)'
           : num(e.attributes.nic) === 0 || num(e.attributes.nac_p) === 0 ? `DEGRADED (NIC ${a('nic') ?? '?'}, NACp ${a('nac_p') ?? '?'})`
@@ -477,6 +493,24 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
         ['LOWER', limitText(num(e.attributes.lower_ft), a('lower_ref')) + (a('lower_ref') ? ` (${a('lower_ref')})` : '')],
         ['UPPER', limitText(num(e.attributes.upper_ft), a('upper_ref')) + (a('upper_ref') ? ` (${a('upper_ref')})` : '')],
         ['COUNTRY', a('country')]);
+      break;
+    case 'airspace-advisory':
+      // EASA conflict-zone bulletins and US FAA prohibitions / advisories. [FR-H-1]
+      rows.push(['ISSUER', a('issuer') === 'FAA' ? 'US FAA' : 'EASA'], ['AREA', a('area')],
+        ['US OPERATORS', a('issuer') === 'FAA' ? (e.attributes.prohibition === true ? 'Flights prohibited (in part or whole)' : 'Advisory: potential hazard') : undefined],
+        ['DOCUMENTS', a('documents')], ['ISSUED', when(e.attributes.issued_at)], ['REVISED', when(e.attributes.revised_at)],
+        ['VALID UNTIL', a('valid_until')],
+        ['NEW (7 D)', e.attributes.new_7d === true || e.attributes.new_doc_7d === true ? 'yes' : undefined],
+        ['LINK', a('url')], ['SOURCE', a('source')]);
+      break;
+    case 'event-tsunami':
+      rows.push(['CATEGORY', a('category')?.toUpperCase()], ['CENTRE', a('centre')], ['REGION', a('region')],
+        ['MAGNITUDE', a('magnitude')], ['ISSUED', when(e.attributes.issued_at)], ['BULLETIN', a('url')], ['SOURCE', a('source')]);
+      break;
+    case 'event-news':
+      rows.push(['TOPIC', a('topic')], ['ARTICLES (1 H)', a('articles_1h')], ['HOURLY MEDIAN (24 H)', a('hourly_median_24h')],
+        ['SURGE', e.attributes.surge === true ? 'YES (3x the median or more)' : 'no'], ['HEADLINES', a('headlines')],
+        ['SEARCH', a('query')], ['SOURCE', a('source')]);
       break;
     case 'event-fire': {
       const t = num(e.attributes.acq_time);
@@ -567,7 +601,12 @@ function spaceWeatherOf(entities: WireEntity[]): HeimdallSpaceWeather | undefine
 /** Feeds of reference data, resent about once a day. */
 const REFERENCE_FEED = /-infra$|^openaip$|^crown-estate-wind$|^nsta-platforms$/;
 /** Feeds whose newest item is normally older than half an hour, in seconds. */
-const SLOW_FEED_S: Record<string, number> = { 'nasa-firms': 3 * 3600, 'noaa-swpc': 3600 };
+const SLOW_FEED_S: Record<string, number> = {
+  'nasa-firms': 3 * 3600, 'noaa-swpc': 3600, 'easa-czib': 3600, 'faa-restrictions': 3600, 'ooni-censorship': 3600,
+  'gdelt-news': 3600,
+  // a bulletin is sent only for a day after it is issued; most days there is none
+  'tsunami-warnings': 7 * 86400,
+};
 
 export class HeimdallHttp implements HeimdallGateway {
   private readonly base: string;
@@ -800,7 +839,9 @@ export class HeimdallHttp implements HeimdallGateway {
         flowing: e.kind.startsWith('utility-gas') ? e.attributes.flowing === true : undefined,
         direction: e.kind.endsWith('-interconnector') ? text('direction') : undefined,
         fuel: e.kind === 'infra-power-plant' ? text('fuel') : undefined,
-        level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : e.kind === 'event-gnss-interference' ? text('level') : undefined,
+        level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : e.kind === 'event-gnss-interference' ? text('level')
+          : e.kind === 'event-tsunami' ? text('category')?.toLowerCase() : e.kind === 'event-news' ? (e.attributes.surge === true ? 'surge' : undefined)
+          : e.kind === 'utility-telecom-censorship' ? (e.attributes.rising === true ? 'rising' : 'steady') : undefined,
         taf: e.kind === 'land-airport' ? text('taf') : undefined,
         tafWorst: e.kind === 'land-airport' ? text('taf_worst_category_12h') : undefined,
         label: e.classification?.label,

@@ -42,13 +42,15 @@ const PLANT_COLOURS: Record<string, string> = {
 export const FLOW_COLOURS: Record<string, string> = { import: '#2fd16b', export: '#ff9f1a', idle: '#6f7f8f' };
 
 /** A utility entity's colour from its kind and what it reports. */
-export function utilityColour(d: { kind: string; network?: string; planned?: boolean; status?: string; flowing?: boolean; direction?: string; fuel?: string; voltageKv?: number }): string {
+export function utilityColour(d: { kind: string; network?: string; planned?: boolean; status?: string; flowing?: boolean; direction?: string; fuel?: string; voltageKv?: number; level?: string }): string {
   switch (d.kind) {
     case 'utility-power-outage': return d.planned ? '#ffd23f' : '#ff4d2e';
     case 'utility-water-overflow': return d.status === 'discharging' ? '#d9a441' : '#7f8c99';
     case 'utility-gas-terminal': case 'utility-gas-storage': case 'utility-gas-lng': return d.flowing ? '#ff8c1a' : '#8a6a4a';
     case 'utility-power-interconnector': case 'utility-gas-interconnector': return FLOW_COLOURS[d.direction ?? 'idle'] ?? FLOW_COLOURS.idle;
     case 'utility-telecom-outage': return '#ff4dd2';
+    // OONI censorship: violet, magenta while it is rising above the country's previous week.
+    case 'utility-telecom-censorship': return d.level === 'rising' ? '#ff4dd2' : '#9b7bff';
     case 'infra-power-plant': return PLANT_COLOURS[(d.fuel ?? '').split(';')[0].toLowerCase()] ?? NETWORK_COLOURS.power;
     default: return NETWORK_COLOURS[d.network ?? ''] ?? 'var(--text-muted)';
   }
@@ -96,8 +98,12 @@ export function areaColour(d: { kind: string; hazard?: string; level?: string; a
     case 'event-weather-warning': return WARNING_COLOURS[(d.level ?? '').toLowerCase()] ?? 'var(--heimdall-300)';
     case 'sea-windfarm': return 'var(--mimir-300)';
     case 'airspace-volume': return airspaceColour(d.airspaceType);
-    // EASA conflict-zone bulletins: a warning to airlines about the airspace.
+    // EASA conflict-zone bulletins and FAA prohibitions: a warning to airlines about the airspace.
     case 'airspace-advisory': return 'var(--warn)';
+    // Tsunami bulletins by category: a warning red, an advisory, watch or threat amber.
+    case 'event-tsunami': return d.level === 'warning' ? 'var(--danger)' : d.level === 'advisory' || d.level === 'watch' || d.level === 'threat' ? 'var(--warn)' : 'var(--info)';
+    // News topics: amber while coverage is surging.
+    case 'event-news': return d.level === 'surge' ? 'var(--warn)' : 'var(--heimdall-300)';
     case 'land-road-disruption': return ROAD_COLOURS[(d.level ?? '').toLowerCase()] ?? 'var(--heimdall-300)';
     // GPS interference cells: magenta, deeper with the share of aircraft affected.
     case 'event-gnss-interference': return d.level === 'high' ? '#ff2bd6' : d.level === 'medium' ? '#c04dff' : '#8a6bff';
@@ -123,12 +129,12 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'sea-platform': return 'platform';
     case 'land-road-disruption': return 'road';
     case 'airspace-volume': return 'airspace';
-    case 'airspace-advisory': return 'warning';
+    case 'airspace-advisory': case 'event-tsunami': case 'event-news': return 'warning';
     case 'event-fire': return 'fire';
     case 'utility-power-outage': return 'outage';
     case 'utility-water-overflow': case 'utility-water-reservoir': return 'drop';
     case 'utility-gas-terminal': case 'utility-gas-storage': case 'utility-gas-lng': case 'infra-power-plant': return 'hexagon';
-    case 'utility-power-grid': case 'utility-gas-system': case 'utility-telecom-outage': return 'hub';
+    case 'utility-power-grid': case 'utility-gas-system': case 'utility-telecom-outage': case 'utility-telecom-censorship': return 'hub';
     case 'utility-power-interconnector': case 'utility-gas-interconnector':
     case 'infra-power-substation': case 'infra-water-works': case 'infra-water-treatment':
     case 'infra-telecom-exchange': case 'infra-telecom-datacentre': return 'site';
@@ -254,6 +260,7 @@ export const AREA_LEGEND: { label: string; color: string; kind: string }[] = [
   { label: 'GAS TERMINAL / STORAGE', color: '#ff8c1a', kind: 'utility-gas-terminal' },
   { label: 'LNG TERMINAL (EUROPE)', color: '#ff8c1a', kind: 'utility-gas-lng' },
   { label: 'INTERNET DISRUPTION', color: '#ff4dd2', kind: 'utility-telecom-outage' },
+  { label: 'CENSORSHIP (RISING)', color: '#9b7bff', kind: 'utility-telecom-censorship' },
   { label: 'POWER LINE 400 / 275 / 132 KV', color: '#ffd23f', kind: 'infra-power-line' },
   { label: 'SUBSTATION', color: '#ffd23f', kind: 'infra-power-substation' },
   { label: 'POWER STATION (BY FUEL)', color: '#7fd3ff', kind: 'infra-power-plant' },
@@ -262,10 +269,13 @@ export const AREA_LEGEND: { label: string; color: string; kind: string }[] = [
   { label: 'SUBMARINE CABLE / EXCHANGE', color: '#b48cff', kind: 'infra-telecom-cable' },
   { label: 'AIRSPACE R/D/P · CTR/TMA', color: 'var(--info)', kind: 'airspace-volume' },
   { label: 'GPS INTERFERENCE', color: '#ff2bd6', kind: 'event-gnss-interference' },
+  { label: 'AIRSPACE WARNING (EASA · FAA)', color: 'var(--warn)', kind: 'airspace-advisory' },
+  { label: 'TSUNAMI BULLETIN', color: 'var(--danger)', kind: 'event-tsunami' },
+  { label: 'NEWS TOPIC (SURGE)', color: 'var(--heimdall-300)', kind: 'event-news' },
 ];
 
 /** Kinds that never move: no speed, track, trail or flight history in the inspector. */
 export const isFixedKind = (kind: string) =>
   kind === 'event-gnss-interference' ||
   kind === 'land-camera' ||
-  kind.startsWith('event-') || kind === 'airspace-volume' || kind === 'land-airport' || kind === 'sea-windfarm' || kind === 'sea-platform' || kind === 'land-road-disruption';
+  kind.startsWith('event-') || kind === 'airspace-volume' || kind === 'airspace-advisory' || kind.startsWith('utility-telecom-') || kind === 'land-airport' || kind === 'sea-windfarm' || kind === 'sea-platform' || kind === 'land-road-disruption';
