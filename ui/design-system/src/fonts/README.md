@@ -5,7 +5,9 @@ type with no network. `../tokens/fonts.css` declares them. Each is the
 unmodified variable-weight build from [google/fonts](https://github.com/google/fonts),
 redistributed under the SIL Open Font License 1.1 with its licence text beside it.
 This is the only tracked copy: the pages under `docs/design` load these files, and the
-launch site's builder copies them into `docs/launch/site/assets/fonts`.
+launch site's builder copies them into `docs/launch/site/assets/fonts`. The Mac app's
+home page uses them through a symlink (`apps/mac/Resources/home/fonts`); the app build
+copies the files into the bundle.
 
 | File | Family | Weight axis | Licence |
 |---|---|---|---|

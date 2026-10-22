@@ -31,7 +31,7 @@ final class ServiceSpecTests: XCTestCase {
         XCTAssertEqual(replay.executable.path, "/R/bin/midgard-replay")
         XCTAssertEqual(replay.arguments, [
             "--recording", "/R/recording", "--identity-dir", "/H/airports-mesh/feeds",
-            "--forge-dir", "/H/live-feeds/data",
+            "--forge-dir", "/H/live-feeds/data", "--addr", "127.0.0.1:1006",
         ])
         XCTAssertEqual(replay.readiness, .logLine("\"replay started\""))
         XCTAssertEqual(replay.logFile.path, "/L/replay.log")

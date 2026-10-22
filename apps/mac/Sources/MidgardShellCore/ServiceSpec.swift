@@ -140,6 +140,8 @@ public enum SuiteSpecs {
             specs.append(spec("replay", "midgard-replay", .logLine("\"replay started\""), [
                 "--recording", recording.path, "--identity-dir", h("airports-mesh/feeds"),
                 "--forge-dir", h("live-feeds/data"),
+                // Heimdall's mesh port: replay's default (7730) is run-native.sh's fixed port.
+                "--addr", local(ports.heimdallMesh),
             ]))
         }
         return specs

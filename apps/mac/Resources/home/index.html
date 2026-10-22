@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Midgard</title>
+<!-- Served at "/" by the app's own web server: every path is absolute (/home/…). -->
+<style>
+  @font-face { font-family: 'Oxanium'; src: url('/home/fonts/Oxanium.ttf') format('truetype'); font-weight: 200 800; font-display: swap; }
+  @font-face { font-family: 'Space Grotesk'; src: url('/home/fonts/SpaceGrotesk.ttf') format('truetype'); font-weight: 300 700; font-display: swap; }
+  @font-face { font-family: 'JetBrains Mono'; src: url('/home/fonts/JetBrainsMono.ttf') format('truetype'); font-weight: 100 800; font-display: swap; }
+
+  :root {
+    /* ui/design-system/src/tokens/colors.css */
+    --ink-900: #0a0b0d; --ink-850: #101114; --ink-800: #16181c; --ink-700: #1e2126; --ink-600: #2a2d34;
+    --grey-100: #e9ebee; --grey-300: #b6bcc4; --grey-400: #9199a3; --grey-500: #6b7279;
+    --midgard-300: #f26b70; --midgard-500: #ca1d25; --midgard-glow: rgba(202, 29, 37, 0.45);
+    --heimdall-300: #ecc55c; --heimdall-500: #c99a22; --heimdall-glow: rgba(201, 154, 34, 0.45);
+    --mimir-300: #63d3dd; --mimir-500: #23a8b6; --mimir-glow: rgba(35, 168, 182, 0.45);
+    --forge-300: #f39b57; --forge-500: #d96e1e; --forge-glow: rgba(217, 110, 30, 0.45);
+    --secure: #21c07a; --warn: #f0a824;
+    --font-display: 'Oxanium', 'Space Grotesk', system-ui, sans-serif;
+    --font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% -10%, #1a0d0f 0%, var(--ink-900) 55%);
+    color: var(--grey-100); font-family: var(--font-sans);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 64px 48px 40px; overflow-y: auto;
+  }
+  main { width: 100%; max-width: 1180px; }
+  header { margin-bottom: 40px; }
+  h1 {
+    font-family: var(--font-display); font-weight: 700; font-size: 56px; letter-spacing: 0.06em;
+    text-transform: uppercase; margin: 0;
+  }
+  .tagline { color: var(--grey-400); font-size: 18px; margin: 8px 0 0; }
+  .status {
+    display: inline-flex; align-items: center; gap: 10px; margin-top: 20px;
+    font-family: var(--font-mono); font-size: 13px; color: var(--grey-300);
+    padding: 6px 12px; border: 1px solid var(--ink-600); border-radius: 999px; background: var(--ink-850);
+  }
+  .status::before {
+    content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--grey-500);
+  }
+  .status[data-state="ok"]::before { background: var(--secure); box-shadow: 0 0 8px var(--secure); }
+  .status[data-state="warn"]::before { background: var(--warn); }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  @media (max-width: 1100px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  a.tile {
+    --accent: var(--midgard-500); --accent-300: var(--midgard-300); --glow: var(--midgard-glow);
+    display: flex; flex-direction: column; gap: 14px; min-height: 220px; padding: 28px 24px;
+    background: var(--ink-800); border: 1px solid var(--ink-600); border-top: 3px solid var(--accent);
+    border-radius: 10px; color: inherit; text-decoration: none;
+    transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  }
+  a.tile:hover, a.tile:focus-visible {
+    transform: translateY(-2px); border-color: var(--accent); outline: none;
+    box-shadow: 0 10px 40px -12px var(--glow);
+  }
+  a.tile.heimdall { --accent: var(--heimdall-500); --accent-300: var(--heimdall-300); --glow: var(--heimdall-glow); }
+  a.tile.mimir { --accent: var(--mimir-500); --accent-300: var(--mimir-300); --glow: var(--mimir-glow); }
+  a.tile.forge { --accent: var(--forge-500); --accent-300: var(--forge-300); --glow: var(--forge-glow); }
+  .tile h2 {
+    font-family: var(--font-display); font-weight: 600; font-size: 28px; letter-spacing: 0.04em;
+    margin: 0; color: var(--accent-300);
+  }
+  .tile p { margin: 0; color: var(--grey-300); font-size: 16px; line-height: 1.5; flex: 1; }
+  .tile .open { font-family: var(--font-mono); font-size: 12px; color: var(--grey-500); letter-spacing: 0.08em; text-transform: uppercase; }
+  a.tile:hover .open { color: var(--accent-300); }
+
+  section.guide {
+    margin-top: 40px; padding: 24px; border: 1px dashed var(--ink-600); border-radius: 10px; background: rgba(22, 24, 28, 0.5);
+  }
+  .guide h3 {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--grey-400); margin: 0 0 8px;
+  }
+  .guide p { margin: 0; color: var(--grey-500); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Midgard</h1>
+    <p class="tagline">A secure data enclosure and the products built on it.</p>
+    <div class="status" id="status" role="status" aria-live="polite">Starting…</div>
+  </header>
+
+  <nav class="tiles" aria-label="Products">
+    <a class="tile midgard" href="/midgard/index.html#/">
+      <h2>Midgard</h2>
+      <p>The secure data enclosure: objects, actions and audit</p>
+      <span class="open">Open →</span>
+    </a>
+    <a class="tile heimdall" href="/heimdall/index.html#/">
+      <h2>Heimdall</h2>
+      <p>The live operating picture: air, sea, land, utilities and alerts</p>
+      <span class="open">Open →</span>
+    </a>
+    <a class="tile mimir" href="/mimir/index.html#/">
+      <h2>Mimir</h2>
+      <p>The enclosure's own AI model, answering from the data</p>
+      <span class="open">Open →</span>
+    </a>
+    <a class="tile forge" href="/forge/index.html#/">
+      <h2>Forge</h2>
+      <p>Pipelines that bring data into the enclosure</p>
+      <span class="open">Open →</span>
+    </a>
+  </nav>
+
+  <section class="guide" aria-labelledby="guide-title">
+    <h3 id="guide-title">Presenter's guide</h3>
+    <p>Coming soon.</p>
+  </section>
+</main>
+<script>
+  // The app sets the status line with evaluateJavaScript("window.midgardStatus(…)").
+  window.midgardStatus = function (text) {
+    var el = document.getElementById('status');
+    el.textContent = String(text);
+    el.dataset.state = /^All services running/.test(text) ? 'ok' : /restarting|stopped/i.test(text) ? 'warn' : '';
+  };
+</script>
+</body>
+</html>
