@@ -25,12 +25,14 @@ public enum Ports {
             addr.sin_port = 0
             addr.sin_addr.s_addr = inet_addr("127.0.0.1")
             var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let bound = withUnsafeMutablePointer(to: &addr) {
+            let failed: String? = withUnsafeMutablePointer(to: &addr) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    bind(fd, sa, len) == 0 && getsockname(fd, sa, &len) == 0
+                    if bind(fd, sa, len) != 0 { return "bind" }
+                    if getsockname(fd, sa, &len) != 0 { return "getsockname" }
+                    return nil
                 }
             }
-            guard bound else { throw Failure(call: "bind", code: errno) }
+            if let failed { throw Failure(call: failed, code: errno) }
             ports.append(UInt16(bigEndian: addr.sin_port))
         }
         return ports

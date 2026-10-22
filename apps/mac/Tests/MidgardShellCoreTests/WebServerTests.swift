@@ -14,7 +14,7 @@ struct RawResponse {
 func rawRequest(_ request: String, port: UInt16, host: String = "127.0.0.1") throws -> RawResponse {
     let fd = try connectTCP(host: host, port: port)
     defer { close(fd) }
-    var timeout = timeval(tv_sec: 10, tv_usec: 0)
+    var timeout = timeval(tv_sec: 5, tv_usec: 0)
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
     let bytes = Array(request.utf8)
     XCTAssertEqual(bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }, bytes.count)
@@ -22,6 +22,10 @@ func rawRequest(_ request: String, port: UInt16, host: String = "127.0.0.1") thr
     var buffer = [UInt8](repeating: 0, count: 65536)
     while true {
         let n = read(fd, &buffer, buffer.count)
+        if n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+            throw NSError(domain: "raw", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                "timed out waiting for the response to \(request.prefix { $0 != "\r" })"])
+        }
         if n <= 0 { break }
         data.append(buffer, count: n)
     }
@@ -40,6 +44,7 @@ func rawRequest(_ request: String, port: UInt16, host: String = "127.0.0.1") thr
 
 func connectTCP(host: String, port: UInt16) throws -> Int32 {
     let fd = socket(AF_INET, SOCK_STREAM, 0)
+    if fd == -1 { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
     var addr = sockaddr_in()
     addr.sin_family = sa_family_t(AF_INET)
     addr.sin_port = port.bigEndian
@@ -113,7 +118,7 @@ final class WebServerTests: XCTestCase {
     }
 
     func get(_ path: String, method: String = "GET") throws -> RawResponse {
-        try rawRequest("\(method) \(path) HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n", port: port)
+        try rawRequest("\(method) \(path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n", port: port)
     }
 
     func testServesHtmlAndJsWithTypes() throws {
@@ -145,8 +150,17 @@ final class WebServerTests: XCTestCase {
 
     func testDirectoryServesIndex() throws {
         XCTAssertEqual(String(decoding: try get("/forge/docs/").body, as: UTF8.self), "<h1>forge docs</h1>")
-        XCTAssertEqual(String(decoding: try get("/forge/docs").body, as: UTF8.self), "<h1>forge docs</h1>")
         XCTAssertEqual(String(decoding: try get("/midgard/").body, as: UTF8.self), "<h1>midgard</h1>")
+    }
+
+    /// The consoles load `./assets/…`, which only resolves under the directory's own URL.
+    func testDirectoryWithoutSlashRedirects() throws {
+        let r = try get("/forge/docs?tab=2")
+        XCTAssertEqual(r.status, 301)
+        XCTAssertEqual(r.headers["location"], "/forge/docs/?tab=2")
+        let m = try get("/midgard")
+        XCTAssertEqual(m.status, 301)
+        XCTAssertEqual(m.headers["location"], "/midgard/")
     }
 
     func testMissingIs404() throws {
@@ -181,7 +195,8 @@ final class WebServerTests: XCTestCase {
     }
 
     func testOtherMethodsAre405() throws {
-        let r = try rawRequest("POST /midgard/index.html HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n", port: port)
+        let r = try rawRequest(
+            "POST /midgard/index.html HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Length: 0\r\n\r\n", port: port)
         XCTAssertEqual(r.status, 405)
         XCTAssertEqual(r.headers["allow"], "GET, HEAD")
     }
@@ -206,6 +221,54 @@ final class WebServerTests: XCTestCase {
         let second = WebServer(root: root, port: port)
         XCTAssertThrowsError(try second.start())
         second.stop()
+    }
+
+    func testHostMustBeThisServer() throws {
+        func status(_ host: String?) throws -> Int {
+            let header = host.map { "Host: \($0)\r\n" } ?? ""
+            return try rawRequest("GET / HTTP/1.1\r\n\(header)\r\n", port: port).status
+        }
+        XCTAssertEqual(try status("127.0.0.1:\(port)"), 200)
+        XCTAssertEqual(try status("LocalHost:\(port)"), 200)
+        XCTAssertEqual(try status("evil.example:\(port)"), 421)
+        XCTAssertEqual(try status("127.0.0.1:\(port &+ 1)"), 421)
+        XCTAssertEqual(try status("127.0.0.1"), 421)
+        XCTAssertEqual(try status(nil), 400)
+    }
+
+    func testPortZeroBindsAFreePort() throws {
+        let any = WebServer(root: root)
+        try any.start()
+        defer { any.stop() }
+        XCTAssertNotEqual(any.boundPort, 0)
+        XCTAssertNotEqual(any.boundPort, port)
+        let r = try rawRequest("GET / HTTP/1.1\r\nHost: localhost:\(any.boundPort)\r\n\r\n", port: any.boundPort)
+        XCTAssertEqual(r.status, 200)
+    }
+
+    func testRestartOnTheSamePort() throws {
+        for _ in 0..<3 {
+            server.stop()
+            server = WebServer(root: root, port: port)
+            try server.start()
+            XCTAssertEqual(try get("/").status, 200)
+        }
+    }
+
+    func testIdleConnectionIsClosed() throws {
+        let quick = WebServer(root: root, headTimeout: 0.3)
+        try quick.start()
+        defer { quick.stop() }
+        let fd = try connectTCP(host: "127.0.0.1", port: quick.boundPort)
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 3, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        _ = "GET / HT".withCString { write(fd, $0, 8) }  // a head that never completes
+        let started = Date()
+        var byte: UInt8 = 0
+        let n = read(fd, &byte, 1)
+        XCTAssertEqual(n, 0, "expected the server to close the connection (errno \(errno))")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2.5)
     }
 
     func testStopClosesTheListener() throws {

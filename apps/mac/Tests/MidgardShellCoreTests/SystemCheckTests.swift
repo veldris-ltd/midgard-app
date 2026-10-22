@@ -34,8 +34,11 @@ final class SystemCheckTests: XCTestCase {
         XCTAssertEqual(msg, "Midgard needs macOS 13 or later; this Mac runs 11.0.")
     }
 
-    func testThisMacPasses() {
-        // The development Macs meet the requirement; this exercises the real readings.
+    func testThisMacPasses() throws {
+        // Exercises the real readings; meaningless on a Mac below the minimum.
+        let info = ProcessInfo.processInfo
+        try XCTSkipIf(info.operatingSystemVersion.majorVersion < 13
+                      || info.physicalMemory < 8 * gib, "this Mac is below the minimum")
         XCTAssertNil(SystemCheck.problemOnThisMac())
     }
 }
