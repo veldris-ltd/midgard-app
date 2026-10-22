@@ -6,10 +6,21 @@
 import * as React from 'react';
 import { Card } from '@midgard/design-system';
 import type { HeimdallAnswer, HeimdallGateway } from '@midgard/sdk';
-import { findPrepared, preparedKey, putPrepared, shippedKey } from './preparedAnswers';
+import { findPrepared, loadShippedGuide, preparedKey, putPrepared, shippedGuideNow, shippedKey, type ShippedGuide } from './preparedAnswers';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em' };
+/** The built-in example chips, when the app ships no prepared answers. */
 const EXAMPLES = ['What has changed in the Gulf watch?', 'Which power cuts affect the most customers?', 'Are any storm overflows discharging near here?', 'What are the most serious alerts in this area?'];
+
+type Example = { question: string; region: string | null };
+
+/** The chips: the shipped guide's questions (each one prepared, so one click answers at
+ *  once), else the built-in examples; empty while the shipped file is still loading. */
+function examplesFrom(guide: ShippedGuide | null | undefined): Example[] {
+  if (guide === undefined) return [];
+  if (guide && guide.questions.length) return guide.questions;
+  return EXAMPLES.map((question) => ({ question, region: null }));
+}
 
 type State = { status: 'idle' } | { status: 'thinking'; since: number; question: string } | { status: 'done'; question: string; answer: HeimdallAnswer } | { status: 'failed'; question: string; reason: string };
 
@@ -28,6 +39,12 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
   // it and the card is still shown.
   const latest = React.useRef(0);
   React.useEffect(() => () => { latest.current += 1; }, []);
+  const [examples, setExamples] = React.useState<Example[]>(() => examplesFrom(shippedGuideNow()));
+  React.useEffect(() => {
+    let on = true;
+    void loadShippedGuide().then((g) => { if (on) setExamples(examplesFrom(g)); });
+    return () => { on = false; };
+  }, []);
   React.useEffect(() => {
     if (state.status !== 'thinking') return;
     const t = window.setInterval(() => tick((n) => n + 1), 1000);
@@ -79,11 +96,11 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
           ASK
         </button>
       </div>
-      {state.status === 'idle' && (
+      {state.status !== 'thinking' && examples.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
-          {EXAMPLES.map((q) => (
-            <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }}
-              style={{ all: 'unset', cursor: 'pointer', ...mono, fontSize: 8.5, padding: '2px 6px', borderRadius: 2, border: '1px solid var(--divider)', color: 'var(--text-muted)' }}>{q}</button>
+          {examples.map(({ question: q, region }) => (
+            <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} title={region ? `Prepared over ${region}` : undefined}
+              style={{ all: 'unset', cursor: 'pointer', ...mono, fontSize: 8.5, padding: '2px 6px', borderRadius: 2, border: '1px solid var(--divider)', color: 'var(--text-muted)', overflowWrap: 'anywhere' }}>{q}</button>
           ))}
         </div>
       )}

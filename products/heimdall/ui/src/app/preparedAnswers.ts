@@ -35,7 +35,9 @@
  *     }
  *   }
  *
- * `guide` is for the home page's Presenter's guide; this module reads only `entries`. */
+ * `guide` is for the Presenter's guide: the home page reads all of it; this module's
+ * `loadShippedGuide` gives it to the console (AskCard shows `guide.questions` as its
+ * example chips, in file order). */
 
 const KEY = 'heimdall.mimir.prepared';
 const KEEP_MS = 2 * 60 * 60 * 1000;
@@ -79,6 +81,47 @@ export function shippedKey(kind: 'ask' | 'advise', about: string, question: stri
 let shipped: Store = Object.create(null) as Store;
 let shippedLoad: Promise<void> | null = null;
 
+/** The shipped file's guide, as the console uses it. */
+export interface ShippedGuide {
+  /** The prepared map questions, in file order; `region` is the region label it was
+   *  asked over (e.g. "UK & Ireland", "Gulf"), or null if the file gave none. */
+  questions: { question: string; region: string | null }[];
+  alerts: { key: string; label: string; subject: string; kind: string; region: string | null }[];
+}
+
+let guide: ShippedGuide | null = null;
+let guideLoaded = false;
+
+const str = (v: unknown): v is string => typeof v === 'string';
+
+/** The shipped file's guide, or null if it is not a version 1 file with a guide.
+ *  Malformed questions and alerts are dropped; a question is kept once (by its key). */
+export function parseGuide(file: unknown): ShippedGuide | null {
+  if (!file || typeof file !== 'object') return null;
+  const { version, guide: g } = file as { version?: unknown; guide?: unknown };
+  if (version !== 1 || !g || typeof g !== 'object' || Array.isArray(g)) return null;
+  const { questions, alerts } = g as { questions?: unknown; alerts?: unknown };
+  const seen = new Set<string>();
+  const qs: ShippedGuide['questions'] = [];
+  for (const q of Array.isArray(questions) ? questions : []) {
+    const text = q && typeof q === 'object' ? (q as { question?: unknown }).question : undefined;
+    if (!str(text) || text.trim().length < 3) continue;
+    const k = shippedKey('ask', '*', text);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const region = (q as { region?: unknown }).region;
+    qs.push({ question: text.trim(), region: str(region) ? region : null });
+  }
+  const as: ShippedGuide['alerts'] = [];
+  for (const a of Array.isArray(alerts) ? alerts : []) {
+    if (!a || typeof a !== 'object') continue;
+    const { key, label, subject, kind, region } = a as Record<string, unknown>;
+    if (!str(key) || !str(label) || !str(subject) || !str(kind)) continue;
+    as.push({ key, label, subject, kind, region: str(region) ? region : null });
+  }
+  return { questions: qs, alerts: as };
+}
+
 /** The shipped file's entries, or {} if it is not a version 1 file. */
 export function parseShipped(file: unknown): Store {
   if (!file || typeof file !== 'object') return {};
@@ -100,15 +143,30 @@ export function parseShipped(file: unknown): Store {
 export function loadShipped(): Promise<void> {
   if (shippedLoad) return shippedLoad;
   const url = typeof window !== 'undefined' ? window.__MIDGARD_PREPARED__ : undefined;
-  if (!url || typeof fetch !== 'function') return (shippedLoad = Promise.resolve());
+  if (!url || typeof fetch !== 'function') { guideLoaded = true; return (shippedLoad = Promise.resolve()); }
   const abort = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = abort ? setTimeout(() => abort.abort(), SHIPPED_TIMEOUT_MS) : null;
   shippedLoad = fetch(url, abort ? { signal: abort.signal } : undefined)
     .then((r) => (r.ok ? r.json() : null))
-    .then((file) => { shipped = parseShipped(file); })
+    .then((file) => { shipped = parseShipped(file); guide = parseGuide(file); })
     .catch(() => { /* no shipped answers: Mimir is asked live */ })
-    .finally(() => { if (timer) clearTimeout(timer); });
+    .finally(() => { guideLoaded = true; if (timer) clearTimeout(timer); });
   return shippedLoad;
+}
+
+/** The shipped guide once loaded (the same single fetch as `loadShipped`), or null if
+ *  there is no file, it failed, or it has no guide. */
+export async function loadShippedGuide(): Promise<ShippedGuide | null> {
+  await loadShipped();
+  return guide;
+}
+
+/** Synchronously: the guide if the shipped file is already in (`ShippedGuide` or null),
+ *  else undefined while it is still loading. Without a shipped file, null at once. */
+export function shippedGuideNow(): ShippedGuide | null | undefined {
+  const url = typeof window !== 'undefined' ? window.__MIDGARD_PREPARED__ : undefined;
+  if (!url) return null;
+  return guideLoaded ? guide : undefined;
 }
 
 /** The first of `keys` found: each in the shipped store, then in this browser. */

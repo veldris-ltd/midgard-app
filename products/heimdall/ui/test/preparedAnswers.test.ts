@@ -125,3 +125,69 @@ test('prototype names are plain keys', async () => {
   assert.equal(await m.findPrepared('constructor', 'toString'), null);
   assert.deepEqual(await m.findPrepared('__proto__'), { value: { x: 1 }, at: 1 });
 });
+
+test('parseGuide keeps well-formed questions in file order, once each, and alerts', async () => {
+  const m = await fresh();
+  const g = m.parseGuide({
+    version: 1,
+    entries: {},
+    guide: {
+      questions: [
+        { question: 'What has changed in the Gulf watch?', region: 'Gulf' },
+        { question: 'Which power cuts affect the most customers?', region: 'UK & Ireland' },
+        { question: '  what has CHANGED in the gulf   watch? ', region: 'UK & Ireland' },
+        { question: 'No region given' },
+        'a bare string', { question: 3 }, { question: 'ab' }, null,
+      ],
+      alerts: [
+        { key: 'advise|entity:e1|', label: 'Power cut', subject: 'e1', kind: 'power cut', region: 'UK & Ireland' },
+        { key: 'advise|entity:e2|', label: 'Gulf watch', subject: 'e2', kind: 'gulf', region: null },
+        { key: 'advise|entity:e3|', label: 'no kind', subject: 'e3' },
+      ],
+    },
+  });
+  assert.deepEqual(g, {
+    questions: [
+      { question: 'What has changed in the Gulf watch?', region: 'Gulf' },
+      { question: 'Which power cuts affect the most customers?', region: 'UK & Ireland' },
+      { question: 'No region given', region: null },
+    ],
+    alerts: [
+      { key: 'advise|entity:e1|', label: 'Power cut', subject: 'e1', kind: 'power cut', region: 'UK & Ireland' },
+      { key: 'advise|entity:e2|', label: 'Gulf watch', subject: 'e2', kind: 'gulf', region: null },
+    ],
+  });
+});
+
+test('parseGuide: no guide, or not version 1, is null; missing lists are empty', async () => {
+  const m = await fresh();
+  assert.equal(m.parseGuide(null), null);
+  assert.equal(m.parseGuide({ version: 1, entries: {} }), null);
+  assert.equal(m.parseGuide({ version: 2, guide: { questions: [{ question: 'Why is this?' }] } }), null);
+  assert.equal(m.parseGuide({ version: 1, guide: [] }), null);
+  assert.deepEqual(m.parseGuide({ version: 1, guide: {} }), { questions: [], alerts: [] });
+});
+
+test('loadShippedGuide shares the single fetch; shippedGuideNow follows it', async () => {
+  const calls: string[] = [];
+  const body = { ...file({ 'ask|*|why?': { value: answer, at: 1 } }), guide: { questions: [{ question: 'Why is it so?', region: 'Gulf' }], alerts: [] } };
+  let release = () => {};
+  const gate = new Promise<void>((r) => { release = r; });
+  const inner = serve(body, calls);
+  const m = await fresh({ prepared: 'u', fetch: async (url, init) => { await gate; return inner(url, init); } });
+  assert.equal(m.shippedGuideNow(), undefined);
+  release();
+  const [g] = await Promise.all([m.loadShippedGuide(), m.loadShipped(), m.findPrepared('ask|*|why?')]);
+  assert.deepEqual(g?.questions, [{ question: 'Why is it so?', region: 'Gulf' }]);
+  assert.deepEqual(m.shippedGuideNow(), g);
+  assert.deepEqual(calls, ['u']);
+});
+
+test('without a shipped file the guide is null at once', async () => {
+  const m = await fresh();
+  assert.equal(m.shippedGuideNow(), null);
+  assert.equal(await m.loadShippedGuide(), null);
+  const failed = await fresh({ prepared: 'u', fetch: () => Promise.reject(new Error('down')) });
+  assert.equal(await failed.loadShippedGuide(), null);
+  assert.equal(failed.shippedGuideNow(), null);
+});
