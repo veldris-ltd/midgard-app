@@ -59,8 +59,22 @@ use telemetry::{AvailabilitySlo, HealthRegistry, MetricsRegistry, Toggle};
 /// The availability objective the gateway is instrumented against (99.9%).
 const AVAILABILITY_OBJECTIVE: f64 = 0.999;
 
-/// Issued-token lifetime (seconds) minted by the `/api/v1/login` endpoint. [RC-37]
-const TOKEN_TTL: u64 = 3_600;
+/// Default lifetime (seconds) of a token minted by the `/api/v1/login` endpoint. [RC-37]
+pub const DEFAULT_TOKEN_TTL: u64 = 3_600;
+/// The shortest login-token lifetime `--token-ttl` accepts (seconds).
+pub const MIN_TOKEN_TTL: u64 = 60;
+/// The longest login-token lifetime `--token-ttl` accepts (seconds): one day.
+pub const MAX_TOKEN_TTL: u64 = 86_400;
+
+/// Parse a `--token-ttl` value: whole seconds in `MIN_TOKEN_TTL..=MAX_TOKEN_TTL`.
+pub fn parse_token_ttl(value: &str) -> Result<u64, String> {
+    match value.parse::<u64>() {
+        Ok(secs) if (MIN_TOKEN_TTL..=MAX_TOKEN_TTL).contains(&secs) => Ok(secs),
+        _ => Err(format!(
+            "--token-ttl takes whole seconds from {MIN_TOKEN_TTL} to {MAX_TOKEN_TTL}, not {value:?}"
+        )),
+    }
+}
 /// The declared purpose stamped on a login-issued token.
 const LOGIN_PURPOSE: &str = "operations";
 
@@ -121,6 +135,8 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     ontology: Option<ontology_file::Ontology>,
     /// Password hasher for login verification (Argon2id/PBKDF2 seam, RT-29).
     hasher: Pbkdf2Hasher,
+    /// Lifetime (seconds) of the tokens `/api/v1/login` mints.
+    token_ttl: u64,
     // ---- observability (in-enclosure; nothing egresses) [RC-33] ----
     metrics: MetricsRegistry,
     health: HealthRegistry,
@@ -176,6 +192,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             admin: None,
             ontology: None,
             hasher: Pbkdf2Hasher::production(),
+            token_ttl: DEFAULT_TOKEN_TTL,
             metrics: MetricsRegistry::new(),
             health,
             readiness,
@@ -188,6 +205,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             forge: None,
             mimir: None,
         }
+    }
+
+    /// Mint login tokens that last `secs` seconds (default `DEFAULT_TOKEN_TTL`); the
+    /// login response's `expiresAt` follows. Returns self for chaining.
+    pub fn with_token_ttl(mut self, secs: u64) -> Self {
+        self.token_ttl = secs;
+        self
     }
 
     /// Serve Heimdall's common operating picture at `GET /api/v1/heimdall/picture` and
@@ -324,7 +348,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 mfa,
                 Purpose(LOGIN_PURPOSE.into()),
                 now,
-                TOKEN_TTL,
+                self.token_ttl,
             )
         };
         let (event, response) = match outcome {
@@ -353,7 +377,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                             ),
                             (
                                 "expiresAt",
-                                Json::s(&now.saturating_add(TOKEN_TTL).to_string()),
+                                Json::s(&now.saturating_add(self.token_ttl).to_string()),
                             ),
                         ])
                         .encode(),

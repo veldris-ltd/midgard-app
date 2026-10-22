@@ -4,14 +4,15 @@
 //!   http-gateway [ADDR]
 //!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
 //!       into an in-memory fabric, one built-in login, an ephemeral issuer key.
-//!   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
+//!   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]... [--token-ttl SECONDS]
 //!                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
 //!                 [--mesh-purpose P]] [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR
 //!                [--heimdall-service NAME] [--heimdall-purpose P]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
-//!       origin to the CORS allowlist, which is otherwise empty.
+//!       origin to the CORS allowlist, which is otherwise empty. --token-ttl sets how
+//!       long a login token lasts, 60 to 86400 seconds (default 3600).
 //!
 //!       With --mesh-bind, the gateway also serves `SyncRecords` over PQ-mTLS, so a
 //!       certified workload — the Forge worker — can sync objects and links into the
@@ -50,13 +51,14 @@ const DEFAULT_BIND: &str = "127.0.0.1:7710";
 const USAGE: &str = "\
 usage:
   http-gateway [ADDR]
-  http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
+  http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]... [--token-ttl SECONDS]
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
                [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR [--heimdall-service NAME]
                [--mimir-observe-addr HOST:PORT --mimir-identity-dir DIR [--mimir-service NAME]]
                [--analytics-addr HOST:PORT --analytics-token-file FILE]
                [--forge-jobs FILE [--forge-status FILE] [--heimdall-feeds-status FILE]]
-                [--heimdall-purpose P]]";
+                [--heimdall-purpose P]]
+  --token-ttl SECONDS  login token lifetime, 60..=86400 (default 3600)";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -97,6 +99,7 @@ fn main() {
     let mut forge_jobs = None;
     let mut forge_status = None;
     let mut feeds_status = None;
+    let mut token_ttl = http_gateway::DEFAULT_TOKEN_TTL;
     let mut args = argv.iter();
     while let Some(flag) = args.next() {
         let Some(value) = args.next().filter(|v| !v.starts_with("--")) else {
@@ -122,6 +125,9 @@ fn main() {
             "--forge-jobs" => forge_jobs = Some(value.clone()),
             "--forge-status" => forge_status = Some(value.clone()),
             "--heimdall-feeds-status" => feeds_status = Some(value.clone()),
+            "--token-ttl" => {
+                token_ttl = http_gateway::parse_token_ttl(value).unwrap_or_else(|e| fail_usage(&e))
+            }
             "--state-dir" => fail_usage("--state-dir given twice"),
             other => fail_usage(&format!("unknown option {other}")),
         }
@@ -170,7 +176,8 @@ fn main() {
     }
     // The lock lives as long as the process serves: no second gateway or mg-admin can
     // write this directory meanwhile.
-    let (mut gateway, _lock) = served.into_parts();
+    let (gateway, _lock) = served.into_parts();
+    let mut gateway = gateway.with_token_ttl(token_ttl);
     if let (Some(addr), Some(dir)) = (heimdall_addr, heimdall_identity_dir) {
         let identity = match ServiceIdentity::load(&dir, &heimdall_service) {
             Ok(identity) => identity,
