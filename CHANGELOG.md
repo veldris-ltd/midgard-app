@@ -9,28 +9,7 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
-### Added
-- **Model bundles that stream.**
-  - `bifrost-bundle` format version 2 writes each payload in chunks, each with its own
-    SHA-256.
-  - `pack_streaming` and `import_streaming` pack and verify a bundle a chunk at a time,
-    so a model's weights cross the air gap without being held in memory.
-  - Authenticity is unchanged: the signed payload digests decide it, and the unsigned
-    chunk digests locate damage.
-  - An import stages its output and moves it into place only once everything has
-    verified.
-  - `mg-bundle` packs and imports this way; version 1 bundles still import.
-  - `mg-model pack` bundles a model directory that passes the load gate.
-  - `mg-model unpack` verifies the bundle offline and runs the load gate on what it
-    wrote, removing the directory if the model does not verify. [AC-MS-3]
-
-### Changed
-- **CI no longer uses Nix.** `ci.yml` builds the digest-pinned toolchain image and runs
-  formatting, lints, the build, the tests, the reproducibility check and the advisory
-  scan in it, with no network (`tools/ci/in-toolchain.sh`). These are the same
-  toolchain and posture as developers and the release runners. The Nix steps ran on a
-  flake with no lock file, which BUILD_ENV already said no automated path should depend
-  on. [RT-47]
+Nothing yet.
 
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 
@@ -84,7 +63,61 @@ See `docs/compliance/GA_READINESS.md`.
   - The verified set travels as one signed air-gap bundle.
   - A GitHub pre-release is published only on a manual run that names the tag.
 
+- **Model bundles that stream.**
+  - `bifrost-bundle` format version 2 writes each payload in chunks, each with its own
+    SHA-256.
+  - `pack_streaming` and `import_streaming` pack and verify a bundle a chunk at a time,
+    so a model's weights cross the air gap without being held in memory.
+  - Authenticity is unchanged: the signed payload digests decide it, and the unsigned
+    chunk digests locate damage.
+  - An import stages its output and moves it into place only once everything has
+    verified.
+  - `mg-bundle` packs and imports this way; version 1 bundles still import.
+  - `mg-model pack` bundles a model directory that passes the load gate.
+  - `mg-model unpack` verifies the bundle offline and runs the load gate on what it
+    wrote, removing the directory if the model does not verify. [AC-MS-3]
+- **Release readiness: every published claim checks against the tree.**
+  - A claims ledger (`docs/compliance/claims.toml`, rendered to `CLAIMS.md`) gives each
+    capability a status and its evidence; `tools/ci/claims.sh` holds every row to the
+    files, lines, tests and criteria it cites. [RF-CA-1]
+  - `tools/ci/numbers.sh` generates `docs/compliance/NUMBERS.md` from the tree and the
+    gate record, and fails when a swept document quotes a figure that differs. [RF-CA-2]
+  - `tools/ci/gate-run.sh` and `tools/ci/gate-record.sh` keep the acceptance and test
+    logs and turn a run into a record under `docs/compliance/gate-runs/`; the README
+    and GA_READINESS status tables are generated from it. [RF-CA-5]
+  - `tools/ci/tag-release.sh` cuts the signed tag only once the gate record, numbers
+    sheet and claims ledger cover the commit, and `tools/ci/verify-tag.sh` verifies the
+    tag against `deploy/trust/allowed_signers` before a release builds. [RF-CA-6]
+  - `deploy/trust/ceremony.sh` does the key ceremony's mechanical part: it generates
+    the release and Bifrost admission keys into sealed keystores outside the checkout
+    and writes the public trust anchors. It commits nothing.
+- **CI on GitHub and GitLab.** `.github/workflows/` and `.gitlab-ci.yml` hold no build
+  logic: every step calls `tools/ci/run.sh`, and `tools/ci/pipelines.sh` fails if the
+  two call different jobs. `tools/ci/release.sh` runs the whole release, or a dry run
+  with throwaway keys. `tools/ci/gitlab-rules.sh` applies the repository rules to a
+  GitLab mirror. [RF-CA-4]
+- **Offline build from a fresh clone.** `.cargo/config.toml` resolves every crate from
+  `vendor/`, and `tools/ci/vendor-check.sh` requires `vendor/` to be exactly the crates
+  `Cargo.lock` names. [RF-CA-3]
+- **npm artefacts are gated like binaries.** `mg-sbom` reads the production closure
+  of a pnpm importer, and `mg-scan` matches each component against its own
+  ecosystem's vendored advisories: RustSec for cargo, an OSV snapshot for npm.
+- **Contract schemas** for the ontology and import files
+  (`contracts/schema/*.v1.schema.json`), with fixtures and a test that holds the
+  parsers to them. [RF-CA-13]
+- `.github/CODEOWNERS`, and `docs/guides/IMPORT_YOUR_OWN_DATA.md`.
+
 ### Fixed
+- Release signing and verification (`mg-sign`, `mg-verify`, `attest`) parse the SBOM
+  strictly, require a purl on every component, and refuse to sign under an algorithm
+  no verifier accepts. [RF-SC-1] [RF-SC-2]
+- `mg-repro` compares exactly the artefacts Cargo reports for the build, so stale
+  files no longer count. [RF-SC-3]
+- `mg-scan` reads a compound version requirement as one range, so it no longer clears
+  the vulnerable versions below it, and judges staleness by the system clock. [RF-SC-4]
+- `mg-register` admits to the Bifrost registry only artefacts that verify against the
+  pinned release anchor.
+- The gate run keeps the test log when a build step left `target/` owned by root.
 - RT-21: model provenance checks no longer report `Verified` without comparing bytes.
   A present vendor signature is recorded as unchecked, and a commit is verified only
   against a pinned file listing.
@@ -137,6 +170,16 @@ posture. Highlights:
   a threat model, and a compliance/data-residency matrix.
 
 ### Changed
+- **CI no longer uses Nix.** `ci.yml` builds the digest-pinned toolchain image and runs
+  formatting, lints, the build, the tests, the reproducibility check and the advisory
+  scan in it, with no network (`tools/ci/in-toolchain.sh`). These are the same
+  toolchain and posture as developers and the release runners. The Nix steps ran on a
+  flake with no lock file, which BUILD_ENV already said no automated path should depend
+  on. [RT-47]
+- The marketing site no longer states commercial tiers, prices, support SLAs or
+  placeholder company details; the pricing page is a licence page. The README, guides
+  and site pages are worded to the claims ledger.
+- The GitHub actions are pinned by SHA to their first Node 24 releases.
 - Contract surface reconciled with reality: protos govern the client SDK edge;
   internal service-to-service uses the lean `pq-mtls` binary codec (Rust-typed).
 - Rebranded to Veldris Ltd. across the design system and marketing site.
