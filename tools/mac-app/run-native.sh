@@ -12,6 +12,10 @@
 # heimdall-poc/day-start.sh) while the native suite runs.
 # The gateway ledger size cap (rotate-gateway-ledger.sh) works only for the container.
 # `stop` leaves llama-server running: it is shared, and started by mimir-model.sh.
+#
+# `start` refuses while any container mounts the enclosure home, and fails closed if
+# Docker is installed but cannot be queried. If Docker Desktop is quit (so no container
+# can be running), set MIDGARD_DOCKER_STOPPED=1 to skip the Docker check.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BIN="$PWD/dist/mac/bin"
@@ -43,6 +47,7 @@ running() {
   [ -f "$RUN/$1.pid" ] || return 1
   local pid comm bin
   pid=$(cat "$RUN/$1.pid"); bin=$(binary "$1")
+  [ -n "$bin" ] || return 1
   comm=$(ps -p "$pid" -o comm= 2>/dev/null) || comm=
   case $comm in
     "$bin" | */"$bin") return 0 ;;
@@ -52,11 +57,14 @@ running() {
 launch() {  # name, ready-pattern, command...
   local name=$1 ready=$2; shift 2
   if running "$name"; then echo "$name already running"; return; fi
+  local pid
   nohup "$@" > "$RUN/$name.log" 2>&1 &
-  echo $! > "$RUN/$name.pid"
+  pid=$!
+  echo "$pid" > "$RUN/$name.pid"
+  # The fresh child may still show as nohup just after launch, so test its pid only.
   for _ in $(seq 1 180); do
     grep -qs "$ready" "$RUN/$name.log" && { echo "$name ready"; return; }
-    running "$name" || {
+    kill -0 "$pid" 2>/dev/null || {
       echo "$name exited; see $RUN/$name.log"; tail -5 "$RUN/$name.log"
       echo "run tools/mac-app/run-native.sh stop to clean up"; exit 1
     }
@@ -68,26 +76,66 @@ launch() {  # name, ready-pattern, command...
 
 # Refuse while any container can hold the enclosure's directories. Fails closed: if the
 # docker CLI exists but cannot be queried, nothing is touched.
-check_docker() {
-  command -v docker > /dev/null || return 0
-  local ids names hp
-  ids=$(docker ps -q) || { echo "cannot query Docker; refusing to touch lock files"; exit 1; }
+docker_refuse() { echo "cannot query Docker; refusing to touch lock files"; exit 1; }
+# Print the names of running containers with a mount at, under or above $H; fails if
+# Docker cannot be queried (a container may vanish between ps and inspect).
+docker_conflicts() {
+  local ids line name src hp d m
+  hp=$(cd "$H" && pwd -P)
+  ids=$(docker ps -q) || return 1
   [ -n "$ids" ] || return 0
-  names=$(docker ps --format '{{.Names}}') || { echo "cannot query Docker; refusing to touch lock files"; exit 1; }
+  # shellcheck disable=SC2086  # one argument per container id
+  docker inspect --format '{{.Name}}{{range .Mounts}}|{{.Source}}{{end}}' $ids > "$TMPF" || return 1
+  while IFS= read -r line; do
+    name=${line%%|*}; name=${name#/}
+    [ "$line" != "${line#*|}" ] || continue
+    line=${line#*|}
+    while :; do
+      src=${line%%|*}
+      if [ -n "$src" ]; then
+        # The source as given and, if it exists here, its physical path; a mount of /
+        # becomes "", a prefix of every path.
+        for m in "${src%/}" "$( (cd "$src" 2>/dev/null && pwd -P) || echo "$src")"; do
+          m=${m%/}
+          for d in "$H" "$hp"; do
+            case $d/ in "$m"/*) echo "$name"; break 3 ;; esac   # $H is at or under the mount
+            case $m/ in "$d"/*) echo "$name"; break 3 ;; esac   # the mount is under $H
+          done
+        done
+      fi
+      [ "$line" != "${line#*|}" ] || break
+      line=${line#*|}
+    done
+  done < "$TMPF"
+}
+check_docker() {
+  if [ "${MIDGARD_DOCKER_STOPPED:-}" = 1 ]; then
+    echo "skipping the Docker check (MIDGARD_DOCKER_STOPPED=1)"; return 0
+  fi
+  command -v docker > /dev/null || return 0
+  local err names
+  if ! err=$(docker ps -q 2>&1 > /dev/null); then
+    case $err in
+      *"Cannot connect to the Docker daemon"* | *"docker daemon running"* | *"daemon is not running"*)
+        echo "Docker is installed but not running. If no Midgard containers can be running" \
+          "(Docker Desktop is quit), re-run with MIDGARD_DOCKER_STOPPED=1."; exit 1 ;;
+    esac
+    echo "$err"; docker_refuse
+  fi
+  names=$(docker ps --format '{{.Names}}') || docker_refuse
   if printf '%s\n' "$names" | grep -qE '^midgard-(gateway|heimdall|mimir|forge)$'; then
     echo "stop the Midgard Docker containers first"; exit 1
   fi
-  hp=$(cd "$H" && pwd -P)
-  # shellcheck disable=SC2086  # one argument per container id
-  names=$(docker inspect --format '{{.Name}} {{range .Mounts}}{{.Source}} {{end}}' $ids) \
-    || { echo "cannot query Docker; refusing to touch lock files"; exit 1; }
-  names=$(printf '%s\n' "$names" | grep -F -e "$H" -e "$hp" | cut -d' ' -f1 | sed 's|^/||') || true
+  TMPF=$(mktemp); trap 'rm -f "$TMPF"' EXIT
+  names=$(docker_conflicts) || names=$(docker_conflicts) || docker_refuse
   if [ -n "$names" ]; then
-    echo "these containers mount $H; stop these containers first:"; printf '  %s\n' $names; exit 1
+    echo "these containers mount $H or a directory containing it; stop these containers first:"
+    printf '  %s\n' $names; exit 1
   fi
 }
 
 start() {
+  [ -d "$H" ] || { echo "enclosure home $H not found"; exit 1; }
   check_docker
   local b s lock
   for b in http-gateway heimdall-feed mimir-server forge-worker; do
