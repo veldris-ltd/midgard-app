@@ -121,6 +121,7 @@ Builds `~/Library/Caches/midgard-build/starting-state` (outside the suite folder
 - `demo-users.json` from `airports-passwords.txt` (mode 600), never echoed.
 - Excludes `mimir-signing/`, `grid-sam-password.txt`, analytics, `.venv`.
 - The starting state must contain no symlinks (Home.prepare refuses them).
+- Verification (native suite against a copy + smoke.py --base) deferred to Task 11, which needs the Docker suite stopped.
 - Prints the size of each part and the total. Verify by starting the native suite against a copy (`MIDGARD_HOME=<copy> run-native.sh start` with Docker stopped) and running `smoke.py` with `--base` — record the result. Commit: `mac app: starting state builder`.
 
 ### Task 9: The window
