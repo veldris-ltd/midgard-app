@@ -10,6 +10,7 @@ Silicon) and run from a folder, without Docker.
 | `run-native.sh start \| stop \| status` | Runs the suite from `dist/mac/bin` against an enclosure home (default `~/Desktop/Midgard`, override with `MIDGARD_HOME`). Logs and pids in `$MIDGARD_HOME/native-run/` |
 | `record.py record \| pack` | Records the live feeds for offline replay (see [Recording and replay](#recording-and-replay)) |
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
+| `build-app.sh` | Builds `Midgard.app`, the presentation app (see [The app](#the-app)) |
 
 ## Prerequisites
 
@@ -134,3 +135,49 @@ The replay logs JSON lines to `$MIDGARD_HOME/native-run/replay.log`:
 The recording loops; each loop shifts its times to now, so the picture always looks current.
 The replay overwrites the Forge CSVs in `live-feeds/data`; the live fetcher rewrites them the
 next time it runs.
+
+## The app
+
+`Midgard.app` is the native presentation app (`apps/mac`, plan
+`docs/plans/2026-10-22-mac-app-phase3-shell.md`): one window that starts the services
+itself, signs the presenter in and shows the four products, with nothing reaching the
+internet.
+
+### Building
+
+```bash
+bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-consoles] [--out DIR]
+```
+
+- Needs the starting state from `make-starting-state.sh` (in
+  `~/Library/Caches/midgard-build/starting-state`; build it with the suite stopped) and the
+  model in `~/Desktop/Midgard/mimir-models`.
+- Runs `build-services.sh` and `build-consoles.sh` (skip either to reuse `dist/mac` as it is;
+  it warns when sources changed since), builds the shell universal with `swift build`, and
+  assembles the bundle in `~/Library/Caches/midgard-build/app/Midgard.app` (`--out` to
+  change), signed ad hoc and checked with `codesign --verify`.
+- `--recording DIR` (or `MIDGARD_RECORDING`) bundles a recording (it must contain
+  `meta.json`; its `raw/` is left out), which the app replays; without one the app starts
+  with no feeds.
+- The model (1.5 GB) and the starting state are copied as APFS clones, so the 1.6 GB bundle
+  costs little extra disk while it stays on the same volume as its sources. With the Rust
+  and Swift builds up to date, a build takes about 20 seconds.
+- `llama-server` is not bundled until phase 5: install it with Homebrew
+  (`brew install llama.cpp`); the app uses `/opt/homebrew/bin/llama-server`.
+
+### Running
+
+```bash
+open ~/Library/Caches/midgard-build/app/Midgard.app
+```
+
+It is ready in about 10 seconds on a 2026 Apple Silicon Mac. It picks free loopback ports, so
+it runs beside the Docker suite or `run-native.sh`.
+
+- Logs: `~/Library/Logs/Midgard/` (`shell.log` plus one per service).
+- Working copy: `~/Library/Application Support/Midgard` (copied from the starting state on
+  first launch); `~/Library/Application Support/Midgard.webport` remembers the web port.
+- Quitting (Cmd-Q, or `osascript -e 'tell application id "app.midgard.presenter" to quit'`)
+  stops every service.
+- To reset by hand: quit the app, delete `~/Library/Application Support/Midgard`, open it
+  again (Reset demo in the app does the same).
