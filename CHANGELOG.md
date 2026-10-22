@@ -106,6 +106,11 @@ See `docs/compliance/GA_READINESS.md`.
   (`contracts/schema/*.v1.schema.json`), with fixtures and a test that holds the
   parsers to them. [RF-CA-13]
 - `.github/CODEOWNERS`, and `docs/guides/IMPORT_YOUR_OWN_DATA.md`.
+- **A recorded waiver for the client shell audits, for this pre-release only.** No
+  shell has a buildable project yet, so no on-device audit can run. The gate honours a
+  line in `clients/shells/audit-waivers.txt` naming the exact pre-release version, its
+  approver and the reason, and still lists every missing record. A final release
+  cannot be waived. [RC-49]
 
 ### Fixed
 - Release signing and verification (`mg-sign`, `mg-verify`, `attest`) parse the SBOM

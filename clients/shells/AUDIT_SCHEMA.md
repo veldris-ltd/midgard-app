@@ -60,6 +60,15 @@ The release workflow runs this gate after the audit jobs record their results, s
 a release cannot ship without a fresh, passing on-device audit for all six shells.
 On a release where the audits have not run, the gate fails closed — by design.
 
+### Pre-release waivers
+
+A **pre-release** (a version with a `-` suffix, such as `0.1.0-rc.1`) may be waived by
+one line in [`audit-waivers.txt`](audit-waivers.txt) naming that exact version, who
+approved it, the date and the reason. The gate still lists every missing or failing
+record, then reports `WAIVED` and passes. A waiver covers only the version it names,
+a line without `approved-by:` and `reason:` is refused, and a **final release can never
+be waived**. The list must be empty at GA.
+
 ## Per-platform audit tools
 
 | Shell | Runner | Tool |

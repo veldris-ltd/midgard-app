@@ -89,7 +89,7 @@ they must be run and shown green (or the two external items completed) before GA
 |---|------|-------|-----------|
 | 0 | The register's 15 **PARTIAL** rows, nine of them High severity | `RESIDUAL_RISK_REGISTER.md`, carried by `RF-*` items | **Yes** for the High-severity rows (added 2026-10-13) |
 | A | Acceptance suites (`verify-core`, `verify-mimir`, `verify-forge`, `verify-bifrost`, `verify-heimdall`, `verify-admin`, `verify-clients`) under `--network none` | `deploy/acceptance/verify-*.sh` | **Yes** — Definition-of-Done matrices AC-M/MI/F/B/H/AD/C |
-| B | Shell audits + accessibility (`verify-shell-audits`, `verify-shells-accessibility`) | `deploy/acceptance/` | **Yes** (RT-49) — fails closed until run on device |
+| B | Shell audits + accessibility (`verify-shell-audits`, `verify-shells-accessibility`) | `deploy/acceptance/` | **Yes** (RT-49) — fails closed until run on device. Waived for the pre-release `0.1.0-rc.1` only, by the owner on 2026-10-22 (`clients/shells/audit-waivers.txt`); a final release cannot be waived |
 | C | Per-artefact release gate `just gate <pkg>` for each deployable | `justfile` | **Yes** — nothing ships unsigned/unverified |
 | D | **FIPS 140-3 module certification** | External CMVP lab | **Yes** — SAD_00's explicit bar; in-repo KATs pass, formal cert is external |
 | E | **Deployment-tier assurance** for the register's **†** controls (real HSM custody, GPU inference, multi-node cluster) | Deployment activity, gated by RT-40 | **Yes** — RT-40 fails a release closed until run on real infrastructure |

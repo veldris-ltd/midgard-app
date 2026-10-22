@@ -12,11 +12,16 @@
 # placeholder runner/device/tool, if it is not `overall = "pass"`, or if any
 # affordance the shell DECLARES is not MEASURED `pass` in the record.
 #
+# A PRE-RELEASE only (a version with a `-` suffix, e.g. 0.1.0-rc.1) may be waived by
+# a line in clients/shells/audit-waivers.txt naming that exact version, who approved
+# it and why. A waived run still reports every problem, and says WAIVED; a waiver
+# listed for a final release is refused. See clients/shells/AUDIT_SCHEMA.md.
+#
 # Usage:  bash deploy/acceptance/verify-shell-audits.sh <release>
 #   e.g.  bash deploy/acceptance/verify-shell-audits.sh 1.4.0
 # ============================================================================
 set -uo pipefail
-cd "$(dirname "$0")/../.." || exit 2
+cd "${SHELL_AUDIT_ROOT:-$(dirname "$0")/../..}" || exit 2
 
 release="${1:-}"
 if [ -z "$release" ]; then
@@ -25,6 +30,14 @@ if [ -z "$release" ]; then
 fi
 
 SHELLS=(apple android linux-gtk desktop-tauri web extension)
+WAIVERS="clients/shells/audit-waivers.txt"
+
+# The waiver line for a release, without its version: empty when there is none.
+waiver_for() {
+    [ -f "$WAIVERS" ] || return 0
+    tr -d '\r' < "$WAIVERS" | grep -vE '^[[:space:]]*(#|$)' |
+        awk -v r="$1" '$1 == r { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }'
+}
 
 # A field's value from a flat `key = "value"` TOML line.
 field() { grep -oE "^$2[[:space:]]*=[[:space:]]*\"[^\"]*\"" "$1" | head -1 | sed -E 's/^[^"]*"([^"]*)".*/\1/'; }
@@ -82,7 +95,22 @@ echo
 if [ "$fail" -eq 0 ]; then
     echo "  >>> all ${#SHELLS[@]} shells have a passing on-device accessibility audit recorded for $release"
     exit 0
-else
-    echo "  >>> shell audit gate FAILED for $release ($fail problem(s)) — release blocked (fail closed)"
-    exit 1
 fi
+
+waiver="$(waiver_for "$release")"
+if [ -n "$waiver" ]; then
+    case "$release" in
+        *-*)
+            if grep -q 'approved-by:' <<<"$waiver" && grep -q 'reason:' <<<"$waiver"; then
+                echo "  >>> shell audit gate WAIVED for pre-release $release ($fail problem(s) above stand): $waiver"
+                exit 0
+            fi
+            echo "  the waiver for $release names no approver or no reason ('approved-by:' and 'reason:' are required)"
+            ;;
+        *)
+            echo "  a waiver is listed for $release, but only a pre-release (a version with a '-' suffix) can be waived"
+            ;;
+    esac
+fi
+echo "  >>> shell audit gate FAILED for $release ($fail problem(s)) — release blocked (fail closed)"
+exit 1
