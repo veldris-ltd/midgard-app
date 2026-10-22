@@ -4,6 +4,7 @@ use service_runtime::json::Json;
 /// Unix seconds between these bounds are times; anything else is left alone.
 const MIN_UNIX: i64 = 1_000_000_000;
 const MAX_UNIX: i64 = 4_000_000_000;
+/// Time keys that no suffix or prefix rule catches, matched whole.
 const NAMED: &[&str] = &[
     "started",
     "ended",
@@ -25,7 +26,9 @@ pub fn is_time_key(key: &str) -> bool {
 
 fn shift_value(v: &Json, shift: i64) -> Json {
     match v {
-        Json::Int(n) if (MIN_UNIX..=MAX_UNIX).contains(n) => Json::Int(n + shift),
+        Json::Int(n) if (MIN_UNIX..=MAX_UNIX).contains(n) => {
+            n.checked_add(shift).map_or_else(|| v.clone(), Json::Int)
+        }
         Json::Num(f) if (MIN_UNIX as f64..=MAX_UNIX as f64).contains(f) => {
             Json::Num(f + shift as f64)
         }
@@ -74,6 +77,8 @@ struct Record<'a> {
     end: &'a str,
 }
 
+/// Input is expected to be RFC 4180 CSV.
+///
 /// Split CSV text into records, on commas and newlines outside quotes. Joining each
 /// record's fields with ',' and appending its terminator gives back the input exactly.
 fn records(text: &str) -> Vec<Record<'_>> {
@@ -120,6 +125,12 @@ fn unix_time(field: &str) -> Option<i64> {
         .filter(|n| (MIN_UNIX..=MAX_UNIX).contains(n))
 }
 
+/// A header cell's name: without a leading UTF-8 BOM, surrounding spaces or quotes.
+fn header_name(cell: &str) -> &str {
+    let cell = cell.strip_prefix('\u{feff}').unwrap_or(cell);
+    cell.trim().trim_matches('"').trim()
+}
+
 /// The CSV with whole-number Unix times in its time columns moved by `shift` seconds;
 /// every other byte, line terminators included, is kept as written.
 pub fn shift_csv(text: &str, shift: i64) -> String {
@@ -131,7 +142,7 @@ pub fn shift_csv(text: &str, shift: i64) -> String {
         .fields
         .iter()
         .enumerate()
-        .filter(|(_, h)| is_time_key(h.trim_matches('"')))
+        .filter(|(_, h)| is_time_key(header_name(h)))
         .map(|(i, _)| i)
         .collect();
     if cols.is_empty() {
@@ -144,7 +155,10 @@ pub fn shift_csv(text: &str, shift: i64) -> String {
                 out.push(',');
             }
             match unix_time(f) {
-                Some(n) if r > 0 && cols.contains(&i) => out.push_str(&(n + shift).to_string()),
+                Some(n) if r > 0 && cols.contains(&i) => match n.checked_add(shift) {
+                    Some(m) => out.push_str(&m.to_string()),
+                    None => out.push_str(f),
+                },
                 _ => out.push_str(f),
             }
         }

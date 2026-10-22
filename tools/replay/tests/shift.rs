@@ -1,5 +1,5 @@
 use midgard_replay::shift::{is_time_key, shift_csv, shift_observation};
-use service_runtime::json::parse;
+use service_runtime::json::{parse, Json};
 
 #[test]
 fn shifts_observed_at_and_time_attributes_only() {
@@ -91,5 +91,72 @@ fn period_start_column_is_shifted() {
     assert_eq!(
         shift_csv(csv, 60),
         "key,name,period_start,wind_pct\r\nCI-1,North,1792686660,99.8\r\n"
+    );
+}
+
+#[test]
+fn fractional_time_attribute_moves_by_the_shift() {
+    let o = parse(r#"{"observedAt":1792000000,"attrs":{"etr":1792000000.5}}"#).unwrap();
+    let v = shift_observation(&o, 60);
+    match v.get("attrs").unwrap().get("etr") {
+        Some(Json::Num(f)) => assert_eq!(*f, 1792000060.5),
+        other => panic!("etr not a number: {other:?}"),
+    }
+}
+
+#[test]
+fn observed_at_out_of_range_is_unchanged() {
+    let o = parse(r#"{"observedAt":12,"attrs":{}}"#).unwrap();
+    assert_eq!(
+        shift_observation(&o, 60)
+            .get("observedAt")
+            .unwrap()
+            .as_i64(),
+        Some(12)
+    );
+}
+
+#[test]
+fn overflowing_shift_leaves_values_unchanged() {
+    let o = parse(r#"{"observedAt":1792000000,"attrs":{}}"#).unwrap();
+    let v = shift_observation(&o, i64::MAX);
+    assert_eq!(v.get("observedAt").unwrap().as_i64(), Some(1792000000));
+    let csv = "key,observed_at\nA,1792000000\n";
+    assert_eq!(shift_csv(csv, i64::MAX), csv);
+}
+
+#[test]
+fn empty_csv_is_unchanged() {
+    assert_eq!(shift_csv("", 60), "");
+}
+
+#[test]
+fn header_cells_are_never_shifted() {
+    let csv = "key,1792000000_at\nA,1792000000\n";
+    assert_eq!(shift_csv(csv, 60), "key,1792000000_at\nA,1792000060\n");
+    let csv = "key,observed_at\n";
+    assert_eq!(shift_csv(csv, 60), csv);
+}
+
+#[test]
+fn quoted_header_column_is_shifted() {
+    let csv = "\"key\",\"observed_at\"\nA,1792000000\n";
+    assert_eq!(
+        shift_csv(csv, 60),
+        "\"key\",\"observed_at\"\nA,1792000060\n"
+    );
+}
+
+#[test]
+fn bom_prefixed_time_header_is_shifted() {
+    let csv = "\u{feff}time_raised,key\n1792000000,A\n";
+    assert_eq!(
+        shift_csv(csv, 60),
+        "\u{feff}time_raised,key\n1792000060,A\n"
+    );
+    let csv = "\u{feff}\"observed_at\" ,key\n1792000000,A\n";
+    assert_eq!(
+        shift_csv(csv, 60),
+        "\u{feff}\"observed_at\" ,key\n1792000060,A\n"
     );
 }
