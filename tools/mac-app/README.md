@@ -283,3 +283,25 @@ it runs beside the Docker suite or `run-native.sh`.
   stops every service.
 - To reset by hand: quit the app, delete `~/Library/Application Support/Midgard`, open it
   again (Reset demo in the app does the same).
+
+### The installer
+
+```bash
+bash tools/mac-app/build-dmg.sh [--no-desktop]
+```
+
+- Makes `Midgard-1.0.dmg` from the app `build-app.sh` built (it refuses while Midgard runs
+  from there): `Midgard.app` (copied with `ditto`), an `Applications` link to drag it onto,
+  and `Install Midgard.pdf`, the one-page install sheet for presenters
+  (`install-sheet.html`, rendered with headless Chrome; the build fails unless it is one A4
+  page with the design system's fonts embedded). HFS+, zlib-compressed; the model barely
+  compresses, so the image is about the size of the app (1.6 GB) and takes about a minute.
+- Checked before it is published: `hdiutil verify`, then mounted read-only, the app inside
+  must pass `codesign --verify --deep --strict`, and the sheet and the link must be there.
+- Output: `~/Library/Caches/midgard-build/dist/Midgard-1.0.dmg`, copied to
+  `~/Desktop/Midgard-1.0.dmg` (outside the suite folder; `--no-desktop` skips the copy). It
+  prints the size and SHA-256; send that with the file so a damaged download shows.
+- The app is signed ad hoc, not notarised, so on first launch macOS blocks it until the
+  presenter clicks Open Anyway in System Settings › Privacy & Security; the install sheet
+  walks through that ("Phase 5 notes" in the design doc). To change the sheet, edit
+  `install-sheet.html`, open it in Chrome to check, and rebuild the image.
