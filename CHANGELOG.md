@@ -9,7 +9,11 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **The console signs in principals with a second factor.** `AuthGate` has an
+  authenticator-code field, and the SDK's `login` sends the code when one is entered.
+  Before this, a principal enrolled with `--totp` could sign in over the API but not
+  in the console. [RC-37] [RC-29]
 
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 

@@ -2,11 +2,14 @@
  * authenticated HTTP/JSON edge (`services/http-gateway` `/api/v1/login`). The token
  * is then attached to every `HttpGateway` request (`Authorization: Bearer <token>`),
  * so the console renders authenticated enclosure data — not client-side fixtures.
+ * A principal enrolled with a TOTP second factor also sends the current code.
  * [RC-37] [RC-29] */
 
 export interface LoginCredentials {
   username: string;
   password: string;
+  /** The current authenticator code, for a principal enrolled with a second factor. */
+  totp?: string;
 }
 
 export interface LoginResult {
@@ -28,7 +31,11 @@ export async function login(baseUrl: string, creds: LoginCredentials): Promise<L
   const res = await fetch(`${base}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(creds),
+    body: JSON.stringify(
+      creds.totp
+        ? { username: creds.username, password: creds.password, totp: creds.totp }
+        : { username: creds.username, password: creds.password },
+    ),
   });
   if (res.status === 401) throw new Error('Invalid credentials');
   if (!res.ok) throw new Error(`login failed: ${res.status}`);
