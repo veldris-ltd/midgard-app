@@ -107,9 +107,10 @@ final class WebServerTests: XCTestCase {
         // Outside root: traversal must never reach it.
         try Data("secret".utf8).write(to: base.appendingPathComponent("secret.txt"))
 
-        port = try Ports.free(count: 1)[0]
-        server = WebServer(root: root, port: port)
+        // Port 0: the system picks, so parallel test processes never race for a port.
+        server = WebServer(root: root)
         try server.start()
+        port = server.boundPort
     }
 
     override func tearDownWithError() throws {
