@@ -144,6 +144,8 @@ const KIND_CLASS: Record<string, string> = {
   'utility-telecom-censorship': 'CENSORSHIP',
   'event-tsunami': 'TSUNAMI BULLETIN',
   'event-news': 'NEWS',
+  'event-indicator': 'GULF WATCH',
+  'event-fire-at-sea': 'FIRE AT SEA',
 };
 /** What kind of feed contributes each entity kind (the Feeds screen). */
 const KIND_FEED: Record<string, string> = {
@@ -168,6 +170,8 @@ const KIND_FEED: Record<string, string> = {
   'utility-telecom-censorship': 'censorship tests (OONI)',
   'event-tsunami': 'tsunami bulletins (NOAA)',
   'event-news': 'news volume (GDELT)',
+  'event-indicator': 'Gulf watch (derived)',
+  'event-fire-at-sea': 'fires at sea (derived, FIRMS)',
 };
 const FT_PER_M = 3.28084;
 const KT_PER_MS = 1.94384;
@@ -512,6 +516,19 @@ function factsOf(e: WireEntity): { label: string; value: string }[] {
         ['SURGE', e.attributes.surge === true ? 'YES (3x the median or more)' : 'no'], ['HEADLINES', a('headlines')],
         ['SEARCH', a('query')], ['SOURCE', a('source')]);
       break;
+    case 'event-indicator': {
+      // Gulf watch: a count against its normal level, or the summary of all of them. [FR-H-1]
+      const v = a('value'), base = a('baseline'), ch = n('change_pct');
+      rows.push(['STATUS', a('status')?.toUpperCase()], ['SUMMARY', a('summary')],
+        ['NOW (60 MIN)', v !== undefined && a('indicator') !== 'Summary' ? `${v} ${a('unit') ?? ''}` : undefined],
+        ['NORMAL', base !== undefined ? `${base} ${a('unit') ?? ''}${ch !== undefined ? ` (${ch > 0 ? '+' : ''}${ch} %)` : ''}` : undefined],
+        ['BASED ON', a('baseline_note')], ['BY ROLE', a('roles')], ['AIRCRAFT', a('aircraft')], ['SOURCE', a('source')]);
+      break;
+    }
+    case 'event-fire-at-sea':
+      rows.push(['FIRE POWER', n('value') !== undefined ? `${n('value')} MW` : undefined], ['CONFIDENCE', a('confidence')],
+        ['DETECTED', when(e.attributes.detected_at)], ['NEAREST SHIP', a('nearest_ship')], ['WHY FLAGGED', a('baseline_note')], ['SOURCE', a('source')]);
+      break;
     case 'event-fire': {
       const t = num(e.attributes.acq_time);
       const conf = a('confidence');
@@ -841,7 +858,8 @@ export class HeimdallHttp implements HeimdallGateway {
         fuel: e.kind === 'infra-power-plant' ? text('fuel') : undefined,
         level: e.kind === 'event-weather-warning' ? text('level')?.toLowerCase() : e.kind === 'land-road-disruption' ? text('severity') : e.kind === 'event-gnss-interference' ? text('level')
           : e.kind === 'event-tsunami' ? text('category')?.toLowerCase() : e.kind === 'event-news' ? (e.attributes.surge === true ? 'surge' : undefined)
-          : e.kind === 'utility-telecom-censorship' ? (e.attributes.rising === true ? 'rising' : 'steady') : undefined,
+          : e.kind === 'utility-telecom-censorship' ? (e.attributes.rising === true ? 'rising' : 'steady')
+          : e.kind === 'event-indicator' ? text('status') : undefined,
         taf: e.kind === 'land-airport' ? text('taf') : undefined,
         tafWorst: e.kind === 'land-airport' ? text('taf_worst_category_12h') : undefined,
         label: e.classification?.label,

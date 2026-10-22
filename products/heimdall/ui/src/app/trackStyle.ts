@@ -104,6 +104,8 @@ export function areaColour(d: { kind: string; hazard?: string; level?: string; a
     case 'event-tsunami': return d.level === 'warning' ? 'var(--danger)' : d.level === 'advisory' || d.level === 'watch' || d.level === 'threat' ? 'var(--warn)' : 'var(--info)';
     // News topics: amber while coverage is surging.
     case 'event-news': return d.level === 'surge' ? 'var(--warn)' : 'var(--heimdall-300)';
+    // Gulf watch indicators: amber when well away from normal, green when normal, grey while learning.
+    case 'event-indicator': return d.level === 'elevated' ? 'var(--warn)' : d.level === 'normal' ? 'var(--secure)' : 'var(--text-muted)';
     case 'land-road-disruption': return ROAD_COLOURS[(d.level ?? '').toLowerCase()] ?? 'var(--heimdall-300)';
     // GPS interference cells: magenta, deeper with the share of aircraft affected.
     case 'event-gnss-interference': return d.level === 'high' ? '#ff2bd6' : d.level === 'medium' ? '#c04dff' : '#8a6bff';
@@ -129,7 +131,8 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'sea-platform': return 'platform';
     case 'land-road-disruption': return 'road';
     case 'airspace-volume': return 'airspace';
-    case 'airspace-advisory': case 'event-tsunami': case 'event-news': return 'warning';
+    case 'airspace-advisory': case 'event-tsunami': case 'event-news': case 'event-indicator': return 'warning';
+    case 'event-fire-at-sea': return 'fire';
     case 'event-fire': return 'fire';
     case 'utility-power-outage': return 'outage';
     case 'utility-water-overflow': case 'utility-water-reservoir': return 'drop';
@@ -203,7 +206,7 @@ export function colourOf(t: HeimdallTrack): string {
     case 'satellite': return t.detail?.station ? 'var(--heimdall-300)' : 'var(--bifrost-300)';
     case 'quake': return (t.detail?.magnitude ?? 0) >= 5 ? 'var(--danger)' : 'var(--warn)';
     case 'flood': return FLOOD_COLOURS[t.detail?.severityLevel ?? 4] ?? 'var(--info)';
-    case 'fire': return FIRE_COLOUR;
+    case 'fire': return t.detail?.kind === 'event-fire-at-sea' ? 'var(--danger)' : FIRE_COLOUR;
     case 'sigmet': case 'warning': case 'windfarm': case 'road': case 'airspace': return t.detail ? areaColour(t.detail) : 'var(--text-muted)';
     case 'platform': return 'var(--forge-300)';
     case 'outage': case 'drop': case 'hexagon': case 'site': case 'hub': case 'line':
@@ -272,6 +275,8 @@ export const AREA_LEGEND: { label: string; color: string; kind: string }[] = [
   { label: 'AIRSPACE WARNING (EASA · FAA)', color: 'var(--warn)', kind: 'airspace-advisory' },
   { label: 'TSUNAMI BULLETIN', color: 'var(--danger)', kind: 'event-tsunami' },
   { label: 'NEWS TOPIC (SURGE)', color: 'var(--heimdall-300)', kind: 'event-news' },
+  { label: 'GULF WATCH (AMBER = UNUSUAL)', color: 'var(--secure)', kind: 'event-indicator' },
+  { label: 'NEW FIRE AT SEA', color: 'var(--danger)', kind: 'event-fire-at-sea' },
 ];
 
 /** Kinds that never move: no speed, track, trail or flight history in the inspector. */
