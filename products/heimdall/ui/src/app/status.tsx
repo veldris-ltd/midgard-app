@@ -14,6 +14,7 @@ import * as React from 'react';
 import { useGateway, type Seal } from '@midgard/ui-shared';
 import { HeimdallAlertsUnavailableError } from '@midgard/sdk';
 import type { HeimdallAlert, HeimdallGateway, HeimdallSpaceWeather } from '@midgard/sdk';
+import { alertText } from './alertMarks';
 
 const POLL_MS = 15_000;
 
@@ -118,7 +119,7 @@ export function HeimdallStatusProvider({ children }: { children: React.ReactNode
         if (!live) return;
         const crit = list.filter((a) => a.severity === 'critical' && !a.acknowledgedBy);
         if (seenCritical.current) {
-          for (const a of crit) if (!seenCritical.current.has(a.id)) toast(`CRITICAL · ${a.label.toUpperCase()} · ${a.entity}`, 'danger');
+          for (const a of crit) if (!seenCritical.current.has(a.id)) toast(`CRITICAL · ${alertText(a.label)} · ${a.entity}`, 'danger');
         }
         seenCritical.current = new Set([...(seenCritical.current ?? []), ...crit.map((a) => a.id)]);
         setAlerts(list);

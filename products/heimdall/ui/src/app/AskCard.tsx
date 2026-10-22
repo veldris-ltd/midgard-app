@@ -54,7 +54,9 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
 
   const ask = (q: string) => {
     const text = q.trim();
-    if (text.length < 3 || state.status === 'thinking') return;
+    // While Mimir is thinking only a chip can ask (the box and ASK are disabled): it
+    // replaces the request in flight, whose answer is then not shown.
+    if (text.length < 3) return;
     const request = ++latest.current;
     const live = () => latest.current === request;
     // A shipped answer to this question (any area), or the same question about the same
@@ -96,7 +98,7 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
           ASK
         </button>
       </div>
-      {state.status !== 'thinking' && examples.length > 0 && (
+      {examples.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
           {examples.map(({ question: q, region }) => (
             <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} title={region ? `Prepared over ${region}` : undefined}

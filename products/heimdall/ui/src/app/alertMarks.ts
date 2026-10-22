@@ -30,7 +30,13 @@ export const ALERT_COLOURS: Record<HeimdallAlert['severity'], string> = {
 /** Alert names show beside their rings within this many km of view (critical always). */
 export const LABEL_MAX_KM = 4500;
 
-export const alertText = (label: string) => label.replace(/[-_]+/g, ' ').toUpperCase();
+/** An alert label in words, e.g. "camera-stopped-vehicle" → "camera stopped vehicle".
+ *  GNSS reads as GPS, as the legend says it ("gnss-interference-high" → "GPS
+ *  interference high"); the label itself is unchanged. */
+export const alertWords = (label: string) => label.replace(/[-_]+/g, ' ').trim().replace(/\bgnss\b/gi, 'GPS');
+
+/** The label in words, upper case, e.g. "GPS INTERFERENCE HIGH". */
+export const alertText = (label: string) => alertWords(label).toUpperCase();
 
 /** The look of one mark: icon size, colour, whether it pings (and how fast), whether it
  *  flashes (an unacknowledged critical alert), and how strongly it shows. */

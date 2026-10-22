@@ -10,6 +10,7 @@ import { Badge, Icon, IconButton } from '@midgard/design-system';
 import { useGateway } from '@midgard/ui-shared';
 import type { HeimdallAlert, HeimdallGateway } from '@midgard/sdk';
 import { alertCounts, useStatus } from './status';
+import { alertWords } from './alertMarks';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em' };
 
@@ -88,7 +89,7 @@ export function AlertsDrawer({ onPick, onClose, style }: { onPick: (a: HeimdallA
             <button type="button" onClick={() => onPick(a)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Badge tone={TONE[a.severity]}>{a.severity.toUpperCase()}</Badge>
-                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-heading)', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.label}</span>
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-heading)', fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.label}>{alertWords(a.label)}</span>
                 <span style={{ ...mono, color: 'var(--text-faint)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{agoText(a.raisedAt)}</span>
               </span>
               <span style={{ ...mono, color: 'var(--accent-hover)' }}>{a.entity} · {a.kind}{a.clearedAt !== null ? ' · CLEARED' : ''}</span>
