@@ -5,6 +5,7 @@ vectors), alert selection, retries and timeouts, and that no secret is printed.
     python3 -m unittest tools/mac-app/test_prepare_answers.py -v
 """
 import contextlib
+import gzip
 import importlib.util
 import io
 import json
@@ -14,6 +15,7 @@ import threading
 import time
 import unittest
 import urllib.parse
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +49,9 @@ class Stub:
     def __init__(self):
         self.calls = []
         self.alerts = []
+        self.alerts_later = None  # what later reads of the open alerts return, if set
+        self.alert_reads = 0
+        self.expire = 0  # the next this-many signed-in requests get 401
         self.ask = [ASK_REPLY]
         self.advise = [ADVISE_REPLY]
         self.entities = []
@@ -86,12 +91,15 @@ class Stub:
                     j = json.loads(body)
                     ok = j == {"username": "analyst", "password": PASSWORD}
                     return self.reply(200 if ok else 401, {"token": TOKEN} if ok else {"error": "no"})
-                if self.headers.get("authorization") != f"Bearer {TOKEN}":
+                if self.headers.get("authorization") != f"Bearer {TOKEN}" or stub.expire > 0:
+                    stub.expire = max(0, stub.expire - 1)
                     return self.reply(401, {"error": "auth"})
                 if method == "POST" and p == "/heimdall/ask":
                     return self.behave(stub.ask)
                 if method == "GET" and p == "/heimdall/alerts":
-                    return self.reply(200, {"alerts": stub.alerts})
+                    stub.alert_reads += 1
+                    later = stub.alerts_later is not None and stub.alert_reads > 1
+                    return self.reply(200, {"alerts": stub.alerts_later if later else stub.alerts})
                 if method == "GET" and p == "/heimdall/picture":
                     return self.reply(200, {"layers": [], "entities": stub.entities})
                 if method == "POST" and p.startswith("/heimdall/alerts/") and p.endswith("/advise"):
@@ -124,11 +132,23 @@ class Base(unittest.TestCase):
         with open(self.pw, "w") as f:
             f.write(f"admin (internal): other\nanalyst (internal): {PASSWORD}\n")
         self.out = os.path.join(self.dir.name, "home", "prepared-answers.json")
+        self.rec = os.path.join(self.dir.name, "hour-x")
+        self.recording(["power-cut:ukpn-1", "flood:1", "e1", "e2", "e3"])
+
+    def recording(self, all_hour, first_only=(), duration=3900):
+        """A packed recording: `all_hour` seen at offsets 10 and duration-100,
+        `first_only` at 10 only."""
+        os.makedirs(self.rec, exist_ok=True)
+        with gzip.open(os.path.join(self.rec, "heimdall.jsonl.gz"), "wt") as f:
+            for off, ents in ((10, list(all_hour) + list(first_only)), (1800, list(first_only)), (duration - 100, list(all_hour))):
+                f.write(json.dumps({"offset": off, "feed": "x", "observations": [{"entity": e, "kind": "k", "observedAt": 1, "attrs": {}} for e in ents]}) + "\n")
+        with open(os.path.join(self.rec, "meta.json"), "w") as f:
+            json.dump({"version": 1, "duration": duration}, f)
 
     def run_main(self, *extra):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            code = pa.main(["--base", self.stub.base, "--out", self.out, "--passwords", self.pw, *extra])
+            code = pa.main(["--base", self.stub.base, "--out", self.out, "--passwords", self.pw, "--recording", self.rec, *extra])
         return code, buf.getvalue()
 
     def file(self):
@@ -166,7 +186,7 @@ class KeysTest(unittest.TestCase):
             self.assertEqual(pa.examples(p), ["What's new?", 'Say "hi"'])
 
     def test_js_num_and_encoding(self):
-        self.assertEqual([pa.js_num(v) for v in pa.UK_BOX], ["-12", "48", "4", "62"])
+        self.assertEqual([pa.js_num(v) for v in (-12, 48, 4, 62)], ["-12", "48", "4", "62"])
         self.assertEqual(pa.js_num(48.12345), "48.123")
         self.assertEqual(pa.encode_component("What's near here? a&b"), "What's%20near%20here%3F%20a%26b")
 
@@ -240,14 +260,17 @@ class RunTest(Base):
         s.alerts = [alert("A-1", "power-cut:ukpn-1", "power-cut-major", lat=53.8, lon=-1.5),
                     alert("A-2", "flood:1", "flood-warning", "critical")]
         s.entities = [{"id": "power-cut:ukpn-1", "kind": "utility-power-outage", "attributes": {"area": "Yorkshire", "customers": 1639}}]
-        code, out = self.run_main("--recording", "hour-9", "--alerts", "5", "--timeout", "5")
+        code, out = self.run_main("--alerts", "5", "--timeout", "5")
         self.assertEqual(code, 0, out)
         f = self.file()
         self.assertEqual(set(f), {"version", "recording", "created", "entries", "guide"})
-        self.assertEqual((f["version"], f["recording"]), (1, "hour-9"))
+        self.assertEqual((f["version"], f["recording"]), (1, "hour-x"))
+        self.assertEqual(os.stat(self.out).st_mode & 0o777, 0o644)
         self.assertIsInstance(f["created"], int)
         qs = pa.examples() + pa.OUR_QUESTIONS
-        self.assertEqual(f["guide"]["questions"], qs)
+        region = lambda q: "Gulf" if "gulf" in q.lower() else "UK & Ireland"  # noqa: E731
+        self.assertEqual(f["guide"]["questions"], [{"question": q, "region": region(q)} for q in qs])
+        self.assertEqual(sum(1 for q in qs if region(q) == "Gulf"), 2)
         for q in qs:
             e = f["entries"][pa.shipped_key("ask", "*", q)]
             self.assertIsInstance(e["at"], int)
@@ -258,12 +281,15 @@ class RunTest(Base):
         self.assertEqual([o["rank"] for o in adv["options"]], [1, 2])
         self.assertEqual(adv["decisionPoint"], "dp")
         self.assertEqual(adv["options"][0]["expectedEffect"], "e1")
-        self.assertEqual(f["guide"]["alerts"][0], {"key": "advise|entity:flood:1|", "label": "Flood · flood:1", "subject": "flood:1", "kind": "flood"})
+        self.assertEqual(f["guide"]["alerts"][0], {"key": "advise|entity:flood:1|", "label": "Flood · flood:1", "subject": "flood:1", "kind": "flood", "region": None})
         self.assertEqual(f["guide"]["alerts"][1], {"key": "advise|entity:power-cut:ukpn-1|", "label": "Power cut · Yorkshire (1639 customers)",
-                                                   "subject": "power-cut:ukpn-1", "kind": "power-cut"})
+                                                   "subject": "power-cut:ukpn-1", "kind": "power-cut", "region": "UK & Ireland"})
         # Requests exactly as the console sends them.
         asks = [c for c in s.calls if c[1].endswith("/heimdall/ask")]
-        self.assertEqual(asks[0][2], {"question": [qs[0]], "bbox": ["-12,48,4,62"]})
+        for c in asks:
+            q = c[2]["question"][0]
+            self.assertEqual(c[2], {"question": [q], "bbox": ["44,12,62,32" if "gulf" in q.lower() else "-12,48,4,62"]})
+        self.assertEqual([c[2]["question"][0] for c in asks], qs)
         self.assertTrue(all(c[0] == "POST" and c[4] == b"" for c in asks))
         advises = [c for c in s.calls if c[1].endswith("/advise")]
         self.assertEqual(sorted(c[1] for c in advises), ["/api/v1/heimdall/alerts/A-1/advise", "/api/v1/heimdall/alerts/A-2/advise"])
@@ -288,7 +314,7 @@ class RunTest(Base):
         self.assertEqual(code, 0, out)
         f = self.file()
         qs = pa.examples() + pa.OUR_QUESTIONS
-        self.assertEqual(f["guide"]["questions"], [qs[0]] + qs[2:])
+        self.assertEqual([g["question"] for g in f["guide"]["questions"]], [qs[0]] + qs[2:])
         self.assertNotIn(pa.shipped_key("ask", "*", qs[1]), f["entries"])
         self.assertEqual(f["guide"]["alerts"], [])
         self.assertFalse(any(k.startswith("advise|") for k in f["entries"]))
@@ -300,7 +326,7 @@ class RunTest(Base):
         s.ask = [("sleep", 1.5, ASK_REPLY), ASK_REPLY]
         code, out = self.run_main("--timeout", "0.5")
         self.assertEqual(code, 0, out)
-        self.assertIn(pa.examples()[0], self.file()["guide"]["questions"])
+        self.assertIn(pa.examples()[0], [g["question"] for g in self.file()["guide"]["questions"]])
 
     def test_timeout_twice_skips(self):
         s = self.stub
@@ -308,7 +334,7 @@ class RunTest(Base):
         code, out = self.run_main("--timeout", "0.3")
         self.assertEqual(code, 0, out)
         self.assertIn("timed out", out)
-        self.assertNotIn(pa.examples()[0], self.file()["guide"]["questions"])
+        self.assertNotIn(pa.examples()[0], [g["question"] for g in self.file()["guide"]["questions"]])
 
     def test_nothing_captured_leaves_file(self):
         os.makedirs(os.path.dirname(self.out))
@@ -328,6 +354,108 @@ class RunTest(Base):
         self.assertIn("FAIL sign in", out)
         self.assertNotIn("wrong-one-xyz", out)
         self.assertFalse(os.path.exists(self.out))
+
+
+    def test_401_signs_in_again_once(self):
+        self.stub.expire = 1
+        code, out = self.run_main("--timeout", "5")
+        self.assertEqual(code, 0, out)
+        logins = [c for c in self.stub.calls if c[1].endswith("/login")]
+        self.assertEqual(len(logins), 2)
+        self.assertEqual(len(self.file()["guide"]["questions"]), len(pa.examples()) + 2)
+        self.assertNotIn(PASSWORD, out)
+        self.assertNotIn(TOKEN, out)
+
+    def test_401_twice_fails_that_try_only(self):
+        self.stub.expire = 2  # first try: 401, re-login, 401 again → fails; retry succeeds
+        code, out = self.run_main("--timeout", "5")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(self.file()["guide"]["questions"]), len(pa.examples()) + 2)
+
+    def test_only_subjects_seen_all_hour(self):
+        self.recording(["e1"], first_only=["e2"])
+        self.stub.alerts = [alert("A-1", "e1", "flood-warning"), alert("A-2", "e2", "power-cut-major", "critical"),
+                            alert("A-3", "derived-cell", "gnss-interference-high", "critical")]
+        code, out = self.run_main("--timeout", "5")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([g["subject"] for g in self.file()["guide"]["alerts"]], ["e1"])
+
+    def test_recheck_drops_closed_subjects(self):
+        s = self.stub
+        s.alerts = [alert("A-1", "e1", "flood-warning"), alert("A-2", "e2", "power-cut-major")]
+        s.alerts_later = [alert("A-9", "e1", "flood-warning")]  # e1 re-raised under a new id; e2 closed
+        code, out = self.run_main("--timeout", "5")
+        self.assertEqual(code, 0, out)
+        f = self.file()
+        self.assertEqual([g["subject"] for g in f["guide"]["alerts"]], ["e1"])
+        self.assertNotIn("advise|entity:e2|", f["entries"])
+        self.assertIn("advise|entity:e1|", f["entries"])
+        self.assertIn("no longer open", out)
+        s.alert_reads = 0  # without the recheck the later list is never read
+        code, out = self.run_main("--timeout", "5", "--no-recheck")
+        self.assertEqual(len(self.file()["guide"]["alerts"]), 2)
+
+    def test_one_bad_alert_does_not_lose_the_run(self):
+        self.stub.alerts = [alert("A-1", "e1", "flood-warning"), alert("A-2", "e2", "power-cut-major")]
+        real = pa.alert_label
+        with mock.patch.object(pa, "alert_label", side_effect=lambda a, e: (_ for _ in ()).throw(RuntimeError("bad")) if a["id"] == "A-1" else real(a, e)):
+            code, out = self.run_main("--timeout", "5")
+        self.assertEqual(code, 0, out)
+        self.assertIn("FAIL advise 'A-1'", out)
+        self.assertEqual([g["subject"] for g in self.file()["guide"]["alerts"]], ["e2"])
+
+    def test_written_as_it_goes(self):
+        self.stub.alerts = [alert("A-1", "e1", "flood-warning")]
+        sizes = []
+        real = pa.write_atomic
+        with mock.patch.object(pa, "write_atomic", side_effect=lambda out, doc: (sizes.append(len(doc["entries"])), real(out, doc))):
+            code, out = self.run_main("--timeout", "5")
+        self.assertEqual(code, 0, out)
+        n = len(pa.examples()) + 2
+        self.assertEqual(sizes, list(range(1, n + 2)) + [n + 1])  # each answer, then the recheck
+        self.assertEqual([x for x in os.listdir(os.path.dirname(self.out))], ["prepared-answers.json"])
+
+    def test_missing_recording_fails_before_signing_in(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = pa.main(["--base", self.stub.base, "--out", self.out, "--passwords", self.pw,
+                            "--recording", os.path.join(self.dir.name, "nope")])
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL recording", buf.getvalue())
+        self.assertEqual(self.stub.calls, [])
+
+
+class HelpersTest(unittest.TestCase):
+    def test_ts_str(self):
+        self.assertEqual([pa.ts_str(v) for v in (None, True, False, 3, 2.0, 2.5, "x")], ["", "true", "false", "3", "2", "2.5", "x"])
+        self.assertEqual(pa.advice_of({"subject": None, "decision_point": False, "options": [{"title": 7, "summary": None}]})["decisionPoint"], "false")
+        self.assertEqual(pa.advice_of({"options": [{"title": 7.0}]})["options"][0]["title"], "7")
+
+    def test_regions_from_source(self):
+        regs = {r["id"]: r for r in pa.regions()}
+        self.assertEqual((regs["uk"]["label"], pa.bbox_param(regs["uk"]["box"])), ("UK & Ireland", "bbox=-12,48,4,62"))
+        self.assertEqual((regs["gulf"]["label"], pa.bbox_param(regs["gulf"]["box"])), ("Gulf", "bbox=44,12,62,32"))
+        self.assertEqual(pa.bbox_param(regs["balkans"]["box"]), "bbox=13,34,30,48.5")
+        self.assertEqual(pa.region_at(pa.regions(), 26.5, 56.2)["id"], "gulf")
+        self.assertIsNone(pa.region_at(pa.regions(), None, 1))
+        self.assertEqual(pa.region_of_question("What has changed in the GULF watch?", pa.regions())["id"], "gulf")
+
+    def test_seen_all_hour_and_recording_lookup(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec = os.path.join(d, "hour-2")
+            os.makedirs(rec)
+            with gzip.open(os.path.join(rec, "heimdall.jsonl.gz"), "wt") as f:
+                for off, ents in ((0, ["a", "b", "c"]), (599, ["d"]), (600, ["a", "e"]), (3000, ["a", "b", "d"]), (3599, ["c"])):
+                    f.write(json.dumps({"offset": off, "feed": "x", "observations": [{"entity": e} for e in ents]}) + "\n")
+            with open(os.path.join(rec, "meta.json"), "w") as f:
+                json.dump({"duration": 3600}, f)
+            path = os.path.join(rec, "heimdall.jsonl.gz")
+            self.assertEqual(pa.seen_all_hour(path), {"a", "b", "c", "d"})
+            self.assertEqual(pa.recording_file(rec), ("hour-2", path))
+            self.assertEqual(pa.recording_file(rec + "/"), ("hour-2", path))
+            self.assertEqual(pa.recording_file(path), ("hour-2", path))
+            with self.assertRaises(ValueError):
+                pa.recording_file(os.path.join(d, "missing"))
 
 
 if __name__ == "__main__":
