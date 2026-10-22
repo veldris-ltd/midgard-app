@@ -3,24 +3,48 @@
 send and every Forge source file version, for a given time, packed as a recording that
 midgard-replay plays back (format version 1, see tools/replay/src/recording.rs).
 
-    python3 tools/mac-app/record.py record --minutes 60 [--name NAME]   # capture, then pack
+    python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
     python3 tools/mac-app/record.py pack RAW_DIR OUT_DIR                 # re-pack a capture
 
 Run `record` on the development Mac while the Docker suite and the live feeds run. It
 writes to ~/Library/Application Support/Midgard-dev/recordings/<name> (raw capture in
-<name>/raw), outside the suite folder and its storage budget. MIDGARD_HOME (default
-~/Desktop/Midgard) is where the live feeds are. Ctrl-C stops early and still packs.
+<name>/raw, kept unless --drop-raw), outside the suite folder and its storage budget.
+MIDGARD_HOME (default ~/Desktop/Midgard) is where the live feeds are; MIDGARD_RECORDINGS
+overrides the recordings folder. Ctrl-C stops early
+and still packs.
+
+Heimdall batches come from feeds.py's recording hook: while heimdall-poc/feeds/state/record_to
+names a directory, feeds.py also copies every batch it sends there as <time_ns>-<feed>.jsonl
+(written as a dot-file, then renamed). That keeps every batch even when several sources share
+one feed file (regional-extra). adsb.lol (heimdall-poc/batch.jsonl, one writer) and the Forge
+CSVs are polled for changes.
 """
-import glob, gzip, json, os, re, shutil, signal, subprocess, sys, time
+import argparse
+import contextlib
+import glob
+import gzip
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
 
 HOME = os.path.expanduser(os.environ.get("MIDGARD_HOME", "~/Desktop/Midgard"))
-RECORDINGS = os.path.expanduser("~/Library/Application Support/Midgard-dev/recordings")
+RECORDINGS = os.path.expanduser(os.environ.get("MIDGARD_RECORDINGS",
+                                             "~/Library/Application Support/Midgard-dev/recordings"))
 FEEDS = os.path.join(HOME, "heimdall-poc", "feeds")
 ADSB_LOL = os.path.join(HOME, "heimdall-poc", "batch.jsonl")
 FORGE_DATA = os.path.join(HOME, "live-feeds", "data")
+RECORD_TO = os.path.join(FEEDS, "state", "record_to")
+FEEDS_PID = os.path.join(FEEDS, "feeds.pid")
 
 POLL_S = 0.5
 STABLE_S = 1.0
+START_WAIT_S = 3
+NO_BATCH_WARN_S = 120
 # Kinds whose camera images need the internet: not recorded.
 CAMERA_KINDS = {"land-camera", "land-camera-ai"}
 # Moving tracks kept at most once per THIN_S per entity; other kinds are all kept.
@@ -28,6 +52,7 @@ THINNED_KINDS = {"air-track", "sea-vessel", "air-balloon", "land-train"}
 THIN_S = 30
 
 HEIMDALL_NAME = re.compile(r"^(\d+)-(.+?)(?:~\d+)?\.jsonl$")
+INCOMING_NAME = re.compile(r"^(\d+)-(.+)\.jsonl$")
 FORGE_NAME = re.compile(r"^(\d+)-(.+)$")
 
 
@@ -62,12 +87,13 @@ def offset_of(mtime, recorded_from):
 
 
 def heimdall_name(offset, feed, taken):
-    """`<offset:06d>-<feed>.jsonl`, with `~N` added if a batch of that feed already has
-    that second (each batch holds only new items, so none is overwritten)."""
+    """`<offset:06d>-<feed>.jsonl`, with `~002`, `~003`... added if a batch of that feed
+    already has that second (each batch holds only new items, so none is overwritten; the
+    padding keeps name order equal to arrival order)."""
     name, n = f"{offset:06d}-{feed}.jsonl", 1
     while name in taken:
         n += 1
-        name = f"{offset:06d}-{feed}~{n}.jsonl"
+        name = f"{offset:06d}-{feed}~{n:03d}.jsonl"
     return name
 
 
@@ -75,6 +101,56 @@ def parse_heimdall_name(name):
     """(offset, feed) from a raw batch file name, or None."""
     m = HEIMDALL_NAME.match(name)
     return (int(m.group(1)), m.group(2)) if m else None
+
+
+def parse_incoming_name(name):
+    """(time_ns, feed) from a file feeds.py's hook wrote, or None (dot-files are still
+    being written)."""
+    m = INCOMING_NAME.match(name)
+    return (int(m.group(1)), m.group(2)) if m and plain(m.group(2)) else None
+
+
+def move_incoming(incoming, hdir, recorded_from, taken):
+    """Move every complete hook file from `incoming` into `hdir` as a raw batch, oldest
+    first; returns how many were moved. `taken` (names already in hdir) is updated."""
+    found = []
+    for name in os.listdir(incoming):
+        parsed = parse_incoming_name(name)
+        if parsed:
+            found.append((parsed, name))
+    moved = 0
+    for (ns, feed), name in sorted(found):
+        dest = heimdall_name(offset_of(ns / 1e9, recorded_from), feed, taken)
+        os.replace(os.path.join(incoming, name), os.path.join(hdir, dest))
+        taken.add(dest)
+        moved += 1
+    return moved
+
+
+@contextlib.contextmanager
+def record_to(hook, target):
+    """Point feeds.py's recording hook at `target` for the duration of the block; the hook
+    file is always removed afterwards (also on Ctrl-C and errors)."""
+    with open(hook, "w") as f:
+        f.write(os.path.abspath(target) + "\n")
+    try:
+        yield
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(hook)
+
+
+def pid_alive(pidfile):
+    """True if `pidfile` holds the pid of a running process."""
+    try:
+        with open(pidfile) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+    except PermissionError:
+        return True  # exists, owned by someone else
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 # ---- packing (pure) ----
@@ -111,7 +187,18 @@ def plain(name):
     return bool(name) and "/" not in name and "\\" not in name and not name.startswith(".")
 
 
-def read_batches(heimdall_dir):
+class NonFinite(ValueError):
+    pass
+
+
+def reject_constant(name):
+    raise NonFinite(name)
+
+
+def read_batches(heimdall_dir, nonfinite=None):
+    """Raw batches in name order (offset, then feed, then arrival). Observations with NaN or
+    Infinity are dropped and counted per feed in `nonfinite`; unreadable lines are dropped."""
+    nonfinite = {} if nonfinite is None else nonfinite
     batches = []
     for path in sorted(glob.glob(os.path.join(heimdall_dir, "*.jsonl"))):
         parsed = parse_heimdall_name(os.path.basename(path))
@@ -124,7 +211,10 @@ def read_batches(heimdall_dir):
                 if not line.strip():
                     continue
                 try:
-                    o = json.loads(line)
+                    o = json.loads(line, parse_constant=reject_constant)
+                except NonFinite:
+                    nonfinite[parsed[1]] = nonfinite.get(parsed[1], 0) + 1
+                    continue
                 except ValueError:
                     continue
                 if isinstance(o, dict):
@@ -152,12 +242,26 @@ def dir_size(path):
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs)
 
 
+def link_or_copy(src, dst):
+    """Hard-link `src` at `dst` (no second copy on disk); copy if linking is not possible."""
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(dst)
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)
+
+
 def pack(raw, out, quiet=False):
-    """Pack a raw capture into a recording at `out`; returns the summary."""
+    """Pack a raw capture into a recording at `out`; returns the summary.
+
+    Thinning keys on (kind, entity) across all feeds: adsb-fi's and adsb-lol's reports of
+    one aircraft are thinned together, deliberately (one track every 30 s is enough)."""
     with open(os.path.join(raw, "meta.json")) as f:
         meta = json.load(f)
     recorded_from = int(meta["recordedFrom"])
-    batches = drop_empty(thin(drop_cameras(read_batches(os.path.join(raw, "heimdall")))))
+    nonfinite = {}
+    batches = drop_empty(thin(drop_cameras(read_batches(os.path.join(raw, "heimdall"), nonfinite))))
     forge = read_forge(os.path.join(raw, "forge"))
     offsets = [b["offset"] for b in batches] + [f[0] for f in forge]
     if not offsets:
@@ -168,11 +272,12 @@ def pack(raw, out, quiet=False):
     with gzip.open(os.path.join(out, "heimdall.jsonl.gz"), "wt", encoding="utf-8") as f:
         for b in batches:
             f.write(json.dumps({"offset": b["offset"], "feed": b["feed"],
-                                "observations": b["observations"]}, separators=(",", ":")) + "\n")
+                                "observations": b["observations"]}, separators=(",", ":"),
+                               allow_nan=False) + "\n")
     manifest = []
     for offset, file, src in forge:
         rel = f"forge/{offset:06d}-{file}"
-        shutil.copyfile(src, os.path.join(out, rel))
+        link_or_copy(src, os.path.join(out, rel))
         manifest.append({"offset": offset, "file": file, "path": rel})
     with open(os.path.join(out, "forge", "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=1)
@@ -185,8 +290,11 @@ def pack(raw, out, quiet=False):
         json.dump({"version": 1, "recordedFrom": recorded_from, "duration": duration,
                    "feeds": feeds, "forgeFiles": forge_files}, f, indent=1)
 
+    raw_mb = dir_size(raw) / 1e6
     summary = {
-        "mb": dir_size(out) / 1e6 - (dir_size(raw) / 1e6 if is_inside(raw, out) else 0),
+        "mb": dir_size(out) / 1e6 - (raw_mb if is_inside(raw, out) else 0),
+        "raw_mb": raw_mb,
+        "nonfinite": nonfinite,
         "duration": duration,
         "feeds": {feed: (sum(1 for b in batches if b["feed"] == feed),
                          sum(len(b["observations"]) for b in batches if b["feed"] == feed))
@@ -194,9 +302,11 @@ def pack(raw, out, quiet=False):
         "forge": {file: sum(1 for m in manifest if m["file"] == file) for file in forge_files},
     }
     if not quiet:
-        print(f"packed {out}: {summary['mb']:.1f} MB, {duration} s")
+        print(f"packed {out}: {summary['mb']:.1f} MB (raw capture {raw_mb:.1f} MB), {duration} s")
         for feed, (n, o) in summary["feeds"].items():
             print(f"  {feed:<24} {n:>5} batches {o:>8} observations")
+        for feed, n in sorted(nonfinite.items()):
+            print(f"  {feed:<24} {n:>5} observations dropped for NaN/Infinity")
         for file, n in summary["forge"].items():
             print(f"  forge {file:<18} {n:>5} versions")
     return summary
@@ -209,56 +319,47 @@ def is_inside(path, parent):
 
 # ---- capture (live) ----
 
-def heimdall_sources():
-    """(feed, path) of every file the feeds write before sending."""
-    found = [(os.path.splitext(os.path.basename(p))[0], p)
-             for p in sorted(glob.glob(os.path.join(FEEDS, "out", "*.jsonl")))]
-    if os.path.exists(ADSB_LOL):
-        found.append(("adsb-lol", ADSB_LOL))
-    return found
+def run_script(name):
+    """Run a feeds script in its own session (Ctrl-C does not reach it); True if it worked."""
+    r = subprocess.run(["bash", os.path.join(FEEDS, name)], start_new_session=True)
+    if r.returncode != 0:
+        print(f"{name} exited with {r.returncode}", file=sys.stderr)
+    return r.returncode == 0
 
 
 def restart_feeds():
     """Restart the feeds runner with its memory of what it sent cleared, so every source
-    sends everything once."""
-    subprocess.run(["bash", os.path.join(FEEDS, "stop.sh")], check=False)
+    sends everything once. True if the runner is running afterwards."""
+    if not run_script("stop.sh"):
+        return False
     print("stopped the feeds runner")
     removed = 0
     for p in glob.glob(os.path.join(FEEDS, "state", "last_sent", "*.json")):
         os.remove(p)
         removed += 1
     print(f"cleared {removed} last-sent records")
-    subprocess.run(["bash", os.path.join(FEEDS, "start.sh")], check=False)
+    if not run_script("start.sh"):
+        return False
+    time.sleep(START_WAIT_S)
+    if not pid_alive(FEEDS_PID):
+        return False
     print("started the feeds runner: every source sends everything once")
+    return True
 
 
-def capture(raw, recorded_from, until, stop):
-    """Poll the live files until `until` (or stop()), copying each stable new version."""
+def capture(raw, recorded_from, until, stop, forge_last):
+    """Until `until` (or stop()), move the hook's batches in and copy each stable new
+    version of adsb.lol's batch and of the Forge CSVs. `forge_last` holds each CSV's mtime
+    at its offset-0 copy."""
+    incoming = os.path.join(raw, "incoming")
     hdir, fdir = os.path.join(raw, "heimdall"), os.path.join(raw, "forge")
-    last = {p: os.path.getmtime(p) for p in glob.glob(os.path.join(FORGE_DATA, "*.csv"))}
+    last = dict(forge_last)
     taken = set(os.listdir(hdir))
     batches, versions, next_progress = 0, 0, time.time() + 60
     while not stop() and time.time() < until:
         now = time.time()
-        for feed, path in heimdall_sources():
-            try:
-                mtime = os.path.getmtime(path)
-                if not should_copy(mtime, now, last.get(path), recorded_from):
-                    continue
-                with open(path, encoding="utf-8") as f:
-                    text = f.read()
-                if os.path.getmtime(path) != mtime or not valid_jsonl(text):
-                    continue  # changed while read, or mid-write: next poll
-            except (OSError, UnicodeDecodeError):
-                continue
-            last[path] = mtime
-            if not text.strip():
-                continue
-            name = heimdall_name(offset_of(mtime, recorded_from), feed, taken)
-            taken.add(name)
-            with open(os.path.join(hdir, name), "w", encoding="utf-8") as f:
-                f.write(text)
-            batches += 1
+        batches += move_incoming(incoming, hdir, recorded_from, taken)
+        batches += copy_adsb_lol(hdir, recorded_from, now, last, taken)
         for path in glob.glob(os.path.join(FORGE_DATA, "*.csv")):
             try:
                 mtime = os.path.getmtime(path)
@@ -271,61 +372,104 @@ def capture(raw, recorded_from, until, stop):
             last[path] = mtime
             versions += 1
         if now >= next_progress:
-            print(f"{int(now - recorded_from) // 60} min: {batches} batches, {versions} Forge versions")
+            line = f"{int(now - recorded_from) // 60} min: {batches} batches, {versions} Forge versions"
+            if batches == 0 and now - recorded_from >= NO_BATCH_WARN_S:
+                line += " -- WARNING: no Heimdall batch yet; is the feeds runner sending?"
+            print(line)
             next_progress += 60
         time.sleep(POLL_S)
     return batches, versions
 
 
-def record(minutes, name):
+def copy_adsb_lol(hdir, recorded_from, now, last, taken):
+    """Copy a new, stable, complete heimdall-poc/batch.jsonl; returns 1 if copied."""
+    try:
+        mtime = os.path.getmtime(ADSB_LOL)
+        if not should_copy(mtime, now, last.get(ADSB_LOL), recorded_from):
+            return 0
+        with open(ADSB_LOL, encoding="utf-8") as f:
+            text = f.read()
+        if os.path.getmtime(ADSB_LOL) != mtime or not valid_jsonl(text):
+            return 0  # changed while read, or mid-write: next poll
+    except (OSError, UnicodeDecodeError):
+        return 0
+    last[ADSB_LOL] = mtime
+    if not text.strip():
+        return 0
+    name = heimdall_name(offset_of(mtime, recorded_from), "adsb-lol", taken)
+    taken.add(name)
+    with open(os.path.join(hdir, name), "w", encoding="utf-8") as f:
+        f.write(text)
+    return 1
+
+
+def record(minutes, name, drop_raw=False):
     out = os.path.join(RECORDINGS, name)
     if os.path.exists(out):
         raise SystemExit(f"{out} already exists: choose another --name")
     raw = os.path.join(out, "raw")
-    os.makedirs(os.path.join(raw, "heimdall"))
-    os.makedirs(os.path.join(raw, "forge"))
+    for sub in ("heimdall", "forge", "incoming"):
+        os.makedirs(os.path.join(raw, sub))
 
     recorded_from = int(time.time())
-    csvs = sorted(glob.glob(os.path.join(FORGE_DATA, "*.csv")))
-    for p in csvs:
+    forge_last = {}
+    for p in sorted(glob.glob(os.path.join(FORGE_DATA, "*.csv"))):
+        forge_last[p] = os.path.getmtime(p)
         shutil.copyfile(p, os.path.join(raw, "forge", f"000000-{os.path.basename(p)}"))
     jobs = os.path.join(FORGE_DATA, "jobs.json")
     if os.path.isfile(jobs):
         shutil.copyfile(jobs, os.path.join(raw, "forge", "jobs.json"))
-    print(f"recording into {out}: {len(csvs)} Forge files copied at the start")
+    print(f"recording into {out}: {len(forge_last)} Forge files copied at the start")
 
     stopping = []
-    signal.signal(signal.SIGINT, lambda *_: (stopping.append(1), print("\nstopping: packing what was captured")))
-    restart_feeds()
-    print(f"capturing for {minutes} min (Ctrl-C stops early)")
-    batches, versions = capture(raw, recorded_from, recorded_from + minutes * 60, lambda: bool(stopping))
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    def on_sigint(*_):
+        if not stopping:
+            print("\nstopping: packing what was captured")
+        stopping.append(1)
+
+    signal.signal(signal.SIGINT, on_sigint)
+    incoming = os.path.join(raw, "incoming")
+    try:
+        with record_to(RECORD_TO, incoming):
+            if not restart_feeds():
+                raise SystemExit("feeds runner did not start: run heimdall-poc/feeds/start.sh")
+            print(f"capturing for {minutes:g} min (Ctrl-C stops early)")
+            batches, versions = capture(raw, recorded_from, recorded_from + minutes * 60,
+                                        lambda: bool(stopping), forge_last)
+        time.sleep(STABLE_S)  # a batch the hook was writing as it was removed
+        batches += move_incoming(incoming, os.path.join(raw, "heimdall"), recorded_from,
+                                 set(os.listdir(os.path.join(raw, "heimdall"))))
+    finally:
+        signal.signal(signal.SIGINT, signal.default_int_handler)
 
     duration = max(1, int(time.time() - recorded_from))
     with open(os.path.join(raw, "meta.json"), "w") as f:
         json.dump({"recordedFrom": recorded_from, "duration": duration}, f)
     print(f"captured {batches} batches and {versions} Forge versions in {duration} s")
     pack(raw, out)
+    if drop_raw:
+        shutil.rmtree(raw)
+        print(f"removed the raw capture {raw}")
 
 
 def main(argv):
-    if len(argv) >= 1 and argv[0] == "record":
-        args = argv[1:]
-        minutes, name = 60.0, time.strftime("rec-%Y%m%d-%H%M")
-        try:
-            if "--minutes" in args:
-                minutes = float(args[args.index("--minutes") + 1])
-            if "--name" in args:
-                name = args[args.index("--name") + 1]
-        except (IndexError, ValueError):
-            raise SystemExit(__doc__)
-        if minutes <= 0 or not plain(name):
-            raise SystemExit("--minutes must be positive and --name a plain name")
-        record(minutes, name)
-    elif len(argv) == 3 and argv[0] == "pack":
-        pack(argv[1], argv[2])
+    ap = argparse.ArgumentParser(description="Record the live feeds for midgard-replay, or re-pack a capture.")
+    sub = ap.add_subparsers(dest="command", required=True)
+    rec = sub.add_parser("record", help="capture the live feeds, then pack")
+    rec.add_argument("--minutes", type=float, default=60.0)
+    rec.add_argument("--name", default=time.strftime("rec-%Y%m%d-%H%M"))
+    rec.add_argument("--drop-raw", action="store_true", help="delete raw/ after a successful pack")
+    pk = sub.add_parser("pack", help="pack a raw capture into a recording")
+    pk.add_argument("raw_dir")
+    pk.add_argument("out_dir")
+    args = ap.parse_args(argv)
+    if args.command == "record":
+        if args.minutes <= 0 or not plain(args.name):
+            ap.error("--minutes must be positive and --name a plain name")
+        record(args.minutes, args.name, args.drop_raw)
     else:
-        raise SystemExit(__doc__)
+        pack(args.raw_dir, args.out_dir)
 
 
 if __name__ == "__main__":

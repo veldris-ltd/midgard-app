@@ -3,7 +3,13 @@ capture rule that decides when a changed file is copied.
 
     python3 -m unittest tools/mac-app/test_record.py -v
 """
-import gzip, json, os, sys, tempfile, unittest
+import gzip
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import record  # noqa: E402
@@ -74,7 +80,7 @@ class PackTest(unittest.TestCase):
 
         heimdall("000007-usgs.jsonl", [obs("Q1", "earthquake", t + 7)])
         heimdall("000000-adsb-fi.jsonl", [obs("A1", "air-track", t)])
-        heimdall("000000-adsb-fi~2.jsonl", [obs("A2", "air-track", t)])
+        heimdall("000000-adsb-fi~002.jsonl", [obs("A2", "air-track", t)])
         heimdall("000003-cams.jsonl", [obs("C1", "land-camera", t)])
         heimdall("000002-adsb-lol.jsonl", [obs("A3", "air-track", t + 2), obs("A1", "air-track", t + 2)])
         for name, body in [("000000-aircraft.csv", "a,b\r\n1,2\r\n"),
@@ -120,8 +126,121 @@ class PackTest(unittest.TestCase):
 
     def test_parse_heimdall_name(self):
         self.assertEqual(record.parse_heimdall_name("000012-adsb-fi.jsonl"), (12, "adsb-fi"))
-        self.assertEqual(record.parse_heimdall_name("000012-adsb-fi~3.jsonl"), (12, "adsb-fi"))
+        self.assertEqual(record.parse_heimdall_name("000012-adsb-fi~003.jsonl"), (12, "adsb-fi"))
         self.assertIsNone(record.parse_heimdall_name("notes.txt"))
+
+
+class PackDetailsTest(unittest.TestCase):
+    T = 1_792_000_000
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.raw = os.path.join(self.tmp.name, "raw")
+        self.out = os.path.join(self.tmp.name, "rec")
+        os.makedirs(os.path.join(self.raw, "heimdall"))
+        os.makedirs(os.path.join(self.raw, "forge"))
+        with open(os.path.join(self.raw, "meta.json"), "w") as f:
+            json.dump({"recordedFrom": self.T, "duration": 3}, f)
+
+    def test_nan_and_infinity_observations_dropped_and_counted(self):
+        lines = ['{"entity":"Q1","kind":"earthquake","observedAt":%d,"attrs":{"mag":NaN}}' % self.T,
+                 '{"entity":"Q2","kind":"earthquake","observedAt":%d,"attrs":{"mag":-Infinity}}' % self.T,
+                 '{"entity":"Q3","kind":"earthquake","observedAt":%d,"attrs":{"mag":4.1}}' % self.T]
+        with open(os.path.join(self.raw, "heimdall", "000001-usgs.jsonl"), "w") as f:
+            f.write("\n".join(lines) + "\n")
+        summary = record.pack(self.raw, self.out, quiet=True)
+        self.assertEqual(summary["nonfinite"], {"usgs": 2})
+        self.assertEqual(summary["feeds"]["usgs"], (1, 1))
+
+        def reject(c):
+            raise ValueError(c)
+        with gzip.open(os.path.join(self.out, "heimdall.jsonl.gz"), "rt") as f:
+            got = [json.loads(l, parse_constant=reject) for l in f if l.strip()]
+        self.assertEqual([o["entity"] for o in got[0]["observations"]], ["Q3"])
+
+    def test_forge_files_hard_linked(self):
+        src = os.path.join(self.raw, "forge", "000000-aircraft.csv")
+        with open(src, "w") as f:
+            f.write("a\r\n")
+        record.pack(self.raw, self.out, quiet=True)
+        dst = os.path.join(self.out, "forge", "000000-aircraft.csv")
+        self.assertEqual(os.stat(src).st_ino, os.stat(dst).st_ino)
+        record.pack(self.raw, self.out, quiet=True)  # re-packing over the links works
+        self.assertTrue(os.path.isfile(dst))
+
+
+class IncomingTest(unittest.TestCase):
+    T = 1_792_000_000
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_parse_incoming_name(self):
+        ns = self.T * 10**9 + 123
+        self.assertEqual(record.parse_incoming_name(f"{ns}-regional-extra.jsonl"), (ns, "regional-extra"))
+        self.assertIsNone(record.parse_incoming_name(f".{ns}-regional-extra.jsonl"))
+        self.assertIsNone(record.parse_incoming_name("notes.txt"))
+
+    def test_move_incoming_keeps_every_batch_in_time_order(self):
+        inc = os.path.join(self.tmp.name, "incoming")
+        hdir = os.path.join(self.tmp.name, "heimdall")
+        os.makedirs(inc)
+        os.makedirs(hdir)
+        base = (self.T + 5) * 10**9
+        for i, ns in enumerate([base + 900_000_000, base + 100_000_000, base + 500_000_000]):
+            with open(os.path.join(inc, f"{ns}-regional-extra.jsonl"), "w") as f:
+                f.write('{"entity":"E%d"}\n' % i)
+        with open(os.path.join(inc, f".{base}-regional-extra.jsonl"), "w") as f:
+            f.write('{"entity":"half')  # still being written
+        with open(os.path.join(inc, f"{(self.T - 2) * 10**9}-usgs.jsonl"), "w") as f:
+            f.write('{"entity":"early"}\n')
+        taken = set()
+        moved = record.move_incoming(inc, hdir, self.T, taken)
+        self.assertEqual(moved, 4)
+        self.assertEqual(sorted(os.listdir(inc)), [f".{base}-regional-extra.jsonl"])
+        self.assertEqual(sorted(os.listdir(hdir)), ["000000-usgs.jsonl", "000005-regional-extra.jsonl",
+                                                     "000005-regional-extra~002.jsonl",
+                                                     "000005-regional-extra~003.jsonl"])
+
+        def entity(name):
+            with open(os.path.join(hdir, name)) as f:
+                return json.loads(f.readline())["entity"]
+        self.assertEqual([entity(n) for n in sorted(os.listdir(hdir))[1:]], ["E1", "E2", "E0"])
+        self.assertEqual(taken, set(os.listdir(hdir)))
+
+
+class HookAndRunnerTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_record_to_removed_even_on_error(self):
+        hook = os.path.join(self.tmp.name, "record_to")
+        target = os.path.join(self.tmp.name, "incoming")
+        os.makedirs(target)
+        with self.assertRaises(RuntimeError):
+            with record.record_to(hook, target):
+                with open(hook) as f:
+                    self.assertEqual(f.read().strip(), os.path.abspath(target))
+                raise RuntimeError("boom")
+        self.assertFalse(os.path.exists(hook))
+
+    def test_pid_alive(self):
+        pidfile = os.path.join(self.tmp.name, "feeds.pid")
+        self.assertFalse(record.pid_alive(pidfile))
+        with open(pidfile, "w") as f:
+            f.write(f"{os.getpid()}\n")
+        self.assertTrue(record.pid_alive(pidfile))
+        child = subprocess.Popen(["/usr/bin/true"])
+        child.wait()
+        with open(pidfile, "w") as f:
+            f.write(str(child.pid))
+        self.assertFalse(record.pid_alive(pidfile))
+        with open(pidfile, "w") as f:
+            f.write("garbage")
+        self.assertFalse(record.pid_alive(pidfile))
 
 
 class CaptureRuleTest(unittest.TestCase):
@@ -155,8 +274,10 @@ class CaptureRuleTest(unittest.TestCase):
         self.assertEqual(record.offset_of(self.T0 + 12.9, self.T0), 12)
         self.assertEqual(record.offset_of(self.T0 - 3, self.T0), 0)
         self.assertEqual(record.heimdall_name(12, "adsb-fi", set()), "000012-adsb-fi.jsonl")
-        taken = {"000012-adsb-fi.jsonl", "000012-adsb-fi~2.jsonl"}
-        self.assertEqual(record.heimdall_name(12, "adsb-fi", taken), "000012-adsb-fi~3.jsonl")
+        taken = {"000012-adsb-fi.jsonl", "000012-adsb-fi~002.jsonl"}
+        self.assertEqual(record.heimdall_name(12, "adsb-fi", taken), "000012-adsb-fi~003.jsonl")
+        names = ["000012-adsb-fi.jsonl"] + [f"000012-adsb-fi~{n:03d}.jsonl" for n in range(2, 12)]
+        self.assertEqual(sorted(names), names)
 
 
 if __name__ == "__main__":
