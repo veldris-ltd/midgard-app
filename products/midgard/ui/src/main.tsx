@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { initMode } from '@midgard/design-system';
-import { AuthGate } from '@midgard/ui-shared';
+import { AuthGate, gatewayBaseUrl } from '@midgard/ui-shared';
 import { MockGateway, createHttpGateway, login, type GatewayClient, type MarkingLevel } from '@midgard/sdk';
 import { router } from './app/routes';
 
@@ -22,7 +22,8 @@ initMode();
  * `MockGateway`). Screens are unchanged either way — they depend only on the
  * GatewayClient interface. */
 const mode: 'http' | 'mock' = import.meta.env.VITE_GATEWAY === 'mock' ? 'mock' : 'http';
-const baseUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://127.0.0.1:7710/api/v1';
+// The Mac app injects the gateway URL at run time; dev uses VITE_GATEWAY_URL or the local edge.
+const baseUrl = gatewayBaseUrl();
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

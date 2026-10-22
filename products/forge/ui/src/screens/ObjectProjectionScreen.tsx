@@ -13,7 +13,7 @@ import {
   Tag,
   Terminal,
 } from '@midgard/design-system';
-import { useAsync, useGateway } from '@midgard/ui-shared';
+import { midgardConsoleUrl, useAsync, useGateway } from '@midgard/ui-shared';
 import type { ForgeGateway, ForgeProjection, ForgeProjectionMapping } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
@@ -31,6 +31,13 @@ const KIND_TONE: Record<ForgeProjectionMapping['kind'], 'neutral' | 'accent' | '
  * Sourced from `listProjections()`. Reproduces forge/projection.html. */
 /** Where the Midgard console runs (the object fabric this projects into). */
 const MIDGARD_CONSOLE = import.meta.env.VITE_MIDGARD_CONSOLE_URL ?? 'http://localhost:5173/';
+
+/** The Mac app sets the Midgard console's URL and opens it in the same window; the dev
+ *  servers open it in a new tab. */
+function midgardLink(): { href: string; target?: string } {
+  const app = midgardConsoleUrl();
+  return app !== undefined ? { href: app } : { href: MIDGARD_CONSOLE, target: '_blank' };
+}
 
 export function ObjectProjectionScreen() {
   const live = useGateway<ForgeGateway>().live === true;
@@ -71,7 +78,7 @@ export function ObjectProjectionScreen() {
         </div>
       </div>
       {live ? (
-        <a href={MIDGARD_CONSOLE} target="_blank" rel="noreferrer" style={{ marginTop: 'auto', textDecoration: 'none' }}>
+        <a {...midgardLink()} rel="noreferrer" style={{ marginTop: 'auto', textDecoration: 'none' }}>
           <Button variant="secondary" size="sm" fullWidth iconLeft={<Icon name="arrow-up-right" size={14} />}>Open the Midgard console</Button>
         </a>
       ) : (

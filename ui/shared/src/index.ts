@@ -16,3 +16,4 @@ export { AuthGate } from './AuthGate';
 export type { AuthGateProps, Session } from './AuthGate';
 export { ModeToggle } from './ModeToggle';
 export { useResolvedMode } from './useResolvedMode';
+export { gatewayBaseUrl, midgardConsoleUrl } from './gateway';

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { initMode } from '@midgard/design-system';
-import { AuthGate } from '@midgard/ui-shared';
+import { AuthGate, gatewayBaseUrl } from '@midgard/ui-shared';
 import { HeimdallHttp, HeimdallMock, login, type HeimdallGateway } from '@midgard/sdk';
 import { router } from './app/routes';
 import { HeimdallStatusProvider } from './app/status';
@@ -23,7 +23,8 @@ initMode();
  *
  * Set `VITE_GATEWAY=mock` for an OFFLINE DEMO only (no sign-in, seeded fixtures). */
 const mode: 'http' | 'mock' = import.meta.env.VITE_GATEWAY === 'mock' ? 'mock' : 'http';
-const baseUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://127.0.0.1:7710/api/v1';
+// The Mac app injects the gateway URL at run time; dev uses VITE_GATEWAY_URL or the local edge.
+const baseUrl = gatewayBaseUrl();
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

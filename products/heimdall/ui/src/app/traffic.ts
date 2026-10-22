@@ -12,6 +12,7 @@ import * as React from 'react';
 import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
 import { RADAR_BOX } from './radar';
+import { OFFLINE } from './offline';
 
 export interface TrafficBox {
   west: number;
@@ -34,7 +35,8 @@ export type TrafficState =
   | { status: 'ready'; lines: TrafficLines; at: number }
   | { status: 'unavailable'; reason: string };
 
-const KEY = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TOMTOM_KEY;
+// Never read in the offline build, so no key is inlined into it.
+const KEY = OFFLINE ? undefined : (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TOMTOM_KEY;
 const OVERVIEW_ZOOM = 7;
 const REFRESH_MS = 5 * 60 * 1000;
 const MAX_TILES = 80;
@@ -49,6 +51,7 @@ const latOf = (y: number, z: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 *
 
 /** The traffic for a box from zoom-`z` flow tiles. */
 export async function loadTrafficLines(box: TrafficBox, z: number, signal?: AbortSignal): Promise<TrafficLines> {
+  if (OFFLINE) throw new Error('offline build');
   if (!KEY) throw new Error('no TomTom key (VITE_TOMTOM_KEY)');
   const x0 = Math.floor(tileX(box.west, z)), x1 = Math.floor(tileX(box.east, z));
   const y0 = Math.floor(tileY(box.north, z)), y1 = Math.floor(tileY(box.south, z));
@@ -85,7 +88,7 @@ export async function loadTrafficLines(box: TrafficBox, z: number, signal?: Abor
 export function useTraffic(on: boolean): TrafficState {
   const [state, setState] = React.useState<TrafficState>({ status: 'off' });
   React.useEffect(() => {
-    if (!on) {
+    if (!on || OFFLINE) {
       setState({ status: 'off' });
       return;
     }

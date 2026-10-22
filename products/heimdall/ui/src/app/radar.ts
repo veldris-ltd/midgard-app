@@ -9,6 +9,7 @@
  * Needs the internet: when anything fails the caller shows "RADAR UNAVAILABLE".
  * Attribution: "RainViewer" with the frame time, wherever the overlay shows. */
 import * as React from 'react';
+import { OFFLINE } from './offline';
 
 /** The box drawn: the same as the globe's terrain grid and the bundled imagery. */
 export const RADAR_BOX = { west: -12, east: 4, south: 48, north: 62 } as const;
@@ -51,6 +52,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 /** Read the newest radar frame and build the image. */
 export async function loadRadar(signal?: AbortSignal): Promise<RadarFrame> {
+  if (OFFLINE) throw new Error('offline build');
   const res = await fetch('https://api.rainviewer.com/public/weather-maps.json', { signal, cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const maps = (await res.json()) as { host?: string; radar?: { past?: { time: number; path: string }[] } };
@@ -96,7 +98,7 @@ export async function loadRadar(signal?: AbortSignal): Promise<RadarFrame> {
 export function useRadar(on: boolean): RadarState {
   const [state, setState] = React.useState<RadarState>({ status: 'off' });
   React.useEffect(() => {
-    if (!on) {
+    if (!on || OFFLINE) {
       setState({ status: 'off' });
       return;
     }

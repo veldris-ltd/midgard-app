@@ -10,6 +10,7 @@
  *     modified Copernicus Sentinel data 2016; CC BY 4.0), shaded with the same hillshade.
  * The caller lays it on the terrain surface. Needs the internet; without it the bundled
  * map stays. */
+import { OFFLINE } from '../offline';
 
 export interface Box {
   west: number;
@@ -77,6 +78,7 @@ async function mosaic(box: Box, z: number, url: (z: number, x: number, y: number
 
 /** Build the detail image for the box in the given style. */
 export async function buildDetail(box: Box, style: DetailStyle, signal?: AbortSignal): Promise<Detail> {
+  if (OFFLINE) throw new Error('offline build: the bundled map stays');
   const z = zoomFor(box);
   const W = 2048;
   const midLat = (box.north + box.south) / 2;

@@ -23,6 +23,7 @@ import { useStatus } from '../app/status';
 import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
 import { radarLabel, useRadar, RADAR_BOX } from '../app/radar';
 import { trafficLabel, useTraffic, TRAFFIC_COLOURS, type TrafficLines } from '../app/traffic';
+import { OFFLINE } from '../app/offline';
 import { useWatchlist, type Watchlist } from '../app/watchlist';
 import { AreaLayer, ToolLayer } from '../app/MapOverlays2D';
 import type { LatLon } from '../app/geoMath';
@@ -1659,10 +1660,11 @@ export function OperatingPictureScreen() {
         <Chip on={alertsOnMap} onClick={() => setAlertsOnMap(!alertsOnMap)} tone={alertsOnMap && openAlerts.some((a) => a.severity === 'critical' && !a.acknowledgedBy) ? 'var(--danger)' : undefined}
           label={alertsOnMap ? 'Hide alerts on the map' : 'Show open alerts on the map'}>ALERTS {alertMarks.length || openAlerts.length}</Chip>
         {gulfWatch.length > 0 && <Chip on={gulfWatchOn} onClick={() => setGulfWatchOn(!gulfWatchOn)} label={gulfWatchOn ? 'Hide the Gulf watch list' : 'Show the Gulf watch list'}>GULF WATCH</Chip>}
-        <Chip on={radarOn} onClick={() => setRadarOn(!radarOn)} tone={radar.status === 'unavailable' ? 'var(--warn)' : undefined}
-          label={radarOn ? 'Hide rain radar' : 'Show rain radar (RainViewer, needs the internet)'}>{radarLabel(radar)}</Chip>
-        <Chip on={trafficOn} onClick={() => setTrafficOn(!trafficOn)} tone={traffic.status === 'unavailable' ? 'var(--warn)' : undefined}
-          label={trafficOn ? 'Hide live traffic' : 'Show live traffic (TomTom, needs the internet): green light, amber moderate, red heavy, dark red closed'}>{trafficLabel(traffic)}</Chip>
+        {/* RADAR and TRAFFIC need the internet: not in the offline build (app/offline.ts). */}
+        {!OFFLINE && <Chip on={radarOn} onClick={() => setRadarOn(!radarOn)} tone={radar.status === 'unavailable' ? 'var(--warn)' : undefined}
+          label={radarOn ? 'Hide rain radar' : 'Show rain radar (RainViewer, needs the internet)'}>{radarLabel(radar)}</Chip>}
+        {!OFFLINE && <Chip on={trafficOn} onClick={() => setTrafficOn(!trafficOn)} tone={traffic.status === 'unavailable' ? 'var(--warn)' : undefined}
+          label={trafficOn ? 'Hide live traffic' : 'Show live traffic (TomTom, needs the internet): green light, amber moderate, red heavy, dark red closed'}>{trafficLabel(traffic)}</Chip>}
         {(
           <Chip on={measuring} onClick={() => { if (measuring) { setMeasuring(false); setMeasurePts([]); } else setMeasuring(true); }} label="Measure: click two points; Escape clears">
             {measuring ? (measurePts.length < 2 ? `MEASURE · CLICK POINT ${measurePts.length + 1}` : 'MEASURE · ESC CLEARS') : 'MEASURE'}

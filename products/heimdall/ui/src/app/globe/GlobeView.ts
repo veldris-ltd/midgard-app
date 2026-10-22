@@ -41,6 +41,7 @@ import { URBAN } from '../places';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { buildDetail, zoomFor, type Box } from './detailPatch';
+import { OFFLINE } from '../offline';
 import { loadTrafficLines, TRAFFIC_COLOURS, type TrafficLines } from '../traffic';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
 import { D2R, EARTH_KM, drawnHeight, enu, raySphere, toVec } from './geo';
@@ -1933,6 +1934,7 @@ export class GlobeView {
     const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
     const box: Box = { west: lon - span / cos / 2, east: lon + span / cos / 2, south: lat - span / 2, north: lat + span / 2 };
     this.updateTraffic(box);
+    if (OFFLINE) return; // the offline build keeps the bundled map close up
     const key = `${this.mapStyle}:${box.west.toFixed(3)}:${box.south.toFixed(3)}:${span.toFixed(3)}:${this.exaggeration}`;
     if (key === this.detailWant || key === this.detail?.key) return;
     this.detailWant = key;
