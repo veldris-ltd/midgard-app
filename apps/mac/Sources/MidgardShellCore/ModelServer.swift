@@ -19,34 +19,67 @@ public struct ModelServer: Sendable, Equatable {
         public var arm64: Bool
         /// Physical cores: the Intel build's thread count.
         public var physicalCores: Int
+        /// MIDGARD_FORCE_INTEL_MODEL=1 asked for the Intel build (to test it on Apple Silicon).
+        public var forcedIntel: Bool
 
-        public init(arm64: Bool, physicalCores: Int) {
+        public init(arm64: Bool, physicalCores: Int, forcedIntel: Bool = false) {
             self.arm64 = arm64
             self.physicalCores = physicalCores
+            self.forcedIntel = forcedIntel
         }
 
         /// This Mac's (see `from`).
-        public static func thisMac() -> Hardware {
-            from(sysctl: sysctlInt, activeProcessors: ProcessInfo.processInfo.activeProcessorCount)
+        public static func thisMac(
+            environment: [String: String] = ProcessInfo.processInfo.environment
+        ) -> Hardware {
+            from(sysctl: sysctlInt, activeProcessors: ProcessInfo.processInfo.activeProcessorCount,
+                 environment: environment)
         }
 
         /// Apple Silicon if `hw.optional.arm64` is 1 or the process is translated by Rosetta
         /// (`sysctl.proc_translated` 1: only Apple Silicon runs Rosetta); cores from
         /// `hw.physicalcpu`, else `activeProcessors`. `sysctl` returns nil for a missing name.
-        static func from(sysctl: (String) -> Int?, activeProcessors: Int) -> Hardware {
-            Hardware(arm64: sysctl("hw.optional.arm64") == 1 || sysctl("sysctl.proc_translated") == 1,
-                     physicalCores: sysctl("hw.physicalcpu") ?? activeProcessors)
+        /// For tests on Apple Silicon, MIDGARD_FORCE_INTEL_MODEL=1 picks the Intel build
+        /// (always honoured: it can only choose the slower CPU path) and
+        /// MIDGARD_MODEL_THREADS=N (a positive number) sets the thread count.
+        static func from(sysctl: (String) -> Int?, activeProcessors: Int,
+                         environment: [String: String] = [:]) -> Hardware {
+            let forced = environment["MIDGARD_FORCE_INTEL_MODEL"] == "1"
+            let arm64 = !forced && (sysctl("hw.optional.arm64") == 1 || sysctl("sysctl.proc_translated") == 1)
+            var cores = sysctl("hw.physicalcpu") ?? activeProcessors
+            if let n = environment["MIDGARD_MODEL_THREADS"].flatMap({ Int($0) }), n > 0 { cores = n }
+            return Hardware(arm64: arm64, physicalCores: cores, forcedIntel: forced)
         }
+    }
+
+    /// Where to find llama-server: in an app bundle only the bundled one for this chip
+    /// (`helpers/llama/{arm64,x64}/llama-server`), nil if it is missing or not executable,
+    /// so a damaged install says so rather than running something else. A development
+    /// layout falls back to `helpers/llama-server`, then Homebrew's (`/opt/homebrew/bin`,
+    /// `/usr/local/bin`).
+    public static func locate(hardware: Hardware, helpers: URL, devLayout: Bool,
+                              isExecutable: (String) -> Bool) -> URL? {
+        let bundled = bundledExecutable(hardware: hardware, helpers: helpers)
+        var candidates = [bundled]
+        if devLayout {
+            candidates += [helpers.appendingPathComponent("llama-server"),
+                           URL(fileURLWithPath: "/opt/homebrew/bin/llama-server"),
+                           URL(fileURLWithPath: "/usr/local/bin/llama-server")]
+        }
+        return candidates.first { isExecutable($0.path) }
+    }
+
+    static func bundledExecutable(hardware: Hardware, helpers: URL) -> URL {
+        helpers.appendingPathComponent("llama", isDirectory: true)
+            .appendingPathComponent(hardware.arm64 ? "arm64" : "x64", isDirectory: true)
+            .appendingPathComponent("llama-server")
     }
 
     /// Apple Silicon: `helpers/llama/arm64/llama-server`, all layers on the GPU (Metal).
     /// Intel: `helpers/llama/x64/llama-server`, CPU only, one thread per physical core
     /// (at least one).
     public static func choose(hardware: Hardware, helpers: URL, models: URL, port: UInt16) -> ModelServer {
-        let arch = hardware.arm64 ? "arm64" : "x64"
-        let executable = helpers.appendingPathComponent("llama", isDirectory: true)
-            .appendingPathComponent(arch, isDirectory: true)
-            .appendingPathComponent("llama-server")
+        let executable = bundledExecutable(hardware: hardware, helpers: helpers)
         var arguments = [
             "-m", models.appendingPathComponent(model).path,
             "--alias", "granite-3.3-2b-instruct-q4km",

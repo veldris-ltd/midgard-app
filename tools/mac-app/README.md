@@ -199,16 +199,28 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
   costs little extra disk while it stays on the same volume as its sources. With the Rust
   and Swift builds up to date, a build takes about 20 seconds.
 - The model server: the build runs `fetch-llama.sh` (`--skip-llama` reuses
-  `~/Library/Caches/midgard-build/llama/current` as it is) and copies both builds, as real
-  files, into `Contents/Helpers/llama/{arm64,x64}`; every Mach-O there is signed ad hoc and
-  verified before the bundle. `Info.plist` asks for macOS 13.3 (`LSMinimumSystemVersion`),
-  what both llama.cpp builds need; the app's system check says so on an older Mac.
+  `~/Library/Caches/midgard-build/llama/current` as it is) and copies the Mach-O files of
+  both builds (`llama-server` and its dylibs), as real files, into
+  `Contents/Helpers/llama/{arm64,x64}`; llama.cpp's LICENSE goes to
+  `Contents/Resources/licenses/llama.cpp-LICENSE` (one copy when both are the same).
+  codesign treats `Helpers` as nested code, so the build fails if anything there is not
+  Mach-O (checked by the first four bytes). Every Mach-O there is signed ad hoc and verified
+  before the bundle; `fetch-llama.sh` already signed the x64 build, and signing it again
+  here is deliberate (every helper carries this build's signature). `Info.plist` asks for
+  macOS 13.3 (`LSMinimumSystemVersion`), what both llama.cpp builds need; the app's system
+  check says so on an older Mac.
 - The app runs `Helpers/llama/arm64/llama-server` with `--n-gpu-layers 99` (Metal) on
   Apple Silicon, also when the shell itself runs under Rosetta (`hw.optional.arm64` or
   `sysctl.proc_translated`), and `Helpers/llama/x64/llama-server` with `--n-gpu-layers 0`
-  and `--threads <physical cores>` (`hw.physicalcpu`) on Intel. A development run without
-  the bundled server (no bundle) falls back to `$MIDGARD_APP_RESOURCES/bin/llama-server`, then
-  Homebrew's (`/opt/homebrew/bin`, `/usr/local/bin`; `brew install llama.cpp`).
+  and `--threads <physical cores>` (`hw.physicalcpu`) on Intel. An installed app uses only
+  the bundled server: if it is missing it says "The model server is missing — install
+  Midgard again." A development layout (no bundle, or `MIDGARD_APP_RESOURCES` set) falls back
+  to `<helpers>/llama-server`, then Homebrew's (`/opt/homebrew/bin`, `/usr/local/bin`;
+  `brew install llama.cpp`).
+- Testing the Intel path on Apple Silicon: `MIDGARD_FORCE_INTEL_MODEL=1` makes the app run
+  the x64 server on the CPU (logged as "forced Intel model server"), and
+  `MIDGARD_MODEL_THREADS=N` sets its thread count, e.g.
+  `MIDGARD_FORCE_INTEL_MODEL=1 MIDGARD_MODEL_THREADS=4 arch -x86_64 Midgard.app/Contents/MacOS/Midgard`.
 - Signing, notarisation and delivery for phase 5: "Phase 5 notes" in
   `docs/plans/2026-10-22-mac-presentation-app-design.md`.
 

@@ -8,13 +8,16 @@
 # then swapped in:
 #   Contents/Info.plist, MacOS/Midgard, Helpers/<service binaries>,
 #   Helpers/llama/{arm64,x64}/ (llama-server and its dylibs, from fetch-llama.sh),
+#   Resources/licenses/llama.cpp-LICENSE,
 #   Resources/{consoles,home,starting-state,models/{granite,trust}[,recording]}
 # The starting state comes from make-starting-state.sh (~/Library/Caches/midgard-build/
 # starting-state) and the model from ~/Desktop/Midgard/mimir-models; both are copied as
 # APFS clones (cp -c), so they share disk with their sources; across volumes the script
 # falls back to a plain copy after checking free space. The bundle must hold no symlinks
-# (codesign and the home page's web server refuse them). It is signed ad hoc: each helper
-# and every Mach-O of the model server, then the bundle. The shell runs the model server
+# (codesign and the home page's web server refuse them), and Helpers only Mach-O files
+# (codesign treats it as nested code). It is signed ad hoc: each helper and every Mach-O of
+# the model server, then the bundle. fetch-llama.sh signed the x64 server already; signing
+# it again here is deliberate: every Mach-O in Helpers gets this build's signature. The shell runs the model server
 # for the Mac's chip (arm64 with Metal, x64 on the CPU).
 #
 #   bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles] [--skip-llama]
@@ -74,6 +77,14 @@ done
 die() { echo "build-app: $*" >&2; exit 1; }
 free_kb() { df -k "$1" | awk 'NR == 2 { print $4 }'; }
 now() { date +%s; }
+# True if $1 is a Mach-O file (thin or universal, 32 or 64 bit, either byte order), by its
+# first four bytes.
+is_macho() {
+  case "$(od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n')" in
+    feedface|cefaedfe|feedfacf|cffaedfe|cafebabe|bebafeca) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 T0=$(now)
 
 # True if a process runs an executable inside $1 (compared as a fixed string, not a regex).
@@ -247,9 +258,28 @@ plutil -lint "$C/Info.plist"
 
 cp "$SHELL_BIN" "$C/MacOS/Midgard"
 for b in "${BINARIES[@]}"; do cp "$BIN/$b" "$C/Helpers/$b"; done
-# The model server: real files (-L dereferences the current symlink and anything inside).
-mkdir "$C/Helpers/llama"
-for a in "${LLAMA_ARCHES[@]}"; do cp -RL "$LLAMA/$a" "$C/Helpers/llama/$a"; done
+# The model server: only its Mach-O files go in Helpers (real files: -L dereferences);
+# llama.cpp's LICENSE goes in Resources/licenses (one copy when both builds' are the same).
+mkdir -p "$C/Helpers/llama" "$R/licenses"
+for a in "${LLAMA_ARCHES[@]}"; do
+  mkdir "$C/Helpers/llama/$a"
+  for f in "$LLAMA/$a"/*; do
+    name=$(basename "$f")
+    if [ "$name" = LICENSE ]; then
+      continue
+    elif [ -f "$f" ] && is_macho "$f"; then
+      cp -L "$f" "$C/Helpers/llama/$a/$name"
+    else
+      die "unexpected file in $LLAMA/$a: $name (only Mach-O files and LICENSE)"
+    fi
+  done
+done
+[ -f "$LLAMA/arm64/LICENSE" ] && [ -f "$LLAMA/x64/LICENSE" ] || die "llama.cpp's LICENSE is missing from $LLAMA/{arm64,x64}"
+if cmp -s "$LLAMA/arm64/LICENSE" "$LLAMA/x64/LICENSE"; then
+  cp -L "$LLAMA/arm64/LICENSE" "$R/licenses/llama.cpp-LICENSE"
+else
+  for a in "${LLAMA_ARCHES[@]}"; do cp -L "$LLAMA/$a/LICENSE" "$R/licenses/llama.cpp-LICENSE-$a"; done
+fi
 cp -RL "$CONSOLES" "$R/consoles"
 cp -RL apps/mac/Resources/home "$R/home"          # fonts is a symlink in the repo
 clone_copy "$STATE" "$R/starting-state"
@@ -274,16 +304,16 @@ $links"
 # the bundle (which seals the helpers' signatures and the resources); no --deep.
 echo "== signing (ad hoc)"
 xattr -cr "$NEW"
-for b in "${BINARIES[@]}"; do codesign --force --sign - "$C/Helpers/$b"; done
-# Every Mach-O of the model server (llama-server and its dylibs; not LICENSE).
-LLAMA_MACHOS=()
+# Helpers is nested code to codesign: anything there that is not Mach-O fails the bundle.
 while IFS= read -r -d '' f; do
-  case "$(file -b "$f")" in Mach-O*) LLAMA_MACHOS+=("$f") ;; esac
-done < <(find "$C/Helpers/llama" -type f -print0)
-[ ${#LLAMA_MACHOS[@]} -gt 0 ] || die "no Mach-O files in Helpers/llama"
+  is_macho "$f" || die "not a Mach-O file in Contents/Helpers: ${f#"$C/"}"
+done < <(find "$C/Helpers" -type f -print0)
+for b in "${BINARIES[@]}"; do codesign --force --sign - "$C/Helpers/$b"; done
+# Every file of the model server (llama-server and its dylibs, all Mach-O as checked).
+LLAMA_MACHOS=()
+while IFS= read -r -d '' f; do LLAMA_MACHOS+=("$f"); done < <(find "$C/Helpers/llama" -type f -print0)
 for a in "${LLAMA_ARCHES[@]}"; do
-  case " ${LLAMA_MACHOS[*]} " in *" $C/Helpers/llama/$a/llama-server "*) ;;
-    *) die "no Mach-O llama-server in Helpers/llama/$a" ;; esac
+  [ -f "$C/Helpers/llama/$a/llama-server" ] || die "no llama-server in Helpers/llama/$a"
 done
 for f in "${LLAMA_MACHOS[@]}"; do codesign --force --sign - "$f"; done
 echo "model server: ${#LLAMA_MACHOS[@]} Mach-O files signed"

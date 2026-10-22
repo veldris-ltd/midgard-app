@@ -119,7 +119,8 @@ final class AppModel: ObservableObject {
     private var resources: URL { paths.resources }
     private var bin: URL { paths.helpers }
     private var startingState: URL { resources.appendingPathComponent("starting-state", isDirectory: true) }
-    /// In the model server's arguments (it runs from outside the helpers, e.g. Homebrew's).
+    /// In the model server's arguments: reaping knows it by this as well as by the helpers
+    /// folder (a development run may use one outside it, e.g. Homebrew's).
     private var modelsMarker: String { resources.appendingPathComponent("models", isDirectory: true).path + "/" }
 
     // MARK: Launch
@@ -377,18 +378,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The bundled model server for this Mac's chip (`Helpers/llama/{arm64,x64}`); without
-    /// it (a development run with no bundle) `bin/llama-server`, then Homebrew's.
-    private func llamaServer(_ models: URL, _ hardware: ModelServer.Hardware) -> (URL, bundled: Bool)? {
-        let fm = FileManager.default
-        let bundled = ModelServer.choose(hardware: hardware, helpers: bin, models: models, port: 0).executable
-        if fm.isExecutableFile(atPath: bundled.path) { return (bundled, true) }
-        let fallbacks = [bin.appendingPathComponent("llama-server"),
-                         URL(fileURLWithPath: "/opt/homebrew/bin/llama-server"),
-                         URL(fileURLWithPath: "/usr/local/bin/llama-server")]
-        return fallbacks.first { fm.isExecutableFile(atPath: $0.path) }.map { ($0, false) }
-    }
-
     private func recording() -> URL? {
         let dir = resources.appendingPathComponent("recording", isDirectory: true)
         let meta = dir.appendingPathComponent("meta.json")
@@ -400,12 +389,16 @@ final class AppModel: ObservableObject {
         statuses = [:]
         let models = resources.appendingPathComponent("models", isDirectory: true)
         let hardware = ModelServer.Hardware.thisMac()
-        guard let (llama, bundled) = llamaServer(models, hardware) else {
-            log("llama-server not found in \(bin.path)/llama/\(hardware.arm64 ? "arm64" : "x64"), \(bin.path) or Homebrew")
-            return fail("Midgard is incomplete",
-                        "The model server (llama-server) is missing from this copy of Midgard. Install Midgard again.",
+        if hardware.forcedIntel { log("forced Intel model server (MIDGARD_FORCE_INTEL_MODEL)") }
+        let fm = FileManager.default
+        guard let llama = ModelServer.locate(hardware: hardware, helpers: bin, devLayout: paths.devLayout,
+                                             isExecutable: { fm.isExecutableFile(atPath: $0) }) else {
+            let wanted = ModelServer.choose(hardware: hardware, helpers: bin, models: models, port: 0).executable
+            log("llama-server not found: \(wanted.path)" + (paths.devLayout ? ", \(bin.path)/llama-server or Homebrew" : ""))
+            return fail("Midgard is incomplete", "The model server is missing — install Midgard again.",
                         canRetry: false)
         }
+        let bundled = llama == ModelServer.choose(hardware: hardware, helpers: bin, models: models, port: 0).executable
         let launch = Launch(bin: bin, models: models, home: paths.home, logs: paths.logs, origin: origin,
                             recording: recording(), hardware: hardware, llama: bundled ? nil : llama)
         replaying = launch.recording != nil

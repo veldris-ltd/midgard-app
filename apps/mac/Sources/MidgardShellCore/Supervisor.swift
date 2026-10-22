@@ -410,7 +410,8 @@ public final class Supervisor: @unchecked Sendable {
 
     /// Ends every process whose executable is inside `binDir`, and (with `modelsPrefix`)
     /// every `llama-server` given a model under that folder (an argument starting with
-    /// it): the model server runs from outside `binDir` (Homebrew's), so it is known by its
+    /// it): the bundled model server is inside `binDir` (`llama/<arch>/`), but a
+    /// development run may use one outside it (Homebrew's), so it is also known by its
     /// name and its model. Nothing else is matched by its arguments, so a presenter's
     /// own tools on a model file are left alone. These are services a crashed shell left
     /// running, which would hold the state directories' locks and the model's memory. `midgard-replay` first, with its

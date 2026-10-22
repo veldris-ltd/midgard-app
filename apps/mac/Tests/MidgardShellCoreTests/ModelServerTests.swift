@@ -23,8 +23,69 @@ final class ModelServerTests: XCTestCase {
         XCTAssertFalse(server.arguments.contains("--threads"))
     }
 
-    func hardware(_ values: [String: Int], active: Int = 99) -> ModelServer.Hardware {
-        ModelServer.Hardware.from(sysctl: { values[$0] }, activeProcessors: active)
+    func hardware(_ values: [String: Int], active: Int = 99,
+                  environment: [String: String] = [:]) -> ModelServer.Hardware {
+        ModelServer.Hardware.from(sysctl: { values[$0] }, activeProcessors: active, environment: environment)
+    }
+
+    let appleSiliconSysctl = ["hw.optional.arm64": 1, "sysctl.proc_translated": 0, "hw.physicalcpu": 10]
+
+    func testForceIntelModelServer() {
+        let hw = hardware(appleSiliconSysctl, environment: ["MIDGARD_FORCE_INTEL_MODEL": "1"])
+        XCTAssertEqual(hw, .init(arm64: false, physicalCores: 10, forcedIntel: true))
+        let server = ModelServer.choose(hardware: hw, helpers: helpers, models: models, port: 1)
+        XCTAssertEqual(server.executable.path, "/App/Contents/Helpers/llama/x64/llama-server")
+        XCTAssertEqual(tail(server), ["--n-gpu-layers", "0", "--threads", "10"])
+        // Only "1" forces it; on Intel it changes nothing but is still reported.
+        XCTAssertEqual(hardware(appleSiliconSysctl, environment: ["MIDGARD_FORCE_INTEL_MODEL": "0"]),
+                       .init(arm64: true, physicalCores: 10))
+        XCTAssertEqual(hardware(["hw.physicalcpu": 2], environment: ["MIDGARD_FORCE_INTEL_MODEL": "1"]),
+                       .init(arm64: false, physicalCores: 2, forcedIntel: true))
+    }
+
+    func testModelThreadsOverride() {
+        XCTAssertEqual(hardware(["hw.physicalcpu": 2], environment: ["MIDGARD_MODEL_THREADS": "4"]),
+                       .init(arm64: false, physicalCores: 4))
+        XCTAssertEqual(
+            hardware(appleSiliconSysctl, environment: ["MIDGARD_FORCE_INTEL_MODEL": "1", "MIDGARD_MODEL_THREADS": "4"]),
+            .init(arm64: false, physicalCores: 4, forcedIntel: true))
+        // Not a positive number: ignored.
+        for bad in ["", "0", "-2", "four"] {
+            XCTAssertEqual(hardware(["hw.physicalcpu": 2], environment: ["MIDGARD_MODEL_THREADS": bad]),
+                           .init(arm64: false, physicalCores: 2), bad)
+        }
+    }
+
+    // MARK: Locating the executable
+
+    func locate(_ hw: ModelServer.Hardware, devLayout: Bool, present: Set<String>) -> URL? {
+        ModelServer.locate(hardware: hw, helpers: helpers, devLayout: devLayout,
+                           isExecutable: { present.contains($0) })
+    }
+
+    let arm = ModelServer.Hardware(arm64: true, physicalCores: 8)
+    let intel = ModelServer.Hardware(arm64: false, physicalCores: 4)
+    let homebrew = "/opt/homebrew/bin/llama-server"
+
+    func testBundleUsesOnlyTheBundledServer() {
+        let all: Set = ["/App/Contents/Helpers/llama/arm64/llama-server", "/App/Contents/Helpers/llama-server",
+                        homebrew, "/usr/local/bin/llama-server"]
+        XCTAssertEqual(locate(arm, devLayout: false, present: all)?.path,
+                       "/App/Contents/Helpers/llama/arm64/llama-server")
+        // The Intel slice missing from an installed app: no fallback, even with Homebrew's.
+        XCTAssertNil(locate(intel, devLayout: false, present: all))
+        XCTAssertNil(locate(arm, devLayout: false, present: [homebrew]))
+    }
+
+    func testDevLayoutFallsBack() {
+        XCTAssertEqual(locate(intel, devLayout: true, present: ["/App/Contents/Helpers/llama/x64/llama-server", homebrew])?.path,
+                       "/App/Contents/Helpers/llama/x64/llama-server")
+        XCTAssertEqual(locate(arm, devLayout: true, present: ["/App/Contents/Helpers/llama-server", homebrew])?.path,
+                       "/App/Contents/Helpers/llama-server")
+        XCTAssertEqual(locate(arm, devLayout: true, present: [homebrew, "/usr/local/bin/llama-server"])?.path, homebrew)
+        XCTAssertEqual(locate(arm, devLayout: true, present: ["/usr/local/bin/llama-server"])?.path,
+                       "/usr/local/bin/llama-server")
+        XCTAssertNil(locate(arm, devLayout: true, present: []))
     }
 
     func testAppleSiliconNative() {
@@ -76,7 +137,7 @@ final class ModelServerTests: XCTestCase {
     }
 
     func testThisMac() throws {
-        let hw = ModelServer.Hardware.thisMac()
+        let hw = ModelServer.Hardware.thisMac(environment: [:])
         XCTAssertGreaterThan(hw.physicalCores, 0)
         #if arch(arm64)
         XCTAssertTrue(hw.arm64)

@@ -8,6 +8,9 @@ public struct Paths: Sendable, Equatable {
     /// The service executables: `Contents/Helpers` in the app bundle, `resources/bin` in
     /// a development layout (MIDGARD_APP_RESOURCES, or a shell run outside a bundle).
     public let helpers: URL
+    /// True unless the shell runs from an app bundle without MIDGARD_APP_RESOURCES: only a
+    /// development layout may fall back to a model server outside the helpers (Homebrew's).
+    public let devLayout: Bool
     /// The working copy of the starting state (H in the plan).
     public let home: URL
     /// One log per service plus shell.log.
@@ -23,11 +26,13 @@ public struct Paths: Sendable, Equatable {
         }
         let library = userHome.appendingPathComponent("Library", isDirectory: true)
         resources = pick("MIDGARD_APP_RESOURCES", bundleResources)
-        let devLayout = !(environment["MIDGARD_APP_RESOURCES"] ?? "").isEmpty
-        if let bundleHelpers, !devLayout {
+        let devResources = !(environment["MIDGARD_APP_RESOURCES"] ?? "").isEmpty
+        if let bundleHelpers, !devResources {
             helpers = bundleHelpers
+            devLayout = false
         } else {
             helpers = resources.appendingPathComponent("bin", isDirectory: true)
+            devLayout = true
         }
         home = pick("MIDGARD_APP_HOME",
                     library.appendingPathComponent("Application Support/Midgard", isDirectory: true))
