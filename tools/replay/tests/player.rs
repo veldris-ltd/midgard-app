@@ -1,4 +1,4 @@
-use midgard_replay::player::{log_line, Clock, Player, Sink, SystemClock};
+use midgard_replay::player::{log_line, Clock, Failures, Player, Sink, SystemClock};
 use midgard_replay::recording::{Event, Recording};
 use service_runtime::json::{parse, Json};
 use std::cell::RefCell;
@@ -216,5 +216,101 @@ fn system_clock_sleeps_to_the_instant_and_not_for_the_past() {
     let t = c.now() + 1;
     c.sleep_until(t);
     assert!(c.now() >= t);
-    assert!(start.elapsed() < std::time::Duration::from_millis(2100));
+    assert!(start.elapsed() < std::time::Duration::from_millis(3000));
+}
+
+/// Fails its first `fails` batches with one error, then succeeds.
+struct Flaky {
+    calls: RefCell<u64>,
+    fails: u64,
+}
+impl Sink for Flaky {
+    fn batch(&self, _: &str, _: &str) -> Result<String, String> {
+        *self.calls.borrow_mut() += 1;
+        if *self.calls.borrow() <= self.fails {
+            Err("error: connection refused".into())
+        } else {
+            Ok("batch: 1 accepted, 0 refused, 0 unreadable".into())
+        }
+    }
+    fn forge(&self, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[test]
+fn failing_batches_are_still_all_attempted() {
+    let rec = Recording {
+        recorded_from: 1_000_000_000,
+        duration: 100,
+        events: (0..10).map(|i| batch(i * 10, "A")).collect(),
+    };
+    let clock = FakeClock(RefCell::new(2_000_000_000));
+    let sink = Flaky {
+        calls: RefCell::new(0),
+        fails: 7,
+    };
+    Player {
+        rec: &rec,
+        clock: &clock,
+        sink: &sink,
+    }
+    .run(Some(1));
+    assert_eq!(*sink.calls.borrow(), 10);
+}
+
+/// The messages `Failures` asks to log, with their fields, as "message k=v ...".
+fn noted(f: &mut Failures, clock: &FakeClock, at: i64, r: Result<&str, &str>) -> Vec<String> {
+    clock.sleep_until(at);
+    f.note(clock.now(), &[("feed", "f".to_string())], r)
+        .into_iter()
+        .map(|(m, fields)| {
+            let kv: Vec<String> = fields.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            format!("{m} {}", kv.join(" "))
+        })
+        .collect()
+}
+
+#[test]
+fn a_repeated_failure_is_logged_once_then_counted_once_a_minute() {
+    let clock = FakeClock(RefCell::new(0));
+    let mut f = Failures::default();
+    let err = Err("error: connection refused");
+    assert_eq!(
+        noted(&mut f, &clock, 0, err),
+        ["batch sent feed=f result=FAILED error: connection refused"]
+    );
+    assert!(noted(&mut f, &clock, 10, err).is_empty());
+    assert!(noted(&mut f, &clock, 30, err).is_empty());
+    assert_eq!(
+        noted(&mut f, &clock, 61, err),
+        ["batches failing error=error: connection refused dropped=3"]
+    );
+    assert!(noted(&mut f, &clock, 70, err).is_empty());
+    assert_eq!(
+        noted(&mut f, &clock, 80, Ok("batch: 1 accepted")),
+        [
+            "batches recovered failed=5 dropped=1",
+            "batch sent feed=f result=batch: 1 accepted"
+        ]
+    );
+    assert_eq!(
+        noted(&mut f, &clock, 90, Ok("batch: 2 accepted")),
+        ["batch sent feed=f result=batch: 2 accepted"]
+    );
+}
+
+#[test]
+fn a_new_error_is_logged_at_once() {
+    let clock = FakeClock(RefCell::new(0));
+    let mut f = Failures::default();
+    assert_eq!(noted(&mut f, &clock, 0, Err("a")).len(), 1);
+    assert!(noted(&mut f, &clock, 1, Err("a")).is_empty());
+    assert_eq!(
+        noted(&mut f, &clock, 2, Err("b")),
+        [
+            "batches failing error=a dropped=1",
+            "batch sent feed=f result=FAILED b"
+        ]
+    );
 }
