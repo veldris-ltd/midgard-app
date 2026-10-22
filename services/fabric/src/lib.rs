@@ -43,7 +43,7 @@ pub use inference::Inference;
 pub use object::{LinkInstance, ObjectInstance};
 pub use query::Query;
 pub use retention::Retention;
-pub use store::{InMemoryStore, ObjectStore};
+pub use store::{InMemoryStore, ObjectStore, StoreOp};
 pub use types::{
     ActionType, Cardinality, Interface, LinkType, ObjectType, PropertyType, TypeRegistry,
 };

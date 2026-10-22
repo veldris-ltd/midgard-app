@@ -3,7 +3,8 @@
 Every durable store in Midgard is the **same primitive**: a KMS-sealed, append-only
 journal (`audit_writer::SealedJournal`) — encrypted at rest under the KMS envelope
 (AES-256-GCM under an ML-KEM-1024-wrapped key, sealed to the trust root), `fsync`ed per
-record, `0600`, with the record sequence bound into the AAD so a reordered or spliced
+record before it is acknowledged (the object fabric flushes a whole sync or retention
+sweep once, still before acknowledging it, and still one sealed frame per record), `0600`, with the record sequence bound into the AAD so a reordered or spliced
 record fails authentication. This uniformity is what makes backup and restore a single,
 tested procedure for all of them.
 

@@ -10,7 +10,9 @@
 //! 3. recorded — how many objects it creates and updates and links it adds — before
 //!    anything is written;
 //! 4. applied: objects are created or replaced, and a link already present is not
-//!    added again.
+//!    added again. The whole sync is written to the store's journal and flushed to
+//!    disk once, and only then acknowledged: an accepted sync is on disk, and one that
+//!    fails is not applied at all.
 //!
 //! Unlike an offline import, a sync replaces objects: it is how a source's changes reach
 //! the fabric, so syncing the same source twice leaves the fabric as it was. The
@@ -23,7 +25,7 @@ use std::collections::BTreeSet;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::Arc;
 
-use fabric::{DurableObjectStore, LedgerStore, ObjectStore, PolicyContext};
+use fabric::{DurableObjectStore, LedgerStore, ObjectStore, PolicyContext, StoreOp};
 use gateway::{Gateway, RequestHandler, Router};
 use policy::{
     ClassificationLevel, Clearance, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource,
@@ -73,6 +75,17 @@ fn reply(code: u8, message: &str) -> Vec<u8> {
 }
 
 impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
+    /// How many times the enclosure's object store has been flushed to disk since it
+    /// was opened: one per sync, sweep or other write, not one per record.
+    pub fn store_flushes(&self) -> u64 {
+        self.enclosure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .fabric()
+            .store()
+            .flushes()
+    }
+
     /// Sync `body`, import-format JSON Lines, from the authenticated workload `peer`,
     /// declared for `purpose`, at `now`.
     pub fn sync_records(
@@ -190,34 +203,45 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
             .map(action_owned_properties)
             .unwrap_or_default();
         let store = enclosure.fabric_mut().store_mut();
+        // The whole sync is one batch: every record is journalled, the journal is
+        // flushed once, and only then does the workload hear it was accepted.
+        let mut ops = Vec::with_capacity(import.objects.len() + links.len());
+        // Where each object of this sync sits in `ops`, so a later record for the same
+        // object keeps what the earlier one kept.
+        let mut pending: std::collections::BTreeMap<String, usize> = Default::default();
         for mut object in import.objects {
             // What people set through actions survives a feed's refresh of the object,
             // unless the feed itself carries that property.
-            if let (Some(props), Some(stored)) =
-                (owned.get(&object.type_id), store.get_object(&object.id))
-            {
-                for p in props {
-                    if !object.properties.contains_key(p) {
-                        if let Some(v) = stored.properties.get(p) {
-                            object.properties.insert(p.clone(), v.clone());
+            if let Some(props) = owned.get(&object.type_id) {
+                let previous = match pending.get(&object.id) {
+                    Some(&i) => match &ops[i] {
+                        StoreOp::PutObject(earlier) => Some(earlier),
+                        _ => None,
+                    },
+                    None => store.get_object(&object.id),
+                };
+                if let Some(stored) = previous {
+                    for p in props {
+                        if !object.properties.contains_key(p) {
+                            if let Some(v) = stored.properties.get(p) {
+                                object.properties.insert(p.clone(), v.clone());
+                            }
                         }
                     }
                 }
             }
-            if let Err(e) = store.put_object_durable(object) {
-                return reply(
-                    outcome::FAILED,
-                    &format!("the sync stopped part-way; the ledger records it: {e}"),
-                );
-            }
+            pending.insert(object.id.clone(), ops.len());
+            ops.push(StoreOp::PutObject(object));
         }
-        for link in links {
-            if let Err(e) = store.put_link_durable(link) {
-                return reply(
-                    outcome::FAILED,
-                    &format!("the sync stopped part-way; the ledger records it: {e}"),
-                );
-            }
+        ops.extend(links.into_iter().map(StoreOp::PutLink));
+        if let Err(e) = store.apply_batch(ops) {
+            return reply(
+                outcome::FAILED,
+                &format!(
+                    "the sync could not be written; nothing was applied, and the ledger \
+                     records it: {e}"
+                ),
+            );
         }
         reply(
             outcome::ACCEPTED,

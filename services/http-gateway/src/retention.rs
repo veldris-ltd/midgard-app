@@ -1,8 +1,8 @@
 //! Retention enforcement: the ontology's retention windows applied to the enclosure's
 //! durable store. Each sweep removes, per type, the objects whose window has passed,
 //! with their links. The removal is audited in the enclosure's one ledger *before*
-//! anything is removed, as a sync is, and each removal is journalled, so a restart
-//! does not bring them back. [SAD_00 §8.5] [NFR-SEC-2] [AC-M-4]
+//! anything is removed, as a sync is, and the removals are journalled (one flush per
+//! type), so a restart does not bring them back. [SAD_00 §8.5] [NFR-SEC-2] [AC-M-4]
 //!
 //! The same upkeep compacts the store's journal once it holds more than
 //! [`COMPACT_RATIO`] times the records the data needs (every update appends a whole
@@ -10,7 +10,7 @@
 //! object; it is still recorded in the ledger first.
 
 use audit_writer::LedgerStore;
-use fabric::DurableObjectStore;
+use fabric::{DurableObjectStore, StoreOp};
 
 use crate::SecuredGateway;
 
@@ -19,8 +19,8 @@ pub const RETENTION_ACTOR: &str = "governance-retention";
 /// The audited action of a sweep.
 pub const ACTION_EXPIRE: &str = "RETAIN expire";
 /// At most this many objects of one type are removed per sweep, so a large backlog is
-/// cleared over several sweeps and the enclosure is not held for long. Each removal is
-/// an fsynced journal write.
+/// cleared over several sweeps and the enclosure is not held for long. A type's removals
+/// are journalled together and flushed once.
 pub const SWEEP_LIMIT: usize = 1000;
 /// The audited action of a journal compaction.
 pub const ACTION_COMPACT: &str = "COMPACT store";
@@ -119,20 +119,18 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
                     now,
                 )
                 .map_err(|e| format!("the {} sweep could not be audited: {e}", rule.object_type))?;
-            let store = enclosure.fabric_mut().store_mut();
-            let mut removed = 0;
-            for id in &ids {
-                match store.remove_object_durable(id) {
-                    Ok(true) => removed += 1,
-                    Ok(false) => {}
-                    Err(e) => {
-                        return Err(format!(
-                            "the {} sweep stopped after {removed}; the ledger records it: {e}",
-                            rule.object_type
-                        ))
-                    }
-                }
-            }
+            // One batch per type: journalled together, flushed once.
+            let removed = enclosure
+                .fabric_mut()
+                .store_mut()
+                .apply_batch(ids.into_iter().map(StoreOp::RemoveObject).collect())
+                .map_err(|e| {
+                    format!(
+                        "the {} sweep could not be written; nothing was removed, and the \
+                         ledger records it: {e}",
+                        rule.object_type
+                    )
+                })?;
             out.push(Expired {
                 object_type: rule.object_type.clone(),
                 removed,

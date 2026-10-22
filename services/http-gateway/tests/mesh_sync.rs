@@ -192,3 +192,37 @@ fn a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_sync_is_flushed_to_disk_once_however_many_records_it_holds() {
+    let dir = scratch("one-flush");
+    let state = provision(&dir);
+    let worker = workload("forge-worker", "forge-worker");
+    let keys: Vec<String> = (0..200).map(|i| format!("AC-{i}")).collect();
+    {
+        let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+        let mut records: Vec<String> = keys.iter().map(|k| aircraft(k, 1)).collect();
+        records.push(FACILITY.to_string());
+        records.extend(keys.iter().map(|k| link(k)));
+        let before = gateway.store_flushes();
+        let (code, message) =
+            split(&gateway.sync_records(&worker, PURPOSE, records.join("\n").as_bytes(), NOW));
+        assert_eq!(code, outcome::ACCEPTED, "{message}");
+        assert!(
+            message.contains("201 created, 0 updated, 200 link(s) added"),
+            "{message}"
+        );
+        assert_eq!(
+            gateway.store_flushes(),
+            before + 1,
+            "one flush for 401 records"
+        );
+    }
+    // Acknowledged, so on disk: every record is there after a restart.
+    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
+    let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
+    assert_eq!(store.objects_of_type("aircraft").len(), 200);
+    assert_eq!(store.neighbors("aircraft/AC-199", "aircraft_base").len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
