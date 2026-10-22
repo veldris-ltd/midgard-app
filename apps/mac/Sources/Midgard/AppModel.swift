@@ -116,7 +116,7 @@ final class AppModel: ObservableObject {
     }
 
     private var resources: URL { paths.resources }
-    private var bin: URL { resources.appendingPathComponent("bin", isDirectory: true) }
+    private var bin: URL { paths.helpers }
     private var startingState: URL { resources.appendingPathComponent("starting-state", isDirectory: true) }
 
     // MARK: Launch
@@ -167,7 +167,7 @@ final class AppModel: ObservableObject {
     }
 
     func launch() {
-        log("launch: resources \(resources.path), home \(paths.home.path), logs \(paths.logs.path)")
+        log("launch: resources \(resources.path), helpers \(bin.path), home \(paths.home.path), logs \(paths.logs.path)")
         if let problem = SystemCheck.problemOnThisMac() {
             log("system check: \(problem)")
             phase = .failed(StartFailure(title: "Midgard cannot run on this Mac", details: problem, canRetry: false))

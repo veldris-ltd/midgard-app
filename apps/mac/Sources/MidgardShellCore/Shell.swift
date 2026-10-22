@@ -70,7 +70,10 @@ public final class InstanceLock: @unchecked Sendable {
             close(fd)
             guard code == EWOULDBLOCK else { return .failed("cannot lock \(file.path): \(String(cString: strerror(code)))") }
             let text = count > 0 ? String(decoding: buffer.prefix(count), as: UTF8.self) : ""
-            let words = text.split(whereSeparator: \.isWhitespace)
+            // Only the first line counts: a longer earlier content may follow it briefly
+            // (rewrite writes before it truncates).
+            let firstLine = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+            let words = firstLine.split(whereSeparator: \.isWhitespace)
             return .heldBy(words.first.flatMap { pid_t($0) }, stopping: words.dropFirst().first == "stopping")
         }
         rewrite(fd, "\(getpid())\n")
@@ -86,6 +89,9 @@ public final class InstanceLock: @unchecked Sendable {
 
     /// Replaces the lock file's content: writes the new text first, then cuts the file to
     /// its length, so a reader never sees it empty (a pid is always there to read).
+    /// A partial pwrite (a full disk; texts this short are otherwise written whole) leaves
+    /// the file untruncated: a mix of old and new bytes, which readers treat as an unknown
+    /// holder. The flock, not the content, is what holds the lock.
     private static func rewrite(_ fd: Int32, _ text: String) {
         let bytes = Array(text.utf8)
         let written = bytes.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }

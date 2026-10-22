@@ -24,6 +24,24 @@ final class PathsTests: XCTestCase {
         XCTAssertEqual(p.logs.path, "/tmp/logs")
     }
 
+    func testHelpersOutsideABundle() {
+        let p = Paths(environment: [:], bundleResources: bundle, userHome: user)
+        XCTAssertEqual(p.helpers.path, "/Applications/Midgard.app/Contents/Resources/bin")
+    }
+
+    func testHelpersInABundle() {
+        let helpers = URL(fileURLWithPath: "/Applications/Midgard.app/Contents/Helpers")
+        let p = Paths(environment: [:], bundleResources: bundle, userHome: user, bundleHelpers: helpers)
+        XCTAssertEqual(p.helpers.path, "/Applications/Midgard.app/Contents/Helpers")
+    }
+
+    func testDevelopmentResourcesKeepBin() {
+        let helpers = URL(fileURLWithPath: "/Applications/Midgard.app/Contents/Helpers")
+        let p = Paths(environment: ["MIDGARD_APP_RESOURCES": "/tmp/res"], bundleResources: bundle,
+                      userHome: user, bundleHelpers: helpers)
+        XCTAssertEqual(p.helpers.path, "/tmp/res/bin")
+    }
+
     func testEmptyOverrideIsIgnored() {
         let p = Paths(environment: ["MIDGARD_APP_HOME": ""], bundleResources: bundle, userHome: user)
         XCTAssertEqual(p.home.path, "/Users/presenter/Library/Application Support/Midgard")

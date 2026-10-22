@@ -113,6 +113,35 @@ final class InstanceLockTests: XCTestCase {
         guard case .acquired(let again) = InstanceLock.acquire(file) else { return XCTFail("not re-acquired") }
         again.release()
     }
+
+    func testRewriteReplacesLongerContentWithoutLeftovers() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lock-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("Midgard.instance")
+        try "1234567890 stopping and some leftover text\n".write(to: file, atomically: false, encoding: .utf8)
+        guard case .acquired(let lock) = InstanceLock.acquire(file) else { return XCTFail("not acquired") }
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "\(getpid())\n")
+        lock.markStopping()
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "\(getpid()) stopping\n")
+        lock.release()
+    }
+
+    func testOnlyTheFirstLineIsRead() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lock-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("Midgard.instance")
+        guard case .acquired(let lock) = InstanceLock.acquire(file) else { return XCTFail("not acquired") }
+        // As a reader could see it between rewrite's write and its truncate.
+        let fd = open(file.path, O_WRONLY)
+        let text = Array("\(getpid())\n99 stopping\n".utf8)
+        _ = text.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
+        close(fd)
+        guard case .heldBy(let pid, let stopping) = InstanceLock.acquire(file) else { return XCTFail("acquired") }
+        XCTAssertEqual(pid, getpid())
+        XCTAssertFalse(stopping)
+        lock.release()
+    }
 }
 
 final class SuiteStartTests: XCTestCase {
