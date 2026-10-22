@@ -1,4 +1,5 @@
-reference,title,kind,pages,review,matter
-D-0001,Particulars of claim,pleading,14,unreviewed,M-0001
-D-0002,Board minutes extract,disclosure,3,unreviewed,M-0001
-D-0003,Heads of terms,contract,6,unreviewed,M-0002
+reference,title,kind,language,pages,privileged,review,matter
+D-0001,Klageschrift (statement of claim),pleading,de,18,false,unreviewed,M-2025-014
+D-0002,Board minutes extract,disclosure,de,4,true,unreviewed,M-2025-014
+D-0003,Common draft terms of cross-border merger,transaction document,fr,42,false,unreviewed,M-2025-031
+D-0004,Client instructions note,attendance note,en,2,true,privileged,M-2026-007

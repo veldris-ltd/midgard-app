@@ -1,0 +1,284 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "formation",
+      "title": "Formation",
+      "properties": [
+        {
+          "name": "designation",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "nation",
+          "type": "text"
+        },
+        {
+          "name": "level",
+          "type": "text"
+        },
+        {
+          "name": "command",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "unit",
+      "title": "Unit",
+      "properties": [
+        {
+          "name": "designation",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "echelon",
+          "type": "text"
+        },
+        {
+          "name": "nation",
+          "type": "text"
+        },
+        {
+          "name": "readiness",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "site",
+      "title": "Site",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "latitude",
+          "type": "float"
+        },
+        {
+          "name": "longitude",
+          "type": "float"
+        }
+      ]
+    },
+    {
+      "id": "asset",
+      "title": "Asset",
+      "properties": [
+        {
+          "name": "serial",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "hours",
+          "type": "int"
+        }
+      ]
+    },
+    {
+      "id": "tasking",
+      "title": "Tasking",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "priority",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "due",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "incident",
+      "title": "Incident",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "category",
+          "type": "text"
+        },
+        {
+          "name": "reported",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "latitude",
+          "type": "float"
+        },
+        {
+          "name": "longitude",
+          "type": "float"
+        }
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "id": "unit_formation",
+      "name": "under command of",
+      "from": "unit",
+      "to": "formation",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "unit_site",
+      "name": "based at",
+      "from": "unit",
+      "to": "site",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "asset_unit",
+      "name": "held by",
+      "from": "asset",
+      "to": "unit",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "tasking_unit",
+      "name": "tasked to",
+      "from": "tasking",
+      "to": "unit",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "incident_site",
+      "name": "near",
+      "from": "incident",
+      "to": "site",
+      "cardinality": "many-to-many"
+    }
+  ],
+  "actions": [
+    {
+      "id": "set_readiness",
+      "name": "setReadiness",
+      "title": "Set readiness",
+      "objectType": "unit",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "readiness",
+        "values": [
+          "green",
+          "amber",
+          "red"
+        ]
+      }
+    },
+    {
+      "id": "ground_asset",
+      "name": "groundAsset",
+      "title": "Declare unserviceable",
+      "objectType": "asset",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "unserviceable"
+      }
+    },
+    {
+      "id": "return_asset",
+      "name": "returnAsset",
+      "title": "Return to service",
+      "objectType": "asset",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "serviceable"
+      }
+    },
+    {
+      "id": "approve_tasking",
+      "name": "advanceTasking",
+      "title": "Advance tasking",
+      "objectType": "tasking",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "draft",
+          "approved",
+          "executing",
+          "complete"
+        ]
+      }
+    },
+    {
+      "id": "escalate_incident",
+      "name": "escalateIncident",
+      "title": "Escalate incident",
+      "objectType": "incident",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "escalated"
+      }
+    }
+  ]
+}

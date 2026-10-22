@@ -28,7 +28,9 @@ DEV_IMAGE=midgard/dev:local
 CONSOLE_IMAGE=midgard/console:local
 GRANITE_GGUF=granite-3.3-2b-instruct-Q4_K_M.gguf
 GRANITE_URL="https://huggingface.co/ibm-granite/granite-3.3-2b-instruct-GGUF/resolve/7cdf86ccd1f1bb3491c9b7017b033f2e51367397/$GRANITE_GGUF"
-PROFILES=(evaluation legal medical defence space utilities)
+PROFILES=(legal medical military utilities)
+FEED_FAMILIES=(aviation maritime energy water transport communications hazards information)
+PICTURE_BUDGET_KB=1100
 COMPONENTS_ALL=(forge mimir bifrost heimdall)
 
 # ---- theme -----------------------------------------------------------------------------
@@ -90,7 +92,7 @@ EOF
     printf '  %sTHE SOVEREIGN ENCLOSURE  ·  SERVER INSTALLER %s%s\n\n' "$C_MUTED" "$MG_INSTALL_VERSION" "$R"
 }
 
-STEP_TOTAL=8
+STEP_TOTAL=9
 step() {
     local n="$1" title="$2" bar="" i
     for ((i = 1; i <= STEP_TOTAL; i++)); do
@@ -199,7 +201,7 @@ secret() {
 valid_name() { [[ "$1" =~ ^[a-z][a-z0-9._-]{1,31}$ ]]; }
 
 # Answers files are read as KEY=VALUE lines, never executed.
-ANSWER_KEYS="FRESH INSTALL_DIR PROFILE COMPONENTS MODEL MODEL_FILE CONSOLE OPERATOR
+ANSWER_KEYS="INSTALL_PYTHON FRESH SAMPLES_ZIP FEEDS INSTALL_DIR PROFILE COMPONENTS MODEL MODEL_FILE CONSOLE OPERATOR
   OPERATOR_PASSWORD_FILE OPERATOR_TOTP ADMIN_1 ADMIN_2 INSTALL_DOCKER CONFIRM"
 read_answers() {
     local line key value
@@ -221,7 +223,7 @@ read_answers() {
 
 OS_ID="" OS_NAME="" OS_CODENAME="" ARCH="" CPUS=0 RAM_MB=0
 CPU_MODEL="" GPU="" GPU_MEM="" DISK_FREE_GB=0 DOCKER_VERSION="" COMPOSE_VERSION=""
-PLESK="" TIER="" GEX131=0
+PLESK="" TIER="" GEX131=0 PYTHON_VERSION=""
 
 facts() {
     if [ -r /etc/os-release ]; then
@@ -240,6 +242,10 @@ facts() {
     fi
     if [ -z "$GPU" ] && command -v lspci >/dev/null 2>&1; then
         GPU="$(lspci 2>/dev/null | grep -iE 'vga|3d controller' | grep -i nvidia | head -1 | sed 's/^.*: //' || true)"
+    fi
+    PYTHON_VERSION=""
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null; then
+        PYTHON_VERSION="$(python3 -c 'import platform; print(platform.python_version())')"
     fi
     if command -v docker >/dev/null 2>&1; then
         DOCKER_VERSION="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
@@ -281,6 +287,7 @@ preflight() {
     label "Free disk for images"; echo "$DISK_FREE_GB GB"
     label "GPU"; echo "${GPU:-none found}${GPU_MEM:+, $GPU_MEM}"
     label "Docker"; echo "${DOCKER_VERSION:-not installed}${COMPOSE_VERSION:+, compose $COMPOSE_VERSION}"
+    label "Python"; echo "${PYTHON_VERSION:-not installed}"
     label "Sizing tier"; tier_name "$TIER"
     echo
     case "$ARCH" in
@@ -304,6 +311,11 @@ preflight() {
         warn "$DISK_FREE_GB GB free. Enough to install; 100 GB leaves room for data, backups and models."
     else
         ok "$DISK_FREE_GB GB free disk."
+    fi
+    if [ -n "$PYTHON_VERSION" ]; then
+        ok "Python $PYTHON_VERSION, for preparing the sample data and feeds."
+    else
+        warn "Python 3.8 or later is not installed. The installer needs it to prepare data, and can install it."
     fi
     if [ -n "$DOCKER_VERSION" ]; then
         major="${DOCKER_VERSION%%.*}"
@@ -351,9 +363,9 @@ preflight() {
 # management commands know what is installed.
 
 INSTALL_DIR="" SRC="" SITE="" LOG="" STATE_FILE=""
-PROFILE="" COMPONENTS="" MODEL=reference CONSOLE=yes OPERATOR="" OPERATOR_TOTP=yes
+PROFILE="" COMPONENTS="" MODEL=reference CONSOLE=yes SAMPLES_ZIP="" FEEDS="" OPERATOR="" OPERATOR_TOTP=yes
 ADMIN_1="" ADMIN_2="" STATUS="" SOURCE_COMMIT="" INSTALLED_AT=""
-STATE_KEYS="INSTALL_DIR PROFILE COMPONENTS MODEL CONSOLE OPERATOR OPERATOR_TOTP ADMIN_1 ADMIN_2 STATUS SOURCE_COMMIT INSTALLED_AT"
+STATE_KEYS="INSTALL_DIR PROFILE COMPONENTS MODEL CONSOLE SAMPLES_ZIP FEEDS OPERATOR OPERATOR_TOTP ADMIN_1 ADMIN_2 STATUS SOURCE_COMMIT INSTALLED_AT"
 
 set_dirs() {
     INSTALL_DIR="$1"
@@ -487,6 +499,15 @@ install_docker() {
     docker version
 }
 
+install_python() {
+    case "$OS_ID" in
+        ubuntu | debian | linuxmint) DEBIAN_FRONTEND=noninteractive apt-get install -y python3 ;;
+        rhel | rocky | almalinux | centos | fedora) dnf -y install python3 ;;
+        *) echo "no automatic Python install for $OS_ID" >&2; return 1 ;;
+    esac
+    python3 --version
+}
+
 # ---- the wizard ------------------------------------------------------------------------
 
 step_welcome() {
@@ -515,6 +536,15 @@ step_server() {
     step 2 "SERVER CHECK"
     preflight || die "This server cannot run Midgard until the items marked ✗ are fixed."
     echo
+    if [ -z "$PYTHON_VERSION" ]; then
+        if yes_no INSTALL_PYTHON "Install Python 3 from this server's own packages now?" yes; then
+            touch "$LOG"
+            run "Installing Python 3" install_python
+            facts
+        else
+            die "Install Python 3.8 or later, then run the installer again."
+        fi
+    fi
     if [ -z "$DOCKER_VERSION" ]; then
         say "Docker is needed. The installer can add Docker's own package repository and install"
         say "Docker Engine with the Compose plugin."
@@ -557,6 +587,7 @@ step_profile() {
     . "$HERE/profiles/$PROFILE/profile.env"
     confirm_profile_change
     COMPONENTS="${ANSWER[COMPONENTS]-$PROFILE_COMPONENTS}"
+    FEEDS="${ANSWER[FEEDS]-$PROFILE_FEEDS}"
     MODEL="${ANSWER[MODEL]:-$PROFILE_MODEL}"
     OPERATOR_TOTP="${ANSWER[OPERATOR_TOTP]:-yes}"
     step 3 "WHAT WILL YOU USE IT FOR?"
@@ -686,8 +717,120 @@ step_model() {
     pause
 }
 
+# feed_families [ZIP]: one line per family: name, feeds available, feeds known, and
+# the available feeds' names, from the repository's samples or from the zip.
+feed_families() {
+    python3 -I - "$REPO/samples/catalogue.json" "$REPO/samples" "${1:-}" <<'EOF'
+import json, os, sys, zipfile
+catalogue, repo, archive = sys.argv[1], sys.argv[2], sys.argv[3]
+feeds = json.load(open(catalogue))["observations"]
+if archive:
+    have = {os.path.basename(n)[:-5] for n in zipfile.ZipFile(archive).namelist()
+            if "/4-heimdall-observations/" in n and n.endswith(".json") and "__MACOSX" not in n}
+else:
+    have = {f[:-5] for f in os.listdir(os.path.join(repo, "4-heimdall-observations"))}
+families = {}
+for feed, entry in feeds.items():
+    families.setdefault(entry["family"], []).append(feed)
+for family, members in families.items():
+    present = [f for f in members if f in have]
+    print(family, len(present), len(members), ",".join(present) or "-")
+EOF
+}
+
+valid_samples_zip() {
+    python3 -I -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); sys.exit(not any("/1-configuration/" in n for n in z.namelist()))' "$1" 2>/dev/null
+}
+
+step_data() {
+    step 6 "DATA AND FEEDS"
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    printf '  %s%sSAMPLE DATA%s\n' "$C_FORGE" "$B" "$R"
+    if has forge; then
+        say "Forge loads fictional $PROFILE records, so the first sign-in shows real structure."
+        if [ -n "$PROFILE_SAMPLES" ]; then
+            say "It also loads recorded datasets from the Midgard sample datasets:"
+            printf '%s\n' "${PROFILE_SAMPLES//,/, }." | wrap
+        fi
+    else
+        note "  Forge is not selected, so no sample data is loaded."
+    fi
+    echo
+    say "This repository holds the openly licensed datasets and feeds. The full set, from"
+    say "midgard-sample-datasets.zip, adds those not cleared for redistribution, such as"
+    say "aircraft positions, air quality, power cuts and storm overflows."
+    echo
+    if [ "$UNATTENDED" = 1 ]; then
+        SAMPLES_ZIP="${ANSWER[SAMPLES_ZIP]:-}"
+    else
+        while :; do
+            printf '  %sPath to midgard-sample-datasets.zip, or Enter for the repository set:%s ' "$C_BODY" "$R"
+            [ -n "$SAMPLES_ZIP" ] && printf '%s[%s]%s ' "$C_MUTED" "$SAMPLES_ZIP" "$R"
+            read -r REPLY
+            REPLY="${REPLY:-$SAMPLES_ZIP}"
+            [ "$REPLY" = none ] && REPLY=""
+            [ -z "$REPLY" ] && break
+            if [ -f "$REPLY" ] && valid_samples_zip "$REPLY"; then break; fi
+            warn "That is not a readable Midgard sample datasets zip. Type none to use the repository set."
+        done
+        SAMPLES_ZIP="$REPLY"
+    fi
+    if [ -n "$SAMPLES_ZIP" ]; then
+        { [ -f "$SAMPLES_ZIP" ] && valid_samples_zip "$SAMPLES_ZIP"; } || die "SAMPLES_ZIP is not a Midgard sample datasets zip: $SAMPLES_ZIP"
+        SAMPLES_ZIP="$(readlink -f "$SAMPLES_ZIP")"
+        ok "Using the full set from $SAMPLES_ZIP."
+        note "    Files not cleared for redistribution are marked in the install report. Check their terms"
+        note "    before any use beyond evaluation: some are licensed for non-commercial use only."
+    fi
+    echo
+    printf '  %s%sHEIMDALL FEEDS%s\n' "$C_HEIMDALL" "$B" "$R"
+    if ! has heimdall; then
+        note "  Heimdall is not selected, so no feeds are installed. Add it on step 4 to choose feeds."
+        FEEDS=""
+        pause
+        return 0
+    fi
+    say "Each feed replays a recording of a live source into the operating picture, signed by"
+    say "its own certified identity."
+    local table
+    table="$(feed_families "$SAMPLES_ZIP")"
+    if [ "$UNATTENDED" = 1 ]; then
+        local f
+        for f in $FEEDS; do printf '%s\n' "${FEED_FAMILIES[@]}" | grep -qx "$f" || die "unknown feed family $f"; done
+        pause
+        return 0
+    fi
+    while :; do
+        step 6 "DATA AND FEEDS"
+        printf '  %s%sHEIMDALL FEEDS%s  %stype a number to add or remove a family, then Enter%s\n\n' \
+            "$C_HEIMDALL" "$B" "$R" "$C_MUTED" "$R"
+        local i=1 fam mark have total names
+        for fam in "${FEED_FAMILIES[@]}"; do
+            read -r _ have total names < <(grep "^$fam " <<<"$table")
+            if [[ " $FEEDS " == *" $fam "* ]]; then mark="${C_SECURE}[x]${R}"; else mark="${C_FAINT}[ ]${R}"; fi
+            printf '  %s%d%s  %s %s%-15s%s %s%d of %d feed%s%s  %s\n' "$C_MUTED" "$i" "$R" "$mark" "$B" "$fam" "$R" \
+                "$C_MUTED" "$have" "$total" "$([ "$total" = 1 ] || echo s)" "$R" "${names//,/, }"
+            i=$((i + 1))
+        done
+        echo
+        printf '  %sToggle 1-%d, or Enter to continue:%s ' "$C_BODY" "${#FEED_FAMILIES[@]}" "$R"
+        read -r REPLY
+        [ -z "$REPLY" ] && break
+        if [[ "$REPLY" =~ ^[0-9]+$ ]] && [ "$REPLY" -ge 1 ] && [ "$REPLY" -le "${#FEED_FAMILIES[@]}" ]; then
+            fam="${FEED_FAMILIES[$((REPLY - 1))]}"
+            if [[ " $FEEDS " == *" $fam "* ]]; then
+                FEEDS="$(tr ' ' '\n' <<<"$FEEDS" | grep -vx "$fam" | xargs || true)"
+            else
+                FEEDS="$FEEDS $fam"
+            fi
+        fi
+    done
+    FEEDS="$(for f in "${FEED_FAMILIES[@]}"; do [[ " $FEEDS " == *" $f "* ]] && printf '%s ' "$f"; done | xargs || true)"
+}
+
 step_people() {
-    step 6 "PEOPLE"
+    step 7 "PEOPLE"
     # shellcheck disable=SC1090
     . "$HERE/profiles/$PROFILE/profile.env"
     say "The first user signs in to the console. They are given the role 'operator', clearance"
@@ -707,7 +850,7 @@ step_people() {
         if yes_no OPERATOR_TOTP "Require an authenticator app code at sign-in? (recommended)" yes; then
             OPERATOR_TOTP=yes; else OPERATOR_TOTP=no; fi
     fi
-    note "  The password is asked for at step 8, just before it is used, and is never stored."
+    note "  The password is asked for at step 9, just before it is used, and is never stored."
     echo
     if [ "$PROFILE_ADMINS" -ge 2 ]; then
         say "Regulated use needs dual control: one administrator asks to enrol a new user and a"
@@ -732,7 +875,7 @@ step_people() {
 }
 
 step_review() {
-    step 7 "REVIEW"
+    step 8 "REVIEW"
     # shellcheck disable=SC1090
     . "$HERE/profiles/$PROFILE/profile.env"
     label "Install folder"; echo "$INSTALL_DIR"
@@ -743,7 +886,13 @@ step_review() {
     echo
     if has mimir; then label "Mimir model"; [ "$MODEL" = granite ] && echo "Granite 3.3 2B Instruct, CPU" || echo "reference engine"; fi
     label "Web console"; echo "$CONSOLE"
-    label "Schema"; [ "$PROFILE_SCHEMA" = builtin ] && echo "demonstration (aircraft, facilities)" || echo "$PROFILE starter schema, fictional sample data"
+    label "Schema"; echo "$PROFILE starter schema$([ -n "$PROFILE_SAMPLES" ] && echo ", with the sample configuration")"
+    if has forge; then
+        label "Data"; echo "fictional $PROFILE records$([ -n "$PROFILE_SAMPLES" ] && echo ", recorded datasets from ${SAMPLES_ZIP:-the repository}")"
+    fi
+    if has heimdall; then
+        label "Heimdall feeds"; echo "${FEEDS:-none}"
+    fi
     label "First user"; echo "$OPERATOR, operator, $PROFILE_CLEARANCE, second factor: $OPERATOR_TOTP"
     [ -n "$ADMIN_1" ] && { label "Administrators"; echo "$ADMIN_1 and $ADMIN_2 (IAM-Admin, dual control)"; }
     label "Listens on"; echo "127.0.0.1 only (gateway 7710$([ "$CONSOLE" = yes ] && echo ", console 5173"))"
@@ -773,6 +922,41 @@ copy_source() {
     rm -rf "$SRC.old"
 }
 
+# Where the sample datasets come from: the repository's open set, or the full set
+# extracted from the zip the operator named.
+samples_dir() {
+    if [ -n "$SAMPLES_ZIP" ]; then
+        dirname "$(find "$INSTALL_DIR/samples-full" -type d -name 1-configuration -not -path '*__MACOSX*' | head -1)"
+    else
+        echo "$SRC/samples"
+    fi
+}
+
+extract_samples() {
+    rm -rf "$INSTALL_DIR/samples-full"
+    python3 -I - "$SAMPLES_ZIP" "$INSTALL_DIR/samples-full" <<'EOF'
+import os, sys, zipfile
+archive, out = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(archive) as z:
+    for name in z.namelist():
+        if "__MACOSX" in name or name.endswith("/"):
+            continue
+        target = os.path.realpath(os.path.join(out, name))
+        if not target.startswith(os.path.realpath(out) + os.sep):
+            raise SystemExit(f"refusing {name}: it would land outside {out}")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with z.open(name) as src, open(target, "wb") as dst:
+            dst.write(src.read())
+EOF
+    chmod -R a+rX "$INSTALL_DIR/samples-full"
+    [ -d "$(samples_dir)" ] || { echo "the zip holds no 1-configuration folder"; return 1; }
+    echo "extracted to $(samples_dir)"
+}
+
+convert() { python3 -I "$SRC/samples/convert.py" "$@"; }
+
+feed_list() { has heimdall && [ -n "$FEEDS" ] && convert feeds --samples "$(samples_dir)" --families "$FEEDS"; true; }
+
 build_toolchain() {
     if docker image inspect "$TOOLCHAIN_IMAGE" >/dev/null 2>&1; then
         echo "the toolchain image is already built"
@@ -791,28 +975,36 @@ write_site() {
         echo "# Written by mg-install for this server. Regenerated on every run: edit the"
         echo "# installer's profile instead. [RC-33] [NFR-SEC-1]"
         echo "services:"
-        # A profile may bring its own schema, its own policy, or both; the compose
-        # demonstration files stand in for whichever it leaves out.
-        rm -f "$SITE/ontology.json" "$SITE/policy.json"
-        if [ -f "$prof/ontology.json" ] || [ -f "$prof/policy.json" ]; then
-            echo "  init:"
-            echo "    volumes:"
-            local f
-            for f in ontology policy; do
-                [ -f "$prof/$f.json" ] || continue
-                install -m 0644 "$prof/$f.json" "$SITE/$f.json"
-                echo "      - $SITE/$f.json:/etc/midgard/core-$f.json:ro"
-            done
+        # The profile's schema and policy, joined with the sample configuration's when the
+        # profile loads recorded datasets; Forge's jobs are joined the same way.
+        local samples
+        samples="$(samples_dir)"
+        rm -rf "$SITE/forge" "$SITE/.samples-forge"
+        mkdir -p "$SITE/forge"
+        install -m 0644 "$prof"/forge/*.csv "$SITE/forge/"
+        if [ -n "$PROFILE_SAMPLES" ]; then
+            convert ontology --samples "$samples" >"$SITE/.samples-ontology.json" 2>>"$LOG"
+            convert merge "$SITE/.samples-ontology.json" "$prof/ontology.json" >"$SITE/ontology.json"
+            convert merge "$samples/1-configuration/midgard/policy.json" "$prof/policy.json" >"$SITE/policy.json"
+            convert forge --samples "$samples" --datasets "$PROFILE_SAMPLES" --out "$SITE/.samples-forge" 2>>"$LOG"
+            install -m 0644 "$SITE"/.samples-forge/*.csv "$SITE/forge/"
+            convert merge "$SITE/.samples-forge/jobs.json" "$prof/forge/jobs.json" >"$SITE/forge/jobs.json"
+            rm -rf "$SITE/.samples-forge" "$SITE/.samples-ontology.json"
+        else
+            install -m 0644 "$prof/ontology.json" "$prof/policy.json" "$SITE/"
+            install -m 0644 "$prof/forge/jobs.json" "$SITE/forge/jobs.json"
         fi
+        chmod 0644 "$SITE/ontology.json" "$SITE/policy.json" "$SITE"/forge/*
+        chmod 0755 "$SITE/forge"
+        echo "  init:"
+        echo "    volumes:"
+        echo "      - $SITE/ontology.json:/etc/midgard/core-ontology.json:ro"
+        echo "      - $SITE/policy.json:/etc/midgard/core-policy.json:ro"
         echo "  gateway:"
         echo "    entrypoint: [http-gateway, --state-dir, /state, --bind, \"0.0.0.0:7710\","
         echo "                 --mesh-bind, \"0.0.0.0:7711\", --mesh-identity-dir, /mesh-identity,"
         echo "                 --allow-origin, \"http://localhost:5173\", --allow-origin, \"http://127.0.0.1:5173\"]"
-        if has forge && [ "$PROFILE_SCHEMA" = profile ]; then
-            rm -rf "$SITE/forge"
-            mkdir -p "$SITE/forge"
-            install -m 0644 "$prof"/forge/* "$SITE/forge/"
-            chmod 0755 "$SITE/forge"
+        if has forge; then
             echo "  forge-worker:"
             echo "    volumes:"
             echo "      - $SITE/forge:/etc/midgard/forge:ro"
@@ -897,7 +1089,7 @@ enrol_operator() {
             echo
             printf '  %sPress Enter once the app shows a 6-digit code for Midgard.%s ' "$C_BODY" "$R"
             read -r _
-            step 8 "INSTALLING"
+            step 9 "INSTALLING"
             ok "Enrolled $OPERATOR. The authenticator key has been cleared from the screen."
         fi
     fi
@@ -942,17 +1134,87 @@ stage_model() {
     return 0
 }
 
+# One certified mesh identity per feed: the feed id Heimdall checks is the service its
+# certificate names. Needs the enclosure's lock, so it runs while the gateway is stopped.
+issue_feed_identities() {
+    local feeds
+    feeds="$(feed_list)"
+    [ -n "$feeds" ] || { echo "no feeds chosen"; return 0; }
+    # shellcheck disable=SC2016,SC2086
+    dc run --rm --no-deps -T --entrypoint sh init -c '
+        for feed in "$@"; do
+            if [ -f "/vol/heimdall-clients/$feed.cert" ]; then
+                echo "$feed already has an identity"
+            else
+                mg-admin mesh issue --state-dir /vol/core-state --service "$feed" \
+                    --roles feed-source --out /vol/heimdall-clients
+            fi
+        done' sh $feeds
+}
+
+# Replay the chosen feeds' observations into Heimdall, each signed by its feed's own
+# identity, then check the picture holds them.
+replay_feeds() {
+    local feeds dir="$SITE/feeds" digest
+    feeds="$(feed_list)"
+    [ -n "$feeds" ] || { echo "no feeds chosen"; return 0; }
+    install -d -m 0755 "$dir"
+    # Heimdall returns the whole picture in one PQ-mTLS frame of at most 1 MiB
+    # (crypto/pq-mtls/src/wire.rs), so the replay keeps the fused picture inside a budget.
+    convert observations --samples "$(samples_dir)" --feeds "${feeds// /,}" --budget-kb "$PICTURE_BUDGET_KB" \
+        >"$dir/observations.tsv"
+    chmod 0644 "$dir/observations.tsv"
+    digest="$(sha256sum "$dir/observations.tsv" | cut -d' ' -f1)"
+    if [ "$(cat "$dir/.replayed" 2>/dev/null)" = "$digest" ]; then
+        echo "these observations were replayed by an earlier run"
+        return 0
+    fi
+    echo "replaying $(wc -l <"$dir/observations.tsv") observations from: $feeds"
+    # shellcheck disable=SC2016
+    dc run --rm --no-deps -T -v "$dir:/feeds:ro" --entrypoint sh feed-source -c '
+        tab="$(printf "\t")"; ok=0; refused=0
+        while IFS="$tab" read -r feed kind entity at attrs; do
+            if heimdall-source --identity-dir /identity --service "$feed" --addr heimdall-feed:7730 \
+                --kind "$kind" --entity "$entity" --observed-at "$at" ${attrs:+--attrs "$attrs"} >/dev/null 2>/tmp/err; then
+                ok=$((ok + 1))
+            else
+                refused=$((refused + 1)); [ "$refused" -le 5 ] && echo "refused $feed $entity: $(cat /tmp/err)"
+            fi
+        done < /feeds/observations.tsv
+        echo "accepted $ok, refused $refused"
+        [ "$ok" -gt 0 ] && [ "$refused" -eq 0 ]'
+    echo "$digest" >"$dir/.replayed"
+    local picture entities
+    picture="$(dc run --rm -T picture 2>/dev/null)"
+    entities="$(python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)["entities"]))' <<<"$picture")" || {
+        echo "the picture could not be read back"
+        return 1
+    }
+    echo "the picture holds $entities entities in $(( ${#picture} / 1024 )) KiB"
+    [ "$entities" -gt 0 ]
+}
+
+# Wait until every Forge job has run once, then fail if any did not sync, naming it.
 wait_for_sync() {
-    local i
+    local jobs i ran failed
+    jobs="$(python3 -I -c 'import json, sys; print(" ".join(j["id"] for j in json.load(open(sys.argv[1]))["jobs"]))' "$SITE/forge/jobs.json")"
     for ((i = 0; i < 60; i++)); do
-        if dc logs --no-color forge-worker 2>/dev/null | grep -q 'synced:'; then
-            dc logs --no-color forge-worker | grep 'synced:' | tail -3
-            return 0
-        fi
+        ran=0
+        for job in $jobs; do
+            dc logs --no-color forge-worker 2>/dev/null | grep -q "\"job\":\"$job\"" && ran=$((ran + 1))
+        done
+        [ "$ran" -eq "$(wc -w <<<"$jobs")" ] && break
         sleep 3
     done
-    dc logs --no-color forge-worker | tail -20
-    return 1
+    dc logs --no-color forge-worker | { grep '"message":"job run"' || true; } | sed 's/.*"job":"\([^"]*\)".*"message":"\([^"]*\)".*/\1: \2/' | sort -u
+    failed="$(dc logs --no-color forge-worker | grep '"job run failed"' | sed 's/.*"job":"\([^"]*\)","reason":"\(.*\)"}.*/\1: \2/' | sort -u || true)"
+    if [ -n "$failed" ]; then
+        echo "these Forge jobs did not sync:"
+        echo "$failed"
+        return 1
+    fi
+    [ "$ran" -eq "$(wc -w <<<"$jobs")" ] || { echo "only $ran of $(wc -w <<<"$jobs") jobs ran within three minutes"; return 1; }
+    echo "all $ran jobs synced"
 }
 
 # The current code for a base32 TOTP key: RFC 6238 with HMAC-SHA256, 6 digits, 30 s,
@@ -985,8 +1247,12 @@ check_login() {
         --data-binary @- <<<"$body" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
     [ -n "$token" ] || { echo "the gateway refused $OPERATOR's sign-in"; return 1; }
     types="$(curl -fsS http://127.0.0.1:7710/api/v1/object-types -H "authorization: Bearer $token")"
-    first="$(grep -o '"apiName":"[^"]*"' <<<"$types" | head -1 | cut -d'"' -f4)"
-    [ -n "$first" ] || { echo "no object types are registered"; return 1; }
+    # The first type that holds objects: the one the check reads.
+    first="$(python3 -I -c 'import json, sys
+for t in json.load(sys.stdin):
+    if str(t.get("instanceCount", "0")) != "0":
+        print(t["apiName"]); break' <<<"$types")"
+    [ -n "$first" ] || { echo "no object type holds any objects"; return 1; }
     echo "signed in; object types: $(grep -o '"apiName":"[^"]*"' <<<"$types" | cut -d'"' -f4 | xargs)"
     has forge || return 0
     count="$(curl -fsS -X POST http://127.0.0.1:7710/api/v1/query -H "authorization: Bearer $token" \
@@ -996,7 +1262,7 @@ check_login() {
 }
 
 install_now() {
-    step 8 "INSTALLING"
+    step 9 "INSTALLING"
     STATUS=in-progress
     INSTALLED_AT="$(date -u +%FT%TZ)"
     install -d -m 0750 "$INSTALL_DIR"
@@ -1004,6 +1270,9 @@ install_now() {
     note "  Progress is logged to $LOG"
     echo
     run "Copying the Midgard source to $SRC" copy_source
+    if [ -n "$SAMPLES_ZIP" ]; then
+        run "Unpacking the full sample datasets" extract_samples
+    fi
     if git -C "$REPO" rev-parse --short=12 HEAD >/dev/null 2>&1; then
         SOURCE_COMMIT="$(git -C "$REPO" rev-parse --short=12 HEAD)"
         git -C "$REPO" diff --quiet HEAD 2>/dev/null || SOURCE_COMMIT+="+local-changes"
@@ -1033,6 +1302,9 @@ install_now() {
     run "Creating the enclosure's keys and service identities" dc run --rm init
     enrol_operator
     enrol_admins
+    if [ -n "$(feed_list)" ]; then
+        run "Issuing an identity to each Heimdall feed" issue_feed_identities
+    fi
     local count; count="$(services_of | wc -w)"
     # shellcheck disable=SC2046
     run "Starting $count service$([ "$count" = 1 ] || echo s) and waiting until each is ready" dc up -d --wait $(services_of)
@@ -1051,6 +1323,9 @@ install_now() {
     fi
     has bifrost && run "Reading the Bifrost fleet as an operator" dc run --rm fleet-status
     has heimdall && run "Reading the Heimdall picture as an analyst" dc run --rm picture
+    if [ -n "$(feed_list)" ]; then
+        run "Replaying the Heimdall feeds and checking the picture" replay_feeds
+    fi
     [ "$CONSOLE" = yes ] && run "Checking the web console is served" curl -fsS -o /dev/null http://127.0.0.1:5173/
     ln -sf "$SRC/deploy/installer/mg-install" /usr/local/bin/mg-install
     STATUS=complete
@@ -1090,6 +1365,14 @@ write_report() {
         echo "| Products | Midgard$(for c in $COMPONENTS; do printf ', %s' "${c^}"; done) |"
         echo "| Model | $(has mimir && { [ "$MODEL" = granite ] && echo 'Granite 3.3 2B Instruct, CPU' || echo 'reference engine'; } || echo 'none') |"
         echo "| Web console | $CONSOLE |"
+        if has forge && [ -n "$PROFILE_SAMPLES" ]; then
+            local origin="the open set in the repository"
+            [ -n "$SAMPLES_ZIP" ] && origin="$SAMPLES_ZIP"
+            echo "| Recorded datasets | ${PROFILE_SAMPLES//,/, }, from $origin |"
+        fi
+        if has heimdall; then
+            echo "| Heimdall feeds | $(feed_list | sed 's/ /, /g') |"
+        fi
         echo "| Source | \`$SOURCE_COMMIT\`, copied to \`$SRC\` |"
         echo "| Services | $(services_of) |"
         echo "| First user | \`$OPERATOR\` (operator, $PROFILE_CLEARANCE, purposes $PROFILE_PURPOSES, second factor $OPERATOR_TOTP) |"
@@ -1111,6 +1394,16 @@ write_report() {
         echo
         for n in "${PROFILE_NOTES[@]}"; do echo "- $n"; done
         echo
+        local credits
+        credits="$(convert credits --samples "$(samples_dir)" --datasets "$PROFILE_SAMPLES" --feeds "$(feed_list)" 2>/dev/null || true)"
+        if [ -n "$credits" ]; then
+            echo "## Data credits"
+            echo
+            echo "The recorded datasets and feeds carry their sources' licences. Keep these credits wherever the data is shown or shared."
+            echo
+            echo "$credits"
+            echo
+        fi
         echo "## Look after it"
         echo
         echo "| Task | Command |"
@@ -1189,6 +1482,12 @@ wizard() {
         say "Unattended install from the answers file."
         echo
         preflight || die "The server check failed."
+        if [ -z "$PYTHON_VERSION" ]; then
+            [ "${ANSWER[INSTALL_PYTHON]:-no}" = yes ] || die "Python 3 is not installed and INSTALL_PYTHON is not yes."
+            install -d -m 0750 "$INSTALL_DIR"; touch "$LOG"
+            run "Installing Python 3" install_python
+            facts
+        fi
         if [ -z "$DOCKER_VERSION" ]; then
             [ "${ANSWER[INSTALL_DOCKER]:-no}" = yes ] || die "Docker is not installed and INSTALL_DOCKER is not yes."
             install -d -m 0750 "$INSTALL_DIR"; touch "$LOG"
@@ -1198,6 +1497,7 @@ wizard() {
         step_profile
         step_components
         step_model
+        step_data
         step_people
         step_review
     else
@@ -1207,6 +1507,7 @@ wizard() {
         step_profile
         step_components
         step_model
+        step_data
         step_people
         step_review
     fi

@@ -1,0 +1,26 @@
+{
+  "dataset": "regions",
+  "objectType": "region",
+  "rows": [
+    {
+      "key": "GB-ENG",
+      "name": "England",
+      "code": "GB-ENG"
+    },
+    {
+      "key": "GB-SCT",
+      "name": "Scotland",
+      "code": "GB-SCT"
+    },
+    {
+      "key": "GB-WLS",
+      "name": "Wales",
+      "code": "GB-WLS"
+    },
+    {
+      "key": "GB-NIR",
+      "name": "Northern Ireland",
+      "code": "GB-NIR"
+    }
+  ]
+}

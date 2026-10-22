@@ -1,40 +1,595 @@
 {
   "version": 1,
   "jobs": [
-    { "id": "matters", "every": 300,
-      "source": { "file": "matters.csv",
-                  "columns": [ { "name": "reference", "type": "text" },
-                               { "name": "title", "type": "text" },
-                               { "name": "practice_area", "type": "text" },
-                               { "name": "status", "type": "text" },
-                               { "name": "hold", "type": "text" } ] },
-      "objects": { "type": "matter", "key": "reference", "marking": "restricted",
-                   "purposes": ["operations", "case-work"],
-                   "properties": { "reference": "reference", "title": "title",
-                                   "practice_area": "practice_area", "status": "status",
-                                   "hold": "hold" } } },
-    { "id": "parties", "every": 300,
-      "source": { "file": "parties.csv",
-                  "columns": [ { "name": "key", "type": "text" },
-                               { "name": "name", "type": "text" },
-                               { "name": "capacity", "type": "text" },
-                               { "name": "matter", "type": "text" } ] },
-      "objects": { "type": "party", "key": "key", "marking": "restricted",
-                   "purposes": ["operations", "case-work"],
-                   "properties": { "name": "name", "capacity": "capacity" } },
-      "links": [ { "type": "party_matter", "from": "key", "to": "matter" } ] },
-    { "id": "documents", "every": 120,
-      "source": { "file": "documents.csv",
-                  "columns": [ { "name": "reference", "type": "text" },
-                               { "name": "title", "type": "text" },
-                               { "name": "kind", "type": "text" },
-                               { "name": "pages", "type": "int", "nullable": true },
-                               { "name": "review", "type": "text" },
-                               { "name": "matter", "type": "text" } ] },
-      "objects": { "type": "document", "key": "reference", "marking": "restricted",
-                   "purposes": ["operations", "case-work"],
-                   "properties": { "reference": "reference", "title": "title",
-                                   "kind": "kind", "pages": "pages", "review": "review" } },
-      "links": [ { "type": "document_matter", "from": "reference", "to": "matter" } ] }
+    {
+      "id": "clients",
+      "every": 300,
+      "source": {
+        "file": "clients.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "client_type",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "country",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "kyc_status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "risk_rating",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "onboarded",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "client",
+        "key": "key",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "case-work",
+          "compliance"
+        ],
+        "properties": {
+          "name": "name",
+          "client_type": "client_type",
+          "country": "country",
+          "kyc_status": "kyc_status",
+          "risk_rating": "risk_rating",
+          "onboarded": "onboarded"
+        }
+      }
+    },
+    {
+      "id": "matters",
+      "every": 300,
+      "source": {
+        "file": "matters.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "title",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "practice_area",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "jurisdiction",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "forum",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "hold",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "opened",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "retention_until",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "fee_basis",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "client",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "matter",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "case-work"
+        ],
+        "properties": {
+          "reference": "reference",
+          "title": "title",
+          "practice_area": "practice_area",
+          "jurisdiction": "jurisdiction",
+          "forum": "forum",
+          "status": "status",
+          "hold": "hold",
+          "opened": "opened",
+          "retention_until": "retention_until",
+          "fee_basis": "fee_basis"
+        }
+      },
+      "links": [
+        {
+          "type": "matter_client",
+          "from": "reference",
+          "to": "client"
+        }
+      ]
+    },
+    {
+      "id": "parties",
+      "every": 300,
+      "source": {
+        "file": "parties.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "capacity",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "counsel",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "matter",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "party",
+        "key": "key",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "case-work"
+        ],
+        "properties": {
+          "name": "name",
+          "capacity": "capacity",
+          "counsel": "counsel"
+        }
+      },
+      "links": [
+        {
+          "type": "party_matter",
+          "from": "key",
+          "to": "matter"
+        }
+      ]
+    },
+    {
+      "id": "conflicts",
+      "every": 300,
+      "source": {
+        "file": "conflicts.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "result",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "checked_on",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "note",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "matter",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "conflict_check",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "case-work"
+        ],
+        "properties": {
+          "reference": "reference",
+          "result": "result",
+          "checked_on": "checked_on",
+          "note": "note"
+        }
+      },
+      "links": [
+        {
+          "type": "conflict_matter",
+          "from": "reference",
+          "to": "matter"
+        }
+      ]
+    },
+    {
+      "id": "documents",
+      "every": 120,
+      "source": {
+        "file": "documents.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "title",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "language",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "pages",
+            "type": "int",
+            "nullable": true
+          },
+          {
+            "name": "privileged",
+            "type": "bool",
+            "nullable": true
+          },
+          {
+            "name": "review",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "matter",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "document",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "case-work"
+        ],
+        "properties": {
+          "reference": "reference",
+          "title": "title",
+          "kind": "kind",
+          "language": "language",
+          "pages": "pages",
+          "privileged": "privileged",
+          "review": "review"
+        }
+      },
+      "links": [
+        {
+          "type": "document_matter",
+          "from": "reference",
+          "to": "matter"
+        }
+      ]
+    },
+    {
+      "id": "deadlines",
+      "every": 120,
+      "source": {
+        "file": "deadlines.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "due",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "basis",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "matter",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "deadline",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "case-work"
+        ],
+        "properties": {
+          "reference": "reference",
+          "kind": "kind",
+          "due": "due",
+          "basis": "basis",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "deadline_matter",
+          "from": "reference",
+          "to": "matter"
+        }
+      ]
+    },
+    {
+      "id": "time_entries",
+      "every": 120,
+      "source": {
+        "file": "time_entries.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "fee_earner",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "worked_on",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "hours",
+            "type": "float",
+            "nullable": true
+          },
+          {
+            "name": "activity",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "billable",
+            "type": "bool",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "matter",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "time_entry",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "case-work"
+        ],
+        "properties": {
+          "reference": "reference",
+          "fee_earner": "fee_earner",
+          "worked_on": "worked_on",
+          "hours": "hours",
+          "activity": "activity",
+          "billable": "billable",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "time_matter",
+          "from": "reference",
+          "to": "matter"
+        }
+      ]
+    },
+    {
+      "id": "aml_checks",
+      "every": 300,
+      "source": {
+        "file": "aml_checks.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "completed_on",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "risk",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "client",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "aml_check",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "compliance"
+        ],
+        "properties": {
+          "reference": "reference",
+          "kind": "kind",
+          "status": "status",
+          "completed_on": "completed_on",
+          "risk": "risk"
+        }
+      },
+      "links": [
+        {
+          "type": "aml_client",
+          "from": "reference",
+          "to": "client"
+        }
+      ]
+    },
+    {
+      "id": "data_requests",
+      "every": 300,
+      "source": {
+        "file": "data_requests.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "data_right",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "received",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "due",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "client",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "data_request",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "compliance"
+        ],
+        "properties": {
+          "reference": "reference",
+          "data_right": "data_right",
+          "received": "received",
+          "due": "due",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "request_client",
+          "from": "reference",
+          "to": "client"
+        }
+      ]
+    }
   ]
 }

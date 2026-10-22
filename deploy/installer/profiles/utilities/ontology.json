@@ -5,39 +5,189 @@
       "id": "substation",
       "title": "Substation",
       "properties": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "voltage_kv", "type": "int", "required": true },
-        { "name": "status", "type": "text" },
-        { "name": "commissioned", "type": "timestamp" }
-      ]
-    },
-    {
-      "id": "transformer",
-      "title": "Transformer",
-      "properties": [
-        { "name": "serial", "type": "text", "required": true },
-        { "name": "rating_kva", "type": "int", "required": true },
-        { "name": "load_fraction", "type": "float" },
-        { "name": "oil_temp_c", "type": "float" },
-        { "name": "in_service", "type": "bool" },
-        { "name": "status", "type": "text" },
-        { "name": "last_inspected", "type": "timestamp" }
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "voltage_kv",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
       ]
     },
     {
       "id": "feeder",
       "title": "Feeder",
       "properties": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "customers", "type": "int" }
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "customers",
+          "type": "int"
+        }
+      ]
+    },
+    {
+      "id": "transformer",
+      "title": "Transformer",
+      "properties": [
+        {
+          "name": "serial",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "rating_kva",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "load_fraction",
+          "type": "float"
+        },
+        {
+          "name": "oil_temp_c",
+          "type": "float"
+        },
+        {
+          "name": "in_service",
+          "type": "bool"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "water_asset",
+      "title": "Water asset",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "capacity_mld",
+          "type": "float"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "telecom_site",
+      "title": "Telecommunications site",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "operator",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "transport_asset",
+      "title": "Transport asset",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "mode",
+          "type": "text"
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
       ]
     }
   ],
   "linkTypes": [
-    { "id": "feeder_from", "name": "supplied from", "from": "feeder", "to": "substation",
-      "cardinality": "many-to-many" },
-    { "id": "transformer_on", "name": "connected to", "from": "transformer", "to": "feeder",
-      "cardinality": "many-to-many" }
+    {
+      "id": "feeder_from",
+      "name": "supplied from",
+      "from": "feeder",
+      "to": "substation",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "transformer_on",
+      "name": "connected to",
+      "from": "transformer",
+      "to": "feeder",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "substation_in",
+      "name": "in region",
+      "from": "substation",
+      "to": "region",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "water_asset_in",
+      "name": "in region",
+      "from": "water_asset",
+      "to": "region",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "telecom_site_in",
+      "name": "in region",
+      "from": "telecom_site",
+      "to": "region",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "transport_asset_in",
+      "name": "in region",
+      "from": "transport_asset",
+      "to": "region",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "telecom_powered_by",
+      "name": "powered from",
+      "from": "telecom_site",
+      "to": "substation",
+      "cardinality": "many-to-many"
+    }
   ],
   "actions": [
     {
@@ -45,21 +195,95 @@
       "name": "flagTransformer",
       "title": "Flag for inspection",
       "objectType": "transformer",
-      "humanGated": false,
+      "humanGated": true,
       "marking": "internal",
-      "purposes": ["operations", "asset-management"],
-      "effect": { "kind": "set-property", "property": "status", "value": "inspection-due" }
+      "purposes": [
+        "operations",
+        "asset-management"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "inspection-due"
+      }
     },
     {
       "id": "isolate_substation",
       "name": "isolateSubstation",
-      "title": "Isolate substation",
+      "title": "Isolate or re-energise substation",
       "objectType": "substation",
       "humanGated": true,
       "marking": "restricted",
-      "compartments": ["GRID-OPS"],
-      "purposes": ["operations"],
-      "effect": { "kind": "cycle-property", "property": "status", "values": ["energised", "isolated"] }
+      "purposes": [
+        "operations"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "energised",
+          "isolated"
+        ]
+      }
+    },
+    {
+      "id": "flag_water_asset",
+      "name": "flagWaterAsset",
+      "title": "Flag water asset for inspection",
+      "objectType": "water_asset",
+      "humanGated": true,
+      "marking": "internal",
+      "purposes": [
+        "operations",
+        "asset-management"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "inspection-due"
+      }
+    },
+    {
+      "id": "telecom_status",
+      "name": "setTelecomStatus",
+      "title": "Set telecommunications site status",
+      "objectType": "telecom_site",
+      "humanGated": true,
+      "marking": "internal",
+      "purposes": [
+        "operations",
+        "asset-management"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "operational",
+          "degraded",
+          "outage"
+        ]
+      }
+    },
+    {
+      "id": "transport_status",
+      "name": "setTransportStatus",
+      "title": "Set transport asset status",
+      "objectType": "transport_asset",
+      "humanGated": true,
+      "marking": "internal",
+      "purposes": [
+        "operations",
+        "asset-management"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "open",
+          "restricted",
+          "closed"
+        ]
+      }
     }
   ]
 }

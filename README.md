@@ -11,7 +11,8 @@ Midgard is a **Veldris Ltd** project. This repository holds three things that fi
 The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md); in the full working history, one commit maps to each playbook prompt. This public repository begins from a squashed initial import of that verified state.
 
 - **Just want to see it?** → [Run the design system](#run-the-design-system) (static files, no toolchain).
-- **Want it on a server?** → [Install on a server](#install-on-a-server): one guided installer, with profiles for legal, healthcare, defence, space and utilities.
+- **Want it on a server?** → [Install on a server](#install-on-a-server): one guided installer, with profiles for EU legal practice, NHS-aligned healthcare, British and EU military use, and utilities.
+- **Want real data in it?** → [Sample datasets](#sample-datasets): recorded datasets, the configuration they came from, and Heimdall feeds, with the commands that load them.
 - **Want to run it?** → [Run the platform locally](#run-the-platform-locally) (gateway edge + console, step by step).
 - **Want to verify it?** → [Verify the platform](#verify-the-platform) (build, test, and the 72-criterion air-gapped gate).
 - **Want to understand how it was built?** → [GETTING_STARTED.md](GETTING_STARTED.md) and [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md).
@@ -107,7 +108,8 @@ midgard/
 ├── clients/           ← shared core + sync, keystore, store, enclosure, inference, broker, delivery; shells/
 ├── sdk/ · products/ · ui/   ← generated SDKs, product surfaces, console UIs (Vite/React)
 ├── tools/             ← CLIs: mg-sign, mg-sbom, mg-scan, mg-verify, mg-repro, mg-bundle, mg-register, mg-admin, mg-model
-├── deploy/            ← acceptance gates, container images, k8s + helm, air-gap bundle, trust anchors
+├── deploy/            ← acceptance gates, container images, k8s + helm, air-gap bundle, trust anchors, installer
+├── samples/           ← recorded sample datasets, their configuration, Heimdall feeds, convert.py
 ├── vendor/            ← vendored crates → fully offline builds
 │
 └── docs/
@@ -134,13 +136,129 @@ The Cargo workspace is pinned to Rust 1.82 (`rust-toolchain.toml`) with every de
 
 ## Install on a server
 
-`deploy/installer/mg-install` installs the suite, whole or in part, on one Linux server, for someone who has not installed Midgard before:
+`deploy/installer/mg-install` installs the suite, whole or in part, on one Linux server. It is written for someone who has not installed Midgard before: it asks plain questions, recommends settings for your use, and checks every part works before it says it is done.
 
-```bash
-sudo deploy/installer/mg-install
+### Quick start
+
+1. **Get a server.** Ubuntu 22.04 or 24.04, Debian 12 or 13, or RHEL, Rocky Linux or AlmaLinux 9, with at least 4 cores, 8 GB of memory and 20 GB free (32 GB and 8 cores for a team). A Hetzner GEX131 is a worked example in the [installer guide](deploy/installer/README.md#worked-example-hetzner-gex131).
+2. **Get Midgard onto it**, as a user who can use `sudo`:
+
+   ```bash
+   git clone https://github.com/veldris-ltd/midgard-app.git midgard && cd midgard
+   ```
+
+3. **Run the installer** and answer its nine screens:
+
+   ```bash
+   sudo deploy/installer/mg-install
+   ```
+
+4. **Open it from your own computer** through an SSH tunnel (Midgard listens only on the server's loopback address), then browse to http://localhost:5173 and sign in:
+
+   ```bash
+   ssh -N -L 5173:127.0.0.1:5173 -L 7710:127.0.0.1:7710 you@your-server
+   ```
+
+Run `deploy/installer/mg-install check` first to see whether a server is suitable, without changing anything.
+
+### What the installer asks
+
+| Screen | What you decide |
+|---|---|
+| 1 Welcome · 2 Server check | Nothing yet: it measures the server, and offers to install Docker and Python if they are missing |
+| 3 Use | Legal practice (EU), healthcare (NHS aligned), military (British and EU aligned) or utilities |
+| 4 Products | Which of Forge, Mimir, Bifrost and Heimdall to install beside the core |
+| 5 Model and access | Granite on the CPU, or the reference engine; whether to build the web console |
+| 6 Data and feeds | The [sample datasets](#sample-datasets) zip for the full set, or the open set in this repository; which Heimdall feed families to replay |
+| 7 People | The first user, and two administrators for dual control |
+| 8 Review | Confirm. Nothing changes on the server before this. |
+| 9 Install | It builds, starts and checks everything, and shows how to reach it |
+
+### The four profiles
+
+| Profile | Installs | Its schema | Recorded data and feeds |
+|---|---|---|---|
+| **Legal practice (European Union)** | Forge, Mimir | clients, matters, parties, conflict checks, documents, deadlines, time, AML checks, data subject requests | none |
+| **Healthcare (NHS aligned)** | Forge, Mimir | NHS organisations (ODS), care units, pseudonymised patients, encounters (SNOMED CT), referrals with RTT clocks, a DCB0129 / DCB0160 hazard log, Caldicott reviews | none |
+| **Military (British and EU aligned)** | Forge, Mimir, Bifrost, Heimdall | formations, units, sites, assets, taskings, incidents, with the sample configuration's aviation and weather types | weather, earthquakes, space weather; aviation, maritime, communications, hazards and news feeds |
+| **Utilities (water, electricity, transport, communications)** | Forge, Mimir, Heimdall | substations, feeders, transformers, water assets, telecommunications sites, transport assets, with the sample configuration's grid, flood and TfL types | GB grid, floods, TfL, weather, earthquakes, space weather; energy, water, transport, communications and hazards feeds |
+
+Every profile requires an authenticator code at sign-in, sets up two administrators so that enrolling someone new needs a second person's approval, and shows sector guidance (GDPR and the EU AML Regulation for legal; DSPT, DCB0129 / DCB0160 and Caldicott for healthcare; accreditation limits for military; NIS and NIS2 for utilities). Each also loads clearly fictional records, so the first sign-in shows real structure.
+
+### What it checks before it finishes
+
+The gateway answers; every Forge job syncs (a failed job stops the install and is named); the first user signs in, with the installer computing their authenticator code in memory, and reads the synced data; Mimir answers an inference call over post-quantum mutual TLS; Bifrost and Heimdall answer reads; the chosen feeds replay into Heimdall and the picture reads back; the console is served.
+
+### Afterwards
+
+`sudo mg-install status`, `logs`, `add-user`, `backup`, `stop`, `start` and `uninstall` look after the install, and running `sudo mg-install` again checks and repairs it. `/opt/midgard/INSTALL_REPORT.md` records what was installed, how to reach it, the guidance for your use and the credits the data's licences require. For provisioning from a script, [`answers.example`](deploy/installer/answers.example) drives an unattended install.
+
+Like the compose deployment it drives, the installer builds from source, not from a signed release. Everything is in the [installer guide](deploy/installer/README.md): sizing tiers, each screen, the security model, Plesk servers, backups and restores, and troubleshooting.
+
+---
+
+## Sample datasets
+
+[`samples/`](samples/README.md) holds real data recorded from live public sources on 22 October 2026, with the configuration it was recorded with. It has been ingested into this repository's own build by both routes below; the commands and counts here are from those runs.
+
+| Folder | What it holds |
+|---|---|
+| `1-configuration/` | The configuration the data was recorded with: an ontology of 22 object types, 13 link types and 18 actions; the core, Heimdall and Mimir policies; 11 Forge job definitions; Heimdall's classification rules, alert detectors and time-to-live settings |
+| `2-forge-datasets/` | Forge source tables as typed JSON: earthquakes, flood warnings, GB grid frequency, fuel mix and regional carbon intensity, space weather, TfL line status and airport weather |
+| `3-heimdall-feed-snapshots/` | The latest cached response from each live source, in the source's own format, for reference |
+| `4-heimdall-observations/` | Normalised Heimdall observations, up to 500 per feed, from a 5-minute recording |
+| `catalogue.json` · [`NOTICE.md`](samples/NOTICE.md) | Every file's source, licence, required credit, feed family and whether it is in this repository |
+| `convert.py` | Turns the data into what Midgard ingests (Python 3.8+, standard library only) |
+
+### Formats
+
+A Forge dataset is a table of rows, keyed by `key`, whose columns are the ones its Forge job names:
+
+```json
+{ "dataset": "earthquakes", "objectType": "earthquake",
+  "rows": [ { "key": "aka2026undgaz", "name": "M 2.5 - 28 km SSE of Nelchina, Alaska", "magnitude": 2.5,
+              "place": "28 km SSE of Nelchina, Alaska", "occurred_at": 1792164460, "depth_km": 0.2,
+              "latitude": 61.761, "longitude": -146.556, "tsunami": false, "status": "automatic", ... } ] }
 ```
 
-It checks the server, asks what Midgard is for (evaluation, legal, healthcare, defence, space or utilities), recommends the products, model and security settings for that use, enrols the first user (and two administrators for dual control where the use calls for it), builds and starts the services under docker compose, then signs in as the first user to check the data is readable. Everything listens on the server's loopback address only, reached through an SSH tunnel. Afterwards `mg-install` also reports status, enrols users, takes backups and uninstalls. Like the compose deployment it drives, it builds from source, not from a signed release. The guide, with sizing tiers and a worked Hetzner GEX131 example, is [deploy/installer/README.md](deploy/installer/README.md).
+A Heimdall observation is what a feed source submits: an entity key, a kind, a time and flat attributes:
+
+```json
+{ "feed": "gb-grid", "sample": [ { "entity": "GB-GRID", "kind": "utility-power-grid", "observedAt": 1792691220,
+  "attrs": { "lat": 54.3, "lon": -2.3, "frequency_hz": 50.108, "demand_mw": 38037, "carbon_index": "high" } } ] }
+```
+
+The configuration files use the formats this repository already publishes: the [ontology](contracts/schema/ontology.v1.schema.json) and [import record](contracts/schema/import-record.v1.schema.json) schemas, the policy file, and the Forge jobs file documented in `forge/worker/src/lib.rs`. [samples/README.md](samples/README.md) describes every file.
+
+### Load them by hand
+
+The same steps as [Import your own data](docs/guides/IMPORT_YOUR_OWN_DATA.md), with `convert.py` writing the schema and the records:
+
+```bash
+cargo build --release -p http-gateway -p mg-admin
+./target/release/mg-admin init --state-dir ./enclosure
+python3 samples/convert.py ontology > ./enclosure/ontology.json
+cp samples/1-configuration/midgard/policy.json ./enclosure/policy.json
+python3 samples/convert.py import > samples.jsonl
+./target/release/mg-admin import --state-dir ./enclosure --file samples.jsonl
+# imported 418 object(s) and 28 link(s) into ./enclosure
+```
+
+Then enrol a user and serve the enclosure as in [Run a real enclosure](#run-a-real-enclosure-no-demo-data). To load them through Forge on a schedule instead, `python3 samples/convert.py forge --out DIR` writes one CSV per dataset and a jobs file for `forge-worker`. `python3 samples/convert.py check` validates every dataset against its job and the ontology.
+
+### Configurations available
+
+The configuration was recorded on a newer build than this repository. This build reads its ontology, core and Mimir policies and Forge jobs, with two adjustments that `convert.py ontology` makes and names: it leaves out the `retention` rules on Heimdall tracks and alerts, which this gateway does not read, and the one action that changes a boolean property, because this build's actions change text properties only. This build's `heimdall-feed` accepts the Heimdall policy (the installer has run with it), but has no rules engine, alert detectors or expiry, so `rules.json`, `alerts.json` and `ttl.json` are reference material here.
+
+The installer's military and utilities profiles join this configuration with their own schema, so the recorded datasets load beside each profile's records.
+
+### Heimdall feeds
+
+The installer replays the observations of the feed families you choose into Heimdall, each signed by its feed's own certified identity, and reads the picture back. Families are aviation, maritime, energy, water, transport, communications, hazards and information. Because Heimdall returns the whole picture in one frame of at most 1 MiB, the replay stays inside a budget that trims the largest feeds evenly: measured, 1,457 entities from 14 feeds fit in 701 KiB. A replay is a recording of one moment, not a live connection. To replay by hand, `convert.py observations` writes the lines `heimdall-source` takes; see [samples/README.md](samples/README.md#heimdall-observations).
+
+### Licences, and the full set
+
+This repository is public, so `samples/` holds only files whose sources state an open licence that allows redistribution, and keeps their credits in [NOTICE.md](samples/NOTICE.md) (Elexon, NESO, the Environment Agency, TfL, NOAA, USGS, EASA, Network Rail and others). The full set, `midgard-sample-datasets.zip`, adds aircraft positions, air quality, power cuts, storm overflows, infrastructure maps and more; give its path to the installer, or to `convert.py --samples`, to use it. Its files that are not cleared for redistribution are marked, and Cloudflare Radar and openAIP data are licensed for non-commercial use only. The classification is conservative and is not legal advice.
 
 ---
 
@@ -337,7 +455,7 @@ Before serving, write the enclosure's schema into `ontology.json`: its object ty
 
 An import is all or nothing: every record is checked against the ontology before anything is written, an existing object is never replaced, and the import is recorded in the audit ledger. Both formats are published as JSON Schemas, [`contracts/schema/ontology.v1.schema.json`](contracts/schema/ontology.v1.schema.json) and [`contracts/schema/import-record.v1.schema.json`](contracts/schema/import-record.v1.schema.json), and a test holds them to the gateway's parsers.
 
-**[Import your own data](docs/guides/IMPORT_YOUR_OWN_DATA.md)** is the full walkthrough: every key of both formats, links, actions and the policy rules they need, who can read what, converting a spreadsheet, and the errors you will meet.
+For real data to practise on, the [sample datasets](#sample-datasets) load the same way. **[Import your own data](docs/guides/IMPORT_YOUR_OWN_DATA.md)** is the full walkthrough: every key of both formats, links, actions and the policy rules they need, who can read what, converting a spreadsheet, and the errors you will meet.
 
 ### 3 — Enrol a user
 

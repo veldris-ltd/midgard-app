@@ -1,0 +1,4 @@
+key,name,kind,capacity_mld,status,region
+WA-TW1,Riverside water treatment works (fictional),water treatment,120.0,operational,GB-ENG
+WA-PS4,Harbour pumping station (fictional),pumping station,18.5,operational,GB-SCT
+WA-WW2,Valley wastewater treatment works (fictional),wastewater treatment,65.0,operational,GB-WLS

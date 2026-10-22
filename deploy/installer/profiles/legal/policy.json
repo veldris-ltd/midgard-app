@@ -1,12 +1,96 @@
 {
   "version": 1,
   "rules": [
-    { "id": "operator-read", "role": "operator", "action": "Read", "resource": "*", "effect": "permit" },
-    { "id": "operator-apply", "role": "operator", "action": "Apply", "resource": "*", "effect": "permit" },
-    { "id": "operator-hold", "role": "operator", "action": "placeLegalHold", "resource": "*", "effect": "permit" },
-    { "id": "operator-privilege", "role": "operator", "action": "privilegeReview", "resource": "*", "effect": "permit" },
-    { "id": "viewer-read", "role": "viewer", "action": "Read", "resource": "*", "effect": "permit" },
-    { "id": "worker-channel", "role": "forge-worker", "action": "OpenChannel", "resource": "*", "effect": "permit" },
-    { "id": "worker-sync", "role": "forge-worker", "action": "SyncRecords", "resource": "*", "effect": "permit" }
+    {
+      "id": "operator-read",
+      "role": "operator",
+      "action": "Read",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-apply",
+      "role": "operator",
+      "action": "Apply",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-placeLegalHold",
+      "role": "operator",
+      "action": "placeLegalHold",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-closeMatter",
+      "role": "operator",
+      "action": "closeMatter",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-privilegeReview",
+      "role": "operator",
+      "action": "privilegeReview",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-recordConflictResult",
+      "role": "operator",
+      "action": "recordConflictResult",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-markDeadlineMet",
+      "role": "operator",
+      "action": "markDeadlineMet",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-approveTimeEntry",
+      "role": "operator",
+      "action": "approveTimeEntry",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-escalateAmlCheck",
+      "role": "operator",
+      "action": "escalateAmlCheck",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-advanceDataRequest",
+      "role": "operator",
+      "action": "advanceDataRequest",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "viewer-read",
+      "role": "viewer",
+      "action": "Read",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "worker-channel",
+      "role": "forge-worker",
+      "action": "OpenChannel",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "worker-sync",
+      "role": "forge-worker",
+      "action": "SyncRecords",
+      "resource": "*",
+      "effect": "permit"
+    }
   ]
 }

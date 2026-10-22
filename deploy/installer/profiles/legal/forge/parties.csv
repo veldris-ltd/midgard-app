@@ -1,4 +1,4 @@
-key,name,capacity,matter
-P-001,Example Holdings Ltd (fictional),claimant,M-0001
-P-002,Sample Logistics plc (fictional),defendant,M-0001
-P-003,Placeholder Ltd (fictional),target,M-0002
+key,name,capacity,counsel,matter
+P-001,Exempel Logistik GmbH (fictional),claimant,this firm,M-2025-014
+P-002,Muster Transport AG (fictional),defendant,opposing counsel (fictional),M-2025-014
+P-003,Voorbeeld Holding B.V. (fictional),merging company,Dutch counsel (fictional),M-2025-031

@@ -1,0 +1,21 @@
+{
+ "fetched": 1792699042.37275,
+ "disruptions": {
+  "TFL-TIMS-236204": {
+   "lat": 51.45711,
+   "lon": -0.194259,
+   "severity": "Serious",
+   "category": "Works",
+   "sub_category": "Utility works",
+   "location": "[A3] WANDSWORTH HIGH STREET (SW18 ) (Wandsworth)",
+   "comments": "[A3] Wandsworth High Street (Both directions) at the junction of [A218] Buckhold Road - Temporary traffic signals in operation to facilitate emergency utility works. Additionally Buckhold Road is clos",
+   "current_update": "Use an alternative route. Traffic is slow westbound with traffic back onto Huguenot Place. Expect delays.",
+   "start": 1792684380,
+   "end": 1792882740,
+   "has_closures": false,
+   "polygon": "51.4526,-0.1983;51.4524,-0.1983;51.4523,-0.1981;51.4522,-0.1979;51.4521,-0.1977;51.4521,-0.1975;51.4522,-0.1973;51.4522,-0.1971;51.4524,-0.1969;51.4528,-0.1966;51.4532,-0.1965;51.4538,-0.1965;51.4545,-0.1967;51.4547,-0.1965;51.4551,-0.1961;51.4554,-0.1955;51.4556,-0.1952;51.4557,-0.195;51.4559,-0.1949;51.4561,-0.195;51.4562,-0.1951;51.4563,-0.1953;51.4564,-0.1956;51.4564,-0.1958;51.4562,-0.1964;51.4559,-0.1968;51.4557,-0.1972;51.4551,-0.1978;51.4549,-0.198;51.4545,-0.1981;51.4543,-0.1981;51.4538,-0.1979;51.4533,-0.1979;51.4526,-0.1983",
+   "line": null,
+   "source": "tfl"
+  }
+ }
+}

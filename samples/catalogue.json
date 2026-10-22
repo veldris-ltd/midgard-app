@@ -1,0 +1,430 @@
+{
+  "version": 1,
+  "about": "Sources, licences and feed families of the Midgard sample datasets. 'publish' false: kept out of this public repository; available from a local copy of midgard-sample-datasets.zip. Licence classification is conservative and is not legal advice.",
+  "configuration": {
+    "licence": "Apache-2.0",
+    "credit": "Veldris Ltd"
+  },
+  "forge_datasets": {
+    "earthquakes": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "U.S. Geological Survey Earthquake Hazards Program"
+    },
+    "floods": {
+      "publish": true,
+      "licence": "Open Government Licence v3.0",
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+    },
+    "grid_frequency": {
+      "publish": true,
+      "licence": "Elexon BMRS open data licence",
+      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026"
+    },
+    "grid_fuel": {
+      "publish": true,
+      "licence": "Elexon BMRS open data licence",
+      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026"
+    },
+    "grid_intensity_linked": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "Carbon Intensity API, National Energy System Operator (NESO)"
+    },
+    "grid_intensity_other": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "Carbon Intensity API, National Energy System Operator (NESO)"
+    },
+    "space_weather": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "NOAA Space Weather Prediction Center"
+    },
+    "tfl": {
+      "publish": true,
+      "licence": "TfL open data terms",
+      "credit": "Powered by TfL Open Data"
+    },
+    "weather": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+    },
+    "aircraft": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "air_quality": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence"
+    },
+    "regions": {
+      "publish": true,
+      "licence": "Apache-2.0",
+      "credit": "Veldris Ltd (ISO 3166-2 codes)",
+      "authored": "written for this repository so links to 'region' resolve"
+    }
+  },
+  "feed_snapshots": {
+    "easa_czib": {
+      "publish": true,
+      "licence": "Reproduction authorised with acknowledgement",
+      "credit": "Source: EASA"
+    },
+    "faa_restrictions": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "U.S. Federal Aviation Administration"
+    },
+    "floods": {
+      "publish": true,
+      "licence": "Open Government Licence v3.0",
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+    },
+    "flood_areas": {
+      "publish": true,
+      "licence": "Open Government Licence v3.0",
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+    },
+    "reservoirs": {
+      "publish": true,
+      "licence": "Open Government Licence v3.0",
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+    },
+    "tfl": {
+      "publish": true,
+      "licence": "TfL open data terms",
+      "credit": "Powered by TfL Open Data"
+    },
+    "jamcams": {
+      "publish": true,
+      "licence": "TfL open data terms",
+      "credit": "Powered by TfL Open Data"
+    },
+    "usgs": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "U.S. Geological Survey Earthquake Hazards Program"
+    },
+    "tsunami": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "NOAA National and Pacific Tsunami Warning Centers"
+    },
+    "metar": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+    },
+    "taf": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+    },
+    "sigmet": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+    },
+    "gdacs": {
+      "publish": true,
+      "licence": "Reuse with attribution (European Commission reuse policy)",
+      "credit": "GDACS, European Commission Joint Research Centre and UN OCHA"
+    },
+    "gdelt": {
+      "publish": true,
+      "licence": "Free use with attribution",
+      "credit": "The GDELT Project"
+    },
+    "ooni": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "OONI, the Open Observatory of Network Interference"
+    },
+    "digitraffic_vessels": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "Fintraffic / digitraffic.fi"
+    },
+    "drivebc_cams": {
+      "publish": true,
+      "licence": "Open Government Licence - British Columbia",
+      "credit": "Contains information licensed under the Open Government Licence - British Columbia"
+    },
+    "drivebc_events": {
+      "publish": true,
+      "licence": "Open Government Licence - British Columbia",
+      "credit": "Contains information licensed under the Open Government Licence - British Columbia"
+    },
+    "nz_cams": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "NZ Transport Agency Waka Kotahi"
+    },
+    "nzta_roads": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "NZ Transport Agency Waka Kotahi"
+    },
+    "mrwa_roads": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "Main Roads Western Australia"
+    },
+    "eccc_alerts": {
+      "publish": true,
+      "licence": "ECCC Data Servers End-use Licence",
+      "credit": "Environment and Climate Change Canada"
+    },
+    "metservice": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "MetService"
+    },
+    "windfarms": {
+      "publish": true,
+      "licence": "The Crown Estate open data licence",
+      "credit": "The Crown Estate and Crown Estate Scotland"
+    },
+    "platforms": {
+      "publish": true,
+      "licence": "NSTA Open User Licence",
+      "credit": "North Sea Transition Authority"
+    },
+    "gb_grid": {
+      "publish": true,
+      "licence": "Elexon BMRS open data licence; CC BY 4.0",
+      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026; Carbon Intensity API, NESO"
+    },
+    "adsb-lol-last": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "airports": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "cf_outages": {
+      "publish": false,
+      "excluded_because": "CC BY-NC 4.0: non-commercial only"
+    },
+    "country_points": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "gas": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "gie": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "gulf_countries": {
+      "publish": false,
+      "excluded_because": "derived from feeds whose terms are not confirmed"
+    },
+    "gulf_platforms": {
+      "publish": false,
+      "excluded_because": "derived from feeds whose terms are not confirmed"
+    },
+    "gulf_watch": {
+      "publish": false,
+      "excluded_because": "derived from feeds whose terms are not confirmed"
+    },
+    "infra_gas": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence"
+    },
+    "infra_power": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence"
+    },
+    "infra_telecom": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence"
+    },
+    "infra_water": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence"
+    },
+    "ioda": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "meteoalarm": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "metoffice": {
+      "publish": false,
+      "excluded_because": "governed by website terms, not an open licence"
+    },
+    "national_highways": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "nuts_points": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "openaip_airspaces": {
+      "publish": false,
+      "excluded_because": "CC BY-NC 4.0: non-commercial only"
+    },
+    "openaip_airspaces_51": {
+      "publish": false,
+      "excluded_because": "CC BY-NC 4.0: non-commercial only"
+    },
+    "openaip_airspaces_52": {
+      "publish": false,
+      "excluded_because": "CC BY-NC 4.0: non-commercial only"
+    },
+    "overflows": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    },
+    "power_cuts": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed"
+    }
+  },
+  "observations": {
+    "easa-czib": {
+      "publish": true,
+      "licence": "Reproduction authorised with acknowledgement",
+      "credit": "Source: EASA",
+      "family": "aviation"
+    },
+    "faa-restrictions": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "U.S. Federal Aviation Administration",
+      "family": "aviation"
+    },
+    "airports-metar": {
+      "publish": true,
+      "licence": "Public domain (US Government work)",
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)",
+      "family": "aviation"
+    },
+    "adsb-fi-aircraft": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "aviation"
+    },
+    "adsb-fi-military-aircraft": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "aviation"
+    },
+    "openaip": {
+      "publish": false,
+      "excluded_because": "CC BY-NC 4.0: non-commercial only",
+      "family": "aviation"
+    },
+    "digitraffic-ais": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "Fintraffic / digitraffic.fi",
+      "family": "maritime"
+    },
+    "aisstream": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "maritime"
+    },
+    "gb-grid": {
+      "publish": true,
+      "licence": "Elexon BMRS open data licence; CC BY 4.0",
+      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026; Carbon Intensity API, NESO",
+      "family": "energy"
+    },
+    "power-cuts": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "energy"
+    },
+    "power-infra": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence",
+      "family": "energy"
+    },
+    "gas-flows": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "energy"
+    },
+    "gas-infra": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence",
+      "family": "energy"
+    },
+    "gie-gas": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "energy"
+    },
+    "reservoirs": {
+      "publish": true,
+      "licence": "Open Government Licence v3.0",
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0",
+      "family": "water"
+    },
+    "storm-overflows": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "water"
+    },
+    "water-infra": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence",
+      "family": "water"
+    },
+    "network-rail": {
+      "publish": true,
+      "licence": "Network Rail data feeds licence (Open Government Licence terms)",
+      "credit": "Contains information of Network Rail Infrastructure Limited; NaPTAN, Department for Transport, OGL v3.0",
+      "family": "transport"
+    },
+    "national-highways": {
+      "publish": false,
+      "excluded_because": "redistribution terms not confirmed",
+      "family": "transport"
+    },
+    "ooni-censorship": {
+      "publish": true,
+      "licence": "CC BY 4.0",
+      "credit": "OONI, the Open Observatory of Network Interference",
+      "family": "communications"
+    },
+    "telecom-infra": {
+      "publish": false,
+      "excluded_because": "ODbL: share-alike database licence",
+      "family": "communications"
+    },
+    "cloudflare-radar": {
+      "publish": false,
+      "excluded_because": "CC BY-NC 4.0: non-commercial only",
+      "family": "communications"
+    },
+    "nasa-firms": {
+      "publish": true,
+      "licence": "NASA open data policy",
+      "credit": "NASA FIRMS (Fire Information for Resource Management System)",
+      "family": "hazards"
+    },
+    "gdelt-news": {
+      "publish": true,
+      "licence": "Free use with attribution",
+      "credit": "The GDELT Project",
+      "family": "information"
+    },
+    "gulf-watch": {
+      "publish": false,
+      "excluded_because": "derived from feeds whose terms are not confirmed",
+      "family": "information"
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+ "fetched": 1792698551.470817,
+ "warnings": {
+  "111WATCHXH": {
+   "lat": 50.72976,
+   "lon": -1.76465,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "Christchurch Harbour",
+   "county": "Bournemouth, Christchurch and Poole",
+   "river": "English Channel",
+   "time_raised": 1792681757,
+   "message_changed": 1792681740,
+   "source": "environment-agency"
+  },
+  "034WAF428": {
+   "lat": 52.79207,
+   "lon": -1.21257,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "Lower River Soar in Leicestershire",
+   "county": "Derbyshire, Leicestershire, Nottinghamshire",
+   "river": "River Soar",
+   "time_raised": 1792688669,
+   "message_changed": 1792688640,
+   "source": "environment-agency"
+  },
+  "113WACT1B": {
+   "lat": 50.28593,
+   "lon": -3.64452,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "South Devon coast from Start Point to Dawlish Warren",
+   "county": "Devon, Torbay",
+   "river": "South Devon Coast",
+   "time_raised": 1792671632,
+   "message_changed": 1792671600,
+   "source": "environment-agency"
+  },
+  "111WACECD": {
+   "lat": 50.6856,
+   "lon": -2.05077,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "East coast of Dorset",
+   "county": "Bournemouth, Christchurch and Poole, Dorset Council",
+   "river": "English Channel",
+   "time_raised": 1792682632,
+   "message_changed": 1792682580,
+   "source": "environment-agency"
+  },
+  "033WAF330": {
+   "lat": 52.4885,
+   "lon": -2.19985,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "River Stour and Smestow Brook in the Black Country and South Staffordshire",
+   "county": "Dudley, Sandwell, Staffordshire, Wolverhampton, Worcestershire",
+   "river": "River Stour, Smestow Brook",
+   "time_raised": 1792686170,
+   "message_changed": 1792686120,
+   "source": "environment-agency"
+  },
+  "123WAF985": {
+   "lat": 53.68069,
+   "lon": -1.51266,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "Ings Beck and Oakenshaw Beck",
+   "county": "Leeds, Wakefield",
+   "river": "Ings Beck, Alverthorpe Beck, Balne Beck, Oakenshaw Beck",
+   "time_raised": 1792697053,
+   "message_changed": 1792697040,
+   "source": "environment-agency"
+  },
+  "111WACWCD": {
+   "lat": 50.68631,
+   "lon": -2.69556,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "West coast of Dorset",
+   "county": "Dorset Council",
+   "river": "English Channel",
+   "time_raised": 1792680051,
+   "message_changed": 1792680000,
+   "source": "environment-agency"
+  },
+  "113FWC2T1A2": {
+   "lat": 50.28808,
+   "lon": -3.64295,
+   "severity": "Flood warning",
+   "severity_level": 2,
+   "area": "South Devon coast at Beesands, Torcross, Slapton and Dawlish",
+   "county": "Devon, Torbay",
+   "river": "English Channel, South Devon Coast",
+   "time_raised": 1792671619,
+   "message_changed": 1792671600,
+   "source": "environment-agency"
+  },
+  "033WAF317": {
+   "lat": 53.05848,
+   "lon": -1.99927,
+   "severity": "Flood alert",
+   "severity_level": 3,
+   "area": "River Churnet and River Tean",
+   "county": "Staffordshire",
+   "river": "River Churnet, River Tean",
+   "time_raised": 1792685983,
+   "message_changed": 1792685940,
+   "source": "environment-agency"
+  }
+ }
+}

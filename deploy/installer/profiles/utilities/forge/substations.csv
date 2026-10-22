@@ -1,3 +1,3 @@
-key,name,voltage_kv,status
-SS-ELM,Elm Road primary (fictional),33,energised
-SS-MILL,Mill Lane primary (fictional),33,energised
+key,name,voltage_kv,status,region
+SS-ELM,Elm Road primary (fictional),33,energised,GB-ENG
+SS-MILL,Mill Lane primary (fictional),33,energised,GB-WLS

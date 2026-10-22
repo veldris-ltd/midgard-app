@@ -1,0 +1,2405 @@
+{
+ "fetched": 1792698683.8643,
+ "items": [
+  {
+   "id": 714,
+   "lat": -43.919632,
+   "lon": 171.721055,
+   "name": "SH1 Tinwald",
+   "view": "South along Hinds Highway from Lagmhor Rd - Southbound",
+   "image": "https://trafficnz.info/camera/714.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 653,
+   "lat": -36.90943,
+   "lon": 174.73442,
+   "name": "SH20 May Rd Overbridge",
+   "view": "North along Sth Wstn Mwy from May Rd - Northbound",
+   "image": "https://trafficnz.info/camera/653.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 654,
+   "lat": -36.87173,
+   "lon": 174.71018,
+   "name": "SH16 Carrington Rd Overbridge",
+   "view": "East along Nth Wstn Mwy from Carrington Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/654.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 655,
+   "lat": -36.871997,
+   "lon": 174.704836,
+   "name": "SH16/20 Interchange South",
+   "view": "South from Nth Wstn Mwy to Waterview Tunnel - Southbound",
+   "image": "https://trafficnz.info/camera/655.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 818,
+   "lat": -36.724252,
+   "lon": 174.713939,
+   "name": "SH1 McClymonts Rd Overbridge",
+   "view": "North along Nthn Mwy from McClymonts Rd - Northbound",
+   "image": "https://trafficnz.info/camera/818.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 819,
+   "lat": -36.728623,
+   "lon": 174.7143,
+   "name": "SH1 Tirohanga Whanui Bridge",
+   "view": "North along Nthn Mwy towards Tirohanga Whanui Bridge - Northbound",
+   "image": "https://trafficnz.info/camera/819.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 820,
+   "lat": -36.743377,
+   "lon": 174.720401,
+   "name": "SH1 Rosedale",
+   "view": "South along Nthn Mwy in Rosedale area - Southbound",
+   "image": "https://trafficnz.info/camera/820.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 821,
+   "lat": -36.750564,
+   "lon": 174.726254,
+   "name": "SH1 Constellation Dr",
+   "view": "South along Nthn Mwy from Constellation Dr - Southbound",
+   "image": "https://trafficnz.info/camera/821.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 822,
+   "lat": -36.753905,
+   "lon": 174.728353,
+   "name": "SH1 Sunset Rd Overbridge",
+   "view": "South along Nthn Mwy from Sunset Rd - Southbound",
+   "image": "https://trafficnz.info/camera/822.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 824,
+   "lat": -36.51967,
+   "lon": 174.67121,
+   "name": "SH1 Puhoi Viaduct",
+   "view": "North along SH1 towards Puhoi Viaduct - Northbound",
+   "image": "https://trafficnz.info/camera/824.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 825,
+   "lat": -36.530387,
+   "lon": 174.676896,
+   "name": "SH1 Johnstones Hill Tunnels",
+   "view": "South along SH1 towards Tunnels - Southbound",
+   "image": "https://trafficnz.info/camera/825.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 826,
+   "lat": -36.5187,
+   "lon": 174.671,
+   "name": "SH1 Puhoi On-ramp",
+   "view": "South along Puhoi on-ramp to SH1 - Southbound",
+   "image": "https://trafficnz.info/camera/826.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 827,
+   "lat": -36.389353,
+   "lon": 174.641729,
+   "name": "SH1 Pukerito Roundabout",
+   "view": "North along SH1 towards Pukerito Rbt - Northbound",
+   "image": "https://trafficnz.info/camera/827.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 697,
+   "lat": -36.870049,
+   "lon": 174.673614,
+   "name": "SH16 Rosebank Rd",
+   "view": "South along Nth Wstn Mwy from Rosebank Rd - Southbound",
+   "image": "https://trafficnz.info/camera/697.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 686,
+   "lat": -36.871594,
+   "lon": 174.699344,
+   "name": "SH16/20 Interchange North",
+   "view": "North along the Nth Wstn Mwy Causeway - Northbound",
+   "image": "https://trafficnz.info/camera/686.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 687,
+   "lat": -36.865869,
+   "lon": 174.666243,
+   "name": "SH16 Patiki Rd",
+   "view": "North along Nth Wstn Mwy from Patiki Rd - Northbound",
+   "image": "https://trafficnz.info/camera/687.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 688,
+   "lat": -36.872107,
+   "lon": 174.689738,
+   "name": "SH16 Causeway",
+   "view": "North along the Nth Wstn Mwy Causeway - Northbound",
+   "image": "https://trafficnz.info/camera/688.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 689,
+   "lat": -36.860564,
+   "lon": 174.6609,
+   "name": "SH16 Whau River",
+   "view": "South along Nth Wstn Mwy towards Patiki Rd - Southbound",
+   "image": "https://trafficnz.info/camera/689.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 270,
+   "lat": -36.819,
+   "lon": 174.614,
+   "name": "SH16/SH18 Interchange South",
+   "view": "South along Nth Wstn Mwy from Hobsonville Rd - Southbound",
+   "image": "https://trafficnz.info/camera/270.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 271,
+   "lat": -36.813,
+   "lon": 174.612,
+   "name": "SH16/SH18 Interchange North",
+   "view": "North along Nth Wstn Mwy towards Kumeu - Northbound",
+   "image": "https://trafficnz.info/camera/271.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 130,
+   "lat": -36.869,
+   "lon": 174.746,
+   "name": "SH16 Bond St Overbridge",
+   "view": "West along Nth Wstn Mwy from Bond St - Westbound",
+   "image": "https://trafficnz.info/camera/130.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 140,
+   "lat": -36.872,
+   "lon": 174.706,
+   "name": "SH16/20 Interchange East",
+   "view": "East along Nth Wstn Mwy from Gt North Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/140.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 150,
+   "lat": -36.858,
+   "lon": 174.653,
+   "name": "SH16 Te Atatu Rd",
+   "view": "South along Nth Wstn Mwy from Te Atatu Rd - Southbound",
+   "image": "https://trafficnz.info/camera/150.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 160,
+   "lat": -36.849,
+   "lon": 174.632,
+   "name": "SH16 Lincoln Rd South",
+   "view": "South along Nth Wstn Mwy from Lincoln Rd - Southbound",
+   "image": "https://trafficnz.info/camera/160.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 170,
+   "lat": -36.847,
+   "lon": 174.63,
+   "name": "SH16 Lincoln Rd North",
+   "view": "North along Nth Wstn Mwy from Lincoln Rd - Northbound",
+   "image": "https://trafficnz.info/camera/170.jpg",
+   "region": "Auckland",
+   "highway": "SH16"
+  },
+  {
+   "id": 823,
+   "lat": -36.753768,
+   "lon": 174.709771,
+   "name": "SH18 Unsworth Heights",
+   "view": "East along Upper Hbr Mwy from Unsworth Heights - Eastbound",
+   "image": "https://trafficnz.info/camera/823.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 815,
+   "lat": -36.750359,
+   "lon": 174.722521,
+   "name": "SH1/SH18 Interchange",
+   "view": "West along SH18 towards Paul Matthews Rd - Westbound",
+   "image": "https://trafficnz.info/camera/815.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 171,
+   "lat": -36.782,
+   "lon": 174.678,
+   "name": "SH18 Tauhinu Rd Overbridge",
+   "view": "West along Upper Hbr Mwy from Tauhinu Rd - Westbound",
+   "image": "https://trafficnz.info/camera/171.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 172,
+   "lat": -36.757,
+   "lon": 174.703,
+   "name": "SH18 Albany Hwy",
+   "view": "East along Upper Hbr Mwy from Albany Hwy - Eastbound",
+   "image": "https://trafficnz.info/camera/172.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 173,
+   "lat": -36.778,
+   "lon": 174.681,
+   "name": "SH18 Greenhithe West",
+   "view": "West along Upper Hbr Mwy towards Tauhinu Rd Overbridge - Westbound",
+   "image": "https://trafficnz.info/camera/173.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 174,
+   "lat": -36.753,
+   "lon": 174.714,
+   "name": "SH18 Paul Matthews Rd",
+   "view": "East along Upper Hbr Mwy towards Paul Matthews Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/174.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 175,
+   "lat": -36.771,
+   "lon": 174.686,
+   "name": "SH18 Greenhithe Rd",
+   "view": "East along Upper Hbr Mwy from Greenhithe Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/175.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 176,
+   "lat": -36.765,
+   "lon": 174.691,
+   "name": "SH18 Schnapper Rock",
+   "view": "East along Upper Hbr Mwy from Schnapper Rock - Eastbound",
+   "image": "https://trafficnz.info/camera/176.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 177,
+   "lat": -36.786,
+   "lon": 174.662,
+   "name": "SH18 Upper Harbour Bridge",
+   "view": "East along Upper Hbr Mwy towards Upper Hbr Bridge - Eastbound",
+   "image": "https://trafficnz.info/camera/177.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 178,
+   "lat": -36.763,
+   "lon": 174.7,
+   "name": "SH18 Cuthill",
+   "view": "West along Upper Hbr Mwy from Cuthill - Westbound",
+   "image": "https://trafficnz.info/camera/178.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 70,
+   "lat": -36.791,
+   "lon": 174.655,
+   "name": "SH18 Squadron Dr",
+   "view": "East along Upper Hbr Mwy from Squadron Dr - Eastbound",
+   "image": "https://trafficnz.info/camera/70.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 221,
+   "lat": -36.808,
+   "lon": 174.621,
+   "name": "SH18 Trig Rd",
+   "view": "West along Upper Hbr Mwy from Trig Rd - Westbound",
+   "image": "https://trafficnz.info/camera/221.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 222,
+   "lat": -36.805,
+   "lon": 174.628,
+   "name": "SH18 Waiahora Creek",
+   "view": "West along Upper Hbr Mwy towards Trig Rd - Westbound",
+   "image": "https://trafficnz.info/camera/222.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 223,
+   "lat": -36.8,
+   "lon": 174.638,
+   "name": "SH18 Brigham Creek Interchange",
+   "view": "West along Brigham Creek Rd towards Whenuapai - Westbound",
+   "image": "https://trafficnz.info/camera/223.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 224,
+   "lat": -36.796,
+   "lon": 174.645,
+   "name": "SH18 Hobsonville",
+   "view": "West along Upper Hbr Mwy towards Brigham Creek Rd - Westbound",
+   "image": "https://trafficnz.info/camera/224.jpg",
+   "region": "Auckland",
+   "highway": "SH18"
+  },
+  {
+   "id": 10,
+   "lat": -36.735,
+   "lon": 174.717,
+   "name": "SH1 Greville Rd",
+   "view": "South along Nthn Mwy from Greville Rd - Southbound",
+   "image": "https://trafficnz.info/camera/10.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 20,
+   "lat": -36.771763,
+   "lon": 174.742792,
+   "name": "SH1 Tristram Ave",
+   "view": "South along Nthn Mwy from Tristram Ave - Southbound",
+   "image": "https://trafficnz.info/camera/20.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 30,
+   "lat": -36.789,
+   "lon": 174.753,
+   "name": "SH1 Northcote Rd",
+   "view": "North along Nthn Mwy from Northcote Rd - Northbound",
+   "image": "https://trafficnz.info/camera/30.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 40,
+   "lat": -36.799,
+   "lon": 174.762,
+   "name": "SH1 Esmonde Rd",
+   "view": "South along Nthn Mwy from Esmonde Rd - Southbound",
+   "image": "https://trafficnz.info/camera/40.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 50,
+   "lat": -36.812,
+   "lon": 174.754,
+   "name": "SH1 Onewa Rd",
+   "view": "South along Nthn Mwy from Onewa Rd - Southbound",
+   "image": "https://trafficnz.info/camera/50.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 598,
+   "lat": -36.658354,
+   "lon": 174.666336,
+   "name": "SH1 Dairy Flat",
+   "view": "South along Nthn Mwy from Dairy Flat Service Centre - Southbound",
+   "image": "https://trafficnz.info/camera/598.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 769,
+   "lat": -36.669183,
+   "lon": 174.68074,
+   "name": "SH1 Okura",
+   "view": "South along Nthn Mwy in Okura area - Southbound",
+   "image": "https://trafficnz.info/camera/769.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 651,
+   "lat": -36.603273,
+   "lon": 174.661741,
+   "name": "SH1 Millwater",
+   "view": "South along Nthn Mwy from Wainui Rd - Southbound",
+   "image": "https://trafficnz.info/camera/651.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 723,
+   "lat": -36.685718,
+   "lon": 174.701202,
+   "name": "SH1 Redvale",
+   "view": "South along Nthn Mwy in Redvale area - Southbound",
+   "image": "https://trafficnz.info/camera/723.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 797,
+   "lat": -37.014391,
+   "lon": 174.907089,
+   "name": "SH1 Hill Road",
+   "view": "North along Sthn Mwy towards Manukau - Northbound",
+   "image": "https://trafficnz.info/camera/797.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 798,
+   "lat": -37.03626,
+   "lon": 174.909648,
+   "name": "SH1 Takanini Interchange",
+   "view": "North along Sthn Mwy and Takanini On-ramp - Northbound",
+   "image": "https://trafficnz.info/camera/798.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 799,
+   "lat": -37.009684,
+   "lon": 174.903296,
+   "name": "SH1 Orams Rd",
+   "view": "North along Sthn Mwy towards Orams Rd overbridge - Northbound",
+   "image": "https://trafficnz.info/camera/799.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 610,
+   "lat": -37.192844,
+   "lon": 174.981959,
+   "name": "SH1 Bombay",
+   "view": "North along Sthn Mwy from Mill Rd - Northbound",
+   "image": "https://trafficnz.info/camera/610.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 611,
+   "lat": -37.214557,
+   "lon": 175.0003,
+   "name": "SH1 Nikau Rd",
+   "view": "South along Waikato Exwy from Nikau Rd - Southbound",
+   "image": "https://trafficnz.info/camera/611.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 612,
+   "lat": -37.230209,
+   "lon": 175.01569,
+   "name": "SH1/SH2 Interchange",
+   "view": "North along Waikato Exwy from SH2 Interchange - Northbound",
+   "image": "https://trafficnz.info/camera/612.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 613,
+   "lat": -37.143496,
+   "lon": 174.969213,
+   "name": "SH1 Ramarama",
+   "view": "North along Sthn Mwy from Ararimu Rd - Northbound",
+   "image": "https://trafficnz.info/camera/613.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 60,
+   "lat": -36.86,
+   "lon": 174.757,
+   "name": "SH1/SH16 Central Mwy Junction",
+   "view": "South along Sthn Mwy at Nth Wstn Mwy link - Southbound",
+   "image": "https://trafficnz.info/camera/60.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 212,
+   "lat": -36.997,
+   "lon": 174.891,
+   "name": "SH1/SH20 Interchange South",
+   "view": "South along Sthn Mwy at Sth Wstn Mwy link - Southbound",
+   "image": "https://trafficnz.info/camera/212.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 214,
+   "lat": -37.0,
+   "lon": 174.892,
+   "name": "SH1/SH20 Interchange North",
+   "view": "North along Sthn Mwy at Sth Wstn Mwy link - Northbound",
+   "image": "https://trafficnz.info/camera/214.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 225,
+   "lat": -36.878,
+   "lon": 174.782,
+   "name": "SH1 Market Rd",
+   "view": "South along Sthn Mwy towards Market Rd - Southbound",
+   "image": "https://trafficnz.info/camera/225.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 80,
+   "lat": -36.889,
+   "lon": 174.796,
+   "name": "SH1 Greenlane Interchange",
+   "view": "North along Sthn Mwy from Greenlane Interchange - Northbound",
+   "image": "https://trafficnz.info/camera/80.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 90,
+   "lat": -36.915,
+   "lon": 174.826,
+   "name": "SH1 South Eastern Hwy",
+   "view": "South along Sthn Mwy towards South Eastern Hwy - Southbound",
+   "image": "https://trafficnz.info/camera/90.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 100,
+   "lat": -36.992,
+   "lon": 174.888,
+   "name": "SH1 Redoubt Rd",
+   "view": "North along Sthn Mwy from Redoubt Rd - Northbound",
+   "image": "https://trafficnz.info/camera/100.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 110,
+   "lat": -36.957,
+   "lon": 174.861,
+   "name": "SH1 Bairds Rd Overbridge",
+   "view": "North along Sthn Mwy from Bairds Rd - Northbound",
+   "image": "https://trafficnz.info/camera/110.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 120,
+   "lat": -37.021,
+   "lon": 174.91,
+   "name": "SH1 Alfriston Rd Overbridge",
+   "view": "North along Sthn Mwy towards Alfriston Rd - Northbound",
+   "image": "https://trafficnz.info/camera/120.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 121,
+   "lat": -37.028848,
+   "lon": 174.910259,
+   "name": "SH1 Takanini",
+   "view": "South along Sthn Mwy towards Takanini - Southbound",
+   "image": "https://trafficnz.info/camera/121.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 122,
+   "lat": -37.044396,
+   "lon": 174.913045,
+   "name": "SH1 Walter Strevens Dr Overbridge",
+   "view": "South along Sthn Mwy from Walter Strevens Dr - Southbound",
+   "image": "https://trafficnz.info/camera/122.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 123,
+   "lat": -37.054026,
+   "lon": 174.919067,
+   "name": "SH1 Pahurehure Inlet",
+   "view": "South along Sthn Mwy from Pahurehure Inlet - Southbound",
+   "image": "https://trafficnz.info/camera/123.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 124,
+   "lat": -37.061584,
+   "lon": 174.924471,
+   "name": "SH1 Papakura",
+   "view": "South along Sthn Mwy towards Papakura - Southbound",
+   "image": "https://trafficnz.info/camera/124.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 125,
+   "lat": -37.085,
+   "lon": 174.936,
+   "name": "SH1 Park Estate Rd Overbridge",
+   "view": "South along Sthn Mwy from Park Estate Rd - Southbound",
+   "image": "https://trafficnz.info/camera/125.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 126,
+   "lat": -37.094,
+   "lon": 174.944,
+   "name": "SH1 Slippery Creek",
+   "view": "South along Sthn Mwy towards Drury Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/126.jpg",
+   "region": "Auckland",
+   "highway": "SH1"
+  },
+  {
+   "id": 667,
+   "lat": -36.899797,
+   "lon": 174.713633,
+   "name": "SH20 Owairaka",
+   "view": "South along Sth Wstn Mwy after Waterview Tunnel - Southbound",
+   "image": "https://trafficnz.info/camera/667.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 668,
+   "lat": -36.90074,
+   "lon": 174.71701,
+   "name": "SH20 Te Whitinga Footbridge",
+   "view": "South along Sth Wstn Mwy towards Richardson Rd - Southbound",
+   "image": "https://trafficnz.info/camera/668.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 669,
+   "lat": -36.87504,
+   "lon": 174.70381,
+   "name": "SH20 Waterview",
+   "view": "South from Nth Wstn Mwy to the Waterview Tunnel - Southbound",
+   "image": "https://trafficnz.info/camera/669.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 274,
+   "lat": -36.982,
+   "lon": 174.784,
+   "name": "SH20A George Bolt Mem Dr South",
+   "view": "North along SH20A from airport at Montgomerie Rd - Northbound",
+   "image": "https://trafficnz.info/camera/274.jpg",
+   "region": "Auckland",
+   "highway": "SH20A"
+  },
+  {
+   "id": 275,
+   "lat": -36.973,
+   "lon": 174.789,
+   "name": "SH20A George Bolt Mem Dr North",
+   "view": "North along SH20A from airport at Kirkbride Rd - Northbound",
+   "image": "https://trafficnz.info/camera/275.jpg",
+   "region": "Auckland",
+   "highway": "SH20A"
+  },
+  {
+   "id": 307,
+   "lat": -36.966298,
+   "lon": 174.796059,
+   "name": "SH20A Bader Dr Overbridge",
+   "view": "North along SH20A towards Sth Wstn Mwy at Bader Dr - Northbound",
+   "image": "https://trafficnz.info/camera/307.jpg",
+   "region": "Auckland",
+   "highway": "SH20A"
+  },
+  {
+   "id": 272,
+   "lat": -36.996,
+   "lon": 174.835,
+   "name": "SH20B Prices Rd",
+   "view": "East along SH20B Puhinui Rd towards Sth Wstn Mwy - Eastbound",
+   "image": "https://trafficnz.info/camera/272.jpg",
+   "region": "Auckland",
+   "highway": "SH20B"
+  },
+  {
+   "id": 306,
+   "lat": -36.964,
+   "lon": 174.8,
+   "name": "SH20/20A Interchange",
+   "view": "North along Sth Wstn Mwy & SH20A airport link - Northbound",
+   "image": "https://trafficnz.info/camera/306.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 288,
+   "lat": -36.984608,
+   "lon": 174.832329,
+   "name": "SH20 Portage Rd South",
+   "view": "North along Sth Wstn Mwy towards Portage Rd Overbridge - Northbound",
+   "image": "https://trafficnz.info/camera/288.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 289,
+   "lat": -36.98,
+   "lon": 174.827,
+   "name": "SH20 Portage Rd North",
+   "view": "North along Sth Wstn Mwy towards Massey Rd - Northbound",
+   "image": "https://trafficnz.info/camera/289.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 290,
+   "lat": -36.973,
+   "lon": 174.817,
+   "name": "SH20 Massey Rd",
+   "view": "North along Sth Wstn Mwy from Massey Rd - Northbound",
+   "image": "https://trafficnz.info/camera/290.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 619,
+   "lat": -36.967669,
+   "lon": 174.806404,
+   "name": "SH20 Bader Dr Overbridge",
+   "view": "North along Sth Wstn Mwy from Bader Dr Overbridge - Northbound",
+   "image": "https://trafficnz.info/camera/619.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 190,
+   "lat": -36.921434017433,
+   "lon": 174.767310105494,
+   "name": "SH20 Queenstown Rd",
+   "view": "East along Queenstown Rd from Sth Wstn Mwy - Eastbound",
+   "image": "https://trafficnz.info/camera/190.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 191,
+   "lat": -36.917,
+   "lon": 174.759,
+   "name": "SH20 Hillsborough Rd",
+   "view": "South along Sth Wstn Mwy from Hillsborough Rd - Southbound",
+   "image": "https://trafficnz.info/camera/191.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 192,
+   "lat": -36.914,
+   "lon": 174.75,
+   "name": "SH20 Hayr Rd Overbridge",
+   "view": "South along Sth Wstn Mwy towards Hayr Rd Overbridge - Southbound",
+   "image": "https://trafficnz.info/camera/192.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 193,
+   "lat": -36.911,
+   "lon": 174.74,
+   "name": "SH20 Dominion Rd",
+   "view": "South along Sth Wstn Mwy from Dominion Rd - Southbound",
+   "image": "https://trafficnz.info/camera/193.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 194,
+   "lat": -36.904128,
+   "lon": 174.723118,
+   "name": "SH20 Maioro St",
+   "view": "South along Sth Wstn Mwy from Maioro St - Southbound",
+   "image": "https://trafficnz.info/camera/194.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 201,
+   "lat": -36.928,
+   "lon": 174.782,
+   "name": "SH20 Gloucester Park Rd",
+   "view": "North along Sth Wstn Mwy from Gloucester Park Rd - Northbound",
+   "image": "https://trafficnz.info/camera/201.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 202,
+   "lat": -36.931,
+   "lon": 174.786,
+   "name": "SH20 Onehunga Wharf",
+   "view": "North along Sth Wstn Mwy from Onehunga Wharf - Northbound",
+   "image": "https://trafficnz.info/camera/202.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 203,
+   "lat": -36.941,
+   "lon": 174.79,
+   "name": "SH20 Rimu Rd",
+   "view": "North along Sth Wstn Mwy from Rimu Rd - Northbound",
+   "image": "https://trafficnz.info/camera/203.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 204,
+   "lat": -36.945,
+   "lon": 174.793,
+   "name": "SH20 Hastie Ave Footbridge",
+   "view": "North along Sth Wstn Mwy from Hastie Ave Footbridge - Northbound",
+   "image": "https://trafficnz.info/camera/204.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 205,
+   "lat": -36.953,
+   "lon": 174.792,
+   "name": "SH20 Coronation Rd",
+   "view": "Ramps for Sth Wstn Mwy at Coronation Rd - Northbound",
+   "image": "https://trafficnz.info/camera/205.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 206,
+   "lat": -36.993,
+   "lon": 174.843,
+   "name": "SH20 Puhinui Rd",
+   "view": "South along Sth Wstn Mwy & SH20B airport offramp - Southbound",
+   "image": "https://trafficnz.info/camera/206.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 207,
+   "lat": -36.998,
+   "lon": 174.852,
+   "name": "SH20 Cavendish Dr",
+   "view": "South along Sth Wstn Mwy from Cavendish Dr - Southbound",
+   "image": "https://trafficnz.info/camera/207.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 208,
+   "lat": -36.998,
+   "lon": 174.865,
+   "name": "SH20 Plunket Ave Overbridge",
+   "view": "North along Sth Wstn Mwy towards Roscommon Rd - Northbound",
+   "image": "https://trafficnz.info/camera/208.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 209,
+   "lat": -36.996,
+   "lon": 174.874,
+   "name": "SH20 Lambie Dr",
+   "view": "South along Sth Wstn Mwy from Lambie Dr - Southbound",
+   "image": "https://trafficnz.info/camera/209.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 210,
+   "lat": -36.996,
+   "lon": 174.881,
+   "name": "SH20 Barrowcliffe Pl Overbridge",
+   "view": "North along Sth Wstn Mwy towards Wiri Station Rd - Northbound",
+   "image": "https://trafficnz.info/camera/210.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 211,
+   "lat": -36.996,
+   "lon": 174.886,
+   "name": "SH20 Gt South Rd",
+   "view": "North along Sth Wstn Mwy from Gt South Rd - Northbound",
+   "image": "https://trafficnz.info/camera/211.jpg",
+   "region": "Auckland",
+   "highway": "SH20"
+  },
+  {
+   "id": 643,
+   "lat": -42.336047,
+   "lon": 172.183175,
+   "name": "SH7/SH65 Springs Junction",
+   "view": "West along SH7 to SH65 at Springs Junction - Westbound",
+   "image": "https://trafficnz.info/camera/643.jpg",
+   "region": "West Coast",
+   "highway": "SH7"
+  },
+  {
+   "id": 663,
+   "lat": -42.114842,
+   "lon": 171.330009,
+   "name": "SH6 Punakaiki",
+   "view": "South along SH6 at Punakaiki Pancake Rocks - Southbound",
+   "image": "https://trafficnz.info/camera/663.jpg",
+   "region": "West Coast",
+   "highway": "SH6"
+  },
+  {
+   "id": 728,
+   "lat": -44.381376,
+   "lon": 171.238707,
+   "name": "SH1 Ashbury North",
+   "view": "South along Evans St from Newman St - Southbound",
+   "image": "https://trafficnz.info/camera/728.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 729,
+   "lat": -44.384087,
+   "lon": 171.238644,
+   "name": "SH1 Ashbury South",
+   "view": "North along Evans St from Grasmere St - Northbound",
+   "image": "https://trafficnz.info/camera/729.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 816,
+   "lat": -43.52397,
+   "lon": 172.369896,
+   "name": "SH73 West Melton West",
+   "view": "West along West Coast Rd at Weedons Ross Junction - Westbound",
+   "image": "https://trafficnz.info/camera/816.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 817,
+   "lat": -43.52407,
+   "lon": 172.369776,
+   "name": "SH73 West Melton East",
+   "view": "East along West Coast Rd at Weedons Ross Junction - Eastbound",
+   "image": "https://trafficnz.info/camera/817.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 597,
+   "lat": -43.587996,
+   "lon": 172.385782,
+   "name": "SH1 Rolleston",
+   "view": "South along Main South Rd from Hoskyns Rd - Southbound",
+   "image": "https://trafficnz.info/camera/597.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 628,
+   "lat": -43.73792,
+   "lon": 172.04519,
+   "name": "SH1 Rakaia Bridge North",
+   "view": "South along Rakaia Bridge on SH1 - Southbound",
+   "image": "https://trafficnz.info/camera/628.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 629,
+   "lat": -43.74967,
+   "lon": 172.03069,
+   "name": "SH1 Rakaia Bridge South",
+   "view": "North along Rakaia Bridge on SH1 - Northbound",
+   "image": "https://trafficnz.info/camera/629.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 631,
+   "lat": -43.74988,
+   "lon": 172.03104,
+   "name": "SH1 Rakaia",
+   "view": "South along SH1 towards Rakaia from Rakaia Bridge - Southbound",
+   "image": "https://trafficnz.info/camera/631.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 641,
+   "lat": -43.06677,
+   "lon": 172.757568,
+   "name": "SH1/SH7 Waipara Junction",
+   "view": "West towards SH7 at SH1 Waipara Junction - Westbound",
+   "image": "https://trafficnz.info/camera/641.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 310,
+   "lat": -43.303137,
+   "lon": 172.596572,
+   "name": "Rangiora North",
+   "view": "North along Ashley St from High St - Northbound",
+   "image": "https://trafficnz.info/camera/310.jpg",
+   "region": "Canterbury",
+   "highway": "ART"
+  },
+  {
+   "id": 311,
+   "lat": -43.303257,
+   "lon": 172.596695,
+   "name": "Rangiora South",
+   "view": "South along Ivory St from High St - Southbound",
+   "image": "https://trafficnz.info/camera/311.jpg",
+   "region": "Canterbury",
+   "highway": "ART"
+  },
+  {
+   "id": 803,
+   "lat": -43.898055,
+   "lon": 171.756387,
+   "name": "SH1 Walnut Ave",
+   "view": "South along SH1 from Walnut Ave - Southbound",
+   "image": "https://trafficnz.info/camera/803.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 838,
+   "lat": -43.37841650568279,
+   "lon": 172.64506130260898,
+   "name": "SH1 CNM at Kaiapoi Bridge",
+   "view": "North along Northern Motorway looking over Kaiapoi Bridge - Northbound",
+   "image": "https://trafficnz.info/camera/838.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 839,
+   "lat": -43.33922855813841,
+   "lon": 172.66686970006472,
+   "name": "SH1 at Sandhill Rd",
+   "view": "North along SH1 from Sandhill Rd - Northbound",
+   "image": "https://trafficnz.info/camera/839.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 665,
+   "lat": -42.936995,
+   "lon": 171.560586,
+   "name": "SH73 Arthurs Pass",
+   "view": "South along SH73 in Arthurs Pass - Eastbound",
+   "image": "https://trafficnz.info/camera/665.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 234,
+   "lat": -39.488,
+   "lon": 175.67,
+   "name": "SH1 Waiouru",
+   "view": "North along SH1 towards Waiouru - Northbound",
+   "image": "https://trafficnz.info/camera/234.jpg",
+   "region": "Manawatu-Whanganui",
+   "highway": "SH1"
+  },
+  {
+   "id": 596,
+   "lat": -43.535802,
+   "lon": 172.567811,
+   "name": "SH73 Curletts Rd",
+   "view": "North along Curletts Rd from Vicki St - Northbound",
+   "image": "https://trafficnz.info/camera/596.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 309,
+   "lat": -43.547834,
+   "lon": 172.609956,
+   "name": "SH76 Barrington St",
+   "view": "North along Barrington St from Sthn Mwy - Northbound",
+   "image": "https://trafficnz.info/camera/309.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 291,
+   "lat": -43.538,
+   "lon": 172.528,
+   "name": "SH1 Waterloo Rd",
+   "view": "South along Carmen Rd from Waterloo Rd - Southbound",
+   "image": "https://trafficnz.info/camera/291.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 294,
+   "lat": -43.585527,
+   "lon": 172.570879,
+   "name": "SH75 Sparks Rd",
+   "view": "North along Halswell Rd from Sparks Rd - Northbound",
+   "image": "https://trafficnz.info/camera/294.jpg",
+   "region": "Canterbury",
+   "highway": "SH75"
+  },
+  {
+   "id": 295,
+   "lat": -43.547486,
+   "lon": 172.627955,
+   "name": "SH76 Antigua St",
+   "view": "East along Brougham St from Antigua St - Eastbound",
+   "image": "https://trafficnz.info/camera/295.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 300,
+   "lat": -43.555568,
+   "lon": 172.67043,
+   "name": "SH76 Garlands Rd",
+   "view": "West along Brougham St from Garlands Rd - Westbound",
+   "image": "https://trafficnz.info/camera/300.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 301,
+   "lat": -43.551595,
+   "lon": 172.686952,
+   "name": "SH74A Ferry Rd",
+   "view": "East along Ferry Rd from Rutherford St - Eastbound",
+   "image": "https://trafficnz.info/camera/301.jpg",
+   "region": "Canterbury",
+   "highway": "SH74A"
+  },
+  {
+   "id": 302,
+   "lat": -43.547544,
+   "lon": 172.646563,
+   "name": "SH76 Waltham Rd",
+   "view": "North along Waltham Rd from Brougham St - Northbound",
+   "image": "https://trafficnz.info/camera/302.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 303,
+   "lat": -43.547289,
+   "lon": 172.621704,
+   "name": "SH76 Selwyn St",
+   "view": "East along Brougham St from Selwyn St - Eastbound",
+   "image": "https://trafficnz.info/camera/303.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 624,
+   "lat": -43.55417,
+   "lon": 172.69105,
+   "name": "SH74 Tunnel Rd",
+   "view": "South along Tunnel Rd from Ferry Rd - Southbound",
+   "image": "https://trafficnz.info/camera/624.jpg",
+   "region": "Canterbury",
+   "highway": "SH74"
+  },
+  {
+   "id": 625,
+   "lat": -43.54731,
+   "lon": 172.64277,
+   "name": "SH76 Burlington St",
+   "view": "South along Burlington St from Brougham St - Southbound",
+   "image": "https://trafficnz.info/camera/625.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 701,
+   "lat": -43.520493,
+   "lon": 172.534303,
+   "name": "SH1/SH73 Russley East",
+   "view": "East along Yaldhurst Rd from Russley Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/701.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 702,
+   "lat": -43.457944,
+   "lon": 172.596773,
+   "name": "SH1 Clearwater Ave",
+   "view": "North along Johns Rd at Clearwater Ave roundabout - Northbound",
+   "image": "https://trafficnz.info/camera/702.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 703,
+   "lat": -43.458966,
+   "lon": 172.590128,
+   "name": "SH1 Gardiners Rd",
+   "view": "North along Johns Rd from Gardiners Rd - Northbound",
+   "image": "https://trafficnz.info/camera/703.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 644,
+   "lat": -43.527555,
+   "lon": 172.558273,
+   "name": "SH73 Avonhead Rd",
+   "view": "East along Yaldhurst Rd from Avonhead Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/644.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 645,
+   "lat": -43.544327,
+   "lon": 172.572839,
+   "name": "SH73 Lunns Rd",
+   "view": "South along Curletts Rd from Lunns Rd - Southbound",
+   "image": "https://trafficnz.info/camera/645.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 691,
+   "lat": -43.543692,
+   "lon": 172.522902,
+   "name": "SH1 Goulding Ave",
+   "view": "West along Main South Rd from Goulding Ave - Westbound",
+   "image": "https://trafficnz.info/camera/691.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 694,
+   "lat": -43.545891,
+   "lon": 172.507707,
+   "name": "SH1 Halswell Junction Rd",
+   "view": "West along Main South Rd from Halswell Junction Rd - Westbound",
+   "image": "https://trafficnz.info/camera/694.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 695,
+   "lat": -43.548874,
+   "lon": 172.491634,
+   "name": "SH1 Pound Rd North",
+   "view": "North along Main North Rd from Pound Rd - Northbound",
+   "image": "https://trafficnz.info/camera/695.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 696,
+   "lat": -43.548975,
+   "lon": 172.491297,
+   "name": "SH1 Pound Rd South",
+   "view": "South along Main North Rd from Pound Rd - Southbound",
+   "image": "https://trafficnz.info/camera/696.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 672,
+   "lat": -43.500042,
+   "lon": 172.700719,
+   "name": "SH74 New Brighton Rd Roundabout",
+   "view": "South along ANZAC Dr from New Brighton Rd - Southbound",
+   "image": "https://trafficnz.info/camera/672.jpg",
+   "region": "Canterbury",
+   "highway": "SH74"
+  },
+  {
+   "id": 673,
+   "lat": -43.493159,
+   "lon": 172.701538,
+   "name": "SH74 Travis Rd Roundabout",
+   "view": "North along Travis Rd from Frosts Rd - Northbound",
+   "image": "https://trafficnz.info/camera/673.jpg",
+   "region": "Canterbury",
+   "highway": "SH74"
+  },
+  {
+   "id": 674,
+   "lat": -43.5353,
+   "lon": 172.706061,
+   "name": "SH74 Metro Pl",
+   "view": "South along Dyers Rd from Metro Pl - Southbound",
+   "image": "https://trafficnz.info/camera/674.jpg",
+   "region": "Canterbury",
+   "highway": "SH74"
+  },
+  {
+   "id": 675,
+   "lat": -43.556704,
+   "lon": 172.681932,
+   "name": "SH74A Rutherford St",
+   "view": "West along Garlands Rd from Rutherford St - Westbound",
+   "image": "https://trafficnz.info/camera/675.jpg",
+   "region": "Canterbury",
+   "highway": "SH74A"
+  },
+  {
+   "id": 679,
+   "lat": -43.547106,
+   "lon": 172.597799,
+   "name": "SH76 Wrights Rd East",
+   "view": "East along Sthn Mwy from Wrights Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/679.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 680,
+   "lat": -43.547106,
+   "lon": 172.597799,
+   "name": "SH76 Wrights Rd West",
+   "view": "West along Sthn Mwy from Wrights Rd - Westbound",
+   "image": "https://trafficnz.info/camera/680.jpg",
+   "region": "Canterbury",
+   "highway": "SH76"
+  },
+  {
+   "id": 779,
+   "lat": -43.447802,
+   "lon": 172.646467,
+   "name": "SH74 Factory Rd",
+   "view": "South along SH74 towards Belfast Rd Overbridge - Southbound",
+   "image": "https://trafficnz.info/camera/779.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 780,
+   "lat": -43.467919,
+   "lon": 172.631653,
+   "name": "SH74 Radcliffe Rd",
+   "view": "South along SH74 towards Styx River Bridge - Southbound",
+   "image": "https://trafficnz.info/camera/780.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 781,
+   "lat": -43.47498,
+   "lon": 172.630646,
+   "name": "SH74 Prestons Rd",
+   "view": "South along SH74 towards Queen Elizabeth II Dr roundabout - Southbound",
+   "image": "https://trafficnz.info/camera/781.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 754,
+   "lat": -43.40789795745612,
+   "lon": 172.6451928364974,
+   "name": "SH1 Tram Rd South",
+   "view": "South along Nthn Mwy from Tram Rd - Southbound",
+   "image": "https://trafficnz.info/camera/754.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 755,
+   "lat": -43.408127,
+   "lon": 172.645199,
+   "name": "SH1 Tram Rd West",
+   "view": "West along Tram Rd over Nthn Mwy - Westbound",
+   "image": "https://trafficnz.info/camera/755.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 726,
+   "lat": -43.562436,
+   "lon": 172.579745,
+   "name": "SH75 Augustine Dr North",
+   "view": "SH75 - Northbound",
+   "image": "https://trafficnz.info/camera/726.jpg",
+   "region": "Canterbury",
+   "highway": "SH75"
+  },
+  {
+   "id": 727,
+   "lat": -43.562605,
+   "lon": 172.579515,
+   "name": "SH75 Augustine Dr South",
+   "view": "SH75 - Southbound",
+   "image": "https://trafficnz.info/camera/727.jpg",
+   "region": "Canterbury",
+   "highway": "SH75"
+  },
+  {
+   "id": 767,
+   "lat": -43.582268,
+   "lon": 172.409294,
+   "name": "SH1 Weedons Rd Interchange",
+   "view": "South along SH1 from Weedons Rd Overbridge - Southbound",
+   "image": "https://trafficnz.info/camera/767.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 768,
+   "lat": -43.565623,
+   "lon": 172.447958,
+   "name": "SH1/SH76 Interchange",
+   "view": "North along SH1 towards SH76 interchange - Northbound",
+   "image": "https://trafficnz.info/camera/768.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 762,
+   "lat": -43.5747,
+   "lon": 172.427058,
+   "name": "SH1 Berketts Rd",
+   "view": "South along SH1 towards Weedons Ross Rd - Southbound",
+   "image": "https://trafficnz.info/camera/762.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 268,
+   "lat": -43.415,
+   "lon": 172.647,
+   "name": "SH1 Waimakariri Bridge",
+   "view": "North over Waimakariri Bridge, Nthn Mwy - Northbound",
+   "image": "https://trafficnz.info/camera/268.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 260,
+   "lat": -43.54336,
+   "lon": 172.52569,
+   "name": "SH1 Main South Rd",
+   "view": "West along Main South Rd from Carmen Rd - Westbound",
+   "image": "https://trafficnz.info/camera/260.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 261,
+   "lat": -43.53074,
+   "lon": 172.56812,
+   "name": "SH73 Yaldhurst Rd",
+   "view": "West along Yaldhurst Rd from Curletts Rd - Westbound",
+   "image": "https://trafficnz.info/camera/261.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 258,
+   "lat": -43.53931,
+   "lon": 172.56838,
+   "name": "SH73 Blenheim Rd",
+   "view": "South along Curletts Rd from Blenheim Rd - Southbound",
+   "image": "https://trafficnz.info/camera/258.jpg",
+   "region": "Canterbury",
+   "highway": "SH73"
+  },
+  {
+   "id": 267,
+   "lat": -43.546425,
+   "lon": 172.695535,
+   "name": "SH74 Linwood Ave",
+   "view": "South along Dyers Rd from Linwood Ave - Northbound",
+   "image": "https://trafficnz.info/camera/267.jpg",
+   "region": "Canterbury",
+   "highway": "SH74"
+  },
+  {
+   "id": 763,
+   "lat": -43.565319,
+   "lon": 172.518967,
+   "name": "SH76 Marshs Rd",
+   "view": "East along Sthn Mwy towards Springs Rd Overbridge - Eastbound",
+   "image": "https://trafficnz.info/camera/763.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 764,
+   "lat": -43.563769,
+   "lon": 172.481386,
+   "name": "SH76 Trents Rd",
+   "view": "East along Sthn Mwy towards Shands Rd Overbridge - Eastbound",
+   "image": "https://trafficnz.info/camera/764.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 765,
+   "lat": -43.562425,
+   "lon": 172.490691,
+   "name": "SH76 Blakes Rd",
+   "view": "East along Sthn Mwy towards Shands Rd Overbridge - Eastbound",
+   "image": "https://trafficnz.info/camera/765.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 766,
+   "lat": -43.567772,
+   "lon": 172.464054,
+   "name": "SH76 Waterholes Rd",
+   "view": "East along Sthn Mwy towards Trents Rd Overbridge - Eastbound",
+   "image": "https://trafficnz.info/camera/766.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 759,
+   "lat": -43.564249,
+   "lon": 172.534649,
+   "name": "SH76 Halswell Junction Rd",
+   "view": "East along Sthn Mwy from Halswell Junction Rd Overbridge - Eastbound",
+   "image": "https://trafficnz.info/camera/759.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 760,
+   "lat": -43.564229,
+   "lon": 172.526089,
+   "name": "SH76 Springs Rd",
+   "view": "East along Sthn Mwy across Springs Rd Overbridge - Eastbound",
+   "image": "https://trafficnz.info/camera/760.jpg",
+   "region": "Canterbury",
+   "highway": "SH1"
+  },
+  {
+   "id": 253,
+   "lat": -45.888,
+   "lon": 170.5,
+   "name": "SH1 Dunedin",
+   "view": "North along SH1 Andersons Bay Rd - Northbound",
+   "image": "https://trafficnz.info/camera/253.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 254,
+   "lat": -45.88869,
+   "lon": 170.49952,
+   "name": "SH1 Caversham Mwy",
+   "view": "West along Caversham Mwy from Andersons Bay Rd - Westbound",
+   "image": "https://trafficnz.info/camera/254.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 255,
+   "lat": -45.896579,
+   "lon": 170.462609,
+   "name": "SH1 Dunedin Southern Mwy",
+   "view": "East along Dunedin Sthn Mwy from Mornington Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/255.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 740,
+   "lat": -39.474114,
+   "lon": 176.877272,
+   "name": "SH2 Watchman Rd Roundabout",
+   "view": "North along SH2 from Watchman Rd roundabout - Northbound",
+   "image": "https://trafficnz.info/camera/740.jpg",
+   "region": "Hawkes Bay",
+   "highway": "SH2"
+  },
+  {
+   "id": 646,
+   "lat": -41.458547,
+   "lon": 173.963118,
+   "name": "SH1 Spring Creek",
+   "view": "South along SH1 towards junction with SH62 - Southbound",
+   "image": "https://trafficnz.info/camera/646.jpg",
+   "region": "Nelson/Marlborough",
+   "highway": "SH1"
+  },
+  {
+   "id": 650,
+   "lat": -41.509186,
+   "lon": 173.935201,
+   "name": "SH6 Blenheim",
+   "view": "East along SH6 by Springlands Shopping Centre - Eastbound",
+   "image": "https://trafficnz.info/camera/650.jpg",
+   "region": "Nelson/Marlborough",
+   "highway": "SH6"
+  },
+  {
+   "id": 657,
+   "lat": -41.301216,
+   "lon": 173.996527,
+   "name": "SH1 Picton North",
+   "view": "North towards Picton - Northbound",
+   "image": "https://trafficnz.info/camera/657.jpg",
+   "region": "Nelson/Marlborough",
+   "highway": "SH1"
+  },
+  {
+   "id": 658,
+   "lat": -41.508696,
+   "lon": 173.959086,
+   "name": "SH1 Blenheim North",
+   "view": "North along SH1 towards Picton at SH6 roundabout - Northbound",
+   "image": "https://trafficnz.info/camera/658.jpg",
+   "region": "Nelson/Marlborough",
+   "highway": "SH1"
+  },
+  {
+   "id": 661,
+   "lat": -42.119841,
+   "lon": 171.871253,
+   "name": "SH7 Reefton",
+   "view": "West along SH7 (Broadway) towards Reefton - Westbound",
+   "image": "https://trafficnz.info/camera/661.jpg",
+   "region": "West Coast",
+   "highway": "SH7"
+  },
+  {
+   "id": 647,
+   "lat": -41.801028,
+   "lon": 172.849793,
+   "name": "SH63 St Arnaud",
+   "view": "East along SH63 in St Arnaud - Eastbound",
+   "image": "https://trafficnz.info/camera/647.jpg",
+   "region": "Nelson/Marlborough",
+   "highway": "SH63"
+  },
+  {
+   "id": 648,
+   "lat": -41.800115,
+   "lon": 172.322831,
+   "name": "SH6 Murchison",
+   "view": "East along SH6 in Murchison - Eastbound",
+   "image": "https://trafficnz.info/camera/648.jpg",
+   "region": "Nelson/Marlborough",
+   "highway": "SH6"
+  },
+  {
+   "id": 627,
+   "lat": -45.01584,
+   "lon": 168.731767,
+   "name": "SH6/SH6A Frankton Roundabout",
+   "view": "South along SH6 Kawarau Rd from SH6A Frankton Roundabout - Southbound",
+   "image": "https://trafficnz.info/camera/627.jpg",
+   "region": "Otago",
+   "highway": "SH6"
+  },
+  {
+   "id": 746,
+   "lat": -45.866842,
+   "lon": 170.510978,
+   "name": "SH1 Albany St South",
+   "view": "South along Gowland St from Albany St - Southbound",
+   "image": "https://trafficnz.info/camera/746.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 747,
+   "lat": -45.87245,
+   "lon": 170.507747,
+   "name": "SH1 St Andrew St",
+   "view": "North along Cumberland St from St Andrew St - Northbound",
+   "image": "https://trafficnz.info/camera/747.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 748,
+   "lat": -45.878315,
+   "lon": 170.504628,
+   "name": "SH1 Queens Gardens",
+   "view": "North along Queens Gardens - Southbound",
+   "image": "https://trafficnz.info/camera/748.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 749,
+   "lat": -45.866536,
+   "lon": 170.50947,
+   "name": "SH1 Albany St North",
+   "view": "North along Great King St from Albany St - Northbound",
+   "image": "https://trafficnz.info/camera/749.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 750,
+   "lat": -45.877053,
+   "lon": 170.504596,
+   "name": "SH1 Burlington St",
+   "view": "South along Queens Gardens from Burlington St - Southbound",
+   "image": "https://trafficnz.info/camera/750.jpg",
+   "region": "Otago",
+   "highway": "SH1"
+  },
+  {
+   "id": 623,
+   "lat": -45.02751,
+   "lon": 168.734043,
+   "name": "SH6 Frankton",
+   "view": "South along SH6 over Kawarau River Bridge - Southbound",
+   "image": "https://trafficnz.info/camera/623.jpg",
+   "region": "Otago",
+   "highway": "SH6"
+  },
+  {
+   "id": 621,
+   "lat": -45.031031,
+   "lon": 168.662605,
+   "name": "SH6A Queenstown Sth",
+   "view": "East along Stanley St from Ballarat St - Eastbound",
+   "image": "https://trafficnz.info/camera/621.jpg",
+   "region": "Otago",
+   "highway": "SH6A"
+  },
+  {
+   "id": 622,
+   "lat": -45.030105,
+   "lon": 168.661541,
+   "name": "SH6A Queenstown Nth",
+   "view": "East along Stanley St from Shotover St - Eastbound",
+   "image": "https://trafficnz.info/camera/622.jpg",
+   "region": "Otago",
+   "highway": "SH6A"
+  },
+  {
+   "id": 840,
+   "lat": -43.518198,
+   "lon": 171.659349,
+   "name": "SH77 Rakaia Gorge",
+   "view": "West across both Rakaia Gorge Bridges - Westbound",
+   "image": "https://trafficnz.info/camera/840.jpg",
+   "region": "Canterbury",
+   "highway": null
+  },
+  {
+   "id": 733,
+   "lat": -44.043279,
+   "lon": 171.271456,
+   "name": "SH79 Orari East",
+   "view": "East along SH79 to Route 72 Junction - Eastbound",
+   "image": "https://trafficnz.info/camera/733.jpg",
+   "region": "Canterbury",
+   "highway": "SH79"
+  },
+  {
+   "id": 734,
+   "lat": -44.043811,
+   "lon": 171.270721,
+   "name": "SH79 Orari Bridge",
+   "view": "West along Upper Orari Bridge - Westbound",
+   "image": "https://trafficnz.info/camera/734.jpg",
+   "region": "Canterbury",
+   "highway": "SH79"
+  },
+  {
+   "id": 735,
+   "lat": -44.089907,
+   "lon": 170.601734,
+   "name": "SH8 Burkes Pass",
+   "view": "East along SH8 towards Burkes Pass township - Eastbound",
+   "image": "https://trafficnz.info/camera/735.jpg",
+   "region": "Canterbury",
+   "highway": "SH8"
+  },
+  {
+   "id": 725,
+   "lat": -44.58633,
+   "lon": 169.646311,
+   "name": "SH8 Lindis Pass",
+   "view": "South along SH8 towards Lindis Pass Summit Lookout - Southbound",
+   "image": "https://trafficnz.info/camera/725.jpg",
+   "region": "Otago",
+   "highway": "SH8"
+  },
+  {
+   "id": 730,
+   "lat": -44.187724,
+   "lon": 170.124617,
+   "name": "SH80 Pukaki Junction",
+   "view": "South along SH80 towards SH80/SH8 Pukaki Junction - Southbound",
+   "image": "https://trafficnz.info/camera/730.jpg",
+   "region": "Canterbury",
+   "highway": "SH80"
+  },
+  {
+   "id": 731,
+   "lat": -44.187562,
+   "lon": 170.12378,
+   "name": "SH80 Aoraki Mt Cook Hwy",
+   "view": "North along SH80 from SH80/SH8 Pukaki Junction - Northbound",
+   "image": "https://trafficnz.info/camera/731.jpg",
+   "region": "Canterbury",
+   "highway": "SH88"
+  },
+  {
+   "id": 608,
+   "lat": -39.294802,
+   "lon": 175.741135,
+   "name": "SH1 Desert Rd",
+   "view": "North along SH1 Desert Rd at Summit - Northbound",
+   "image": "https://trafficnz.info/camera/608.jpg",
+   "region": "Waikato",
+   "highway": "SH1"
+  },
+  {
+   "id": 638,
+   "lat": -39.217695,
+   "lon": 175.735945,
+   "name": "SH1 Waihohonu Bridge",
+   "view": "North along SH1 Desert Road at Waihohonu Bridge - Northbound",
+   "image": "https://trafficnz.info/camera/638.jpg",
+   "region": "Waikato",
+   "highway": "SH1"
+  },
+  {
+   "id": 639,
+   "lat": -39.530931,
+   "lon": 175.68276,
+   "name": "SH1 South of Waiouru",
+   "view": "South along SH1 at Peter's Hill - Southbound",
+   "image": "https://trafficnz.info/camera/639.jpg",
+   "region": "Manawatu-Whanganui",
+   "highway": "SH1"
+  },
+  {
+   "id": 603,
+   "lat": -37.836873,
+   "lon": 175.977909,
+   "name": "SH29 Kaimai Eastern",
+   "view": "West along SH29 Kaimai Ranges - Westbound",
+   "image": "https://trafficnz.info/camera/603.jpg",
+   "region": "Bay Of Plenty",
+   "highway": "SH29"
+  },
+  {
+   "id": 604,
+   "lat": -37.882206,
+   "lon": 175.905293,
+   "name": "SH29 Kaimai Western",
+   "view": "East along SH29 Kaimai Ranges - Eastbound",
+   "image": "https://trafficnz.info/camera/604.jpg",
+   "region": "Waikato",
+   "highway": "SH29"
+  },
+  {
+   "id": 605,
+   "lat": -37.866012,
+   "lon": 175.942052,
+   "name": "SH29 Eastern Summit",
+   "view": "West along SH29 Kaimai Ranges (Summit) - Westbound",
+   "image": "https://trafficnz.info/camera/605.jpg",
+   "region": "Bay Of Plenty",
+   "highway": "SH29"
+  },
+  {
+   "id": 606,
+   "lat": -37.87864,
+   "lon": 175.926655,
+   "name": "SH29 Western Summit",
+   "view": "East along SH29 Kaimai Ranges (Summit) - Eastbound",
+   "image": "https://trafficnz.info/camera/606.jpg",
+   "region": "Waikato",
+   "highway": "SH29"
+  },
+  {
+   "id": 751,
+   "lat": -37.87017398,
+   "lon": 175.9336401,
+   "name": "Kaimai Summit",
+   "view": "SH29 Kaimai Summit - Eastbound",
+   "image": "https://trafficnz.info/camera/751.jpg",
+   "region": "Waikato",
+   "highway": "SH29"
+  },
+  {
+   "id": 752,
+   "lat": -37.879389,
+   "lon": 175.927361,
+   "name": "Kaimai Lookout Eastbound",
+   "view": "SH29 Kaimai Lookout Eastbound - Eastbound",
+   "image": "https://trafficnz.info/camera/752.jpg",
+   "region": "Waikato",
+   "highway": "SH29"
+  },
+  {
+   "id": 753,
+   "lat": -37.879389,
+   "lon": 175.927361,
+   "name": "Kaimai Lookout Westbound",
+   "view": "SH29 Kaimai Lookout Westbound - Westbound",
+   "image": "https://trafficnz.info/camera/753.jpg",
+   "region": "Waikato",
+   "highway": "SH29"
+  },
+  {
+   "id": 812,
+   "lat": -40.75959,
+   "lon": 175.15858,
+   "name": "Otaki Main Highway",
+   "view": "Looking south, north of the Mill Road/Main Highway roundabout. - Southbound",
+   "image": "https://trafficnz.info/camera/812.jpg",
+   "region": "Wellington",
+   "highway": "Old SH1"
+  },
+  {
+   "id": 813,
+   "lat": -40.74893,
+   "lon": 175.16644,
+   "name": "SH1 Waitohu Stream",
+   "view": "Looking north, north Waitohu Stream bridge. - Northbound",
+   "image": "https://trafficnz.info/camera/813.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 814,
+   "lat": -40.743007,
+   "lon": 175.171708,
+   "name": "SH1 Lawlors Rd",
+   "view": "Looking south, south of Lawlors Road. - Southbound",
+   "image": "https://trafficnz.info/camera/814.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 804,
+   "lat": -40.82047,
+   "lon": 175.10235,
+   "name": "SH1 Makahuri",
+   "view": "North from south of the railway overpass bridge. - Northbound",
+   "image": "https://trafficnz.info/camera/804.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 805,
+   "lat": -40.80976,
+   "lon": 175.11629,
+   "name": "SH1 Gear Rd Emergency Access",
+   "view": "South adjacent to the bend of Gear Road. - Southbound",
+   "image": "https://trafficnz.info/camera/805.jpg",
+   "region": "Wellington",
+   "highway": "Sh1"
+  },
+  {
+   "id": 806,
+   "lat": -40.78968,
+   "lon": 175.13189,
+   "name": "SH1 Jim Winiata Way",
+   "view": "South towards the School Road Overbirdge. - Southbound",
+   "image": "https://trafficnz.info/camera/806.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 807,
+   "lat": -40.78129,
+   "lon": 175.13856,
+   "name": "SH1 Old Hautere Rd",
+   "view": "North towards Otaki Offramp. - Northbound",
+   "image": "https://trafficnz.info/camera/807.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 808,
+   "lat": -40.77493,
+   "lon": 175.14481,
+   "name": "SH1 Otaki Gorge Rd",
+   "view": "South from the Otaki Gorge Road overpass bridge. - Southbound",
+   "image": "https://trafficnz.info/camera/808.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 809,
+   "lat": -40.76431,
+   "lon": 175.15459,
+   "name": "SH1 Otaki Rail Station",
+   "view": "North from Otaki Rail station. - Northbound",
+   "image": "https://trafficnz.info/camera/809.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 810,
+   "lat": -40.76149,
+   "lon": 175.15986,
+   "name": "SH1 Rahui Rd",
+   "view": "South from Rahui Road overpass bridge . - Southbound",
+   "image": "https://trafficnz.info/camera/810.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 811,
+   "lat": -40.75829,
+   "lon": 175.16166,
+   "name": "SH1 County Rd",
+   "view": "North from County Road. - Northbound",
+   "image": "https://trafficnz.info/camera/811.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 828,
+   "lat": -41.283374,
+   "lon": 174.773778,
+   "name": "SH1 Clifton Terrace",
+   "view": "South view from north of Terrace Tunnel SH1 - Southbound",
+   "image": "https://trafficnz.info/camera/828.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 787,
+   "lat": -40.971228,
+   "lon": 174.983048,
+   "name": "SH1 Mackays Crossing",
+   "view": "South along Transmission Gully Mwy from Mackays Crossing Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/787.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 789,
+   "lat": -40.982679,
+   "lon": 174.970742,
+   "name": "SH1 Paekakariki",
+   "view": "South along Transmission Gully Mwy from Paekakariki Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/789.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 790,
+   "lat": -41.11331,
+   "lon": 174.918456,
+   "name": "SH1 Pauatahanui South",
+   "view": "South along Transmission Gully Mwy from SH58 Pauatahanui Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/790.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 791,
+   "lat": -41.112172,
+   "lon": 174.917842,
+   "name": "SH1 Pauatahanui North",
+   "view": "North along Transmission Gully Mwy from SH58 Pauatahanui Interchange - Northbound",
+   "image": "https://trafficnz.info/camera/791.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 792,
+   "lat": -41.132137,
+   "lon": 174.901206,
+   "name": "SH1 Waitangirua South",
+   "view": "South along Transmission Gully Mwy from Waitangirua Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/792.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 793,
+   "lat": -41.131795,
+   "lon": 174.90002,
+   "name": "SH1 Waitangirua North",
+   "view": "North along Transmission Gully Mwy from Waitangirua Interchange - Northbound",
+   "image": "https://trafficnz.info/camera/793.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 794,
+   "lat": -41.151869,
+   "lon": 174.844891,
+   "name": "SH1 Kenepuru",
+   "view": "South along Transmission Gully Mwy from Kenepuru Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/794.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 795,
+   "lat": -41.205749,
+   "lon": 174.818448,
+   "name": "SH1 Churton Park South",
+   "view": "South along SH1 from Churton Park Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/795.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 796,
+   "lat": -41.204499,
+   "lon": 174.821357,
+   "name": "SH1 Churton Park North",
+   "view": "North along SH1 from Churton Park Interchange - Northbound",
+   "image": "https://trafficnz.info/camera/796.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 282,
+   "lat": -41.248069,
+   "lon": 174.813576,
+   "name": "SH1/SH2 Interchange",
+   "view": "South along Urban Mwy from SH1/SH2 Interchange - Southbound",
+   "image": "https://trafficnz.info/camera/282.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 226,
+   "lat": -41.227951,
+   "lon": 174.808116,
+   "name": "SH1 Johnsonville",
+   "view": "South along SH1 from Johnsonville Off-ramp - Southbound",
+   "image": "https://trafficnz.info/camera/226.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 227,
+   "lat": -41.231877,
+   "lon": 174.809546,
+   "name": "SH1 Newlands",
+   "view": "South along SH1 from Newlands Rd - Southbound",
+   "image": "https://trafficnz.info/camera/227.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 228,
+   "lat": -41.241,
+   "lon": 174.809,
+   "name": "SH1 Ngauranga Gorge",
+   "view": "South along SH1 in the Ngauranga Gorge - Southbound",
+   "image": "https://trafficnz.info/camera/228.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 230,
+   "lat": -41.276291,
+   "lon": 174.773064,
+   "name": "SH1 Tinakori Rd On-ramp",
+   "view": "North along Urban Mwy from Tinakori Rd On-ramp - Northbound",
+   "image": "https://trafficnz.info/camera/230.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 232,
+   "lat": -41.224,
+   "lon": 174.86,
+   "name": "SH2 Petone",
+   "view": "South along SH2 from Petone Off-ramp - Southbound",
+   "image": "https://trafficnz.info/camera/232.jpg",
+   "region": "Wellington",
+   "highway": "SH2"
+  },
+  {
+   "id": 277,
+   "lat": -41.177675,
+   "lon": 174.829953,
+   "name": "SH1 Tawa",
+   "view": "North along SH1 north of Tawa Interchange - Northbound",
+   "image": "https://trafficnz.info/camera/277.jpg",
+   "region": "Wellington",
+   "highway": "SH1"
+  },
+  {
+   "id": 722,
+   "lat": -41.189939,
+   "lon": 174.929934,
+   "name": "SH2 Kennedy Good Bridge",
+   "view": "Looking south along SH2 toward Belmont - Southbound",
+   "image": "https://trafficnz.info/camera/722.jpg",
+   "region": "Wellington",
+   "highway": "SH2"
+  },
+  {
+   "id": 719,
+   "lat": -41.0287516,
+   "lon": 174.8993504,
+   "name": "SH59 Pukerua Bay",
+   "view": "Looking north along SH59 toward Paekakariki - Northbound",
+   "image": "https://trafficnz.info/camera/719.jpg",
+   "region": "Wellington",
+   "highway": "SH59"
+  },
+  {
+   "id": 720,
+   "lat": -41.057605,
+   "lon": 174.87605,
+   "name": "SH59 Airlie Road",
+   "view": "Looking north along SH59 toward Pukerua Bay - Northbound",
+   "image": "https://trafficnz.info/camera/720.jpg",
+   "region": "Wellington",
+   "highway": "SH59"
+  },
+  {
+   "id": 279,
+   "lat": -40.999745,
+   "lon": 174.939671,
+   "name": "SH59 Paekakariki",
+   "view": "South along SH59 at Paekakariki - Southbound",
+   "image": "https://trafficnz.info/camera/279.jpg",
+   "region": "Wellington",
+   "highway": "SH59"
+  },
+  {
+   "id": 280,
+   "lat": -41.083,
+   "lon": 174.869,
+   "name": "SH59 Plimmerton",
+   "view": "North along SH59 from Plimmerton Roundabout - Northbound",
+   "image": "https://trafficnz.info/camera/280.jpg",
+   "region": "Wellington",
+   "highway": "SH59"
+  },
+  {
+   "id": 637,
+   "lat": -41.105628,
+   "lon": 174.868586,
+   "name": "SH59 Paremata",
+   "view": "South along SH59 from Paremata Roundabout - Southbound",
+   "image": "https://trafficnz.info/camera/637.jpg",
+   "region": "Wellington",
+   "highway": "SH59"
+  },
+  {
+   "id": 801,
+   "lat": -41.160856,
+   "lon": 174.981161,
+   "name": "Stokes Valley Roundabout SB",
+   "view": "South along Eastern Hutt Rd - Southbound",
+   "image": "https://trafficnz.info/camera/801.jpg",
+   "region": "Wellington",
+   "highway": null
+  },
+  {
+   "id": 802,
+   "lat": -41.160891,
+   "lon": 174.981314,
+   "name": "Stokes Valley Roundabout EB",
+   "view": "East along Stokes Valley Rd - Eastbound",
+   "image": "https://trafficnz.info/camera/802.jpg",
+   "region": "Wellington",
+   "highway": null
+  },
+  {
+   "id": 745,
+   "lat": -43.859501,
+   "lon": 169.044762,
+   "name": "SH6 Haast Bridge",
+   "view": "Looking North-Bound from Haast Junction to Haast River Bridge - Northbound",
+   "image": "https://trafficnz.info/camera/745.jpg",
+   "region": "West Coast",
+   "highway": "SH6"
+  },
+  {
+   "id": 664,
+   "lat": -43.388934,
+   "lon": 170.181985,
+   "name": "SH6 Franz Josef",
+   "view": "North along SH6 in Franz Josef township - Northbound",
+   "image": "https://trafficnz.info/camera/664.jpg",
+   "region": "West Coast",
+   "highway": "SH6"
+  },
+  {
+   "id": 662,
+   "lat": -43.466945,
+   "lon": 170.017262,
+   "name": "SH6 Fox Glacier",
+   "view": "North along SH6 into Fox Glacier township - Northbound",
+   "image": "https://trafficnz.info/camera/662.jpg",
+   "region": "West Coast",
+   "highway": "SH6"
+  }
+ ]
+}

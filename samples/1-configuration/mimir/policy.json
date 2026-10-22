@@ -1,0 +1,40 @@
+{
+ "version": 1,
+ "rules": [
+  {
+   "id": "consumer-channel",
+   "role": "inference-consumer",
+   "action": "OpenChannel",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "consumer-infer",
+   "role": "inference-consumer",
+   "action": "Infer",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "observer-channel",
+   "role": "inference-observer",
+   "action": "OpenChannel",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "observer-models",
+   "role": "inference-observer",
+   "action": "DescribeModels",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "observer-sessions",
+   "role": "inference-observer",
+   "action": "ReadSessions",
+   "resource": "*",
+   "effect": "permit"
+  }
+ ]
+}

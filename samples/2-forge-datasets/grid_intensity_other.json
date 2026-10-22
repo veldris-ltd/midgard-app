@@ -1,0 +1,40 @@
+{
+ "dataset": "grid_intensity_other",
+ "objectType": "grid_region",
+ "rows": [
+  {
+   "key": "CI-6",
+   "name": "North Wales & Merseyside",
+   "dno_region": "SP Manweb",
+   "intensity_gco2": 130,
+   "intensity_index": "moderate",
+   "period_start": 1792695600,
+   "wind_pct": 43.3,
+   "solar_pct": 0.0,
+   "gas_pct": 32.9,
+   "nuclear_pct": 21.5,
+   "imports_pct": 1.9,
+   "biomass_pct": 0.3,
+   "hydro_pct": 0.0,
+   "coal_pct": 0.0,
+   "other_pct": 0.0
+  },
+  {
+   "key": "CI-18",
+   "name": "GB",
+   "dno_region": "GB",
+   "intensity_gco2": 189,
+   "intensity_index": "high",
+   "period_start": 1792695600,
+   "wind_pct": 17.7,
+   "solar_pct": 0.0,
+   "gas_pct": 39.2,
+   "nuclear_pct": 15.0,
+   "imports_pct": 18.4,
+   "biomass_pct": 9.6,
+   "hydro_pct": 0.0,
+   "coal_pct": 0.0,
+   "other_pct": 0.0
+  }
+ ]
+}

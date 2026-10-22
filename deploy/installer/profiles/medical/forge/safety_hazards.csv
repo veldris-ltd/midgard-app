@@ -1,0 +1,2 @@
+reference,description,severity,likelihood,risk,status,unit
+H-001,Pseudonym shown without date of birth could be confused between patients,major,low,3,open,U-CARD

@@ -1,0 +1,310 @@
+{
+ "feed": "easa-czib",
+ "total_in_recording": 16,
+ "sample": [
+  {
+   "entity": "CZIB-143944",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 30.805,
+    "lon": 36.376,
+    "name": "EASA conflict-zone bulletin · Jordan",
+    "area": "Jordan",
+    "country": "Jordan",
+    "issued_at": 1784667600,
+    "revised_at": 1791985875,
+    "valid_until": "2026-11-16",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/143944",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-144230",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 23.807,
+    "lon": 44.7,
+    "name": "EASA conflict-zone bulletin · Saudi Arabia",
+    "area": "Saudi Arabia",
+    "country": "Saudi Arabia",
+    "issued_at": 1790715600,
+    "revised_at": 1791544484,
+    "valid_until": "2026-11-16",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/144230",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-20599",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 35.007,
+    "lon": 38.278,
+    "name": "EASA conflict-zone bulletin · Syria",
+    "area": "Syria",
+    "country": "Syria",
+    "issued_at": 1490907600,
+    "revised_at": 1790861134,
+    "valid_until": "2026-11-30",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/20599",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-20589",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 3.569,
+    "lon": 45.192,
+    "name": "EASA conflict-zone bulletin · Somalia",
+    "area": "Somalia",
+    "country": "Somalia",
+    "issued_at": 1490907600,
+    "revised_at": 1790784107,
+    "valid_until": "2027-04-30",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/20589",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-20585",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 18.693,
+    "lon": -2.038,
+    "name": "EASA conflict-zone bulletin · Mali",
+    "area": "Mali",
+    "country": "Mali",
+    "issued_at": 1490907600,
+    "revised_at": 1790784081,
+    "valid_until": "2027-04-30",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/20585",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-20602",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 15.328,
+    "lon": 45.874,
+    "name": "EASA conflict-zone bulletin · Yemen – Sana’a Flight Information Region",
+    "area": "Yemen – Sana’a Flight Information Region",
+    "country": "Yemen",
+    "issued_at": 1504126800,
+    "revised_at": 1790784057,
+    "valid_until": "2027-04-30",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/20602",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-143861",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 32.166,
+    "lon": 54.931,
+    "name": "EASA conflict-zone bulletin · Iran",
+    "area": "Iran",
+    "country": "Iran",
+    "issued_at": 1783458000,
+    "revised_at": 1790784024,
+    "valid_until": "2026-11-16",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/143861",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-143862",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 33.094,
+    "lon": 43.262,
+    "name": "EASA conflict-zone bulletin · Iraq",
+    "area": "Iraq",
+    "country": "Iraq",
+    "issued_at": 1783458000,
+    "revised_at": 1790784000,
+    "valid_until": "2026-11-16",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/143862",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-143863",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 34.133,
+    "lon": 35.993,
+    "name": "EASA conflict-zone bulletin · Lebanon",
+    "area": "Lebanon",
+    "country": "Lebanon",
+    "issued_at": 1783458000,
+    "revised_at": 1790783978,
+    "valid_until": "2026-11-16",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/143863",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-143899",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 26.0,
+    "lon": 55.0,
+    "name": "EASA conflict-zone bulletin · Persian Gulf and Gulf of Oman",
+    "area": "Persian Gulf and Gulf of Oman",
+    "country": "Bahrain, Kuwait, Qatar, Oman, United Arab Emirates",
+    "issued_at": 1783976400,
+    "revised_at": 1790783956,
+    "valid_until": "2026-11-16",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/143899",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-20582",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 26.639,
+    "lon": 18.011,
+    "name": "EASA conflict-zone bulletin · Libya",
+    "area": "Libya",
+    "country": "Libya",
+    "issued_at": 1490907600,
+    "revised_at": 1784892052,
+    "valid_until": "2027-01-31",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/20582",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-20574",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 34.164,
+    "lon": 66.497,
+    "name": "EASA conflict-zone bulletin · Afghanistan",
+    "area": "Afghanistan",
+    "country": "Afghanistan",
+    "issued_at": 1508187600,
+    "revised_at": 1784891681,
+    "valid_until": "2027-01-31",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/20574",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-20587",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 29.328,
+    "lon": 68.546,
+    "name": "EASA conflict-zone bulletin · Pakistan – Baluchistan and Khyber Pakhtunkhwa provinces",
+    "area": "Pakistan – Baluchistan and Khyber Pakhtunkhwa provinces",
+    "country": "Pakistan",
+    "issued_at": 1515535200,
+    "revised_at": 1784891346,
+    "valid_until": "2027-01-31",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/20587",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-136057",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 49.725,
+    "lon": 32.141,
+    "name": "EASA conflict-zone bulletin · Ukraine",
+    "area": "Ukraine",
+    "country": "Ukraine",
+    "issued_at": 1645653600,
+    "revised_at": 1784891243,
+    "valid_until": "2027-01-31",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/136057",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-137874",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 16.331,
+    "lon": 29.261,
+    "name": "EASA conflict-zone bulletin · Sudan",
+    "area": "Sudan",
+    "country": "Sudan",
+    "issued_at": 1682456400,
+    "revised_at": 1784891086,
+    "valid_until": "2027-01-31",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/137874",
+    "source": "Source: EASA"
+   }
+  },
+  {
+   "entity": "CZIB-141480",
+   "kind": "airspace-advisory",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 58.249,
+    "lon": 44.686,
+    "name": "EASA conflict-zone bulletin · Russian Federation",
+    "area": "Russian Federation",
+    "country": "Russia",
+    "issued_at": 1736373600,
+    "revised_at": 1784891006,
+    "valid_until": "2027-01-31",
+    "new_7d": false,
+    "revised_7d": false,
+    "url": "https://www.easa.europa.eu/en/node/141480",
+    "source": "Source: EASA"
+   }
+  }
+ ]
+}

@@ -1,0 +1,186 @@
+{
+ "dataset": "tfl",
+ "objectType": "tfl_line",
+ "rows": [
+  {
+   "key": "TFL-bakerloo",
+   "name": "Bakerloo",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-central",
+   "name": "Central",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-circle",
+   "name": "Circle",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-district",
+   "name": "District",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-dlr",
+   "name": "DLR",
+   "mode": "dlr",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-elizabeth",
+   "name": "Elizabeth line",
+   "mode": "elizabeth-line",
+   "status": "Minor Delays",
+   "severity": 9,
+   "reason": "Minor delays due to an earlier customer incident at Tottenham Court Road.",
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-hammersmith-city",
+   "name": "Hammersmith & City",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-jubilee",
+   "name": "Jubilee",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-liberty",
+   "name": "Liberty",
+   "mode": "overground",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-lioness",
+   "name": "Lioness",
+   "mode": "overground",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-metropolitan",
+   "name": "Metropolitan",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-mildmay",
+   "name": "Mildmay",
+   "mode": "overground",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-northern",
+   "name": "Northern",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-piccadilly",
+   "name": "Piccadilly",
+   "mode": "tube",
+   "status": "Part Suspended; Severe Delays",
+   "severity": 3,
+   "reason": "Piccadilly Line: No service between Rayners Lane and Uxbridge and SEVERE DELAYS on the rest of the line due to a signal failure at Leicester Square. Tickets are being accepted on London Buses, Elizabeth Line, Great Northern and Weaver line services via any reasonable route. ; Piccadilly Line: No service between Rayners Lane and Uxbridge and SEVERE DELAYS on the rest of the line due to a signal failure at Leicester Square. Tickets are being accepted on London Buses, Elizabeth Line, Great Northern and Weaver line services via any reasonable route.",
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-suffragette",
+   "name": "Suffragette",
+   "mode": "overground",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-tram",
+   "name": "Tram",
+   "mode": "tram",
+   "status": "Part Suspended",
+   "severity": 3,
+   "reason": "London Tramlink: No service between Arena and Elmers End all day due to a track fault at Lebanon Road. GOOD SERVICE on other tram routes.",
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-victoria",
+   "name": "Victoria",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-waterloo-city",
+   "name": "Waterloo & City",
+   "mode": "tube",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-weaver",
+   "name": "Weaver",
+   "mode": "overground",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  },
+  {
+   "key": "TFL-windrush",
+   "name": "Windrush",
+   "mode": "overground",
+   "status": "Good Service",
+   "severity": 10,
+   "reason": null,
+   "updated_at": 1792699075
+  }
+ ]
+}

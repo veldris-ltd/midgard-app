@@ -1,0 +1,405 @@
+{
+ "feed": "ooni-censorship",
+ "total_in_recording": 19,
+ "sample": [
+  {
+   "entity": "OONI-AE",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 23.466,
+    "lon": 54.547,
+    "name": "Internet censorship tests · United Arab Emirates",
+    "country": "United Arab Emirates",
+    "country_code": "AE",
+    "tests": 7147,
+    "anomalies": 904,
+    "confirmed_blocked": 45,
+    "interference_pct": 13.3,
+    "baseline_pct": 14.4,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=AE&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-BY",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 53.822,
+    "lon": 28.418,
+    "name": "Internet censorship tests · Belarus",
+    "country": "Belarus",
+    "country_code": "BY",
+    "tests": 13517,
+    "anomalies": 1480,
+    "confirmed_blocked": 0,
+    "interference_pct": 10.9,
+    "baseline_pct": 10.2,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=BY&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-CN",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 32.498,
+    "lon": 106.337,
+    "name": "Internet censorship tests · China",
+    "country": "China",
+    "country_code": "CN",
+    "tests": 68914,
+    "anomalies": 37156,
+    "confirmed_blocked": 72,
+    "interference_pct": 54.0,
+    "baseline_pct": 53.4,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=CN&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-CU",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 21.334,
+    "lon": -77.976,
+    "name": "Internet censorship tests · Cuba",
+    "country": "Cuba",
+    "country_code": "CU",
+    "tests": 578,
+    "anomalies": 63,
+    "confirmed_blocked": 135,
+    "interference_pct": 34.3,
+    "baseline_pct": 29.7,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=CU&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-EG",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 26.186,
+    "lon": 29.446,
+    "name": "Internet censorship tests · Egypt",
+    "country": "Egypt",
+    "country_code": "EG",
+    "tests": 6873,
+    "anomalies": 1492,
+    "confirmed_blocked": 0,
+    "interference_pct": 21.7,
+    "baseline_pct": 15.7,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=EG&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-ID",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": -0.954,
+    "lon": 101.893,
+    "name": "Internet censorship tests · Indonesia",
+    "country": "Indonesia",
+    "country_code": "ID",
+    "tests": 34460,
+    "anomalies": 1916,
+    "confirmed_blocked": 1657,
+    "interference_pct": 10.4,
+    "baseline_pct": 9.5,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=ID&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-IR",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 32.166,
+    "lon": 54.931,
+    "name": "Internet censorship tests · Iran",
+    "country": "Iran",
+    "country_code": "IR",
+    "tests": 37197,
+    "anomalies": 5182,
+    "confirmed_blocked": 10346,
+    "interference_pct": 41.7,
+    "baseline_pct": 39.7,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=IR&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-JO",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 30.805,
+    "lon": 36.376,
+    "name": "Internet censorship tests · Jordan",
+    "country": "Jordan",
+    "country_code": "JO",
+    "tests": 192,
+    "anomalies": 41,
+    "confirmed_blocked": 0,
+    "interference_pct": 21.4,
+    "baseline_pct": 7.0,
+    "rising": true,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=JO&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-KZ",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 49.054,
+    "lon": 68.686,
+    "name": "Internet censorship tests · Kazakhstan",
+    "country": "Kazakhstan",
+    "country_code": "KZ",
+    "tests": 11677,
+    "anomalies": 1483,
+    "confirmed_blocked": 0,
+    "interference_pct": 12.7,
+    "baseline_pct": 11.5,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=KZ&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-MM",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 21.574,
+    "lon": 95.804,
+    "name": "Internet censorship tests · Myanmar",
+    "country": "Myanmar",
+    "country_code": "MM",
+    "tests": 2979,
+    "anomalies": 830,
+    "confirmed_blocked": 37,
+    "interference_pct": 29.1,
+    "baseline_pct": 26.5,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=MM&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-MR",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 19.587,
+    "lon": -9.74,
+    "name": "Internet censorship tests · Mauritania",
+    "country": "Mauritania",
+    "country_code": "MR",
+    "tests": 200,
+    "anomalies": 20,
+    "confirmed_blocked": 0,
+    "interference_pct": 10.0,
+    "baseline_pct": 24.0,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=MR&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-NG",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 9.44,
+    "lon": 7.503,
+    "name": "Internet censorship tests · Nigeria",
+    "country": "Nigeria",
+    "country_code": "NG",
+    "tests": 1380,
+    "anomalies": 138,
+    "confirmed_blocked": 0,
+    "interference_pct": 10.0,
+    "baseline_pct": 36.4,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=NG&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-OM",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 22.12,
+    "lon": 57.337,
+    "name": "Internet censorship tests · Oman",
+    "country": "Oman",
+    "country_code": "OM",
+    "tests": 1315,
+    "anomalies": 203,
+    "confirmed_blocked": 0,
+    "interference_pct": 15.4,
+    "baseline_pct": 13.8,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=OM&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-PR",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 18.235,
+    "lon": -66.481,
+    "name": "Internet censorship tests · Puerto Rico",
+    "country": "Puerto Rico",
+    "country_code": "PR",
+    "tests": 6301,
+    "anomalies": 855,
+    "confirmed_blocked": 0,
+    "interference_pct": 13.6,
+    "baseline_pct": 17.9,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=PR&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-RU",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 58.249,
+    "lon": 44.686,
+    "name": "Internet censorship tests · Russia",
+    "country": "Russia",
+    "country_code": "RU",
+    "tests": 362468,
+    "anomalies": 101320,
+    "confirmed_blocked": 15399,
+    "interference_pct": 32.2,
+    "baseline_pct": 32.4,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=RU&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-SA",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 23.807,
+    "lon": 44.7,
+    "name": "Internet censorship tests · Saudi Arabia",
+    "country": "Saudi Arabia",
+    "country_code": "SA",
+    "tests": 5163,
+    "anomalies": 502,
+    "confirmed_blocked": 161,
+    "interference_pct": 12.8,
+    "baseline_pct": 13.4,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=SA&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-VE",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 7.182,
+    "lon": -64.599,
+    "name": "Internet censorship tests · Venezuela",
+    "country": "Venezuela",
+    "country_code": "VE",
+    "tests": 190265,
+    "anomalies": 33817,
+    "confirmed_blocked": 0,
+    "interference_pct": 17.8,
+    "baseline_pct": 18.1,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=VE&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-VN",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 21.715,
+    "lon": 105.387,
+    "name": "Internet censorship tests · Vietnam",
+    "country": "Vietnam",
+    "country_code": "VN",
+    "tests": 135877,
+    "anomalies": 27226,
+    "confirmed_blocked": 27,
+    "interference_pct": 20.1,
+    "baseline_pct": 7.0,
+    "rising": true,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=VN&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  },
+  {
+   "entity": "OONI-YE",
+   "kind": "utility-telecom-censorship",
+   "observedAt": 1792690200,
+   "attrs": {
+    "lat": 15.328,
+    "lon": 45.874,
+    "name": "Internet censorship tests · Yemen",
+    "country": "Yemen",
+    "country_code": "YE",
+    "tests": 2976,
+    "anomalies": 368,
+    "confirmed_blocked": 0,
+    "interference_pct": 12.4,
+    "baseline_pct": 11.4,
+    "rising": false,
+    "since": "2026-10-21",
+    "url": "https://explorer.ooni.org/chart/mat?probe_cc=YE&test_name=web_connectivity",
+    "source": "OONI (CC BY 4.0)"
+   }
+  }
+ ]
+}

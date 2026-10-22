@@ -1,0 +1,67 @@
+{
+ "version": 1,
+ "labels": {
+  "emergency": "critical",
+  "radio-failure": "critical",
+  "unlawful-interference": "critical",
+  "flood-severe-warning": "critical",
+  "flood-warning": "warning",
+  "flood-alert": "info",
+  "earthquake-tsunami": "critical",
+  "earthquake-significant": "warning",
+  "earthquake-notable": "info",
+  "airport-strong-wind": "warning",
+  "sigmet-volcanic-ash": "critical",
+  "sigmet-tropical-cyclone": "critical",
+  "weather-warning-red": "critical",
+  "weather-warning-amber": "warning",
+  "weather-warning-yellow": "info",
+  "geomagnetic-storm-severe": "critical",
+  "radio-blackout-strong": "warning",
+  "solar-radiation-storm": "warning",
+  "geomagnetic-storm": "info",
+  "radio-blackout": "info",
+  "road-severe": "warning",
+  "disaster-red": "critical",
+  "disaster-orange": "warning",
+  "gnss-interference-high": "warning",
+  "gnss-interference-medium": "info",
+  "camera-queue": "info",
+  "camera-wrong-way": "warning",
+  "camera-stopped-vehicle": "warning",
+  "camera-person-on-road": "info",
+  "grid-frequency-critical": "critical",
+  "grid-frequency-excursion": "warning",
+  "power-cut-severe": "critical",
+  "power-cut-major": "warning",
+  "power-cut": "info",
+  "internet-shutdown": "warning",
+  "internet-outage-military": "warning",
+  "internet-outage": "info",
+  "conflict-zone-bulletin-new": "warning",
+  "conflict-zone-bulletin-revised": "info",
+  "faa-restriction-new": "warning",
+  "censorship-rising": "warning",
+  "tsunami-warning": "critical",
+  "tsunami-advisory": "warning",
+  "news-surge": "info",
+  "gulf-fire-at-sea": "warning",
+  "gulf-watch-elevated": "warning"
+ },
+ "detectors": {
+  "went_dark": {
+   "kinds": [
+    "sea-vessel"
+   ],
+   "min_speed_kt": 5.0,
+   "severity": "warning",
+   "min_reports": 10,
+   "min_reports_per_hour": 30
+  },
+  "source_disagreement": {
+   "max_km": 5.0,
+   "window_s": 5,
+   "severity": "warning"
+  }
+ }
+}

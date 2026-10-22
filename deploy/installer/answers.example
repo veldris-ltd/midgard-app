@@ -6,7 +6,7 @@
 # Where Midgard is installed. Default /opt/midgard.
 INSTALL_DIR=/opt/midgard
 
-# evaluation, legal, medical, defence, space or utilities. See deploy/installer/README.md.
+# legal, medical, military or utilities. See deploy/installer/README.md.
 PROFILE=legal
 
 # Products besides the core, space separated: any of forge mimir bifrost heimdall.
@@ -29,12 +29,24 @@ OPERATOR_PASSWORD_FILE=/root/operator.pw
 # Require an authenticator code (yes or no). Regulated profiles always require it.
 OPERATOR_TOTP=yes
 
-# Two administrators for dual control (legal, medical, defence, space, utilities).
+# Two administrators for dual control (every profile).
 ADMIN_1=a.jones
 ADMIN_2=b.patel
 
+# The full Midgard sample datasets, for data and feeds not in the repository. Leave it
+# out to use the openly licensed set in samples/.
+# SAMPLES_ZIP=/root/midgard-sample-datasets.zip
+
+# Heimdall feed families, space separated, when Heimdall is installed: any of aviation
+# maritime energy water transport communications hazards information. Leave the line out
+# for the profile's choice; leave it empty for none.
+# FEEDS=energy water transport
+
 # Install Docker from Docker's package repository if it is missing: yes or no.
 INSTALL_DOCKER=no
+
+# Install Python 3 from the distribution's packages if it is missing: yes or no.
+INSTALL_PYTHON=no
 
 # Must be yes for an unattended install to change anything.
 CONFIRM=yes

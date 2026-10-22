@@ -1,0 +1,1433 @@
+{
+ "version": 1,
+ "objectTypes": [
+  {
+   "id": "region",
+   "title": "Region",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "code",
+     "type": "text",
+     "required": true
+    }
+   ]
+  },
+  {
+   "id": "airport",
+   "title": "Airport",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "ident",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "airport_type",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "status",
+     "type": "text"
+    },
+    {
+     "name": "latitude",
+     "type": "float"
+    },
+    {
+     "name": "longitude",
+     "type": "float"
+    },
+    {
+     "name": "elevation_ft",
+     "type": "int"
+    },
+    {
+     "name": "municipality",
+     "type": "text"
+    },
+    {
+     "name": "scheduled_service",
+     "type": "bool"
+    },
+    {
+     "name": "icao_code",
+     "type": "text"
+    },
+    {
+     "name": "iata_code",
+     "type": "text"
+    },
+    {
+     "name": "alert_level",
+     "type": "text"
+    },
+    {
+     "name": "advisory",
+     "type": "text"
+    },
+    {
+     "name": "inbound",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "runway",
+   "title": "Runway",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "length_ft",
+     "type": "int"
+    },
+    {
+     "name": "width_ft",
+     "type": "int"
+    },
+    {
+     "name": "surface",
+     "type": "text"
+    },
+    {
+     "name": "lighted",
+     "type": "bool"
+    },
+    {
+     "name": "closed",
+     "type": "bool"
+    }
+   ]
+  },
+  {
+   "id": "navaid",
+   "title": "Navaid",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "ident",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "navaid_type",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "frequency_khz",
+     "type": "int"
+    },
+    {
+     "name": "latitude",
+     "type": "float"
+    },
+    {
+     "name": "longitude",
+     "type": "float"
+    },
+    {
+     "name": "elevation_ft",
+     "type": "int"
+    },
+    {
+     "name": "power",
+     "type": "text"
+    },
+    {
+     "name": "usage",
+     "type": "text"
+    },
+    {
+     "name": "dme_channel",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "frequency",
+   "title": "Radio frequency",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "frequency_type",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "frequency_mhz",
+     "type": "float",
+     "required": true
+    },
+    {
+     "name": "description",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "weather_report",
+   "title": "Weather report",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "observed_at",
+     "type": "timestamp",
+     "required": true
+    },
+    {
+     "name": "temperature_c",
+     "type": "float"
+    },
+    {
+     "name": "dewpoint_c",
+     "type": "float"
+    },
+    {
+     "name": "wind_dir_deg",
+     "type": "int"
+    },
+    {
+     "name": "wind_variable",
+     "type": "bool"
+    },
+    {
+     "name": "wind_speed_kt",
+     "type": "int"
+    },
+    {
+     "name": "wind_gust_kt",
+     "type": "int"
+    },
+    {
+     "name": "visibility",
+     "type": "text"
+    },
+    {
+     "name": "pressure_hpa",
+     "type": "float"
+    },
+    {
+     "name": "flight_category",
+     "type": "text"
+    },
+    {
+     "name": "clouds",
+     "type": "text"
+    },
+    {
+     "name": "raw_report",
+     "type": "text"
+    },
+    {
+     "name": "review",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "operator",
+   "title": "Operator",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "wikidata_id",
+     "type": "text",
+     "required": true
+    }
+   ]
+  },
+  {
+   "id": "forecast",
+   "title": "Forecast",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "issued_at",
+     "type": "timestamp",
+     "required": true
+    },
+    {
+     "name": "valid_from",
+     "type": "timestamp"
+    },
+    {
+     "name": "valid_to",
+     "type": "timestamp"
+    },
+    {
+     "name": "periods",
+     "type": "int"
+    },
+    {
+     "name": "raw_forecast",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "passenger_stat",
+   "title": "Passenger figures",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "year",
+     "type": "int",
+     "required": true
+    },
+    {
+     "name": "passengers",
+     "type": "int",
+     "required": true
+    },
+    {
+     "name": "sources_disagree",
+     "type": "bool"
+    }
+   ]
+  },
+  {
+   "id": "airline",
+   "title": "Airline",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "wikidata_id",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "compliance",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "aircraft_sighting",
+   "title": "Aircraft sighting",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "icao24",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "callsign",
+     "type": "text"
+    },
+    {
+     "name": "origin_country",
+     "type": "text"
+    },
+    {
+     "name": "observed_at",
+     "type": "timestamp",
+     "required": true
+    },
+    {
+     "name": "latitude",
+     "type": "float"
+    },
+    {
+     "name": "longitude",
+     "type": "float"
+    },
+    {
+     "name": "altitude_m",
+     "type": "float"
+    },
+    {
+     "name": "on_ground",
+     "type": "bool"
+    },
+    {
+     "name": "speed_ms",
+     "type": "float"
+    },
+    {
+     "name": "heading_deg",
+     "type": "float"
+    },
+    {
+     "name": "vertical_rate_ms",
+     "type": "float"
+    },
+    {
+     "name": "squawk",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "aircraft_live",
+   "title": "Aircraft (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "callsign",
+     "type": "text"
+    },
+    {
+     "name": "registration",
+     "type": "text"
+    },
+    {
+     "name": "aircraft_type",
+     "type": "text"
+    },
+    {
+     "name": "latitude",
+     "type": "float"
+    },
+    {
+     "name": "longitude",
+     "type": "float"
+    },
+    {
+     "name": "altitude_ft",
+     "type": "int"
+    },
+    {
+     "name": "on_ground",
+     "type": "bool"
+    },
+    {
+     "name": "ground_speed_kt",
+     "type": "float"
+    },
+    {
+     "name": "track_deg",
+     "type": "float"
+    },
+    {
+     "name": "vertical_rate_fpm",
+     "type": "int"
+    },
+    {
+     "name": "squawk",
+     "type": "text"
+    },
+    {
+     "name": "emergency",
+     "type": "text"
+    },
+    {
+     "name": "category",
+     "type": "text"
+    },
+    {
+     "name": "observed_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "nearest_airport",
+     "type": "text"
+    },
+    {
+     "name": "nearest_airport_km",
+     "type": "float"
+    },
+    {
+     "name": "batch",
+     "type": "text"
+    },
+    {
+     "name": "watch",
+     "type": "text"
+    },
+    {
+     "name": "interest",
+     "type": "text"
+    },
+    {
+     "name": "identification",
+     "type": "text"
+    },
+    {
+     "name": "security",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "grid_region",
+   "title": "Grid region (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "dno_region",
+     "type": "text"
+    },
+    {
+     "name": "intensity_gco2",
+     "type": "int"
+    },
+    {
+     "name": "intensity_index",
+     "type": "text"
+    },
+    {
+     "name": "period_start",
+     "type": "timestamp"
+    },
+    {
+     "name": "wind_pct",
+     "type": "float"
+    },
+    {
+     "name": "solar_pct",
+     "type": "float"
+    },
+    {
+     "name": "gas_pct",
+     "type": "float"
+    },
+    {
+     "name": "nuclear_pct",
+     "type": "float"
+    },
+    {
+     "name": "imports_pct",
+     "type": "float"
+    },
+    {
+     "name": "biomass_pct",
+     "type": "float"
+    },
+    {
+     "name": "hydro_pct",
+     "type": "float"
+    },
+    {
+     "name": "coal_pct",
+     "type": "float"
+    },
+    {
+     "name": "other_pct",
+     "type": "float"
+    },
+    {
+     "name": "supply",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "grid_fuel",
+   "title": "Grid generation by fuel (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "fuel_type",
+     "type": "text"
+    },
+    {
+     "name": "current_mw",
+     "type": "int"
+    },
+    {
+     "name": "current_pct",
+     "type": "float"
+    },
+    {
+     "name": "half_hour_mw",
+     "type": "int"
+    },
+    {
+     "name": "day_mwh",
+     "type": "int"
+    },
+    {
+     "name": "observed_at",
+     "type": "timestamp"
+    }
+   ]
+  },
+  {
+   "id": "grid_frequency",
+   "title": "Grid frequency (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "frequency_hz",
+     "type": "float"
+    },
+    {
+     "name": "min_hz_15m",
+     "type": "float"
+    },
+    {
+     "name": "max_hz_15m",
+     "type": "float"
+    },
+    {
+     "name": "mean_hz_15m",
+     "type": "float"
+    },
+    {
+     "name": "measured_at",
+     "type": "timestamp"
+    }
+   ]
+  },
+  {
+   "id": "flood_warning",
+   "title": "Flood warning (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "severity",
+     "type": "text"
+    },
+    {
+     "name": "severity_level",
+     "type": "int"
+    },
+    {
+     "name": "active",
+     "type": "bool"
+    },
+    {
+     "name": "county",
+     "type": "text"
+    },
+    {
+     "name": "river_or_sea",
+     "type": "text"
+    },
+    {
+     "name": "is_tidal",
+     "type": "bool"
+    },
+    {
+     "name": "message",
+     "type": "text"
+    },
+    {
+     "name": "time_raised",
+     "type": "timestamp"
+    },
+    {
+     "name": "time_changed",
+     "type": "timestamp"
+    },
+    {
+     "name": "ea_area",
+     "type": "text"
+    },
+    {
+     "name": "review",
+     "type": "text"
+    },
+    {
+     "name": "escalation",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "earthquake",
+   "title": "Earthquake (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "magnitude",
+     "type": "float"
+    },
+    {
+     "name": "place",
+     "type": "text"
+    },
+    {
+     "name": "occurred_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "depth_km",
+     "type": "float"
+    },
+    {
+     "name": "latitude",
+     "type": "float"
+    },
+    {
+     "name": "longitude",
+     "type": "float"
+    },
+    {
+     "name": "tsunami",
+     "type": "bool"
+    },
+    {
+     "name": "status",
+     "type": "text"
+    },
+    {
+     "name": "url",
+     "type": "text"
+    },
+    {
+     "name": "day",
+     "type": "text"
+    },
+    {
+     "name": "impact_assessment",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "tfl_line",
+   "title": "London line status (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "mode",
+     "type": "text"
+    },
+    {
+     "name": "status",
+     "type": "text"
+    },
+    {
+     "name": "severity",
+     "type": "int"
+    },
+    {
+     "name": "reason",
+     "type": "text"
+    },
+    {
+     "name": "updated_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "notification",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "air_quality_sensor",
+   "title": "Air-quality sensor (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "latitude",
+     "type": "float"
+    },
+    {
+     "name": "longitude",
+     "type": "float"
+    },
+    {
+     "name": "pm10_ugm3",
+     "type": "float"
+    },
+    {
+     "name": "pm2_5_ugm3",
+     "type": "float"
+    },
+    {
+     "name": "temperature_c",
+     "type": "float"
+    },
+    {
+     "name": "humidity_pct",
+     "type": "float"
+    },
+    {
+     "name": "sensor_types",
+     "type": "text"
+    },
+    {
+     "name": "observed_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "maintenance",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "id": "space_weather",
+   "title": "Space weather Kp (live)",
+   "properties": [
+    {
+     "name": "name",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "kp_index",
+     "type": "float"
+    },
+    {
+     "name": "level",
+     "type": "text"
+    },
+    {
+     "name": "period_start",
+     "type": "timestamp"
+    }
+   ]
+  },
+  {
+   "id": "heimdall_track",
+   "title": "Heimdall tracked item",
+   "properties": [
+    {
+     "name": "entity_key",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "kind",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "layer",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "name",
+     "type": "text"
+    },
+    {
+     "name": "classification",
+     "type": "text"
+    },
+    {
+     "name": "classification_rationale",
+     "type": "text"
+    },
+    {
+     "name": "latitude",
+     "type": "float"
+    },
+    {
+     "name": "longitude",
+     "type": "float"
+    },
+    {
+     "name": "altitude_m",
+     "type": "float"
+    },
+    {
+     "name": "network",
+     "type": "text"
+    },
+    {
+     "name": "feeds",
+     "type": "text"
+    },
+    {
+     "name": "observations",
+     "type": "int"
+    },
+    {
+     "name": "first_seen",
+     "type": "timestamp"
+    },
+    {
+     "name": "last_seen",
+     "type": "timestamp"
+    },
+    {
+     "name": "synced_at",
+     "type": "timestamp"
+    }
+   ],
+   "retention": {
+    "after": [
+     "synced_at",
+     "last_seen"
+    ],
+    "hours": 12
+   }
+  },
+  {
+   "id": "heimdall_alert",
+   "title": "Heimdall alert",
+   "properties": [
+    {
+     "name": "alert_id",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "label",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "severity",
+     "type": "text",
+     "required": true
+    },
+    {
+     "name": "rationale",
+     "type": "text"
+    },
+    {
+     "name": "subject",
+     "type": "text"
+    },
+    {
+     "name": "subject_kind",
+     "type": "text"
+    },
+    {
+     "name": "raised_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "cleared_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "acknowledged_by",
+     "type": "text"
+    },
+    {
+     "name": "acknowledged_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "synced_at",
+     "type": "timestamp"
+    },
+    {
+     "name": "triage",
+     "type": "text"
+    }
+   ],
+   "retention": {
+    "after": [
+     "synced_at",
+     "cleared_at",
+     "raised_at"
+    ],
+    "hours": 24
+   }
+  }
+ ],
+ "linkTypes": [
+  {
+   "id": "runway_at",
+   "name": "runway at",
+   "from": "runway",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "airport_in",
+   "name": "located in",
+   "from": "airport",
+   "to": "region",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "navaid_serves",
+   "name": "serves",
+   "from": "navaid",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "frequency_at",
+   "name": "frequency at",
+   "from": "frequency",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "weather_at",
+   "name": "weather at",
+   "from": "weather_report",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "operated_by",
+   "name": "operated by",
+   "from": "airport",
+   "to": "operator",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "forecast_for",
+   "name": "forecast for",
+   "from": "forecast",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "passengers_at",
+   "name": "passengers at",
+   "from": "passenger_stat",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "hub_at",
+   "name": "hub at",
+   "from": "airline",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "grid_region_in",
+   "name": "grid region in",
+   "from": "grid_region",
+   "to": "region",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "flood_in",
+   "name": "flood warning in",
+   "from": "flood_warning",
+   "to": "region",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "alert_on",
+   "name": "alert on",
+   "from": "heimdall_alert",
+   "to": "heimdall_track",
+   "cardinality": "many-to-many"
+  },
+  {
+   "id": "track_of_airport",
+   "name": "track of airport",
+   "from": "heimdall_track",
+   "to": "airport",
+   "cardinality": "many-to-many"
+  }
+ ],
+ "actions": [
+  {
+   "id": "toggle_airport_status",
+   "name": "toggleAirportStatus",
+   "title": "Open or close airport",
+   "objectType": "airport",
+   "humanGated": true,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "status",
+    "values": [
+     "open",
+     "closed"
+    ]
+   }
+  },
+  {
+   "id": "set_airport_alert_level",
+   "name": "setAirportAlertLevel",
+   "title": "Set alert level",
+   "objectType": "airport",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "alert_level",
+    "values": [
+     "normal",
+     "heightened",
+     "critical"
+    ]
+   }
+  },
+  {
+   "id": "toggle_runway_status",
+   "name": "toggleRunwayStatus",
+   "title": "Open or close runway",
+   "objectType": "runway",
+   "humanGated": true,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "closed",
+    "values": [
+     "false",
+     "true"
+    ]
+   }
+  },
+  {
+   "id": "review_weather_report",
+   "name": "reviewWeatherReport",
+   "title": "Review weather report",
+   "objectType": "weather_report",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "review",
+    "values": [
+     "new",
+     "reviewed",
+     "escalated"
+    ]
+   }
+  },
+  {
+   "id": "review_flood_warning",
+   "name": "reviewFloodWarning",
+   "title": "Review flood warning",
+   "objectType": "flood_warning",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "review",
+    "values": [
+     "new",
+     "reviewed"
+    ]
+   }
+  },
+  {
+   "id": "escalate_flood_warning",
+   "name": "escalateFloodWarning",
+   "title": "Escalate to emergency planning",
+   "objectType": "flood_warning",
+   "humanGated": true,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "set-property",
+    "property": "escalation",
+    "value": "escalated"
+   }
+  },
+  {
+   "id": "flag_sensor_maintenance",
+   "name": "flagSensorMaintenance",
+   "title": "Flag for maintenance",
+   "objectType": "air_quality_sensor",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "maintenance",
+    "values": [
+     "ok",
+     "flagged"
+    ]
+   }
+  },
+  {
+   "id": "watch_aircraft",
+   "name": "watchAircraft",
+   "title": "Add to or remove from watchlist",
+   "objectType": "aircraft_live",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "watch",
+    "values": [
+     "not watched",
+     "watched"
+    ]
+   }
+  },
+  {
+   "id": "triage_heimdall_alert",
+   "name": "triageHeimdallAlert",
+   "title": "Triage alert",
+   "objectType": "heimdall_alert",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "triage",
+    "values": [
+     "untriaged",
+     "investigating",
+     "resolved"
+    ]
+   }
+  },
+  {
+   "id": "mark_aircraft_interest",
+   "name": "markAircraftInterest",
+   "title": "Mark of interest",
+   "objectType": "aircraft_live",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "interest",
+    "values": [
+     "none",
+     "of interest",
+     "cleared"
+    ]
+   }
+  },
+  {
+   "id": "request_aircraft_identification",
+   "name": "requestAircraftIdentification",
+   "title": "Request identification",
+   "objectType": "aircraft_live",
+   "humanGated": true,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "set-property",
+    "property": "identification",
+    "value": "requested"
+   }
+  },
+  {
+   "id": "escalate_aircraft_security",
+   "name": "escalateAircraftSecurity",
+   "title": "Escalate to security",
+   "objectType": "aircraft_live",
+   "humanGated": true,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "set-property",
+    "property": "security",
+    "value": "escalated"
+   }
+  },
+  {
+   "id": "issue_airport_advisory",
+   "name": "issueAirportAdvisory",
+   "title": "Issue airport advisory",
+   "objectType": "airport",
+   "humanGated": true,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "advisory",
+    "values": [
+     "none",
+     "advisory",
+     "restriction"
+    ]
+   }
+  },
+  {
+   "id": "divert_inbound_traffic",
+   "name": "divertInboundTraffic",
+   "title": "Divert inbound traffic",
+   "objectType": "airport",
+   "humanGated": true,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "inbound",
+    "values": [
+     "normal",
+     "diverting"
+    ]
+   }
+  },
+  {
+   "id": "review_airline_compliance",
+   "name": "reviewAirlineCompliance",
+   "title": "Place under compliance review",
+   "objectType": "airline",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "compliance",
+    "values": [
+     "none",
+     "under review",
+     "cleared"
+    ]
+   }
+  },
+  {
+   "id": "assess_earthquake_impact",
+   "name": "assessEarthquakeImpact",
+   "title": "Assess infrastructure impact",
+   "objectType": "earthquake",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "impact_assessment",
+    "values": [
+     "new",
+     "assessing",
+     "no impact",
+     "impact"
+    ]
+   }
+  },
+  {
+   "id": "raise_grid_supply_concern",
+   "name": "raiseGridSupplyConcern",
+   "title": "Raise supply concern",
+   "objectType": "grid_region",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "supply",
+    "values": [
+     "normal",
+     "concern"
+    ]
+   }
+  },
+  {
+   "id": "notify_tfl_disruption",
+   "name": "notifyTflDisruption",
+   "title": "Notify disruption",
+   "objectType": "tfl_line",
+   "humanGated": false,
+   "marking": "internal",
+   "purposes": [
+    "operations"
+   ],
+   "effect": {
+    "kind": "cycle-property",
+    "property": "notification",
+    "values": [
+     "none",
+     "notified"
+    ]
+   }
+  }
+ ]
+}

@@ -4,6 +4,8 @@ This guide shows how to put your own data into a Midgard enclosure using only wh
 
 You do not need Likan or any other proprietary tool. Likan is a separate product for designing ontologies; Midgard does not depend on it, and everything below works without it. See [Related proprietary tools](../../README.md#related-proprietary-tools).
 
+For a larger, real example, the [sample datasets](../../samples/README.md) load the same way: `samples/convert.py` writes their `ontology.json` and import file, and their README gives the commands, which import 418 objects and 28 links from live-recorded GB grid, flood, TfL, weather, earthquake and space weather data.
+
 The worked example is a small electricity distribution network: substations, the feeders they supply, and the transformers on those feeders. Every file it uses is in [`examples/utility/`](examples/utility/), and every command and response shown here was run against those files.
 
 ---

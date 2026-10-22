@@ -10,15 +10,38 @@ CONTRIBUTING.md for the version policy.
 ## [Unreleased]
 
 ### Added
+- **Sample datasets.** `samples/` holds real data recorded from live public sources on
+  22 October 2026: the configuration it was recorded with, Forge datasets, Heimdall feed
+  snapshots and Heimdall observations. Only files whose sources state an open licence
+  that allows redistribution are included; `catalogue.json` and `NOTICE.md` give every
+  file's source, licence and required credit, and which ones are only in the full
+  `midgard-sample-datasets.zip`. [FR-F-1] [FR-H-3]
+  - `samples/convert.py` turns them into an import file for `mg-admin import`, CSV files
+    and jobs for the Forge worker, and observation lines for `heimdall-source`, and
+    writes a build-compatible ontology, naming what it leaves out (`retention`, and one
+    action on a boolean property).
+  - Ingested by both routes on this build: 418 objects and 28 links by `mg-admin
+    import`, and every job through Forge in the installer runs.
+- **Sample data and Heimdall feeds in the installer.** [RC-33]
+  - A screen chooses the sample data, from the repository or the full zip, and the
+    Heimdall feed families to replay. Each feed gets its own mesh identity; the replay
+    keeps the picture under the 1 MiB frame Heimdall returns it in, and the picture is
+    read back.
+  - The install now fails, naming the job, if any Forge job does not sync; it needs
+    Python 3.8+, and offers to install it.
+  - The install report lists the data and feeds loaded and the credits their licences
+    require.
 - **A guided installer for one server.** `deploy/installer/mg-install` installs the
   suite, whole or in part, on a Linux server, and manages it afterwards. [RC-33]
   [NFR-SEC-1]
   - A server check: architecture, distribution, sizing tier, disk, Docker, ports, Plesk
     and network; it can install Docker from Docker's own repository.
-  - Six use-case profiles (evaluation, legal, healthcare, defence, space, utilities),
-    each with the products, model, second-factor and dual-control settings for that use,
-    a starter schema, a policy with `operator` and `viewer` roles, and Forge jobs over
-    fictional sample data. Each was checked by installing it and signing in.
+  - Four use-case profiles: legal practice (EU), healthcare (NHS aligned), military
+    (British and EU aligned) and utilities (water, electricity, transport,
+    communications). Each sets the products, model, second factor and dual control, and
+    brings a starter schema, a policy with `operator` and `viewer` roles, Forge jobs over
+    fictional records, and sector guidance. Each was checked by installing it, syncing
+    every Forge job and signing in.
   - The first user and, where the profile calls for it, two IAM administrators are
     enrolled before anything starts. Passwords are never stored or logged; the
     authenticator key is shown once.

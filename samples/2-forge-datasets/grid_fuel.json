@@ -1,0 +1,206 @@
+{
+ "dataset": "grid_fuel",
+ "objectType": "grid_fuel",
+ "rows": [
+  {
+   "key": "FUEL-BIOMASS",
+   "name": "BIOMASS",
+   "fuel_type": "BIOMASS",
+   "current_mw": 3265,
+   "current_pct": 9.49,
+   "half_hour_mw": 3276,
+   "day_mwh": 58487,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-CCGT",
+   "name": "CCGT",
+   "fuel_type": "CCGT",
+   "current_mw": 11881,
+   "current_pct": 34.52,
+   "half_hour_mw": 12651,
+   "day_mwh": 120680,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-COAL",
+   "name": "COAL",
+   "fuel_type": "COAL",
+   "current_mw": 0,
+   "current_pct": 0.0,
+   "half_hour_mw": 0,
+   "day_mwh": 0,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTELEC",
+   "name": "INTELEC",
+   "fuel_type": "INTELEC",
+   "current_mw": 0,
+   "current_pct": 0.0,
+   "half_hour_mw": 0,
+   "day_mwh": 0,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTEW",
+   "name": "INTEW",
+   "fuel_type": "INTEW",
+   "current_mw": 0,
+   "current_pct": 0.0,
+   "half_hour_mw": 0,
+   "day_mwh": 0,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTFR",
+   "name": "INTFR",
+   "fuel_type": "INTFR",
+   "current_mw": 2004,
+   "current_pct": 5.82,
+   "half_hour_mw": 2004,
+   "day_mwh": 35344,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTGRNL",
+   "name": "INTGRNL",
+   "fuel_type": "INTGRNL",
+   "current_mw": 0,
+   "current_pct": 0.0,
+   "half_hour_mw": 0,
+   "day_mwh": 0,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTIFA2",
+   "name": "INTIFA2",
+   "fuel_type": "INTIFA2",
+   "current_mw": 992,
+   "current_pct": 2.88,
+   "half_hour_mw": 992,
+   "day_mwh": 16682,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTIRL",
+   "name": "INTIRL",
+   "fuel_type": "INTIRL",
+   "current_mw": 0,
+   "current_pct": 0.0,
+   "half_hour_mw": 0,
+   "day_mwh": 0,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTNED",
+   "name": "INTNED",
+   "fuel_type": "INTNED",
+   "current_mw": 964,
+   "current_pct": 2.8,
+   "half_hour_mw": 964,
+   "day_mwh": 19978,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTNEM",
+   "name": "INTNEM",
+   "fuel_type": "INTNEM",
+   "current_mw": 978,
+   "current_pct": 2.84,
+   "half_hour_mw": 978,
+   "day_mwh": 20595,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTNSL",
+   "name": "INTNSL",
+   "fuel_type": "INTNSL",
+   "current_mw": 1400,
+   "current_pct": 4.07,
+   "half_hour_mw": 1400,
+   "day_mwh": 27413,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-INTVKL",
+   "name": "INTVKL",
+   "fuel_type": "INTVKL",
+   "current_mw": 1421,
+   "current_pct": 4.13,
+   "half_hour_mw": 1420,
+   "day_mwh": 30244,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-NPSHYD",
+   "name": "NPSHYD",
+   "fuel_type": "NPSHYD",
+   "current_mw": 667,
+   "current_pct": 1.94,
+   "half_hour_mw": 688,
+   "day_mwh": 11761,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-NUCLEAR",
+   "name": "NUCLEAR",
+   "fuel_type": "NUCLEAR",
+   "current_mw": 4974,
+   "current_pct": 14.45,
+   "half_hour_mw": 4971,
+   "day_mwh": 111257,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-OCGT",
+   "name": "OCGT",
+   "fuel_type": "OCGT",
+   "current_mw": 0,
+   "current_pct": 0.0,
+   "half_hour_mw": 0,
+   "day_mwh": 85,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-OIL",
+   "name": "OIL",
+   "fuel_type": "OIL",
+   "current_mw": 0,
+   "current_pct": 0.0,
+   "half_hour_mw": 0,
+   "day_mwh": 0,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-OTHER",
+   "name": "OTHER",
+   "fuel_type": "OTHER",
+   "current_mw": 464,
+   "current_pct": 1.35,
+   "half_hour_mw": 867,
+   "day_mwh": 23145,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-PS",
+   "name": "PS",
+   "fuel_type": "PS",
+   "current_mw": 970,
+   "current_pct": 2.82,
+   "half_hour_mw": 1044,
+   "day_mwh": 3623,
+   "observed_at": 1792698894
+  },
+  {
+   "key": "FUEL-WIND",
+   "name": "WIND",
+   "fuel_type": "WIND",
+   "current_mw": 4433,
+   "current_pct": 12.88,
+   "half_hour_mw": 4330,
+   "day_mwh": 225789,
+   "observed_at": 1792698894
+  }
+ ]
+}

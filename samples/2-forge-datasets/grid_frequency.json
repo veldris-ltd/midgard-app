@@ -1,0 +1,15 @@
+{
+ "dataset": "grid_frequency",
+ "objectType": "grid_frequency",
+ "rows": [
+  {
+   "key": "FREQ-GB",
+   "name": "GB system frequency",
+   "frequency_hz": 50.129,
+   "min_hz_15m": 49.966,
+   "max_hz_15m": 50.141,
+   "mean_hz_15m": 50.071,
+   "measured_at": 1792698945
+  }
+ ]
+}
