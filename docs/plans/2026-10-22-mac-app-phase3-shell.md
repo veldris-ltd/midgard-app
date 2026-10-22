@@ -27,7 +27,8 @@ Design: `docs/plans/2026-10-22-mac-presentation-app-design.md` §1, §4. Decisio
 ```
 Midgard.app/Contents/
   MacOS/Midgard                       the shell (universal)
-  Resources/bin/                      http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay [llama-server]
+  Helpers/                            http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay [llama-server]
+                                      (Resources/bin in a development layout, MIDGARD_APP_RESOURCES)
   Resources/consoles/{midgard,heimdall,mimir,forge}/   static builds
   Resources/home/index.html           the home page
   Resources/starting-state/           see Task 8

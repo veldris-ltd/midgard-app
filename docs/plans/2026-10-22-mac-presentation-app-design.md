@@ -116,3 +116,31 @@ Mimir console's session traces.
 
 The existing development setup (Docker containers, live feeds, consoles on their ports)
 is unchanged; the app is built from the same code.
+
+## Phase 5 notes (signing, notarisation, delivery)
+
+From the phase 3 build (`tools/mac-app/build-app.sh`, ad-hoc signed; service binaries in
+`Contents/Helpers`, Apple's place for helper executables):
+
+- **Notarisation** needs every Mach-O (the shell, each helper, bundled llama-server and its
+  dylibs) signed with a Developer ID, the hardened runtime (`--options runtime`) and a secure
+  timestamp (`--timestamp`), innermost first, then the bundle (no `--deep` when signing).
+- **Entitlements**: none expected. WKWebView runs its JavaScript JIT in WebKit's own
+  processes, so the shell needs no `allow-jit`. Sign the bundled llama dylibs with the same
+  team as the executables, so `disable-library-validation` is not needed.
+- **Unsigned or ad-hoc distribution**: on macOS 15 (Sequoia) and later the presenter sees
+  "“Midgard” Not Opened – Apple could not verify…"; the route is System Settings › Privacy &
+  Security › Open Anyway (Control-click › Open no longer bypasses it on Sequoia). The
+  install sheet must show this path for each supported macOS version.
+- **"Midgard is damaged and can't be opened"** means the signature's seal broke in transit
+  (files changed, extended attributes or symlinks mangled), not a missing signature.
+- **Packaging**: zip with `ditto -c -k --keepParent Midgard.app Midgard.zip` (keeps the
+  bundle's structure and metadata), not Finder's Compress or third-party zip tools; or a DMG.
+  APFS clones in the build folder become full copies in the archive (~1.6 GB).
+- **First launch of a quarantined copy**: Gatekeeper hashes the whole bundle, including the
+  1.5 GB model, so "Verifying “Midgard”…" shows for a while (longer on an Intel i5). Say so
+  in the install sheet.
+- **Test plan**: round-trip the app through a `ditto` zip, set the quarantine attribute
+  (`xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" Midgard.app`, or
+  download it through a browser), open it on macOS 13, 14 and 15, and record exactly what
+  each shows (dialogs, the Open Anyway path, verification time).

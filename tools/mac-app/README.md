@@ -155,7 +155,11 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
 - Runs `build-services.sh` and `build-consoles.sh` (skip either to reuse `dist/mac` as it is;
   it warns when sources changed since), builds the shell universal with `swift build`, and
   assembles the bundle in `~/Library/Caches/midgard-build/app/Midgard.app` (`--out` to
-  change), signed ad hoc and checked with `codesign --verify`.
+  change). The service binaries go in `Contents/Helpers` (the shell runs them from there;
+  in a development layout with `MIDGARD_APP_RESOURCES` it uses `$MIDGARD_APP_RESOURCES/bin`),
+  the rest in `Contents/Resources`. Each helper and then the bundle are signed ad hoc, and
+  the new bundle must pass `codesign --verify --deep --strict` before it replaces the old
+  one; an interrupted build leaves the previous app in place.
 - `--recording DIR` (or `MIDGARD_RECORDING`) bundles a recording (it must contain
   `meta.json`; its `raw/` is left out), which the app replays; without one the app starts
   with no feeds.
@@ -163,7 +167,10 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
   costs little extra disk while it stays on the same volume as its sources. With the Rust
   and Swift builds up to date, a build takes about 20 seconds.
 - `llama-server` is not bundled until phase 5: install it with Homebrew
-  (`brew install llama.cpp`); the app uses `/opt/homebrew/bin/llama-server`.
+  (`brew install llama.cpp`). The app looks for it in `Contents/Helpers`, then
+  `/opt/homebrew/bin`, then `/usr/local/bin`.
+- Signing, notarisation and delivery for phase 5: "Phase 5 notes" in
+  `docs/plans/2026-10-22-mac-presentation-app-design.md`.
 
 ### Running
 

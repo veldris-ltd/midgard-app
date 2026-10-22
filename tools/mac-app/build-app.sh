@@ -4,21 +4,19 @@
 #
 # Steps: the services (build-services.sh → dist/mac/bin) and the consoles
 # (build-consoles.sh → dist/mac/consoles) unless skipped; the Swift shell as a universal
-# release build; then the bundle, assembled next to the old one and swapped in at the end:
-#   Contents/Info.plist, MacOS/Midgard,
-#   Resources/{bin,consoles,home,starting-state,models/{granite,trust}[,recording]}
+# release build; then the bundle, assembled next to the old one, signed, verified, and only
+# then swapped in:
+#   Contents/Info.plist, MacOS/Midgard, Helpers/<service binaries>,
+#   Resources/{consoles,home,starting-state,models/{granite,trust}[,recording]}
 # The starting state comes from make-starting-state.sh (~/Library/Caches/midgard-build/
 # starting-state) and the model from ~/Desktop/Midgard/mimir-models; both are copied as
 # APFS clones (cp -c), so they share disk with their sources; across volumes the script
 # falls back to a plain copy after checking free space. The bundle must hold no symlinks
-# (codesign and the home page's web server refuse them). It is signed ad hoc and verified.
-# llama-server is not bundled yet (phase 5): the app uses Homebrew's.
+# (codesign and the home page's web server refuse them). It is signed ad hoc: each helper,
+# then the bundle. llama-server is not bundled yet (phase 5): the app uses Homebrew's.
 #
 #   bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles]
 #                                   [--recording DIR] [--out DIR]
-#
-# --recording DIR (or MIDGARD_RECORDING): a phase 2 recording to bundle and replay; it must
-# contain meta.json (its raw/ capture is left out). --out DIR: where Midgard.app goes.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -35,7 +33,15 @@ BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker m
 PRODUCTS=(midgard heimdall mimir forge)
 
 usage() {
-  sed -n '17,18p' "$0" | sed 's/^# \{0,1\}//' >&2
+  cat >&2 <<'EOF'
+usage: bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles]
+                                       [--recording DIR] [--out DIR]
+  --skip-services   reuse dist/mac/bin as it is (warns if Rust sources are newer)
+  --skip-consoles   reuse dist/mac/consoles as it is (warns if console sources are newer)
+  --recording DIR   a phase 2 recording to bundle and replay (or MIDGARD_RECORDING); it
+                    must contain meta.json; its raw/ capture is left out
+  --out DIR         where Midgard.app goes (default ~/Library/Caches/midgard-build/app)
+EOF
   exit 2
 }
 
@@ -56,6 +62,11 @@ free_kb() { df -k "$1" | awk 'NR == 2 { print $4 }'; }
 now() { date +%s; }
 T0=$(now)
 
+# True if a process runs an executable inside $1 (compared as a fixed string, not a regex).
+running_from() {
+  ps -axo comm= | awk -v p="$1/Contents/" 'index($0, p) == 1 { found = 1 } END { exit !found }'
+}
+
 # --- checks before any work ---------------------------------------------------------
 [ -f "$STATE/VERSION" ] || die "no starting state in $STATE: stop the suite, then run
   bash tools/mac-app/make-starting-state.sh"
@@ -70,26 +81,38 @@ fi
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 APP="$OUT/Midgard.app"
-if pgrep -f "$APP/Contents/" >/dev/null 2>&1; then
-  die "Midgard is running from $APP: quit it first"
+NEW="$OUT/.Midgard.app.new"
+OLD="$OUT/.Midgard.app.old"
+
+# A previous run interrupted mid-swap leaves the app only in $OLD: put it back.
+if [ ! -e "$APP" ] && [ -e "$OLD" ]; then
+  echo "restoring $APP from an interrupted build"
+  mv "$OLD" "$APP"
 fi
+rm -rf "$NEW" "$OLD"
+running_from "$APP" && die "Midgard is running from $APP: quit it first"
 FREE_BEFORE=$(free_kb "$OUT")
 
 # --- services and consoles ------------------------------------------------------------
 # A skipped step reuses dist/ as it is; a warning names sources changed since it was built.
-stale_warning() {  # $1 = output to compare against, rest = source paths
-  local ref="$1"; shift
+stale_warning() {  # $1 = what, $2 = reference file; then find's name tests, --, paths
+  local what="$1" ref="$2"; shift 2
+  local names=()
+  while [ "$1" != -- ]; do names+=("$1"); shift; done
+  shift
   local newer
-  newer=$(find "$@" -type f -newer "$ref" -not -path '*/node_modules/*' -not -path '*/dist/*' 2>/dev/null | head -3)
+  newer=$(find "$@" \( -name node_modules -o -name dist -o -name target -o -name .git \) -prune \
+    -o -type f \( "${names[@]}" \) -newer "$ref" -print 2>/dev/null | head -3)
   if [ -n "$newer" ]; then
-    echo "WARNING: sources changed since $ref was built (e.g. ${newer//$'\n'/, })" >&2
+    echo "WARNING: $what: sources changed since the last build (e.g. ${newer//$'\n'/, })" >&2
   fi
 }
+oldest_of() { ls -tr "$@" | head -1; }
 
 if [ "$SKIP_SERVICES" = 1 ]; then
   for b in "${BINARIES[@]}"; do [ -x "$BIN/$b" ] || die "--skip-services: $BIN/$b is missing"; done
-  oldest=$(ls -tr "${BINARIES[@]/#/$BIN/}" | head -1)
-  stale_warning "$oldest" services tools/replay Cargo.lock
+  stale_warning "$BIN" "$(oldest_of "${BINARIES[@]/#/$BIN/}")" \
+    -name '*.rs' -o -name Cargo.toml -o -name Cargo.lock -- .
   echo "== services: reusing $BIN"
 else
   echo "== services"
@@ -98,7 +121,9 @@ fi
 
 if [ "$SKIP_CONSOLES" = 1 ]; then
   for p in "${PRODUCTS[@]}"; do [ -f "$CONSOLES/$p/index.html" ] || die "--skip-consoles: $CONSOLES/$p is missing"; done
-  stale_warning "$CONSOLES/midgard/index.html" "${PRODUCTS[@]/#/products/}" ui/shared ui/design-system
+  pages=()
+  for p in "${PRODUCTS[@]}"; do pages+=("$CONSOLES/$p/index.html"); done
+  stale_warning "$CONSOLES" "$(oldest_of "${pages[@]}")" -true -- ui sdk products
   echo "== consoles: reusing $CONSOLES"
 else
   echo "== consoles"
@@ -121,25 +146,28 @@ T_SWIFT=$(now)
 
 # --- the bundle -----------------------------------------------------------------------
 echo "== assembling $APP"
-NEW="$OUT/.Midgard.app.new"
-OLD="$OUT/.Midgard.app.old"
-rm -rf "$NEW" "$OLD"
-trap 'rm -rf "$NEW"' EXIT
+# On any exit before the swap finishes: drop the half-built bundle, and if the old app was
+# already moved aside, put it back.
+restore() {
+  rm -rf "$NEW"
+  if [ ! -e "$APP" ] && [ -e "$OLD" ]; then mv "$OLD" "$APP"; fi
+}
+trap restore EXIT
 C="$NEW/Contents"
 R="$C/Resources"
-mkdir -p "$C/MacOS" "$R/models"
+mkdir -p "$C/MacOS" "$C/Helpers" "$R/models"
 
 # Copies $1 to the new path $2 as APFS clones; a plain copy (after a free space check)
 # when cloning is not possible, e.g. across volumes.
 clone_copy() {
-  local src="$1" dst="$2"
-  if cp -cRp "$src" "$dst" 2>/dev/null; then return; fi
+  local src="$1" dst="$2" err
+  if err=$(cp -cRp "$src" "$dst" 2>&1); then return; fi
+  echo "  cannot clone $src: ${err:-unknown error}; copying instead"
   rm -rf "$dst"
   local need have
   need=$(du -sk "$src" | awk '{ print $1 }')
   have=$(free_kb "$(dirname "$dst")")
   [ "$have" -gt $((need + 1048576)) ] || die "not enough free disk to copy $src ($((need / 1024)) MB, $((have / 1024)) MB free)"
-  echo "  (cannot clone $src; copying)"
   cp -Rp "$src" "$dst"
 }
 
@@ -169,7 +197,7 @@ EOF
 plutil -lint "$C/Info.plist"
 
 cp "$SHELL_BIN" "$C/MacOS/Midgard"
-cp -RL "$BIN" "$R/bin"
+for b in "${BINARIES[@]}"; do cp "$BIN/$b" "$C/Helpers/$b"; done
 cp -RL "$CONSOLES" "$R/consoles"
 cp -RL apps/mac/Resources/home "$R/home"          # fonts is a symlink in the repo
 clone_copy "$STATE" "$R/starting-state"
@@ -190,27 +218,33 @@ links=$(find "$NEW" -type l)
 [ -z "$links" ] || die "the bundle contains symlinks:
 $links"
 
-# Finder info and quarantine attributes make codesign fail; the binaries in Resources/bin
-# are signed one by one (--deep only reaches nested bundles).
+# Finder info and quarantine attributes make codesign fail. Inside out: each helper, then
+# the bundle (which seals the helpers' signatures and the resources); no --deep.
+echo "== signing (ad hoc)"
 xattr -cr "$NEW"
-for b in "$R"/bin/*; do codesign --force --sign - "$b"; done
-codesign --force --deep --sign - "$NEW"
+for b in "${BINARIES[@]}"; do codesign --force --sign - "$C/Helpers/$b"; done
+codesign --force --sign - "$NEW"
 
-# Swap in: the old bundle aside, the new one in place, then the old one removed.
-[ -e "$APP" ] && mv "$APP" "$OLD"
+echo "== codesign verify"
+for b in "${BINARIES[@]}"; do
+  codesign --verify --strict "$C/Helpers/$b" || die "helper $b fails codesign --verify"
+done
+codesign --verify --deep --strict --verbose=1 "$NEW" 2>&1 || die "the bundle fails codesign --verify"
+
+# Swap in: the old bundle aside, the new one in place; the trap restores the old one if
+# this is interrupted in between. Only then is the old one removed.
+running_from "$APP" && die "Midgard was started from $APP during the build: quit it and build again"
+if [ -e "$APP" ]; then mv "$APP" "$OLD"; fi
 mv "$NEW" "$APP"
 trap - EXIT
 rm -rf "$OLD"
-
-echo "== codesign verify"
-codesign --verify --deep --strict --verbose=1 "$APP" 2>&1
 T_END=$(now)
 
 # --- report ---------------------------------------------------------------------------
 FREE_AFTER=$(free_kb "$OUT")
 echo "== sizes (clones count in full here but share disk with their sources)"
 du -sh "$APP"
-for part in "$APP/Contents/MacOS" "$APP"/Contents/Resources/*; do
+for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Resources/*; do
   du -sh "$part" | sed "s|$APP/Contents/||"
 done
 echo "free disk: $((FREE_BEFORE / 1024)) MB before, $((FREE_AFTER / 1024)) MB after ($(((FREE_BEFORE - FREE_AFTER) / 1024)) MB used, including any rebuilt dist/ and swift outputs)"
