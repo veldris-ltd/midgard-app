@@ -7,7 +7,9 @@
 //! The same upkeep compacts the store's journal once it holds more than
 //! [`COMPACT_RATIO`] times the records the data needs (every update appends a whole
 //! object), so the journal stays near the size of the data. Compaction changes no
-//! object; it is still recorded in the ledger first.
+//! object; it is still recorded in the ledger first. A store wedged by a write that
+//! could not be cut back off its journal is compacted at the next upkeep whatever its
+//! size: that rewrite is how it recovers, so it does not refuse writes until a restart.
 
 use audit_writer::LedgerStore;
 use fabric::{DurableObjectStore, StoreOp};
@@ -48,8 +50,8 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
             .is_some_and(|o| !o.retention.is_empty())
     }
 
-    /// Compact the store's journal at `now` if it has outgrown its data, returning the
-    /// record counts before and after, or `None` when it has not.
+    /// Compact the store's journal at `now` if it has outgrown its data or the store is
+    /// wedged, returning the record counts before and after, or `None` when neither.
     pub fn compact_store_if_due(&self, now: u64) -> Result<Option<(u64, u64)>, String> {
         self.compact_store_with_slack(now, COMPACT_SLACK)
     }
@@ -66,15 +68,19 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let store = enclosure.fabric().store();
         let (journal, live) = (store.journal_records(), store.live_records());
-        if journal <= live.saturating_mul(COMPACT_RATIO) + slack {
+        // A wedged store refuses every write until its journal is rewritten from
+        // memory, so it is compacted whatever its size.
+        let wedged = store.wedged().is_some();
+        if !wedged && journal <= live.saturating_mul(COMPACT_RATIO) + slack {
             return Ok(None);
         }
+        let why = if wedged { ":wedged" } else { "" };
         enclosure
             .governance_mut()
             .record_event(
                 RETENTION_ACTOR,
                 ACTION_COMPACT,
-                &format!("store:{journal}-records:to-{live}"),
+                &format!("store:{journal}-records:to-{live}{why}"),
                 now,
             )
             .map_err(|e| format!("the compaction could not be audited: {e}"))?;

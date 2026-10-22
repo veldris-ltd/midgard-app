@@ -310,3 +310,69 @@ fn a_sweep_is_flushed_to_disk_once_however_many_objects_it_removes() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_wedged_store_is_compacted_at_the_next_upkeep_and_writes_again() {
+    use governance::Governance;
+    use http_gateway::enclosure::Enclosure;
+    use http_gateway::SecuredGateway;
+    use policy::DefaultPdp;
+
+    let dir = scratch("wedged");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("fabric.store");
+    let root = Keystore::generate("store-root", governance::GOV_SIG_ALG, &mut OsRng).unwrap();
+    let sealer = || Box::new(KmsSealer::new(Kms::new(fips_provider(), root.trust_root())));
+    let mut store = DurableObjectStore::open(&path, sealer(), STORE_ID).unwrap();
+    store.put_object_durable(object("track/a")).unwrap();
+    // As if a failed write could not be cut back off the journal.
+    store.wedge("simulated");
+    assert!(store.put_object_durable(object("track/b")).is_err());
+
+    let governance =
+        Governance::new(DefaultPdp::new(PolicySet::new(vec![]).unwrap()), &mut OsRng).unwrap();
+    let gateway = SecuredGateway::with_enclosure(
+        fips_provider(),
+        root.verifying_key.clone(),
+        Enclosure::with_store(store, governance),
+        Vec::new(),
+    );
+    assert!(gateway.store_wedged().is_some());
+    let audited = gateway.audit_len();
+
+    // Far from outgrown, but wedged: compacted anyway, and recorded first.
+    let (was, now) = gateway
+        .compact_store_if_due(NOW)
+        .unwrap()
+        .expect("a wedged store is compacted");
+    assert_eq!((was, now), (1, 1));
+    assert_eq!(
+        gateway.audit_len(),
+        audited + 1,
+        "the compaction is audited"
+    );
+    assert!(gateway.store_wedged().is_none(), "writes again");
+    assert_eq!(
+        gateway.compact_store_if_due(NOW).unwrap(),
+        None,
+        "and is not due again"
+    );
+    drop(gateway);
+
+    let store = DurableObjectStore::open(&path, sealer(), STORE_ID).unwrap();
+    assert!(store.get_object("track/a").is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn object(id: &str) -> fabric::ObjectInstance {
+    fabric::ObjectInstance {
+        id: id.into(),
+        type_id: "track".into(),
+        properties: Default::default(),
+        marking: policy::Marking {
+            level: policy::ClassificationLevel::UNCLASSIFIED,
+            compartments: Default::default(),
+        },
+        allowed_purposes: Default::default(),
+    }
+}

@@ -58,6 +58,10 @@ service-runtime = { path = "../runtime" }
 gateway = { path = "../gateway" }
 pq-mtls = { path = "../../crypto/pq-mtls" }
 
+[dev-dependencies]
+# Lets the tests put the object store in the states only an I/O failure reaches.
+fabric = { path = "../fabric", features = ["test-faults"] }
+
 [[bin]]
 name = "http-gateway"
 path = "src/main.rs"

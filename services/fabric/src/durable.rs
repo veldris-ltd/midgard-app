@@ -239,6 +239,14 @@ impl DurableObjectStore {
         self.wedged.as_deref()
     }
 
+    /// Wedge the store as a failed write that could not be cut back would, for a
+    /// dependant's tests of recovery (`test-faults` feature only).
+    #[cfg(feature = "test-faults")]
+    #[doc(hidden)]
+    pub fn wedge(&mut self, why: &str) {
+        self.wedged = Some(why.to_string());
+    }
+
     /// How many times the journal has been flushed to disk since it was opened.
     pub fn flushes(&self) -> u64 {
         self.flushes
