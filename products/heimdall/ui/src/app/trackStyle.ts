@@ -104,8 +104,8 @@ export function areaColour(d: { kind: string; hazard?: string; level?: string; a
     case 'event-tsunami': return d.level === 'warning' ? 'var(--danger)' : d.level === 'advisory' || d.level === 'watch' || d.level === 'threat' ? 'var(--warn)' : 'var(--info)';
     // News topics: amber while coverage is surging.
     case 'event-news': return d.level === 'surge' ? 'var(--warn)' : 'var(--heimdall-300)';
-    // Gulf watch indicators: amber when well away from normal, green when normal, grey while learning.
-    case 'event-indicator': return d.level === 'elevated' ? 'var(--warn)' : d.level === 'normal' ? 'var(--secure)' : 'var(--text-muted)';
+    // Gulf watch indicators: amber when well away from normal, green when normal, blue while warming up or learning.
+    case 'event-indicator': return d.level === 'elevated' ? 'var(--warn)' : d.level === 'normal' ? 'var(--secure)' : 'var(--info)';
     case 'land-road-disruption': return ROAD_COLOURS[(d.level ?? '').toLowerCase()] ?? 'var(--heimdall-300)';
     // GPS interference cells: magenta, deeper with the share of aircraft affected.
     case 'event-gnss-interference': return d.level === 'high' ? '#ff2bd6' : d.level === 'medium' ? '#c04dff' : '#8a6bff';

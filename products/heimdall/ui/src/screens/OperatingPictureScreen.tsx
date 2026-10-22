@@ -36,6 +36,7 @@ import type { GlobeTrail, InfraLineGroup } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
 import { AlertsPanel } from '../app/AlertsPanel';
+import { GulfWatchPanel, gulfWatchName, isGulfWatch } from '../app/GulfWatchPanel';
 import { AdviceCard } from '../app/AdviceCard';
 import { AskCard } from '../app/AskCard';
 import { utilityLineGroups, utilityLineKey } from '../app/utilityLines';
@@ -952,6 +953,8 @@ export function OperatingPictureScreen() {
   }, [layerDefs, layers]);
 
   const layerOn = (id: HeimdallLayerId) => layers?.[id] !== false;
+  // The Gulf watch switch: its symbols and its list together. [FR-H-4]
+  const [gulfWatchOn, setGulfWatchOn] = React.useState(true);
   const setLayer = (id: HeimdallLayerId, v: boolean) => setLayers((l) => ({ ...(l ?? ({} as LayerState)), [id]: v }));
 
   const e = tracks.find((t) => t.id === sel);
@@ -960,12 +963,13 @@ export function OperatingPictureScreen() {
   const focusRegion = focusHover && !world ? (pointerRegion ?? lookRegion) : null;
   const visible = React.useMemo(() => tracks.filter((t) => {
     if (layers?.[t.layer] === false) return false;
+    if (!gulfWatchOn && isGulfWatch(t)) return false;
     if (world || t.layer === 'space') return true;
     const lat = t.lat ?? t.detail?.lat, lon = t.lon ?? t.detail?.lon;
     if (lat === undefined || lon === undefined) return true;
     if (focusRegion) return inRegionBox(focusRegion.box, lat, lon) || t.id === sel;
     return enabledRegions.some((r) => inRegionBox(r.box, lat, lon)) || t.id === sel;
-  }), [tracks, layers, world, focusRegion, enabledRegions, sel]);
+  }), [tracks, layers, gulfWatchOn, world, focusRegion, enabledRegions, sel]);
   const options = e?.options ?? [];
 
   // Trails: the last `trailMins` of recorded history up to the time shown, joined to the
@@ -1219,6 +1223,8 @@ export function OperatingPictureScreen() {
   };
 
   const select = (id: string) => { setSel(id); setGate(null); };
+  // The Gulf watch list: its indicators wherever they are, while the Events layer is on.
+  const gulfWatch = React.useMemo(() => (layerOn('events') ? geoLive.filter(isGulfWatch) : []), [geoLive, layers]); // eslint-disable-line react-hooks/exhaustive-deps
   const aside = geoView && picture ? (
     e?.detail ? (
       <LiveTrackPanel t={e} onClose={() => setSel('')} replayAt={replayAt} trailNote={trailNote(e)} path={selPath} flights={aircraftKey ? { ...flightState, pick: flightPick, setPick: setFlightPick } : undefined} watch={watch} rings={ringsOn} setRings={setRingsOn}
@@ -1370,6 +1376,7 @@ export function OperatingPictureScreen() {
           {layerDefs.filter((l) => geoLive.some((t) => t.layer === l.id)).map((l) => (
             <Switch key={l.id} checked={layerOn(l.id)} onChange={(v) => setLayer(l.id, v)} label={l.label} />
           ))}
+          {geoLive.some(isGulfWatch) && <Switch checked={gulfWatchOn} onChange={setGulfWatchOn} label="Gulf watch" />}
         </div>
       }
       aside={aside ? (wall ? <div style={{ zoom: 1.2, display: 'flex', flexDirection: 'column', gap: 14 }}>{aside}</div> : aside) : undefined}
@@ -1466,11 +1473,13 @@ export function OperatingPictureScreen() {
         // Satellites move too fast for a vector to mean anything at this scale; events do not move.
         const moves = shape === 'aircraft' || shape === 'vessel' || shape === 'balloon' || shape === 'point';
         const vlen = region ? (en.detail?.onGround || !moves ? 0 : (en.spd / 20) * pxPerNm) : Math.min(46, 12 + en.spd / 14);
-        const base = region ? (shape === 'quake' ? 6 + 2 * (en.detail?.magnitude ?? 2) : shape === 'flood' ? 10 : shape === 'fire' ? 4 + Math.min(8, Math.sqrt(en.detail?.frp ?? 1) * 1.2) : shape === 'airspace' ? 4 : shape === 'windfarm' ? 11 : 7) : 14;
+        // Gulf watch: larger diamonds, ringed, always named. [FR-H-4]
+        const gw = isGulfWatch(en);
+        const base = gw ? (en.detail?.kind === 'event-fire-at-sea' ? 18 : 15) : region ? (shape === 'quake' ? 6 + 2 * (en.detail?.magnitude ?? 2) : shape === 'flood' ? 10 : shape === 'fire' ? 4 + Math.min(8, Math.sqrt(en.detail?.frp ?? 1) * 1.2) : shape === 'airspace' ? 4 : shape === 'windfarm' ? 11 : 7) : 14;
         const size = wall ? Math.round(base * 1.5) : base;
         // With hundreds of live tracks, label only the ones that matter right now.
-        const labelled = !region || selected || anomalous || en.id === hover || visible.length <= 40;
-        const square = en.layer === 'maritime' || shape === 'satellite' || shape === 'platform' || shape === 'road';
+        const labelled = !region || gw || selected || anomalous || en.id === hover || visible.length <= 40;
+        const square = gw || en.layer === 'maritime' || shape === 'satellite' || shape === 'platform' || shape === 'road';
         return (
           <button
             key={en.id}
@@ -1480,7 +1489,7 @@ export function OperatingPictureScreen() {
             onFocus={() => setHover(en.id)}
             onBlur={() => setHover(null)}
             aria-label={`${en.id} · ${en.cls} · heading ${en.hdg} degrees`}
-            style={{ all: 'unset', position: 'absolute', left: en.x + '%', top: en.y + '%', transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', zIndex: selected ? 3 : undefined, transition: region && !replay ? 'left 2s linear, top 2s linear' : undefined }}
+            style={{ all: 'unset', position: 'absolute', left: en.x + '%', top: en.y + '%', transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, cursor: 'pointer', zIndex: selected ? 3 : gw ? 2 : undefined, transition: region && !replay ? 'left 2s linear, top 2s linear' : undefined }}
           >
             <span style={{ position: 'relative', width: size, height: size }}>
               {!region && [1, 2, 3].map((k) => (
@@ -1507,17 +1516,23 @@ export function OperatingPictureScreen() {
                   background: shape === 'quake' || shape === 'windfarm' || shape === 'airspace' ? 'transparent' : color,
                   border: shape === 'quake' || shape === 'airspace' ? `${shape === 'airspace' ? 1 : 2}px solid ${color}` : undefined,
                   opacity: shape === 'flood' ? 0.7 : shape === 'airspace' ? 0.7 : 1,
-                  transform: shape === 'satellite' || shape === 'road' ? 'rotate(45deg)' : undefined,
+                  transform: gw || shape === 'satellite' || shape === 'road' ? 'rotate(45deg)' : undefined,
                   // A wind farm reads as a small turbine at its centre.
                   ...(shape === 'windfarm' ? { borderRadius: 0, color, fontSize: size + 3, lineHeight: `${size}px`, textAlign: 'center' as const } : {}),
                   boxShadow: selected
                     ? `0 0 0 5px ${anomalous ? 'var(--warn-tint)' : 'var(--accent-tint)'}, 0 0 18px -2px ${anomalous ? 'var(--warn)' : 'var(--accent-glow)'}`
+                    : gw ? `0 0 0 2px var(--bg-sunken), 0 0 0 4px ${color}, 0 0 16px 2px ${color}`
                     : region && shape !== 'windfarm' && shape !== 'airspace' ? `0 0 8px -1px ${color}` : 'none',
                   outline: selected ? `1px solid ${color}` : 'none', outlineOffset: 3,
                 }}
               >{shape === 'windfarm' ? '✢' : null}</span>
             </span>
-            {labelled && (
+            {labelled && gw && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: wall ? 13 : 10, fontWeight: 700, letterSpacing: '0.06em', color, background: 'color-mix(in srgb, var(--bg-sunken) 85%, transparent)', padding: '1px 5px', borderRadius: 2, whiteSpace: 'nowrap', position: 'absolute', top: size + 6 }}>
+                {gulfWatchName(en).toUpperCase()}
+              </span>
+            )}
+            {labelled && !gw && (
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: wall ? 12 : 9, letterSpacing: '0.08em', color: selected ? 'var(--grey-100)' : 'var(--text-faint)', whiteSpace: 'nowrap', position: region ? 'absolute' : undefined, top: region ? size + 3 : undefined }}>
                 {en.id}{anomalous ? ' ⚠' : ''}{region ? ` · ${en.alt}` : ` · ${en.hdg}°`}
               </span>
@@ -1611,6 +1626,11 @@ export function OperatingPictureScreen() {
           style={{ position: 'absolute', zIndex: 5, maxHeight: '55%', width: 'min(340px, calc(100% - 120px))', minWidth: 240,
             zoom: wall ? 1.15 : undefined, ...(view === '2d' ? { top: 56, right: 14 } : { top: 12, right: 66 }) }} />
       )}
+      {replayAt === null && gulfWatchOn && gulfWatch.length > 0 && (
+        <GulfWatchPanel items={gulfWatch} onPick={(t) => { select(t.id); setFlyRequest((r) => ({ n: (r?.n ?? 0) + 1, id: t.id })); }}
+          style={{ position: 'absolute', zIndex: 5, maxHeight: '45%', width: 'min(330px, calc(100% - 120px))', minWidth: 230,
+            zoom: wall ? 1.15 : undefined, ...(view === '2d' ? { top: 56, left: 14 } : { top: 128, left: 12 }) }} />
+      )}
       <style>{ALERT_PULSE_CSS}</style>
       {/* Credits the utility sources ask for, while their layers are on. [FR-H-1] */}
       {(layerOn('utilities') || layerOn('infrastructure')) && visible.some((t) => t.layer === 'utilities' || t.layer === 'infrastructure') && (
@@ -1638,6 +1658,7 @@ export function OperatingPictureScreen() {
       {(view === '3d' || region) && <div style={{ position: 'absolute', zIndex: 4, display: 'flex', gap: 6, flexWrap: 'wrap', ...(view === '3d' ? { top: 92, left: 12 } : { top: 12, right: 14 }) }}>
         <Chip on={alertsOnMap} onClick={() => setAlertsOnMap(!alertsOnMap)} tone={alertsOnMap && openAlerts.some((a) => a.severity === 'critical' && !a.acknowledgedBy) ? 'var(--danger)' : undefined}
           label={alertsOnMap ? 'Hide alerts on the map' : 'Show open alerts on the map'}>ALERTS {alertMarks.length || openAlerts.length}</Chip>
+        {gulfWatch.length > 0 && <Chip on={gulfWatchOn} onClick={() => setGulfWatchOn(!gulfWatchOn)} label={gulfWatchOn ? 'Hide the Gulf watch list' : 'Show the Gulf watch list'}>GULF WATCH</Chip>}
         <Chip on={radarOn} onClick={() => setRadarOn(!radarOn)} tone={radar.status === 'unavailable' ? 'var(--warn)' : undefined}
           label={radarOn ? 'Hide rain radar' : 'Show rain radar (RainViewer, needs the internet)'}>{radarLabel(radar)}</Chip>
         <Chip on={trafficOn} onClick={() => setTrafficOn(!trafficOn)} tone={traffic.status === 'unavailable' ? 'var(--warn)' : undefined}
