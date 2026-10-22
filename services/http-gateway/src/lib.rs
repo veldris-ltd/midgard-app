@@ -1179,14 +1179,14 @@ fn hex_decode(s: &str) -> Result<Vec<u8>, ()> {
     Ok(out)
 }
 
-/// Map a request to a response. All paths are under `/api/v1`.
-/// Which requests `Gateway::handle` writes a log line for: every POST, and every other
-/// request answered with an error (preflights excepted). Polling GETs that succeed are
-/// not logged.
+/// Which requests [`SecuredGateway::handle`] writes a log line for: every POST, and
+/// every other request answered with an error (preflights excepted). Polling GETs that
+/// succeed are not logged.
 fn logs_request(method: &str, status: u16) -> bool {
     method == "POST" || (status >= 400 && method != "OPTIONS")
 }
 
+/// Map a request to a response. All paths are under `/api/v1`.
 pub fn route(req: &Request, state: &State) -> Response {
     // CORS preflight.
     if req.method == "OPTIONS" {

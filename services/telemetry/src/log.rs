@@ -115,8 +115,16 @@ pub struct StdoutJsonSink;
 
 impl LogSink for StdoutJsonSink {
     fn emit(&self, record: &LogRecord) {
-        println!("{}", record.to_json());
+        write_line(&mut std::io::stdout().lock(), record);
     }
+}
+
+/// Write `record` as one JSON line. A line that cannot be written (stdout closed, a
+/// full pipe) is dropped: logging must never take the service down.
+fn write_line(out: &mut dyn std::io::Write, record: &LogRecord) {
+    let mut line = record.to_json();
+    line.push('\n');
+    let _ = out.write_all(line.as_bytes());
 }
 
 /// A logger bound to a target and a sink, optionally stamping a trace/span context.
@@ -175,8 +183,74 @@ impl<'a> Logger<'a> {
     }
 }
 
+/// Escape `s` for a JSON string: quotes, backslashes and every control character, so
+/// a request path or header cannot break or forge a log line.
 fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => o.push_str("\\\\"),
+            '"' => o.push_str("\\\""),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(message: &str) -> LogRecord {
+        LogRecord {
+            level: Level::Info,
+            target: "t".into(),
+            message: message.into(),
+            fields: vec![("path".into(), "/a\tb".into())],
+            trace_id: None,
+            span_id: None,
+        }
+    }
+
+    #[test]
+    fn every_control_character_is_escaped() {
+        let json = record("a\"b\\c\nd\re\tf\u{0}g\u{1b}h\u{1f}i\u{7f}").to_json();
+        assert!(
+            json.contains(r#""message":"a\"b\\c\nd\re\tf\u0000g\u001bh\u001fi"#),
+            "{json}"
+        );
+        assert!(json.contains(r#""path":"/a\tb""#), "{json}");
+        assert!(
+            !json.chars().any(|c| (c as u32) < 0x20),
+            "no raw control character survives: {json:?}"
+        );
+    }
+
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "closed",
+            ))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_log_line_that_cannot_be_written_is_dropped_not_a_panic() {
+        write_line(&mut Broken, &record("lost"));
+        let mut out = Vec::new();
+        write_line(&mut out, &record("kept"));
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            record("kept").to_json() + "\n"
+        );
+    }
 }
