@@ -32,6 +32,8 @@ Design: `docs/plans/2026-10-22-mac-presentation-app-design.md` §2–3. Phase 3:
 - Accept it if the pack summary has adsb-fi (or adsb-lol), aisstream, power-cuts, metoffice-warnings or ea-floods, easa-czib, gulf-watch, and Forge versions for every job; else record again (note why).
 - Report its size and per-feed counts; keep the raw folder until Task 5 passes, then re-pack with `--drop-raw` equivalent (delete raw/).
 
+**Results (hour-1, 22–23 Oct):** accepted on the first take. 3901 s, 40 feeds, 11 Forge files; packed `heimdall.jsonl.gz` 19.5 MB (146 MB with raw/). Key counts: adsb-fi 26 batches / 57,327 observations, adsb-lol 77 / 7,610, aisstream 26 / 78,231, power-cuts 18 / 1,311, metoffice-warnings 7 / 189, ea-floods 17 / 153, easa-czib 2 / 32, gulf-watch 19 / 152, gnss-interference 17 / 148; Forge aircraft.csv 78 versions, grid_frequency.csv 65, every job at least 3. Suite folder 3.3 GB at the end.
+
 ### Task 3: Shipped prepared answers in the console
 
 - `preparedAnswers.ts`: also read a shipped, never-expiring store: at startup fetch `window.__MIDGARD_PREPARED__` (URL injected by the shell, e.g. `<origin>/home/prepared-answers.json`) once; `getPrepared` checks the shipped store first, then localStorage.

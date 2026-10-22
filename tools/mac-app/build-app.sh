@@ -232,6 +232,8 @@ clone_copy() {
 }
 
 SHORT_SHA=$(git rev-parse --short HEAD)
+# Uncommitted changes mark the build "-dirty", which build-dmg.sh refuses.
+[ -z "$(git status --porcelain --untracked-files=no)" ] || SHORT_SHA="$SHORT_SHA-dirty"
 BUILD_NUMBER=$(git rev-list --count HEAD)
 cat > "$C/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

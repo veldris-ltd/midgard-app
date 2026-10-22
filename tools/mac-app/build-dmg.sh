@@ -53,7 +53,7 @@ procs=$(ps -axww -o command=)
 if grep -Fq -- "$APP/Contents/" <<<"$procs"; then
   die "Midgard is running from $APP; quit it first (Cmd-Q) so the copy is consistent"
 fi
-# Built from this checkout's HEAD, for macOS 13.3: build-app.sh stamps both in Info.plist.
+# Built from this checkout's HEAD with no uncommitted changes (else stamped "<sha>-dirty"), for macOS 13.3: build-app.sh stamps both in Info.plist.
 PLIST="$APP/Contents/Info.plist"
 plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST" 2>/dev/null || true; }
 stamp=$(plist_get MidgardGitCommit)
