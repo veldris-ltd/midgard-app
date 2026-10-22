@@ -72,6 +72,32 @@ Never start the containers while the native suite is running: containers built b
 
 On a 2026 Apple Silicon Mac the native suite is ready in about 30 seconds.
 
+## Live feeds without Docker
+
+The feeds send to the native suite when Docker (or the `midgard-local-runtime:1` image) is not
+usable: `heimdall-poc/hsource.sh` then runs `dist/mac/bin/heimdall-source` against
+`127.0.0.1:7730`, rewriting `/mid/...` paths to the enclosure home (force it with
+`MIDGARD_NATIVE=1`), and `live-feeds/start.sh` starts only the fetcher (forge-worker is part of
+the native suite). From the enclosure home (`~/Desktop/Midgard`):
+
+```bash
+# start
+MIDGARD_DOCKER_STOPPED=1 bash midgard-app/tools/mac-app/run-native.sh start
+bash heimdall-poc/feeds/start.sh
+(cd heimdall-poc && nohup ./live_loop.sh > live_loop.log 2>&1 & echo $! > live_loop.pid)
+bash live-feeds/start.sh
+
+# check: feeds.log shows accepted= per feed; live_loop.log shows adsb-lol
+tail heimdall-poc/feeds/feeds.log heimdall-poc/live_loop.log
+python3 midgard-app/tools/mac-app/smoke.py
+
+# stop (feeds first, then the suite)
+bash live-feeds/stop.sh
+kill "$(cat heimdall-poc/live_loop.pid)"; rm -f heimdall-poc/live_loop.pid
+bash heimdall-poc/feeds/stop.sh
+bash midgard-app/tools/mac-app/run-native.sh stop
+```
+
 ## Recording and replay
 
 The offline app plays a recording of the live feeds instead of fetching them:
