@@ -120,6 +120,8 @@ export interface GlobeItem {
   magnitude?: number;
   /** Runways, [lat, lon, lat, lon, width m], drawn on the ground. */
   runways?: [number, number, number, number, number][];
+  /** Drawn larger than its kind (the Gulf watch). */
+  emphasis?: boolean;
 }
 
 export interface GlobeTrail {
@@ -1536,6 +1538,7 @@ export class GlobeView {
         const pulse = 1 + 0.22 * Math.sin(nowMs / 420 + p.shapeIndex);
         px = (4 + 2.2 * Math.max(0, p.item.magnitude ?? 3)) * pulse;
       }
+      if (p.item.emphasis) px = Math.max(px, 22);
       const k = px * this.markerScale * this.perPx(d);
       if (s === 'aircraft' || s === 'vessel') scale.set(k, k, k);
       else scale.set(k, k, k);

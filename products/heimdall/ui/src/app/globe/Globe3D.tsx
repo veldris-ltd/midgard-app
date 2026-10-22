@@ -7,6 +7,7 @@
  * [FR-H-1] */
 import * as React from 'react';
 import type { HeimdallHistoryPoint, HeimdallTrack } from '@midgard/sdk';
+import { isGulfWatch } from '../GulfWatchPanel';
 import { CAMERA_LEVEL_COLOURS, cameraLevel, colourOf, shapeOf } from '../trackStyle';
 import { utilityLineGroups, utilityLineKey } from '../utilityLines';
 import type { TrafficLines } from '../traffic';
@@ -367,6 +368,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     station: t.detail.station,
     magnitude: t.detail.kind === 'event-fire' ? t.detail.frp : t.detail.magnitude,
     runways: t.detail.runways,
+    emphasis: isGulfWatch(t) || undefined,
   }] : [])).map((it) => {
     // A SIGMET's marker floats mid-volume, where it can be picked.
     const t = tracks.find((x) => x.id === it.id);
