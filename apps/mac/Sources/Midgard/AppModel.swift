@@ -503,7 +503,8 @@ final class AppModel: ObservableObject {
 
     private func injection(_ info: SessionInfo) -> String {
         Session.injectionScript(origin: origin, gatewayURL: gatewayAPI ?? "",
-                                midgardConsoleURL: "\(origin)/midgard/index.html#/", session: info)
+                                midgardConsoleURL: "\(origin)/midgard/index.html#/", session: info,
+                                preparedURL: Session.preparedAnswersURL(resources: resources, origin: origin))
     }
 
     private func installScripts() {

@@ -157,22 +157,36 @@ public enum Session {
     /// Midgard console are, and the signed-in session as `AuthGate` reads it. It does
     /// nothing unless the page's `location.origin` is exactly `origin` (the app's own web
     /// server, e.g. `http://127.0.0.1:61235`), so the token never reaches another page.
-    /// Every value is embedded as an escaped JSON literal.
+    /// `preparedURL`, when given, is where the shipped prepared Mimir answers are
+    /// (`window.__MIDGARD_PREPARED__`, read by Heimdall's console; see
+    /// `preparedAnswersURL`). Every value is embedded as an escaped JSON literal.
     public static func injectionScript(origin: String, gatewayURL: String, midgardConsoleURL: String,
-                                       session: SessionInfo) -> String {
+                                       session: SessionInfo, preparedURL: String? = nil) -> String {
         var who: [String: Any] = ["subject": session.subject, "roles": session.roles]
         if let clearance = session.clearance { who["clearance"] = clearance }
+        let prepared = preparedURL.map { "\n  window.__MIDGARD_PREPARED__ = \(literal($0));" } ?? ""
         return """
             (function () {
               if (typeof location === 'undefined' || location.origin !== \(literal(origin))) { return; }
               window.__MIDGARD_GATEWAY__ = \(literal(gatewayURL));
-              window.__MIDGARD_CONSOLE__ = \(literal(midgardConsoleURL));
+              window.__MIDGARD_CONSOLE__ = \(literal(midgardConsoleURL));\(prepared)
               try {
                 sessionStorage.setItem('midgard.session.token', \(literal(session.token)));
                 sessionStorage.setItem('midgard.session.who', JSON.stringify(\(literal(who))));
               } catch (e) {}
             })();
             """
+    }
+
+    /// The shipped prepared answers' URL on the app's web server
+    /// (`<origin>/home/prepared-answers.json`) when `resources/home/prepared-answers.json`
+    /// exists, else nil (the console then asks Mimir live, as before).
+    public static func preparedAnswersURL(resources: URL, origin: String) -> String? {
+        let file = resources.appendingPathComponent("home/prepared-answers.json")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return nil }
+        return "\(origin)/home/prepared-answers.json"
     }
 
     /// `value` as JSON text that is also a safe JavaScript literal inside a page: `<` is

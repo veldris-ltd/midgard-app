@@ -6,7 +6,7 @@
 import * as React from 'react';
 import { Card } from '@midgard/design-system';
 import type { HeimdallAnswer, HeimdallGateway } from '@midgard/sdk';
-import { getPrepared, preparedKey, putPrepared } from './preparedAnswers';
+import { findPrepared, preparedKey, putPrepared, shippedKey } from './preparedAnswers';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em' };
 const EXAMPLES = ['What has changed in the Gulf watch?', 'Which power cuts affect the most customers?', 'Are any storm overflows discharging near here?', 'What are the most serious alerts in this area?'];
@@ -24,6 +24,7 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
   const [state, setState] = React.useState<State>({ status: 'idle' });
   const [question, setQuestion] = React.useState('');
   const [, tick] = React.useState(0);
+  const looking = React.useRef(false);
   React.useEffect(() => {
     if (state.status !== 'thinking') return;
     const t = window.setInterval(() => tick((n) => n + 1), 1000);
@@ -33,23 +34,28 @@ export function AskCard({ gateway, focus, areaLabel, pick }: {
 
   const ask = (q: string) => {
     const text = q.trim();
-    if (text.length < 3 || state.status === 'thinking') return;
-    // The same question about the same area, answered by Mimir in the last two hours:
-    // show that answer at once (its footer keeps the original call's figures).
+    if (text.length < 3 || state.status === 'thinking' || looking.current) return;
+    // A shipped answer to this question (any area), or the same question about the same
+    // area answered by Mimir in the last two hours: show it at once (its footer keeps the
+    // original call's figures). The shipped answers are a local file, loaded before
+    // deciding, so a shipped answer never flashes "thinking".
     const key = preparedKey('ask', areaLabel, text);
-    const prepared = getPrepared<HeimdallAnswer>(key);
-    if (prepared) {
-      setState({ status: 'done', question: text, answer: prepared.value });
-      return;
-    }
-    setState({ status: 'thinking', since: Date.now(), question: text });
-    gateway.ask!(text, focus ? { focus } : undefined).then(
-      (answer) => {
-        if (answer.answer) putPrepared(key, answer);
-        setState({ status: 'done', question: text, answer });
-      },
-      (err) => setState({ status: 'failed', question: text, reason: err instanceof Error ? err.message : String(err) }),
-    );
+    looking.current = true;
+    void findPrepared<HeimdallAnswer>(shippedKey('ask', '*', text), key).then((prepared) => {
+      looking.current = false;
+      if (prepared) {
+        setState({ status: 'done', question: text, answer: prepared.value });
+        return;
+      }
+      setState({ status: 'thinking', since: Date.now(), question: text });
+      gateway.ask!(text, focus ? { focus } : undefined).then(
+        (answer) => {
+          if (answer.answer) putPrepared(key, answer);
+          setState({ status: 'done', question: text, answer });
+        },
+        (err) => setState({ status: 'failed', question: text, reason: err instanceof Error ? err.message : String(err) }),
+      );
+    });
   };
 
   return (

@@ -6,7 +6,7 @@
 import * as React from 'react';
 import { Card } from '@midgard/design-system';
 import type { HeimdallAdvice, HeimdallGateway } from '@midgard/sdk';
-import { getPrepared, preparedKey, putPrepared } from './preparedAnswers';
+import { findPrepared, preparedKey, putPrepared, shippedKey } from './preparedAnswers';
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em' };
 const btn = (primary: boolean): React.CSSProperties => ({
@@ -22,6 +22,7 @@ export function AdviceCard({ gateway, subject, alertId, pick }: { gateway: Heimd
   const [state, setState] = React.useState<State>({ status: 'idle' });
   const [question, setQuestion] = React.useState('');
   const [, tick] = React.useState(0);
+  const looking = React.useRef(false);
   const current = React.useRef(subject);
   current.current = subject;
   React.useEffect(() => { setState({ status: 'idle' }); setQuestion(''); }, [subject]);
@@ -33,24 +34,31 @@ export function AdviceCard({ gateway, subject, alertId, pick }: { gateway: Heimd
   if (!gateway.advise) return null;
 
   const ask = () => {
-    if (state.status === 'thinking') return;
+    if (state.status === 'thinking' || looking.current) return;
     const asked = subject;
-    // Mimir's advice on this alert (or item) for this question in the last two hours:
-    // show it at once (its footer keeps the original call's figures).
+    // Mimir's advice on this alert (or item) for this question in the last two hours,
+    // or — for an alert — the shipped advice on its subject (alert ids change every
+    // replay loop; subjects do not): show it at once (its footer keeps the original
+    // call's figures). The shipped answers are a local file, loaded before deciding.
     const key = preparedKey('advise', alertId ?? subject, question);
-    const prepared = getPrepared<HeimdallAdvice>(key);
-    if (prepared) {
-      setState({ status: 'done', advice: prepared.value });
-      return;
-    }
-    setState({ status: 'thinking', since: Date.now() });
-    gateway.advise!(alertId ? { alert: alertId } : { entity: subject }, question).then(
-      (advice) => {
-        if (advice.options.length) putPrepared(key, advice);
-        if (current.current === asked) setState({ status: 'done', advice });
-      },
-      (err) => { if (current.current === asked) setState({ status: 'failed', reason: err instanceof Error ? err.message : String(err) }); },
-    );
+    const keys = alertId ? [shippedKey('advise', subject, question), key] : [key];
+    looking.current = true;
+    void findPrepared<HeimdallAdvice>(...keys).then((prepared) => {
+      looking.current = false;
+      if (current.current !== asked) return;
+      if (prepared) {
+        setState({ status: 'done', advice: prepared.value });
+        return;
+      }
+      setState({ status: 'thinking', since: Date.now() });
+      gateway.advise!(alertId ? { alert: alertId } : { entity: subject }, question).then(
+        (advice) => {
+          if (advice.options.length) putPrepared(key, advice);
+          if (current.current === asked) setState({ status: 'done', advice });
+        },
+        (err) => { if (current.current === asked) setState({ status: 'failed', reason: err instanceof Error ? err.message : String(err) }); },
+      );
+    });
   };
 
   return (

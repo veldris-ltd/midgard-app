@@ -11,6 +11,9 @@ declare global {
     __MIDGARD_GATEWAY__?: string;
     /** Set by the Mac app shell: the Midgard console's URL. */
     __MIDGARD_CONSOLE__?: string;
+    /** Set by the Mac app shell when it ships prepared Mimir answers: the URL of
+     *  `prepared-answers.json` (read by Heimdall's `preparedAnswers.ts`). */
+    __MIDGARD_PREPARED__?: string;
   }
 }
 

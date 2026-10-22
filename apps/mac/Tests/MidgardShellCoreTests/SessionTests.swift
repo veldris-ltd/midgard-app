@@ -281,6 +281,7 @@ final class SessionTests: XCTestCase {
         var console: String?
         var token: String?
         var who: [String: Any]?
+        var prepared: String?
     }
 
     static let origin = "http://127.0.0.1:61235"
@@ -306,7 +307,8 @@ final class SessionTests: XCTestCase {
         return Injected(gateway: string(window?.objectForKeyedSubscript("__MIDGARD_GATEWAY__")),
                         console: string(window?.objectForKeyedSubscript("__MIDGARD_CONSOLE__")),
                         token: string(store?.objectForKeyedSubscript("midgard.session.token")),
-                        who: who)
+                        who: who,
+                        prepared: string(window?.objectForKeyedSubscript("__MIDGARD_PREPARED__")))
     }
 
     func testInjectionScriptRoundTrips() throws {
@@ -369,5 +371,47 @@ final class SessionTests: XCTestCase {
         let script = Session.injectionScript(origin: odd, gatewayURL: "g", midgardConsoleURL: "c", session: info)
         XCTAssertFalse(script.contains("</script"))
         XCTAssertEqual(try evaluate(script, origin: odd).token, "t")
+    }
+
+    // MARK: Prepared answers
+
+    func testInjectionSetsPreparedURLOnlyWhenGiven() throws {
+        let info = SessionInfo(token: "t", subject: "s", clearance: nil, roles: [], expiresAt: Date())
+        let without = try evaluate(Session.injectionScript(origin: Self.origin, gatewayURL: "g",
+                                                           midgardConsoleURL: "c", session: info))
+        XCTAssertNil(without.prepared)
+        let url = "\(Self.origin)/home/prepared-answers.json"
+        let script = Session.injectionScript(origin: Self.origin, gatewayURL: "g", midgardConsoleURL: "c",
+                                             session: info, preparedURL: url)
+        let with = try evaluate(script)
+        XCTAssertEqual(with.prepared, url)
+        XCTAssertEqual(with.token, "t")
+        XCTAssertNil(try evaluate(script, origin: "https://evil.example").prepared)
+    }
+
+    func testInjectionEscapesHostilePreparedURL() throws {
+        let info = SessionInfo(token: "t", subject: "s", clearance: nil, roles: [], expiresAt: Date())
+        let nasty = "a'b\"c\\d</script><script>alert(1)</script>\u{2028}e\u{2029}f\n${x}`h"
+        let script = Session.injectionScript(origin: Self.origin, gatewayURL: "g", midgardConsoleURL: "c",
+                                             session: info, preparedURL: nasty)
+        XCTAssertFalse(script.contains("</script"))
+        XCTAssertFalse(script.contains("\u{2028}"))
+        XCTAssertEqual(try evaluate(script).prepared, nasty)
+    }
+
+    func testPreparedAnswersURLOnlyWhenTheFileExists() throws {
+        let resources = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prepared-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: resources) }
+        let home = resources.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        XCTAssertNil(Session.preparedAnswersURL(resources: resources, origin: Self.origin))
+        let file = home.appendingPathComponent("prepared-answers.json")
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        XCTAssertNil(Session.preparedAnswersURL(resources: resources, origin: Self.origin), "a directory is not the file")
+        try FileManager.default.removeItem(at: file)
+        try Data("{}".utf8).write(to: file)
+        XCTAssertEqual(Session.preparedAnswersURL(resources: resources, origin: Self.origin),
+                       "\(Self.origin)/home/prepared-answers.json")
     }
 }
