@@ -3,10 +3,31 @@ import Foundation
 import XCTest
 @testable import MidgardShellCore
 
-/// Every status the supervisor publishes, in order.
+/// Every status the supervisor publishes, in order, read from its `statuses` stream.
 final class StatusRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var events: [(String, ServiceStatus)] = []
+    private var reader: Task<Void, Never>?
+
+    func listen(to supervisor: Supervisor) {
+        let stream = supervisor.statuses
+        reader = Task { for await (name, status) in stream { self.record(name, status) } }
+    }
+
+    func cancel() { reader?.cancel() }
+
+    /// Statuses with `.restarting` shortened to "restarting N", for comparing sequences.
+    func labels(_ name: String) -> [String] {
+        statuses(name).map { status in
+            switch status {
+            case .starting: return "starting"
+            case .ready: return "ready"
+            case .restarting(let attempt, _): return "restarting \(attempt)"
+            case .failed: return "failed"
+            case .stopped: return "stopped"
+            }
+        }
+    }
 
     func record(_ name: String, _ status: ServiceStatus) {
         lock.lock(); defer { lock.unlock() }
@@ -33,6 +54,13 @@ final class StatusRecorder: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
         return condition(statuses(name))
+    }
+
+    /// Waits for `name`'s statuses to become `expected`, then asserts it.
+    func expect(_ name: String, _ expected: [ServiceStatus], timeout: TimeInterval = 5,
+                file: StaticString = #filePath, line: UInt = #line) async {
+        _ = await wait(name, timeout: timeout) { $0 == expected }
+        XCTAssertEqual(statuses(name), expected, file: file, line: line)
     }
 }
 
@@ -65,12 +93,13 @@ final class SupervisorTests: XCTestCase {
 
     override func tearDown() async throws {
         await supervisor?.stopAll()
+        recorder?.cancel()
         try? FileManager.default.removeItem(at: dir)
     }
 
     func makeSupervisor(_ timing: Supervisor.Timing) {
-        let recorder = recorder!
-        supervisor = Supervisor(timing: timing) { recorder.record($0, $1) }
+        supervisor = Supervisor(timing: timing)
+        recorder.listen(to: supervisor)
     }
 
     /// A fake service: a shell script in the temp dir.
@@ -96,7 +125,7 @@ final class SupervisorTests: XCTestCase {
         let s = try spec("svc", "echo \"args: $*\"; sleep 0.2; echo 'listening on 1'; exec sleep 300",
                          arguments: ["--a", "b c"])
         try await supervisor.start([s])
-        XCTAssertEqual(recorder.statuses("svc"), [.starting, .ready])
+        await recorder.expect("svc", [.starting, .ready])
         XCTAssertEqual(supervisor.status(of: "svc"), .ready)
         XCTAssertTrue(log("svc").contains("args: --a b c"))
         XCTAssertNotNil(supervisor.pid(of: "svc"))
@@ -134,7 +163,7 @@ final class SupervisorTests: XCTestCase {
         }
         try await supervisor.start([s])
         try await starter.value
-        XCTAssertEqual(recorder.statuses("llama"), [.starting, .ready])
+        await recorder.expect("llama", [.starting, .ready])
     }
 
     func testNeverReadyFailsWithLogTail() async throws {
@@ -150,6 +179,7 @@ final class SupervisorTests: XCTestCase {
             XCTAssertTrue(reason.contains("line 11"), reason)
             XCTAssertFalse(reason.contains("line 10\n"), reason)
         }
+        _ = await recorder.wait("never") { $0.count == 2 }
         guard case .failed(let reason)? = recorder.statuses("never").last else {
             return XCTFail("not failed: \(recorder.statuses("never"))")
         }
@@ -170,30 +200,37 @@ final class SupervisorTests: XCTestCase {
     }
 
     func testPortInUse() async throws {
-        for message in ["Error: Address already in use (os error 48)", "bind: ADDRESS IN USE"] {
-            let s = try spec("clash", "echo '\(message)' >&2; exit 1")
+        for message in ["Error: Address already in use (os error 48)", "bind: ADDRESS IN USE",
+                        "error: Couldn't bind HTTP server socket, hostname: 127.0.0.1, port: 8080."] {
+            let s = try spec("clash", "echo \"\(message)\" >&2; exit 1")
             do {
                 try await supervisor.start([s])
                 XCTFail("expected port in use")
             } catch SupervisorError.portInUse(let service) {
                 XCTAssertEqual(service, "clash")
             }
+            _ = await recorder.wait("clash") { $0.last == .failed("port in use") }
             XCTAssertEqual(recorder.statuses("clash").last, .failed("port in use"))
             await supervisor.stopAll()
+            _ = await recorder.wait("clash") { $0.last == .stopped }
         }
     }
 
     func testRestartsWithBackoff() async throws {
         let s = try spec("flaky", "sleep 0.1; echo 'listening on'; sleep 0.3; exit 1")
         try await supervisor.start([s])
-        let restarted = await recorder.wait("flaky") { $0.contains(.restarting(attempt: 3)) }
+        let restarted = await recorder.wait("flaky") { _ in self.recorder.labels("flaky").contains("restarting 3") }
         XCTAssertTrue(restarted, "\(recorder.statuses("flaky"))")
-        let seen = recorder.statuses("flaky")
-        XCTAssertEqual(Array(seen.prefix(6)), [.starting, .ready, .restarting(attempt: 1), .ready,
-                                               .restarting(attempt: 2), .ready])
+        XCTAssertEqual(Array(recorder.labels("flaky").prefix(6)),
+                       ["starting", "ready", "restarting 1", "ready", "restarting 2", "ready"])
+        guard case .restarting(1, let reason)? = recorder.statuses("flaky").dropFirst(2).first else {
+            return XCTFail("\(recorder.statuses("flaky"))")
+        }
+        XCTAssertEqual(reason, "exited with status 1")
         XCTAssertTrue(log("flaky").contains("restarting in"), log("flaky"))
 
         await supervisor.stopAll()
+        _ = await recorder.wait("flaky") { $0.last == .stopped }
         let count = recorder.statuses("flaky").count
         XCTAssertEqual(recorder.statuses("flaky").last, .stopped)
         try await Task.sleep(nanoseconds: 800_000_000)
@@ -205,11 +242,53 @@ final class SupervisorTests: XCTestCase {
                                          healthInterval: 0.1, stopGrace: 1))
         let s = try spec("flaky", "echo 'listening on'; sleep 0.3; exit 1")
         try await supervisor.start([s])
-        let restarted = await recorder.wait("flaky") {
-            $0.filter { $0 == .restarting(attempt: 1) }.count >= 3
+        let restarted = await recorder.wait("flaky") { _ in
+            self.recorder.labels("flaky").filter { $0 == "restarting 1" }.count >= 3
         }
         XCTAssertTrue(restarted, "\(recorder.statuses("flaky"))")
-        XCTAssertFalse(recorder.statuses("flaky").contains(.restarting(attempt: 2)))
+        XCTAssertFalse(recorder.labels("flaky").contains("restarting 2"))
+    }
+
+    /// A relaunch that fails is retried, and the next attempt says why it failed.
+    func testFailedRelaunchReasonIsPublished() async throws {
+        let marker = dir.appendingPathComponent("ran-once").path
+        let s = try spec("flaky", """
+            if [ -e \(marker) ]; then echo 'relaunch broke'; exit 2; fi
+            touch \(marker); echo 'listening on'; sleep 0.2; exit 1
+            """)
+        try await supervisor.start([s])
+        let second = await recorder.wait("flaky") { _ in self.recorder.labels("flaky").contains("restarting 2") }
+        XCTAssertTrue(second, "\(recorder.statuses("flaky"))")
+        let reasons = recorder.statuses("flaky").compactMap { status -> String? in
+            if case .restarting(2, let reason) = status { return reason }
+            return nil
+        }
+        XCTAssertTrue(reasons.first?.contains("relaunch broke") ?? false, "\(reasons)")
+    }
+
+    func testBigLogIsRotatedAtStart() async throws {
+        let s = try spec("svc", "echo 'listening on'; exec sleep 300")
+        let logs = s.logFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let old = logs.appendingPathComponent("svc.log.1")
+        try Data("older".utf8).write(to: old)
+        // Sparse: 21 MB long without taking the space.
+        FileManager.default.createFile(atPath: s.logFile.path, contents: Data("first\n".utf8))
+        let handle = try FileHandle(forWritingTo: s.logFile)
+        try handle.truncate(atOffset: 21 * 1024 * 1024)
+        try handle.close()
+
+        try await supervisor.start([s])
+        let rotated = try FileManager.default.attributesOfItem(atPath: old.path)[.size] as? Int
+        XCTAssertEqual(rotated, 21 * 1024 * 1024)
+        XCTAssertTrue(log("svc").hasPrefix("listening on"), log("svc"))
+
+        // A small log is appended to, not rotated.
+        await supervisor.stopAll()
+        try await supervisor.start([s])
+        XCTAssertEqual(log("svc").components(separatedBy: "listening on").count, 3)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: old.path)[.size] as? Int,
+                       21 * 1024 * 1024)
     }
 
     func testBackoffDelays() {
@@ -218,6 +297,20 @@ final class SupervisorTests: XCTestCase {
         XCTAssertEqual(timing.stableAfter, 300)
         XCTAssertEqual(timing.stopGrace, 15)
         XCTAssertEqual(timing.healthInterval, 0.5)
+    }
+
+    func testCancellingStartStopsWaiting() async throws {
+        let s = try spec("never", "exec sleep 300")
+        let supervisor = supervisor!
+        let starting = Task { try await supervisor.start([s]) }
+        _ = await recorder.wait("never") { $0 == [.starting] }
+        let began = Date()
+        starting.cancel()
+        do {
+            try await starting.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {}
+        XCTAssertLessThan(Date().timeIntervalSince(began), 2)
     }
 
     func testStopAllLeavesNoProcesses() async throws {
@@ -243,12 +336,14 @@ final class SupervisorTests: XCTestCase {
             XCTAssertTrue(isGone, "pid \(pid) still exists")
         }
         for name in ["a", "b", "replay"] {
+            _ = await recorder.wait(name) { $0.last == .stopped }
             XCTAssertEqual(recorder.statuses(name).last, .stopped, name)
             XCTAssertNil(supervisor.pid(of: name))
         }
         XCTAssertEqual(recorder.names(reaching: .stopped), ["replay", "b", "a"], "reverse start order")
         await supervisor.stopAll()
         await supervisor.stopAll()
+        try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(recorder.statuses("a").filter { $0 == .stopped }.count, 1)
     }
 
@@ -283,6 +378,7 @@ final class SupervisorTests: XCTestCase {
         } catch SupervisorError.stopped {}
         let isGone = await gone(pid)
         XCTAssertTrue(isGone)
+        _ = await recorder.wait("slow") { $0.last == .stopped }
         XCTAssertEqual(recorder.statuses("slow").last, .stopped)
         XCTAssertEqual(recorder.statuses("next"), [])
     }

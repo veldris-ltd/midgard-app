@@ -47,7 +47,7 @@ final class ServiceSpecTests: XCTestCase {
             "--temp", "0.2", "--json-schema", "{\"type\":\"object\"}", "--n-gpu-layers", "99",
         ])
         XCTAssertEqual(llama.readiness, .health(URL(string: "http://127.0.0.1:1008/health")!))
-        XCTAssertEqual(llama.readyTimeout, 120)
+        XCTAssertEqual(llama.readyTimeout, 180)
         XCTAssertEqual(llama.logFile.path, "/L/llama.log")
     }
 
@@ -62,7 +62,7 @@ final class ServiceSpecTests: XCTestCase {
             "--model-trust", "/R/models/trust/model-signing.pub", "--sidecar", "127.0.0.1:1008",
         ])
         XCTAssertEqual(mimir.readiness, .logLine("\"serving\""))
-        XCTAssertEqual(mimir.readyTimeout, 60)
+        XCTAssertEqual(mimir.readyTimeout, 180)
     }
 
     func testGateway() throws {
@@ -101,6 +101,13 @@ final class ServiceSpecTests: XCTestCase {
             "--jobs", "/H/live-feeds/data/jobs.json", "--gateway", "127.0.0.1:1002",
         ])
         XCTAssertEqual(forge.readiness, .logLine("\"message\":\"job run\""))
+    }
+
+    func testEveryServiceHas180SecondsToBeReady() {
+        XCTAssertEqual(specs(recording: URL(fileURLWithPath: "/R/recording")).map(\.readyTimeout),
+                       Array(repeating: 180, count: 6))
+        XCTAssertEqual(ServiceSpec(name: "x", executable: bin, arguments: [], readiness: .logLine("x"),
+                                   logFile: logs).readyTimeout, 180)
     }
 
     func testNoAnalyticsArguments() {

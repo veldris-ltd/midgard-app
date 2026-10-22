@@ -15,13 +15,14 @@ public struct ServiceSpec: Sendable, Equatable {
     public var readiness: Readiness
     /// stdout and stderr are appended here (created if needed).
     public var logFile: URL
-    /// Seconds from launch to ready before the start counts as failed.
+    /// Seconds from launch to ready before the start counts as failed (180 s, as
+    /// run-native.sh allows: a first start on a slow Mac can take a while).
     public var readyTimeout: TimeInterval
     /// Variables set on top of the shell's own environment; nil inherits it unchanged.
     public var environment: [String: String]?
 
     public init(name: String, executable: URL, arguments: [String], readiness: Readiness,
-                logFile: URL, readyTimeout: TimeInterval = 60, environment: [String: String]? = nil) {
+                logFile: URL, readyTimeout: TimeInterval = 180, environment: [String: String]? = nil) {
         self.name = name
         self.executable = executable
         self.arguments = arguments
@@ -89,15 +90,14 @@ public enum SuiteSpecs {
         func m(_ path: String) -> String { models.appendingPathComponent(path).path }
         func local(_ port: UInt16) -> String { "127.0.0.1:\(port)" }
         func spec(_ name: String, _ binary: String, _ readiness: ServiceSpec.Readiness,
-                  timeout: TimeInterval = 60, _ arguments: [String]) -> ServiceSpec {
+                  _ arguments: [String]) -> ServiceSpec {
             ServiceSpec(name: name, executable: bin.appendingPathComponent(binary), arguments: arguments,
                         readiness: readiness, logFile: logs.appendingPathComponent("\(name).log"),
-                        readyTimeout: timeout)
+                        readyTimeout: 180)  // llama-server too
         }
 
         var specs = [
-            spec("llama", "llama-server", .health(URL(string: "http://\(local(ports.llama))/health")!),
-                 timeout: 120, [
+            spec("llama", "llama-server", .health(URL(string: "http://\(local(ports.llama))/health")!), [
                     "-m", m("granite/granite-3.3-2b-instruct-Q4_K_M.gguf"),
                     "--alias", "granite-3.3-2b-instruct-q4km",
                     "--host", "127.0.0.1", "--port", "\(ports.llama)", "--ctx-size", "8192",

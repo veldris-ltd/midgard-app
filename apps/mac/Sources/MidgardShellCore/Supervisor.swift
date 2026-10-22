@@ -6,7 +6,8 @@ public enum ServiceStatus: Sendable, Equatable {
     case starting
     case ready
     /// Exited after it was ready; launched again after a back-off (attempt counts from 1).
-    case restarting(attempt: Int)
+    /// `reason`: how it exited, or for a later attempt why the last relaunch failed.
+    case restarting(attempt: Int, reason: String?)
     /// "port in use" when it could not bind, else why, with its last log lines.
     case failed(String)
     case stopped
@@ -34,7 +35,8 @@ public enum SupervisorError: Error, Equatable, CustomStringConvertible {
 /// `tools/mac-app/run-native.sh` does. It does not sweep lock files: the services
 /// reclaim a lock left by a dead macOS process themselves.
 ///
-/// The processes do not outlive the shell on purpose; call `stopAll()` before quitting.
+/// Call `stopAll()` before quitting. If the shell crashed instead, its services are left
+/// running; `reapOrphans(binDir:)` ends them at the next launch.
 public final class Supervisor: @unchecked Sendable {
     public struct Timing: Sendable {
         /// The first restart waits this long, each later one twice as long …
@@ -69,28 +71,32 @@ public final class Supervisor: @unchecked Sendable {
 
     static let tailLines = 20
     static let tailBytes = 64 * 1024
+    /// A log longer than this at `start` is moved to `<name>.log.1` first.
+    static let logLimit: UInt64 = 20 * 1024 * 1024
 
     let timing: Timing
-    private let onStatus: @Sendable (String, ServiceStatus) -> Void
+    /// Every status change as (service name, status), in order. One reader only.
+    public let statuses: AsyncStream<(String, ServiceStatus)>
+    private let continuation: AsyncStream<(String, ServiceStatus)>.Continuation
     private let session: URLSession
     private let lock = NSLock()
-    /// Held while a status is decided and delivered, so the callback sees them in order.
-    private let publishLock = NSLock()
     // Guarded by `lock`.
     private var services: [Service] = []
     private var latest: [String: ServiceStatus] = [:]
     private var generation = 0
     private var lastStop: Task<Void, Never>?
 
-    /// - Parameter onStatus: called on an arbitrary thread for every status change, one at
-    ///   a time and in order; it must return quickly and must not call `start` or `stopAll`.
-    public init(timing: Timing = Timing(),
-                onStatus: @escaping @Sendable (String, ServiceStatus) -> Void = { _, _ in }) {
+    public init(timing: Timing = Timing()) {
         self.timing = timing
-        self.onStatus = onStatus
+        (statuses, continuation) = AsyncStream.makeStream(of: (String, ServiceStatus).self)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.connectionProxyDictionary = [:]
         session = URLSession(configuration: configuration)
+    }
+
+    deinit {
+        session.invalidateAndCancel()
+        continuation.finish()
     }
 
     /// The last status published for the service called `name`.
@@ -108,7 +114,9 @@ public final class Supervisor: @unchecked Sendable {
 
     /// Launches each spec in order and waits for it to be ready. On the first that fails,
     /// stops it, starts no more and throws (those already ready keep running; call
-    /// `stopAll()`). May be called again after `stopAll()`.
+    /// `stopAll()`). A log over 20 MB is moved to `<name>.log.1` first. Cancelling the
+    /// task stops the waiting (CancellationError); what was launched is left for
+    /// `stopAll()`. May be called again after `stopAll()`.
     public func start(_ specs: [ServiceSpec]) async throws {
         let generation = locked { self.generation }
         for spec in specs {
@@ -118,6 +126,7 @@ public final class Supervisor: @unchecked Sendable {
                 services.append(service)
             }
             publish(service, .starting)
+            Self.rotate(spec.logFile)
             do {
                 try await launchAndWait(service)
             } catch SupervisorError.portInUse(let name) {
@@ -234,6 +243,7 @@ public final class Supervisor: @unchecked Sendable {
         var nextHealth = Date()
         while true {
             if locked({ service.stopped }) { throw SupervisorError.stopped }  // stopAll ends it
+            try Task.checkCancellation()
             var isReady = false
             switch spec.readiness {
             case .logLine(let line):
@@ -249,7 +259,8 @@ public final class Supervisor: @unchecked Sendable {
             if let how = locked({ run.exited ? run.exitDescription : nil }) {
                 let output = Self.read(spec.logFile, from: run.logOffset)
                 let lower = output.lowercased()
-                if lower.contains("address already in use") || lower.contains("address in use") {
+                if ["address already in use", "address in use", "couldn't bind", "could not bind"]
+                    .contains(where: lower.contains) {
                     throw SupervisorError.portInUse(service: spec.name)
                 }
                 throw SupervisorError.failed(service: spec.name, reason:
@@ -261,7 +272,7 @@ public final class Supervisor: @unchecked Sendable {
                 throw SupervisorError.failed(service: spec.name, reason:
                     "\(spec.name) was not ready after \(Self.seconds(spec.readyTimeout)) s." + Self.tail(output))
             }
-            try? await Task.sleep(nanoseconds: UInt64(timing.pollInterval * 1e9))
+            try await Task.sleep(nanoseconds: UInt64(timing.pollInterval * 1e9))
         }
     }
 
@@ -287,6 +298,7 @@ public final class Supervisor: @unchecked Sendable {
         let how = process.terminationReason == .uncaughtSignal
             ? "was killed by signal \(process.terminationStatus)"
             : "exited with status \(process.terminationStatus)"
+        process.terminationHandler = nil
         locked {
             run.exited = true
             run.exitDescription = how
@@ -310,20 +322,23 @@ public final class Supervisor: @unchecked Sendable {
             }
             guard let attempt else { return }
             let delay = timing.backoff(attempt)
-            Self.note(spec.logFile, "\(spec.name) \(why); restarting in \(Self.seconds(delay)) s (attempt \(attempt))")
-            publish(service, .restarting(attempt: attempt))
+            let firstLine = why.prefix { $0 != "\n" }
+            Self.note(spec.logFile, "\(spec.name): \(firstLine); restarting in \(Self.seconds(delay)) s (attempt \(attempt))")
+            publish(service, .restarting(attempt: attempt, reason: why))
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
             do {
                 try await launchAndWait(service)
                 return
             } catch SupervisorError.stopped {
                 return
+            } catch is CancellationError {
+                return
             } catch SupervisorError.portInUse {
-                why = "could not bind its port"
+                why = "port in use"
             } catch SupervisorError.failed(_, let reason) {
-                why = "did not come back (\(reason.prefix { $0 != "\n" }))"
+                why = reason
             } catch {
-                why = "did not come back (\(error))"
+                why = "\(error)"
             }
         }
     }
@@ -340,32 +355,28 @@ public final class Supervisor: @unchecked Sendable {
     /// SIGTERM, then SIGKILL after `stopGrace`; `replay` as run-native.sh's `kill_replay`.
     private func terminate(_ service: Service, _ run: Run) async {
         let pid = run.pid
-        // Signals only while Foundation has not reaped it, so the pid cannot be reused.
+        // Signals only until Foundation has reaped it, so it is not another process by then.
         @Sendable func signal(_ sig: Int32) -> Bool {
             locked { run.exited ? false : kill(pid, sig) == 0 }
         }
-        guard signal(0) else { return }
-        var children: [pid_t] = []
+        var children: [ReapedProcess] = []
         if service.spec.name == "replay" {
             // Paused, it cannot start another heimdall-source; its children are ended
-            // while they are still its children.
+            // while they are still its children. Listed even if it has just exited (and is
+            // not reaped yet), so leftovers are ended too.
             _ = signal(SIGSTOP)
-            children = Self.children(of: pid)
-            children.forEach { kill($0, SIGTERM) }
-            _ = signal(SIGTERM)
-            _ = signal(SIGCONT)
-        } else {
-            _ = signal(SIGTERM)
+            children = locked { run.exited ? [] : Self.children(of: pid) }
+            children.forEach { kill($0.pid, SIGTERM) }
         }
-        if await !waitUntil(timing.stopGrace, { self.locked { run.exited } }) {
+        let alive = signal(SIGTERM)
+        if service.spec.name == "replay" { _ = signal(SIGCONT) }
+        if alive, await !waitUntil(timing.stopGrace, { self.locked { run.exited } }) {
             Self.note(service.spec.logFile,
                       "\(service.spec.name) did not exit within \(Self.seconds(timing.stopGrace)) s; killing it")
             _ = signal(SIGKILL)
             _ = await waitUntil(5) { self.locked { run.exited } }
         }
-        for child in children where await !waitUntil(timing.stopGrace, { kill(child, 0) != 0 }) {
-            kill(child, SIGKILL)
-        }
+        await Self.end(children, grace: timing.stopGrace)
     }
 
     private func waitUntil(_ timeout: TimeInterval, _ condition: @Sendable () -> Bool) async -> Bool {
@@ -377,14 +388,103 @@ public final class Supervisor: @unchecked Sendable {
         return true
     }
 
-    /// The direct children of `pid` (libproc).
-    static func children(of pid: pid_t) -> [pid_t] {
+    // MARK: Orphans
+
+    /// A process `reapOrphans` ended.
+    public struct ReapedProcess: Sendable, Equatable {
+        public let pid: pid_t
+        public let executable: String
+    }
+
+    /// Ends every process whose executable is inside `binDir`: services a crashed shell
+    /// left running, which would hold the state directories' locks. `midgard-replay`
+    /// first, with its children (as `stopAll`); SIGTERM, then SIGKILL after `grace`.
+    /// Returns the processes from `binDir` it ended, replay first.
+    ///
+    /// Run it only after the single-instance check: a second shell would otherwise end
+    /// the services of the first.
+    public static func reapOrphans(binDir: URL, grace: TimeInterval = 10) async -> [ReapedProcess] {
+        let root = realPath(binDir) + "/"
+        let me = getpid()
+        let found = allPids().compactMap { pid -> ReapedProcess? in
+            guard pid > 0, pid != me, let path = executablePath(of: pid), path.hasPrefix(root) else { return nil }
+            return ReapedProcess(pid: pid, executable: path)
+        }
+        let replays = found.filter { isReplay($0.executable) }
+        let others = found.filter { !isReplay($0.executable) }
+        var children: [ReapedProcess] = []
+        for replay in replays {
+            kill(replay.pid, SIGSTOP)
+            let kids = Self.children(of: replay.pid).filter { kid in !found.contains { $0.pid == kid.pid } }
+            kids.forEach { kill($0.pid, SIGTERM) }
+            children += kids
+            kill(replay.pid, SIGTERM)
+            kill(replay.pid, SIGCONT)
+        }
+        others.forEach { kill($0.pid, SIGTERM) }
+        await end(replays + others + children, grace: grace)
+        return replays + others
+    }
+
+    /// The path with every symlink resolved, as libproc reports executables (unlike
+    /// `resolvingSymlinksInPath`, which turns /private/var back into /var).
+    static func realPath(_ url: URL) -> String {
+        guard let resolved = realpath(url.path, nil) else { return url.standardizedFileURL.path }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    static func isReplay(_ executable: String) -> Bool {
+        (executable as NSString).lastPathComponent == "midgard-replay"
+    }
+
+    /// Waits up to `grace` for each process to go, then SIGKILLs any that still runs the
+    /// same executable (so a reused pid is left alone).
+    static func end(_ processes: [ReapedProcess], grace: TimeInterval) async {
+        func running(_ p: ReapedProcess) -> Bool { executablePath(of: p.pid) == p.executable }
+        let deadline = Date().addingTimeInterval(grace)
+        while processes.contains(where: running), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let survivors = processes.filter(running)
+        survivors.forEach { kill($0.pid, SIGKILL) }
+        let killDeadline = Date().addingTimeInterval(5)
+        while survivors.contains(where: running), Date() < killDeadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    /// Every pid on this Mac (libproc).
+    static func allPids() -> [pid_t] {
+        let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard needed > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(needed) / MemoryLayout<pid_t>.size + 64)
+        let bytes = pids.withUnsafeMutableBytes {
+            proc_listpids(UInt32(PROC_ALL_PIDS), 0, $0.baseAddress, Int32($0.count))
+        }
+        guard bytes > 0 else { return [] }
+        return Array(pids.prefix(Int(bytes) / MemoryLayout<pid_t>.size))
+    }
+
+    /// The direct children of `pid` (libproc), with their executables.
+    static func children(of pid: pid_t) -> [ReapedProcess] {
         var pids = [pid_t](repeating: 0, count: 256)
         let bytes = pids.withUnsafeMutableBytes {
             proc_listpids(UInt32(PROC_PPID_ONLY), UInt32(pid), $0.baseAddress, Int32($0.count))
         }
         guard bytes > 0 else { return [] }
         return pids.prefix(Int(bytes) / MemoryLayout<pid_t>.size).filter { $0 > 0 }
+            .map { ReapedProcess(pid: $0, executable: executablePath(of: $0) ?? "") }
+    }
+
+    /// The executable a process runs (libproc), nil if it is gone.
+    static func executablePath(of pid: pid_t) -> String? {
+        var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))  // PROC_PIDPATHINFO_MAXSIZE
+        let length = buffer.withUnsafeMutableBytes {
+            proc_pidpath(pid, $0.baseAddress, UInt32($0.count))
+        }
+        guard length > 0 else { return nil }
+        return String(decoding: buffer.prefix(Int(length)), as: UTF8.self)
     }
 
     // MARK: Helpers
@@ -395,21 +495,28 @@ public final class Supervisor: @unchecked Sendable {
         return try body()
     }
 
-    /// Records and delivers `status` unless the service was stopped (only `.stopped`
-    /// follows that) or `condition` (run under the lock) says no.
+    /// Records and yields `status` unless the service was stopped (only `.stopped`
+    /// follows that) or `condition` (run under the lock) says no. Yielded under the lock,
+    /// so `statuses` sees changes in the order they happened.
     @discardableResult
     private func publish(_ service: Service, _ status: ServiceStatus,
                          if condition: () -> Bool = { true }) -> Bool {
-        publishLock.lock()
-        defer { publishLock.unlock() }
         let name = service.spec.name
-        let accepted = locked { () -> Bool in
+        return locked {
             guard status == .stopped || !service.stopped, condition() else { return false }
             latest[name] = status
+            continuation.yield((name, status))
             return true
         }
-        if accepted { onStatus(name, status) }
-        return accepted
+    }
+
+    /// Moves a log over `logLimit` to `<name>.log.1`, replacing an older one.
+    static func rotate(_ file: URL) {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? NSNumber,
+              size.uint64Value > logLimit else { return }
+        let old = file.appendingPathExtension("1")
+        // rename(2) replaces the older .1 in one step.
+        _ = rename(file.path, old.path)
     }
 
     /// Appends one line from the shell to a service's log.
