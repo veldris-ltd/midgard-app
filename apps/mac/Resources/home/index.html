@@ -166,6 +166,17 @@
       return p;
     }
     function str(x) { return typeof x === 'string' && x.trim() ? x.trim() : null; }
+    // Alert kinds (prepare-answers.py CATEGORIES) in plain words; any other slug with its
+    // dashes made spaces and the first letter capitalised.
+    var KINDS = { 'power-cut': 'Power cut', flood: 'Flood', 'weather-warning': 'Weather warning',
+      gnss: 'GPS interference', 'gulf-watch': 'Gulf watch', airspace: 'Airspace warning' };
+    function kindWords(k) {
+      k = str(k);
+      if (!k) return null;
+      if (Object.prototype.hasOwnProperty.call(KINDS, k)) return KINDS[k];
+      var w = k.replace(/[-_]+/g, ' ').trim();
+      return w ? w.charAt(0).toUpperCase() + w.slice(1) : null;
+    }
     function none() { body.replaceChildren(el('p', null, 'No prepared answers in this build.')); }
 
     function render(file) {
@@ -203,7 +214,7 @@
         var ul = el('ul', 'alerts');
         alerts.forEach(function (a) {
           var li = el('li', null, str(a.label) || str(a.subject));
-          var where = [str(a.region), str(a.kind)].filter(Boolean).join(' · ');
+          var where = [str(a.region), kindWords(a.kind)].filter(Boolean).join(' · ');
           if (where) li.appendChild(el('span', 'where', where));
           ul.appendChild(li);
         });
