@@ -96,6 +96,8 @@ export function areaColour(d: { kind: string; hazard?: string; level?: string; a
     case 'event-weather-warning': return WARNING_COLOURS[(d.level ?? '').toLowerCase()] ?? 'var(--heimdall-300)';
     case 'sea-windfarm': return 'var(--mimir-300)';
     case 'airspace-volume': return airspaceColour(d.airspaceType);
+    // EASA conflict-zone bulletins: a warning to airlines about the airspace.
+    case 'airspace-advisory': return 'var(--warn)';
     case 'land-road-disruption': return ROAD_COLOURS[(d.level ?? '').toLowerCase()] ?? 'var(--heimdall-300)';
     // GPS interference cells: magenta, deeper with the share of aircraft affected.
     case 'event-gnss-interference': return d.level === 'high' ? '#ff2bd6' : d.level === 'medium' ? '#c04dff' : '#8a6bff';
@@ -121,6 +123,7 @@ export function shapeOf(t: HeimdallTrack): TrackShape {
     case 'sea-platform': return 'platform';
     case 'land-road-disruption': return 'road';
     case 'airspace-volume': return 'airspace';
+    case 'airspace-advisory': return 'warning';
     case 'event-fire': return 'fire';
     case 'utility-power-outage': return 'outage';
     case 'utility-water-overflow': case 'utility-water-reservoir': return 'drop';
