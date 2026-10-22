@@ -199,7 +199,7 @@ class SelectTest(unittest.TestCase):
         alerts = [
             alert("i1", "e-i1", "power-cut", "info"),
             alert("w1", "e-w1", "power-cut-major", "warning"),
-            alert("w2", "e-w2", "power-cut-major", "warning", age_s=7200),
+            alert("w2", "e-w2", "power-cut-severe", "warning", age_s=7200),
             alert("c1", "e-c1", "flood-severe-warning", "critical"),
             alert("w3", "e-w3", "gnss-interference-high", "warning"),
             alert("w4", "e-w4", "weather-warning-amber", "warning"),
@@ -215,16 +215,16 @@ class SelectTest(unittest.TestCase):
         self.assertNotIn("i1", got)
 
     def test_fills_with_second_of_a_kind_when_short(self):
-        got = self.ids([alert("a", "ea", "power-cut-major"), alert("b", "eb", "power-cut-major")])
+        got = self.ids([alert("a", "ea", "power-cut-major"), alert("b", "eb", "power-cut-severe")])
         self.assertEqual(sorted(got), ["a", "b"])
 
     def test_young_cleared_and_shared_subjects_skipped(self):
         alerts = [
             alert("young", "e1", "flood-warning", age_s=300),
-            alert("cleared", "e2", "flood-warning", cleared=int(NOW)),
-            alert("twin1", "e3", "flood-warning"),
+            alert("cleared", "e2", "flood-alert", cleared=int(NOW)),
+            alert("twin1", "e3", "flood-severe-warning"),
             alert("twin2", "e3", "weather-warning-amber"),
-            alert("ok", "e4", "flood-warning"),
+            alert("ok", "e4", "flood-alert"),
         ]
         self.assertEqual(self.ids(alerts), ["ok"])
 
@@ -233,6 +233,33 @@ class SelectTest(unittest.TestCase):
         a["raisedAt"] = int((NOW - 3600) * 1000)
         picked = pa.select_alerts([a], 5, NOW)
         self.assertEqual(picked[0]["entity"], "cam7")
+
+    def test_shared_panel_rows_skipped(self):
+        # AlertsPanel merges alerts of the same severity and text into one row; a click
+        # selects only the newest subject, so neither is picked.
+        alerts = [
+            alert("p1", "e1", "power-cut-major", "warning"),
+            alert("p2", "e2", "power-cut-major", "warning", age_s=7200),
+            alert("p3", "e3", "power-cut-major", "critical"),  # same text, other severity: own row
+            alert("f1", "e4", "flood-warning", "warning"),
+            alert("f2", "e5", "flood_warning", "warning", age_s=60),  # same text (alertText), too young: still shares
+            alert("g1", "e6", "gnss-interference-high", "warning", cleared=int(NOW)),  # cleared: not in the panel
+            alert("g2", "e7", "gnss-interference-high", "warning"),
+        ]
+        self.assertEqual(sorted(self.ids(alerts)), ["g2", "p3"])
+
+    def test_panel_key_for_weather_warnings(self):
+        def ww(id, ent, weather, valid_to):
+            return alert(id, ent, "weather-warning-yellow", "info", kind="event-weather-warning"), \
+                {"id": ent, "kind": "event-weather-warning", "attributes": {"level": "Yellow", "weather": weather, "valid_to": valid_to}}
+        (a1, e1), (a2, e2), (a3, e3) = ww("w1", "x1", "wind", 2000000000), ww("w2", "x2", "rain", 2000000000), ww("w3", "x3", "wind", 2000000010)
+        ents = {e["id"]: e for e in (e1, e2, e3)}
+        key = lambda a: pa.panel_key(a, ents.get(a["entity"]), NOW)  # noqa: E731
+        self.assertNotEqual(key(a1), key(a2))
+        self.assertEqual(key(a1), key(a3))  # the same minute: the same row text
+        got = [a["id"] for a in pa.select_alerts([a1, a2, a3], 5, NOW, panel_key=key)]
+        self.assertEqual(got, ["w2"])
+        self.assertEqual(pa.panel_key(alert("z", "z", "power-cut-major"), None, NOW), "warning|POWER CUT MAJOR")
 
     def test_limit(self):
         alerts = [alert(f"a{i}", f"e{i}", f"x-{i}") for i in range(9)]
@@ -251,7 +278,7 @@ class LabelTest(unittest.TestCase):
         self.assertEqual(pa.alert_label(alert("1", "w", "weather-warning-yellow"), e), "Weather warning · South West England")
         g = {"id": "g", "kind": "event-indicator", "attributes": {"name": "Gulf watch · Civil aircraft over Iran"}}
         self.assertEqual(pa.alert_label(alert("1", "g", "gulf-watch-elevated"), g), "Gulf watch · Civil aircraft over Iran")
-        self.assertEqual(pa.alert_label(alert("1", "cell", "gnss-interference-high", lat=54.25, lon=-3.04), None), "GNSS interference · 54.2°N 3.0°W")
+        self.assertEqual(pa.alert_label(alert("1", "cell", "gnss-interference-high", lat=54.25, lon=-3.04), None), "GPS interference · 54.2°N 3.0°W")
 
 
 class RunTest(Base):
@@ -371,6 +398,19 @@ class RunTest(Base):
         code, out = self.run_main("--timeout", "5")
         self.assertEqual(code, 0, out)
         self.assertEqual(len(self.file()["guide"]["questions"]), len(pa.examples()) + 2)
+
+    def test_shared_weather_rows_use_entity_details(self):
+        s = self.stub
+        self.recording(["x1", "x2", "x3"])
+        s.alerts = [alert(i, e, "weather-warning-yellow", "info", kind="event-weather-warning", lat=51.0, lon=-1.0)
+                    for i, e in (("w1", "x1"), ("w2", "x2"), ("w3", "x3"))]
+        s.entities = [{"id": e, "kind": "event-weather-warning", "attributes": {"level": "Yellow", "weather": w, "valid_to": 2000000000,
+                                                                               "name": f"Yellow warning of {w} affecting Wales"}}
+                      for e, w in (("x1", "wind"), ("x2", "rain"), ("x3", "wind"))]
+        code, out = self.run_main("--timeout", "5")
+        self.assertEqual(code, 0, out)
+        g = self.file()["guide"]["alerts"]
+        self.assertEqual([(x["subject"], x["label"]) for x in g], [("x2", "Weather warning · Wales")])
 
     def test_only_subjects_seen_all_hour(self):
         self.recording(["e1"], first_only=["e2"])

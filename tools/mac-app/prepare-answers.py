@@ -26,15 +26,17 @@ Heimdall's console asks:
   other open alert (shipped advice is keyed by subject), and its subject has
   observations in both the first and the last ten minutes of the recording (by batch
   offset in `heimdall.jsonl.gz`), so it is in the picture all hour. Most severe first,
-  then the longest open; one per kind (power cut, flood, weather warning, GNSS
+  then the longest open; one per kind (power cut, flood, weather warning, GPS
   interference, Gulf watch, airspace) before any second of a kind. With --recheck (the
   default) the open alerts are read again at the end and any subject no longer open is
-  dropped. Each `guide.alerts` entry carries the `region` containing the alert (Gulf
+  dropped. An alert that would share its row in the console's ALERTS IN VIEW panel
+  (same severity and text; a click there selects only the newest) with another open
+  alert is skipped. Each `guide.alerts` entry carries the `region` containing the alert (Gulf
   watch alerts are clickable only with the Gulf region on).
   Remaining limit: being observed all hour and open at the start and end of the
   capture does not prove the alert stays open through every replay loop (Heimdall may
   clear and re-raise it, under a new id; the shipped key is by subject, so that is
-  harmless), and a subject Heimdall derives itself (not in the recording, e.g. a GNSS
+  harmless), and a subject Heimdall derives itself (not in the recording, e.g. a GPS
   interference cell computed from aircraft) is never picked.
 
 `--recording` is the packed recording: a directory holding `heimdall.jsonl.gz` (and
@@ -91,7 +93,7 @@ CATEGORIES = [
     ("power-cut", "power-cut", "Power cut"),
     ("flood-", "flood", "Flood"),
     ("weather-warning-", "weather-warning", "Weather warning"),
-    ("gnss-", "gnss", "GNSS interference"),
+    ("gnss-", "gnss", "GPS interference"),
     ("gulf-", "gulf-watch", "Gulf watch"),
     ("conflict-zone-", "airspace", "Airspace"),
     ("faa-restriction", "airspace", "Airspace"),
@@ -327,21 +329,48 @@ def category(label):
     return label, label.replace("-", " ").replace("_", " ").capitalize()
 
 
-def select_alerts(alerts, n, now, all_hour=None):
+def alert_text(label):
+    """alertMarks.ts alertText."""
+    return re.sub(r"[-_]+", " ", label).upper()
+
+
+def panel_key(a, entity, now):
+    """The ALERTS IN VIEW panel's row for an alert (AlertsPanel: severity and the mark's
+    text): a weather warning's level, weather and validity (warningText, to the minute,
+    as its row shows it) when its entity is known, else alertText(label)."""
+    sev = a.get("severity")
+    attrs = (entity or {}).get("attributes") or {}
+    if (entity or {}).get("kind") == "event-weather-warning":
+        def n(k):
+            v = attrs.get(k)
+            return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+        what = " ".join(ts_str(attrs.get(k)).upper() for k in ("level", "weather") if attrs.get(k))
+        vf, vt = n("valid_from"), n("valid_to")
+        when = f"FROM {int(vf // 60)}" if vf is not None and vf > now else f"TO {int(vt // 60)}" if vt is not None else "IN FORCE"
+        return f"{sev}|WARNING {what}|{when}"
+    return f"{sev}|{alert_text(str(a.get('label', '')))}"
+
+
+def select_alerts(alerts, n, now, all_hour=None, panel_key=None):
     """Up to n open alerts raised at least MIN_OPEN_S ago: most severe first, then the
     longest open; one per kind before any second of a kind. Shipped advice is keyed by
     subject, so a subject with more than one open alert is skipped (its advice would
     stand for whichever alert is clicked). With `all_hour` (a set of entity keys), only
-    subjects in it."""
+    subjects in it. The alerts panel merges alerts of one severity and text into a row
+    and a click selects only the newest subject, so an alert sharing its row
+    (`panel_key(a)`; default without entity details) with another open alert is skipped."""
+    key = panel_key or (lambda a: globals()["panel_key"](a, None, now))
     alerts = [a for a in map(normalise_alert, alerts) if isinstance(a, dict)]
-    per_subject = {}
+    per_subject, per_row = {}, {}
     for a in alerts:
         if a.get("clearedAt") is None and isinstance(a.get("entity"), str):
             per_subject[a["entity"]] = per_subject.get(a["entity"], 0) + 1
+        if a.get("clearedAt") is None:
+            per_row[key(a)] = per_row.get(key(a), 0) + 1
     ok = [a for a in alerts
           if isinstance(a.get("id"), str) and isinstance(a.get("entity"), str) and a["entity"]
           and a.get("clearedAt") is None and 0 < a["raisedAt"] <= now - MIN_OPEN_S
-          and per_subject.get(a["entity"]) == 1
+          and per_subject.get(a["entity"]) == 1 and per_row.get(key(a)) == 1
           and (all_hour is None or a["entity"] in all_hour)]
     ok.sort(key=lambda a: (SEVERITY_RANK.get(a.get("severity"), 3), a["raisedAt"], a["id"]))
     picked, kinds, subjects = [], set(), set()
@@ -559,20 +588,31 @@ def main(argv=None):
     except Exception as e:
         print(f"FAIL alerts ({reason(e)})")
         alerts = []
-    picked = select_alerts(alerts, args.alerts, time.time(), all_hour)
+    found = {}
+
+    def entity_of(a):
+        """The alert's subject from a small picture read around it, or None (cached)."""
+        if a.get("id") not in found:
+            found[a.get("id")] = None
+            if isinstance(a.get("lat"), (int, float)) and isinstance(a.get("lon"), (int, float)):
+                box = (a["lon"] - 0.5, a["lat"] - 0.5, a["lon"] + 0.5, a["lat"] + 0.5)
+                try:
+                    pic = gw.call("GET", f"/heimdall/picture?{bbox_param(box)}", timeout=60)
+                    found[a.get("id")] = next((e for e in pic.get("entities", []) if isinstance(e, dict) and e.get("id") == a.get("entity")), None)
+                except Exception:  # noqa: BLE001 -- labelled from the alert alone
+                    pass
+        return found[a.get("id")]
+
+    now = time.time()
+    # Weather warnings' panel rows depend on their entity's details; the rest on the label.
+    row = lambda a: panel_key(a, entity_of(a) if a.get("kind") == "event-weather-warning" else None, now)  # noqa: E731
+    picked = select_alerts(alerts, args.alerts, now, all_hour, row)
     if len(picked) < args.alerts:
         print(f"note {len(picked)} of {args.alerts} alerts found open for at least {MIN_OPEN_S // 60} min,"
               f" alone on their subject, with the subject seen all through the recording")
     for a in picked:
         try:
-            entity = None
-            if isinstance(a.get("lat"), (int, float)) and isinstance(a.get("lon"), (int, float)):
-                box = (a["lon"] - 0.5, a["lat"] - 0.5, a["lon"] + 0.5, a["lat"] + 0.5)
-                try:
-                    pic = gw.call("GET", f"/heimdall/picture?{bbox_param(box)}", timeout=60)
-                    entity = next((e for e in pic.get("entities", []) if isinstance(e, dict) and e.get("id") == a["entity"]), None)
-                except Exception:
-                    entity = None  # labelled from the alert alone
+            entity = entity_of(a)
             label = alert_label(a, entity)
             attrs = (entity or {}).get("attributes") or {}
             region = region_at(regs, attrs.get("lat", a.get("lat")), attrs.get("lon", a.get("lon")))
