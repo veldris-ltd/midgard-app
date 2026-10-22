@@ -720,8 +720,8 @@ The full one-hour recording is made in phase 4, when the hour is chosen (power c
 
 - **Recording:** a 5-minute recording (`e2e`) held 24 Heimdall batches and 10 Forge file versions, 6.4 MB packed. It had no aircraft: adsb.lol was rate-limited, and the feeds runner had not yet reached adsb-fi in its first pass, which takes about 5 minutes. `pack` now warns when `adsb-fi`, `adsb-lol` or `aisstream` sent no batches.
 - **Replay:** 31 batches over 2 loops, all accepted, with a maximum lag of 5 s. The second loop's batches crossed the seam without duplicate refusals.
-- **Smoke check:** `smoke.py` passed against the native suite with the replay running.
-- **Stop:** `run-native.sh stop` stopped the replay and its `heimdall-source` runs first and left no locks. The Docker suite and feeds were then restored.
+- **Smoke check:** `smoke.py` passed.
+- **Stop:** `run-native.sh stop` stopped cleanly. The Docker suite and feeds were then restored.
 
 **Carry-overs to phase 3/4:**
 
