@@ -2,3 +2,4 @@
 pub mod player;
 pub mod recording;
 pub mod shift;
+pub mod sinks;
