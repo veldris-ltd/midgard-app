@@ -53,8 +53,17 @@ lock written on another system (a Linux container) is never taken over automatic
    queried; with Docker Desktop quit, run it with `MIDGARD_DOCKER_STOPPED=1`. Once Docker is
    confirmed clear, it removes the locks the stopped containers left behind.
 2. **To go back to Docker:** `run-native.sh stop` (it removes each lock only after its process
-   has exited), then `docker start midgard-mimir midgard-mimir-forward midgard-heimdall
-   midgard-gateway` and `live-feeds/start.sh`.
+   has exited), then start the containers and everything that runs beside them, from the
+   enclosure home:
+
+   ```bash
+   docker start midgard-mimir midgard-mimir-forward midgard-heimdall midgard-gateway
+   bash live-feeds/start.sh
+   bash heimdall-poc/feeds/start.sh
+   (cd heimdall-poc && nohup ./live_loop.sh > live_loop.log 2>&1 & echo $! > live_loop.pid)
+   bash heimdall-poc/rotate-loop.sh start
+   bash rotate-gateway-ledger.sh loop start
+   ```
 
 Never start the containers while the native suite is running: containers built before commit
 `c7d8054` do not honour macOS lock files. The gateway's ledger size cap
@@ -80,7 +89,11 @@ python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
   (`MIDGARD_RECORDINGS` overrides), outside the suite folder because of its 3.5 GB budget.
   The raw capture stays in `<name>/raw` unless `--drop-raw`. Delete old recordings when done.
 - It restarts the feeds runner (`heimdall-poc/feeds`) with its last-sent memory cleared, so
-  every source is sent, and so recorded, from the start.
+  every source is sent, and so recorded, from the start. The runner's first full pass takes
+  about 5 minutes after that restart, so record at least 15 minutes (an hour for the app).
+  `pack` prints a WARNING if `adsb-fi`, `adsb-lol` or `aisstream` sent no batches (a
+  rate-limited source, or one not reached yet): such a recording has no aircraft or ships
+  from that feed.
 - Heimdall batches come from a recording hook in `feeds.py` (which is outside git):
   `state/record_to` holds `"<dir>\npid=<n>"`; while that pid lives, `feeds.py` copies each batch
   it sends there as `<time_ns>-<feed>.jsonl`, and removes a stale hook itself. The full contract
@@ -103,6 +116,9 @@ python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
    replay after Forge is ready. `stop` stops the replay first, with its `heimdall-source`
    runs; `status` lists it. Without `MIDGARD_REPLAY`, nothing changes.
 
+`run-native.sh` plays the recording on a loop until stopped. Run by hand, `midgard-replay
+--loops N` stops after N loops (`midgard-replay` without options prints its usage).
+
 The replay logs JSON lines to `$MIDGARD_HOME/native-run/replay.log`:
 
 | Line | Meaning |
@@ -112,6 +128,7 @@ The replay logs JSON lines to `$MIDGARD_HOME/native-run/replay.log`:
 | `batch sent` | One Heimdall batch played (`feed`, `offset`, `lag` = how late it went out); `result` is `heimdall-source`'s summary, or `FAILED <error>` for the first failure of a kind |
 | `batches failing` | The same error keeps repeating; `dropped` counts the repeats not logged one by one |
 | `batches recovered` | Sends work again after failures (`failed`, `dropped`) |
+| `forge file failed` | A recorded Forge file could not be read or written into `live-feeds/data` (`file`, `error`) |
 | `behind; restarting the loop` | Playback fell too far behind (e.g. after the Mac slept): the rest of this loop is dropped and the next starts now |
 
 The recording loops; each loop shifts its times to now, so the picture always looks current.

@@ -713,3 +713,18 @@ Behaviour:
 5. **Commit** — `git commit -S -m "mac-app: run the replay with the native suite"` and push.
 
 The full one-hour recording is made in phase 4, when the hour is chosen (power cuts, weather warnings and flood alerts present) and the prepared Mimir answers are recorded against it.
+
+## Phase 2 results and carry-overs
+
+**End-to-end results** (Task 8, on the development Mac):
+
+- **Recording:** a 5-minute recording (`e2e`) held 24 Heimdall batches and 10 Forge file versions, 6.4 MB packed. It had no aircraft: adsb.lol was rate-limited, and the feeds runner had not yet reached adsb-fi in its first pass, which takes about 5 minutes. `pack` now warns when `adsb-fi`, `adsb-lol` or `aisstream` sent no batches.
+- **Replay:** 31 batches over 2 loops, all accepted, with a maximum lag of 5 s. The second loop's batches crossed the seam without duplicate refusals.
+- **Smoke check:** `smoke.py` passed against the native suite with the replay running.
+- **Stop:** `run-native.sh stop` stopped the replay and its `heimdall-source` runs first and left no locks. The Docker suite and feeds were then restored.
+
+**Carry-overs to phase 3/4:**
+
+- Time the largest batch on the Intel i5 Mac. Batches are now sent in chunks of 2000 observations, each with a 120 s `heimdall-source` timeout.
+- Confirm that the hour recording has batches from `adsb-fi`, `adsb-lol` and `aisstream`. Check `pack`'s WARNING and `meta.json`'s `feeds`.
+- Run a multi-hour soak of the native suite with the replay looping. Measure the growth of `heimdall-poc/state`, of the ledgers (Heimdall's audit ledger and the gateway's governance ledger), and the memory of Heimdall and `midgard-replay`.
