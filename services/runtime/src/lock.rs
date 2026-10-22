@@ -7,14 +7,20 @@
 //! its own.
 //!
 //! A process killed outright (SIGKILL, an OOM kill, a container stop) never runs its
-//! drop and leaves the lock file behind. The lock records its holder's pid and, on
-//! Linux, that process's start time, so a later acquire can tell a live holder from a
-//! dead one — including a new process that happens to reuse the pid, as a restarted
-//! container's pid 1 does — and takes over only a lock whose holder is gone. On macOS
-//! the start time comes from `proc_pidinfo`, which also refuses to describe another
-//! user's live process; such a holder counts as running. Where the start time cannot be
-//! read, a leftover lock is refused and an operator removes it after confirming nothing
-//! is running.
+//! drop and leaves the lock file behind. The lock records its holder's pid, the
+//! operating system it ran on and, on Linux and macOS, that process's start time, so a
+//! later acquire can tell a live holder from a dead one — including a new process that
+//! happens to reuse the pid, as a restarted container's pid 1 does — and takes over only
+//! a lock whose holder is gone. On Linux the start time comes from `/proc`; on macOS from
+//! `proc_pidinfo`, which also refuses to describe another user's live process, and such a
+//! holder counts as running.
+//!
+//! A state directory may be bind-mounted into a container while a native process can
+//! also reach it, and a container's pid means nothing on the host. So a lock recorded on
+//! another operating system is never taken over, whatever its pid; nor, on macOS, is one
+//! that records no system (older builds wrote none, and ran only on Linux, where such a
+//! lock is still read as Linux's). Where the start time cannot be read, a leftover lock is
+//! refused and an operator removes it after confirming nothing is running.
 
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
@@ -33,6 +39,17 @@ impl DirLock {
         match Self::create(&path, holder) {
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {
                 let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                let recorded_os = recorded_os(&existing);
+                if recorded_os != Some(std::env::consts::OS) {
+                    return Err(format!(
+                        "{} may be in use by another system ({} on {}, such as a container); \
+                         if nothing is running, remove {}",
+                        dir.display(),
+                        existing.lines().next().unwrap_or("another process"),
+                        recorded_os.unwrap_or("an unrecorded system"),
+                        path.display()
+                    ));
+                }
                 if !holder_is_gone(&existing) {
                     return Err(format!(
                         "{} is in use by {}; if nothing is running, remove {}",
@@ -56,11 +73,26 @@ impl DirLock {
         let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
         let pid = std::process::id();
         let start = process_start(pid).map_or_else(|| "unknown".to_string(), |s| s.to_string());
-        writeln!(file, "{holder}\npid={pid}\nstart={start}")?;
+        let os = std::env::consts::OS;
+        writeln!(file, "{holder}\npid={pid}\nstart={start}\nos={os}")?;
         file.sync_all()?;
         Ok(Self {
             path: path.to_path_buf(),
         })
+    }
+}
+
+/// The operating system a lock file says its holder ran on. Older builds recorded none and
+/// ran only on Linux, so on Linux a lock without one is Linux's; elsewhere it is foreign.
+fn recorded_os(lock: &str) -> Option<&str> {
+    let recorded = lock
+        .lines()
+        .find_map(|line| line.strip_prefix("os="))
+        .map(str::trim);
+    if cfg!(target_os = "linux") {
+        recorded.or(Some("linux"))
+    } else {
+        recorded
     }
 }
 
@@ -133,8 +165,12 @@ fn bsd_start(pid: u32) -> Result<u64, i32> {
             size,
         )
     };
-    if written != size {
+    if written <= 0 {
         return Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(0));
+    }
+    if written != size {
+        // A short description sets no errno and proves nothing: the holder may be running.
+        return Err(libc::EIO);
     }
     // SAFETY: the kernel filled the whole struct, and every bit pattern is valid for it.
     let info = unsafe { info.assume_init() };
@@ -173,6 +209,8 @@ impl Drop for DirLock {
 mod tests {
     use super::*;
 
+    use std::env::consts::OS;
+
     const LOCK: &str = "test.lock";
 
     fn scratch(tag: &str) -> PathBuf {
@@ -198,7 +236,11 @@ mod tests {
     fn a_lock_left_by_a_dead_process_is_taken_over() {
         let dir = scratch("dead");
         // No process has this pid.
-        std::fs::write(dir.join(LOCK), "http-gateway\npid=4294967294\nstart=1\n").unwrap();
+        std::fs::write(
+            dir.join(LOCK),
+            format!("http-gateway\npid=4294967294\nstart=1\nos={OS}\n"),
+        )
+        .unwrap();
         DirLock::acquire(&dir, LOCK, "restarted").expect("a dead holder's lock is stale");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -211,7 +253,7 @@ mod tests {
         let start = process_start(pid).expect("our own start time is readable");
         std::fs::write(
             dir.join(LOCK),
-            format!("http-gateway\npid={pid}\nstart={}\n", start + 1),
+            format!("http-gateway\npid={pid}\nstart={}\nos={OS}\n", start + 1),
         )
         .unwrap();
         DirLock::acquire(&dir, LOCK, "restarted").expect("the pid was reused");
@@ -221,12 +263,79 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_live_holder_whose_start_time_is_hidden_keeps_the_lock() {
+        // SAFETY: getuid has no preconditions and cannot fail.
+        if unsafe { libc::getuid() } == 0 {
+            return; // root may read every process's start time
+        }
         let dir = scratch("hidden");
         // launchd is pid 1 and root's: macOS will not tell another user its start time.
-        std::fs::write(dir.join(LOCK), "http-gateway\npid=1\nstart=1\n").unwrap();
-        if process_start(1).is_none() {
-            assert!(DirLock::acquire(&dir, LOCK, "gateway").is_err());
-        }
+        assert_eq!(bsd_start(1), Err(libc::EPERM));
+        std::fs::write(dir.join(LOCK), "http-gateway\npid=1\nstart=1\nos=macos\n").unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "gateway").expect_err("launchd is running");
+        assert!(refused.contains("in use by http-gateway"), "{refused}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_reaped_holder_is_gone_and_its_lock_is_taken_over() {
+        let dir = scratch("reaped");
+        // A real pid, inside pid_t, whose process has exited and been reaped.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert_eq!(bsd_start(pid), Err(libc::ESRCH));
+        std::fs::write(
+            dir.join(LOCK),
+            format!("http-gateway\npid={pid}\nstart=1\nos=macos\n"),
+        )
+        .unwrap();
+        DirLock::acquire(&dir, LOCK, "restarted").expect("the holder has exited");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_lock_recorded_on_another_system_is_refused_even_if_its_pid_is_dead() {
+        let dir = scratch("foreign");
+        let other = if OS == "linux" { "macos" } else { "linux" };
+        std::fs::write(
+            dir.join(LOCK),
+            format!("http-gateway\npid=4294967294\nstart=1\nos={other}\n"),
+        )
+        .unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "gateway").expect_err("foreign lock");
+        assert!(refused.contains("another system"), "{refused}");
+        assert!(refused.contains(other), "{refused}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_lock_recording_no_system_is_foreign_on_macos() {
+        let dir = scratch("unrecorded");
+        // The format older builds wrote, which ran only on Linux.
+        std::fs::write(dir.join(LOCK), "http-gateway\npid=4294967294\nstart=1\n").unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "gateway").expect_err("no system recorded");
+        assert!(refused.contains("another system"), "{refused}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_lock_from_an_older_linux_build_behaves_as_before() {
+        let dir = scratch("legacy");
+        // No `os=` line: a dead holder's lock is still taken over, a live one still kept.
+        std::fs::write(dir.join(LOCK), "http-gateway\npid=4294967294\nstart=1\n").unwrap();
+        DirLock::acquire(&dir, LOCK, "restarted").expect("a dead holder's lock is stale");
+        let pid = std::process::id();
+        let start = process_start(pid).expect("readable on linux");
+        std::fs::write(
+            dir.join(LOCK),
+            format!("http-gateway\npid={pid}\nstart={start}\n"),
+        )
+        .unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "second").expect_err("live holder");
+        assert!(refused.contains("in use by http-gateway"), "{refused}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
