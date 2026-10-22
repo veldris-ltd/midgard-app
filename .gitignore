@@ -59,3 +59,7 @@ result-*
 /shell-audit/
 # GitLab dotenv report written by tools/ci/lib.sh.
 /ci.env
+
+# --- Swift (apps/mac; build with --scratch-path ~/Library/Caches/midgard-build/swift) ---
+apps/mac/.build/
+apps/mac/.swiftpm/
