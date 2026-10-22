@@ -13,10 +13,12 @@ const NAMED: &[&str] = &[
     "published",
 ];
 
-/// Whether an attribute (or CSV column) holds a time to move.
+/// Whether an attribute or CSV column holds a time to move: one rule for both.
 pub fn is_time_key(key: &str) -> bool {
     key.ends_with("_at")
         || key.ends_with("_time")
+        || key.ends_with("_start")
+        || key.ends_with("_end")
         || key.starts_with("time_")
         || NAMED.contains(&key)
 }
@@ -129,10 +131,7 @@ pub fn shift_csv(text: &str, shift: i64) -> String {
         .fields
         .iter()
         .enumerate()
-        .filter(|(_, h)| {
-            let h = h.trim_matches('"');
-            h.ends_with("_at") || h.starts_with("time_")
-        })
+        .filter(|(_, h)| is_time_key(h.trim_matches('"')))
         .map(|(i, _)| i)
         .collect();
     if cols.is_empty() {

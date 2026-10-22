@@ -38,8 +38,9 @@ Offsets are seconds from `recordedFrom`. Forge has a version of every file at of
 ## Time shifting rules (both Heimdall and Forge)
 
 `shift = loopStart - recordedFrom`, where `loopStart = replayStart + loop * duration`.
-- Heimdall: `observedAt += shift`. Each attribute whose key ends with `_at` or `_time`, starts with `time_`, or is one of `started ended etr valid_from valid_to published` is shifted when its value is a number between 1,000,000,000 and 4,000,000,000.
-- Forge CSV: in columns whose header name ends with `_at` or starts with `time_`, an unquoted whole number in the same range is shifted. Every other byte is kept.
+- Time keys (one rule for Heimdall attributes and Forge CSV columns, `is_time_key`): a key or header name that ends with `_at`, `_time`, `_start` or `_end`, starts with `time_`, or is one of `started ended etr valid_from valid_to published`.
+- Heimdall: `observedAt += shift`, and each attribute with a time key is shifted when its value is a number between 1,000,000,000 and 4,000,000,000.
+- Forge CSV: in each column whose (unquoted) header name is a time key, a field made only of ASCII digits with a value in the same range is shifted. Every other byte is kept, each record's own line terminator (CRLF, LF or none) included.
 
 ---
 

@@ -25,6 +25,8 @@ fn shifts_observed_at_and_time_attributes_only() {
 fn time_keys() {
     for k in [
         "pos_at",
+        "period_start",
+        "period_end",
         "event_time",
         "time_raised",
         "started",
@@ -81,4 +83,13 @@ fn last_record_without_newline_stays_without_one() {
 fn only_all_digit_fields_are_shifted() {
     let csv = "key,time_raised\nA,+1792000000\nB, 1792000000\n";
     assert_eq!(shift_csv(csv, 60), csv);
+}
+
+#[test]
+fn period_start_column_is_shifted() {
+    let csv = "key,name,period_start,wind_pct\r\nCI-1,North,1792686600,99.8\r\n";
+    assert_eq!(
+        shift_csv(csv, 60),
+        "key,name,period_start,wind_pct\r\nCI-1,North,1792686660,99.8\r\n"
+    );
 }
