@@ -5,6 +5,8 @@
 #   Midgard.app            copied with ditto from ~/Library/Caches/midgard-build/app
 #   Applications           a symlink to /Applications, the drag target
 #   Install Midgard.pdf    install-sheet.html rendered with headless Chrome (A4, one page)
+# It refuses an app built from another commit than HEAD (Info.plist's MidgardGitCommit) or
+# not asking for macOS 13.3 (LSMinimumSystemVersion): rebuild with build-app.sh first.
 # It is checked before it is published: hdiutil verify, then mounted read-only, the app
 # inside must pass codesign --verify --deep --strict and the sheet and the link must be
 # there. Then it is moved into ~/Library/Caches/midgard-build/dist/Midgard-1.0.dmg and
@@ -45,10 +47,26 @@ step() { echo "==> $*"; }
 # --- Preconditions ---------------------------------------------------------------------
 [ -x "$APP/Contents/MacOS/Midgard" ] \
   || die "no app at $APP; build it first: bash tools/mac-app/build-app.sh"
-if pgrep -f -- "$APP/Contents/" >/dev/null 2>&1; then
+# Running from this bundle (the shell or a helper)? A fixed-string match on the command
+# lines, captured first so the search itself isn't among them.
+procs=$(ps -axww -o command=)
+if grep -Fq -- "$APP/Contents/" <<<"$procs"; then
   die "Midgard is running from $APP; quit it first (Cmd-Q) so the copy is consistent"
 fi
+# Built from this checkout's HEAD, for macOS 13.3: build-app.sh stamps both in Info.plist.
+PLIST="$APP/Contents/Info.plist"
+plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST" 2>/dev/null || true; }
+stamp=$(plist_get MidgardGitCommit)
+head_full=$(git rev-parse HEAD)
+stamp_full=$(git rev-parse --verify -q "${stamp:-none}^{commit}" 2>/dev/null || true)
+if [ -z "$stamp" ] || [ "$stamp_full" != "$head_full" ]; then
+  die "the app was built from ${stamp:-an unknown commit}, not HEAD ($(git rev-parse --short HEAD)); rebuild it: bash tools/mac-app/build-app.sh"
+fi
+minos=$(plist_get LSMinimumSystemVersion)
+[ "$minos" = 13.3 ] \
+  || die "the app asks for macOS ${minos:-?} (LSMinimumSystemVersion), not 13.3; rebuild it: bash tools/mac-app/build-app.sh"
 [ -x "$CHROME" ] || die "headless Chrome not found at $CHROME (set CHROME=...)"
+command -v python3 >/dev/null 2>&1 || die "python3 is needed to check the install sheet (xcode-select --install)"
 [ -f "$SHEET_HTML" ] || die "missing $SHEET_HTML"
 if [ -e "$DESKTOP" ] && { [ -L "$DESKTOP" ] || [ ! -f "$DESKTOP" ]; }; then
   die "$DESKTOP exists and is not a plain file; move it aside"
@@ -57,14 +75,26 @@ fi
 step "checking the app's signature"
 codesign --verify --deep --strict "$APP" || die "$APP does not verify; rebuild it with build-app.sh"
 
-# Room for the staged copy (a clone on APFS, but don't count on it), the image and the
-# Desktop copy: twice the app plus 1 GB.
+# Room for the staged copy (a clone on APFS, but don't count on it) and the image under
+# $BUILD, and for the Desktop copy (also a clone when it can be): each the size of the app,
+# plus slack. Checked per volume, combined when they are the same one.
 app_kb=$(du -sk "$APP" | awk '{print $1}')
 mkdir -p "$BUILD/tmp" "$DIST"
-free_kb=$(df -k "$BUILD/tmp" | awk 'NR==2 {print $4}')
-need_kb=$(( app_kb * 2 + 1024 * 1024 ))
-[ "$free_kb" -ge "$need_kb" ] \
-  || die "not enough free disk: need about $(( need_kb / 1024 )) MB, have $(( free_kb / 1024 )) MB"
+free_kb() { df -k "$1" | awk 'NR==2 {print $4}'; }
+need_build=$(( app_kb * 2 + 512 * 1024 ))
+need_desk=0
+[ "$COPY_DESKTOP" = 1 ] && need_desk=$(( app_kb + 256 * 1024 ))
+check_room() {  # <dir> <needed KB> <what>
+  local have; have=$(free_kb "$1")
+  [ "$have" -ge "$2" ] \
+    || die "not enough free disk for $3 on $(df "$1" | awk 'NR==2 {print $NF}'): need about $(( $2 / 1024 )) MB, have $(( have / 1024 )) MB"
+}
+if [ "$COPY_DESKTOP" = 1 ] && [ "$(stat -f %d "$BUILD/tmp")" != "$(stat -f %d "$HOME/Desktop")" ]; then
+  check_room "$BUILD/tmp" "$need_build" "the build"
+  check_room "$HOME/Desktop" "$need_desk" "the Desktop copy"
+else
+  check_room "$BUILD/tmp" $(( need_build + need_desk )) "the build and the Desktop copy"
+fi
 
 WORK=$(mktemp -d "$BUILD/tmp/dmg.XXXXXX")
 STAGE="$WORK/stage"
@@ -72,23 +102,40 @@ MNT="$WORK/mnt"
 TMP_DMG="$WORK/$NAME"
 DESKTOP_PART="$HOME/Desktop/.$NAME.partial"
 MOUNTED=0
+CHROME_PID=
 cleanup() {
+  [ -n "$CHROME_PID" ] && kill "$CHROME_PID" 2>/dev/null || true
   if [ "$MOUNTED" = 1 ]; then
     hdiutil detach -quiet "$MNT" 2>/dev/null || hdiutil detach -quiet -force "$MNT" 2>/dev/null || true
   fi
-  rm -rf "$WORK"
+  # Never delete through a mount that is still there.
+  if mount | grep -Fq " on $MNT ("; then
+    echo "build-dmg: $MNT is still mounted; left $WORK (hdiutil detach it, then delete the folder)" >&2
+  else
+    rm -rf "$WORK"
+  fi
   rm -f "$DESKTOP_PART"
 }
 trap cleanup EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' INT
+trap 'exit 143' TERM
 mkdir -p "$STAGE" "$MNT"
 
 # --- The install sheet -----------------------------------------------------------------
 step "rendering $SHEET_PDF"
 "$CHROME" --headless --disable-gpu --no-first-run --no-default-browser-check \
   --user-data-dir="$WORK/chrome" --no-pdf-header-footer \
-  --print-to-pdf="$STAGE/$SHEET_PDF" "file://$SHEET_HTML" >"$WORK/chrome.log" 2>&1 \
-  || { cat "$WORK/chrome.log" >&2; die "Chrome failed to render the sheet"; }
+  --print-to-pdf="$STAGE/$SHEET_PDF" "file://$SHEET_HTML" >"$WORK/chrome.log" 2>&1 &
+CHROME_PID=$!
+for _ in $(seq 120); do kill -0 "$CHROME_PID" 2>/dev/null || break; sleep 1; done
+if kill -0 "$CHROME_PID" 2>/dev/null; then
+  kill "$CHROME_PID" 2>/dev/null || true
+  die "Chrome took more than 120 s to render the sheet"
+fi
+chrome_status=0
+wait "$CHROME_PID" || chrome_status=$?
+CHROME_PID=
+[ "$chrome_status" = 0 ] || { cat "$WORK/chrome.log" >&2; die "Chrome failed to render the sheet"; }
 [ -s "$STAGE/$SHEET_PDF" ] || die "Chrome wrote no PDF"
 # One page, and the design system's fonts embedded (not a fallback face).
 python3 -I - "$STAGE/$SHEET_PDF" <<'PY' || die "the install sheet is not one page with its own fonts; edit install-sheet.html"
@@ -116,8 +163,8 @@ step "verifying the image"
 hdiutil verify -quiet "$TMP_DMG" || die "hdiutil verify failed"
 
 step "checking the mounted image"
+MOUNTED=1   # before attach: an interrupted attach is still detached on exit
 hdiutil attach -quiet -nobrowse -readonly -noautoopen -mountpoint "$MNT" "$TMP_DMG"
-MOUNTED=1
 codesign --verify --deep --strict "$MNT/Midgard.app" || die "the app inside the image does not verify"
 [ -s "$MNT/$SHEET_PDF" ] || die "the image has no $SHEET_PDF"
 [ -L "$MNT/Applications" ] && [ "$(readlink "$MNT/Applications")" = /Applications ] \

@@ -33,14 +33,14 @@
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   header {
-    background: var(--ink-900); color: #fff; padding: 6mm 14mm 5mm;
+    background: var(--ink-900); color: #fff; padding: 5.5mm 14mm 4.5mm;
     border-bottom: 1.2mm solid var(--midgard-500);
   }
   .eyebrow { font-family: var(--font-mono); font-size: 7pt; letter-spacing: 0.18em; text-transform: uppercase; color: var(--grey-300); margin: 0 0 1.5mm; }
   h1 { font-family: var(--font-display); font-weight: 700; font-size: 21pt; line-height: 1.05; margin: 0; letter-spacing: 0.01em; }
   h1 span { color: var(--midgard-300); }
   header p.lead { margin: 2mm 0 0; color: var(--grey-100); font-size: 9.6pt; }
-  main { padding: 4.5mm 14mm 0; }
+  main { padding: 4mm 14mm 0; }
   h2 {
     font-family: var(--font-display); font-weight: 700; font-size: 11pt; margin: 0 0 2mm;
     color: var(--ink-900); text-transform: uppercase; letter-spacing: 0.06em;
@@ -48,7 +48,7 @@
   h2::before { content: ''; display: inline-block; width: 2.6mm; height: 2.6mm; background: var(--midgard-500); margin-right: 2mm; vertical-align: 0.05em; }
   b { font-weight: 700; color: var(--ink-900); }
   .mac { font-style: normal; color: var(--ink-900); }
-  .needs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm; margin: 0 0 4mm; }
+  .needs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm; margin: 0 0 3.5mm; }
   .need { border: 0.3mm solid var(--grey-300); border-top: 0.9mm solid var(--ink-900); padding: 1.6mm 2.4mm; }
   .need .big { font-family: var(--font-display); font-weight: 700; font-size: 12pt; color: var(--ink-900); line-height: 1.1; }
   .need .small { font-size: 7.6pt; color: var(--grey-600); line-height: 1.28; margin-top: 0.6mm; }
@@ -63,7 +63,7 @@
   ol.steps p { margin: 0; }
   .say { margin: 1mm 0 0 !important; padding: 1.2mm 2.4mm; background: var(--midgard-tint); border-left: 0.8mm solid var(--midgard-500); font-size: 8.2pt; }
   .note { font-size: 8.2pt; color: var(--grey-600); margin-top: 0.6mm !important; }
-  .after { margin: 0 0 4mm; padding: 1.8mm 3mm; border: 0.3mm solid var(--grey-300); font-size: 8.6pt; }
+  .after { margin: 0 0 3.5mm; padding: 1.8mm 3mm; border: 0.3mm solid var(--grey-300); font-size: 8.6pt; }
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; }
   dl { margin: 0; }
   dt { font-weight: 700; color: var(--ink-900); margin-top: 1.5mm; font-size: 9pt; }
@@ -71,7 +71,7 @@
   dd { margin: 0.2mm 0 0; font-size: 8.5pt; }
   .trouble dt { color: var(--midgard-600); }
   footer {
-    margin: 4mm 14mm 0;
+    margin: 3mm 14mm 0;
     display: flex; justify-content: space-between; border-top: 0.3mm solid var(--grey-300); padding-top: 1.6mm;
     font-family: var(--font-mono); font-size: 6.8pt; color: var(--grey-500); letter-spacing: 0.04em;
   }
@@ -81,7 +81,7 @@
 <header>
   <p class="eyebrow">Install sheet · Mac · version 1.0</p>
   <h1>Installing <span>Midgard</span></h1>
-  <p class="lead">Midgard is a demonstration of the Midgard suite (Midgard, Heimdall, Mimir and Forge) that runs entirely on your Mac, with no internet connection and nothing else to install.</p>
+  <p class="lead">A demonstration of the Midgard suite (Midgard, Heimdall, Mimir, Forge) that runs entirely on your Mac: no internet, nothing else to install.</p>
 </header>
 
 <main>
@@ -89,29 +89,29 @@
   <div class="needs">
     <div class="need"><div class="big">macOS 13.3</div><div class="small">(Ventura) or later. Apple menu › About This Mac shows yours.</div></div>
     <div class="need"><div class="big">8 GB memory</div><div class="small">or more, shown as Memory in About This Mac.</div></div>
-    <div class="need"><div class="big">3 GB free</div><div class="small">disk space, about. The app itself takes 1.6 GB.</div></div>
+    <div class="need"><div class="big">4 GB free</div><div class="small">disk space, about: 1.6 GB for the app plus the .dmg file.</div></div>
     <div class="need"><div class="big">Any Mac</div><div class="small">Apple silicon or Intel. Plus the file <b>Midgard-1.0.dmg</b> and your Mac password.</div></div>
   </div>
 
   <h2>Install it (once per Mac)</h2>
   <ol class="steps">
     <li><span class="t">Double-click Midgard-1.0.dmg.</span>
-      <p>A window opens with three items: <b>Midgard</b>, an <b>Applications</b> folder and this sheet.</p></li>
+      <p>macOS may show <i class="mac">Verifying “Midgard-1.0.dmg”…</i> with a progress bar for a minute or more: wait. Then a window opens with three items: <b>Midgard</b>, an <b>Applications</b> folder and this sheet.</p></li>
     <li><span class="t">Drag the Midgard icon onto the Applications folder.</span>
-      <p>Wait for the copy to finish (about a minute). If your Mac asks for your password, enter it.</p></li>
+      <p><b>Don’t open Midgard from this window; drag it to Applications first.</b> Wait for the copy to finish (about a minute).</p></li>
     <li><span class="t">Open your Applications folder and double-click Midgard.</span>
-      <p>In the Finder choose <b>Go › Applications</b>, or press Shift-Command-A.</p></li>
-    <li><span class="t">macOS says it can’t verify Midgard. That is expected: close the message.</span>
-      <p>Click <b>Done</b> (macOS 15 and later) or <b>Cancel</b> / <b>OK</b> (macOS 13 and 14; the button varies). <b>Don’t click Move to Trash.</b></p>
-      <p class="say">macOS 15 shows <i class="mac">“Midgard” Not Opened</i>: <i class="mac">Apple could not verify “Midgard” is free of malware…</i> Earlier versions say Apple cannot check it. Midgard doesn’t come from the App Store, so Apple hasn’t checked it.</p></li>
+      <p>In the Finder: <b>Go › Applications</b>. The first time, macOS checks the app (it holds a 1.5 GB AI model): a <i class="mac">Verifying “Midgard”…</i> progress bar may show for a minute or more, longer on an older Intel Mac. Wait.</p></li>
+    <li><span class="t">macOS says it can’t verify Midgard. That is expected.</span>
+      <p>Click <b>Done</b> (macOS 15 Sequoia, macOS 26 Tahoe) or <b>Cancel</b> / <b>OK</b> (macOS 13, 14). <b>Not Move to Trash.</b></p>
+      <p class="say">macOS 15 and 26 show <i class="mac">“Midgard” Not Opened</i>: <i class="mac">Apple could not verify “Midgard” is free of malware…</i> Earlier versions say Apple cannot check it. Midgard doesn’t come from the App Store, so Apple hasn’t checked it.</p></li>
     <li><span class="t">Open Apple menu › System Settings › Privacy &amp; Security, then click Open Anyway.</span>
-      <p>Scroll down to the <b>Security</b> section. Next to the line saying “Midgard” was blocked, click <b>Open Anyway</b> and enter your Mac password (or use Touch ID).</p>
+      <p>Scroll down to the <b>Security</b> section. Next to the line saying “Midgard” was blocked, click <b>Open Anyway</b>. When asked, enter your Mac password (an administrator’s) and click <b>Open Anyway</b> (or <b>Open</b>).</p>
       <p class="note">The button stays for about an hour after step 4. If it isn’t there, repeat step 3 and come straight back.</p></li>
-    <li><span class="t">Midgard opens. If macOS asks once more, click Open Anyway (macOS 15) or Open (macOS 13 and 14).</span>
-      <p>The first time only, macOS shows <i class="mac">Verifying “Midgard”…</i> for a minute or so (longer on an older Intel Mac) while it checks the app, which includes a 1.5 GB AI model. If Midgard doesn’t then open by itself, double-click it in Applications again.</p></li>
+    <li><span class="t">Midgard opens.</span>
+      <p>macOS may check it again briefly. If Midgard doesn’t open by itself, double-click it in Applications again.</p></li>
   </ol>
 
-  <p class="after">From now on open Midgard from <b>Applications</b> or <b>Launchpad</b> like any other app, with no more warnings. You can eject the Midgard disk (the eject button beside it in the Finder sidebar) and delete the .dmg file.</p>
+  <p class="after">From now on open Midgard from <b>Applications</b> (or Launchpad / Apps) like any other app, with no more warnings. You can eject the Midgard disk (the eject button beside it in the Finder sidebar). <b>To pass it on:</b> send the .dmg file itself; don’t zip it or copy Midgard.app out.</p>
 
   <div class="cols">
     <section>
@@ -132,16 +132,18 @@
     <section class="trouble">
       <h2>If something goes wrong</h2>
       <dl>
+        <dt>“The disk image couldn’t be opened” or it is damaged</dt>
+        <dd>The file was damaged on its way to you. Download Midgard-1.0.dmg again.</dd>
         <dt>“Midgard is damaged and can’t be opened”</dt>
-        <dd>The file was damaged on its way to you. Move Midgard to the Trash, download Midgard-1.0.dmg again and open it by double-clicking; don’t use another unzip or copy tool.</dd>
+        <dd>Move Midgard to the Trash, download Midgard-1.0.dmg again and install from it by double-clicking; don’t use another unzip or copy tool.</dd>
         <dt>No Open Anyway button</dt>
-        <dd>Double-click Midgard in Applications again (step 3), then go straight back to Privacy &amp; Security.</dd>
+        <dd>Repeat step 3, then go straight back to Privacy &amp; Security.</dd>
+        <dt>Needs an administrator, or no Open Anyway on a work Mac</dt>
+        <dd>Ask your IT team to allow Midgard.</dd>
         <dt>Midgard says it needs macOS 13.3 or 8 GB</dt>
         <dd>This Mac can’t run it. Use another Mac.</dd>
-        <dt>A message that something has stopped</dt>
-        <dd>Click <b>Reset demo…</b>, or quit Midgard and open it again.</dd>
-        <dt>Slow to start or to answer</dt>
-        <dd>Quit other large apps (browsers with many tabs, video calls) and open Midgard again.</dd>
+        <dt>A message that something has stopped, or slow</dt>
+        <dd>Click <b>Reset demo…</b>, or quit Midgard and open it again. Quit other large apps (many browser tabs, video calls).</dd>
       </dl>
     </section>
   </div>

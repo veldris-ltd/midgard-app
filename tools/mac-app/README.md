@@ -302,12 +302,15 @@ it runs beside the Docker suite or `run-native.sh`.
 bash tools/mac-app/build-dmg.sh [--no-desktop]
 ```
 
-- Makes `Midgard-1.0.dmg` from the app `build-app.sh` built (it refuses while Midgard runs
-  from there): `Midgard.app` (copied with `ditto`), an `Applications` link to drag it onto,
-  and `Install Midgard.pdf`, the one-page install sheet for presenters
-  (`install-sheet.html`, rendered with headless Chrome; the build fails unless it is one A4
-  page with the design system's fonts embedded). HFS+, zlib-compressed; the model barely
+- Makes `Midgard-1.0.dmg` from the app `build-app.sh` built. It refuses an app built from
+  another commit than `HEAD` (`MidgardGitCommit` in its Info.plist) or not asking for macOS
+  13.3 (`LSMinimumSystemVersion`), and one that is running; rerun `build-app.sh` first.
+- The image (HFS+, zlib-compressed) holds `Midgard.app` (copied with `ditto`), an
+  `Applications` link to drag it onto, and `Install Midgard.pdf`, the one-page install sheet
+  for presenters (`install-sheet.html`, rendered with headless Chrome; the build fails
+  unless it is one A4 page with the design system's fonts embedded). The model barely
   compresses, so the image is about the size of the app (1.6 GB) and takes about a minute.
+  Presenters need about 4 GB free: the app plus the image.
 - Checked before it is published: `hdiutil verify`, then mounted read-only, the app inside
   must pass `codesign --verify --deep --strict`, and the sheet and the link must be there.
 - Output: `~/Library/Caches/midgard-build/dist/Midgard-1.0.dmg`, copied to
@@ -315,5 +318,9 @@ bash tools/mac-app/build-dmg.sh [--no-desktop]
   prints the size and SHA-256; send that with the file so a damaged download shows.
 - The app is signed ad hoc, not notarised, so on first launch macOS blocks it until the
   presenter clicks Open Anyway in System Settings › Privacy & Security; the install sheet
-  walks through that ("Phase 5 notes" in the design doc). To change the sheet, edit
-  `install-sheet.html`, open it in Chrome to check, and rebuild the image.
+  walks through that ("Phase 5 notes" in the design doc). If that route is unavailable
+  (a managed Mac, no Open Anyway button), someone comfortable with Terminal can clear the
+  download flag once: `xattr -dr com.apple.quarantine /Applications/Midgard.app`, then open
+  it normally; on a managed Mac ask IT first.
+- To change the sheet, edit `install-sheet.html`, open it in Chrome to check, and rebuild
+  the image.
