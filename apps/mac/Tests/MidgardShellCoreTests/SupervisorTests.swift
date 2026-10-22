@@ -363,6 +363,24 @@ final class SupervisorTests: XCTestCase {
         XCTAssertNotEqual(supervisor.pid(of: "a"), first)
     }
 
+    /// Reset demo then quit: the second start's processes must be the ones stopped.
+    func testStopAllAfterSecondStartStopsTheSecondGeneration() async throws {
+        let a = try spec("a", "echo 'listening on'; exec sleep 300")
+        let b = try spec("b", "echo 'listening on'; exec sleep 300")
+        let supervisor = supervisor!
+        try await supervisor.start([a, b])
+        let first = [try XCTUnwrap(supervisor.pid(of: "a")), try XCTUnwrap(supervisor.pid(of: "b"))]
+        await supervisor.stopAll()
+        try await supervisor.start([a, b])
+        let second = [try XCTUnwrap(supervisor.pid(of: "a")), try XCTUnwrap(supervisor.pid(of: "b"))]
+        XCTAssertTrue(Set(first).isDisjoint(with: second))
+        await supervisor.close()
+        for pid in first + second {
+            let isGone = await gone(pid, within: 2)
+            XCTAssertTrue(isGone, "pid \(pid) still running")
+        }
+    }
+
     func testNoStartAfterClose() async throws {
         let a = try spec("a", "echo 'listening on'; exec sleep 300")
         try await supervisor.start([a])

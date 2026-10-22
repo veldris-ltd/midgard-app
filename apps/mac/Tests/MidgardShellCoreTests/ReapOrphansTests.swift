@@ -90,4 +90,31 @@ final class ReapOrphansTests: XCTestCase {
         let none = await Supervisor.reapOrphans(binDir: bin, grace: 1)
         XCTAssertEqual(none, [])
     }
+
+    /// The model server runs from outside the bin dir (Homebrew's llama-server): it is
+    /// found by an argument holding the bundle's models path. Only the arguments count,
+    /// not the environment (the services inherit the shell's).
+    func testReapsByArgumentMarkerButNotByEnvironment() async throws {
+        let marker = "/tmp/midgard-models-\(UUID().uuidString)/granite/model.gguf"
+        let sh = URL(fileURLWithPath: "/bin/sh")
+        let model = try launch(sh, ["-c", "while :; do /bin/sleep 0.2; done", "-m", marker])
+        let other = try launch(sh, ["-c", "while :; do /bin/sleep 0.2; done", "-m", "/elsewhere/model.gguf"])
+        let byEnv = Process()
+        byEnv.executableURL = sh
+        byEnv.arguments = ["-c", "while :; do /bin/sleep 0.2; done"]
+        byEnv.environment = ["MIDGARD_TEST_MODEL": marker]
+        byEnv.standardOutput = FileHandle.nullDevice
+        try byEnv.run()
+        processes.append(byEnv)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(Supervisor.arguments(of: model.processIdentifier),
+                       ["/bin/sh", "-c", "while :; do /bin/sleep 0.2; done", "-m", marker])
+        let reaped = await Supervisor.reapOrphans(binDir: bin, argumentContaining: marker, grace: 1)
+        XCTAssertEqual(reaped.map(\.pid), [model.processIdentifier], "\(reaped)")
+        let isGone = await gone(model.processIdentifier)
+        XCTAssertTrue(isGone)
+        XCTAssertTrue(other.isRunning, "another model path is left alone")
+        XCTAssertTrue(byEnv.isRunning, "the marker in the environment does not count")
+    }
 }

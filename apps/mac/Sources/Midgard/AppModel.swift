@@ -118,6 +118,8 @@ final class AppModel: ObservableObject {
     private var resources: URL { paths.resources }
     private var bin: URL { paths.helpers }
     private var startingState: URL { resources.appendingPathComponent("starting-state", isDirectory: true) }
+    /// In the model server's arguments (it runs from outside the helpers, e.g. Homebrew's).
+    private var modelsMarker: String { resources.appendingPathComponent("models", isDirectory: true).path + "/" }
 
     // MARK: Launch
 
@@ -256,7 +258,7 @@ final class AppModel: ObservableObject {
     private func bootstrap(_ gen: Int) async {
         showStarting("Starting Midgard…", step: nil)
         if !reaped {
-            let found = await Supervisor.reapOrphans(binDir: bin)
+            let found = await Supervisor.reapOrphans(binDir: bin, argumentContaining: modelsMarker)
             reaped = true
             if found.isEmpty {
                 log("no orphaned services")
@@ -646,6 +648,14 @@ final class AppModel: ObservableObject {
         refreshTask?.cancel()
         await start?.value
         await supervisor.close()
+        // A last sweep: anything still running from the helpers, or a model server given
+        // this bundle's models, should not outlive the app. Normally it finds nothing.
+        let leftovers = await Supervisor.reapOrphans(binDir: bin, argumentContaining: modelsMarker, grace: 5)
+        if leftovers.isEmpty {
+            log("quit: final sweep found nothing running")
+        } else {
+            for p in leftovers { log("quit: final sweep ended pid \(p.pid): \(p.executable)") }
+        }
         if let server {
             await Task.detached { server.stop() }.value
         }
@@ -733,6 +743,39 @@ final class AppModel: ObservableObject {
         selfTestRan = true
         let env = ProcessInfo.processInfo.environment
         func pause(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
+        if let sequence = env["MIDGARD_APP_SELFTEST_SEQUENCE"], !sequence.isEmpty {
+            // Steps in order: reset, switch, quit (as Cmd-Q), wait:<seconds>, probe, kill:<service>.
+            for step in sequence.split(separator: ",").map(String.init) {
+                log("self-test step \(step)")
+                switch step {
+                case "reset":
+                    resetDemo()
+                    await pause(2)
+                    let deadline = Date().addingTimeInterval(300)
+                    while phase != .ready, Date() < deadline { await pause(0.5) }
+                case "switch":
+                    if let other = users.first(where: { $0 != currentUser }) { switchUser(other) }
+                    await pause(3)
+                case "quit":
+                    // As a menu Cmd-Q does: from the run loop, not from inside this task
+                    // (terminate's wait would hold the main actor the shutdown needs).
+                    NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
+                    return
+                case "probe":
+                    await probe("sequence")
+                case _ where step.hasPrefix("kill:"):
+                    // kill:<service>: SIGKILL it, as a crash; the supervisor restarts it.
+                    let name = String(step.dropFirst(5))
+                    if let pid = supervisor.pid(of: name) { kill(pid, SIGKILL) }
+                    await pause(1)
+                    let deadline = Date().addingTimeInterval(60)
+                    while statuses[name] != .ready, Date() < deadline { await pause(0.5) }
+                default:
+                    if step.hasPrefix("wait:"), let s = Double(step.dropFirst(5)) { await pause(s) }
+                }
+            }
+            return
+        }
         await pause(4)
         await probe("home"); await snapshot("home")
         go(.heimdall)

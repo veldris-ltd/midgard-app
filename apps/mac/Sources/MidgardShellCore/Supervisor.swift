@@ -408,19 +408,29 @@ public final class Supervisor: @unchecked Sendable {
         public let executable: String
     }
 
-    /// Ends every process whose executable is inside `binDir`: services a crashed shell
-    /// left running, which would hold the state directories' locks. `midgard-replay`
-    /// first, with its children (as `stopAll`); SIGTERM, then SIGKILL after `grace`.
-    /// Returns the processes from `binDir` it ended, replay first.
+    /// Ends every process whose executable is inside `binDir`, and (with
+    /// `argumentContaining`) every process one of whose arguments contains that text, such
+    /// as the model server, which runs from outside `binDir` but is given the bundle's
+    /// model path: services a crashed shell left running, which would hold the state
+    /// directories' locks and the model's memory. `midgard-replay` first, with its
+    /// children (as `stopAll`); SIGTERM, then SIGKILL after `grace`. Returns the processes
+    /// it ended, replay first.
     ///
     /// Run it only after the single-instance check: a second shell would otherwise end
-    /// the services of the first.
-    public static func reapOrphans(binDir: URL, grace: TimeInterval = 10) async -> [ReapedProcess] {
+    /// the services of the first. Also run after `close()` when quitting, as a last
+    /// sweep (it should find nothing).
+    public static func reapOrphans(binDir: URL, argumentContaining marker: String? = nil,
+                                   grace: TimeInterval = 10) async -> [ReapedProcess] {
         let root = realPath(binDir) + "/"
         let me = getpid()
         let found = allPids().compactMap { pid -> ReapedProcess? in
-            guard pid > 0, pid != me, let path = executablePath(of: pid), path.hasPrefix(root) else { return nil }
-            return ReapedProcess(pid: pid, executable: path)
+            guard pid > 0, pid != me, let path = executablePath(of: pid) else { return nil }
+            if path.hasPrefix(root) { return ReapedProcess(pid: pid, executable: path) }
+            if let marker, !marker.isEmpty,
+               arguments(of: pid)?.dropFirst().contains(where: { $0.contains(marker) }) == true {
+                return ReapedProcess(pid: pid, executable: path)
+            }
+            return nil
         }
         let replays = found.filter { isReplay($0.executable) }
         let others = found.filter { !isReplay($0.executable) }
@@ -487,6 +497,29 @@ public final class Supervisor: @unchecked Sendable {
         guard bytes > 0 else { return [] }
         return pids.prefix(Int(bytes) / MemoryLayout<pid_t>.size).filter { $0 > 0 }
             .map { ReapedProcess(pid: $0, executable: executablePath(of: $0) ?? "") }
+    }
+
+    /// A process's argument vector (argv[0] first), nil if it is gone or not ours to read.
+    /// From `KERN_PROCARGS2`: argc, the exec path, padding, then argc strings (the
+    /// environment follows them and is not returned).
+    static func arguments(of pid: pid_t) -> [String]? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        let argc = buffer.withUnsafeBytes { Int($0.load(as: Int32.self)) }
+        var index = MemoryLayout<Int32>.size
+        while index < size, buffer[index] != 0 { index += 1 }  // the exec path
+        while index < size, buffer[index] == 0 { index += 1 }  // its padding
+        var args: [String] = []
+        while args.count < argc, index < size {
+            let start = index
+            while index < size, buffer[index] != 0 { index += 1 }
+            args.append(String(decoding: buffer[start..<index], as: UTF8.self))
+            index += 1
+        }
+        return args
     }
 
     /// The executable a process runs (libproc), nil if it is gone.
