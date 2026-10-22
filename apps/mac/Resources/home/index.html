@@ -101,6 +101,7 @@
   .guide .alerts li { border-left-color: var(--heimdall-500); }
   .guide li .where { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--grey-400); margin-top: 2px; }
   .guide .live { margin-top: 18px; color: var(--grey-400); font-size: 15px; }
+  .guide .hint { margin: 0 0 4px; font-family: var(--font-mono); font-size: 12px; color: var(--warn); }
 </style>
 </head>
 <body>
@@ -179,49 +180,67 @@
     }
     function none() { body.replaceChildren(el('p', null, 'No prepared answers in this build.')); }
 
+    // Items grouped by region, in the order the regions first appear.
+    function byRegion(items, regionOf) {
+      var order = [], groups = Object.create(null);
+      items.forEach(function (x) {
+        var r = regionOf(x);
+        if (!groups[r]) { groups[r] = []; order.push(r); }
+        groups[r].push(x);
+      });
+      return order.map(function (r) { return { region: r, items: groups[r] }; });
+    }
+    var DEFAULT_REGION = 'UK & Ireland';   // regions.ts: the one region on at first
+    function regionLine(r) {
+      return how(['Make sure ', [r], ' is switched on under ', ['REGIONS'],
+        r === DEFAULT_REGION ? ' (it is on by default).' : '.']);
+    }
+
     function render(file) {
       if (!file || typeof file !== 'object' || file.version !== 1) return none();
       var guide = file.guide && typeof file.guide === 'object' ? file.guide : {};
       var questions = (Array.isArray(guide.questions) ? guide.questions : [])
         .filter(function (q) { return q && str(q.question); });
+      // An alert outside every region cannot be shown with the regions list, so it is left out.
       var alerts = (Array.isArray(guide.alerts) ? guide.alerts : [])
-        .filter(function (a) { return a && (str(a.label) || str(a.subject)); });
+        .filter(function (a) { return a && str(a.region) && (str(a.label) || str(a.subject)); });
       if (!questions.length && !alerts.length) return none();
-      var out = [];
+      var out = [el('p', 'hint', 'Not in WALL mode — the regions list is hidden there.')];
 
       if (questions.length) {
         out.push(el('h4', 'ask', 'Ask Mimir — instant answers'));
-        // One instruction per region, in the order the regions first appear.
-        var regions = [], byRegion = {};
-        questions.forEach(function (q) {
-          var r = str(q.region) || 'UK & Ireland';
-          if (!byRegion[r]) { byRegion[r] = []; regions.push(r); }
-          byRegion[r].push(str(q.question));
-        });
-        regions.forEach(function (r) {
-          out.push(how(['In Heimdall, switch on ', [r], ' under ', ['REGIONS'], ', then click one of these questions in the ',
-            ['MIMIR'], ' box (or type it) and press ', ['ASK'], '.']));
+        out.push(how(['In Heimdall, click the question in the ', ['MIMIR'], ' box — it answers at once. ',
+          'You can also type it exactly as written, including the question mark, and press ', ['ASK'], '.']));
+        byRegion(questions, function (q) { return str(q.region) || DEFAULT_REGION; }).forEach(function (g) {
+          out.push(regionLine(g.region));
           var ul = el('ul');
-          byRegion[r].forEach(function (q) { ul.appendChild(el('li', null, '\u201C' + q + '\u201D')); });
+          g.items.forEach(function (q) { ul.appendChild(el('li', null, '“' + str(q.question) + '”')); });
           out.push(ul);
         });
       }
 
       if (alerts.length) {
         out.push(el('h4', 'advise', 'Decision support — instant answers'));
-        out.push(how(['In Heimdall, open ', ['ALERTS IN VIEW'], ' (or the bell), click this alert, then press ',
-          ['ASK MIMIR'], ' on it.']));
-        var ul = el('ul', 'alerts');
-        alerts.forEach(function (a) {
-          var li = el('li', null, str(a.label) || str(a.subject));
-          var where = [str(a.region), kindWords(a.kind)].filter(Boolean).join(' · ');
-          if (where) li.appendChild(el('span', 'where', where));
-          ul.appendChild(li);
+        out.push(how(['In Heimdall, click the alert in the ', ['ALERTS IN VIEW'], ' list on the map (or in the bell’s ',
+          ['ALERTS'], ' drawer), then press ', ['ASK MIMIR'], '.']));
+        byRegion(alerts, function (a) { return str(a.region); }).forEach(function (g) {
+          out.push(regionLine(g.region));
+          var ul = el('ul', 'alerts');
+          g.items.forEach(function (a) {
+            var label = str(a.label) || str(a.subject);
+            var li = el('li', null, label);
+            var kind = kindWords(a.kind);
+            // The kind only when the label does not already start with it.
+            if (kind && label.toLowerCase().indexOf(kind.toLowerCase()) === 0) kind = null;
+            var where = [kind, str(a.subject)].filter(Boolean).join(' · ');
+            if (where) li.appendChild(el('span', 'where', where));
+            ul.appendChild(li);
+          });
+          out.push(ul);
         });
-        out.push(ul);
       }
 
-      out.push(el('p', 'live', 'Anything else is answered live by Mimir and takes longer (about 15\u201360 seconds on this Mac).'));
+      out.push(el('p', 'live', 'Anything else is answered live by Mimir and takes longer (about 15–60 seconds on this Mac).'));
       body.replaceChildren.apply(body, out);
     }
 

@@ -85,7 +85,8 @@ if [ -f "$PREPARED" ]; then
   summary=$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert isinstance(d, dict) and d.get("version") == 1, "not version 1"
+v = d.get("version") if isinstance(d, dict) else None
+assert type(v) is int and v == 1, "not version 1"
 e, g = d.get("entries") or {}, d.get("guide") or {}
 print("%d answers, guide: %d questions, %d alerts (recording %s)" % (
     len(e), len(g.get("questions") or []), len(g.get("alerts") or []), d.get("recording")))
@@ -101,6 +102,8 @@ if [ -z "$RECORDING_GIVEN" ]; then
   else
     echo "recording: none given and no $DEFAULT_RECORDING/meta.json; building without one"
   fi
+elif [ -z "$RECORDING" ]; then
+  echo "recording: none"
 fi
 if [ -n "$RECORDING" ]; then
   [ -f "$RECORDING/meta.json" ] || die "recording $RECORDING has no meta.json"

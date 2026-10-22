@@ -222,8 +222,9 @@ answers plus a `guide` (format in the header of
 Commit the file; rebuild the app.
 
 The home page's Presenter's guide is built from the same file's `guide` when the page
-loads: which region to switch on under REGIONS and which questions to click in the MIMIR
-box, and which alerts to click (ALERTS IN VIEW or the bell) before pressing ASK MIMIR.
+loads, grouped by region (which to switch on under REGIONS; not in WALL mode, which hides
+that list): the questions to click in the MIMIR box (or type exactly, then ASK), and the
+alerts to click in ALERTS IN VIEW or the bell's ALERTS drawer before pressing ASK MIMIR.
 Without the file it says "No prepared answers in this build."
 
 ### Running
