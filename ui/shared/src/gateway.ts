@@ -18,10 +18,9 @@ const DEFAULT_GATEWAY = 'http://127.0.0.1:7710/api/v1';
 
 /** The gateway API base URL: the Mac app's, else VITE_GATEWAY_URL, else the local edge. */
 export function gatewayBaseUrl(): string {
+  // An empty value counts as unset.
   const injected = typeof window !== 'undefined' ? window.__MIDGARD_GATEWAY__ : undefined;
-  // ui/shared has no Vite typings of its own; the consoles' Vite build fills this in.
-  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
-  return injected ?? env?.VITE_GATEWAY_URL ?? DEFAULT_GATEWAY;
+  return injected || import.meta.env.VITE_GATEWAY_URL || DEFAULT_GATEWAY;
 }
 
 /** The Midgard console's URL when the Mac app set one, else undefined. */

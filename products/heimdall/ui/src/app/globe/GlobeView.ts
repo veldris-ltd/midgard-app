@@ -814,7 +814,7 @@ export class GlobeView {
     this.mapStyle = style;
     const on = style !== 'dark';
     this.imagery = on;
-    const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+    const base = import.meta.env.BASE_URL ?? '/';
     const tex = (name: string) => {
       if (!this.textures[name]) {
         const t = new THREE.TextureLoader().load(`${base}imagery/${name}`, () => this.requestRender());
@@ -1315,7 +1315,7 @@ export class GlobeView {
   /** Swap in the sharper terrain grid once it has downloaded (bundled with the console,
    *  so this works offline), then rebuild everything that sits on the ground. */
   private loadHiresTerrain(): void {
-    const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+    const base = import.meta.env.BASE_URL ?? '/';
     fetch(`${base}imagery/${HIRES.file}`)
       .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((buf) => {

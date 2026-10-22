@@ -36,7 +36,7 @@ export type TrafficState =
   | { status: 'unavailable'; reason: string };
 
 // Never read in the offline build, so no key is inlined into it.
-const KEY = OFFLINE ? undefined : (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TOMTOM_KEY;
+const KEY: string | undefined = OFFLINE ? undefined : import.meta.env.VITE_TOMTOM_KEY;
 const OVERVIEW_ZOOM = 7;
 const REFRESH_MS = 5 * 60 * 1000;
 const MAX_TILES = 80;
