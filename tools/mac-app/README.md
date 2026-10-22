@@ -11,6 +11,7 @@ Silicon) and run from a folder, without Docker.
 | `record.py record \| pack` | Records the live feeds for offline replay (see [Recording and replay](#recording-and-replay)) |
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
 | `build-app.sh` | Builds `Midgard.app`, the presentation app (see [The app](#the-app)) |
+| `fetch-llama.sh` | Downloads and lays out the pinned llama.cpp model server for the app (see [Model server](#model-server)) |
 
 ## Prerequisites
 
@@ -202,6 +203,32 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
   `/opt/homebrew/bin`, then `/usr/local/bin`.
 - Signing, notarisation and delivery for phase 5: "Phase 5 notes" in
   `docs/plans/2026-10-22-mac-presentation-app-design.md`.
+
+### Model server
+
+The app's model server is llama.cpp's official macOS release, pinned in `llama.lock` (build
+b11669, the build the suite has run with through Homebrew; both asset URLs and their SHA-256).
+
+```bash
+bash tools/mac-app/fetch-llama.sh
+```
+
+downloads both archives (about 12 MB each) into `~/Library/Caches/midgard-build/llama/b11669/`
+(a download is kept only if its SHA-256 matches the lock; the script fails on a mismatch),
+and lays out `llama/current/{arm64,x64}` (`current` is a symlink to the build folder): in
+each, `llama-server` and the dylibs it loads (ten arm64, nine x64), found with `otool -L`, as real
+files under the names the loader asks for, plus llama.cpp's LICENSE (about 28 MB arm64,
+25 MB x64). The release already loads them through `@rpath` with an `@loader_path` rpath,
+and the Metal shaders are built into `libggml-metal`, so nothing is rewritten; the x64
+release is unsigned and is signed ad hoc. It prints each `--version` (x64 under Rosetta).
+
+- Both builds need macOS 13.3 or later. The x64 build needs AVX2/FMA, which every Intel Mac
+  able to run macOS 13 has; it runs under Rosetta on Apple Silicon (checked on macOS 26; Rosetta has AVX2 from macOS 15).
+- Checked on an M4: arm64 with Metal answers `GET /health` in about 6 s with the Granite
+  model and generates about 50 tokens/s; x64 under Rosetta, CPU only (`--n-gpu-layers 0`),
+  is ready in about 3 s and generates about 7 tokens/s.
+- To move to another build: change `llama.lock` (URLs and SHA-256 from the release, checked
+  against GitHub's digests) and run the script again.
 
 ### Prepared answers and the Presenter's guide
 

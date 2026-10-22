@@ -1,0 +1,12 @@
+# llama.cpp model server bundled in Midgard.app (read by fetch-llama.sh; key=value, no quotes).
+# b11669 is the Homebrew build the suite has run with (`llama-server --version` → 11669);
+# its GitHub release has both macOS assets, so it is pinned as is. The SHA-256s were
+# computed from the downloads and match the digests GitHub publishes for the assets.
+# Both builds need macOS 13.3+ (LC_BUILD_VERSION minos 13.3); the x64 build is compiled
+# for AVX2/FMA/F16C (every Intel Mac that runs macOS 13 has them).
+build=b11669
+date=2026-10-23
+arm64_url=https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-macos-arm64.tar.gz
+arm64_sha256=dbed55493d72bc1ba2babc8770d669c2289b5bc4ee9fb2a4dfc158d45b7d13fd
+x64_url=https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-macos-x64.tar.gz
+x64_sha256=cab28238d78158109b48deb27b05d50e0dcef56275d2e76da9ca8281526c7532
