@@ -12,9 +12,17 @@
 //!
 //! [`DurableObjectStore::apply_batch`] makes many mutations durable with one flush
 //! (on macOS a flush is a full `F_FULLFSYNC`, several milliseconds, so one per record
-//! stalls a large sync). The journal is the same: one sealed frame per record, so a
-//! crash part-way through a batch leaves whole records from its start, which replay
-//! to a consistent prefix; a torn final frame fails the open closed, as ever.
+//! stalls a large sync). The journal is the same: one sealed frame per record. A
+//! crash before a batch's flush leaves either a prefix of the journal — whole records,
+//! which replay to a consistent state — or a torn journal (a power loss can persist
+//! an unflushed batch's bytes out of order, leaving a cut or a hole), and a torn
+//! journal fails the open closed: nothing acknowledged is lost, and nothing
+//! unacknowledged is half-applied.
+//!
+//! A write that fails is cut back off the journal. If even that fails the store is
+//! **wedged**: every later write is refused until [`DurableObjectStore::compact`]
+//! rewrites the journal from memory (which never took the failed write), the
+//! recovery path.
 //!
 //! Every update appends a whole object, so the journal outgrows the data it holds.
 //! [`DurableObjectStore::compact`] rewrites it as one `PutObject` per object and one
@@ -49,7 +57,22 @@ pub struct DurableObjectStore {
     store_id: String,
     op_seq: u64,
     poison: Option<String>,
+    wedged: Option<String>,
     flushes: u64,
+    #[cfg(test)]
+    faults: Vec<Fault>,
+}
+
+/// An injected journal I/O failure, for tests of the failure paths.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fault {
+    /// Write half the frames, then fail.
+    WriteHalf,
+    /// Write every frame, then fail the flush.
+    Sync,
+    /// Fail cutting a failed write back off the journal.
+    Cut,
 }
 
 impl DurableObjectStore {
@@ -118,7 +141,10 @@ impl DurableObjectStore {
             store_id,
             op_seq,
             poison: None,
+            wedged: None,
             flushes: 0,
+            #[cfg(test)]
+            faults: Vec::new(),
         })
     }
 
@@ -148,7 +174,12 @@ impl DurableObjectStore {
     /// appended, the journal is flushed once, and only then are they applied to memory:
     /// so when this returns `Ok` every op is on disk, and on `Err` none is applied and
     /// the journal is cut back to where it was.
+    ///
+    /// A wedged store (see [`DurableObjectStore::wedged`]) refuses every batch.
     pub fn apply_batch(&mut self, ops: Vec<StoreOp>) -> Result<usize, FabricError> {
+        if let Some(why) = &self.wedged {
+            return Err(FabricError::Store(format!("journal unusable: {why}")));
+        }
         // Which removals find an object, given the ops before them in the batch.
         let mut present: std::collections::BTreeMap<String, bool> = Default::default();
         let mut kept = Vec::with_capacity(ops.len());
@@ -200,6 +231,14 @@ impl DurableObjectStore {
         Ok(written)
     }
 
+    /// Why the store refuses writes, if a failed write could not be cut back off the
+    /// journal: the journal may then hold records memory does not, and the next record
+    /// would reuse a sequence number. `None` is healthy. A successful
+    /// [`DurableObjectStore::compact`] rewrites the journal from memory and clears it.
+    pub fn wedged(&self) -> Option<&str> {
+        self.wedged.as_deref()
+    }
+
     /// How many times the journal has been flushed to disk since it was opened.
     pub fn flushes(&self) -> u64 {
         self.flushes
@@ -218,7 +257,9 @@ impl DurableObjectStore {
 
     /// Rewrite the journal to hold only what the store holds now, returning the record
     /// counts before and after. Written beside the journal, fsynced, then renamed over
-    /// it; on any error the old journal is untouched and still in use.
+    /// it; on any error the old journal is untouched and still in use. Success also
+    /// un-wedges the store (see [`DurableObjectStore::wedged`]): the new journal holds
+    /// exactly what memory does.
     pub fn compact(&mut self) -> Result<(u64, u64), FabricError> {
         let before = self.op_seq;
         let tmp = self.path.with_extension("compacting");
@@ -272,6 +313,7 @@ impl DurableObjectStore {
             .open(&self.path)
             .map_err(io)?;
         self.op_seq = seq;
+        self.wedged = None;
         Ok((before, seq))
     }
 
@@ -288,24 +330,66 @@ impl DurableObjectStore {
 
     /// Append sealed frames to the journal and flush it. On failure the journal is cut
     /// back to its old length: a record left on disk but not in memory would come back
-    /// after a restart, and the next write would reuse its sequence number.
+    /// after a restart, and the next write would reuse its sequence number. If it
+    /// cannot be cut back, the store is wedged.
     fn append(&mut self, frames: &[u8]) -> Result<(), FabricError> {
         let start = self.file.metadata().map_err(io)?.len();
-        let mut done = self.file.write_all(frames);
-        if done.is_ok() {
-            self.flushes += 1;
-            done = self.file.sync_all();
-        }
+        let done = self.write_frames(frames).and_then(|()| self.flush());
         if let Err(e) = done {
-            if let Err(cut) = self.file.set_len(start).and_then(|()| self.file.sync_all()) {
-                self.poison = Some(format!(
-                    "a failed write could not be taken back off the journal: {cut}"
+            if let Err(cut) = self.cut_back(start) {
+                self.wedged = Some(format!(
+                    "a failed write ({e}) could not be cut back off the journal ({cut}); \
+                     compact the store to recover"
                 ));
             }
             return Err(io(e));
         }
+        self.flushes += 1;
         Ok(())
     }
+
+    fn write_frames(&mut self, frames: &[u8]) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.inject(Fault::WriteHalf) {
+            self.file.write_all(&frames[..frames.len() / 2])?;
+            return Err(injected());
+        }
+        self.file.write_all(frames)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.inject(Fault::Sync) {
+            return Err(injected());
+        }
+        self.file.sync_all()
+    }
+
+    fn cut_back(&mut self, len: u64) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.inject(Fault::Cut) {
+            return Err(injected());
+        }
+        self.file.set_len(len)?;
+        self.file.sync_all()
+    }
+
+    /// Take `fault` if it is armed.
+    #[cfg(test)]
+    fn inject(&mut self, fault: Fault) -> bool {
+        match self.faults.iter().position(|f| *f == fault) {
+            Some(i) => {
+                self.faults.remove(i);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+#[cfg(test)]
+fn injected() -> std::io::Error {
+    std::io::Error::other("injected fault")
 }
 
 impl ObjectStore for DurableObjectStore {
@@ -333,10 +417,8 @@ impl ObjectStore for DurableObjectStore {
     fn neighbors(&self, source_id: &str, link_type: &str) -> Vec<&ObjectInstance> {
         self.inner.neighbors(source_id, link_type)
     }
-    fn apply_all(&mut self, ops: Vec<StoreOp>) {
-        if let Err(e) = self.apply_batch(ops) {
-            self.poison = Some(e.to_string());
-        }
+    fn try_apply_all(&mut self, ops: Vec<StoreOp>) -> Result<(), FabricError> {
+        self.apply_batch(ops).map(drop)
     }
     fn remove_object(&mut self, id: &str) -> Option<ObjectInstance> {
         let obj = self.inner.get_object(id).cloned()?;
@@ -546,4 +628,169 @@ fn decode_op(b: &[u8]) -> Result<Op, FabricError> {
         return Err(FabricError::Store("codec trailing bytes".into()));
     }
     Ok(op)
+}
+
+#[cfg(test)]
+mod tests {
+    //! The journal's I/O failure paths, driven by injected faults.
+
+    use super::*;
+    use audit_writer::AuditError;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// Seals nothing: these tests are about the journal file, not encryption.
+    struct Plain;
+    impl Sealer for Plain {
+        fn seal(&self, _aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, AuditError> {
+            Ok(plaintext.to_vec())
+        }
+        fn unseal(&self, _aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>, AuditError> {
+            Ok(sealed.to_vec())
+        }
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let uniq = Box::into_raw(Box::new(0u8)) as usize;
+        let dir = std::env::temp_dir().join(format!(
+            "fabric-durable-unit-{tag}-{}-{uniq}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("fabric.store")
+    }
+
+    fn open(path: &Path) -> DurableObjectStore {
+        DurableObjectStore::open(path, Box::new(Plain), "unit").unwrap()
+    }
+
+    fn obj(id: &str) -> ObjectInstance {
+        ObjectInstance {
+            id: id.into(),
+            type_id: "track".into(),
+            properties: BTreeMap::new(),
+            marking: Marking {
+                level: ClassificationLevel::UNCLASSIFIED,
+                compartments: BTreeSet::new(),
+            },
+            allowed_purposes: BTreeSet::new(),
+        }
+    }
+
+    fn batch(ids: &[&str]) -> Vec<StoreOp> {
+        ids.iter().map(|id| StoreOp::PutObject(obj(id))).collect()
+    }
+
+    fn len(path: &Path) -> u64 {
+        std::fs::metadata(path).unwrap().len()
+    }
+
+    fn ids(store: &DurableObjectStore) -> Vec<String> {
+        store
+            .objects_of_type("track")
+            .iter()
+            .map(|o| o.id.clone())
+            .collect()
+    }
+
+    fn cleanup(path: &Path) {
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// A batch whose write or flush fails leaves the journal, its record count, the
+    /// flush count and memory exactly as they were, and the store carries on.
+    fn a_failed_append_is_taken_back(fault: Fault) {
+        let path = scratch("cut");
+        {
+            let mut store = open(&path);
+            store.put_object_durable(obj("a")).unwrap();
+            let (bytes, records, flushes) = (len(&path), store.journal_records(), store.flushes());
+            store.faults.push(fault);
+            assert!(store.apply_batch(batch(&["b", "c", "d"])).is_err());
+            assert_eq!(
+                len(&path),
+                bytes,
+                "the partial batch was cut off the journal"
+            );
+            assert_eq!(store.journal_records(), records);
+            assert_eq!(store.flushes(), flushes, "only successful flushes count");
+            assert_eq!(ids(&store), vec!["a"], "memory unchanged");
+            assert!(store.wedged().is_none());
+            store.apply_batch(batch(&["e"])).unwrap();
+        }
+        assert_eq!(
+            ids(&open(&path)),
+            vec!["a", "e"],
+            "reopens with what succeeded"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_short_write_is_taken_back() {
+        a_failed_append_is_taken_back(Fault::WriteHalf);
+    }
+
+    #[test]
+    fn a_failed_flush_is_taken_back() {
+        a_failed_append_is_taken_back(Fault::Sync);
+    }
+
+    #[test]
+    fn a_journal_that_cannot_be_taken_back_wedges_the_store_until_it_is_compacted() {
+        let path = scratch("wedge");
+        {
+            let mut store = open(&path);
+            store.put_object_durable(obj("a")).unwrap();
+            // The frames reach the file, the flush fails, and so does cutting them off.
+            store.faults.extend([Fault::Sync, Fault::Cut]);
+            assert!(store.apply_batch(batch(&["b", "c"])).is_err());
+            assert!(store.wedged().is_some());
+            assert_eq!(ids(&store), vec!["a"]);
+
+            for refused in [
+                store.apply_batch(batch(&["d"])).unwrap_err(),
+                store.put_object_durable(obj("d")).unwrap_err(),
+                store.remove_object_durable("a").unwrap_err(),
+            ] {
+                assert!(
+                    refused.to_string().contains("journal unusable"),
+                    "{refused}"
+                );
+            }
+            assert_eq!(ids(&store), vec!["a"]);
+
+            // Compaction rewrites the journal from memory: the recovery path.
+            store.compact().unwrap();
+            assert!(store.wedged().is_none());
+            store.apply_batch(batch(&["e"])).unwrap();
+        }
+        assert_eq!(
+            ids(&open(&path)),
+            vec!["a", "e"],
+            "the stray frames went with the old journal"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_journal_handle_that_cannot_be_written_wedges_the_store() {
+        // A real I/O failure, no injection: a read-only handle refuses the write and
+        // the cut-back alike.
+        let path = scratch("readonly");
+        {
+            let mut store = open(&path);
+            store.put_object_durable(obj("a")).unwrap();
+            let bytes = len(&path);
+            store.file = File::open(&path).unwrap();
+            assert!(store.apply_batch(batch(&["b"])).is_err());
+            assert!(store.wedged().is_some());
+            assert_eq!(len(&path), bytes);
+            assert_eq!(store.journal_records(), 1);
+            assert_eq!(ids(&store), vec!["a"]);
+            store.compact().unwrap();
+            store.apply_batch(batch(&["c"])).unwrap();
+        }
+        assert_eq!(ids(&open(&path)), vec!["a", "c"]);
+        cleanup(&path);
+    }
 }

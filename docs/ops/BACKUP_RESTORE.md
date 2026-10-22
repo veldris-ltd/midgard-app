@@ -2,11 +2,14 @@
 
 Every durable store in Midgard is the **same primitive**: a KMS-sealed, append-only
 journal (`audit_writer::SealedJournal`) — encrypted at rest under the KMS envelope
-(AES-256-GCM under an ML-KEM-1024-wrapped key, sealed to the trust root), `fsync`ed per
-record before it is acknowledged (the object fabric flushes a whole sync or retention
-sweep once, still before acknowledging it, and still one sealed frame per record), `0600`, with the record sequence bound into the AAD so a reordered or spliced
-record fails authentication. This uniformity is what makes backup and restore a single,
-tested procedure for all of them.
+(AES-256-GCM under an ML-KEM-1024-wrapped key, sealed to the trust root), `fsync`ed
+before a write is acknowledged, `0600`, with the record sequence bound into the AAD so
+a reordered or spliced record fails authentication. Most stores flush per record; the
+object fabric flushes a whole sync, retention sweep or action once, still one sealed
+frame per record. A crash therefore leaves a prefix of the journal or a torn journal
+(a power loss can persist an unflushed batch with a cut or a hole in it), and a torn
+journal fails the open closed: nothing acknowledged is lost. This uniformity is what
+makes backup and restore a single, tested procedure for all of them.
 
 ## The stores (RT-09..14)
 
@@ -25,9 +28,10 @@ files are opaque ciphertext at rest — a backup vault never sees plaintext.
 
 ## Backup (snapshot) procedure — uniform
 
-Because the journals are **append-only and `fsync`ed per record**, a plain file copy is
-a **consistent snapshot** (no quiesce, no lock needed — a copy captures a prefix of the
-log, which is always valid and re-verifiable).
+Because the journals are **append-only and `fsync`ed before acknowledging**, a plain
+file copy is a **consistent snapshot** (no quiesce, no lock needed — a copy captures a
+prefix of the log, which is valid and re-verifiable; a copy taken mid-write can end in
+a torn frame, fails verification, and is re-taken per step 2).
 
 1. **Continuous (preferred):** ship each journal's newly-`fsync`ed bytes to a warm
    replica inside the enclosure (append-only tail follow). RPO ≤ 60 s.
