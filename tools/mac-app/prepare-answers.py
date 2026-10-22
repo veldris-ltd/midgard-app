@@ -31,8 +31,8 @@ Heimdall's console asks:
   default) the open alerts are read again at the end and any subject no longer open is
   dropped. An alert that would share its row in the console's ALERTS IN VIEW panel
   (same severity and text; a click there selects only the newest) with another open
-  alert is skipped; weather warnings are compared by severity, level, weather and
-  valid-to time, and one whose details are not read (only eligible alerts' are)
+  alert is skipped; weather warnings are one row when severity, level and weather
+  match and either their valid-from or their valid-to minute does, and one whose details are not read (only eligible alerts' are)
   counts as possibly the same row. Each `guide.alerts` entry carries the `region` containing the alert (Gulf
   watch alerts are clickable only with the Gulf region on).
   Remaining limit: being observed all hour and open at the start and end of the
@@ -333,27 +333,30 @@ def category(label):
 
 
 def alert_text(label):
-    """alertMarks.ts alertText."""
-    return re.sub(r"[-_]+", " ", label).upper()
+    """alertMarks.ts alertText: dashes and underscores as spaces, trimmed, the word
+    GNSS as GPS (JavaScript's ASCII word boundaries), upper case."""
+    words = re.sub(r"\bgnss\b", "GPS", re.sub(r"[-_]+", " ", label).strip(), flags=re.I | re.A)
+    return words.upper()
 
 
 def weather_of(entity):
-    """A weather warning entity's (level, weather, valid-to minute), upper-cased as its
-    panel row shows them (warningText), or None for any other entity."""
+    """A weather warning entity's (level, weather, valid-from minute, valid-to minute),
+    upper-cased as its panel row shows them (warningText), or None for any other
+    entity."""
     if (entity or {}).get("kind") != "event-weather-warning":
         return None
     attrs = entity.get("attributes") or {}
-    vt = attrs.get("valid_to")
-    vt = int(vt // 60) if isinstance(vt, (int, float)) and not isinstance(vt, bool) and math.isfinite(vt) else None
-    return (ts_str(attrs.get("level")).upper(), ts_str(attrs.get("weather")).upper(), vt)
+    def minute(k):
+        v = attrs.get(k)
+        return int(v // 60) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+    return (ts_str(attrs.get("level")).upper(), ts_str(attrs.get("weather")).upper(), minute("valid_from"), minute("valid_to"))
 
 
 def row_of(a, entity):
     """The ALERTS IN VIEW panel's row for an alert (AlertsPanel groups by severity and
     the mark's text). A weather warning (alert kind event-weather-warning) is
-    ("warning", severity, label, (level, weather, valid-to minute)) — its row's FROM /
-    IN FORCE wording is ignored, so rows that might merge later count as one — with
-    None for the details when its entity is not known; anything else is
+    ("warning", severity, label, (level, weather, valid-from minute, valid-to minute)),
+    with None for the details when its entity is not known; anything else is
     ("text", severity, alertText(label))."""
     sev, label = a.get("severity"), str(a.get("label", ""))
     if a.get("kind") == "event-weather-warning" or weather_of(entity):
@@ -362,11 +365,19 @@ def row_of(a, entity):
 
 
 def same_row(r1, r2):
-    """Whether two rows may be one in the panel: equal, or two weather warnings of one
-    severity and label where either one's details are unknown (errs towards skipping)."""
+    """Whether two rows may be one in the panel: equal; or two weather warnings of one
+    severity and label where either one's details are unknown, or whose level and
+    weather match and whose valid-from or valid-to minute matches (a warning issued
+    ahead shows "FROM <valid from>", one in force "IN FORCE TO <valid to>", and which
+    it shows changes with time). Errs towards skipping."""
     if r1 == r2:
         return True
-    return r1[0] == r2[0] == "warning" and r1[1:3] == r2[1:3] and (r1[3] is None or r2[3] is None)
+    if not (r1[0] == r2[0] == "warning" and r1[1:3] == r2[1:3]):
+        return False
+    d1, d2 = r1[3], r2[3]
+    if d1 is None or d2 is None:
+        return True
+    return d1[:2] == d2[:2] and ((d1[2] is not None and d1[2] == d2[2]) or (d1[3] is not None and d1[3] == d2[3]))
 
 
 def eligible(a, now, all_hour=None):

@@ -185,6 +185,14 @@ class KeysTest(unittest.TestCase):
                 f.write("const EXAMPLES = ['What\\'s new?', \"Say \\\"hi\\\"\"];\n")
             self.assertEqual(pa.examples(p), ["What's new?", 'Say "hi"'])
 
+    def test_alert_text_mirrors_console(self):
+        # alertMarks.ts alertWords/alertText
+        self.assertEqual(pa.alert_text("gnss-interference-high"), "GPS INTERFERENCE HIGH")
+        self.assertEqual(pa.alert_text("-camera_stopped--vehicle-"), "CAMERA STOPPED VEHICLE")
+        self.assertEqual(pa.alert_text("GNSS_jam"), "GPS JAM")
+        self.assertEqual(pa.alert_text("gnssx-jam"), "GNSSX JAM")
+        self.assertEqual(pa.alert_text("é-gnss"), "É GPS")
+
     def test_js_num_and_encoding(self):
         self.assertEqual([pa.js_num(v) for v in (-12, 48, 4, 62)], ["-12", "48", "4", "62"])
         self.assertEqual(pa.js_num(48.12345), "48.123")
@@ -259,9 +267,9 @@ class SelectTest(unittest.TestCase):
         a3, e3 = ww("w3", "x3", "wind", 2000000010, valid_from=NOW + 3600)
         ents = {e["id"]: e for e in (e1, e2, e3)}
         key = lambda a: pa.row_of(a, ents.get(a["entity"]))  # noqa: E731
-        self.assertEqual(key(a1), ("warning", "info", "weather-warning-yellow", ("YELLOW", "WIND", 2000000000 // 60)))
+        self.assertEqual(key(a1), ("warning", "info", "weather-warning-yellow", ("YELLOW", "WIND", None, 2000000000 // 60)))
         self.assertNotEqual(key(a1), key(a2))
-        self.assertEqual(key(a1), key(a3))
+        self.assertTrue(pa.same_row(key(a1), key(a3)))  # same end minute
         self.assertEqual([a["id"] for a in pa.select_alerts([a1, a2, a3], 5, NOW, row_key=key)], ["w2"])
         # Details unknown for one: it may be the same row as any of its severity and label.
         a4 = alert("w4", "x4", "weather-warning-yellow", "info", kind="event-weather-warning")
@@ -269,6 +277,15 @@ class SelectTest(unittest.TestCase):
         a5 = alert("w5", "x5", "weather-warning-amber", "warning", kind="event-weather-warning")
         self.assertEqual(sorted(a["id"] for a in pa.select_alerts([a2, a5], 5, NOW, row_key=key)), ["w2", "w5"])
         self.assertEqual(pa.row_of(alert("z", "z", "power-cut-major"), None), ("text", "warning", "POWER CUT MAJOR"))
+        # Issued ahead, the row shows only FROM <valid_from>: the same start minute is one
+        # row even with different ends; neither matching is two rows.
+        b1, f1 = ww("b1", "y1", "rain", 2000090000, valid_from=2000000000)
+        b2, f2 = ww("b2", "y2", "rain", 2000070000, valid_from=2000000030)
+        b3, f3 = ww("b3", "y3", "rain", 2000050000, valid_from=2000003600)
+        r = {x["id"]: pa.row_of(x, f) for x, f in ((b1, f1), (b2, f2), (b3, f3))}
+        self.assertTrue(pa.same_row(r["b1"], r["b2"]))
+        self.assertFalse(pa.same_row(r["b1"], r["b3"]))
+        self.assertFalse(pa.same_row(r["b1"], pa.row_of(*ww("b4", "y4", "wind", 2000090000, valid_from=2000000000))))
         self.assertEqual(pa.alert_label(a2, dict(e2, attributes=dict(e2["attributes"], name="Yellow warning of rain affecting Wales"))),
                          "Yellow rain warning · Wales")
 
