@@ -86,6 +86,18 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
             .flushes()
     }
 
+    /// Why the enclosure's object store refuses writes, if it does (see
+    /// `DurableObjectStore::wedged`); the next upkeep compacts it to recover.
+    pub fn store_wedged(&self) -> Option<String> {
+        self.enclosure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .fabric()
+            .store()
+            .wedged()
+            .map(str::to_string)
+    }
+
     /// Sync `body`, import-format JSON Lines, from the authenticated workload `peer`,
     /// declared for `purpose`, at `now`.
     pub fn sync_records(

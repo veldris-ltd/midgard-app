@@ -15,6 +15,10 @@ backend-fips = [
     "governance/backend-fips",
 ]
 
+# Test support: `DurableObjectStore::wedge`, for a dependant's tests of recovery from
+# a journal I/O failure. Never enabled in a build that ships.
+test-faults = []
+
 [dependencies]
 policy = { path = "../../crypto/policy" }
 audit-writer = { path = "../../crypto/audit-writer" }
