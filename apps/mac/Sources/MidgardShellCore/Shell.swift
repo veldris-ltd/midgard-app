@@ -73,9 +73,7 @@ public final class InstanceLock: @unchecked Sendable {
             let words = text.split(whereSeparator: \.isWhitespace)
             return .heldBy(words.first.flatMap { pid_t($0) }, stopping: words.dropFirst().first == "stopping")
         }
-        ftruncate(fd, 0)
-        let pid = Array("\(getpid())\n".utf8)
-        _ = pid.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
+        rewrite(fd, "\(getpid())\n")
         return .acquired(InstanceLock(file: file, fd: fd))
     }
 
@@ -83,9 +81,15 @@ public final class InstanceLock: @unchecked Sendable {
     /// instead of handing over to this one).
     public func markStopping() {
         guard fd >= 0 else { return }
-        let text = Array("\(getpid()) stopping\n".utf8)
-        ftruncate(fd, 0)
-        _ = text.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
+        Self.rewrite(fd, "\(getpid()) stopping\n")
+    }
+
+    /// Replaces the lock file's content: writes the new text first, then cuts the file to
+    /// its length, so a reader never sees it empty (a pid is always there to read).
+    private static func rewrite(_ fd: Int32, _ text: String) {
+        let bytes = Array(text.utf8)
+        let written = bytes.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
+        if written == bytes.count { ftruncate(fd, off_t(bytes.count)) }
     }
 
     /// Waits up to `timeout` for the lock at `file` to come free, then takes it.
