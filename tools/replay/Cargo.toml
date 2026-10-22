@@ -1,0 +1,15 @@
+[package]
+name = "midgard-replay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Plays a recorded hour of Heimdall feed batches and Forge source files back on a loop, times shifted to now, through the real signed ingest path; for the offline presentation app."
+
+[[bin]]
+name = "midgard-replay"
+path = "src/main.rs"
+
+[dependencies]
+# Strict options and the dependency-free JSON value, as every Midgard binary uses.
+service-runtime = { path = "../../services/runtime" }

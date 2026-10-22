@@ -829,6 +829,13 @@ name = "midgard-client-sync"
 version = "0.1.0-rc.1"
 
 [[package]]
+name = "midgard-replay"
+version = "0.1.0-rc.1"
+dependencies = [
+ "service-runtime",
+]
+
+[[package]]
 name = "mimir-bridge"
 version = "0.1.0-rc.1"
 dependencies = [
