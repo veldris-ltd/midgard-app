@@ -225,6 +225,15 @@ final class SessionTests: XCTestCase {
         XCTAssertNil(config.urlCache)
     }
 
+    /// Sign-in at startup waits up to a minute for a busy gateway, still loopback only.
+    func testPatientSessionWaitsAMinuteWithoutProxies() {
+        let config = Session.patientLoopback.configuration
+        XCTAssertEqual(config.connectionProxyDictionary?.count, 0)
+        XCTAssertEqual(config.timeoutIntervalForRequest, 60)
+        XCTAssertEqual(config.timeoutIntervalForResource, 60)
+        XCTAssertNil(config.urlCache)
+    }
+
     // MARK: Refresh
 
     func testRefreshTenMinutesBeforeExpiry() {

@@ -465,9 +465,20 @@ final class AppModel: ObservableObject {
     private var gatewayAPI: String? { ports.map { "http://127.0.0.1:\($0.gatewayHTTP)/api/v1" } }
     private var gatewayOrigin: String? { ports.map { "http://127.0.0.1:\($0.gatewayHTTP)" } }
 
+    /// Signs in with up to 60 s per attempt and one more attempt after a timeout or a
+    /// dropped connection (the gateway may be busy storing the first syncs).
     private func login(_ user: DemoUser) async throws -> SessionInfo {
         guard let api = gatewayAPI, let url = URL(string: api) else { throw SessionError.transport("no gateway") }
-        return try await Session.login(gateway: url, user: user)
+        let started = Date()
+        do {
+            let info = try await Session.login(gateway: url, user: user, session: Session.patientLoopback)
+            if Date().timeIntervalSince(started) > 5 { log("sign-in took \(seconds(since: started))") }
+            return info
+        } catch SessionError.transport(let reason) {
+            log("sign-in attempt failed after \(seconds(since: started)) (\(reason)); trying once more")
+            try Task.checkCancellation()
+            return try await Session.login(gateway: url, user: user, session: Session.patientLoopback)
+        }
     }
 
     /// Makes `info` the session for every later page load and schedules its renewal.
@@ -744,7 +755,8 @@ final class AppModel: ObservableObject {
         let env = ProcessInfo.processInfo.environment
         func pause(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
         if let sequence = env["MIDGARD_APP_SELFTEST_SEQUENCE"], !sequence.isEmpty {
-            // Steps in order: reset, switch, quit (as Cmd-Q), wait:<seconds>, probe, kill:<service>.
+            // Steps in order: reset, switch, quit (as Cmd-Q), wait:<seconds>, probe,
+            // kill:<service>, show:<section>, askui (Heimdall's Ask Mimir, as clicked).
             for step in sequence.split(separator: ",").map(String.init) {
                 log("self-test step \(step)")
                 switch step {
@@ -763,6 +775,10 @@ final class AppModel: ObservableObject {
                     return
                 case "probe":
                     await probe("sequence")
+                case _ where step.hasPrefix("show:"):
+                    if let place = Destination(rawValue: String(step.dropFirst(5))) { go(place) }
+                case "askui":
+                    await askThroughHeimdall()
                 case _ where step.hasPrefix("kill:"):
                     // kill:<service>: SIGKILL it, as a crash; the supervisor restarts it.
                     let name = String(step.dropFirst(5))
@@ -805,6 +821,38 @@ final class AppModel: ObservableObject {
         while phase != .ready, Date() < deadline { await pause(0.5) }
         await pause(4)
         await probe("after reset"); await snapshot("after-reset")
+    }
+
+    /// Clicks Heimdall's example question in its Ask Mimir card, as a presenter does, and
+    /// logs what the card shows until it has an answer or a failure (120 s at most).
+    private func askThroughHeimdall() async {
+        let click = """
+            const want = 'What are the most serious alerts in this area?';
+            const button = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === want);
+            if (!button) return 'no example button';
+            // A real model call, not the answer kept from an earlier one (preparedAnswers.ts).
+            try { localStorage.removeItem('heimdall.mimir.prepared'); } catch (e) {}
+            button.click();
+            return 'clicked';
+            """
+        let clicked: String = await withCheckedContinuation { done in web.callAsync(click) { done.resume(returning: $0) } }
+        guard clicked == "clicked" else { return log("self-test ask FAILED: \(clicked)") }
+        let read = """
+            const label = [...document.querySelectorAll('.mg-label')].find(e => e.textContent.trim() === 'MIMIR');
+            let card = label;
+            while (card && !(card.textContent || '').includes('Q ·')) card = card.parentElement;
+            return card ? card.textContent.replace(/\\s+/g, ' ').slice(0, 600) : 'no card';
+            """
+        let started = Date()
+        var last = ""
+        while Date().timeIntervalSince(started) < 120 {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            last = await withCheckedContinuation { done in web.callAsync(read) { done.resume(returning: $0) } }
+            if !last.contains("MIMIR IS THINKING") { break }
+        }
+        // The answer's footer ("ADVISORY · n ITEMS AS EVIDENCE …") shows only once answered.
+        let answered = last.contains("ADVISORY ·") && !last.contains("NO ANSWER")
+        log("self-test ask \(answered ? "ok" : "FAILED") after \(seconds(since: started)): \(last)")
     }
 
     private func probe(_ label: String) async {

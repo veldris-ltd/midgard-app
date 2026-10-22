@@ -54,7 +54,7 @@ use policy::{
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::{CryptoProvider, OsRng, VerifyingKey};
 use std::time::Instant;
-use telemetry::{AvailabilitySlo, HealthRegistry, MetricsRegistry, Toggle};
+use telemetry::{AvailabilitySlo, HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 /// The availability objective the gateway is instrumented against (99.9%).
 const AVAILABILITY_OBJECTIVE: f64 = 0.999;
@@ -619,6 +619,29 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             .lock()
             .expect("slo lock")
             .record(served_ok);
+        if logs_request(&req.method, resp.status) {
+            // One line per POST (questions to Mimir, advice, actions, sign-in) and per
+            // refusal, so a failure the page shows can be traced here. The path only: the
+            // query (a question's text) and the body are not logged.
+            let cors = match (&req.origin, &resp.allow_origin) {
+                (None, _) => "no origin",
+                (Some(_), Some(_)) => "granted",
+                (Some(_), None) => "refused",
+            };
+            let fields = [
+                ("method", req.method.as_str()),
+                ("path", req.path.as_str()),
+                ("status", status.as_str()),
+                ("ms", &format!("{elapsed_ms:.0}")),
+                ("cors", cors),
+            ];
+            let logger = Logger::new("http-gateway", &StdoutJsonSink);
+            if resp.status >= 400 {
+                logger.warn("request", &fields);
+            } else {
+                logger.info("request", &fields);
+            }
+        }
         resp
     }
 
@@ -1157,6 +1180,13 @@ fn hex_decode(s: &str) -> Result<Vec<u8>, ()> {
 }
 
 /// Map a request to a response. All paths are under `/api/v1`.
+/// Which requests `Gateway::handle` writes a log line for: every POST, and every other
+/// request answered with an error (preflights excepted). Polling GETs that succeed are
+/// not logged.
+fn logs_request(method: &str, status: u16) -> bool {
+    method == "POST" || (status >= 400 && method != "OPTIONS")
+}
+
 pub fn route(req: &Request, state: &State) -> Response {
     // CORS preflight.
     if req.method == "OPTIONS" {
@@ -1195,6 +1225,17 @@ fn error_json(message: &str) -> Json {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn logs_posts_and_errors_but_not_successful_polls() {
+        assert!(logs_request("POST", 200));
+        assert!(logs_request("POST", 503));
+        assert!(logs_request("GET", 401));
+        assert!(logs_request("GET", 502));
+        assert!(!logs_request("GET", 200));
+        assert!(!logs_request("OPTIONS", 204));
+        assert!(!logs_request("OPTIONS", 403));
+    }
 
     fn request(method: &str, path: &str, body: &str, bearer: Option<&str>) -> Request {
         Request {

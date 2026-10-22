@@ -98,6 +98,19 @@ public enum Session {
         return URLSession(configuration: config)
     }()
 
+    /// Like `loopback`, but a request may take 60 s: the gateway can be slow to answer
+    /// while it is busy storing the services' first syncs (each object is flushed to
+    /// disk under its lock), and a slower Mac must still sign in.
+    public static let patientLoopback: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.connectionProxyDictionary = [:]
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 60
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
     /// `POST <gateway>/login {username, password}`. `gateway` is the API base
     /// (`http://127.0.0.1:<port>/api/v1`).
     public static func login(gateway: URL, user: DemoUser,
@@ -106,7 +119,7 @@ public enum Session {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 10
+        request.timeoutInterval = session.configuration.timeoutIntervalForRequest
         request.httpBody = try JSONSerialization.data(
             withJSONObject: ["username": user.username, "password": user.password])
 
