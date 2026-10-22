@@ -10,14 +10,23 @@ Run `record` on the development Mac while the Docker suite and the live feeds ru
 writes to ~/Library/Application Support/Midgard-dev/recordings/<name> (raw capture in
 <name>/raw, kept unless --drop-raw), outside the suite folder and its storage budget.
 MIDGARD_HOME (default ~/Desktop/Midgard) is where the live feeds are; MIDGARD_RECORDINGS
-overrides the recordings folder. Ctrl-C stops early
-and still packs.
+overrides the recordings folder. Ctrl-C (or SIGTERM, or closing the terminal) stops early and
+still packs. raw/meta.json is written at the start, so `pack` also works on a capture that
+crashed.
 
-Heimdall batches come from feeds.py's recording hook: while heimdall-poc/feeds/state/record_to
-names a directory, feeds.py also copies every batch it sends there as <time_ns>-<feed>.jsonl
-(written as a dot-file, then renamed). That keeps every batch even when several sources share
-one feed file (regional-extra). adsb.lol (heimdall-poc/batch.jsonl, one writer) and the Forge
-CSVs are polled for changes.
+Heimdall batches come from feeds.py's recording hook (feeds.py is not in git; this is its
+contract):
+  - File: $MIDGARD_HOME/heimdall-poc/feeds/state/record_to
+  - Format: "<absolute directory>\npid=<recorder pid>\n" (this script writes its own pid and
+    removes the file when capture ends, also on Ctrl-C, SIGTERM, SIGHUP and errors).
+  - While the file names an existing directory and that pid is alive, feeds.py also copies every
+    batch it sends there as <time_ns>-<feed>.jsonl: written as ".<time_ns>-<feed>.jsonl", then
+    renamed, so a file without the leading dot is complete.
+  - If the pid is dead (or the directory is missing), feeds.py removes the hook itself, so a
+    killed recorder cannot leave copies piling up; a failed copy never stops the live send.
+This keeps every batch even when several sources share one feed file (regional-extra).
+adsb.lol (heimdall-poc/batch.jsonl, one writer, not sent by feeds.py) and the Forge CSVs are
+polled for changes.
 """
 import argparse
 import contextlib
@@ -129,15 +138,52 @@ def move_incoming(incoming, hdir, recorded_from, taken):
 
 @contextlib.contextmanager
 def record_to(hook, target):
-    """Point feeds.py's recording hook at `target` for the duration of the block; the hook
-    file is always removed afterwards (also on Ctrl-C and errors)."""
+    """Point feeds.py's recording hook at `target` (with this process's pid, so feeds.py can
+    drop a hook whose recorder has gone) for the duration of the block; the hook file is
+    always removed afterwards (also on Ctrl-C and errors)."""
     with open(hook, "w") as f:
-        f.write(os.path.abspath(target) + "\n")
+        f.write(f"{os.path.abspath(target)}\npid={os.getpid()}\n")
     try:
         yield
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.remove(hook)
+
+
+@contextlib.contextmanager
+def stop_on_signals(stopping):
+    """For the duration of the block, SIGINT, SIGTERM and SIGHUP append to `stopping` (the
+    capture loop then stops and the capture is packed); the previous handlers are restored
+    afterwards."""
+    def handler(signum, _frame):
+        if not stopping:
+            print(f"\nstopping ({signal.Signals(signum).name}): packing what was captured")
+        stopping.append(signum)
+
+    signums = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    previous = {s: signal.signal(s, handler) for s in signums}
+    try:
+        yield
+    finally:
+        for s, h in previous.items():
+            signal.signal(s, h)
+
+
+def write_meta(raw, recorded_from, duration):
+    with open(os.path.join(raw, "meta.json"), "w") as f:
+        json.dump({"recordedFrom": recorded_from, "duration": duration}, f)
+
+
+def prepare(out, recorded_from):
+    """Create `<out>/raw` with its folders and a meta.json (duration 1 until the end), so a
+    crashed capture can still be packed; returns the raw path. Refuses an existing `out`."""
+    if os.path.exists(out):
+        raise SystemExit(f"{out} already exists: choose another --name")
+    raw = os.path.join(out, "raw")
+    for sub in ("heimdall", "forge", "incoming"):
+        os.makedirs(os.path.join(raw, sub))
+    write_meta(raw, recorded_from, 1)
+    return raw
 
 
 def pid_alive(pidfile):
@@ -405,13 +451,8 @@ def copy_adsb_lol(hdir, recorded_from, now, last, taken):
 
 def record(minutes, name, drop_raw=False):
     out = os.path.join(RECORDINGS, name)
-    if os.path.exists(out):
-        raise SystemExit(f"{out} already exists: choose another --name")
-    raw = os.path.join(out, "raw")
-    for sub in ("heimdall", "forge", "incoming"):
-        os.makedirs(os.path.join(raw, sub))
-
     recorded_from = int(time.time())
+    raw = prepare(out, recorded_from)
     forge_last = {}
     for p in sorted(glob.glob(os.path.join(FORGE_DATA, "*.csv"))):
         forge_last[p] = os.path.getmtime(p)
@@ -422,30 +463,22 @@ def record(minutes, name, drop_raw=False):
     print(f"recording into {out}: {len(forge_last)} Forge files copied at the start")
 
     stopping = []
-
-    def on_sigint(*_):
-        if not stopping:
-            print("\nstopping: packing what was captured")
-        stopping.append(1)
-
-    signal.signal(signal.SIGINT, on_sigint)
     incoming = os.path.join(raw, "incoming")
-    try:
+    hdir = os.path.join(raw, "heimdall")
+    with stop_on_signals(stopping):
         with record_to(RECORD_TO, incoming):
-            if not restart_feeds():
-                raise SystemExit("feeds runner did not start: run heimdall-poc/feeds/start.sh")
-            print(f"capturing for {minutes:g} min (Ctrl-C stops early)")
-            batches, versions = capture(raw, recorded_from, recorded_from + minutes * 60,
-                                        lambda: bool(stopping), forge_last)
+            started = restart_feeds()
+            if started:
+                print(f"capturing for {minutes:g} min (Ctrl-C stops early)")
+                batches, versions = capture(raw, recorded_from, recorded_from + minutes * 60,
+                                            lambda: bool(stopping), forge_last)
+        if not started:
+            shutil.rmtree(out)  # nothing captured: free the name for the next try
+            raise SystemExit("feeds runner did not start: run heimdall-poc/feeds/start.sh")
         time.sleep(STABLE_S)  # a batch the hook was writing as it was removed
-        batches += move_incoming(incoming, os.path.join(raw, "heimdall"), recorded_from,
-                                 set(os.listdir(os.path.join(raw, "heimdall"))))
-    finally:
-        signal.signal(signal.SIGINT, signal.default_int_handler)
-
-    duration = max(1, int(time.time() - recorded_from))
-    with open(os.path.join(raw, "meta.json"), "w") as f:
-        json.dump({"recordedFrom": recorded_from, "duration": duration}, f)
+        batches += move_incoming(incoming, hdir, recorded_from, set(os.listdir(hdir)))
+        duration = max(1, int(time.time() - recorded_from))
+        write_meta(raw, recorded_from, duration)
     print(f"captured {batches} batches and {versions} Forge versions in {duration} s")
     pack(raw, out)
     if drop_raw:

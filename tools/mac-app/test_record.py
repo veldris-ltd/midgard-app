@@ -6,6 +6,7 @@ capture rule that decides when a changed file is copied.
 import gzip
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -223,9 +224,31 @@ class HookAndRunnerTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             with record.record_to(hook, target):
                 with open(hook) as f:
-                    self.assertEqual(f.read().strip(), os.path.abspath(target))
+                    self.assertEqual(f.read(), f"{os.path.abspath(target)}\npid={os.getpid()}\n")
                 raise RuntimeError("boom")
         self.assertFalse(os.path.exists(hook))
+
+    def test_prepare_writes_meta_at_the_start(self):
+        out = os.path.join(self.tmp.name, "rec-x")
+        raw = record.prepare(out, 1_792_000_000)
+        self.assertEqual(raw, os.path.join(out, "raw"))
+        self.assertEqual(record.load_json(os.path.join(raw, "meta.json")),
+                         {"recordedFrom": 1_792_000_000, "duration": 1})
+        for sub in ("heimdall", "forge", "incoming"):
+            self.assertTrue(os.path.isdir(os.path.join(raw, sub)))
+        with self.assertRaises(SystemExit):
+            record.prepare(out, 1_792_000_000)  # the name is taken
+
+    def test_sigterm_and_sighup_set_the_stopping_flag(self):
+        before = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        stopping = []
+        with record.stop_on_signals(stopping):
+            os.kill(os.getpid(), signal.SIGTERM)
+            self.assertTrue(stopping)
+            os.kill(os.getpid(), signal.SIGHUP)
+            os.kill(os.getpid(), signal.SIGINT)
+            self.assertEqual(len(stopping), 3)
+        self.assertEqual({s: signal.getsignal(s) for s in before}, before)
 
     def test_pid_alive(self):
         pidfile = os.path.join(self.tmp.name, "feeds.pid")
