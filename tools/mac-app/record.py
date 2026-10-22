@@ -298,6 +298,10 @@ def link_or_copy(src, dst):
         shutil.copyfile(src, dst)
 
 
+# The feeds the presentation needs (aircraft and ships); pack warns when one is absent.
+KEY_FEEDS = ["adsb-fi", "adsb-lol", "aisstream"]
+
+
 def pack(raw, out, quiet=False):
     """Pack a raw capture into a recording at `out`; returns the summary.
 
@@ -346,6 +350,7 @@ def pack(raw, out, quiet=False):
                          sum(len(b["observations"]) for b in batches if b["feed"] == feed))
                   for feed in feeds},
         "forge": {file: sum(1 for m in manifest if m["file"] == file) for file in forge_files},
+        "missing_key_feeds": [f for f in KEY_FEEDS if f not in feeds],
     }
     if not quiet:
         print(f"packed {out}: {summary['mb']:.1f} MB (raw capture {raw_mb:.1f} MB), {duration} s")
@@ -355,6 +360,10 @@ def pack(raw, out, quiet=False):
             print(f"  {feed:<24} {n:>5} observations dropped for NaN/Infinity")
         for file, n in summary["forge"].items():
             print(f"  forge {file:<18} {n:>5} versions")
+        if summary["missing_key_feeds"]:
+            print(f"WARNING: no batches from {', '.join(summary['missing_key_feeds'])}: the "
+                  "replay will have no aircraft or ships from them (rate-limited, or not "
+                  "run yet: record for longer)", file=sys.stderr)
     return summary
 
 

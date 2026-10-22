@@ -3,7 +3,9 @@ capture rule that decides when a changed file is copied.
 
     python3 -m unittest tools/mac-app/test_record.py -v
 """
+import contextlib
 import gzip
+import io
 import json
 import os
 import signal
@@ -125,6 +127,14 @@ class PackTest(unittest.TestCase):
             self.assertEqual(f.read(), "a,b\r\n3,4\r\n")
         self.assertTrue(os.path.isfile(os.path.join(self.out, "forge", "jobs.json")))
 
+    def test_pack_warns_about_missing_key_feeds(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            summary = record.pack(self.raw, self.out)
+        self.assertEqual(summary["missing_key_feeds"], ["aisstream"])
+        self.assertIn("WARNING", out.getvalue())
+        self.assertIn("aisstream", out.getvalue())
+
     def test_parse_heimdall_name(self):
         self.assertEqual(record.parse_heimdall_name("000012-adsb-fi.jsonl"), (12, "adsb-fi"))
         self.assertEqual(record.parse_heimdall_name("000012-adsb-fi~003.jsonl"), (12, "adsb-fi"))
@@ -159,6 +169,20 @@ class PackDetailsTest(unittest.TestCase):
         with gzip.open(os.path.join(self.out, "heimdall.jsonl.gz"), "rt") as f:
             got = [json.loads(l, parse_constant=reject) for l in f if l.strip()]
         self.assertEqual([o["entity"] for o in got[0]["observations"]], ["Q3"])
+
+    def test_no_key_feeds_all_listed_and_none_missing_no_warning(self):
+        with open(os.path.join(self.raw, "heimdall", "000001-usgs.jsonl"), "w") as f:
+            f.write(json.dumps(obs("Q1", "earthquake", self.T)) + "\n")
+        summary = record.pack(self.raw, self.out, quiet=True)
+        self.assertEqual(summary["missing_key_feeds"], ["adsb-fi", "adsb-lol", "aisstream"])
+        for feed in ["adsb-fi", "adsb-lol", "aisstream"]:
+            with open(os.path.join(self.raw, "heimdall", f"000001-{feed}.jsonl"), "w") as f:
+                f.write(json.dumps(obs("X" + feed, "air-track", self.T)) + "\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            summary = record.pack(self.raw, self.out)
+        self.assertEqual(summary["missing_key_feeds"], [])
+        self.assertNotIn("WARNING", out.getvalue())
 
     def test_forge_files_hard_linked(self):
         src = os.path.join(self.raw, "forge", "000000-aircraft.csv")
