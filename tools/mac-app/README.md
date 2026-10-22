@@ -173,7 +173,7 @@ internet.
 ### Building
 
 ```bash
-bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-consoles] [--skip-llama] [--out DIR]
+bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-consoles] [--out DIR]
 ```
 
 - Needs the starting state from `make-starting-state.sh` (in
@@ -198,17 +198,9 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
 - The model (1.5 GB) and the starting state are copied as APFS clones, so the 1.6 GB bundle
   costs little extra disk while it stays on the same volume as its sources. With the Rust
   and Swift builds up to date, a build takes about 20 seconds.
-- The model server: the build runs `fetch-llama.sh` (`--skip-llama` reuses
-  `~/Library/Caches/midgard-build/llama/current` as it is) and copies both builds, as real
-  files, into `Contents/Helpers/llama/{arm64,x64}`; every Mach-O there is signed ad hoc and
-  verified before the bundle. `Info.plist` asks for macOS 13.3 (`LSMinimumSystemVersion`),
-  what both llama.cpp builds need; the app's system check says so on an older Mac.
-- The app runs `Helpers/llama/arm64/llama-server` with `--n-gpu-layers 99` (Metal) on
-  Apple Silicon, also when the shell itself runs under Rosetta (`hw.optional.arm64` or
-  `sysctl.proc_translated`), and `Helpers/llama/x64/llama-server` with `--n-gpu-layers 0`
-  and `--threads <physical cores>` (`hw.physicalcpu`) on Intel. A development run without
-  the bundled server (no bundle) falls back to `$MIDGARD_APP_RESOURCES/bin/llama-server`, then
-  Homebrew's (`/opt/homebrew/bin`, `/usr/local/bin`; `brew install llama.cpp`).
+- `llama-server` is not bundled until phase 5: install it with Homebrew
+  (`brew install llama.cpp`). The app looks for it in `Contents/Helpers`, then
+  `/opt/homebrew/bin`, then `/usr/local/bin`.
 - Signing, notarisation and delivery for phase 5: "Phase 5 notes" in
   `docs/plans/2026-10-22-mac-presentation-app-design.md`.
 
