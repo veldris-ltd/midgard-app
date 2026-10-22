@@ -408,26 +408,27 @@ public final class Supervisor: @unchecked Sendable {
         public let executable: String
     }
 
-    /// Ends every process whose executable is inside `binDir`, and (with
-    /// `argumentContaining`) every process one of whose arguments contains that text, such
-    /// as the model server, which runs from outside `binDir` but is given the bundle's
-    /// model path: services a crashed shell left running, which would hold the state
-    /// directories' locks and the model's memory. `midgard-replay` first, with its
+    /// Ends every process whose executable is inside `binDir`, and (with `modelsPrefix`)
+    /// every `llama-server` given a model under that folder (an argument starting with
+    /// it): the model server runs from outside `binDir` (Homebrew's), so it is known by its
+    /// name and its model. Nothing else is matched by its arguments, so a presenter's
+    /// own tools on a model file are left alone. These are services a crashed shell left
+    /// running, which would hold the state directories' locks and the model's memory. `midgard-replay` first, with its
     /// children (as `stopAll`); SIGTERM, then SIGKILL after `grace`. Returns the processes
     /// it ended, replay first.
     ///
     /// Run it only after the single-instance check: a second shell would otherwise end
     /// the services of the first. Also run after `close()` when quitting, as a last
     /// sweep (it should find nothing).
-    public static func reapOrphans(binDir: URL, argumentContaining marker: String? = nil,
+    public static func reapOrphans(binDir: URL, modelsPrefix: String? = nil,
                                    grace: TimeInterval = 10) async -> [ReapedProcess] {
         let root = realPath(binDir) + "/"
         let me = getpid()
         let found = allPids().compactMap { pid -> ReapedProcess? in
             guard pid > 0, pid != me, let path = executablePath(of: pid) else { return nil }
             if path.hasPrefix(root) { return ReapedProcess(pid: pid, executable: path) }
-            if let marker, !marker.isEmpty,
-               arguments(of: pid)?.dropFirst().contains(where: { $0.contains(marker) }) == true {
+            if let modelsPrefix, !modelsPrefix.isEmpty, isModelServer(path),
+               arguments(of: pid)?.dropFirst().contains(where: { $0.hasPrefix(modelsPrefix) }) == true {
                 return ReapedProcess(pid: pid, executable: path)
             }
             return nil
@@ -454,6 +455,11 @@ public final class Supervisor: @unchecked Sendable {
         guard let resolved = realpath(url.path, nil) else { return url.standardizedFileURL.path }
         defer { free(resolved) }
         return String(cString: resolved)
+    }
+
+    /// The model server's executable name (`ServiceSpec` "llama").
+    static func isModelServer(_ executable: String) -> Bool {
+        (executable as NSString).lastPathComponent == "llama-server"
     }
 
     static func isReplay(_ executable: String) -> Bool {

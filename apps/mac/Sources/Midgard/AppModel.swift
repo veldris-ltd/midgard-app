@@ -86,6 +86,7 @@ final class AppModel: ObservableObject {
     private var generation = 0
     private var startTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var switchTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var instanceLock: InstanceLock?
     private(set) var shuttingDown = false
@@ -258,7 +259,7 @@ final class AppModel: ObservableObject {
     private func bootstrap(_ gen: Int) async {
         showStarting("Starting Midgard…", step: nil)
         if !reaped {
-            let found = await Supervisor.reapOrphans(binDir: bin, argumentContaining: modelsMarker)
+            let found = await Supervisor.reapOrphans(binDir: bin, modelsPrefix: modelsMarker)
             reaped = true
             if found.isEmpty {
                 log("no orphaned services")
@@ -444,7 +445,7 @@ final class AppModel: ObservableObject {
         guard let user = currentUser else { return }
         startingStep = "Signing in…"
         do {
-            let info = try await login(user)
+            let info = try await startupLogin(user)
             guard isCurrent(gen) else { return interrupted(gen) }
             adopt(info, for: user)
         } catch {
@@ -465,20 +466,30 @@ final class AppModel: ObservableObject {
     private var gatewayAPI: String? { ports.map { "http://127.0.0.1:\($0.gatewayHTTP)/api/v1" } }
     private var gatewayOrigin: String? { ports.map { "http://127.0.0.1:\($0.gatewayHTTP)" } }
 
-    /// Signs in with up to 60 s per attempt and one more attempt after a timeout or a
-    /// dropped connection (the gateway may be busy storing the first syncs).
+    /// A sign-in while the demo runs (Switch user, renewal): the normal 10 s limit.
     private func login(_ user: DemoUser) async throws -> SessionInfo {
         guard let api = gatewayAPI, let url = URL(string: api) else { throw SessionError.transport("no gateway") }
+        return try await Session.login(gateway: url, user: user)
+    }
+
+    /// The sign-in at startup: up to 60 s per attempt and one more attempt after a
+    /// timeout or a dropped connection, because the gateway may still be busy storing the
+    /// services' first syncs. A slow sign-in is logged with its total time.
+    private func startupLogin(_ user: DemoUser) async throws -> SessionInfo {
+        guard let api = gatewayAPI, let url = URL(string: api) else { throw SessionError.transport("no gateway") }
         let started = Date()
+        let info: SessionInfo
         do {
-            let info = try await Session.login(gateway: url, user: user, session: Session.patientLoopback)
-            if Date().timeIntervalSince(started) > 5 { log("sign-in took \(seconds(since: started))") }
-            return info
+            info = try await Session.login(gateway: url, user: user, session: Session.patientLoopback)
         } catch SessionError.transport(let reason) {
             log("sign-in attempt failed after \(seconds(since: started)) (\(reason)); trying once more")
             try Task.checkCancellation()
-            return try await Session.login(gateway: url, user: user, session: Session.patientLoopback)
+            info = try await Session.login(gateway: url, user: user, session: Session.patientLoopback)
+            log("sign-in succeeded on the second attempt, \(seconds(since: started)) in all")
+            return info
         }
+        if Date().timeIntervalSince(started) > 5 { log("sign-in took \(seconds(since: started))") }
+        return info
     }
 
     /// Makes `info` the session for every later page load and schedules its renewal.
@@ -570,15 +581,21 @@ final class AppModel: ObservableObject {
         guard !shuttingDown, phase == .ready, !switchingUser, user != currentUser else { return }
         switchingUser = true
         refreshTask?.cancel()
-        Task {
-            defer { self.switchingUser = false }
+        let switching = "Switching user to \(user.label)…"
+        note = switching
+        switchTask = Task {
+            defer {
+                self.switchingUser = false
+                if self.note == switching { self.note = nil }
+            }
             do {
                 let info = try await self.login(user)
-                guard !self.shuttingDown, self.phase == .ready else { return }
+                guard !Task.isCancelled, !self.shuttingDown, self.phase == .ready else { return }
                 self.adopt(info, for: user)
                 self.web.reload()
             } catch {
-                guard !self.shuttingDown, self.phase == .ready else { return }
+                guard !Task.isCancelled, !self.shuttingDown, self.phase == .ready else { return }
+                self.note = nil
                 self.log("switch to \(user.username) failed: \(error)")
                 self.note = "Could not sign in as \(user.label). Still signed in as \(self.currentUser?.label ?? "before")."
                 if let session = self.session { self.scheduleRefresh(Session.refreshDate(for: session)) }
@@ -657,11 +674,12 @@ final class AppModel: ObservableObject {
         let start = startTask
         start?.cancel()
         refreshTask?.cancel()
+        switchTask?.cancel()
         await start?.value
         await supervisor.close()
         // A last sweep: anything still running from the helpers, or a model server given
         // this bundle's models, should not outlive the app. Normally it finds nothing.
-        let leftovers = await Supervisor.reapOrphans(binDir: bin, argumentContaining: modelsMarker, grace: 5)
+        let leftovers = await Supervisor.reapOrphans(binDir: bin, modelsPrefix: modelsMarker, grace: 5)
         if leftovers.isEmpty {
             log("quit: final sweep found nothing running")
         } else {

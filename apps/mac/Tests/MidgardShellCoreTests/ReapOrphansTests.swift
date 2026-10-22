@@ -22,9 +22,9 @@ final class ReapOrphansTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    /// Copies a system tool into `bin` under `name`.
-    func install(_ tool: String, as name: String) throws -> URL {
-        let url = bin.appendingPathComponent(name)
+    /// Copies a system tool into `bin` (or `folder`) under `name`.
+    func install(_ tool: String, as name: String, in folder: URL? = nil) throws -> URL {
+        let url = (folder ?? bin).appendingPathComponent(name)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: tool), to: url)
         let sign = Process()
         sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
@@ -92,29 +92,44 @@ final class ReapOrphansTests: XCTestCase {
     }
 
     /// The model server runs from outside the bin dir (Homebrew's llama-server): it is
-    /// found by an argument holding the bundle's models path. Only the arguments count,
-    /// not the environment (the services inherit the shell's).
-    func testReapsByArgumentMarkerButNotByEnvironment() async throws {
-        let marker = "/tmp/midgard-models-\(UUID().uuidString)/granite/model.gguf"
-        let sh = URL(fileURLWithPath: "/bin/sh")
-        let model = try launch(sh, ["-c", "while :; do /bin/sleep 0.2; done", "-m", marker])
-        let other = try launch(sh, ["-c", "while :; do /bin/sleep 0.2; done", "-m", "/elsewhere/model.gguf"])
+    /// found by its name, llama-server, together with an argument that starts with the
+    /// bundle's models path. Anything else stays: a user's editor, shasum or shell on a
+    /// model file, a llama-server on another model, a marker only in the environment.
+    func testReapsOnlyALlamaServerGivenTheModelsPath() async throws {
+        let marker = "/tmp/midgard-models-\(UUID().uuidString)/"
+        let model = marker + "granite/model.gguf"
+        let elsewhere = dir.appendingPathComponent("homebrew", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        let llama = try install("/bin/bash", as: "llama-server", in: elsewhere)
+        let viewer = try install("/bin/bash", as: "less", in: elsewhere)
+        let loop = "while :; do /bin/sleep 0.2; done"
+
+        let server = try launch(llama, ["-c", loop, "llama-server", "-m", model])
+        let otherModel = try launch(llama, ["-c", loop, "llama-server", "-m", "/elsewhere/model.gguf"])
+        let embedded = try launch(llama, ["-c", loop, "llama-server", "--x=" + model])
+        let notLlama = try launch(viewer, ["-c", loop, "less", model])
+        let shell = try launch(URL(fileURLWithPath: "/bin/sh"), ["-c", loop, "sh", model])
         let byEnv = Process()
-        byEnv.executableURL = sh
-        byEnv.arguments = ["-c", "while :; do /bin/sleep 0.2; done"]
-        byEnv.environment = ["MIDGARD_TEST_MODEL": marker]
+        byEnv.executableURL = llama
+        byEnv.arguments = ["-c", loop]
+        byEnv.environment = ["MIDGARD_TEST_MODEL": model]
         byEnv.standardOutput = FileHandle.nullDevice
         try byEnv.run()
         processes.append(byEnv)
-        try await Task.sleep(nanoseconds: 200_000_000)
+        try await Task.sleep(nanoseconds: 300_000_000)
 
-        XCTAssertEqual(Supervisor.arguments(of: model.processIdentifier),
-                       ["/bin/sh", "-c", "while :; do /bin/sleep 0.2; done", "-m", marker])
-        let reaped = await Supervisor.reapOrphans(binDir: bin, argumentContaining: marker, grace: 1)
-        XCTAssertEqual(reaped.map(\.pid), [model.processIdentifier], "\(reaped)")
-        let isGone = await gone(model.processIdentifier)
+        XCTAssertEqual(Supervisor.arguments(of: server.processIdentifier),
+                       [llama.path, "-c", loop, "llama-server", "-m", model])
+        let reaped = await Supervisor.reapOrphans(binDir: bin, modelsPrefix: marker, grace: 1)
+        XCTAssertEqual(reaped.map(\.pid), [server.processIdentifier], "\(reaped)")
+        let isGone = await gone(server.processIdentifier)
         XCTAssertTrue(isGone)
-        XCTAssertTrue(other.isRunning, "another model path is left alone")
-        XCTAssertTrue(byEnv.isRunning, "the marker in the environment does not count")
+        for (process, what) in [(otherModel, "a llama-server on another model"),
+                                (embedded, "the path inside an argument, not at its start"),
+                                (notLlama, "another program on the model file"),
+                                (shell, "a shell given the model path"),
+                                (byEnv, "the path only in the environment")] {
+            XCTAssertTrue(process.isRunning, "\(what) is left alone")
+        }
     }
 }
