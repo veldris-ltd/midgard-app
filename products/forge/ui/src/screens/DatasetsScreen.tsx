@@ -11,7 +11,7 @@ import {
   Tabs,
   Terminal,
 } from '@midgard/design-system';
-import { useAsync } from '@midgard/ui-shared';
+import { useAsync, useGateway } from '@midgard/ui-shared';
 import type { ForgeDataset, ForgeGateway } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
@@ -25,11 +25,15 @@ const DIFF_COLOR: Record<ForgeDataset['diff'][number]['tone'], string> = {
 /* Dataset browser: versioned, branched, sealed datasets with diffs + lineage.
  * Sourced from `listDatasets()`. Reproduces forge/datasets.html. */
 export function DatasetsScreen() {
+  const live = useGateway<ForgeGateway>().live === true;
   const { data, loading } = useAsync<ForgeDataset[], ForgeGateway>((c) => c.listDatasets(), []);
-  const rows = data ?? [];
+  const all = data ?? [];
+  const forgeRows = all.filter((r) => r.branch !== 'live');
+  const feedRows = all.filter((r) => r.branch === 'live');
 
   const [sel, setSel] = React.useState(0);
   const [tab, setTab] = React.useState(0);
+  const rows = live ? [all, forgeRows, feedRows][tab] ?? all : all;
   const d = rows[sel];
   const prevVersion = d ? 'v' + (parseInt(d.version.slice(1), 10) - 1) : '';
 
@@ -47,16 +51,18 @@ export function DatasetsScreen() {
         </div>
       </Card>
       <div>
-        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>VERSION DIFF · {d.version} ← {prevVersion}</div>
+        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>{d.diffTitle ?? `VERSION DIFF · ${d.version} ← ${prevVersion}`}</div>
         {d.diff.map((line, i) => (
           <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: DIFF_COLOR[line.tone], padding: '5px 0', borderBottom: '1px solid var(--divider)' }}>{line.text}</div>
         ))}
       </div>
-      <Terminal title="SEAL" lines={['> forge seal status ' + d.name, 'dek     fabric-dek-ring-a', 'wrap    ML-KEM-1024 · root-03', 'addr    content-hash sha3:22f1…9e04', 'sig     ML-DSA · lineage OK', '# sealed · rebuild reproducible']} />
-      <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-        <Button variant="secondary" size="sm" fullWidth>Time travel</Button>
-        <Button variant="primary" size="sm" fullWidth iconRight={<Icon name="arrow-right" size={14} />}>Open in builder</Button>
-      </div>
+      <Terminal title="SEAL" lines={d.seal ?? ['> forge seal status ' + d.name, 'dek     fabric-dek-ring-a', 'wrap    ML-KEM-1024 · root-03', 'addr    content-hash sha3:22f1…9e04', 'sig     ML-DSA · lineage OK', '# sealed · rebuild reproducible']} />
+      {!live && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+          <Button variant="secondary" size="sm" fullWidth>Time travel</Button>
+          <Button variant="primary" size="sm" fullWidth iconRight={<Icon name="arrow-right" size={14} />}>Open in builder</Button>
+        </div>
+      )}
     </>
   ) : null;
 
@@ -73,13 +79,29 @@ export function DatasetsScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Dataset browser</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="412" label="DATASETS" size="sm" />
-        <StatBlock value="100%" label="SEALED AT REST" size="sm" accent />
-        <StatBlock value="31" label="OPEN BRANCHES" size="sm" />
-        <Button variant="secondary" iconLeft={<Icon name="git-branch" size={15} />}>New branch</Button>
+        {live ? (
+          <>
+            <StatBlock value={String(all.length)} label="DATASETS" size="sm" />
+            <StatBlock value={String(forgeRows.length)} label="FORGE · SEALED" size="sm" accent />
+            <StatBlock value={String(feedRows.length)} label="HEIMDALL · SIGNED" size="sm" />
+          </>
+        ) : (
+          <>
+            <StatBlock value="412" label="DATASETS" size="sm" />
+            <StatBlock value="100%" label="SEALED AT REST" size="sm" accent />
+            <StatBlock value="31" label="OPEN BRANCHES" size="sm" />
+            <Button variant="secondary" iconLeft={<Icon name="git-branch" size={15} />}>New branch</Button>
+          </>
+        )}
       </div>
 
-      <Tabs tabs={[{ label: 'All datasets', badge: '412' }, { label: 'My branches', badge: '3' }, { label: 'Pending merges', badge: '1' }]} active={tab} onChange={setTab} />
+      <Tabs
+        tabs={live
+          ? [{ label: 'All datasets', badge: String(all.length) }, { label: 'Forge jobs', badge: String(forgeRows.length) }, { label: 'Heimdall feeds', badge: String(feedRows.length) }]
+          : [{ label: 'All datasets', badge: '412' }, { label: 'My branches', badge: '3' }, { label: 'Pending merges', badge: '1' }]}
+        active={tab}
+        onChange={(i) => { setTab(i); setSel(0); }}
+      />
 
       <div style={{ overflowX: 'auto' }}>
         <Table<ForgeDataset>

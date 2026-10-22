@@ -102,6 +102,8 @@ export interface ForgeConnector {
   schema: string;
   /** Non-null when the connector needs operator attention. */
   action: string | null;
+  /** The last run, as log lines (live gateways). */
+  lastRun?: string[];
 }
 
 // ---- datasets ---------------------------------------------------------------
@@ -129,6 +131,10 @@ export interface ForgeDataset {
   stateLabel: string;
   diff: ForgeDatasetDiffLine[];
   lineage: ForgeLineageHop[];
+  /** Heading for `diff` (live gateways), else "VERSION DIFF". */
+  diffTitle?: string;
+  /** How the dataset is protected, as log lines (live gateways). */
+  seal?: string[];
 }
 
 // ---- data health ------------------------------------------------------------
@@ -182,6 +188,8 @@ export interface ForgeTransform {
   activeFile: string;
   /** Source lines of the active file. */
   code: string[];
+  /** Source lines of every file, by name (live gateways: each job's definition). */
+  codeByFile?: Record<string, string[]>;
   /** [label, value] contract checks. */
   contractChecks: Array<[string, string]>;
 }
@@ -259,6 +267,9 @@ export class ForgeHumanGateRequiredError extends Error {
 export interface ForgeGateway {
   /** The active policy context for this session. */
   policy(): PolicyContext;
+  /** True when this gateway shows the running system: pipelines run on their own
+   *  schedules, so `runPipeline` replays the last real run rather than starting one. */
+  readonly live?: boolean;
 
   // one primary read per screen ----------------------------------------------
   listPipelines(): Promise<ForgePipeline[]>;

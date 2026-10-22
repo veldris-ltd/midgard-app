@@ -10,9 +10,10 @@ import {
   StatBlock,
   StatusPill,
   Table,
+  Tag,
   Terminal,
 } from '@midgard/design-system';
-import { useAsync } from '@midgard/ui-shared';
+import { useAsync, useGateway } from '@midgard/ui-shared';
 import type { ForgeGateway, ForgeProjection, ForgeProjectionMapping } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
@@ -28,10 +29,15 @@ const KIND_TONE: Record<ForgeProjectionMapping['kind'], 'neutral' | 'accent' | '
 /* Object projection: mapping curated dataset columns onto Midgard fabric
  * objects, links, and markings — governance carried through at query time.
  * Sourced from `listProjections()`. Reproduces forge/projection.html. */
+/** Where the Midgard console runs (the object fabric this projects into). */
+const MIDGARD_CONSOLE = import.meta.env.VITE_MIDGARD_CONSOLE_URL ?? 'http://localhost:5173/';
+
 export function ObjectProjectionScreen() {
+  const live = useGateway<ForgeGateway>().live === true;
   const { data, loading } = useAsync<ForgeProjection[], ForgeGateway>((c) => c.listProjections(), []);
   const projections = data ?? [];
-  const p = projections[0];
+  const [pIdx, setPIdx] = React.useState(0);
+  const p = projections[pIdx] ?? projections[0];
 
   const [sel, setSel] = React.useState(0);
   const rows = p?.mappings ?? [];
@@ -64,7 +70,13 @@ export function ObjectProjectionScreen() {
           <ProvenanceTag id="NFR-SEC-2" title="Markings enforced at query time" />
         </div>
       </div>
-      <Button variant="secondary" size="sm" style={{ marginTop: 'auto' }} iconLeft={<Icon name="arrow-up-right" size={14} />}>Open type in Midgard</Button>
+      {live ? (
+        <a href={MIDGARD_CONSOLE} target="_blank" rel="noreferrer" style={{ marginTop: 'auto', textDecoration: 'none' }}>
+          <Button variant="secondary" size="sm" fullWidth iconLeft={<Icon name="arrow-up-right" size={14} />}>Open the Midgard console</Button>
+        </a>
+      ) : (
+        <Button variant="secondary" size="sm" style={{ marginTop: 'auto' }} iconLeft={<Icon name="arrow-up-right" size={14} />}>Open type in Midgard</Button>
+      )}
     </>
   ) : null;
 
@@ -78,14 +90,22 @@ export function ObjectProjectionScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={5}>PROJECTION</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>flight_tracks_eu → Aircraft</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>{live ? (p?.name ?? 'Projections') : 'flight_tracks_eu → Aircraft'}</h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value={p?.columnsMapped ?? '—'} label="COLUMNS MAPPED" size="sm" accent />
         <StatBlock value={String(p?.linkTypes ?? '—')} label="LINK TYPES" size="sm" />
         <StatBlock value={String(p?.unmarkedRows ?? '—')} label="UNMARKED ROWS" size="sm" />
-        <Button variant="primary" iconLeft={<Icon name="boxes" size={15} />}>Sync now</Button>
+        {!live && <Button variant="primary" iconLeft={<Icon name="boxes" size={15} />}>Sync now</Button>}
       </div>
+
+      {live && projections.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {projections.map((x, i) => (
+            <Tag key={x.id} active={i === pIdx} onClick={() => { setPIdx(i); setSel(0); }}>{x.name}</Tag>
+          ))}
+        </div>
+      )}
 
       {p && (
         <div className="mg-grid-bg" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 18, background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', flexWrap: 'wrap' }}>

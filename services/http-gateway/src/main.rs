@@ -55,6 +55,7 @@ usage:
                [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR [--heimdall-service NAME]
                [--mimir-observe-addr HOST:PORT --mimir-identity-dir DIR [--mimir-service NAME]]
                [--analytics-addr HOST:PORT --analytics-token-file FILE]
+               [--forge-jobs FILE [--forge-status FILE] [--heimdall-feeds-status FILE]]
                 [--heimdall-purpose P]]";
 
 fn main() {
@@ -93,6 +94,9 @@ fn main() {
     let mut heimdall_purpose = "situational-awareness".to_string();
     let mut analytics_addr = None;
     let mut analytics_token_file = None;
+    let mut forge_jobs = None;
+    let mut forge_status = None;
+    let mut feeds_status = None;
     let mut args = argv.iter();
     while let Some(flag) = args.next() {
         let Some(value) = args.next().filter(|v| !v.starts_with("--")) else {
@@ -115,6 +119,9 @@ fn main() {
             "--heimdall-purpose" => heimdall_purpose = value.clone(),
             "--analytics-addr" => analytics_addr = Some(value.clone()),
             "--analytics-token-file" => analytics_token_file = Some(value.clone()),
+            "--forge-jobs" => forge_jobs = Some(value.clone()),
+            "--forge-status" => forge_status = Some(value.clone()),
+            "--heimdall-feeds-status" => feeds_status = Some(value.clone()),
             "--state-dir" => fail_usage("--state-dir given twice"),
             other => fail_usage(&format!("unknown option {other}")),
         }
@@ -130,6 +137,9 @@ fn main() {
     }
     if mimir_addr.is_some() != mimir_identity_dir.is_some() {
         fail_usage("--mimir-observe-addr and --mimir-identity-dir go together");
+    }
+    if forge_jobs.is_none() && (forge_status.is_some() || feeds_status.is_some()) {
+        fail_usage("--forge-status and --heimdall-feeds-status need --forge-jobs");
     }
     if analytics_addr.is_some() != analytics_token_file.is_some() {
         fail_usage("--analytics-addr and --analytics-token-file go together");
@@ -188,6 +198,14 @@ fn main() {
         eprintln!(
             "http-gateway: serving Mimir's model plane and sessions from {addr} as {mimir_service}"
         );
+    }
+    if let Some(jobs) = forge_jobs {
+        eprintln!("http-gateway: serving Forge's live view from {jobs}");
+        gateway = gateway.with_forge(http_gateway::forge_view::ForgeView::new(
+            jobs.into(),
+            forge_status.map(Into::into),
+            feeds_status.map(Into::into),
+        ));
     }
     if let (Some(addr), Some(file)) = (analytics_addr, analytics_token_file) {
         let token = match std::fs::read_to_string(&file) {

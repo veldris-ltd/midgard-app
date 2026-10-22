@@ -36,8 +36,14 @@ export function TransformIdeScreen() {
   const [busy, setBusy] = React.useState(false);
 
   const t = data;
+  const live = gateway.live === true;
   const files = t?.files ?? [];
-  const code = t?.code ?? [];
+  // Live: every job's definition is browsable; open the one the gateway chose first.
+  React.useEffect(() => {
+    if (t?.codeByFile) setFileIdx(Math.max(0, files.indexOf(t.activeFile)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t?.activeFile]);
+  const code = (t?.codeByFile && t.codeByFile[files[fileIdx]]) ?? t?.code ?? [];
 
   const preview = async () => {
     if (!t || busy) return;
@@ -68,11 +74,15 @@ export function TransformIdeScreen() {
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Icon name="code" size={17} color="var(--accent)" />
-        <h2 style={{ fontSize: 15, flex: 1 }}>Same contracts as the builder</h2>
+        <h2 style={{ fontSize: 15, flex: 1 }}>{live ? 'Declared, typed, governed' : 'Same contracts as the builder'}</h2>
       </div>
-      <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>Pro-code transforms compile to the same typed execution plan as low-code graphs; a dataset can mix both in one pipeline. Type errors surface before run, not after.</p>
+      <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        {live
+          ? 'Each Forge job is declared in the jobs file: where it reads from, its typed columns, and how rows become Midgard objects and links, with their marking and purposes. The worker checks every row against these types before anything is synced, and the gateway checks every sync against the ontology.'
+          : 'Pro-code transforms compile to the same typed execution plan as low-code graphs; a dataset can mix both in one pipeline. Type errors surface before run, not after.'}
+      </p>
       <div>
-        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>CONTRACT CHECK</div>
+        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>{live ? `CONTRACT · ${t.id.toUpperCase()}` : 'CONTRACT CHECK'}</div>
         {t.contractChecks.map(([k, v]) => (
           <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontSize: 'var(--fs-xs)' }}>
             <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-faint)', width: 100, flex: 'none' }}>{k.toUpperCase()}</span>
@@ -118,25 +128,29 @@ export function TransformIdeScreen() {
   return (
     <ConsolePage
       active="ide"
-      context="DATA OPS / TRANSFORM IDE · DEV/FUSE-FIX"
+      context={live ? 'DATA OPS / JOB DEFINITIONS' : 'DATA OPS / TRANSFORM IDE · DEV/FUSE-FIX'}
       toolbar={
-        <>
-          <Badge tone="accent">BRANCH · {(t?.branch ?? 'DEV').toUpperCase()}</Badge>
-          <Button variant="secondary" size="sm" onClick={preview} disabled={busy || !t} iconLeft={<Icon name="sparkles" size={14} />}>Preview run</Button>
-          <Button variant="primary" size="sm" onClick={preview} disabled={busy || !t} iconLeft={<Icon name="git-commit" size={14} />}>Commit {t?.nextVersion ?? ''}</Button>
-        </>
+        live ? (
+          <Badge tone="accent">READ-ONLY · DECLARED IN JOBS.JSON</Badge>
+        ) : (
+          <>
+            <Badge tone="accent">BRANCH · {(t?.branch ?? 'DEV').toUpperCase()}</Badge>
+            <Button variant="secondary" size="sm" onClick={preview} disabled={busy || !t} iconLeft={<Icon name="sparkles" size={14} />}>Preview run</Button>
+            <Button variant="primary" size="sm" onClick={preview} disabled={busy || !t} iconLeft={<Icon name="git-commit" size={14} />}>Commit {t?.nextVersion ?? ''}</Button>
+          </>
+        )
       }
       aside={aside}
     >
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={7}>PRO-CODE</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Transform IDE</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>{live ? 'Job definitions' : 'Transform IDE'}</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value={String(t?.filesCount ?? '—')} label="FILES ON BRANCH" size="sm" />
-        <StatBlock value={t?.expectations ?? '—'} label="EXPECTATIONS" size="sm" accent />
-        <StatBlock value={t?.nextVersion ?? '—'} label="NEXT VERSION" size="sm" />
+        <StatBlock value={String(t?.filesCount ?? '—')} label={live ? 'JOBS' : 'FILES ON BRANCH'} size="sm" />
+        {!live && <StatBlock value={t?.expectations ?? '—'} label="EXPECTATIONS" size="sm" accent />}
+        {!live && <StatBlock value={t?.nextVersion ?? '—'} label="NEXT VERSION" size="sm" />}
       </div>
 
       <div style={{ flex: 1, display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', minHeight: 320 }}>

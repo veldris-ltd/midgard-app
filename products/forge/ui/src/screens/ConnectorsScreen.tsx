@@ -10,7 +10,7 @@ import {
   Tag,
   Terminal,
 } from '@midgard/design-system';
-import { useAsync } from '@midgard/ui-shared';
+import { useAsync, useGateway } from '@midgard/ui-shared';
 import type { ForgeConnector, ForgeGateway } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
@@ -18,8 +18,14 @@ import { ConsoleToolbar } from '../app/ConsoleToolbar';
 /* Connector catalogue: typed inbound-pull sources over PQ-mTLS, no egress.
  * Sourced from `listConnectors()`. Reproduces forge/connectors.html. */
 export function ConnectorsScreen() {
+  const live = useGateway<ForgeGateway>().live === true;
   const { data, loading } = useAsync<ForgeConnector[], ForgeGateway>((c) => c.listConnectors(), []);
-  const rows = data ?? [];
+  const all = data ?? [];
+  const FILTERS = ['all', 'streaming', 'batch', 'needs attention'] as const;
+  const [filter, setFilter] = React.useState<(typeof FILTERS)[number]>('all');
+  const rows = all.filter((r) =>
+    filter === 'streaming' ? /stream/i.test(r.cadence) : filter === 'batch' ? !/stream/i.test(r.cadence) : filter === 'needs attention' ? r.state === 'warn' : true,
+  );
 
   const [sel, setSel] = React.useState(0);
   const c = rows[sel];
@@ -59,10 +65,10 @@ export function ConnectorsScreen() {
         <Card size="sm" style={{ borderColor: 'var(--warn)' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 6 }}>ACTION REQUIRED</div>
           <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>{c.action}</p>
-          <Button variant="outline" size="sm" style={{ marginTop: 10 }}>Rotate certificate</Button>
+          {!live && <Button variant="outline" size="sm" style={{ marginTop: 10 }}>Rotate certificate</Button>}
         </Card>
       )}
-      <Terminal title="LAST PULL" lines={['> forge connector test ' + c.name, 'handshake  PQ-mTLS OK', 'rows       48,112 · schema OK', '# contract satisfied']} style={{ marginTop: 'auto' }} />
+      <Terminal title="LAST RUN" lines={c.lastRun ?? ['> forge connector test ' + c.name, 'handshake  PQ-mTLS OK', 'rows       48,112 · schema OK', '# contract satisfied']} style={{ marginTop: 'auto' }} />
     </>
   ) : null;
 
@@ -79,17 +85,18 @@ export function ConnectorsScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Connector catalogue</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="9" label="CONNECTORS" size="sm" />
-        <StatBlock value="16.5 GB" label="DAILY VOLUME" size="sm" />
+        <StatBlock value={String(all.length)} label="CONNECTORS" size="sm" />
+        <StatBlock value={String(all.filter((r) => r.state !== 'warn').length)} label="HEALTHY" size="sm" />
         <StatBlock value="0" label="OUTBOUND PATHS" size="sm" accent />
-        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>Add connector</Button>
+        {!live && <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>Add connector</Button>}
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Tag active>all</Tag>
-        <Tag>streaming</Tag>
-        <Tag>batch</Tag>
-        <Tag>needs attention</Tag>
+        {FILTERS.map((f) => (
+          <Tag key={f} active={filter === f} onClick={() => { setFilter(f); setSel(0); }}>
+            {f}{f === 'needs attention' ? ` · ${all.filter((r) => r.state === 'warn').length}` : ''}
+          </Tag>
+        ))}
       </div>
 
       <div style={{ overflowX: 'auto' }}>

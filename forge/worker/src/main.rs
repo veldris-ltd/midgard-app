@@ -22,8 +22,14 @@
 //! accepted the records. Each run is audited and logged as one JSON line. With `--once`,
 //! every job runs once and the worker exits, 1 if any failed. `/healthz`, `/readyz` and
 //! `/metrics` are served on `--health-bind` when given.
+//!
+//! After every run the worker rewrites `status.json` in the state directory: each job's
+//! interval, last run (outcome, message, dataset version, row, object and link counts,
+//! duration) and its run and failure totals since the worker started. It holds counts
+//! and outcomes only, no data, so a console can show the jobs' live health.
 
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +40,7 @@ use forge_worker::{parse_jobs, run_job, Checkpoints, Job, SecretsDir};
 use governance::Governance;
 use kms::TrustRoot;
 use policy::{DefaultPdp, PolicySet};
+use service_runtime::json::Json;
 use service_runtime::{client, spawn_health_port, unix_seconds, Args, DirLock, ServiceIdentity};
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
@@ -139,11 +146,19 @@ fn run(args: &Args) -> Result<(), String> {
         credentials: credentials.as_ref(),
     };
     let mut synced: Vec<Option<String>> = vec![None; jobs.len()];
+    let mut status = StatusBook::new(state_dir.join("status.json"), &jobs);
 
     if args.flag("once") {
         let mut failed = 0;
         for (job, last) in jobs.iter().zip(synced.iter_mut()) {
-            if !worker.run(job, &mut store, &mut audit, last, &mut checkpoints) {
+            if !worker.run(
+                job,
+                &mut store,
+                &mut audit,
+                last,
+                &mut checkpoints,
+                &mut status,
+            ) {
                 failed += 1;
             }
         }
@@ -164,6 +179,7 @@ fn run(args: &Args) -> Result<(), String> {
                     &mut audit,
                     &mut synced[i],
                     &mut checkpoints,
+                    &mut status,
                 );
                 // A failed run — the gateway not reachable yet, or a link to an object
                 // another job has not synced yet — is retried soon, not a whole
@@ -201,9 +217,11 @@ impl Worker<'_> {
         audit: &mut Governance<L>,
         synced: &mut Option<String>,
         checkpoints: &mut Checkpoints,
+        status: &mut StatusBook,
     ) -> bool {
         let logger = Logger::new(self.service, &StdoutJsonSink);
         let now = unix_seconds();
+        let started = std::time::Instant::now();
         let resume = checkpoints.get(&job.id).map(str::to_string);
         let result = run_job(job, store, self.credentials, resume.as_deref()).and_then(|run| {
             if run.objects == 0 && run.links == 0 {
@@ -238,6 +256,14 @@ impl Worker<'_> {
 
         match result {
             Ok((run, outcome, message)) => {
+                status.record(
+                    &job.id,
+                    now,
+                    started.elapsed(),
+                    outcome,
+                    &message,
+                    Some((&run.version, run.rows, run.objects, run.links)),
+                );
                 let short = run.version.get(..16).unwrap_or(&run.version);
                 let recorded = audit.record_event(
                     self.service,
@@ -272,6 +298,7 @@ impl Worker<'_> {
                 true
             }
             Err(reason) => {
+                status.record(&job.id, now, started.elapsed(), "failed", &reason, None);
                 let _ = audit.record_event(
                     self.service,
                     "RUN forge job failed",
@@ -285,6 +312,92 @@ impl Worker<'_> {
                 logger.error("job run failed", &[("job", &job.id), ("reason", &reason)]);
                 false
             }
+        }
+    }
+}
+
+/// Each job's live status, rewritten to `status.json` after every run.
+struct StatusBook {
+    path: PathBuf,
+    jobs: BTreeMap<String, Vec<(&'static str, Json)>>,
+}
+
+impl StatusBook {
+    fn new(path: PathBuf, jobs: &[Job]) -> Self {
+        let jobs = jobs
+            .iter()
+            .map(|j| {
+                (
+                    j.id.clone(),
+                    vec![
+                        ("id", Json::s(&j.id)),
+                        ("every", Json::Int(j.every as i64)),
+                        ("runs", Json::Int(0)),
+                        ("failures", Json::Int(0)),
+                    ],
+                )
+            })
+            .collect();
+        Self { path, jobs }
+    }
+
+    /// Record a run of `job` and rewrite the file (best effort: a status that cannot
+    /// be written never stops a job).
+    fn record(
+        &mut self,
+        job: &str,
+        at: u64,
+        took: Duration,
+        outcome: &str,
+        message: &str,
+        run: Option<(&str, usize, usize, usize)>,
+    ) {
+        let Some(fields) = self.jobs.get_mut(job) else {
+            return;
+        };
+        let bump = |fields: &mut Vec<(&'static str, Json)>, key: &str| {
+            if let Some((_, Json::Int(n))) = fields.iter_mut().find(|(k, _)| *k == key) {
+                *n += 1;
+            }
+        };
+        bump(fields, "runs");
+        if outcome == "failed" {
+            bump(fields, "failures");
+        }
+        let mut set =
+            |key: &'static str, value: Json| match fields.iter_mut().find(|(k, _)| *k == key) {
+                Some(slot) => slot.1 = value,
+                None => fields.push((key, value)),
+            };
+        set("lastRun", Json::Int(at as i64));
+        set("durationMs", Json::Int(took.as_millis() as i64));
+        set("outcome", Json::s(outcome));
+        set(
+            "message",
+            Json::s(&message.chars().take(300).collect::<String>()),
+        );
+        if let Some((version, rows, objects, links)) = run {
+            set("lastSuccess", Json::Int(at as i64));
+            set("version", Json::s(version));
+            set("rows", Json::Int(rows as i64));
+            set("objects", Json::Int(objects as i64));
+            set("links", Json::Int(links as i64));
+        }
+        let doc = Json::obj(vec![
+            ("generatedAt", Json::Int(unix_seconds() as i64)),
+            (
+                "jobs",
+                Json::Arr(
+                    self.jobs
+                        .values()
+                        .map(|f| Json::obj(f.iter().map(|(k, v)| (*k, v.clone())).collect()))
+                        .collect(),
+                ),
+            ),
+        ]);
+        let tmp = self.path.with_extension("json.tmp");
+        if std::fs::write(&tmp, doc.encode()).is_ok() {
+            let _ = std::fs::rename(&tmp, &self.path);
         }
     }
 }

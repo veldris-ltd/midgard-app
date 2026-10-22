@@ -23,6 +23,7 @@ pub mod boot;
 pub mod camera_analytics;
 pub mod data;
 pub mod enclosure;
+pub mod forge_view;
 pub mod heimdall_bridge;
 pub mod http;
 pub mod import_file;
@@ -129,6 +130,7 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     heimdall: Option<heimdall_bridge::HeimdallBridge>,
     analytics: Option<camera_analytics::AnalyticsClient>,
     mimir: Option<mimir_observer::MimirObserver>,
+    forge: Option<forge_view::ForgeView>,
 }
 
 impl<L: LedgerStore> SecuredGateway<InMemoryStore, L> {
@@ -183,6 +185,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             )),
             heimdall: None,
             analytics: None,
+            forge: None,
             mimir: None,
         }
     }
@@ -207,6 +210,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// `observer`, authorised and audited as `Read`. [FR-MI-8]
     pub fn with_mimir(mut self, observer: mimir_observer::MimirObserver) -> Self {
         self.mimir = Some(observer);
+        self
+    }
+
+    /// Serve the Forge console's live view (`/api/v1/forge/overview`) from `view`,
+    /// authorised and audited as `Read`. [FR-F-2]
+    pub fn with_forge(mut self, view: forge_view::ForgeView) -> Self {
+        self.forge = Some(view);
         self
     }
 
@@ -721,6 +731,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 )),
             },
             // The Mimir console's live view, authorised and audited as `Read`. [FR-MI-8]
+            ("GET", forge_view::OVERVIEW_PATH) => match &self.forge {
+                Some(f) => f.overview(&self.lock().object_types(&ctx, now)),
+                None => Err(EdgeError::new(
+                    404,
+                    "this gateway is not connected to Forge",
+                )),
+            },
             ("GET", mimir_observer::MODELS_PATH) => match &self.mimir {
                 Some(m) => m.models(),
                 None => Err(EdgeError::new(

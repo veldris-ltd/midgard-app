@@ -62,6 +62,7 @@ function Node({ n, selected, onClick }: { n: ForgePipelineNode; selected: boolea
 
 export function PipelineBuilderScreen() {
   const gateway = useGateway<ForgeGateway>();
+  const live = gateway.live === true;
   const { data, loading } = useAsync<ForgePipeline[], ForgeGateway>((c) => c.listPipelines(), []);
   const pipelines = data ?? [];
 
@@ -84,7 +85,9 @@ export function PipelineBuilderScreen() {
   React.useEffect(() => {
     if (pipeline) {
       const last = pipeline.versions[0];
-      setLog([`> forge build ${pipeline.name} --branch ${pipeline.branch}`, `# last build ${last?.ts ?? '—'} · ${last?.status ?? '—'} · ${pipeline.currentVersion}`]);
+      setLog(live
+        ? [`> forge status ${pipeline.name}`, `# last run ${last?.ts ?? '—'} · ${last?.status ?? '—'} · ${pipeline.currentVersion} · ${pipeline.expectations} ok`, '# runs on its own schedule; "Show last run" steps through it']
+        : [`> forge build ${pipeline.name} --branch ${pipeline.branch}`, `# last build ${last?.ts ?? '—'} · ${last?.status ?? '—'} · ${pipeline.currentVersion}`]);
       setProgress(0);
       setPhase('Idle');
     }
@@ -99,8 +102,8 @@ export function PipelineBuilderScreen() {
     if (building || !pipeline) return;
     setBuilding(true);
     setProgress(0);
-    setPhase('Resolving');
-    setLog((l) => [...l, `> forge build ${pipeline.name} --branch ${pipeline.branch}`]);
+    setPhase(live ? 'Replaying' : 'Resolving');
+    setLog((l) => [...l, live ? `> forge last-run ${pipeline.name}` : `> forge build ${pipeline.name} --branch ${pipeline.branch}`]);
     const res = await gateway.runPipeline(pipeline.id);
     timers.current.forEach(clearTimeout);
     timers.current = [];
@@ -109,7 +112,7 @@ export function PipelineBuilderScreen() {
         const pad = (step.stage + '        ').slice(0, 9);
         setLog((l) => [...l, `${step.stage === 'done' ? '# ' : ''}${step.stage === 'done' ? step.detail : pad + step.detail}`]);
         setProgress(Math.round(((i + 1) / res.steps.length) * 100));
-        setPhase(step.stage === 'done' ? 'Sealed' : step.stage.charAt(0).toUpperCase() + step.stage.slice(1));
+        setPhase(step.stage === 'done' ? (live ? 'Last run' : 'Sealed') : step.stage.charAt(0).toUpperCase() + step.stage.slice(1));
         if (i === res.steps.length - 1) setBuilding(false);
       }, 560 * (i + 1));
       timers.current.push(t);
@@ -133,7 +136,7 @@ export function PipelineBuilderScreen() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <Icon name={node.icon} size={17} color="var(--accent)" />
         <h2 style={{ flex: 1, fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15 }}>{node.label}</h2>
-        <StatusPill status={node.status} pulse={false} label={node.status === 'warn' ? 'Drift' : 'Healthy'} />
+        <StatusPill status={node.status} pulse={false} label={node.status === 'warn' ? (live ? 'Attention' : 'Drift') : 'Healthy'} />
       </div>
       <Card size="sm">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -141,8 +144,13 @@ export function PipelineBuilderScreen() {
           <StatBlock value={pipeline.expectations} label="EXPECTATIONS" size="sm" />
         </div>
       </Card>
+      {live && (
+        <Card size="sm">
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--grey-100)', lineHeight: 1.6, overflowWrap: 'anywhere' }}>{node.meta}</div>
+        </Card>
+      )}
       <div>
-        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>VERSION HISTORY</div>
+        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>{live ? 'LAST RUNS' : 'VERSION HISTORY'}</div>
         {pipeline.versions.map((v, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
             <Icon name="git-commit" size={13} color="var(--text-faint)" />
@@ -159,7 +167,13 @@ export function PipelineBuilderScreen() {
           AT REST&nbsp;&nbsp;AES-256-GCM · ML-KEM-1024<br />TRANSIT&nbsp;&nbsp;X25519 + ML-KEM-768<br />LINEAGE&nbsp;&nbsp;ML-DSA SIGNED
         </div>
       </div>
-      <Button variant="secondary" size="sm" style={{ marginTop: 'auto' }} iconLeft={<Icon name="boxes" size={14} />}>Open projection mapping</Button>
+      {live ? (
+        <a href="#/projection" style={{ marginTop: 'auto', textDecoration: 'none' }}>
+          <Button variant="secondary" size="sm" fullWidth iconLeft={<Icon name="boxes" size={14} />}>Open projection mapping</Button>
+        </a>
+      ) : (
+        <Button variant="secondary" size="sm" style={{ marginTop: 'auto' }} iconLeft={<Icon name="boxes" size={14} />}>Open projection mapping</Button>
+      )}
     </>
   ) : null;
 
@@ -171,9 +185,11 @@ export function PipelineBuilderScreen() {
       mainStyle={{ padding: 0, gap: 0 }}
       toolbar={
         <>
-          <Badge tone="accent">BRANCH · {(pipeline?.branch ?? 'MAIN').toUpperCase()}</Badge>
-          <Button variant="secondary" size="sm" iconLeft={<Icon name="git-branch" size={14} />}>Branch</Button>
-          <Button variant="primary" size="sm" iconLeft={<Icon name="play" size={14} />} onClick={runBuild} disabled={building || !pipeline}>{building ? 'Building…' : 'Run build'}</Button>
+          <Badge tone="accent">{live ? `${pipelines.length} PIPELINES · LIVE` : `BRANCH · ${(pipeline?.branch ?? 'MAIN').toUpperCase()}`}</Badge>
+          {!live && <Button variant="secondary" size="sm" iconLeft={<Icon name="git-branch" size={14} />}>Branch</Button>}
+          <Button variant="primary" size="sm" iconLeft={<Icon name="play" size={14} />} onClick={runBuild} disabled={building || !pipeline}>
+            {building ? (live ? 'Replaying…' : 'Building…') : live ? 'Show last run' : 'Run build'}
+          </Button>
         </>
       }
       aside={aside}
@@ -186,17 +202,19 @@ export function PipelineBuilderScreen() {
 
         {/* Build status strip + pipeline switcher */}
         <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <StatusPill status={building ? 'live' : 'healthy'} pulse={building} label={building ? phase : 'Ready'} />
-          <MeterBar value={progress} label="BUILD" width={90} />
+          <StatusPill status={building ? 'live' : 'healthy'} pulse={building} label={building ? phase : live ? 'Live' : 'Ready'} />
+          <MeterBar value={progress} label={live ? 'RUN' : 'BUILD'} width={90} />
           {pipelines.map((p, i) => (
             <Tag key={p.id} active={i === pipeIdx} onClick={() => setPipeIdx(i)}>{p.name}</Tag>
           ))}
         </div>
 
-        <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8 }}>
-          <Tag active>low-code</Tag>
-          <Tag>pro-code</Tag>
-        </div>
+        {!live && (
+          <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8 }}>
+            <Tag active>low-code</Tag>
+            <Tag>pro-code</Tag>
+          </div>
+        )}
 
         {loading && (
           <div style={{ position: 'absolute', bottom: 16, left: 16, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>RESOLVING PIPELINE GRAPH…</div>
@@ -204,15 +222,27 @@ export function PipelineBuilderScreen() {
       </div>
 
       <div style={{ flex: 'none', borderTop: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap' }}>
-        <Terminal title={building ? 'BUILD · RUNNING' : 'BUILD LOG'} lines={log} style={{ flex: '1 1 320px', border: 'none', borderRadius: 0, overflowY: 'auto', maxHeight: 200 }} />
+        <Terminal title={building ? (live ? 'LAST RUN · REPLAY' : 'BUILD · RUNNING') : live ? 'RUN LOG' : 'BUILD LOG'} lines={log} style={{ flex: '1 1 320px', border: 'none', borderRadius: 0, overflowY: 'auto', maxHeight: 200 }} />
         <div style={{ width: 'min(330px, 100%)', flex: '0 1 auto', borderLeft: '1px solid var(--border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <SectionLabel number={4} muted>MIMIR SUGGESTION</SectionLabel>
-          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.6, color: 'var(--text-body)' }}>{pipeline?.suggestion ?? '—'}</p>
-          <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-            <Button variant="outline" size="sm" fullWidth iconLeft={<Icon name="sparkles" size={13} />}>Preview transform</Button>
-            <Button variant="ghost" size="sm">Dismiss</Button>
-          </div>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>LOCAL INFERENCE · Mistral Small 3.2 · PREVIEW-BEFORE-COMMIT [FR-F-7]</span>
+          {live ? (
+            <>
+              <SectionLabel number={4} muted>SOURCE</SectionLabel>
+              <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.6, color: 'var(--text-body)' }}>
+                {pipeline?.suggestion || 'Heimdall feeds: each source is fetched, normalised and signed (ML-DSA), checked and fused into Heimdall\'s picture; its significant items (alerts, fixed infrastructure) reach Midgard as heimdall_track and heimdall_alert objects.'}
+              </p>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', marginTop: 'auto' }}>INBOUND PULL ONLY · NOTHING LEAVES THE ENCLOSURE</span>
+            </>
+          ) : (
+            <>
+              <SectionLabel number={4} muted>MIMIR SUGGESTION</SectionLabel>
+              <p style={{ margin: 0, fontSize: 'var(--fs-xs)', lineHeight: 1.6, color: 'var(--text-body)' }}>{pipeline?.suggestion ?? '—'}</p>
+              <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+                <Button variant="outline" size="sm" fullWidth iconLeft={<Icon name="sparkles" size={13} />}>Preview transform</Button>
+                <Button variant="ghost" size="sm">Dismiss</Button>
+              </div>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>LOCAL INFERENCE · Mistral Small 3.2 · PREVIEW-BEFORE-COMMIT [FR-F-7]</span>
+            </>
+          )}
         </div>
       </div>
     </ConsolePage>

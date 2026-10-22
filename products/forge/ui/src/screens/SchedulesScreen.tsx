@@ -11,7 +11,7 @@ import {
   Tag,
   Terminal,
 } from '@midgard/design-system';
-import { useAsync } from '@midgard/ui-shared';
+import { useAsync, useGateway } from '@midgard/ui-shared';
 import type { ForgeGateway, ForgeSchedule } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
@@ -19,8 +19,14 @@ import { ConsoleToolbar } from '../app/ConsoleToolbar';
 /* Schedules & triggers: batch and streaming pipelines with cadence, triggers,
  * and run history. Sourced from `listSchedules()`. Reproduces forge/schedules.html. */
 export function SchedulesScreen() {
+  const live = useGateway<ForgeGateway>().live === true;
   const { data, loading } = useAsync<ForgeSchedule[], ForgeGateway>((c) => c.listSchedules(), []);
-  const rows = data ?? [];
+  const all = data ?? [];
+  const FILTERS = live ? (['all', 'batch', 'streaming', 'failing'] as const) : (['all', 'batch', 'streaming', 'event-driven', 'failing'] as const);
+  const [filter, setFilter] = React.useState<string>('all');
+  const rows = all.filter((r) =>
+    filter === 'batch' ? r.mode === 'batch' : filter === 'streaming' ? r.mode === 'stream' : filter === 'failing' ? r.state === 'warn' : true,
+  );
 
   const [sel, setSel] = React.useState(0);
   const s = rows[sel];
@@ -44,7 +50,9 @@ export function SchedulesScreen() {
       <Card size="sm">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <StatBlock value={s.mode.toUpperCase()} label="MODE" size="sm" />
-          <StatBlock value={s.mode === 'stream' ? '0.4s' : '5m'} label={s.mode === 'stream' ? 'FUSION LAG' : 'CADENCE'} size="sm" />
+          {live
+            ? <StatBlock value={s.next} label="NEXT RUN" size="sm" />
+            : <StatBlock value={s.mode === 'stream' ? '0.4s' : '5m'} label={s.mode === 'stream' ? 'FUSION LAG' : 'CADENCE'} size="sm" />}
         </div>
       </Card>
       <div>
@@ -58,8 +66,8 @@ export function SchedulesScreen() {
       </div>
       {s.note && (
         <Card size="sm" style={{ borderColor: 'var(--warn)' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 6 }}>RETRY 2/3</div>
-          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>{s.note}</p>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--warn)', marginBottom: 6 }}>{live ? 'LAST RUN SAID' : 'RETRY 2/3'}</div>
+          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55, overflowWrap: 'anywhere' }}>{s.note}</p>
         </Card>
       )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
@@ -81,18 +89,16 @@ export function SchedulesScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Schedules &amp; triggers</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="38" label="SCHEDULED" size="sm" />
-        <StatBlock value="4" label="STREAMING" size="sm" accent />
-        <StatBlock value="1" label="RETRYING" size="sm" />
-        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New schedule</Button>
+        <StatBlock value={live ? String(all.length) : '38'} label="SCHEDULED" size="sm" />
+        <StatBlock value={live ? String(all.filter((r) => r.mode === 'stream').length) : '4'} label="STREAMING" size="sm" accent />
+        <StatBlock value={live ? String(all.filter((r) => r.state === 'warn').length) : '1'} label={live ? 'NEEDING ATTENTION' : 'RETRYING'} size="sm" />
+        {!live && <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New schedule</Button>}
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Tag active>all</Tag>
-        <Tag>batch</Tag>
-        <Tag>streaming</Tag>
-        <Tag>event-driven</Tag>
-        <Tag>failing</Tag>
+        {FILTERS.map((f) => (
+          <Tag key={f} active={filter === f} onClick={() => { setFilter(f); setSel(0); }}>{f}</Tag>
+        ))}
       </div>
 
       <div style={{ overflowX: 'auto' }}>
@@ -114,13 +120,18 @@ export function SchedulesScreen() {
       </div>
 
       <Terminal
-        title="RUN LEDGER · TODAY"
-        lines={[
-          '02:00  crew_roster_sync      FAIL  conn refused · retry queued',
-          '13:55  flight_tracks_eu      OK    1m42s · v41 → v42 · sealed',
-          '14:00  maintenance_rollup    OK    22s · triggered by v42',
-          '# every run recorded with lineage',
-        ]}
+        title={live ? 'LAST RUNS' : 'RUN LEDGER · TODAY'}
+        lines={live
+          ? [
+              ...all.filter((r) => r.last !== '—').slice(0, 8).map((r) => `${(r.pipeline + '                      ').slice(0, 22)} ${r.last}`),
+              '# each run is recorded in its runner\'s signed ledger',
+            ]
+          : [
+              '02:00  crew_roster_sync      FAIL  conn refused · retry queued',
+              '13:55  flight_tracks_eu      OK    1m42s · v41 → v42 · sealed',
+              '14:00  maintenance_rollup    OK    22s · triggered by v42',
+              '# every run recorded with lineage',
+            ]}
       />
     </ConsolePage>
   );

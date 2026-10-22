@@ -10,7 +10,7 @@ import {
   StatusPill,
   Table,
 } from '@midgard/design-system';
-import { useAsync } from '@midgard/ui-shared';
+import { useAsync, useGateway } from '@midgard/ui-shared';
 import type { ForgeGateway, ForgeHealthCheck } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
@@ -18,17 +18,26 @@ import { ConsoleToolbar } from '../app/ConsoleToolbar';
 /* Data health: expectations, drift monitors, and freshness SLOs that gate every
  * projection. Sourced from `listHealthChecks()`. Reproduces forge/health.html. */
 export function DataHealthScreen() {
+  const live = useGateway<ForgeGateway>().live === true;
   const { data, loading } = useAsync<ForgeHealthCheck[], ForgeGateway>((c) => c.listHealthChecks(), []);
   const rows = data ?? [];
+  const failing = rows.filter((r) => r.state === 'warn').length;
+  const blocked = rows.filter((r) => r.projectionGate === 'BLOCKS').length;
 
   const [sel, setSel] = React.useState(0);
   const c = rows[sel];
 
-  const summary: Array<[string, string, string]> = [
-    ['PASSING', '1,199', 'var(--secure)'],
-    ['DRIFTING', '3', 'var(--warn)'],
-    ['BLOCKING', '2', 'var(--danger)'],
-  ];
+  const summary: Array<[string, string, string]> = live
+    ? [
+        ['PASSING', String(rows.length - failing), 'var(--secure)'],
+        ['STALE OR FAILING', String(failing), 'var(--warn)'],
+        ['BLOCKING', String(blocked), 'var(--danger)'],
+      ]
+    : [
+        ['PASSING', '1,199', 'var(--secure)'],
+        ['DRIFTING', '3', 'var(--warn)'],
+        ['BLOCKING', '2', 'var(--danger)'],
+      ];
 
   const aside = c ? (
     <>
@@ -52,12 +61,14 @@ export function DataHealthScreen() {
       </Card>
       {c.diagnosis && (
         <Card size="sm" style={{ borderColor: 'var(--accent)' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--accent-hover)', marginBottom: 6 }}>MIMIR DIAGNOSIS · LOCAL</div>
-          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55 }}>{c.diagnosis}</p>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <Button variant="outline" size="sm" fullWidth>Preview quarantine</Button>
-            <Button variant="ghost" size="sm">Dismiss</Button>
-          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--accent-hover)', marginBottom: 6 }}>{live ? 'LAST RUN SAID' : 'MIMIR DIAGNOSIS · LOCAL'}</div>
+          <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-body)', lineHeight: 1.55, overflowWrap: 'anywhere' }}>{c.diagnosis}</p>
+          {!live && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Button variant="outline" size="sm" fullWidth>Preview quarantine</Button>
+              <Button variant="ghost" size="sm">Dismiss</Button>
+            </div>
+          )}
         </Card>
       )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
@@ -79,10 +90,10 @@ export function DataHealthScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Expectations &amp; drift</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="1,204" label="EXPECTATIONS" size="sm" />
-        <StatBlock value="3" label="FAILING" size="sm" accent />
-        <StatBlock value="2" label="PROJECTIONS BLOCKED" size="sm" />
-        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New expectation</Button>
+        <StatBlock value={live ? String(rows.length) : '1,204'} label={live ? 'CHECKS' : 'EXPECTATIONS'} size="sm" />
+        <StatBlock value={live ? String(failing) : '3'} label="FAILING" size="sm" accent />
+        <StatBlock value={live ? String(blocked) : '2'} label="PROJECTIONS BLOCKED" size="sm" />
+        {!live && <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New expectation</Button>}
       </div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

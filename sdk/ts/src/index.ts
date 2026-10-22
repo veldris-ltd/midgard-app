@@ -18,6 +18,7 @@ export type { LoginCredentials, LoginResult } from './http/login';
 export * from './products/forge';
 export * from './products/mimir';
 export * from './products/mimir-http';
+export * from './products/forge-http';
 export * from './products/bifrost';
 export * from './products/heimdall';
 export * from './products/heimdall-http';
