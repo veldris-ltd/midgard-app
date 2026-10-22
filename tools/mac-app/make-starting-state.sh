@@ -31,9 +31,10 @@
 # .venv, the models (the app bundles them), native-run/, logs. The starting state must
 # contain no symlinks (Home.prepare refuses them).
 #
-# Test hook: MIDGARD_TEST_AFTER_COPY, if set, is run with bash (MIDGARD_TEST_HOME set to
-# the home) between the copy and the check that nothing changed. For
-# tools/mac-app/test_make_starting_state.sh only.
+# Test hook: MIDGARD_TEST_AFTER_COPY, if set together with MIDGARD_BUILD_DIR, is run with
+# bash (MIDGARD_TEST_HOME set to the home) between the copy and the check that nothing
+# changed. For tools/mac-app/test_make_starting_state.sh only; ignored for the default
+# build directory.
 set -euo pipefail
 umask 077
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
@@ -246,6 +247,12 @@ for spec in "${LOCKS[@]}"; do
     # check_locks refused live macOS holders; what is left was written by a container
     # or a dead process. A foreign lock already keeps every native service out.
     if [ "$(lock_field os "$lock")" != macos ]; then continue; fi
+    # Its holder may have started since check_locks looked: check again just before.
+    pid=$(lock_field pid "$lock" | tr -cd '0-9')
+    if alive "$pid"; then
+      echo "${lock#"$H"/} is now held by running pid $pid ($(ps -p "$pid" -o comm= 2>/dev/null || echo '?')); stop that service and re-run"
+      exit 1
+    fi
     rm -f "$lock"; echo "took over the stale lock ${lock#"$H"/}"
   fi
   if ( set -C; printf 'make-starting-state\npid=%s\nstart=%s\nos=macos\n' $$ "$start" > "$lock" ) 2> /dev/null; then
@@ -294,7 +301,10 @@ for s in "${SOURCES[@]}"; do
   mkdir -p "$TMP/$(dirname "$s")"
   cp -pRX "$H/$s" "$TMP/$s"   # modes kept (keystores stay 0600), no extended attributes
 done
-if [ -n "${MIDGARD_TEST_AFTER_COPY:-}" ]; then MIDGARD_TEST_HOME="$H" bash -c "$MIDGARD_TEST_AFTER_COPY"; fi
+# The test hook runs only for an explicitly chosen build directory, never the default.
+if [ -n "${MIDGARD_TEST_AFTER_COPY:-}" ] && [ -n "${MIDGARD_BUILD_DIR:-}" ]; then
+  MIDGARD_TEST_HOME="$H" bash -c "$MIDGARD_TEST_AFTER_COPY"
+fi
 after=$(snapshot)
 if [ "$before" != "$after" ]; then
   echo "files changed in $H while they were copied; something is still writing. Changed:"

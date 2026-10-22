@@ -321,6 +321,15 @@ else
   check "touched during copy refused" grep -qx '  airports-mesh/forge/mesh.anchor' "$T/log"
 fi
 
+# The hook is ignored without an explicit MIDGARD_BUILD_DIR (the default build dir is
+# under $HOME, pointed at the temp dir here).
+make_home
+if HOME="$T/user" MIDGARD_DOCKER_STOPPED=1 MIDGARD_TEST_AFTER_COPY='echo more >> "$MIDGARD_TEST_HOME/airports/policy.json"' \
+    bash "$SCRIPT" "$H" > "$T/log" 2>&1; then
+  check "hook ignored for the default build dir" test -f "$T/user/Library/Caches/midgard-build/starting-state/VERSION"
+  check "hook did not run for the default build dir" test "$(cat "$H/airports/policy.json")" = '{}'
+else bad "the hook ran for the default build dir"; sed 's/^/    /' "$T/log"; fi
+
 # --- 7. Bad sources -----------------------------------------------------------
 make_home
 ln -s ../gateway/mesh.anchor "$H/airports-mesh/forge/extra.anchor"
