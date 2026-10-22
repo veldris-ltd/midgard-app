@@ -23,6 +23,10 @@ cd "$(dirname "$0")/../.."
 BUILD="${MIDGARD_BUILD_DIR:-$HOME/Library/Caches/midgard-build}"
 OUT="$BUILD/app"
 RECORDING="${MIDGARD_RECORDING:-}"
+# Given (even empty: MIDGARD_RECORDING= or --recording "" builds without one) or not.
+RECORDING_GIVEN=${MIDGARD_RECORDING+1}
+DEFAULT_RECORDING="$HOME/Library/Application Support/Midgard-dev/recordings/hour-1"
+PREPARED=apps/mac/Resources/home/prepared-answers.json
 SKIP_SERVICES=0
 SKIP_CONSOLES=0
 STATE="$BUILD/starting-state"
@@ -39,7 +43,9 @@ usage: bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles]
   --skip-services   reuse dist/mac/bin as it is (warns if Rust sources are newer)
   --skip-consoles   reuse dist/mac/consoles as it is (warns if console sources are newer)
   --recording DIR   a phase 2 recording to bundle and replay (or MIDGARD_RECORDING); it
-                    must contain meta.json; its raw/ capture is left out
+                    must contain meta.json; its raw/ capture is left out. Not given: the
+                    recorded hour (recordings/hour-1 in ~/Library/Application Support/
+                    Midgard-dev) if it has meta.json, else none; "" for none
   --out DIR         where Midgard.app goes (default ~/Library/Caches/midgard-build/app)
 EOF
   exit 2
@@ -49,7 +55,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --skip-services) SKIP_SERVICES=1 ;;
     --skip-consoles) SKIP_CONSOLES=1 ;;
-    --recording) [ $# -ge 2 ] || usage; RECORDING="$2"; shift ;;
+    --recording) [ $# -ge 2 ] || usage; RECORDING="$2"; RECORDING_GIVEN=1; shift ;;
     --out) [ $# -ge 2 ] || usage; OUT="$2"; shift ;;
     -h|--help) usage ;;
     *) echo "unknown option: $1" >&2; usage ;;
@@ -74,6 +80,28 @@ for f in granite/model.manifest trust/model-signing.pub; do
   [ -f "$MODELS/$f" ] || die "missing $MODELS/$f (the Mimir model)"
 done
 ls "$MODELS"/granite/*.gguf >/dev/null 2>&1 || die "no .gguf model in $MODELS/granite"
+# The prepared Mimir answers (prepare-answers.py) ship inside home/; check they parse.
+if [ -f "$PREPARED" ]; then
+  summary=$(python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert isinstance(d, dict) and d.get("version") == 1, "not version 1"
+e, g = d.get("entries") or {}, d.get("guide") or {}
+print("%d answers, guide: %d questions, %d alerts (recording %s)" % (
+    len(e), len(g.get("questions") or []), len(g.get("alerts") or []), d.get("recording")))
+' "$PREPARED" 2>&1) || die "$PREPARED is not a valid version 1 prepared answers file: ${summary##*$'\n'}"
+  echo "prepared answers: $summary"
+else
+  echo "prepared answers: none ($PREPARED missing): every Mimir answer is asked live"
+fi
+if [ -z "$RECORDING_GIVEN" ]; then
+  if [ -f "$DEFAULT_RECORDING/meta.json" ]; then
+    RECORDING="$DEFAULT_RECORDING"
+    echo "recording: none given; using the recorded hour $RECORDING"
+  else
+    echo "recording: none given and no $DEFAULT_RECORDING/meta.json; building without one"
+  fi
+fi
 if [ -n "$RECORDING" ]; then
   [ -f "$RECORDING/meta.json" ] || die "recording $RECORDING has no meta.json"
   RECORDING="$(cd "$RECORDING" && pwd)"

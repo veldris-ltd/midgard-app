@@ -187,8 +187,13 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
   the new bundle must pass `codesign --verify --deep --strict` before it replaces the old
   one; an interrupted build leaves the previous app in place.
 - `--recording DIR` (or `MIDGARD_RECORDING`) bundles a recording (it must contain
-  `meta.json`; its `raw/` is left out), which the app replays; without one the app starts
-  with no feeds.
+  `meta.json`; its `raw/` is left out), which the app replays. Not given, it bundles the
+  recorded hour (`~/Library/Application Support/Midgard-dev/recordings/hour-1`) if that has
+  `meta.json`, and says so; `--recording ""` (or `MIDGARD_RECORDING=`) builds without one,
+  and the app then starts with no feeds.
+- Prepared Mimir answers: `apps/mac/Resources/home/prepared-answers.json` ships inside
+  `home/`. The build checks it parses as version 1 and prints how many answers, guide
+  questions and guide alerts it holds; without it every answer is asked live.
 - The model (1.5 GB) and the starting state are copied as APFS clones, so the 1.6 GB bundle
   costs little extra disk while it stays on the same volume as its sources. With the Rust
   and Swift builds up to date, a build takes about 20 seconds.
@@ -197,6 +202,29 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
   `/opt/homebrew/bin`, then `/usr/local/bin`.
 - Signing, notarisation and delivery for phase 5: "Phase 5 notes" in
   `docs/plans/2026-10-22-mac-presentation-app-design.md`.
+
+### Prepared answers and the Presenter's guide
+
+Mimir takes 15–60 seconds per answer on a laptop, so the app ships real answers captured
+over the recorded hour. With the native suite replaying it (`MIDGARD_REPLAY=…
+run-native.sh start`) for at least ten minutes, so alerts exist:
+
+```bash
+python3 tools/mac-app/prepare-answers.py --base http://127.0.0.1:7710/api/v1 \
+    --out apps/mac/Resources/home/prepared-answers.json [--recording hour-1] [--alerts 5]
+```
+
+It asks the map questions (AskCard's examples plus two of ours, each over the region it is
+about) and decision support for up to five alerts that stay open all hour, and writes the
+answers plus a `guide` (format in the header of
+`products/heimdall/ui/src/app/preparedAnswers.ts`). Heimdall shows a shipped answer at once
+(keyed by question, and for alerts by the alert's subject); anything else is asked live.
+Commit the file; rebuild the app.
+
+The home page's Presenter's guide is built from the same file's `guide` when the page
+loads: which region to switch on under REGIONS and which questions to click in the MIMIR
+box, and which alerts to click (ALERTS IN VIEW or the bell) before pressing ASK MIMIR.
+Without the file it says "No prepared answers in this build."
 
 ### Running
 

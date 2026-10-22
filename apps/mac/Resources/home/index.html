@@ -82,6 +82,25 @@
     color: var(--grey-400); margin: 0 0 8px;
   }
   .guide p { margin: 0; color: var(--grey-500); }
+  .guide h4 {
+    font-family: var(--font-display); font-weight: 600; font-size: 20px; letter-spacing: 0.04em;
+    margin: 20px 0 10px; color: var(--grey-100);
+  }
+  .guide h4.ask { color: var(--mimir-300); }
+  .guide h4.advise { color: var(--heimdall-300); }
+  .guide .how { color: var(--grey-300); font-size: 15px; line-height: 1.5; margin: 0 0 8px; }
+  .guide .ui {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; color: var(--grey-100);
+    padding: 1px 6px; border: 1px solid var(--ink-600); border-radius: 4px; background: var(--ink-850);
+  }
+  .guide ul { margin: 0 0 14px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .guide li {
+    padding: 8px 12px; background: var(--ink-800); border-left: 3px solid var(--mimir-500); border-radius: 4px;
+    color: var(--grey-100); font-size: 16px; line-height: 1.4;
+  }
+  .guide .alerts li { border-left-color: var(--heimdall-500); }
+  .guide li .where { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--grey-400); margin-top: 2px; }
+  .guide .live { margin-top: 18px; color: var(--grey-400); font-size: 15px; }
 </style>
 </head>
 <body>
@@ -117,7 +136,7 @@
 
   <section class="guide" aria-labelledby="guide-title">
     <h3 id="guide-title">Presenter's guide</h3>
-    <p>Coming soon.</p>
+    <div id="guide-body"><p>Loading the prepared answers…</p></div>
   </section>
 </main>
 <script>
@@ -127,6 +146,78 @@
     el.textContent = String(text);
     el.dataset.state = /^All services running/.test(text) ? 'ok' : /restarting|stopped/i.test(text) ? 'warn' : '';
   };
+
+  // The Presenter's guide, from the prepared Mimir answers shipped next to this page
+  // (/home/prepared-answers.json, not ./: this page is served at "/"; written by
+  // tools/mac-app/prepare-answers.py; format in products/heimdall/ui/src/app/
+  // preparedAnswers.ts). Text from the file is only ever set with textContent.
+  (function () {
+    var body = document.getElementById('guide-body');
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = String(text);
+      return e;
+    }
+    // A paragraph from parts: plain strings, or [label] for an exact Heimdall UI label.
+    function how(parts) {
+      var p = el('p', 'how');
+      parts.forEach(function (x) { p.appendChild(Array.isArray(x) ? el('span', 'ui', x[0]) : document.createTextNode(x)); });
+      return p;
+    }
+    function str(x) { return typeof x === 'string' && x.trim() ? x.trim() : null; }
+    function none() { body.replaceChildren(el('p', null, 'No prepared answers in this build.')); }
+
+    function render(file) {
+      if (!file || typeof file !== 'object' || file.version !== 1) return none();
+      var guide = file.guide && typeof file.guide === 'object' ? file.guide : {};
+      var questions = (Array.isArray(guide.questions) ? guide.questions : [])
+        .filter(function (q) { return q && str(q.question); });
+      var alerts = (Array.isArray(guide.alerts) ? guide.alerts : [])
+        .filter(function (a) { return a && (str(a.label) || str(a.subject)); });
+      if (!questions.length && !alerts.length) return none();
+      var out = [];
+
+      if (questions.length) {
+        out.push(el('h4', 'ask', 'Ask Mimir — instant answers'));
+        // One instruction per region, in the order the regions first appear.
+        var regions = [], byRegion = {};
+        questions.forEach(function (q) {
+          var r = str(q.region) || 'UK & Ireland';
+          if (!byRegion[r]) { byRegion[r] = []; regions.push(r); }
+          byRegion[r].push(str(q.question));
+        });
+        regions.forEach(function (r) {
+          out.push(how(['In Heimdall, switch on ', [r], ' under ', ['REGIONS'], ', then click one of these questions in the ',
+            ['MIMIR'], ' box (or type it) and press ', ['ASK'], '.']));
+          var ul = el('ul');
+          byRegion[r].forEach(function (q) { ul.appendChild(el('li', null, '\u201C' + q + '\u201D')); });
+          out.push(ul);
+        });
+      }
+
+      if (alerts.length) {
+        out.push(el('h4', 'advise', 'Decision support — instant answers'));
+        out.push(how(['In Heimdall, open ', ['ALERTS IN VIEW'], ' (or the bell), click this alert, then press ',
+          ['ASK MIMIR'], ' on it.']));
+        var ul = el('ul', 'alerts');
+        alerts.forEach(function (a) {
+          var li = el('li', null, str(a.label) || str(a.subject));
+          var where = [str(a.region), str(a.kind)].filter(Boolean).join(' · ');
+          if (where) li.appendChild(el('span', 'where', where));
+          ul.appendChild(li);
+        });
+        out.push(ul);
+      }
+
+      out.push(el('p', 'live', 'Anything else is answered live by Mimir and takes longer (about 15\u201360 seconds on this Mac).'));
+      body.replaceChildren.apply(body, out);
+    }
+
+    fetch('/home/prepared-answers.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then(function (file) { try { render(file); } catch (e) { none(); } }, none);
+  })();
 </script>
 </body>
 </html>
