@@ -1,4 +1,6 @@
-use midgard_replay::player::{log_line, Clock, Failures, Player, Sink, SystemClock};
+use midgard_replay::player::{
+    combine, log_line, Clock, Failures, Player, Sink, SystemClock, CHUNK_LINES,
+};
 use midgard_replay::recording::{Event, Recording};
 use service_runtime::json::{parse, Json};
 use std::cell::RefCell;
@@ -312,5 +314,91 @@ fn a_new_error_is_logged_at_once() {
             "batches failing error=a dropped=1",
             "batch sent feed=f result=FAILED b"
         ]
+    );
+}
+
+/// Records each batch call's line count; fails the calls numbered in `fail` (from 1).
+struct Chunks {
+    sizes: RefCell<Vec<usize>>,
+    fail: Vec<usize>,
+}
+impl Sink for Chunks {
+    fn batch(&self, _: &str, lines: &str) -> Result<String, String> {
+        let n = lines.lines().count();
+        self.sizes.borrow_mut().push(n);
+        if self.fail.contains(&self.sizes.borrow().len()) {
+            return Err("error: connection reset".into());
+        }
+        Ok(format!("batch: {n} accepted, 0 refused, 0 unreadable"))
+    }
+    fn forge(&self, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn big_batch(n: usize) -> Recording {
+    let lines: String = (0..n)
+        .map(|i| obs(&format!("E{i}"), 1_000_000_000) + "\n")
+        .collect();
+    Recording {
+        recorded_from: 1_000_000_000,
+        duration: 10,
+        events: vec![Event::Batch {
+            offset: 0,
+            feed: "f".into(),
+            lines,
+        }],
+    }
+}
+
+#[test]
+fn a_large_batch_is_sent_in_chunks() {
+    assert_eq!(CHUNK_LINES, 2000);
+    for (fail, calls) in [(vec![], 3), (vec![2], 3)] {
+        let rec = big_batch(4500);
+        let clock = FakeClock(RefCell::new(2_000_000_000));
+        let sink = Chunks {
+            sizes: RefCell::default(),
+            fail,
+        };
+        Player {
+            rec: &rec,
+            clock: &clock,
+            sink: &sink,
+        }
+        .run(Some(1));
+        // Every chunk is tried, even after one fails.
+        assert_eq!(*sink.sizes.borrow(), [2000, 2000, 500][..calls]);
+    }
+}
+
+#[test]
+fn chunk_results_combine_into_one() {
+    let ok =
+        |a: u64, r: u64, u: u64| Ok(format!("batch: {a} accepted, {r} refused, {u} unreadable"));
+    assert_eq!(
+        combine(vec![ok(1, 0, 0)]),
+        Ok("batch: 1 accepted, 0 refused, 0 unreadable".to_string())
+    );
+    assert_eq!(
+        combine(vec![ok(2000, 0, 0), ok(1999, 1, 0), ok(499, 0, 1)]),
+        Ok("batch: 4498 accepted, 1 refused, 1 unreadable in 3 chunks".to_string())
+    );
+    assert_eq!(
+        combine(vec![
+            ok(2000, 0, 0),
+            Err("error: reset".into()),
+            ok(500, 0, 0)
+        ]),
+        Err("error: reset".to_string())
+    );
+    // A summary that is not one keeps every chunk's text.
+    assert_eq!(
+        combine(vec![ok(1, 0, 0), Ok("done".into())]),
+        Ok("batch: 1 accepted, 0 refused, 0 unreadable; done".to_string())
+    );
+    assert_eq!(
+        combine(vec![ok(1, 0, 0), Ok("batch: 2 accepted".into())]),
+        Ok("batch: 1 accepted, 0 refused, 0 unreadable; batch: 2 accepted".to_string())
     );
 }

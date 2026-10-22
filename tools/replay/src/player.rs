@@ -67,6 +67,55 @@ pub fn log(message: &str, fields: &[(&str, String)]) {
     let _ = std::io::stdout().flush();
 }
 
+/// The most observations sent in one `heimdall-source` run: a busy minute of aircraft is
+/// tens of thousands, and one huge submission is slow to sign and easy to time out.
+pub const CHUNK_LINES: usize = 2000;
+
+/// The counts in a `batch: N accepted, M refused, K unreadable` summary.
+fn counts(summary: &str) -> Option<[u64; 3]> {
+    let parts: Vec<&str> = summary.strip_prefix("batch: ")?.split(", ").collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let mut out = [0; 3];
+    for (part, (slot, word)) in
+        parts
+            .into_iter()
+            .zip(out.iter_mut().zip(["accepted", "refused", "unreadable"]))
+    {
+        let mut words = part.split_whitespace();
+        *slot = words.next()?.parse().ok()?;
+        if words.next()? != word {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+/// One result for a batch sent in chunks: the first error if any chunk failed; else the
+/// summaries' counts added up (a single chunk's summary as it was), or, if one is not a
+/// summary, every chunk's text.
+pub fn combine(results: Vec<Result<String, String>>) -> Result<String, String> {
+    let oks = results.into_iter().collect::<Result<Vec<_>, _>>()?;
+    if oks.len() == 1 {
+        return Ok(oks.into_iter().next().unwrap_or_default());
+    }
+    let parsed: Option<Vec<[u64; 3]>> = oks.iter().map(|s| counts(s)).collect();
+    match parsed {
+        Some(all) => {
+            let sum = |i: usize| all.iter().map(|c| c[i]).sum::<u64>();
+            Ok(format!(
+                "batch: {} accepted, {} refused, {} unreadable in {} chunks",
+                sum(0),
+                sum(1),
+                sum(2),
+                all.len()
+            ))
+        }
+        None => Ok(oks.join("; ")),
+    }
+}
+
 /// How often (s) a run of one repeated batch error is reported.
 pub const FAILING_EVERY: i64 = 60;
 
@@ -189,16 +238,25 @@ impl Player<'_> {
     fn play(&self, e: &Event, shift: i64, lag: i64, failures: &mut Failures) {
         match e {
             Event::Batch { feed, lines, .. } => {
-                let mut out = String::with_capacity(lines.len() + 64);
-                for line in lines.lines() {
-                    // Validated as objects at load; a line that fails is sent unchanged.
-                    match parse(line) {
-                        Ok(o) => out.push_str(&shift_observation(&o, shift).encode()),
-                        Err(_) => out.push_str(line),
-                    }
-                    out.push('\n');
-                }
-                let r = self.sink.batch(feed, &out);
+                // Sent in chunks of at most CHUNK_LINES; every chunk is tried even after
+                // one fails, and the batch is logged once with the combined result.
+                let all: Vec<&str> = lines.lines().collect();
+                let results = all
+                    .chunks(CHUNK_LINES)
+                    .map(|chunk| {
+                        let mut out = String::new();
+                        for line in chunk {
+                            // Validated as objects at load; one that fails is sent unchanged.
+                            match parse(line) {
+                                Ok(o) => out.push_str(&shift_observation(&o, shift).encode()),
+                                Err(_) => out.push_str(line),
+                            }
+                            out.push('\n');
+                        }
+                        self.sink.batch(feed, &out)
+                    })
+                    .collect();
+                let r = combine(results);
                 let fields = [
                     ("feed", feed.clone()),
                     ("offset", e.offset().to_string()),
