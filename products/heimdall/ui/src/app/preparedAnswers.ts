@@ -31,7 +31,7 @@
  *     "entries": { "<shipped key>": { "value": <HeimdallAnswer | HeimdallAdvice>, "at": <epoch ms> } },
  *     "guide": {
  *       "questions": [{"question": "<question as shown>", "region": "UK & Ireland" | "Gulf" | …}, …],
- *       "alerts": [{ "key": "<shipped key>", "label": "…", "subject": "<entity key>", "kind": "…" }, …]
+ *       "alerts": [{ "key": "<shipped key>", "label": "…", "subject": "<entity key>", "kind": "…", "region": "…" | null }, …]
  *     }
  *   }
  *
