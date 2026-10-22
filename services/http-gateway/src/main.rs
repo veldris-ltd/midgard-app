@@ -12,7 +12,9 @@
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
 //!       origin to the CORS allowlist, which is otherwise empty. --token-ttl sets how
-//!       long a login token lasts, 60 to 86400 seconds (default 3600).
+//!       long a login token lasts, 60 to 86400 seconds (default 3600). The gateway has
+//!       no logout or revocation, so a long TTL is meant only for a single-user session
+//!       on loopback (the presenter app).
 //!
 //!       With --mesh-bind, the gateway also serves `SyncRecords` over PQ-mTLS, so a
 //!       certified workload — the Forge worker — can sync objects and links into the
@@ -54,11 +56,14 @@ usage:
   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]... [--token-ttl SECONDS]
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
                [--heimdall-addr HOST:PORT --heimdall-identity-dir DIR [--heimdall-service NAME]
+                [--heimdall-purpose P]]
                [--mimir-observe-addr HOST:PORT --mimir-identity-dir DIR [--mimir-service NAME]]
                [--analytics-addr HOST:PORT --analytics-token-file FILE]
                [--forge-jobs FILE [--forge-status FILE] [--heimdall-feeds-status FILE]]
-                [--heimdall-purpose P]]
-  --token-ttl SECONDS  login token lifetime, 60..=86400 (default 3600)";
+options:
+  --token-ttl SECONDS  login token lifetime, 60..=86400 (default 3600). There is no
+                       logout or revocation: use a long TTL only for a single-user
+                       loopback session.";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -178,6 +183,9 @@ fn main() {
     // write this directory meanwhile.
     let (gateway, _lock) = served.into_parts();
     let mut gateway = gateway.with_token_ttl(token_ttl);
+    if token_ttl != http_gateway::DEFAULT_TOKEN_TTL {
+        eprintln!("http-gateway: login tokens last {token_ttl} s");
+    }
     if let (Some(addr), Some(dir)) = (heimdall_addr, heimdall_identity_dir) {
         let identity = match ServiceIdentity::load(&dir, &heimdall_service) {
             Ok(identity) => identity,

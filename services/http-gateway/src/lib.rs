@@ -66,10 +66,12 @@ pub const MIN_TOKEN_TTL: u64 = 60;
 /// The longest login-token lifetime `--token-ttl` accepts (seconds): one day.
 pub const MAX_TOKEN_TTL: u64 = 86_400;
 
-/// Parse a `--token-ttl` value: whole seconds in `MIN_TOKEN_TTL..=MAX_TOKEN_TTL`.
+/// Parse a `--token-ttl` value: whole seconds, ASCII digits only (no sign), in
+/// `MIN_TOKEN_TTL..=MAX_TOKEN_TTL`.
 pub fn parse_token_ttl(value: &str) -> Result<u64, String> {
+    let digits = !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit());
     match value.parse::<u64>() {
-        Ok(secs) if (MIN_TOKEN_TTL..=MAX_TOKEN_TTL).contains(&secs) => Ok(secs),
+        Ok(secs) if digits && (MIN_TOKEN_TTL..=MAX_TOKEN_TTL).contains(&secs) => Ok(secs),
         _ => Err(format!(
             "--token-ttl takes whole seconds from {MIN_TOKEN_TTL} to {MAX_TOKEN_TTL}, not {value:?}"
         )),
@@ -208,9 +210,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     }
 
     /// Mint login tokens that last `secs` seconds (default `DEFAULT_TOKEN_TTL`); the
-    /// login response's `expiresAt` follows. Returns self for chaining.
+    /// login response's `expiresAt` follows. `secs` is clamped to
+    /// `MIN_TOKEN_TTL..=MAX_TOKEN_TTL`, so no caller can mint a token outside the range
+    /// the CLI accepts. Returns self for chaining.
     pub fn with_token_ttl(mut self, secs: u64) -> Self {
-        self.token_ttl = secs;
+        self.token_ttl = secs.clamp(MIN_TOKEN_TTL, MAX_TOKEN_TTL);
         self
     }
 
