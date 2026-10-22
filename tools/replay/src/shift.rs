@@ -65,45 +65,68 @@ pub fn shift_observation(o: &Json, shift: i64) -> Json {
     )
 }
 
-/// Split CSV text into records of raw fields (quotes kept as written), on commas and
-/// newlines outside quotes. Joining the fields back with ',' and '\n' gives the input.
-fn records(text: &str) -> Vec<Vec<&str>> {
-    let (mut out, mut rec, mut start, mut quoted) = (Vec::new(), Vec::new(), 0usize, false);
+/// One CSV record: its raw fields (quotes kept as written) and the line terminator that
+/// ended it (`"\r\n"`, `"\n"`, or `""` for a final record without one).
+struct Record<'a> {
+    fields: Vec<&'a str>,
+    end: &'a str,
+}
+
+/// Split CSV text into records, on commas and newlines outside quotes. Joining each
+/// record's fields with ',' and appending its terminator gives back the input exactly.
+fn records(text: &str) -> Vec<Record<'_>> {
+    let (mut out, mut fields, mut start, mut quoted) = (Vec::new(), Vec::new(), 0usize, false);
     let b = text.as_bytes();
     for (i, &c) in b.iter().enumerate() {
         match c {
             b'"' => quoted = !quoted,
             b',' if !quoted => {
-                rec.push(&text[start..i]);
+                fields.push(&text[start..i]);
                 start = i + 1;
             }
             b'\n' if !quoted => {
-                let end = if i > start && b[i - 1] == b'\r' {
+                let cut = if i > start && b[i - 1] == b'\r' {
                     i - 1
                 } else {
                     i
                 };
-                rec.push(&text[start..end]);
-                out.push(std::mem::take(&mut rec));
+                fields.push(&text[start..cut]);
+                out.push(Record {
+                    fields: std::mem::take(&mut fields),
+                    end: &text[cut..=i],
+                });
                 start = i + 1;
             }
             _ => {}
         }
     }
-    if start < text.len() {
-        rec.push(&text[start..]);
-        out.push(rec);
+    if start < text.len() || !fields.is_empty() {
+        fields.push(&text[start..]);
+        out.push(Record { fields, end: "" });
     }
     out
 }
 
-/// The CSV with whole-number Unix times in its time columns moved by `shift` seconds.
+/// The Unix time a field holds, if it is made only of ASCII digits and in range.
+fn unix_time(field: &str) -> Option<i64> {
+    if field.is_empty() || !field.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    field
+        .parse::<i64>()
+        .ok()
+        .filter(|n| (MIN_UNIX..=MAX_UNIX).contains(n))
+}
+
+/// The CSV with whole-number Unix times in its time columns moved by `shift` seconds;
+/// every other byte, line terminators included, is kept as written.
 pub fn shift_csv(text: &str, shift: i64) -> String {
     let recs = records(text);
     let Some(header) = recs.first() else {
         return text.to_string();
     };
     let cols: Vec<usize> = header
+        .fields
         .iter()
         .enumerate()
         .filter(|(_, h)| {
@@ -117,18 +140,16 @@ pub fn shift_csv(text: &str, shift: i64) -> String {
     }
     let mut out = String::with_capacity(text.len() + 64);
     for (r, rec) in recs.iter().enumerate() {
-        for (i, f) in rec.iter().enumerate() {
+        for (i, f) in rec.fields.iter().enumerate() {
             if i > 0 {
                 out.push(',');
             }
-            match f.parse::<i64>() {
-                Ok(n) if r > 0 && cols.contains(&i) && (MIN_UNIX..=MAX_UNIX).contains(&n) => {
-                    out.push_str(&(n + shift).to_string())
-                }
+            match unix_time(f) {
+                Some(n) if r > 0 && cols.contains(&i) => out.push_str(&(n + shift).to_string()),
                 _ => out.push_str(f),
             }
         }
-        out.push('\n');
+        out.push_str(rec.end);
     }
     out
 }

@@ -58,3 +58,27 @@ fn csv_without_time_columns_is_unchanged() {
     let csv = "key,name,intensity\nX,North,120\n";
     assert_eq!(shift_csv(csv, 999), csv);
 }
+
+#[test]
+fn crlf_csv_keeps_every_line_terminator() {
+    let csv = "key,time_raised\r\nA,1792000000\r\nB,\"x\r\ny\"\r\n";
+    assert_eq!(
+        shift_csv(csv, 60),
+        "key,time_raised\r\nA,1792000060\r\nB,\"x\r\ny\"\r\n"
+    );
+}
+
+#[test]
+fn last_record_without_newline_stays_without_one() {
+    let csv = "key,observed_at\nA,1792000000\nB,1792000001";
+    assert_eq!(
+        shift_csv(csv, 1),
+        "key,observed_at\nA,1792000001\nB,1792000002"
+    );
+}
+
+#[test]
+fn only_all_digit_fields_are_shifted() {
+    let csv = "key,time_raised\nA,+1792000000\nB, 1792000000\n";
+    assert_eq!(shift_csv(csv, 60), csv);
+}
