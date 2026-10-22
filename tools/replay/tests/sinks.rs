@@ -1,6 +1,7 @@
 use midgard_replay::player::Sink;
 use midgard_replay::sinks::LiveSink;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use std::{fs, os::unix::fs::PermissionsExt};
 
 /// A fresh temp dir with a `forge` subdirectory, removed again when dropped.
@@ -32,6 +33,7 @@ fn sink(d: &Path, source_bin: PathBuf) -> LiveSink {
         identity_dir: "/ids".into(),
         addr: "127.0.0.1:7730".into(),
         forge_dir: d.join("forge"),
+        timeout: Duration::from_secs(10),
     }
 }
 
@@ -106,4 +108,56 @@ fn a_missing_binary_is_an_error_naming_it() {
     let bin = t.0.join("no-such-heimdall-source");
     let err = sink(&t.0, bin.clone()).batch("f", "{}\n").unwrap_err();
     assert!(err.contains(&bin.display().to_string()), "{err}");
+}
+
+#[test]
+fn without_a_summary_the_error_is_stderr_s_last_line() {
+    let t = temp_dir("stderr");
+    let fake = script(
+        &t.0,
+        "echo 'connecting' \necho 'error: no route' >&2\necho '' >&2\nexit 2",
+    );
+    assert_eq!(
+        sink(&t.0, fake).batch("f", "{}\n").unwrap_err(),
+        "error: no route"
+    );
+}
+
+#[test]
+fn without_stderr_the_error_is_stdout_s_last_line() {
+    let t = temp_dir("stdout");
+    let fake = script(&t.0, "echo 'first'\necho 'error: out'\nexit 2");
+    assert_eq!(
+        sink(&t.0, fake).batch("f", "{}\n").unwrap_err(),
+        "error: out"
+    );
+}
+
+#[test]
+fn a_child_that_runs_too_long_is_killed() {
+    let t = temp_dir("slow");
+    // A sleep no other process runs, to look for afterwards.
+    let marker = format!("sleep 30.{}", std::process::id());
+    let fake = script(&t.0, &format!("exec {marker}"));
+    let s = LiveSink {
+        timeout: Duration::from_secs(1),
+        ..sink(&t.0, fake)
+    };
+    let start = Instant::now();
+    let err = s.batch("f", "{}\n").unwrap_err();
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        start.elapsed()
+    );
+    assert!(err.contains("timed out after 1 s"), "{err}");
+    let found = std::process::Command::new("/usr/bin/pgrep")
+        .args(["-f", &marker])
+        .output()
+        .unwrap();
+    assert!(
+        !found.status.success(),
+        "still running: {}",
+        String::from_utf8_lossy(&found.stdout)
+    );
 }

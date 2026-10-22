@@ -51,6 +51,7 @@ fn setup(name: &str, feed: &str, cert_for: &str) -> TempDir {
     )
     .unwrap();
     fs::write(d.join(format!("ids/{cert_for}.cert")), "").unwrap();
+    fs::write(d.join("ids/mesh.anchor"), "").unwrap();
     let fake = d.join("heimdall-source");
     fs::write(
         &fake,
@@ -130,6 +131,17 @@ fn a_feed_without_an_identity_is_refused_before_playing() {
 }
 
 #[test]
+fn an_identity_dir_without_the_mesh_anchor_is_refused() {
+    let t = setup("noanchor", "testfeed", "testfeed");
+    fs::remove_file(t.0.join("ids/mesh.anchor")).unwrap();
+    let out = run(&t.0, &["--loops", "1"]);
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("mesh.anchor"), "{stderr}");
+    assert!(!t.0.join("stdin").exists());
+}
+
+#[test]
 fn a_forge_dir_that_is_not_a_directory_is_refused() {
     let t = setup("noforge", "testfeed", "testfeed");
     fs::remove_dir(t.0.join("forge")).unwrap();
@@ -154,6 +166,10 @@ fn missing_or_bad_options_print_usage() {
     let out = run(&t.0, &["--loops", "many"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("usage: midgard-replay"));
+
+    let out = run(&t.0, &["--loops", "0"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--loops"));
 
     let out = run(&t.0, &["--bogus", "1"]);
     assert_eq!(out.status.code(), Some(2));

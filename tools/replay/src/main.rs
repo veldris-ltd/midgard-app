@@ -4,6 +4,7 @@ use midgard_replay::recording::{Event, Recording};
 use midgard_replay::sinks::LiveSink;
 use service_runtime::Args;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const USAGE: &str = "usage: midgard-replay --recording DIR --identity-dir DIR --forge-dir DIR \
                      [--addr HOST:PORT] [--source-bin PATH] [--loops N]";
@@ -41,7 +42,9 @@ fn main() {
     let (rec_dir, ids, forge_dir) = (need("recording"), need("identity-dir"), need("forge-dir"));
     let loops = args.get("loops").map(|n| {
         n.parse::<u64>()
-            .unwrap_or_else(|_| fail("--loops must be a number", true))
+            .ok()
+            .filter(|n| *n > 0)
+            .unwrap_or_else(|| fail("--loops must be a positive number", true))
     });
     let source_bin = args
         .get("source-bin")
@@ -70,6 +73,9 @@ fn main() {
         .collect();
     missing.sort();
     missing.dedup();
+    if !Path::new(&ids).join("mesh.anchor").exists() {
+        fail(&format!("missing mesh.anchor in identity dir {ids}"), false);
+    }
     if !missing.is_empty() {
         fail(
             &format!("missing identity for feed {}", missing.join(", ")),
@@ -81,6 +87,7 @@ fn main() {
         identity_dir: ids,
         addr: args.get("addr").unwrap_or("127.0.0.1:7730").to_string(),
         forge_dir: forge_dir.into(),
+        timeout: Duration::from_secs(120),
     };
     log(
         "replay started",
