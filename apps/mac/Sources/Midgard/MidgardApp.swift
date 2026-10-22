@@ -21,7 +21,7 @@ struct MidgardApp: App {
     /// Opens large: the whole visible screen, at least the minimum size.
     static var largeSize: CGSize {
         let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1440, height: 900)
-        return CGSize(width: max(1280, visible.width), height: max(800, visible.height))
+        return CGSize(width: max(1100, visible.width), height: max(700, visible.height))
     }
 }
 
@@ -67,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !terminating {
             terminating = true
             model.log("quit requested")
+            // At once: "Stopping Midgard…" on screen and no new action can start.
+            model.beginShutdown()
             Task {
                 await self.model.shutdown()
                 sender.reply(toApplicationShouldTerminate: true)
@@ -79,7 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// The starting screen until everything is up, then the toolbar and the web view.
 struct RootView: View {
     @EnvironmentObject var model: AppModel
-    @State private var confirmingReset = false
 
     var body: some View {
         Group {
@@ -89,10 +90,10 @@ struct RootView: View {
                 StartingView()
             }
         }
-        .frame(minWidth: 1280, minHeight: 800)
+        .frame(minWidth: 1100, minHeight: 700)
         .background(Palette.page)
         .toolbar { toolbar }
-        .alert("Reset the demo?", isPresented: $confirmingReset) {
+        .alert("Reset the demo?", isPresented: $model.confirmingReset) {
             Button("Reset", role: .destructive) { model.resetDemo() }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -133,13 +134,13 @@ struct RootView: View {
             .disabled(model.phase != .ready || model.switchingUser)
 
             Button {
-                confirmingReset = true
+                model.confirmingReset = true
             } label: {
                 Label("Reset demo…", systemImage: "arrow.counterclockwise")
                     .labelStyle(.titleAndIcon)
             }
             .help("Restore the starting data")
-            .disabled(model.phase != .ready)
+            .disabled(model.phase != .ready || !model.canReset)
         }
     }
 }
@@ -148,20 +149,22 @@ struct MainView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        WebView(controller: model.web)
-            .overlay(alignment: .bottom) {
-                if let note = model.note {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "info.circle")
-                        Text(note).fixedSize(horizontal: false, vertical: true)
-                        Button("Dismiss") { model.note = nil }
-                    }
-                    .padding(12)
-                    .background(.regularMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(16)
-                    .frame(maxWidth: 720)
+        VStack(spacing: 0) {
+            // A strip above the page, not over it: nothing on the page is hidden.
+            if let note = model.note {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Palette.warn)
+                    Text(note).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Dismiss") { model.note = nil }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .foregroundStyle(Palette.text)
+                .background(Palette.card)
+                .overlay(alignment: .bottom) { Palette.border.frame(height: 1) }
             }
+            WebView(controller: model.web)
+        }
     }
 }

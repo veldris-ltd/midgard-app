@@ -30,6 +30,8 @@ final class OfflineRulesTests: XCTestCase {
         XCTAssertFalse(allowed("https://127.0.0.1:443/"))
         XCTAssertFalse(allowed("http://example.com/?http://127.0.0.1:1"))
         XCTAssertFalse(allowed("ws://127.0.0.1:1/"))
+        XCTAssertFalse(allowed("http://127.0.0.1:1@example.com/"))
+        XCTAssertFalse(allowed("http://127.0.0.1:@example.com/"))
     }
 }
 
@@ -54,6 +56,7 @@ final class NavigationTests: XCTestCase {
         XCTAssertFalse(allowed("https://127.0.0.1:61235/"))
         XCTAssertFalse(allowed("http://localhost:61235/"))
         XCTAssertFalse(allowed("file:///etc/passwd"))
+        XCTAssertFalse(allowed("http://127.0.0.1:61235@example.com/"))
         XCTAssertFalse(Navigation.isAllowed(URL(string: "http://127.0.0.1:7710/")!, origin: origin,
                                             gatewayOrigin: nil))
     }
@@ -71,7 +74,9 @@ final class HeimdallViewTests: XCTestCase {
     func testScriptSetsOnlyAnUnsetKeyOnOwnOrigin() {
         let script = HeimdallView.script(origin: "http://127.0.0.1:5", view: "2d")
         XCTAssertTrue(script.contains("location.origin !== \"http:\\/\\/127.0.0.1:5\""))
-        XCTAssertTrue(script.contains("localStorage.getItem(\"heimdall.cop.view\") === null"))
+        XCTAssertTrue(script.contains("if (false || localStorage.getItem(\"heimdall.cop.view\") === null)"))
+        XCTAssertTrue(HeimdallView.script(origin: "http://127.0.0.1:5", view: "2d", force: true)
+            .contains("if (true || localStorage"))
         XCTAssertTrue(script.contains("localStorage.setItem(\"heimdall.cop.view\", \"2d\")"))
     }
 
@@ -93,9 +98,18 @@ final class InstanceLockTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("Midgard.instance")
         guard case .acquired(let first) = InstanceLock.acquire(file) else { return XCTFail("first not acquired") }
-        guard case .heldBy(let pid) = InstanceLock.acquire(file) else { return XCTFail("second acquired") }
+        guard case .heldBy(let pid, let stopping) = InstanceLock.acquire(file) else { return XCTFail("second acquired") }
         XCTAssertEqual(pid, getpid())
-        first.release()
+        XCTAssertFalse(stopping)
+        first.markStopping()
+        guard case .heldBy(let pid2, let stopping2) = InstanceLock.acquire(file) else { return XCTFail("acquired") }
+        XCTAssertEqual(pid2, getpid())
+        XCTAssertTrue(stopping2)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { first.release() }
+        guard case .acquired(let waited) = InstanceLock.acquire(file, waitingUpTo: 5) else {
+            return XCTFail("did not get the lock after the holder released it")
+        }
+        waited.release()
         guard case .acquired(let again) = InstanceLock.acquire(file) else { return XCTFail("not re-acquired") }
         again.release()
     }
@@ -176,5 +190,46 @@ final class SuiteStartTests: XCTestCase {
         let result = await task.result
         XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError) }
         XCTAssertEqual(calls.all, ["start", "stopAll"])
+    }
+}
+
+final class ReloadBudgetTests: XCTestCase {
+    func testTwoReloadsPerMinute() {
+        var budget = ReloadBudget()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        XCTAssertTrue(budget.take(now: t0))
+        XCTAssertTrue(budget.take(now: t0.addingTimeInterval(10)))
+        XCTAssertFalse(budget.take(now: t0.addingTimeInterval(20)))
+        XCTAssertFalse(budget.take(now: t0.addingTimeInterval(59)))
+        XCTAssertTrue(budget.take(now: t0.addingTimeInterval(60)))  // the first has aged out
+        XCTAssertFalse(budget.take(now: t0.addingTimeInterval(65)))
+    }
+}
+
+final class ServiceAlertTests: XCTestCase {
+    func testOnlyRepeatedRestartsAndFailuresAlert() {
+        XCTAssertNil(ServiceAlert.message(service: "heimdall", status: .ready))
+        XCTAssertNil(ServiceAlert.message(service: "heimdall", status: .starting))
+        XCTAssertNil(ServiceAlert.message(service: "heimdall", status: .stopped))
+        XCTAssertNil(ServiceAlert.message(service: "heimdall", status: .restarting(attempt: 2, reason: nil)))
+        XCTAssertEqual(ServiceAlert.message(service: "heimdall", status: .restarting(attempt: 3, reason: "x")),
+                       "Heimdall has stopped. Try Reset demo, or quit and reopen Midgard.")
+        XCTAssertEqual(ServiceAlert.message(service: "llama", status: .failed("boom")),
+                       "Model has stopped. Try Reset demo, or quit and reopen Midgard.")
+    }
+}
+
+final class SessionTimingTests: XCTestCase {
+    func testWakeDecisionsByWallClock() {
+        let refreshAt = Date(timeIntervalSince1970: 1000)
+        let expiresAt = Date(timeIntervalSince1970: 1600)
+        func action(_ t: TimeInterval) -> SessionTiming.Action {
+            SessionTiming.action(now: Date(timeIntervalSince1970: t), refreshAt: refreshAt, expiresAt: expiresAt)
+        }
+        XCTAssertEqual(action(999), .wait)
+        XCTAssertEqual(action(1000), .refresh)
+        XCTAssertEqual(action(1599), .refresh)
+        XCTAssertEqual(action(1600), .refreshAndReload)
+        XCTAssertEqual(action(99_999), .refreshAndReload)
     }
 }

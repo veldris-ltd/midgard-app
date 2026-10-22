@@ -42,8 +42,8 @@ public final class ShellLog: @unchecked Sendable {
 public final class InstanceLock: @unchecked Sendable {
     public enum Outcome {
         case acquired(InstanceLock)
-        /// Another process holds it; its pid if it wrote one.
-        case heldBy(pid_t?)
+        /// Another process holds it: its pid if it wrote one, and whether it is quitting.
+        case heldBy(pid_t?, stopping: Bool)
         case failed(String)
     }
 
@@ -70,12 +70,32 @@ public final class InstanceLock: @unchecked Sendable {
             close(fd)
             guard code == EWOULDBLOCK else { return .failed("cannot lock \(file.path): \(String(cString: strerror(code)))") }
             let text = count > 0 ? String(decoding: buffer.prefix(count), as: UTF8.self) : ""
-            return .heldBy(pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+            let words = text.split(whereSeparator: \.isWhitespace)
+            return .heldBy(words.first.flatMap { pid_t($0) }, stopping: words.dropFirst().first == "stopping")
         }
         ftruncate(fd, 0)
         let pid = Array("\(getpid())\n".utf8)
         _ = pid.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
         return .acquired(InstanceLock(file: file, fd: fd))
+    }
+
+    /// Tells a shell launched meanwhile that this one is quitting (it waits for the lock
+    /// instead of handing over to this one).
+    public func markStopping() {
+        guard fd >= 0 else { return }
+        let text = Array("\(getpid()) stopping\n".utf8)
+        ftruncate(fd, 0)
+        _ = text.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
+    }
+
+    /// Waits up to `timeout` for the lock at `file` to come free, then takes it.
+    public static func acquire(_ file: URL, waitingUpTo timeout: TimeInterval) -> Outcome {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let outcome = acquire(file)
+            guard case .heldBy = outcome, Date() < deadline else { return outcome }
+            usleep(100_000)
+        }
     }
 
     public func release() {
@@ -92,8 +112,10 @@ public final class InstanceLock: @unchecked Sendable {
 public enum OfflineRules {
     public static let identifier = "midgard.offline.v1"
 
-    /// Patterns (WebKit's restricted regex dialect) that stay allowed.
-    public static let allowed = ["^http://127\\.0\\.0\\.1:", "^about:", "^blob:", "^data:"]
+    /// Patterns (WebKit's restricted regex dialect) that stay allowed. The port must be
+    /// followed by `/`, so `http://127.0.0.1:1@example.com/` (userinfo) stays blocked.
+    /// WebSockets (`ws:`) are blocked deliberately: no console uses them.
+    public static let allowed = ["^http://127\\.0\\.0\\.1:[0-9]+/", "^about:", "^blob:", "^data:"]
 
     /// The rule list as WKContentRuleListStore compiles it.
     public static var json: String {
@@ -147,14 +169,15 @@ public enum HeimdallView {
         return sysctlbyname("hw.optional.arm64", &value, &size, nil, 0) == 0 && value == 1
     }
 
-    /// Document-start script: sets the key to `view` only if it is not set yet, and only
-    /// on the app's own origin.
-    public static func script(origin: String, view: String) -> String {
+    /// Document-start script: sets the key to `view` only if it is not set yet (or always,
+    /// with `force`, e.g. 2D after the 3D globe crashed the page), and only on the app's
+    /// own origin.
+    public static func script(origin: String, view: String, force: Bool = false) -> String {
         """
         (function () {
           if (typeof location === 'undefined' || location.origin !== \(Session.literal(origin))) { return; }
           try {
-            if (localStorage.getItem(\(Session.literal(storageKey))) === null) {
+            if (\(force ? "true" : "false") || localStorage.getItem(\(Session.literal(storageKey))) === null) {
               localStorage.setItem(\(Session.literal(storageKey)), \(Session.literal(view)));
             }
           } catch (e) {}
@@ -224,5 +247,58 @@ public enum SuiteStart {
                 throw error
             }
         }
+    }
+}
+
+/// How often the web view may reload a page whose content process crashed: at most
+/// `limit` times in `window` seconds; after that the shell gives up on that page.
+public struct ReloadBudget: Sendable {
+    public let limit: Int
+    public let window: TimeInterval
+    private var times: [Date] = []
+
+    public init(limit: Int = 2, window: TimeInterval = 60) {
+        self.limit = limit
+        self.window = window
+    }
+
+    /// True (and counted) if another reload is allowed at `now`.
+    public mutating func take(now: Date = Date()) -> Bool {
+        times.removeAll { now.timeIntervalSince($0) >= window }
+        guard times.count < limit else { return false }
+        times.append(now)
+        return true
+    }
+}
+
+/// The note shown when a service stops working after the demo started.
+public enum ServiceAlert {
+    /// Restart attempts before the presenter is told.
+    public static let attempts = 3
+
+    public static func message(service: String, status: ServiceStatus) -> String? {
+        switch status {
+        case .restarting(let attempt, _) where attempt >= attempts: break
+        case .failed: break
+        default: return nil
+        }
+        return "\(ServiceNames.friendly(service)) has stopped. Try Reset demo, or quit and reopen Midgard."
+    }
+}
+
+/// Deciding about the session by the wall clock (a Mac that slept does not count the
+/// sleep in `Task.sleep`).
+public enum SessionTiming {
+    public enum Action: Equatable {
+        case wait
+        /// Sign in again; the open page can be given the new token in place.
+        case refresh
+        /// Sign in again and reload the page: its token has expired.
+        case refreshAndReload
+    }
+
+    public static func action(now: Date, refreshAt: Date, expiresAt: Date) -> Action {
+        if now >= expiresAt { return .refreshAndReload }
+        return now >= refreshAt ? .refresh : .wait
     }
 }

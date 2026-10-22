@@ -12,11 +12,16 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Which URLs a navigation may go to; nothing is allowed until `configure`.
     private var isAllowed: (URL) -> Bool = { _ in false }
     var onPageLoaded: ((URL?) -> Void)?
+    /// The web content process ended; the URL it showed, if known.
+    var onContentCrash: ((URL?) -> Void)?
+    var onLoadFailed: ((URL?, Error) -> Void)?
 
     override init() {
         let configuration = WKWebViewConfiguration()
         // Persistent, so the consoles' UI preferences survive a relaunch.
         configuration.websiteDataStore = .default()
+        // Safe Browsing would look pages up online; everything here is loopback.
+        configuration.preferences.isFraudulentWebsiteWarningEnabled = false
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self
@@ -58,6 +63,20 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         isAllowed = allowed
     }
 
+    /// Removes every page's stored data (local and session storage, IndexedDB, caches,
+    /// cookies): after Reset demo the consoles start as on a fresh Mac.
+    func clearWebsiteData() async {
+        let store = webView.configuration.websiteDataStore
+        await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+    }
+
+    /// The web content process's pid (development self-test only; private WebKit key).
+    var contentProcessIdentifier: pid_t? {
+        let key = "_webProcessIdentifier"
+        guard webView.responds(to: NSSelectorFromString(key)) else { return nil }
+        return (webView.value(forKey: key) as? NSNumber).map { pid_t($0.int32Value) }
+    }
+
     func load(_ url: URL) {
         webView.load(URLRequest(url: url))
     }
@@ -95,9 +114,18 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         onPageLoaded?(webView.url)
     }
 
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                 withError error: Error) {
+        onLoadFailed?((error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? webView.url, error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        onLoadFailed?(webView.url, error)
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        // The page's process crashed (memory pressure on an 8 GB Mac): show it again.
-        webView.reload()
+        // The model decides: reload (within a budget), Heimdall in 2D, or go home.
+        onContentCrash?(webView.url)
     }
 
     // MARK: WKUIDelegate

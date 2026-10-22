@@ -29,18 +29,26 @@ struct StartFailure: Equatable {
     var title: String
     /// Plain-English explanation, then (for a service) its last log lines.
     var details: String
-    /// False when trying again cannot help (an unsupported Mac).
+    /// False when trying again cannot help (an unsupported Mac, a damaged install).
     var canRetry = true
+    /// True when a working copy exists, so Reset demo is offered too.
+    var canReset = false
 }
 
 /// Ties the core together: system check, working copy, web server, services, sign-in,
 /// the web view's session, Reset demo, Switch user and quitting.
+///
+/// Starting, "Try again" and Reset demo each run as one task tagged with a generation
+/// number; a newer one cancels and waits for the older, and an older one never changes
+/// what the window shows.
 @MainActor
 final class AppModel: ObservableObject {
     enum Phase: Equatable {
         case starting
         case failed(StartFailure)
         case ready
+        /// Quitting: services are being stopped.
+        case stopping
     }
 
     @Published private(set) var phase: Phase = .starting
@@ -53,9 +61,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var users: [DemoUser] = []
     @Published private(set) var currentUser: DemoUser?
     @Published var section: Destination = .home
-    /// A non-blocking note for the presenter (e.g. a leftover from a reset).
-    @Published var note: String?
+    /// A non-blocking note for the presenter (a service that stopped, a reset leftover …).
+    @Published var note: String? {
+        didSet { if note != nil, note != oldValue { noteCount += 1; snapshotLater("note-\(noteCount)", after: 1) } }
+    }
+    private var noteCount = 0
     @Published private(set) var switchingUser = false
+    /// The Reset demo confirmation is showing.
+    @Published var confirmingReset = false
 
     let paths: Paths
     let log: ShellLog
@@ -65,20 +78,41 @@ final class AppModel: ObservableObject {
     private(set) var origin = ""
     private var ports: SuitePorts?
     private var session: SessionInfo?
+    /// When the session is to be renewed, by the wall clock.
+    private var refreshAt: Date?
     private var replaying = false
     private var prepared = false
     private var reaped = false
+    private var generation = 0
     private var startTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var instanceLock: InstanceLock?
-    private var shuttingDown = false
-    private let selfTest = ProcessInfo.processInfo.environment["MIDGARD_APP_SELFTEST"] == "1"
+    private(set) var shuttingDown = false
+    private var crashBudget = ReloadBudget()
+    /// The next Heimdall load is forced to 2D (its 3D page crashed).
+    private var forceHeimdall2D = false
+    private var wakeObserver: NSObjectProtocol?
+    private let selfTest: Bool = {
+        #if DEBUG
+        let debug = true
+        #else
+        let debug = false
+        #endif
+        return ProcessInfo.processInfo.environment["MIDGARD_APP_SELFTEST"] == "1"
+            && (debug || Bundle.main.bundleIdentifier == nil)
+    }()
 
     init(paths: Paths = .current()) {
         self.paths = paths
         log = ShellLog(file: paths.logs.appendingPathComponent("shell.log"))
         web.onPageLoaded = { [weak self] url in self?.pageLoaded(url) }
+        web.onContentCrash = { [weak self] url in self?.contentCrashed(url) }
+        web.onLoadFailed = { [weak self] url, error in self?.loadFailed(url, error) }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.didWake() }
+        }
     }
 
     private var resources: URL { paths.resources }
@@ -88,36 +122,48 @@ final class AppModel: ObservableObject {
     // MARK: Launch
 
     /// Before any window: true if this is the only shell, else the other one has been
-    /// brought forward and this one should exit.
+    /// brought forward and this one should exit. A shell that is quitting is waited for.
     func claimSingleInstance() -> Bool {
-        let me = NSRunningApplication.current
-        if let id = Bundle.main.bundleIdentifier {
-            let others = NSRunningApplication.runningApplications(withBundleIdentifier: id)
-                .filter { $0.processIdentifier != me.processIdentifier }
-            if let other = others.first {
-                log("another Midgard is running (pid \(other.processIdentifier)); activating it and quitting")
-                other.activate(options: [.activateAllWindows])
-                return false
-            }
-        }
-        // Also without a bundle id (swift run): a lock beside the working copy.
         let file = paths.home.deletingLastPathComponent()
             .appendingPathComponent("\(paths.home.lastPathComponent).instance")
         switch InstanceLock.acquire(file) {
         case .acquired(let lock):
             instanceLock = lock
-            return true
-        case .heldBy(let pid):
-            log("another Midgard holds \(file.path) (pid \(pid.map(String.init) ?? "?")); activating it and quitting")
-            if let pid, let other = NSRunningApplication(processIdentifier: pid) {
-                other.activate(options: [.activateAllWindows])
+        case .heldBy(let pid, let stopping):
+            let who = "pid \(pid.map(String.init) ?? "?")"
+            if stopping {
+                log("another Midgard (\(who)) is quitting; waiting for it")
+                if case .acquired(let lock) = InstanceLock.acquire(file, waitingUpTo: 30) {
+                    instanceLock = lock
+                    break
+                }
             }
+            log("another Midgard holds \(file.path) (\(who)); activating it and quitting")
+            if let pid { NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows]) }
             return false
         case .failed(let reason):
-            // Better to run than to refuse: the bundle check above still guards the app.
+            // Better to run than to refuse: the bundle check below still guards the app.
             log("single-instance lock unavailable: \(reason)")
-            return true
         }
+        // A bundled instance without the lock has released it at the end of quitting (or
+        // uses another working copy): give it a moment to finish.
+        if let id = Bundle.main.bundleIdentifier {
+            let me = NSRunningApplication.current.processIdentifier
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+                .filter { $0.processIdentifier != me }
+            for other in others {
+                let pid = other.processIdentifier
+                let deadline = Date().addingTimeInterval(5)
+                while kill(pid, 0) == 0, Date() < deadline { usleep(100_000) }
+                if kill(pid, 0) == 0 {
+                    log("another Midgard is running (pid \(pid)); activating it and quitting")
+                    other.activate(options: [.activateAllWindows])
+                    instanceLock?.release()
+                    return false
+                }
+            }
+        }
+        return true
     }
 
     func launch() {
@@ -128,18 +174,53 @@ final class AppModel: ObservableObject {
             return
         }
         listenToStatuses()
-        startTask = Task { await self.bootstrap() }
+        run { gen in await self.bootstrap(gen) }
         snapshotLater("starting", after: 5)
     }
 
     /// The starting screen's "Try again".
     func retry() {
-        guard case .failed(let failure) = phase, failure.canRetry else { return }
-        startTask?.cancel()
-        startTask = Task {
+        guard !shuttingDown, case .failed(let failure) = phase, failure.canRetry else { return }
+        log("try again")
+        showStarting("Starting Midgard…", step: "Stopping the services…")
+        run { gen in
             await self.supervisor.stopAll()
-            await self.bootstrap()
+            guard self.isCurrent(gen) else { return self.interrupted(gen) }
+            await self.bootstrap(gen)
         }
+    }
+
+    /// Runs `work` as the one start or reset in flight, after cancelling and waiting for
+    /// the previous one.
+    private func run(_ work: @escaping @MainActor (Int) async -> Void) {
+        let previous = startTask
+        previous?.cancel()
+        generation += 1
+        let gen = generation
+        startTask = Task {
+            await previous?.value
+            guard self.isCurrent(gen) else { return }
+            await work(gen)
+        }
+    }
+
+    /// Whether the task of generation `gen` may still change what the window shows.
+    private func isCurrent(_ gen: Int) -> Bool {
+        gen == generation && !shuttingDown && !Task.isCancelled
+    }
+
+    /// A start that stopped part-way: unless something newer took over or Midgard is
+    /// quitting, say so rather than leave "Starting…" on screen.
+    private func interrupted(_ gen: Int) {
+        guard gen == generation, !shuttingDown else { return }
+        log("start interrupted")
+        fail("Midgard stopped starting", "Starting was interrupted before it finished.")
+    }
+
+    private func showStarting(_ title: String, step: String?) {
+        phase = .starting
+        startingTitle = title
+        startingStep = step
     }
 
     private func listenToStatuses() {
@@ -159,12 +240,21 @@ final class AppModel: ObservableObject {
         statuses[name] = status
         if !serviceOrder.contains(name) { serviceOrder.append(name) }
         if old != status { log("service \(name): \(describe(status))") }
-        if phase == .ready { updateHomeStatus() }
+        guard phase == .ready else { return }
+        updateHomeStatus()
+        if let message = ServiceAlert.message(service: name, status: status), note != message {
+            log("note: \(message)")
+            note = message
+        } else if status == .ready, let note,
+                  note == ServiceAlert.message(service: name, status: .failed("")) {
+            // It came back: the warning no longer holds.
+            log("note cleared: \(ServiceNames.friendly(name)) is running again")
+            self.note = nil
+        }
     }
 
-    private func bootstrap() async {
-        phase = .starting
-        startingTitle = "Starting Midgard…"
+    private func bootstrap(_ gen: Int) async {
+        showStarting("Starting Midgard…", step: nil)
         if !reaped {
             let found = await Supervisor.reapOrphans(binDir: bin)
             reaped = true
@@ -173,6 +263,7 @@ final class AppModel: ObservableObject {
             } else {
                 for p in found { log("ended orphaned service pid \(p.pid): \(p.executable)") }
             }
+            guard isCurrent(gen) else { return interrupted(gen) }
         }
 
         if !prepared {
@@ -185,8 +276,10 @@ final class AppModel: ObservableObject {
                 log("working copy ready at \(home.path) (\(seconds(since: started)))")
             } catch {
                 log("working copy failed: \(error)")
+                guard gen == generation, !shuttingDown else { return }
                 return fail("The demo data could not be prepared", Self.explain(error))
             }
+            guard isCurrent(gen) else { return interrupted(gen) }
         }
 
         do {
@@ -196,7 +289,8 @@ final class AppModel: ObservableObject {
             }
         } catch {
             log("demo users: \(error)")
-            return fail("Midgard is incomplete", "The list of demo users could not be read (\(error.localizedDescription)).")
+            return fail("Midgard is incomplete",
+                        "The list of demo users could not be read. Install Midgard again.", canRetry: false)
         }
 
         if web.rulesInstalled == false {
@@ -205,8 +299,11 @@ final class AppModel: ObservableObject {
                 log("offline content rules compiled")
             } catch {
                 log("content rules failed: \(error)")
-                return fail("Midgard could not start", "The offline protection for the window could not be set up (\(error.localizedDescription)).")
+                guard gen == generation, !shuttingDown else { return }
+                return fail("Midgard could not start",
+                            "The offline protection for the window could not be set up (\(error.localizedDescription)).")
             }
+            guard isCurrent(gen) else { return interrupted(gen) }
         }
 
         if server == nil {
@@ -218,10 +315,12 @@ final class AppModel: ObservableObject {
                 log("web server on \(origin)")
             } catch {
                 log("web server failed: \(error)")
+                guard gen == generation, !shuttingDown else { return }
                 return fail("Midgard could not start", "Its built-in web server could not start (\(error)).")
             }
+            guard isCurrent(gen) else { return interrupted(gen) }
         }
-        await startServices()
+        await startServices(gen)
     }
 
     /// The previous launch's port first, so the consoles' saved preferences (stored per
@@ -286,14 +385,14 @@ final class AppModel: ObservableObject {
         return FileManager.default.fileExists(atPath: meta.path) ? dir : nil
     }
 
-    private func startServices() async {
-        phase = .starting
-        startingStep = nil
+    private func startServices(_ gen: Int) async {
+        showStarting(startingTitle, step: nil)
         statuses = [:]
         guard let llama = llamaServer() else {
             log("llama-server not found in \(bin.path) or Homebrew")
             return fail("Midgard is incomplete",
-                        "The model server (llama-server) is missing from this copy of Midgard.")
+                        "The model server (llama-server) is missing from this copy of Midgard. Install Midgard again.",
+                        canRetry: false)
         }
         let launch = Launch(bin: bin, models: resources.appendingPathComponent("models", isDirectory: true),
                             home: paths.home, logs: paths.logs, origin: origin, recording: recording(),
@@ -319,53 +418,62 @@ final class AppModel: ObservableObject {
                 onRetry: { service, retry in log("\(service): port in use; retry \(retry) with fresh ports") })
         } catch is CancellationError {
             log("start cancelled")
-            return
-        } catch let error as SupervisorError {
+            return interrupted(gen)
+        } catch SupervisorError.stopped {
+            log("start stopped")
+            return interrupted(gen)
+        } catch {
             log("start failed: \(error)")
             await supervisor.stopAll()
-            switch error {
+            guard gen == generation, !shuttingDown else { return }
+            switch error as? SupervisorError {
             case .failed(let service, let reason):
                 return fail("Midgard could not start \(ServiceNames.friendly(service))", reason)
             case .portInUse(let service):
                 return fail("Midgard could not start \(ServiceNames.friendly(service))",
                             "Its network port was taken by another program several times in a row.")
-            case .stopped:
-                return
+            default:
+                return fail("Midgard could not start", "\(error)")
             }
-        } catch {
-            log("start failed: \(error)")
-            await supervisor.stopAll()
-            return fail("Midgard could not start", "\(error)")
         }
         log("all services ready (\(seconds(since: started)))")
+        guard isCurrent(gen) else { return interrupted(gen) }
 
         guard let user = currentUser else { return }
         startingStep = "Signing in…"
         do {
-            try await signIn(as: user)
+            let info = try await login(user)
+            guard isCurrent(gen) else { return interrupted(gen) }
+            adopt(info, for: user)
         } catch {
             log("sign-in as \(user.username) failed: \(error)")
             await supervisor.stopAll()
+            guard gen == generation, !shuttingDown else { return }
             return fail("Midgard could not sign in", "The gateway refused the demo sign-in (\(error)).")
         }
         startingStep = nil
         phase = .ready
         log("ready")
-        web.load(Destination.home.url(origin: origin))
         section = .home
+        web.load(Destination.home.url(origin: origin))
     }
+
+    // MARK: Session
 
     private var gatewayAPI: String? { ports.map { "http://127.0.0.1:\($0.gatewayHTTP)/api/v1" } }
     private var gatewayOrigin: String? { ports.map { "http://127.0.0.1:\($0.gatewayHTTP)" } }
 
-    /// Signs in and installs the session for every later page load.
-    private func signIn(as user: DemoUser) async throws {
+    private func login(_ user: DemoUser) async throws -> SessionInfo {
         guard let api = gatewayAPI, let url = URL(string: api) else { throw SessionError.transport("no gateway") }
-        let info = try await Session.login(gateway: url, user: user)
+        return try await Session.login(gateway: url, user: user)
+    }
+
+    /// Makes `info` the session for every later page load and schedules its renewal.
+    private func adopt(_ info: SessionInfo, for user: DemoUser) {
         session = info
         currentUser = user
         log("signed in as \(info.subject) (clearance \(info.clearance ?? "none"), expires \(info.expiresAt))")
-        installScripts(info)
+        installScripts()
         scheduleRefresh(Session.refreshDate(for: info))
     }
 
@@ -374,36 +482,63 @@ final class AppModel: ObservableObject {
                                 midgardConsoleURL: "\(origin)/midgard/index.html#/", session: info)
     }
 
-    private func installScripts(_ info: SessionInfo) {
-        let view = HeimdallView.preferred(appleSilicon: HeimdallView.isAppleSilicon())
-        web.configure(scripts: [injection(info), HeimdallView.script(origin: origin, view: view)]) { [origin, gatewayOrigin] url in
+    private func installScripts() {
+        guard let session else { return }
+        let view = forceHeimdall2D ? "2d" : HeimdallView.preferred(appleSilicon: HeimdallView.isAppleSilicon())
+        web.configure(scripts: [injection(session),
+                                HeimdallView.script(origin: origin, view: view, force: forceHeimdall2D)]) {
+            [origin, gatewayOrigin] url in
             Navigation.isAllowed(url, origin: origin, gatewayOrigin: gatewayOrigin)
         }
     }
 
+    /// Renews the session at `date` by the wall clock: checked at least once a minute, so
+    /// time asleep counts (and on wake, see `didWake`).
     private func scheduleRefresh(_ date: Date) {
         refreshTask?.cancel()
+        refreshAt = date
         log("next sign-in refresh at \(date)")
         refreshTask = Task { [weak self] in
-            let delay = max(0, date.timeIntervalSinceNow)
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
-            guard !Task.isCancelled else { return }
-            await self?.refreshSession()
+            while !Task.isCancelled {
+                let remaining = date.timeIntervalSinceNow
+                if remaining <= 0 {
+                    await self?.refreshSession()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: UInt64(min(remaining, 60) * 1e9))
+            }
         }
     }
 
+    private func didWake() {
+        guard phase == .ready, let session, let refreshAt else { return }
+        let action = SessionTiming.action(now: Date(), refreshAt: refreshAt, expiresAt: session.expiresAt)
+        log("woke from sleep: session \(action)")
+        guard action != .wait else { return }
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in await self?.refreshSession() }
+    }
+
     private func refreshSession() async {
-        guard phase == .ready, let user = currentUser,
-              let api = gatewayAPI, let url = URL(string: api) else { return }
+        guard !shuttingDown, phase == .ready, let user = currentUser, let old = session else { return }
+        let action = SessionTiming.action(now: Date(), refreshAt: refreshAt ?? .distantPast, expiresAt: old.expiresAt)
         do {
-            let info = try await Session.login(gateway: url, user: user)
+            let info = try await login(user)
+            guard !Task.isCancelled, !shuttingDown, phase == .ready, currentUser == user else { return }
             session = info
-            installScripts(info)
-            // The open page keeps its token until it reloads: give it the new one now.
-            web.evaluate(injection(info))
-            log("session refreshed for \(info.subject), expires \(info.expiresAt)")
+            installScripts()
+            if action == .refreshAndReload {
+                // The page's token has expired: it must load again with the new one.
+                web.reload()
+            } else {
+                // The open page keeps its token until it reloads: give it the new one now.
+                web.evaluate(injection(info))
+            }
+            log("session refreshed for \(info.subject), expires \(info.expiresAt)"
+                + (action == .refreshAndReload ? "; page reloaded" : ""))
             scheduleRefresh(Session.refreshDate(for: info))
         } catch {
+            guard !Task.isCancelled, !shuttingDown, phase == .ready, currentUser == user else { return }
             log("session refresh failed: \(error); trying again in 60 s")
             scheduleRefresh(Date().addingTimeInterval(60))
         }
@@ -412,39 +547,53 @@ final class AppModel: ObservableObject {
     // MARK: Presenter actions
 
     func go(_ section: Destination) {
+        guard !shuttingDown, phase == .ready else { return }
         log("show \(section.rawValue)")
         self.section = section
-        guard phase == .ready else { return }
         web.load(section.url(origin: origin))
     }
 
     func switchUser(_ user: DemoUser) {
-        guard phase == .ready, !switchingUser, user != currentUser else { return }
+        guard !shuttingDown, phase == .ready, !switchingUser, user != currentUser else { return }
         switchingUser = true
+        refreshTask?.cancel()
         Task {
             defer { self.switchingUser = false }
             do {
-                try await self.signIn(as: user)
+                let info = try await self.login(user)
+                guard !self.shuttingDown, self.phase == .ready else { return }
+                self.adopt(info, for: user)
                 self.web.reload()
             } catch {
+                guard !self.shuttingDown, self.phase == .ready else { return }
                 self.log("switch to \(user.username) failed: \(error)")
                 self.note = "Could not sign in as \(user.label). Still signed in as \(self.currentUser?.label ?? "before")."
+                if let session = self.session { self.scheduleRefresh(Session.refreshDate(for: session)) }
             }
         }
     }
 
+    /// Whether Reset demo may be offered now.
+    var canReset: Bool {
+        guard !shuttingDown, !switchingUser else { return false }
+        switch phase {
+        case .ready: return true
+        case .failed(let failure): return failure.canReset
+        default: return false
+        }
+    }
+
     func resetDemo() {
-        guard phase == .ready || { if case .failed = phase { return true } else { return false } }() else { return }
+        guard canReset else { return }
         log("reset demo")
         refreshTask?.cancel()
-        startTask?.cancel()
-        phase = .starting
+        note = nil
+        showStarting("Resetting the demo…", step: "Stopping the services…")
         section = .home
-        startingTitle = "Resetting the demo…"
-        startingStep = "Stopping the services…"
         web.load(URL(string: "about:blank")!)
-        startTask = Task {
+        run { gen in
             await self.supervisor.stopAll()
+            guard self.isCurrent(gen) else { return self.interrupted(gen) }
             self.startingStep = "Restoring the starting data…"
             let starting = self.startingState, home = self.paths.home
             let started = Date()
@@ -459,40 +608,98 @@ final class AppModel: ObservableObject {
             } catch {
                 self.log("reset failed: \(error)")
                 self.prepared = false
+                guard gen == self.generation, !self.shuttingDown else { return }
                 return self.fail("The demo could not be reset", Self.explain(error))
             }
+            // The consoles' stored state belongs to the old data too; Heimdall's view
+            // default is seeded again by its script.
+            await self.web.clearWebsiteData()
+            self.log("web view data cleared")
+            guard self.isCurrent(gen) else { return self.interrupted(gen) }
             self.startingTitle = "Starting Midgard…"
-            await self.startServices()
+            await self.bootstrap(gen)
         }
     }
 
     // MARK: Quitting
 
-    /// Stops every service and the web server. Safe to call more than once.
-    func shutdown() async {
+    /// Called synchronously when the app is asked to quit: shows "Stopping Midgard…" and
+    /// stops every other action from starting.
+    func beginShutdown() {
         guard !shuttingDown else { return }
         shuttingDown = true
+        phase = .stopping
+        startingTitle = "Stopping Midgard…"
+        startingStep = nil
+        confirmingReset = false
+        instanceLock?.markStopping()
         log("quit: stopping services")
-        startTask?.cancel()
-        refreshTask?.cancel()
+        snapshotLater("stopping", after: 0.05)
+    }
+
+    /// Stops every service and the web server; no start can run afterwards.
+    func shutdown() async {
+        beginShutdown()
         let started = Date()
-        await supervisor.stopAll()
+        let start = startTask
+        start?.cancel()
+        refreshTask?.cancel()
+        await start?.value
+        await supervisor.close()
         if let server {
             await Task.detached { server.stop() }.value
         }
         server = nil
-        instanceLock?.release()
         log("quit: stopped (\(seconds(since: started)))")
+        instanceLock?.release()
     }
 
-    // MARK: Page status
+    // MARK: Web view events
 
     private func pageLoaded(_ url: URL?) {
         guard let url, Navigation.origin(of: url) == origin else { return }
         section = Destination(path: url.path)
+        if forceHeimdall2D {
+            forceHeimdall2D = false
+            installScripts()
+        }
         if section == .home { updateHomeStatus() }
         if selfTest && !selfTestRan { Task { await self.runSelfTest() } }
     }
+
+    /// The page's web content process ended (a crash, or memory pressure on an 8 GB Mac).
+    private func contentCrashed(_ url: URL?) {
+        guard phase == .ready, !shuttingDown else { return }
+        let target = url.flatMap { Navigation.origin(of: $0) == origin ? $0 : nil } ?? section.url(origin: origin)
+        let page = Destination(path: target.path)
+        log("web content process ended on \(target.path)")
+        guard crashBudget.take() else {
+            log("page crashed again; going home")
+            note = "The \(page.title) page stopped working, so Midgard went back to the home screen."
+            section = .home
+            web.load(Destination.home.url(origin: origin))
+            return
+        }
+        if page == .heimdall {
+            // The 3D globe is the heaviest page: reopen Heimdall in 2D.
+            forceHeimdall2D = true
+            installScripts()
+            log("reopening Heimdall in 2D")
+        }
+        web.load(target)
+    }
+
+    private func loadFailed(_ url: URL?, _ error: Error) {
+        let ns = error as NSError
+        // Cancelled loads (a newer navigation, our own policy refusals) are not failures.
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
+        if ns.domain == "WebKitErrorDomain" && ns.code == 102 { return }
+        log("page load failed for \(url?.absoluteString ?? "?"): \(ns.domain) \(ns.code) \(ns.localizedDescription)")
+        guard phase == .ready, !shuttingDown else { return }
+        note = "The page could not be opened (\(ns.localizedDescription))."
+    }
+
+    // MARK: Page status
 
     /// The home page's status line.
     var statusLine: String {
@@ -512,29 +719,43 @@ final class AppModel: ObservableObject {
         web.evaluate(PageScript.call("midgardStatus", statusLine))
     }
 
-    // MARK: Development self-test (MIDGARD_APP_SELFTEST=1)
+    // MARK: Development self-test (MIDGARD_APP_SELFTEST=1, debug or unbundled builds only)
 
     private var selfTestRan = false
 
-    /// For dev runs checked from the log: whether the offline rules block an external
-    /// fetch, the session and Heimdall's view reached the page, Switch user and (with
+    /// For dev runs checked from the log: whether the offline rules block external loads,
+    /// the session and Heimdall's view reached the page, Switch user and (with
     /// MIDGARD_APP_SELFTEST_RESET=1) Reset demo; window snapshots go to
-    /// MIDGARD_APP_SNAPSHOTS if set.
+    /// MIDGARD_APP_SNAPSHOTS if set. MIDGARD_APP_SELFTEST_CRASH=1 also ends Heimdall's
+    /// web content process to exercise the crash recovery.
     private func runSelfTest() async {
         guard selfTest, !selfTestRan else { return }
         selfTestRan = true
+        let env = ProcessInfo.processInfo.environment
         func pause(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
         await pause(4)
         await probe("home"); await snapshot("home")
         go(.heimdall)
         await pause(40)
         await probe("heimdall"); await snapshot("heimdall")
+        if env["MIDGARD_APP_SELFTEST_CRASH"] == "1" {
+            for round in 1...3 {
+                let pid = web.contentProcessIdentifier
+                log("self-test: ending web content process \(pid.map(String.init) ?? "?") (round \(round))")
+                if let pid { kill(pid, SIGKILL) }
+                await pause(8)
+                await probe("after crash \(round)")
+            }
+            await snapshot("after-crashes")
+            go(.home)
+            await pause(3)
+        }
         if let other = users.first(where: { $0 != currentUser }) {
             switchUser(other)
             await pause(10)
-            await probe("heimdall as \(other.username)"); await snapshot("heimdall-\(other.username)")
+            await probe("as \(other.username)"); await snapshot("as-\(other.username)")
         }
-        guard ProcessInfo.processInfo.environment["MIDGARD_APP_SELFTEST_RESET"] == "1" else { return }
+        guard env["MIDGARD_APP_SELFTEST_RESET"] == "1" else { return }
         resetDemo()
         let deadline = Date().addingTimeInterval(300)
         await pause(2)
@@ -548,7 +769,7 @@ final class AppModel: ObservableObject {
             const out = { page: location.pathname + location.hash };
             // no-cors: without the content rules an external fetch would succeed (opaque).
             const targets = [['external', 'https://example.com/'], ['externalHttp', 'http://example.com/'],
-                             ['own', location.origin + '/']];
+                             ['userinfo', 'http://127.0.0.1:1@example.com/'], ['own', location.origin + '/']];
             for (const [name, target] of targets) {
               try { const r = await fetch(target, { cache: 'no-store', mode: 'no-cors' }); out[name] = 'loaded ' + r.type + ' ' + r.status; }
               catch (e) { out[name] = 'blocked (' + e.message + ')'; }
@@ -562,6 +783,7 @@ final class AppModel: ObservableObject {
             out.who = sessionStorage.getItem('midgard.session.who');
             out.gateway = window.__MIDGARD_GATEWAY__ || null;
             out.heimdallView = localStorage.getItem('heimdall.cop.view');
+            out.localStorageKeys = localStorage.length;
             const status = document.getElementById('status');
             if (status) out.status = status.textContent;
             return JSON.stringify(out);
@@ -589,9 +811,10 @@ final class AppModel: ObservableObject {
 
     // MARK: Helpers
 
-    private func fail(_ title: String, _ details: String) {
+    private func fail(_ title: String, _ details: String, canRetry: Bool = true) {
         startingStep = nil
-        phase = .failed(StartFailure(title: title, details: details))
+        phase = .failed(StartFailure(title: title, details: details, canRetry: canRetry,
+                                     canReset: canRetry && prepared))
         snapshotLater("failure", after: 1)
     }
 

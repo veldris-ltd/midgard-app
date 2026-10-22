@@ -84,6 +84,8 @@ public final class Supervisor: @unchecked Sendable {
     private var services: [Service] = []
     private var latest: [String: ServiceStatus] = [:]
     private var generation = 0
+    /// Set by `close()`: no start may launch anything afterwards.
+    private var closed = false
     private var lastStop: Task<Void, Never>?
 
     public init(timing: Timing = Timing()) {
@@ -122,7 +124,7 @@ public final class Supervisor: @unchecked Sendable {
         for spec in specs {
             let service = Service(spec)
             try locked {
-                guard generation == self.generation else { throw SupervisorError.stopped }
+                guard generation == self.generation, !closed else { throw SupervisorError.stopped }
                 services.append(service)
             }
             publish(service, .starting)
@@ -162,6 +164,16 @@ public final class Supervisor: @unchecked Sendable {
         }
         await task.value
     }
+
+    /// `stopAll()` for good: a `start` running now or called later throws
+    /// `SupervisorError.stopped` without launching anything. For quitting.
+    public func close() async {
+        locked { closed = true }
+        await stopAll()
+    }
+
+    /// True once `close()` has been called.
+    public var isClosed: Bool { locked { closed } }
 
     // MARK: Running one service
 
@@ -523,7 +535,7 @@ public final class Supervisor: @unchecked Sendable {
     static func note(_ file: URL, _ line: String) {
         let fd = open(file.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
         guard fd >= 0 else { return }
-        defer { close(fd) }
+        defer { Darwin.close(fd) }
         let bytes = Array("[midgard shell] \(line)\n".utf8)
         _ = bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
     }

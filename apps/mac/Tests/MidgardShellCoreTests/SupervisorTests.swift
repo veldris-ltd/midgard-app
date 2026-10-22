@@ -363,6 +363,23 @@ final class SupervisorTests: XCTestCase {
         XCTAssertNotEqual(supervisor.pid(of: "a"), first)
     }
 
+    func testNoStartAfterClose() async throws {
+        let a = try spec("a", "echo 'listening on'; exec sleep 300")
+        try await supervisor.start([a])
+        let first = try XCTUnwrap(supervisor.pid(of: "a"))
+        let supervisor = supervisor!
+        await supervisor.close()
+        XCTAssertTrue(supervisor.isClosed)
+        let isGone = await gone(first, within: 0.5)
+        XCTAssertTrue(isGone)
+        do {
+            try await supervisor.start([a])
+            XCTFail("expected start to refuse after close")
+        } catch SupervisorError.stopped {}
+        XCTAssertNil(supervisor.pid(of: "a"))
+        XCTAssertEqual(supervisor.status(of: "a"), .stopped)
+    }
+
     func testStopAllDuringStartStopsIt() async throws {
         let slow = try spec("slow", "sleep 0.5; echo 'listening on'; exec sleep 300")
         let next = try spec("next", "echo 'listening on'; exec sleep 300")

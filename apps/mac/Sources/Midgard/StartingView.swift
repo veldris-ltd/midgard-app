@@ -25,6 +25,8 @@ struct StartingView: View {
                 switch model.phase {
                 case .failed(let failure):
                     failureView(failure)
+                case .stopping:
+                    stoppingView
                 default:
                     progressView
                 }
@@ -57,6 +59,16 @@ struct StartingView: View {
         }
     }
 
+    private var stoppingView: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text(model.startingTitle).font(.system(size: 28, weight: .semibold))
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Stopping the services…").foregroundStyle(Palette.muted)
+            }
+        }
+    }
+
     private func failureView(_ failure: StartFailure) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Label(failure.title, systemImage: "exclamationmark.triangle.fill")
@@ -81,6 +93,9 @@ struct StartingView: View {
                 HStack {
                     Button("Try again") { model.retry() }
                         .keyboardShortcut(.defaultAction)
+                    if failure.canReset {
+                        Button("Reset demo…") { model.confirmingReset = true }
+                    }
                     Spacer()
                     Text("Logs: \(model.paths.logs.path)").font(.caption).foregroundStyle(Palette.muted)
                         .textSelection(.enabled)
