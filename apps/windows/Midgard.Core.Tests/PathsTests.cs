@@ -48,6 +48,21 @@ public class PathsTests
     }
 
     [Fact]
+    public void WebViewOverrideMovesOnlyTheProfile()
+    {
+        var p = new Paths(new Dictionary<string, string> { ["MIDGARD_APP_WEBVIEW"] = @"D:\tmp\WebView" },
+                          Bundle, LocalAppData);
+        Assert.Equal(@"D:\tmp\WebView", p.WebView);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "Home"), p.Home);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "Logs"), p.Logs);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "settings.json"), p.Settings);
+        Assert.Contains("MIDGARD_APP_WEBVIEW", Paths.EnvironmentKeys);
+        // An empty value is no override.
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "WebView"),
+                     new Paths(new Dictionary<string, string> { ["MIDGARD_APP_WEBVIEW"] = "" }, Bundle, LocalAppData).WebView);
+    }
+
+    [Fact]
     public void LogsOverrideMovesOnlyLogs()
     {
         var p = new Paths(new Dictionary<string, string> { ["MIDGARD_APP_LOGS"] = @"D:\dev\logs" },

@@ -794,17 +794,26 @@ job_windows_shell_e2e() {
     rm -rf "$app"
     # The check refuses to run without the opt-in and both folders set (HeadlessGuard.cs):
     # first that refusal, from the real exe, which must touch nothing.
-    local refused=0
+    local refused=0 real had=0
+    real="$(cygpath -u "$LOCALAPPDATA")/Midgard"
+    [ -e "$real" ] && had=1
     MIDGARD_APP_HOME="$(cygpath -w "$app/Home")" MIDGARD_APP_LOGS="$(cygpath -w "$app/Logs")" \
-        "$pkg/Midgard.exe" --headless-check "$(cygpath -w "$out/refused.json")" || refused=$?
+        MIDGARD_APP_WEBVIEW="$(cygpath -w "$app/WebView")" "$pkg/Midgard.exe" --headless-check "$(cygpath -w "$out/refused.json")" || refused=$?
     if [ "$refused" != 3 ] || [ -e "$app" ] || [ -e "$out/refused.json" ]; then
         ci_error "windows-shell-e2e: --headless-check without MIDGARD_HEADLESS_CHECK=1 did not refuse (exit $refused)"
         return 1
     fi
     MIDGARD_HEADLESS_CHECK=1 MIDGARD_APP_HOME="$(cygpath -w "$app/Home")" MIDGARD_APP_LOGS="$(cygpath -w "$app/Logs")" \
-        "$pkg/Midgard.exe" --headless-check "$(cygpath -w "$out/report/report.json")" \
+        MIDGARD_APP_WEBVIEW="$(cygpath -w "$app/WebView")" "$pkg/Midgard.exe" --headless-check "$(cygpath -w "$out/report/report.json")" \
         --model-stub "$(cygpath -w "$py")" "$(cygpath -w "$PWD/tools/win-app/stub_llm.py")" || status=$?
     cp -R "$app/Logs/." "$out/report/logs/" 2>/dev/null || true
+    # Nothing of a presenter's own: the real %LOCALAPPDATA%\Midgard (working copy, logs,
+    # browser profile, settings) must not have been made.
+    if [ "$had" = 0 ] && [ -e "$real" ]; then
+        ci_error "windows-shell-e2e: the check touched $real (a presenter's folder)"
+        ls -la "$real"
+        status=1
+    fi
     if [ ! -f "$out/report/report.json" ]; then
         ci_error "windows-shell-e2e: Midgard.exe wrote no report (exit $status)"
         return 1

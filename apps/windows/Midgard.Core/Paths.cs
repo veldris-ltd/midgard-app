@@ -62,13 +62,14 @@ public sealed record Paths
         // MIDGARD_APP_HOME moves the working copy only, MIDGARD_APP_LOGS the logs only.
         Home = Value("MIDGARD_APP_HOME") ?? Path.Join(app, "Home");
         Logs = Value("MIDGARD_APP_LOGS") ?? Path.Join(app, "Logs");
-        WebView = Path.Join(app, "WebView");
+        // MIDGARD_APP_WEBVIEW moves the WebView2 profile only (tests: never a real profile).
+        WebView = Value("MIDGARD_APP_WEBVIEW") ?? Path.Join(app, "WebView");
         Settings = Path.Join(app, "settings.json");
     }
 
     /// <summary>The environment keys <see cref="Paths"/> reads.</summary>
     public static readonly IReadOnlyList<string> EnvironmentKeys =
-        ["MIDGARD_APP_RESOURCES", "MIDGARD_APP_HOME", "MIDGARD_APP_LOGS"];
+        ["MIDGARD_APP_RESOURCES", "MIDGARD_APP_HOME", "MIDGARD_APP_LOGS", "MIDGARD_APP_WEBVIEW"];
 
     /// <summary>
     /// The paths for this process: the folder Midgard.exe is in and the user's real

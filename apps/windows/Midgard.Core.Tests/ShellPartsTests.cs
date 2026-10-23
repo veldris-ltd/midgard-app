@@ -116,6 +116,17 @@ public class ShellPartsTests
     }
 
     [Fact]
+    public void OnlyTheLatestNavigationsOutcomeCounts()
+    {
+        Assert.Equal(PageLoads.Outcome.Loaded, PageLoads.Of(7, 7, success: true, cancelled: false));
+        Assert.Equal(PageLoads.Outcome.Failed, PageLoads.Of(7, 7, success: false, cancelled: false));
+        Assert.Equal(PageLoads.Outcome.Ignored, PageLoads.Of(7, 7, success: false, cancelled: true));
+        // Superseded (the 72e55df e2e failure: ConnectionAborted for a load another one replaced).
+        Assert.Equal(PageLoads.Outcome.Ignored, PageLoads.Of(6, 7, success: false, cancelled: false));
+        Assert.Equal(PageLoads.Outcome.Ignored, PageLoads.Of(6, 7, success: true, cancelled: false));
+    }
+
+    [Fact]
     public void TwoReloadsPerMinute()
     {
         var budget = new ReloadBudget();

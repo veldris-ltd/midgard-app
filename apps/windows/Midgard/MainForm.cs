@@ -68,6 +68,8 @@ sealed class MainForm : Form, IShellView
     // The web view was closed for quitting (CloseAsync); nothing may touch it after.
     bool webClosed;
     CoreWebView2Environment? environment;
+    // The last navigation that started (and was allowed): only its outcome counts.
+    ulong latestNavigation;
     bool offeredShortcut;
 
     /// <summary>
@@ -566,16 +568,23 @@ sealed class MainForm : Form, IShellView
     {
         var done = new TaskCompletionSource<(bool, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
         CoreWebView2? core = null;
+        // This navigation's id: the outcome of one that was already loading (the shell's own
+        // load of the home page, which this one supersedes) is not this one's.
+        ulong? mine = null;
+        void Starting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            if (mine is null && e.Uri.StartsWith(url, StringComparison.Ordinal)) mine = e.NavigationId;
+        }
         void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e)
         {
-            if (!e.IsSuccess && e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+            if (mine is null || e.NavigationId != mine) return;
             var source = core!.Source;
-            if (e.IsSuccess && !source.StartsWith(url, StringComparison.Ordinal)) return;
             done.TrySetResult(e.IsSuccess ? (true, $"loaded {source}") : (false, $"{e.WebErrorStatus} for {source}"));
         }
         await OnUiAsync(() =>
         {
             core = web.CoreWebView2 ?? throw new InvalidOperationException("the web view was not created");
+            core.NavigationStarting += Starting;
             core.NavigationCompleted += Completed;
             core.Navigate(url);
             return Task.CompletedTask;
@@ -589,7 +598,8 @@ sealed class MainForm : Form, IShellView
         {
             Post(() =>
             {
-                core!.NavigationCompleted -= Completed;
+                core!.NavigationStarting -= Starting;
+                core.NavigationCompleted -= Completed;
             });
         }
     }
@@ -687,7 +697,11 @@ sealed class MainForm : Form, IShellView
         {
             var allowed = OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin);
             Observe?.Invoke("navigation", e.Uri, allowed);
-            if (allowed) return;
+            if (allowed)
+            {
+                latestNavigation = e.NavigationId;
+                return;
+            }
             log.Write($"web view: refused navigation to {Short(e.Uri)}");
             e.Cancel = true;
         };
@@ -740,14 +754,19 @@ sealed class MainForm : Form, IShellView
         };
         core.NavigationCompleted += (_, e) =>
         {
-            if (e.IsSuccess)
+            switch (PageLoads.Of(e.NavigationId, latestNavigation, e.IsSuccess,
+                                 e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled))
             {
-                shell?.PageLoaded(core.Source);
-            }
-            else if (e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled
-                     && OfflineRules.IsAllowed(core.Source, appOrigin, gatewayOrigin))
-            {
-                shell?.PageFailed(core.Source, e.WebErrorStatus.ToString());
+                case PageLoads.Outcome.Loaded:
+                    shell?.PageLoaded(core.Source);
+                    break;
+                case PageLoads.Outcome.Failed when OfflineRules.IsAllowed(core.Source, appOrigin, gatewayOrigin):
+                    shell?.PageFailed(core.Source, e.WebErrorStatus.ToString());
+                    break;
+                default:
+                    if (e.NavigationId != latestNavigation && !e.IsSuccess)
+                        log.Write($"web view: navigation {e.NavigationId} superseded ({e.WebErrorStatus})");
+                    break;
             }
         };
         core.ProcessFailed += (_, e) =>

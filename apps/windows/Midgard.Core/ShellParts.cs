@@ -181,6 +181,32 @@ public sealed class ReloadBudget(int limit = 2, TimeSpan? window = null)
     }
 }
 
+/// <summary>What a finished navigation of the window means for the shell.</summary>
+public static class PageLoads
+{
+    public enum Outcome
+    {
+        /// <summary>The page is shown (<see cref="ShellModel.PageLoaded"/>).</summary>
+        Loaded,
+        /// <summary>The page could not be opened (<see cref="ShellModel.PageFailed"/>, a note).</summary>
+        Failed,
+        /// <summary>Nothing to say: it was cancelled (a refusal), or a newer navigation took its place.</summary>
+        Ignored,
+    }
+
+    /// <summary>
+    /// <paramref name="navigation"/> finished; <paramref name="latest"/> is the last one that
+    /// started. A navigation superseded by a newer one (Home clicked while a page still loads,
+    /// a reload) ends unsuccessfully, often as ConnectionAborted rather than as cancelled: that
+    /// is not a failure of the page, and only the latest one's outcome counts.
+    /// </summary>
+    public static Outcome Of(ulong navigation, ulong latest, bool success, bool cancelled) =>
+        navigation != latest ? Outcome.Ignored
+        : success ? Outcome.Loaded
+        : cancelled ? Outcome.Ignored
+        : Outcome.Failed;
+}
+
 /// <summary>The note shown when a service stops working after the demo started.</summary>
 public static class ServiceAlert
 {
