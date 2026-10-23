@@ -237,8 +237,8 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
   third-party notices, YOLOX, python-build-standalone's note) into `Contents/Resources/licenses/`.
   The runtimes hold Python sources, which codesign refuses in `Helpers`, so they live in
   Resources; every Mach-O in them (about 27 per runtime, inside site-packages too) is signed ad
-  hoc and verified one by one before the bundle. The shell runs the `analytics` service after
-  `heimdall` (see [Camera analytics](#camera-analytics)).
+  hoc and verified one by one before the bundle. The shell runs the `analytics` service last,
+  as an optional one (see [Camera analytics](#camera-analytics)).
 - Signing, notarisation and delivery for phase 5: "Phase 5 notes" in
   `docs/plans/2026-10-22-mac-presentation-app-design.md`.
 
@@ -294,8 +294,10 @@ standard library and packages compiled to unchecked-hash .pyc; no symlinks; Mach
 ad hoc where they did not verify), `models/yolox_s.onnx` and `licenses/`. Stamps make re-runs a
 no-op. About 131 MB arm64, 156 MB x64, 36 MB for the model.
 
-- The shell starts `analytics` after `heimdall` when the bundle has the analytics and a
-  recording: `Resources/analytics/runtime/arm64/bin/python3.13` with the CoreML execution
+- The shell starts `analytics` last, as an optional service, when the bundle has the analytics
+  (runtime, code, model, `Helpers/midgard-frames` and `heimdall-source`) and a recording; the
+  app does not wait for it, and if it never becomes ready it is shown as failed, logged, and
+  the app carries on (Analyse answers 502; the home status says camera analytics unavailable): `Resources/analytics/runtime/arm64/bin/python3.13` with the CoreML execution
   provider on Apple Silicon (also under Rosetta), the x64 runtime on the CPU (up to 4 threads)
   on Intel or with `MIDGARD_FORCE_INTEL_MODEL=1`. It runs `python3.13 -I -B analytics.py --serve`
   on a free loopback port with the recording's cameras and stored media, `Helpers/midgard-frames`

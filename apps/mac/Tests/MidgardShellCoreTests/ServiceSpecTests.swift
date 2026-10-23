@@ -158,10 +158,13 @@ final class ServiceSpecTests: XCTestCase {
          "--source-addr", "127.0.0.1:1006", "--nice", "10"]
     }
 
-    func testAnalyticsStartAfterHeimdall() {
-        XCTAssertEqual(withAnalytics().map(\.name),
-                       ["llama", "mimir", "gateway", "heimdall", "analytics", "forge", "replay"])
-        XCTAssertEqual(withAnalytics().map(\.readyTimeout), Array(repeating: 180, count: 7))
+    func testAnalyticsStartLastAndOptional() {
+        let all = withAnalytics()
+        XCTAssertEqual(all.map(\.name),
+                       ["llama", "mimir", "gateway", "heimdall", "forge", "replay", "analytics"])
+        XCTAssertEqual(all.map(\.readyTimeout), Array(repeating: 180, count: 7))
+        XCTAssertEqual(all.filter(\.optional).map(\.name), ["analytics"])
+        XCTAssertTrue(specs(recording: recording).allSatisfy { !$0.optional })
     }
 
     func testAnalyticsOnAppleSiliconUseTheArm64RuntimeWithCoreML() throws {
@@ -204,12 +207,18 @@ final class ServiceSpecTests: XCTestCase {
         let resources = URL(fileURLWithPath: "/R", isDirectory: true)
         let files: Set<String> = ["/R/analytics/analytics.py", "/R/analytics/config.json",
                                   "/R/models/yolox/yolox_s.onnx"]
-        let executables: Set<String> = ["/R/analytics/runtime/arm64/bin/python3.13"]
-        func locate(recording: URL?, hardware: ModelServer.Hardware, files: Set<String> = files) -> CameraAnalytics? {
-            CameraAnalytics.locate(resources: resources, recording: recording, hardware: hardware,
+        let executables: Set<String> = ["/R/analytics/runtime/arm64/bin/python3.13",
+                                        "/R/bin/midgard-frames", "/R/bin/heimdall-source"]
+        func locate(recording: URL?, hardware: ModelServer.Hardware, files: Set<String> = files,
+                    executables: Set<String> = executables) -> CameraAnalytics? {
+            CameraAnalytics.locate(resources: resources, helpers: bin, recording: recording, hardware: hardware,
                                    isExecutable: { executables.contains($0) }, exists: { files.contains($0) })
         }
         XCTAssertEqual(locate(recording: recording, hardware: appleSilicon), analytics)
+        for helper in ["/R/bin/midgard-frames", "/R/bin/heimdall-source"] {
+            XCTAssertNil(locate(recording: recording, hardware: appleSilicon,
+                                executables: executables.subtracting([helper])), helper)
+        }
         XCTAssertNil(locate(recording: nil, hardware: appleSilicon))
         XCTAssertNil(locate(recording: recording, hardware: .init(arm64: false, physicalCores: 4)), "no x64 runtime")
         for missing in files {
@@ -235,6 +244,34 @@ final class ServiceSpecTests: XCTestCase {
         try Data().write(to: file)
         try CameraAnalytics.ensureToken(at: file)
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines).count, 48)
+        // A kept token's file is tightened to 0600.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        let kept = try String(contentsOf: file, encoding: .utf8)
+        try CameraAnalytics.ensureToken(at: file)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), kept)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
+    }
+
+    /// A symlink at the token's path is replaced by a file; its target is not touched.
+    func testTokenReplacesASymlinkAndRefusesAFolder() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("token-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = CameraAnalytics.tokenFile(home: dir)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let target = dir.appendingPathComponent("elsewhere")
+        try Data("victim-token\n".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: file, withDestinationURL: target)
+        try CameraAnalytics.ensureToken(at: file)
+        let attrs = try FileManager.default.attributesOfItem(atPath: file.path)
+        XCTAssertEqual(attrs[.type] as? FileAttributeType, .typeRegular)
+        XCTAssertEqual(attrs[.posixPermissions] as? Int, 0o600)
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "victim-token\n")
+        XCTAssertNotEqual(try String(contentsOf: file, encoding: .utf8), "victim-token\n")
+        // A folder there is an error, not something to delete.
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        XCTAssertThrowsError(try CameraAnalytics.ensureToken(at: file))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
     func testPortsFromAList() throws {

@@ -33,7 +33,8 @@ onnxruntime wheels, plus the model; `tools/mac-app/build-app.sh` bundles them:
 * `Contents/Helpers/midgard-frames` the clip and image decoder (AVFoundation, `apps/mac`), in
   place of ffmpeg and ffprobe
 
-The shell runs it as the `analytics` service (after `heimdall`): the arm64 runtime with the
+The shell runs it as the `analytics` service, last and optional (the app never waits for it, and
+starts without it if it fails: Analyse then answers 502): the arm64 runtime with the
 CoreML execution provider on Apple Silicon, the x64 runtime on the CPU on Intel (or with
 `MIDGARD_FORCE_INTEL_MODEL=1`), as `python3.13 -I -B analytics.py --serve` with
 `--recording` (the cameras are the recording's `land-camera` observations), `--media-dir`
@@ -41,7 +42,10 @@ CoreML execution provider on Apple Silicon, the x64 runtime on the CPU on Intel 
 `--frames-helper`, `--source-bin`/`--source-identity-dir`/`--source-addr` (results sent with
 `heimdall-source` straight to Heimdall's mesh port), and `--state-dir`/`--token-file` in the
 working copy (`heimdall-poc/analytics/`). The token is created by the shell before the gateway
-starts.
+starts (O_EXCL|O_NOFOLLOW, 0600; an existing regular file is kept and tightened, a symlink
+replaced) and checked here with `hmac.compare_digest`. A camera whose stored clip is missing
+is analysed from its stored still. The service is left out (logged) unless the runtime, code,
+model and `Helpers/{midgard-frames,heimdall-source}` are all there.
 
 ### midgard-frames against ffmpeg
 

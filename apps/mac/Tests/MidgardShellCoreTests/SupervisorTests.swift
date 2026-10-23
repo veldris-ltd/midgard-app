@@ -189,6 +189,68 @@ final class SupervisorTests: XCTestCase {
         XCTAssertNil(supervisor.pid(of: "never"), "the service that never became ready is stopped")
     }
 
+    // MARK: optional services (the camera analytics)
+
+    func optionalSpec(_ name: String, _ body: String, timeout: TimeInterval = 10) throws -> ServiceSpec {
+        var s = try spec(name, body, timeout: timeout)
+        s.optional = true
+        return s
+    }
+
+    /// An optional service that crashes before it is ready: start does not throw, it is
+    /// published failed (with the reason), noted in its log, and the others keep running.
+    func testFailingOptionalServiceDoesNotFailTheStart() async throws {
+        let a = try spec("a", "echo 'listening on'; exec sleep 300")
+        let opt = try optionalSpec("analytics", "echo boom; exit 3")
+        try await supervisor.start([a, opt])
+        let failed = await recorder.wait("analytics") { if case .failed? = $0.last { true } else { false } }
+        XCTAssertTrue(failed, "\(recorder.statuses("analytics"))")
+        guard case .failed(let reason)? = recorder.statuses("analytics").last else { return }
+        XCTAssertTrue(reason.contains("boom"), reason)
+        XCTAssertEqual(supervisor.status(of: "a"), .ready)
+        XCTAssertTrue(log("analytics").contains("analytics (optional) did not start"), log("analytics"))
+    }
+
+    /// Start returns without waiting for an optional service (here never ready); when it
+    /// times out it is failed and stopped, and nothing else is affected.
+    func testStartDoesNotWaitForAnOptionalService() async throws {
+        let opt = try optionalSpec("analytics", "exec sleep 300", timeout: 1.5)
+        let a = try spec("a", "echo 'listening on'; exec sleep 300")
+        let started = Date()
+        try await supervisor.start([opt, a])
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0, "start waited for the optional service")
+        XCTAssertEqual(supervisor.status(of: "a"), .ready)
+        XCTAssertEqual(supervisor.status(of: "analytics"), .starting)
+        let failed = await recorder.wait("analytics", timeout: 10) { if case .failed? = $0.last { true } else { false } }
+        XCTAssertTrue(failed, "\(recorder.statuses("analytics"))")
+        XCTAssertNil(supervisor.pid(of: "analytics"), "stopped after its timeout")
+        XCTAssertEqual(supervisor.status(of: "a"), .ready)
+    }
+
+    /// An optional service becomes ready in the background, and stopAll ends it.
+    func testOptionalServiceBecomesReadyAndIsStopped() async throws {
+        let opt = try optionalSpec("analytics", "sleep 0.3; echo 'listening on'; exec sleep 300")
+        try await supervisor.start([opt])
+        await recorder.expect("analytics", [.starting, .ready])
+        let pid = try XCTUnwrap(supervisor.pid(of: "analytics"))
+        await supervisor.stopAll()
+        let isGone = await gone(pid)
+        XCTAssertTrue(isGone)
+    }
+
+    /// stopAll while an optional service is still starting: it is stopped, never failed.
+    func testStopAllWhileAnOptionalServiceStarts() async throws {
+        let opt = try optionalSpec("analytics", "exec sleep 300")
+        try await supervisor.start([opt])
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let pid = try XCTUnwrap(supervisor.pid(of: "analytics"))
+        await supervisor.stopAll()
+        let isGone = await gone(pid)
+        XCTAssertTrue(isGone)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(recorder.labels("analytics"), ["starting", "stopped"])
+    }
+
     func testExitBeforeReadyFails() async throws {
         let s = try spec("crash", "echo boom; exit 3")
         do {

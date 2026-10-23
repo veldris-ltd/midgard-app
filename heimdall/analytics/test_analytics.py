@@ -171,6 +171,43 @@ echo "batch: 1 accepted, 0 refused, 0 unreadable in 0.1 s"
             self.assertEqual(json.loads(f.read())["entity"], "AI-X")
 
 
+class StillFallback(Layout):
+    """A camera whose stored clip is missing but whose still is there: the still is analysed."""
+
+    def test_missing_clip_falls_back_to_the_still(self):
+        A.MEDIA_DIR = os.path.join(self.dir, "media")
+        os.mkdir(A.MEDIA_DIR)
+        with open(os.path.join(A.MEDIA_DIR, "JamCams_1.jpg"), "wb") as f:
+            f.write(b"j" * 2000)
+        log = os.path.join(self.dir, "args")
+        A.FRAMES = script(os.path.join(self.dir, "frames"), f"""
+echo "$@" >> {log}
+if [ "$1" = probe ]; then echo 64,64; exit 0; fi
+head -c {64 * 64 * 3} /dev/zero
+""")
+
+        class Det:
+            size = 64
+
+            def __call__(self, frame, ratio, conf, nms):
+                return np.array([[10, 10, 20, 20, 0.9, 2]], np.float32)
+
+            def name(self):
+                return "stub"
+        cam = {"id": "JamCams_1", "lat": 51.5, "lon": -0.1, "view": "N",
+               "video": "/media/JamCams_1.mp4", "image": "/media/JamCams_1.jpg"}
+        obs, s = A.analyse(Det(), cam, A.config())
+        self.assertEqual(obs["attrs"]["ai_frames"], 1)
+        self.assertEqual(obs["attrs"]["ai_vehicles"], 1)
+        self.assertIsNone(s["moving"])
+        with open(log) as f:
+            self.assertTrue(f.read().splitlines()[-1].endswith("JamCams_1.jpg --width 64 --height 64 --still"))
+        # Neither stored: the error stands.
+        os.remove(os.path.join(A.MEDIA_DIR, "JamCams_1.jpg"))
+        with self.assertRaises(FileNotFoundError):
+            A.analyse(Det(), cam, A.config())
+
+
 class Options(unittest.TestCase):
     def test_layout_options(self):
         saved = {k: getattr(A, k) for k in dir(A) if k.isupper()}

@@ -116,7 +116,9 @@ public final class Supervisor: @unchecked Sendable {
 
     /// Launches each spec in order and waits for it to be ready. On the first that fails,
     /// stops it, starts no more and throws (those already ready keep running; call
-    /// `stopAll()`). A log over 20 MB is moved to `<name>.log.1` first. Cancelling the
+    /// `stopAll()`). An optional spec is launched and not waited for: it becomes ready in
+    /// the background, or is published `.failed` (noted in its log) without throwing or
+    /// holding up the rest; once ready it restarts like any other. A log over 20 MB is moved to `<name>.log.1` first. Cancelling the
     /// task stops the waiting (CancellationError); what was launched is left for
     /// `stopAll()`. May be called again after `stopAll()`.
     public func start(_ specs: [ServiceSpec]) async throws {
@@ -129,6 +131,10 @@ public final class Supervisor: @unchecked Sendable {
             }
             publish(service, .starting)
             Self.rotate(spec.logFile)
+            if spec.optional {
+                startOptional(service)
+                continue
+            }
             do {
                 try await launchAndWait(service)
             } catch SupervisorError.portInUse(let name) {
@@ -139,6 +145,34 @@ public final class Supervisor: @unchecked Sendable {
                 throw SupervisorError.failed(service: name, reason: reason)
             }
         }
+    }
+
+    /// Waits for an optional service in the background (`stopAll` cancels the wait through
+    /// `service.restart` and ends the process); a failure is published, never thrown.
+    private func startOptional(_ service: Service) {
+        let spec = service.spec
+        let task = Task { [weak self] in
+            guard let self else { return }
+            let reason: String
+            do {
+                try await self.launchAndWait(service)
+                return
+            } catch SupervisorError.stopped {
+                return
+            } catch is CancellationError {
+                return
+            } catch SupervisorError.portInUse {
+                reason = "port in use"
+            } catch SupervisorError.failed(_, let why) {
+                reason = why
+            } catch {
+                reason = "\(error)"
+            }
+            guard !self.locked({ service.stopped }) else { return }
+            Self.note(spec.logFile, "\(spec.name) (optional) did not start: \(reason.prefix { $0 != "\n" }); carrying on without it")
+            self.publish(service, .failed(reason))
+        }
+        locked { if service.restart == nil { service.restart = task } }
     }
 
     /// Stops every service in reverse start order: SIGTERM (for `replay`, as run-native.sh's

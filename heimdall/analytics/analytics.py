@@ -560,7 +560,14 @@ def analyse(det, cam, cfg, annotate=None):
     directory removed before returning."""
     still = cam.get("video") is None
     if MEDIA_DIR:  # offline: the stored copy, read in place
-        path = stored_media(cam["video"] if not still else cam["image"])
+        try:
+            path = stored_media(cam["video"] if not still else cam["image"])
+        except FileNotFoundError:
+            if still or not cam.get("image"):
+                raise
+            # The clip was not stored (or is gone) but the still is: analyse the still.
+            still = True
+            path = stored_media(cam["image"])
         frames, ratio, (W, H) = decode(path, det.size, cfg["fps"], cfg["max_frames"], still)
     else:
         tmp = tempfile.mkdtemp(prefix="hca-")
@@ -1003,6 +1010,7 @@ def serve(det, cfg=None):
     POST /watch {"camera", "hours", "by"} asks for a camera to be re-analysed every
     WATCH_EVERY_S for that many hours (0 stops it); POST /trend {"camera"} returns its
     results over the last day, kept in trend.jsonl as numbers only, never images."""
+    import hmac
     import http.server
     import secrets
     import threading
@@ -1108,7 +1116,8 @@ def serve(det, cfg=None):
         def do_POST(self):
             if self.path not in ("/analyse", "/watch", "/trend"):
                 return self.reply(404, {"error": "not found"})
-            if self.headers.get("Authorization") != f"Bearer {token}":
+            given = (self.headers.get("Authorization") or "").encode()
+            if not hmac.compare_digest(given, f"Bearer {token}".encode()):
                 return self.reply(401, {"error": "unauthorised"})
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")

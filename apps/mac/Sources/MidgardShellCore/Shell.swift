@@ -287,13 +287,41 @@ public enum ServiceAlert {
     /// Restart attempts before the presenter is told.
     public static let attempts = 3
 
-    public static func message(service: String, status: ServiceStatus) -> String? {
+    /// `optional`: a service the suite runs without (the camera analytics), whose failure
+    /// is said gently: the rest of Midgard works.
+    public static func message(service: String, status: ServiceStatus, optional: Bool = false) -> String? {
         switch status {
         case .restarting(let attempt, _) where attempt >= attempts: break
         case .failed: break
         default: return nil
         }
+        if optional {
+            return "\(ServiceNames.friendly(service)) is unavailable; the rest of Midgard works."
+        }
         return "\(ServiceNames.friendly(service)) has stopped. Try Reset demo, or quit and reopen Midgard."
+    }
+}
+
+/// The home page's status line.
+public enum HomeStatus {
+    /// The first required service that failed or is restarting, else "Starting…" until every
+    /// required one is ready. Optional services never make it "Starting…" or "has stopped";
+    /// one that failed is mentioned after the rest.
+    public static func line(order: [String], statuses: [String: ServiceStatus], optional: Set<String>,
+                            replaying: Bool) -> String {
+        let required = order.filter { !optional.contains($0) }
+        func failed(_ name: String) -> Bool { if case .failed = statuses[name] { true } else { false } }
+        if let bad = required.first(where: failed) {
+            return "\(ServiceNames.friendly(bad)) has stopped"
+        }
+        if let name = required.first(where: { if case .restarting = statuses[$0] { true } else { false } }) {
+            return "\(ServiceNames.friendly(name)) is restarting…"
+        }
+        guard required.allSatisfy({ statuses[$0] == .ready }) else { return "Starting…" }
+        func restarting(_ name: String) -> Bool { if case .restarting = statuses[name] { true } else { false } }
+        let missing = order.filter { optional.contains($0) && (failed($0) || restarting($0)) }
+        return "All services running" + (replaying ? " · replaying recorded hour" : "")
+            + missing.map { " · \(ServiceNames.friendly($0).lowercased()) unavailable" }.joined()
     }
 }
 

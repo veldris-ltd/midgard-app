@@ -57,6 +57,8 @@ final class AppModel: ObservableObject {
     /// A step before the services start ("Preparing the demo data…"), if any.
     @Published private(set) var startingStep: String?
     @Published private(set) var serviceOrder: [String] = []
+    /// Services the suite runs without (the camera analytics): never a fatal error.
+    private var optionalServices: Set<String> = []
     @Published private(set) var statuses: [String: ServiceStatus] = [:]
     @Published private(set) var users: [DemoUser] = []
     @Published private(set) var currentUser: DemoUser?
@@ -250,11 +252,12 @@ final class AppModel: ObservableObject {
         if old != status { log("service \(name): \(describe(status))") }
         guard phase == .ready else { return }
         updateHomeStatus()
-        if let message = ServiceAlert.message(service: name, status: status), note != message {
+        let optional = optionalServices.contains(name)
+        if let message = ServiceAlert.message(service: name, status: status, optional: optional), note != message {
             log("note: \(message)")
             note = message
         } else if status == .ready, let note,
-                  note == ServiceAlert.message(service: name, status: .failed("")) {
+                  note == ServiceAlert.message(service: name, status: .failed(""), optional: optional) {
             // It came back: the warning no longer holds.
             log("note cleared: \(ServiceNames.friendly(name)) is running again")
             self.note = nil
@@ -408,7 +411,7 @@ final class AppModel: ObservableObject {
         }
         let bundled = llama == ModelServer.choose(hardware: hardware, helpers: bin, models: models, port: 0).executable
         let recorded = recording()
-        var analytics = CameraAnalytics.locate(resources: resources, recording: recorded, hardware: hardware,
+        var analytics = CameraAnalytics.locate(resources: resources, helpers: bin, recording: recorded, hardware: hardware,
                                                isExecutable: { fm.isExecutableFile(atPath: $0) },
                                                exists: { fm.fileExists(atPath: $0) })
         if let found = analytics {
@@ -423,13 +426,16 @@ final class AppModel: ObservableObject {
             }
         } else {
             log(recorded == nil ? "camera analytics: none (no recording)"
-                : "camera analytics: not bundled (\(resources.path)/analytics, models/yolox)")
+                : "camera analytics: not bundled or incomplete (\(resources.path)/analytics, models/yolox, "
+                  + "helpers \(CameraAnalytics.helperNames.joined(separator: ", "))); not started")
         }
         let launch = Launch(bin: bin, models: models, home: paths.home, logs: paths.logs, origin: origin,
                             recording: recorded, hardware: hardware, llama: bundled ? nil : llama,
                             analytics: analytics)
         replaying = launch.recording != nil
-        serviceOrder = launch.specs(SuitePorts(Array(repeating: 0, count: SuitePorts.count))!).map(\.name)
+        let planned = launch.specs(SuitePorts(Array(repeating: 0, count: SuitePorts.count))!)
+        serviceOrder = planned.map(\.name)
+        optionalServices = Set(planned.filter(\.optional).map(\.name))
         log("starting services \(serviceOrder.joined(separator: ", ")) (llama-server \(llama.path)"
             + (hardware.arm64 ? ", Apple Silicon, Metal" : ", Intel, CPU, \(hardware.physicalCores) threads")
             + (launch.recording.map { ", replaying \($0.path)" } ?? ", no recording") + ")")
@@ -771,15 +777,7 @@ final class AppModel: ObservableObject {
 
     /// The home page's status line.
     var statusLine: String {
-        let names = serviceOrder
-        if let bad = names.first(where: { if case .failed = statuses[$0] { true } else { false } }) {
-            return "\(ServiceNames.friendly(bad)) has stopped"
-        }
-        if let restarting = names.first(where: { if case .restarting = statuses[$0] { true } else { false } }) {
-            return "\(ServiceNames.friendly(restarting)) is restarting…"
-        }
-        guard names.allSatisfy({ statuses[$0] == .ready }) else { return "Starting…" }
-        return "All services running" + (replaying ? " · replaying recorded hour" : "")
+        HomeStatus.line(order: serviceOrder, statuses: statuses, optional: optionalServices, replaying: replaying)
     }
 
     private func updateHomeStatus() {

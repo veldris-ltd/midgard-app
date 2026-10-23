@@ -261,4 +261,30 @@ final class SessionTimingTests: XCTestCase {
         XCTAssertEqual(action(1600), .refreshAndReload)
         XCTAssertEqual(action(99_999), .refreshAndReload)
     }
+
+    // MARK: home status with an optional service
+
+    func testHomeStatusIgnoresAnOptionalService() {
+        let order = ["gateway", "heimdall", "analytics"]
+        func line(_ a: ServiceStatus?, gateway: ServiceStatus = .ready) -> String {
+            var st: [String: ServiceStatus] = ["gateway": gateway, "heimdall": .ready]
+            st["analytics"] = a
+            return HomeStatus.line(order: order, statuses: st, optional: ["analytics"], replaying: true)
+        }
+        XCTAssertEqual(line(.starting), "All services running · replaying recorded hour")
+        XCTAssertEqual(line(.ready), "All services running · replaying recorded hour")
+        XCTAssertEqual(line(.failed("x")), "All services running · replaying recorded hour · camera analytics unavailable")
+        XCTAssertEqual(line(.ready, gateway: .failed("x")), "Gateway has stopped")
+        XCTAssertEqual(line(.ready, gateway: .starting), "Starting…")
+        XCTAssertEqual(HomeStatus.line(order: order, statuses: ["gateway": .ready, "heimdall": .ready, "analytics": .failed("x")],
+                                       optional: [], replaying: false), "Camera analytics has stopped")
+    }
+
+    func testOptionalServiceAlertIsNotFatal() {
+        XCTAssertEqual(ServiceAlert.message(service: "analytics", status: .failed("x"), optional: true),
+                       "Camera analytics is unavailable; the rest of Midgard works.")
+        XCTAssertEqual(ServiceAlert.message(service: "gateway", status: .failed("x")),
+                       "Gateway has stopped. Try Reset demo, or quit and reopen Midgard.")
+        XCTAssertNil(ServiceAlert.message(service: "analytics", status: .starting, optional: true))
+    }
 }

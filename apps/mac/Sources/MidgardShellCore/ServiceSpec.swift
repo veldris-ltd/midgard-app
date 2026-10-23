@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Security
 
@@ -21,9 +22,14 @@ public struct ServiceSpec: Sendable, Equatable {
     public var readyTimeout: TimeInterval
     /// Variables set on top of the shell's own environment; nil inherits it unchanged.
     public var environment: [String: String]?
+    /// Not needed for the suite to start: `Supervisor.start` launches it and returns without
+    /// waiting for it; if it never becomes ready it is published `.failed` and nothing else
+    /// stops (the camera analytics).
+    public var optional: Bool
 
     public init(name: String, executable: URL, arguments: [String], readiness: Readiness,
-                logFile: URL, readyTimeout: TimeInterval = 180, environment: [String: String]? = nil) {
+                logFile: URL, readyTimeout: TimeInterval = 180, environment: [String: String]? = nil,
+                optional: Bool = false) {
         self.name = name
         self.executable = executable
         self.arguments = arguments
@@ -31,6 +37,7 @@ public struct ServiceSpec: Sendable, Equatable {
         self.logFile = logFile
         self.readyTimeout = readyTimeout
         self.environment = environment
+        self.optional = optional
     }
 }
 
@@ -113,15 +120,19 @@ public struct CameraAnalytics: Sendable, Equatable {
             .appendingPathComponent("bin/python3.13")
     }
 
+    /// The helpers the service runs: the decoder and the Heimdall client.
+    public static let helperNames = ["midgard-frames", "heimdall-source"]
+
     /// The bundled analytics for `hardware` if everything is there (code, config, runtime,
-    /// model) and there is a recording; nil otherwise.
-    public static func locate(resources: URL, recording: URL?, hardware: ModelServer.Hardware,
+    /// model, and `helperNames` in `helpers`) and there is a recording; nil otherwise.
+    public static func locate(resources: URL, helpers: URL, recording: URL?, hardware: ModelServer.Hardware,
                               isExecutable: (String) -> Bool,
                               exists: (String) -> Bool) -> CameraAnalytics? {
         guard let recording else { return nil }
         let root = resources.appendingPathComponent("analytics", isDirectory: true)
         let models = resources.appendingPathComponent("models/yolox", isDirectory: true)
         guard isExecutable(python(hardware: hardware, root: root).path),
+              helperNames.allSatisfy({ isExecutable(helpers.appendingPathComponent($0).path) }),
               exists(root.appendingPathComponent("analytics.py").path),
               exists(root.appendingPathComponent("config.json").path),
               exists(models.appendingPathComponent("yolox_s.onnx").path) else { return nil }
@@ -134,24 +145,61 @@ public struct CameraAnalytics: Sendable, Equatable {
         home.appendingPathComponent("heimdall-poc/analytics/secret")
     }
 
-    /// Creates the token file (0600, 48 hex digits from the system's random source) unless it
-    /// holds one already; the gateway reads it when it starts, so this runs first.
+    public enum TokenError: Error, Equatable, CustomStringConvertible {
+        case call(String, Int32)
+        case notAFile(String)
+        public var description: String {
+            switch self {
+            case .call(let what, let code): return "\(what): \(String(cString: strerror(code)))"
+            case .notAFile(let path): return "\(path) is not a regular file"
+            }
+        }
+    }
+
+    /// Makes sure the token file holds a token, readable by its owner only; the gateway reads
+    /// it when it starts, so this runs first. A regular file with a token is kept (its mode
+    /// tightened to 0600); a symlink or an empty file is replaced; anything else (a folder)
+    /// is an error. A new file is created with O_CREAT|O_EXCL|O_NOFOLLOW, mode 0600, holding
+    /// 48 hex digits from the system's random source.
     public static func ensureToken(at file: URL) throws {
-        let fm = FileManager.default
-        if let text = try? String(contentsOf: file, encoding: .utf8),
-           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
-        try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
-                               attributes: [.posixPermissions: 0o700])
+        let path = file.path
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        var st = stat()
+        if lstat(path, &st) == 0 {
+            switch st.st_mode & S_IFMT {
+            case S_IFREG:
+                let fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+                guard fd >= 0 else { throw TokenError.call("open \(path)", errno) }
+                defer { close(fd) }
+                var buffer = [UInt8](repeating: 0, count: 256)
+                let n = read(fd, &buffer, buffer.count)
+                let text = n > 0 ? String(decoding: buffer.prefix(n), as: UTF8.self) : ""
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    guard fchmod(fd, 0o600) == 0 else { throw TokenError.call("chmod \(path)", errno) }
+                    return
+                }
+                guard unlink(path) == 0 else { throw TokenError.call("remove \(path)", errno) }
+            case S_IFLNK:
+                guard unlink(path) == 0 else { throw TokenError.call("remove \(path)", errno) }
+            default:
+                throw TokenError.notAFile(path)
+            }
+        } else if errno != ENOENT {
+            throw TokenError.call("stat \(path)", errno)
+        }
         var bytes = [UInt8](repeating: 0, count: 24)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw CocoaError(.fileWriteUnknown)
+            throw TokenError.call("random", EIO)
         }
-        let token = bytes.map { String(format: "%02x", $0) }.joined()
-        try? fm.removeItem(at: file)
-        guard fm.createFile(atPath: file.path, contents: Data((token + "\n").utf8),
-                            attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
+        let token = Array((bytes.map { String(format: "%02x", $0) }.joined() + "\n").utf8)
+        let fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw TokenError.call("create \(path)", errno) }
+        defer { close(fd) }
+        guard fchmod(fd, 0o600) == 0 else { throw TokenError.call("chmod \(path)", errno) }  // whatever the umask
+        let written = token.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        guard written == token.count else { throw TokenError.call("write \(path)", written < 0 ? errno : EIO) }
     }
 }
 
@@ -161,8 +209,9 @@ public struct CameraAnalytics: Sendable, Equatable {
 /// the shell's web origin and issues 12-hour tokens, and the camera analytics (when
 /// bundled) run offline on the recording's stored media.
 public enum SuiteSpecs {
-    /// In start order: llama, mimir, gateway, heimdall, analytics if `analytics`, forge,
-    /// then replay if `recording`. llama is the bundled server `ModelServer.choose` picks for
+    /// In start order: llama, mimir, gateway, heimdall, forge, replay if `recording`, then
+    /// analytics if `analytics` (optional: the suite does not wait for it, and starts
+    /// without it if it fails). llama is the bundled server `ModelServer.choose` picks for
     /// `hardware` under `bin` (`bin/llama/{arm64,x64}/llama-server`); analytics runs the
     /// runtime `CameraAnalytics.python` picks for it, and the gateway is given its address
     /// and token file.
@@ -223,13 +272,21 @@ public enum SuiteSpecs {
                 "--jobs", h("live-feeds/data/jobs.json"), "--gateway", local(ports.gatewayMesh),
             ]),
         ]
+        if let recording {
+            specs.append(spec("replay", "midgard-replay", .logLine("\"replay started\""), [
+                "--recording", recording.path, "--identity-dir", h("airports-mesh/feeds"),
+                "--forge-dir", h("live-feeds/data"),
+                // Heimdall's mesh port: replay's default (7730) is run-native.sh's fixed port.
+                "--addr", local(ports.heimdallMesh),
+            ]))
+        }
+        // Last and optional: the camera analytics never hold up or stop the start.
         if let analytics {
             func a(_ path: String) -> String { analytics.root.appendingPathComponent(path).path }
             // CoreML on Apple Silicon; on Intel the CPU, up to 4 threads (the model server
             // has the cores when it answers; the analytics run only when asked).
             let cpu = ["--provider", "cpu", "--threads", "\(min(4, max(1, hardware.physicalCores)))"]
-            let index = specs.firstIndex { $0.name == "heimdall" }! + 1
-            specs.insert(spec("analytics", at: CameraAnalytics.python(hardware: hardware, root: analytics.root),
+            var service = spec("analytics", at: CameraAnalytics.python(hardware: hardware, root: analytics.root),
                               .logLine("SERVE pid="), [
                 // Isolated (no PYTHON* variables, no user site) and never writing .pyc
                 // into the signed bundle.
@@ -243,15 +300,9 @@ public enum SuiteSpecs {
                 "--source-bin", bin.appendingPathComponent("heimdall-source").path,
                 "--source-identity-dir", h("airports-mesh/feeds"), "--source-addr", local(ports.heimdallMesh),
                 "--nice", "10",
-            ]), at: index)
-        }
-        if let recording {
-            specs.append(spec("replay", "midgard-replay", .logLine("\"replay started\""), [
-                "--recording", recording.path, "--identity-dir", h("airports-mesh/feeds"),
-                "--forge-dir", h("live-feeds/data"),
-                // Heimdall's mesh port: replay's default (7730) is run-native.sh's fixed port.
-                "--addr", local(ports.heimdallMesh),
-            ]))
+            ])
+            service.optional = true
+            specs.append(service)
         }
         return specs
     }

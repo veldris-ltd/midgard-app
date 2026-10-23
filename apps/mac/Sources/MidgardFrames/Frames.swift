@@ -125,12 +125,26 @@ public func resizeBGRAtoBGR(_ src: UnsafePointer<UInt8>, width: Int, height: Int
     return out
 }
 
-/// Width and height as ffprobe reports them (the coded size, no rotation): a clip's first
-/// video track, else an image.
+/// A clip's or image's size, the one its frames are resized from (and so the one the
+/// letterbox ratio must come from): for a clip, its first decoded frame's pixel buffer (what
+/// `decodeClip` resizes; for an H.264 clip the cropped size, as ffprobe reports it), for an
+/// image its pixel size. No rotation is applied: a clip's preferredTransform (phone video) is
+/// ignored, as for ffprobe's size; the cameras' clips carry none.
 public func probe(_ url: URL) async throws -> (width: Int, height: Int) {
-    if let track = await videoTrack(AVURLAsset(url: url)) {
-        let size = try await track.load(.naturalSize)
-        return (Int(size.width.rounded()), Int(size.height.rounded()))
+    if let (reader, output) = try await openClip(url) {
+        defer { reader.cancelReading() }
+        while true {
+            let size: (Int, Int)?? = autoreleasepool {
+                guard let sample = output.copyNextSampleBuffer() else { return .some(nil) }
+                guard let image = CMSampleBufferGetImageBuffer(sample) else { return nil }
+                return .some((CVPixelBufferGetWidth(image), CVPixelBufferGetHeight(image)))
+            }
+            switch size {
+            case .some(.some(let wh)): return wh
+            case .some(.none): throw FramesError.noFrames
+            case .none: continue  // a sample without an image
+            }
+        }
     }
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
           let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -144,12 +158,11 @@ func videoTrack(_ asset: AVURLAsset) async -> AVAssetTrack? {
     (try? await asset.loadTracks(withMediaType: .video))?.first
 }
 
-/// Decodes a clip at `fps` (ffmpeg's `fps` filter selection), at most `maxFrames` frames,
-/// each resized to `width` x `height` BGR and handed to `write` as it is ready.
-public func decodeClip(_ url: URL, width: Int, height: Int, fps: Int, maxFrames: Int,
-                       write: ([UInt8]) throws -> Void) async throws -> Int {
+/// A reader started on a clip's first video track, decoding to BGRA; nil if the file has
+/// no video track (an image, or not media).
+func openClip(_ url: URL) async throws -> (AVAssetReader, AVAssetReaderTrackOutput)? {
     let asset = AVURLAsset(url: url)
-    guard let track = await videoTrack(asset) else { throw FramesError.noVideoTrack }
+    guard let track = await videoTrack(asset) else { return nil }
     let reader: AVAssetReader
     do { reader = try AVAssetReader(asset: asset) } catch {
         throw FramesError.unreadable("cannot read \(url.lastPathComponent): \(error.localizedDescription)")
@@ -162,6 +175,15 @@ public func decodeClip(_ url: URL, width: Int, height: Int, fps: Int, maxFrames:
     guard reader.startReading() else {
         throw FramesError.unreadable("cannot decode \(url.lastPathComponent): \(reader.error?.localizedDescription ?? "unknown")")
     }
+    return (reader, output)
+}
+
+/// Decodes a clip at `fps` (ffmpeg's `fps` filter selection), at most `maxFrames` frames,
+/// each resized from its pixel buffer (see `probe`) to `width` x `height` BGR and handed to
+/// `write` as it is ready.
+public func decodeClip(_ url: URL, width: Int, height: Int, fps: Int, maxFrames: Int,
+                       write: ([UInt8]) throws -> Void) async throws -> Int {
+    guard let (reader, output) = try await openClip(url) else { throw FramesError.noVideoTrack }
     defer { if reader.status == .reading { reader.cancelReading() } }
     var selector = FrameSelector(fps: fps, maxFrames: maxFrames)
     // The frame the selector holds (the last of its slot so far); resized only if output.
@@ -179,18 +201,24 @@ public func decodeClip(_ url: URL, width: Int, height: Int, fps: Int, maxFrames:
             written += 1
         }
     }
-    while !selector.done, let sample = output.copyNextSampleBuffer() {
-        guard CMSampleBufferGetImageBuffer(sample) != nil else { continue }
-        let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-        var duration = CMSampleBufferGetDuration(sample)
-        if !duration.isValid || duration.value <= 0, let last = lastPTS { duration = CMTimeSubtract(pts, last) }
-        end = duration.isValid && duration.value > 0 ? CMTimeAdd(pts, duration) : nil
-        lastPTS = pts
-        // What the selector releases is always the frame it held until now.
-        try emit(selector.push(index: index, slot: selector.slot(value: pts.value, timescale: pts.timescale)).count)
-        held = sample
-        heldBGR = nil
-        index += 1
+    // One autorelease pool per frame: the decoder's buffers go as soon as they are done with.
+    while !selector.done {
+        let more: Bool = try autoreleasepool {
+            guard let sample = output.copyNextSampleBuffer() else { return false }
+            guard CMSampleBufferGetImageBuffer(sample) != nil else { return true }
+            let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+            var duration = CMSampleBufferGetDuration(sample)
+            if !duration.isValid || duration.value <= 0, let last = lastPTS { duration = CMTimeSubtract(pts, last) }
+            end = duration.isValid && duration.value > 0 ? CMTimeAdd(pts, duration) : nil
+            lastPTS = pts
+            // What the selector releases is always the frame it held until now.
+            try emit(selector.push(index: index, slot: selector.slot(value: pts.value, timescale: pts.timescale)).count)
+            held = sample
+            heldBGR = nil
+            index += 1
+            return true
+        }
+        if !more { break }
     }
     if reader.status == .failed {
         throw FramesError.unreadable("decoding \(url.lastPathComponent) failed: \(reader.error?.localizedDescription ?? "unknown")")
