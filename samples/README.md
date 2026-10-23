@@ -132,9 +132,10 @@ The data was recorded on a newer Midgard build than this repository. `convert.py
 |---|---|
 | `heimdall_track` and `heimdall_alert` carry a `retention` rule, which this gateway does not read | `ontology` leaves the key out. Objects of those types do not expire here. |
 | The action `toggle_runway_status` changes a boolean; this build's actions change text properties only | `ontology` leaves that one action out |
-| The `weather` job links each report to an `airport`, and no dataset holds airports | `import` and `forge` skip that link and name it |
-| `air_quality.json` (full set) holds a `NaN`, which no JSON parser in Midgard accepts | every route treats `NaN` and infinities as a missing value |
+| The `weather` job links each report to an `airport`, and no dataset holds airports | `import` and `forge` skip that link and say so. The full set's airport snapshot covers only 68 of the 72 reporting airports, and the gateway refuses a whole sync over one dangling link, so the link stays out rather than fail the job. |
+| The original `air_quality.json` (full set) held one `NaN` (sensor SC-36399's humidity), which is not JSON and made the gateway refuse the dataset | Corrected at source to `null` in the full set; its `CORRECTIONS.md` records the change. Every route still treats a `NaN` or infinity as a missing value, in case another export carries one. |
 | `heimdall-source --attrs` splits on commas and has no escape | `observations` replaces commas inside a value with semicolons, and leaves out nested values |
+| The airport code `NAN` (Nadi, Fiji) in `airports-metar` was read by `heimdall-feed` as a floating-point NaN, and so shown as `null` | Fixed in `heimdall-feed` itself: only finite numbers become numbers, and `nan`, `inf` and `infinity` stay text |
 | `heimdall-feed` returns the whole picture in one PQ-mTLS frame of at most 1 MiB | `observations --budget-kb` trims the largest feeds evenly so the picture stays readable; `mg-install` uses 1100, which measured 701 KiB with the full aviation and maritime feeds |
 
 ---

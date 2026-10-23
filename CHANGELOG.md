@@ -58,6 +58,19 @@ CONTRIBUTING.md for the version policy.
   Before this, a principal enrolled with `--totp` could sign in over the API but not
   in the console. [RC-37] [RC-29]
 
+### Fixed
+- **Heimdall keeps words that Rust reads as non-finite numbers as text.** `parse_attrs`
+  turned `nan`, `inf` and `infinity`, in any case, into float attributes, which the
+  picture then showed as `null`: the airport code `NAN` (Nadi, Fiji) in the sample
+  feeds lost its value. Only finite numbers are numbers now. [FR-H-3]
+- **The sample datasets are strict JSON.** The full set's `air_quality.json` held one
+  `NaN`, which made the gateway refuse the dataset; it is `null` in the corrected
+  archive, which records the change in `CORRECTIONS.md`.
+- **Quieter install logs.** The compose image creates its service account
+  without `useradd`'s system-range warning, and the container health check reads the
+  whole response before closing, so the gateway no longer logs a reset connection on
+  every check. [RC-33]
+
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 
 The first release candidate: from verified libraries to a platform that can be
