@@ -6,8 +6,9 @@
 # Vite writes straight to dist/, so no dist/ is left inside products/*/ui. Then the built
 # files are checked: the script fails if any internet endpoint the offline build must not
 # reach, any secret VITE_* value from the .env files, or an inlined env object is in
-# them (endpoints matched case-insensitively), and lists every other URL found for
-# review (attribution links are expected).
+# them (endpoints matched case-insensitively), or any http(s):// URL that is not on the
+# short reviewed allowlist below (ALLOWED_URLS: attribution and licence links, XML
+# namespaces, loopback defaults).
 #
 #   bash tools/mac-app/build-consoles.sh
 set -euo pipefail
@@ -17,6 +18,33 @@ OUT=dist/mac/consoles
 PRODUCTS=(midgard heimdall mimir forge)
 # Endpoints (hosts the overlays fetch from); attribution links to the providers are allowed.
 FORBIDDEN=(api.tomtom.com api.rainviewer.com tilecache.rainviewer.com elevation-tiles-prod s3.amazonaws.com tiles.maps.eox.at s2cloudless_3857)
+# Every http(s):// URL allowed in the offline builds, matched exactly (as the URL pattern
+# below extracts it). Each was reviewed: none is fetched by the offline consoles.
+ALLOWED_URLS=(
+  # XML namespaces (React DOM's constants for SVG/MathML/XHTML; identifiers, never fetched)
+  http://www.w3.org/1999/xhtml
+  http://www.w3.org/2000/svg
+  http://www.w3.org/1999/xlink
+  http://www.w3.org/XML/1998/namespace
+  http://www.w3.org/1998/Math/MathML
+  # React's production error text ("see <url>#…"), only shown in an error message
+  'https://reactjs.org/docs/error-decoder.html?invariant='
+  # Licence comment in the bundled 'buffer' package
+  https://feross.org/opensource
+  # Loopback defaults: the gateway (the app sets window.__MIDGARD_GATEWAY__ at run time)
+  # and Forge's link to the Midgard console when VITE_MIDGARD_CONSOLE_URL is unset
+  http://127.0.0.1:7710/api/v1
+  http://localhost:5173/
+  # Attribution and licence links the providers' terms ask for (links, not fetched; the
+  # app's web view opens nothing off the Mac)
+  https://www.rainviewer.com/                                   # Weather data by RainViewer
+  https://www.tomtom.com/                                       # Traffic ©TomTom
+  https://cloudless.eox.at                                      # EOxCloudless (EOX IT Services)
+  https://s2maps.eu                                             # EOX's map site, if their wording links it
+  https://creativecommons.org/licenses/by/4.0/                  # CC BY 4.0 (EOX imagery)
+  https://github.com/tilezen/joerd/blob/master/docs/attribution.md  # Terrain Tiles attribution list
+  https://northernpowergrid.opendatasoft.com/p/opendatalicence/ # Northern Powergrid Open Data licence
+)
 
 if ! command -v pnpm >/dev/null 2>&1; then
   echo "pnpm not found: install it (corepack enable, or brew install pnpm) and re-run" >&2
@@ -115,8 +143,19 @@ done
 unset name val
 echo "secret values checked: $checked (from ${#ENVFILES[@]} .env file(s))"
 
-echo "== other URLs in the builds (for review)"
-grep -rhoE 'https?://[A-Za-z0-9._~:/?#@!$&+,;=%-]+' "$OUT" | sort -u | sed 's/^/  /' || true
+echo "== URLs in the builds (each must be on ALLOWED_URLS)"
+urls=$(grep -rhoE 'https?://[A-Za-z0-9._~:/?#@!$&+,;=%-]+' "$OUT" | sort -u) || true
+while IFS= read -r u; do
+  [ -n "$u" ] || continue
+  ok=0
+  for a in "${ALLOWED_URLS[@]}"; do [ "$u" = "$a" ] && { ok=1; break; }; done
+  if [ "$ok" -eq 1 ]; then
+    echo "  allowed: $u"
+  else
+    echo "FAIL: URL not on the allowlist: $u (in: $(grep -rlF -- "$u" "$OUT" | tr '\n' ' '))"
+    fail=1
+  fi
+done <<<"$urls"
 
 echo "== sizes"
 for p in "${PRODUCTS[@]}"; do

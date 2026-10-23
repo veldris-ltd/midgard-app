@@ -22,7 +22,8 @@ manifest.json: {"version": 1, "source", "attribution", "link", "captured" (unix 
 shifts them so the newest frame is "now" and loops over them.
 
 Polite to the API: WORKERS downloads at a time, at most one start every PACE_S, TIMEOUT_S
-each, one retry (after Retry-After when rate limited), failures skipped and counted. Downloads are untrusted: a tile is kept only if it is a PNG (magic bytes) under
+each, one retry (after Retry-After when rate limited), redirects to another host refused,
+failures skipped and counted. Downloads are untrusted: a tile is kept only if it is a PNG (magic bytes) under
 MAX_TILE bytes. Written to radar.tmp/ first and swapped in only when complete, so a failed
 capture leaves the previous one in place. Needs no key.
 
@@ -39,6 +40,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 MANIFEST_URL = "https://api.rainviewer.com/public/weather-maps.json"
@@ -108,6 +110,28 @@ def _retry_wait(e):
     return RETRY_WAIT_S
 
 
+class Refused(Exception):
+    """A download refused outright (not retried): a redirect off the host asked for."""
+
+
+def same_origin(a, b):
+    """True when URLs `a` and `b` have the same scheme and host."""
+    a, b = urllib.parse.urlsplit(a), urllib.parse.urlsplit(b)
+    return (a.scheme, a.hostname) == (b.scheme, b.hostname)
+
+
+class SameHostRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to the same scheme and host; anything else is refused."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not same_origin(req.full_url, newurl):
+            raise Refused("redirect to another host")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(SameHostRedirects())
+
+
 def fetch(url, limit):
     """The body of `url` (at most `limit` bytes), with one retry; raises on failure."""
     last = None
@@ -115,13 +139,17 @@ def fetch(url, limit):
         _pace()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=TIMEOUT_S) as res:
+            with _opener.open(req, timeout=TIMEOUT_S) as res:
                 if res.status != 200:
                     raise urllib.error.HTTPError(url, res.status, "status", res.headers, None)
+                if not same_origin(url, res.geturl()):
+                    raise Refused("redirect to another host")
                 data = res.read(limit + 1)
                 if len(data) > limit:
                     raise ValueError("too large")
                 return data
+        except Refused:
+            raise
         except Exception as e:  # noqa: BLE001 - any failure is retried once, then reported
             last = e
             if attempt == 0:
@@ -130,15 +158,19 @@ def fetch(url, limit):
 
 
 def past_frames(maps):
-    """The past frames of a weather-maps.json, oldest first, checked."""
-    frames = []
+    """The past frames of a weather-maps.json, oldest first, checked, one per time (the first
+    listed wins)."""
+    frames, seen = [], set()
     for f in (maps.get("radar") or {}).get("past") or []:
+        if not isinstance(f, dict):
+            continue
         t, path = f.get("time"), f.get("path")
-        if not isinstance(t, int) or not isinstance(path, str):
+        if not isinstance(t, int) or isinstance(t, bool) or not isinstance(path, str) or t in seen:
             continue
         # A path is "/v2/radar/<id>": nothing that could leave the tile host.
         if not path.startswith("/") or ".." in path or "//" in path or "?" in path or "#" in path:
             continue
+        seen.add(t)
         frames.append({"time": t, "path": path})
     frames.sort(key=lambda f: f["time"])
     return frames
@@ -229,6 +261,8 @@ def main(argv):
             data = fetch(url, MAX_TILE)
         except urllib.error.HTTPError as e:
             return job, "failed (HTTP %d)" % e.code
+        except Refused as e:
+            return job, "failed (%s)" % e
         except Exception as e:  # noqa: BLE001
             return job, "failed (%s)" % type(e).__name__
         if not is_png(data):

@@ -31,8 +31,9 @@ VITE_TOMTOM_KEY in products/heimdall/ui/.env.local). It is sent to api.tomtom.co
 else: never printed, logged, or written to the recording, and errors name only z/x/y.
 
 Polite to the API: WORKERS downloads at a time, at most one start every PACE_S, TIMEOUT_S
-each, one retry (after Retry-After when rate limited), failures skipped and counted by code.
-Downloads are untrusted: a tile is kept only if it parses as a Mapbox vector tile (protobuf
+each, one retry (after Retry-After when rate limited), failures skipped and counted by code;
+a redirect off api.tomtom.com is refused (the URL holds the key), and an empty 200 or a 204 is
+a tile with no roads. Downloads are untrusted: a tile is kept only if it parses as a Mapbox vector tile (protobuf
 layers) under MAX_TILE bytes. Written to traffic.tmp/ first and swapped in only when complete,
 so a failed capture leaves the previous one in place.
 
@@ -52,6 +53,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 API = "https://api.tomtom.com"
@@ -231,15 +233,44 @@ class Failed(Exception):
         self.reason = reason
 
 
+def same_origin(a, b):
+    """True when URLs `a` and `b` have the same scheme and host."""
+    a, b = urllib.parse.urlsplit(a), urllib.parse.urlsplit(b)
+    return (a.scheme, a.hostname) == (b.scheme, b.hostname)
+
+
+class SameHostRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to the same scheme and host (the key goes nowhere else)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not same_origin(req.full_url, newurl):
+            raise Failed("redirect to another host")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(SameHostRedirects())
+
+
+def tile_roads(data):
+    """Road segments in a downloaded tile: an empty body (an empty 200, or a 204) has none;
+    otherwise as road_segments (raises ValueError if it is not a vector tile)."""
+    return 0 if not data else road_segments(data)
+
+
 def fetch(path, key, limit):
-    """The body of API + path (at most `limit` bytes), with one retry; raises Failed."""
+    """The body of API + path (at most `limit` bytes; b"" for a 204), with one retry; raises
+    Failed."""
     url = "%s%s?key=%s" % (API, path, urllib.request.quote(key, safe=""))
     reason = "unknown"
     for attempt in range(2):
         _pace()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=TIMEOUT_S) as res:
+            with _opener.open(req, timeout=TIMEOUT_S) as res:
+                if not same_origin(API, res.geturl()):
+                    raise Failed("redirect to another host")
+                if res.status == 204:
+                    return b""
                 if res.status != 200:
                     raise urllib.error.HTTPError("", res.status, "status", res.headers, None)
                 data = res.read(limit + 1)
@@ -354,7 +385,7 @@ def main(argv):
             x, y = job
             try:
                 data = fetch(TILE_PATH % (z, x, y), key, MAX_TILE)
-                n = road_segments(data)
+                n = tile_roads(data)
             except Failed as e:
                 return job, "failed (%s)" % e.reason, 0
             except (ValueError, UnicodeDecodeError):

@@ -4,6 +4,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+import urllib.request
 
 _spec = importlib.util.spec_from_file_location(
     "capture_radar", os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-radar.py"))
@@ -33,6 +34,29 @@ class CaptureRadarTests(unittest.TestCase):
         self.assertEqual(cr.past_frames(maps), [{"time": 600, "path": "/v2/radar/a"},
                                                 {"time": 1200, "path": "/v2/radar/b"}])
         self.assertEqual(cr.past_frames({}), [])
+
+    def test_past_frames_are_one_per_time(self):
+        maps = {"radar": {"past": [
+            {"time": 600, "path": "/v2/radar/a"},
+            {"time": 1200, "path": "/v2/radar/b"},
+            {"time": 600, "path": "/v2/radar/a2"},
+            {"time": True, "path": "/v2/radar/t"},
+            "junk",
+        ]}}
+        self.assertEqual(cr.past_frames(maps), [{"time": 600, "path": "/v2/radar/a"},
+                                                {"time": 1200, "path": "/v2/radar/b"}])
+
+    def test_redirects_to_another_host_are_refused(self):
+        h = cr.SameHostRedirects()
+        req = urllib.request.Request("https://tilecache.rainviewer.com/v2/radar/a/1.png")
+        with self.assertRaises(cr.Refused):
+            h.redirect_request(req, None, 302, "Found", {}, "https://elsewhere.example/a.png")
+        with self.assertRaises(cr.Refused):
+            h.redirect_request(req, None, 302, "Found", {}, "http://tilecache.rainviewer.com/a.png")
+        self.assertIsNotNone(h.redirect_request(
+            req, None, 302, "Found", {}, "https://tilecache.rainviewer.com/v2/radar/b/1.png"))
+        self.assertTrue(cr.same_origin(cr.MANIFEST_URL, "https://api.rainviewer.com/x"))
+        self.assertFalse(cr.same_origin(cr.MANIFEST_URL, "https://api.rainviewer.com.evil.example/x"))
 
     def test_manifest_times_are_relative_and_empty_frames_dropped(self):
         frames = [{"time": 1000}, {"time": 1600}, {"time": 2200}, {"time": 3400}]

@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import unittest
+import urllib.request
 
 _spec = importlib.util.spec_from_file_location(
     "capture_traffic", os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-traffic.py"))
@@ -47,6 +48,22 @@ class CaptureTrafficTests(unittest.TestCase):
         for bad in (b"", b"<html>error</html>", b"\x1a\x7f\x0a", b"\x0a\x01x", layer("Traffic flow", [])[:-1]):
             with self.assertRaises(ValueError):
                 ct.road_segments(bad)
+
+    def test_empty_tile_has_no_roads(self):
+        # An empty 200 or a 204 (fetch returns b"") is a tile with no roads, not a failure.
+        self.assertEqual(ct.tile_roads(b""), 0)
+        self.assertEqual(ct.tile_roads(layer("Traffic flow", [b"\x08\x01"])), 1)
+        with self.assertRaises(ValueError):
+            ct.tile_roads(b"<html>error</html>")
+
+    def test_redirects_off_the_api_host_are_refused(self):
+        h = ct.SameHostRedirects()
+        req = urllib.request.Request(ct.API + "/traffic/map/4/tile/flow/relative/7/63/42.pbf?key=k")
+        with self.assertRaises(ct.Failed):
+            h.redirect_request(req, None, 302, "Found", {}, "https://elsewhere.example/t.pbf?key=k")
+        with self.assertRaises(ct.Failed):
+            h.redirect_request(req, None, 302, "Found", {}, "http://api.tomtom.com/t.pbf")
+        self.assertIsNotNone(h.redirect_request(req, None, 302, "Found", {}, ct.API + "/other.pbf"))
 
     def test_key_from_environment_or_env_file(self):
         self.assertEqual(ct.read_key({"TOMTOM_KEY": " k1 "}, "/nonexistent"), "k1")
