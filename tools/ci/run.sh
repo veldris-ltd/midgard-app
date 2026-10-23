@@ -63,7 +63,7 @@ release-publish|host|attach the release to a draft pre-release
 shell-audit|host|build one client shell and audit it on this runner: shell-audit <shell> <release>
 shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-gate <release>
 windows-build|host|release build of the suite services on a Windows x64 runner (Git Bash, MSVC)
-windows-test|host|clippy and tests of the Windows-ported crates on a Windows x64 runner (Git Bash, MSVC)
+windows-test|host|clippy and tests of the whole Rust workspace on a Windows x64 runner (Git Bash, MSVC)
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -441,12 +441,16 @@ job_windows_build() {
     return "$missing"
 }
 
-# The crates whose Windows code paths have been ported and are tested natively.
-WINDOWS_TEST_PACKAGES=(-p service-runtime)
+# The whole workspace, linted and tested natively on Windows. A crate that cannot apply
+# on Windows is left out here with --exclude and a one-line reason; none is today.
+WINDOWS_TEST_PACKAGES=(--workspace)
 job_windows_test() {
+    local failed=0
     windows_toolchain windows-test
-    cargo clippy --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}" --all-targets -- -D warnings
-    cargo test --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}"
+    # Both steps always run, so one run shows every lint and every test failure.
+    cargo clippy --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}" --all-targets -- -D warnings || failed=1
+    cargo test --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}" --no-fail-fast || failed=1
+    return "$failed"
 }
 
 case "${1:-}" in
