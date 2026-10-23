@@ -9,6 +9,10 @@ import Network
 ///     /home/…                root/home/…
 ///     /<product>/…           root/consoles/<product>/…   (midgard, heimdall, mimir, forge)
 ///     /media/…               root/recording/media/…      (the recording's camera stills and clips)
+///     /radar/…               root/recording/radar/…      (the recording's rain radar frames)
+///
+/// The recording's folders (`recordingFolders`) serve files only: no index page, no
+/// redirect, no dot files, and nothing whose real path (symlinks resolved) leaves the folder.
 ///
 /// A directory serves its index.html; without its trailing slash it is redirected first,
 /// because the consoles load `./assets/…` relative to their own URL. Traversal (`..`,
@@ -22,6 +26,11 @@ public final class WebServer: @unchecked Sendable {
     }
 
     static let products: Set<String> = ["midgard", "heimdall", "mimir", "forge"]
+    /// URL prefix -> the folder of the bundled recording it serves (files only).
+    static let recordingFolders: [String: String] = [
+        "media": "recording/media",
+        "radar": "recording/radar",
+    ]
     static let maxHead = 16 * 1024
     static let chunk = 256 * 1024
 
@@ -307,21 +316,8 @@ public final class WebServer: @unchecked Sendable {
         } else if products.contains(segments[0]) {
             file = root.appendingPathComponent("consoles")
             segments.forEach { file.appendPathComponent($0) }
-        } else if segments[0] == "media" {
-            // Files only: no index page, no redirect, nothing hidden (dot files).
-            guard segments.count > 1, !segments.contains(where: { $0.hasPrefix(".") }) else {
-                return .failure(404)
-            }
-            let media = root.appendingPathComponent("recording/media")
-            file = media
-            segments.dropFirst().forEach { file.appendPathComponent($0) }
-            file = file.standardizedFileURL
-            var isDirectory: ObjCBool = false
-            guard file.path.hasPrefix(root.path + "/") else { return .failure(403) }
-            guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue else { return .failure(404) }
-            guard isInside(file, media) else { return .failure(403) }
-            return .success(file)
+        } else if let folder = recordingFolders[segments[0]] {
+            return resolveFile(segments.dropFirst(), in: root.appendingPathComponent(folder), root: root)
         } else {
             return .failure(404)
         }
@@ -339,6 +335,21 @@ public final class WebServer: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else { return .failure(404) }
         guard isInside(file, root) else { return .failure(403) }
+        return .success(file)
+    }
+
+    /// A file (never a directory) at `rest` under `dir`: nothing hidden (dot files), still
+    /// under `root` once standardised, and inside `dir` with symlinks resolved.
+    static func resolveFile(_ rest: ArraySlice<String>, in dir: URL, root: URL) -> Resolution {
+        guard !rest.isEmpty, !rest.contains(where: { $0.hasPrefix(".") }) else { return .failure(404) }
+        var file = dir
+        rest.forEach { file.appendPathComponent($0) }
+        file = file.standardizedFileURL
+        guard file.path.hasPrefix(root.path + "/") else { return .failure(403) }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return .failure(404) }
+        guard isInside(file, dir) else { return .failure(403) }
         return .success(file)
     }
 

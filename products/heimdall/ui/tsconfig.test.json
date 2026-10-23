@@ -3,5 +3,5 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true
   },
-  "include": ["test", "src/app/preparedAnswers.ts", "../../../ui/shared/src/gateway.ts"]
+  "include": ["test", "src/app/preparedAnswers.ts", "src/app/radarReplay.ts", "../../../ui/shared/src/gateway.ts"]
 }

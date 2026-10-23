@@ -110,6 +110,9 @@ final class WebServerTests: XCTestCase {
         try put("recording/media/.hidden.jpg", Data("hidden".utf8))
         try put("recording/media/sub/a.png", Data("png".utf8))
         try put("recording/heimdall.jsonl.gz", Data("recording".utf8))
+        try put("recording/radar/manifest.json", Data(#"{"version":1}"#.utf8))
+        try put("recording/radar/frames/0/31/19.png", Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+        try put("recording/radar/.hidden.json", Data("hidden".utf8))
         // Outside root: traversal must never reach it.
         try Data("secret".utf8).write(to: base.appendingPathComponent("secret.txt"))
 
@@ -310,6 +313,30 @@ final class WebServerTests: XCTestCase {
         XCTAssertEqual(post.status, 405)
         let rebound = try rawRequest("GET /media/JamCams_1.jpg HTTP/1.1\r\nHost: evil.example:\(port)\r\n\r\n", port: port)
         XCTAssertEqual(rebound.status, 421)
+    }
+
+    func testServesRecordingRadarWithTheSameRules() throws {
+        let manifest = try get("/radar/manifest.json")
+        XCTAssertEqual(manifest.status, 200)
+        XCTAssertEqual(manifest.headers["content-type"], "application/json")
+        XCTAssertEqual(String(decoding: manifest.body, as: UTF8.self), #"{"version":1}"#)
+        let tile = try get("/radar/frames/0/31/19.png")
+        XCTAssertEqual(tile.status, 200)
+        XCTAssertEqual(tile.headers["content-type"], "image/png")
+        XCTAssertEqual(tile.body.prefix(4), Data([0x89, 0x50, 0x4E, 0x47]))
+        XCTAssertEqual(try get("/radar/").status, 404)
+        XCTAssertEqual(try get("/radar/frames/0").status, 404)  // a directory
+        XCTAssertEqual(try get("/radar/.hidden.json").status, 404)
+        XCTAssertEqual(try get("/radar/nope.png").status, 404)
+        for path in ["/radar/../heimdall.jsonl.gz", "/radar/%2e%2e/media/JamCams_1.jpg",
+                     "/radar/..%2f..%2f..%2fsecret.txt"] {
+            XCTAssertEqual(try get(path).status, 403, path)
+        }
+        // A link from radar into media stays in root but leaves radar: refused.
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("recording/radar/cam.jpg"),
+            withDestinationURL: root.appendingPathComponent("recording/media/JamCams_1.jpg"))
+        XCTAssertEqual(try get("/radar/cam.jpg").status, 403)
     }
 
     func ranged(_ path: String, _ range: String, method: String = "GET") throws -> RawResponse {

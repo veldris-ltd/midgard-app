@@ -9,6 +9,7 @@ Silicon) and run from a folder, without Docker.
 | `build-services.sh` | Builds `http-gateway`, `heimdall-feed`, `heimdall-source`, `mimir-server`, `forge-worker` and `midgard-replay` for `aarch64-apple-darwin` and `x86_64-apple-darwin`, and merges each pair with `lipo` into `dist/mac/bin` (gitignored) |
 | `run-native.sh start \| stop \| status` | Runs the suite from `dist/mac/bin` against an enclosure home (default `~/Desktop/Midgard`, override with `MIDGARD_HOME`). Logs and pids in `$MIDGARD_HOME/native-run/` |
 | `record.py record \| pack` | Records the live feeds for offline replay (see [Recording and replay](#recording-and-replay)) |
+| `capture-radar.py [RECORDING]` | Stores RainViewer's past radar frames over the UK and Ireland in `RECORDING/radar/` for the app's RADAR chip (see [Recording and replay](#recording-and-replay)) |
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
 | `build-app.sh` | Builds `Midgard.app`, the presentation app (see [The app](#the-app)) |
 | `fetch-llama.sh` | Downloads and lays out the pinned llama.cpp model server for the app (see [Model server](#model-server)) |
@@ -136,6 +137,12 @@ python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
   serves. A camera whose media failed has no image URL rather than an internet one. Stored
   files are reused on a re-pack; `--refresh-media` downloads again (a failed download keeps
   the stored file), `--no-media` downloads nothing.
+- Rain radar: `python3 tools/mac-app/capture-radar.py [OUT]` stores RainViewer's past frames
+  (about two hours, 13 frames of 24 zoom-6 tiles over the overlay's box, ~4 MB) in
+  `OUT/radar/` with a `manifest.json`; the app serves them at `/radar/` and the offline console
+  replays them on a loop, the newest as "now". 4 downloads at a time, one retry, non-PNG
+  responses dropped. RainViewer's terms: free for personal, educational and small community
+  use, credit "Weather data by RainViewer" with a link (the console shows it).
 
 ### Replaying
 

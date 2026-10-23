@@ -325,7 +325,10 @@ clone_copy "$MODELS/trust" "$R/models/trust"
 if [ -n "$RECORDING" ]; then
   mkdir "$R/recording"
   for entry in "$RECORDING"/*; do
-    [ "$(basename "$entry")" = raw ] && continue   # the raw capture is not replayed
+    case "$(basename "$entry")" in
+      raw) continue ;;              # the raw capture is not replayed
+      *.tmp|*.old) continue ;;      # a capture (capture-radar.py) still being written or swapped
+    esac
     clone_copy "$entry" "$R/recording/$(basename "$entry")"
   done
   echo "recording: $RECORDING"
@@ -334,6 +337,12 @@ if [ -n "$RECORDING" ]; then
     echo "recording media: $(find "$R/recording/media" -type f | wc -l | tr -d ' ') files, $(du -sh "$R/recording/media" | cut -f1)"
   else
     echo "recording media: none (cameras have no image or clip; re-pack with record.py pack)"
+  fi
+  # Rain radar frames (capture-radar.py), served by the app at /radar/.
+  if [ -f "$R/recording/radar/manifest.json" ]; then
+    echo "recording radar: $(find "$R/recording/radar" -name '*.png' -type f | wc -l | tr -d ' ') tiles, $(du -sh "$R/recording/radar" | cut -f1)"
+  else
+    echo "recording radar: none (the RADAR chip shows unavailable; run tools/mac-app/capture-radar.py)"
   fi
 else
   echo "recording: none (the app starts without replay)"
@@ -403,7 +412,9 @@ for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Helper
     "$APP"/Contents/Resources/analytics/runtime/* "$APP/Contents/Resources/models/yolox"; do
   du -sh "$part" | sed "s|$APP/Contents/||"
 done
-[ ! -d "$APP/Contents/Resources/recording/media" ] || du -sh "$APP/Contents/Resources/recording/media" | sed "s|$APP/Contents/||"
+for part in media radar; do
+  [ ! -d "$APP/Contents/Resources/recording/$part" ] || du -sh "$APP/Contents/Resources/recording/$part" | sed "s|$APP/Contents/||"
+done
 echo "free disk: $((FREE_BEFORE / 1024)) MB before, $((FREE_AFTER / 1024)) MB after ($(((FREE_BEFORE - FREE_AFTER) / 1024)) MB used, including any rebuilt dist/ and swift outputs)"
 echo "times: services+consoles+model server+analytics $((T_DEPS - T0)) s, shell $((T_SWIFT - T_DEPS)) s, bundle $((T_END - T_SWIFT)) s"
 echo "built $APP (1.0, build $BUILD_NUMBER, $SHORT_SHA)"
