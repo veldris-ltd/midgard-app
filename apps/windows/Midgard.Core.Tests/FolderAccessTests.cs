@@ -75,18 +75,18 @@ public class FolderAccessTests
         const uint ReadAttributesAndSynchronize = 0x100080;
         Assert.Null(FolderAccess.Problem(Folder, [.. Default, new(FolderAccess.Everyone, true, ReadAttributesAndSynchronize)]));
         Assert.Null(FolderAccess.Problem(Folder, [.. Default, new(FolderAccess.Everyone, false, FullControl)]));
-        // Another named account is not one of the three groups.
-        Assert.Null(FolderAccess.Problem(Folder, [.. Default, new("S-1-5-21-1-2-3-1002", true, ReadAndExecute)]));
     }
 
     [Theory]
     [InlineData(FolderAccess.Interactive, "INTERACTIVE")]
     [InlineData(FolderAccess.Guests, "Guests")]
     [InlineData("S-1-5-21-111-222-333-513", "Domain Users")]
-    [InlineData("S-1-5-21-1004336348-1177238915-682003330-1002", "another account (S-1-5-21-1004336348-1177238915-682003330-1002)")]
-    public void OtherGroupsAndAccountsAreRefused(string sid, string name)
+    [InlineData("S-1-5-21-111-222-333-514", "Domain Guests")]
+    [InlineData("S-1-5-21-111-222-333-515", "Domain Computers")]
+    [InlineData("s-1-1-0", "Everyone")]
+    public void OtherBroadGroupsAreRefused(string sid, string name)
     {
-        var problem = FolderAccess.Problem(Folder, [.. Default, new(sid, true, ReadAndExecute)], Me);
+        var problem = FolderAccess.Problem(Folder, [.. Default, new(sid, true, ReadAndExecute)]);
         Assert.NotNull(problem);
         Assert.Contains($"let {name} read it", problem);
     }
@@ -98,20 +98,35 @@ public class FolderAccessTests
     [InlineData(FolderAccess.WriteData)]
     public void ChangeRightsAreRefusedToo(uint rights)
     {
-        var problem = FolderAccess.Problem(Folder, [.. Default, new(FolderAccess.Users, true, rights)], Me);
+        var problem = FolderAccess.Problem(Folder, [.. Default, new(FolderAccess.Users, true, rights)]);
         Assert.NotNull(problem);
         Assert.StartsWith($"Other people who use this PC can change {Folder}: its permissions let Users change it", problem);
     }
 
     [Fact]
-    public void ThePresenterSystemAndAdministratorsPassWithMe()
+    public void ThePresenterSystemAndAdministratorsPass()
     {
-        Assert.Null(FolderAccess.Problem(Folder, Default, Me));
+        Assert.Null(FolderAccess.Problem(Folder, Default));
         // CREATOR OWNER, as inherit-only entries are often written.
-        Assert.Null(FolderAccess.Problem(Folder, [.. Default, new("S-1-3-0", true, FolderAccess.GenericAll)], Me));
+        Assert.Null(FolderAccess.Problem(Folder, [.. Default, new("S-1-3-0", true, FolderAccess.GenericAll)]));
         // Deny entries are ignored (it can only err towards refusing).
         Assert.NotNull(FolderAccess.Problem(Folder,
-            [.. Default, new(FolderAccess.Users, true, ReadAndExecute), new(FolderAccess.Users, false, ReadAndExecute)], Me));
+            [.. Default, new(FolderAccess.Users, true, ReadAndExecute), new(FolderAccess.Users, false, ReadAndExecute)]));
+    }
+
+    /// <summary>
+    /// A company PC often lets a named admin or IT account, or a domain group for them,
+    /// into every profile: those pass, so Midgard runs on PCs we cannot test on.
+    /// </summary>
+    [Theory]
+    [InlineData("S-1-5-21-1004336348-1177238915-682003330-1002")]  // another local account
+    [InlineData("S-1-5-21-111-222-333-500")]                        // a domain's Administrator
+    [InlineData("S-1-5-21-111-222-333-512")]                        // Domain Admins
+    [InlineData("S-1-5-21-111-222-333-1513")]                       // an IT group whose RID ends in 513
+    [InlineData("S-1-5-21-111-222-333-5150")]
+    public void SpecificAccountsAndGroupsPass(string sid)
+    {
+        Assert.Null(FolderAccess.Problem(Folder, [.. Default, new(sid, true, FullControl)]));
     }
 
     /// <summary>With MIDGARD_APP_HOME the working copy's own folder (its siblings, the instance lock) is checked too.</summary>
@@ -176,8 +191,6 @@ public class FolderAccessTests
         if (!OperatingSystem.IsWindows()) return;
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         Assert.Null(FolderAccess.Problem(local, WindowsAcl.Entries(local)));
-        var me = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
-        Assert.Null(FolderAccess.Problem(local, WindowsAcl.Entries(local), me));
 
         var dir = Path.Join(local, $"midgard-acl-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);

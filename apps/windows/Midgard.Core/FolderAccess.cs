@@ -7,22 +7,27 @@ namespace Midgard.Core;
 public readonly record struct AccessEntry(string Sid, bool Allow, uint Rights);
 
 /// <summary>
-/// The once-at-start check that the app's folders are private to the presenter. The working
-/// copy holds the demo's keys and data and the logs what the demo did; neither has an ACL
-/// of its own (they inherit their folder's), so other accounts on the PC must not be able
-/// to read them. The default <c>%LOCALAPPDATA%</c> ACL (the user, SYSTEM and
-/// Administrators) passes.
+/// The once-at-start check that the app's folders are not open to everyone who uses the PC.
+/// The working copy holds the demo's keys and data and the logs what the demo did; neither
+/// has an ACL of its own (they inherit their folder's), so the broad groups (every user,
+/// every signed-in user, guests) must not be able to read them. The default
+/// <c>%LOCALAPPDATA%</c> ACL (the user, SYSTEM and Administrators) passes, and so does one
+/// a company adds for its own admin accounts or groups.
 /// </summary>
 /// <remarks>
 /// <para>The decision is a pure function of the access entries, so it is tested on any OS;
 /// reading a real folder's entries is <see cref="WindowsAcl.Entries"/>, Windows only.</para>
-/// <para>Refused: an allow entry that lets Everyone, Users, Authenticated Users, INTERACTIVE,
-/// Guests, a domain's Domain Users, or any other account or domain group (an S-1-5-21 SID
-/// other than the presenter's) read the folder, write into it, or change its permissions or
-/// owner. Deny entries are ignored: one could take some of those rights back, but working
-/// that out (order, inheritance, group membership) is Windows' job, and ignoring them only
-/// errs towards refusing. SYSTEM, Administrators and the creator-owner entries pass, as on
-/// the default %LOCALAPPDATA%.</para>
+/// <para>Refused: an allow entry that lets one of the broad groups (Everyone, BUILTIN\Users,
+/// Authenticated Users, INTERACTIVE, Guests, or a domain's Domain Users, Domain Guests or
+/// Domain Computers; RIDs 513–515 of an S-1-5-21 SID, which on a PC outside a domain are
+/// its own "None" group and the like) read the folder, write into it, or change its
+/// permissions or owner. A specific other account or group (an S-1-5-21 SID with another
+/// RID) passes: a company PC often gives its IT staff or an admin group access to every
+/// profile, and refusing those would stop Midgard running on PCs we cannot test on.
+/// Deny entries are ignored: one could take some of those rights back, but working that
+/// out (order, inheritance, group membership) is Windows' job, and ignoring them only errs
+/// towards refusing. SYSTEM, Administrators and the creator-owner entries pass, as on the
+/// default %LOCALAPPDATA%.</para>
 /// </remarks>
 public static class FolderAccess
 {
@@ -56,35 +61,41 @@ public static class FolderAccess
     const uint ReadRights = ReadData | GenericRead | GenericAll;
     const uint ChangeRights = WriteData | AppendData | WriteDac | WriteOwner | GenericWrite | GenericAll;
 
+    /// <summary>Domain-relative RIDs of the broad domain groups.</summary>
+    static readonly (string Rid, string Name)[] DomainGroups =
+        [("-513", "Domain Users"), ("-514", "Domain Guests"), ("-515", "Domain Computers")];
+
     /// <summary>
-    /// Who <paramref name="sid"/> is, if it is someone the folder must not be open to: one of
-    /// the groups, a domain's Domain Users (RID 513), or another account (an S-1-5-21 SID that
-    /// is not <paramref name="me"/>; not judged when <paramref name="me"/> is null).
+    /// Who <paramref name="sid"/> is, if it is a broad group the folder must not be open to:
+    /// one of <see cref="Groups"/>, or a domain's Domain Users, Domain Guests or Domain
+    /// Computers. Any other SID (the presenter, SYSTEM, Administrators, a named admin or IT
+    /// account or group) is null.
     /// </summary>
-    static string? Outsider(string sid, string? me)
+    static string? Outsider(string sid)
     {
         foreach (var (groupSid, name) in Groups)
         {
-            if (sid == groupSid) return name;
+            if (string.Equals(sid, groupSid, StringComparison.OrdinalIgnoreCase)) return name;
         }
         if (!sid.StartsWith("S-1-5-21-", StringComparison.OrdinalIgnoreCase)) return null;
-        if (sid.EndsWith("-513", StringComparison.Ordinal)) return "Domain Users";
-        if (me is null || string.Equals(sid, me, StringComparison.OrdinalIgnoreCase)) return null;
-        return $"another account ({sid})";
+        foreach (var (rid, name) in DomainGroups)
+        {
+            if (sid.EndsWith(rid, StringComparison.Ordinal)) return name;
+        }
+        return null;
     }
 
     /// <summary>
-    /// null when no one but the presenter (<paramref name="me"/>, their SID), SYSTEM and
-    /// Administrators may read, write or re-permission <paramref name="folder"/>, else a short
-    /// message for the presenter. Entries meant only for what the folder will hold
-    /// (inherit-only) count too: they decide who can read the files.
+    /// null when none of the broad groups may read, write or re-permission
+    /// <paramref name="folder"/>, else a short message for the presenter. Entries meant only
+    /// for what the folder will hold (inherit-only) count too: they decide who can read the files.
     /// </summary>
-    public static string? Problem(string folder, IEnumerable<AccessEntry> entries, string? me = null)
+    public static string? Problem(string folder, IEnumerable<AccessEntry> entries)
     {
         var allowed = entries.Where(e => e.Allow).ToList();
         List<string> Who(uint rights) => allowed
             .Where(e => (e.Rights & rights) != 0)
-            .Select(e => Outsider(e.Sid, me))
+            .Select(e => Outsider(e.Sid))
             .OfType<string>()
             .Distinct()
             .OrderBy(name => Array.FindIndex(Groups, g => g.Name == name) is var i and >= 0 ? i : Groups.Length)
@@ -133,9 +144,8 @@ public static class FolderAccess
     /// folder's access list (<see cref="WindowsAcl.Entries"/>); a folder whose list cannot be
     /// read (e.g. on a FAT-formatted USB drive, which has none) is a problem too.
     /// </summary>
-    /// <param name="me">The presenter's SID, so any other account's entry is refused too.</param>
     public static string? Problem(Paths paths, Func<string, IReadOnlyList<AccessEntry>> read,
-                                  Func<string, bool>? exists = null, string? me = null)
+                                  Func<string, bool>? exists = null)
     {
         foreach (var folder in FoldersToCheck(paths, exists))
         {
@@ -150,7 +160,7 @@ public static class FolderAccess
                      + "working copy and logs there and needs that folder to be private to your account, "
                      + "on an NTFS drive.";
             }
-            if (Problem(folder, entries, me) is { } problem) return problem;
+            if (Problem(folder, entries) is { } problem) return problem;
         }
         return null;
     }
