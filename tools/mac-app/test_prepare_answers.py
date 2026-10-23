@@ -325,7 +325,7 @@ class RunTest(Base):
         qs = pa.examples() + pa.OUR_QUESTIONS
         region = lambda q: "Gulf" if "gulf" in q.lower() else "UK & Ireland"  # noqa: E731
         self.assertEqual(f["guide"]["questions"], [{"question": q, "region": region(q)} for q in qs])
-        self.assertEqual(sum(1 for q in qs if region(q) == "Gulf"), 2)
+        self.assertEqual(sum(1 for q in qs if region(q) == "Gulf"), 1)
         for q in qs:
             e = f["entries"][pa.shipped_key("ask", "*", q)]
             self.assertIsInstance(e["at"], int)
@@ -417,7 +417,7 @@ class RunTest(Base):
         self.assertEqual(code, 0, out)
         logins = [c for c in self.stub.calls if c[1].endswith("/login")]
         self.assertEqual(len(logins), 2)
-        self.assertEqual(len(self.file()["guide"]["questions"]), len(pa.examples()) + 2)
+        self.assertEqual(len(self.file()["guide"]["questions"]), len(pa.examples()) + len(pa.OUR_QUESTIONS))
         self.assertNotIn(PASSWORD, out)
         self.assertNotIn(TOKEN, out)
 
@@ -425,7 +425,7 @@ class RunTest(Base):
         self.stub.expire = 2  # first try: 401, re-login, 401 again → fails; retry succeeds
         code, out = self.run_main("--timeout", "5")
         self.assertEqual(code, 0, out)
-        self.assertEqual(len(self.file()["guide"]["questions"]), len(pa.examples()) + 2)
+        self.assertEqual(len(self.file()["guide"]["questions"]), len(pa.examples()) + len(pa.OUR_QUESTIONS))
 
     def test_shared_weather_rows_use_entity_details(self):
         s = self.stub
@@ -483,7 +483,7 @@ class RunTest(Base):
         with mock.patch.object(pa, "write_atomic", side_effect=lambda out, doc: (sizes.append(len(doc["entries"])), real(out, doc))):
             code, out = self.run_main("--timeout", "5")
         self.assertEqual(code, 0, out)
-        n = len(pa.examples()) + 2
+        n = len(pa.examples()) + len(pa.OUR_QUESTIONS)
         self.assertEqual(sizes, list(range(1, n + 2)) + [n + 1])  # each answer, then the recheck
         self.assertEqual([x for x in os.listdir(os.path.dirname(self.out))], ["prepared-answers.json"])
 

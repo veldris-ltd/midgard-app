@@ -10,7 +10,7 @@ import { findPrepared, loadShippedGuide, preparedKey, putPrepared, shippedGuideN
 
 const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em' };
 /** The built-in example chips, when the app ships no prepared answers. */
-const EXAMPLES = ['What has changed in the Gulf watch?', 'Which power cuts affect the most customers?', 'Are any storm overflows discharging near here?', 'What are the most serious alerts in this area?'];
+const EXAMPLES = ['What has changed in the Gulf watch?', 'Which areas have power cuts?', 'Are any storm overflows discharging near here?', 'What are the most serious alerts in this area?'];
 
 type Example = { question: string; region: string | null };
 

@@ -1,0 +1,357 @@
+{
+ "version": 1,
+ "recording": "hour-1",
+ "created": 1792716393257,
+ "entries": {
+  "ask|*|what has changed in the gulf watch?": {
+   "value": {
+    "answer": "In the Gulf watch, there have been changes in the number of civil aircraft and ships tracked in the Gulf and Gulf of Oman. Specifically, the number of civil aircraft has decreased by 30% and the number of ships tracked has decreased by 100%. Military aircraft, including an AE679C (P8), have also been detected over the Gulf and Middle East. Additionally, a conflict-zone bulletin has been issued for the Persian Gulf and Gulf of Oman due to potential conflicts in the region.",
+    "citations": [
+     "GW-GULF-AIR",
+     "GW-GULF-SHIPS",
+     "GW-MILITARY",
+     "CZIB-143899",
+     "FAA-PERSIAN-GULF-AND-GULF-OF-OMAN"
+    ],
+    "unresolved": [],
+    "grounded": true,
+    "inferences": [],
+    "proposed": [],
+    "refusal": null,
+    "considered": 20,
+    "ms": 6221
+   },
+   "at": 1792717014247
+  },
+  "ask|*|are any storm overflows discharging near here?": {
+   "value": {
+    "answer": "Yes, there are several utility-water-overflow instances discharging near here due to storm conditions.",
+    "citations": [
+     "WTR-AWS00426",
+     "WTR-AWS00554",
+     "WTR-AWS00833",
+     "WTR-AWS00853",
+     "WTR-AWS00966",
+     "WTR-AWS01341",
+     "WTR-AWS01486",
+     "WTR-NWL00124",
+     "WTR-NWL00164",
+     "WTR-SBB00032",
+     "WTR-SBB00038",
+     "WTR-SBB00043",
+     "WTR-SBB00072",
+     "WTR-SBB00092",
+     "WTR-SBB00126",
+     "WTR-SBB00143",
+     "WTR-SBB00146",
+     "WTR-SBB00148",
+     "WTR-SBB00180",
+     "WTR-SBB00183"
+    ],
+    "unresolved": [],
+    "grounded": true,
+    "inferences": [],
+    "proposed": [],
+    "refusal": null,
+    "considered": 20,
+    "ms": 13248
+   },
+   "at": 1792716426496
+  },
+  "ask|*|what are the most serious alerts in this area?": {
+   "value": {
+    "answer": "The most serious alerts in this area are:\n1. Flood alert (severity level 3) in River Churnet and River Tean area, Staffordshire.\n2. Flood alert (severity level 3) in River Stour and Smestow Brook area, Dudley, Sandwell, Staffordshire.\n3. Flood alert (severity level 3) in Lower River Soar area, Leicestershire, Derbyshire, Nottinghamshire.\n4. Flood alert (severity level 3) in East coast of Dorset area, Bournemouth, Christchurch and Poole, Dorset Council.\n5. Flood alert (severity level 3) in West coast of Dorset area, Dorset Council.",
+    "citations": [
+     "033WAF317",
+     "033WAF330",
+     "034WAF428",
+     "111WACECD",
+     "111WACWCD",
+     "111WATCHXH",
+     "113WACT1B"
+    ],
+    "unresolved": [],
+    "grounded": true,
+    "inferences": [],
+    "proposed": [],
+    "refusal": null,
+    "considered": 20,
+    "ms": 12130
+   },
+   "at": 1792716438778
+  },
+  "ask|*|where are aircraft or ships behaving unusually?": {
+   "value": {
+    "answer": "Aircraft or ships behaving unusually include: \n- NATO WARSHIP (DRAH) - moored\n- FRENCH WARSHIP LYX - moored\n- FRENCH WARSHIP TGR - under way\n- FRENCH WARSHIP EGL - moored\n- FRENCH WARSHIP PTR - moored",
+    "citations": [
+     "MMSI-211210160",
+     "MMSI-215754000",
+     "MMSI-227000000",
+     "MMSI-227801600",
+     "MMSI-227801800",
+     "MMSI-227801900",
+     "MMSI-227806400",
+     "MMSI-227999999",
+     "MMSI-232046826",
+     "MMSI-235034679"
+    ],
+    "unresolved": [],
+    "grounded": true,
+    "inferences": [],
+    "proposed": [],
+    "refusal": null,
+    "considered": 20,
+    "ms": 12518
+   },
+   "at": 1792716471992
+  },
+  "advise|entity:OONI-VN|": {
+   "value": {
+    "subject": "OONI-VN",
+    "decisionPoint": "Alert censorship-rising (warning) on entity:OONI-VN: classified censorship-rising: OONI tests show internet interference well above this country's previous 7 days. What should the operator do next?",
+    "considered": 1,
+    "options": [
+     {
+      "rank": 1,
+      "title": "Monitor OONI tests for OVN",
+      "summary": "Increase monitoring of OONI tests for Vietnam",
+      "expectedEffect": "Improved understanding of censorship trends in Vietnam",
+      "risks": [],
+      "citations": [
+       "entity:OONI-VN",
+       "feed:ooni-censorship"
+      ],
+      "grounded": true,
+      "unresolved": []
+     },
+     {
+      "rank": 2,
+      "title": "Notify relevant authorities",
+      "summary": "Inform local authorities about the rising censorship risks",
+      "expectedEffect": "Potential mitigation of censorship issues",
+      "risks": [],
+      "citations": [
+       "entity:OONI-VN",
+       "feed:ooni-censorship"
+      ],
+      "grounded": true,
+      "unresolved": []
+     },
+     {
+      "rank": 3,
+      "title": "Engage with OONI community",
+      "summary": "Collaborate with the OONI community for analysis and insights",
+      "expectedEffect": "Leverage expert knowledge for better understanding",
+      "risks": [],
+      "citations": [
+       "feed:ooni-censorship"
+      ],
+      "grounded": true,
+      "unresolved": []
+     }
+    ],
+    "unsupported": "null",
+    "ms": 8901
+   },
+   "at": 1792716827546
+  },
+  "advise|entity:MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND|": {
+   "value": {
+    "subject": "MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND",
+    "decisionPoint": "Alert weather-warning-amber (warning) on entity:MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND: classified weather-warning-amber: amber warning (increased likelihood of impacts). What should the operator do next?",
+    "considered": 16,
+    "options": [
+     {
+      "rank": 1,
+      "title": "Issue public warning",
+      "summary": "Issue an amber warning to local population regarding potential wind impacts",
+      "expectedEffect": "Increase awareness and preparedness among the public",
+      "risks": [],
+      "citations": [
+       "entity:MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND"
+      ],
+      "grounded": true,
+      "unresolved": []
+     },
+     {
+      "rank": 2,
+      "title": "Coordinate with local authorities",
+      "summary": "Collaborate with local councils and emergency services to ensure coordinated response",
+      "expectedEffect": "Streamline response efforts and resource allocation",
+      "risks": [],
+      "citations": [
+       "entity:MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND"
+      ],
+      "grounded": true,
+      "unresolved": []
+     },
+     {
+      "rank": 3,
+      "title": "Monitor weather conditions",
+      "summary": "Closely track weather updates and forecasts to assess potential impact",
+      "expectedEffect": "Informed decision-making based on evolving weather patterns",
+      "risks": [],
+      "citations": [
+       "entity:MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND"
+      ],
+      "grounded": true,
+      "unresolved": []
+     }
+    ],
+    "unsupported": null,
+    "ms": 13495
+   },
+   "at": 1792716841102
+  },
+  "advise|entity:113FWC2T1A2|": {
+   "value": {
+    "subject": "113FWC2T1A2",
+    "decisionPoint": "Alert flood-warning (warning) on entity:113FWC2T1A2: classified flood-warning: EA flood warning (flooding expected). What should the operator do next?",
+    "considered": 16,
+    "options": [
+     {
+      "rank": 1,
+      "title": "Issue flood warning to local authorities",
+      "summary": "Notify local emergency services and council for preparedness",
+      "expectedEffect": "Prepare local population for potential flooding",
+      "risks": [],
+      "citations": [
+       "entity:113FWC2T1A2",
+       "feed:ea-flood"
+      ],
+      "grounded": false,
+      "unresolved": [
+       "feed:ea-flood"
+      ]
+     },
+     {
+      "rank": 2,
+      "title": "Monitor sea vessel tracks",
+      "summary": "Track vessels in the area for potential evacuation needs",
+      "expectedEffect": "Ensure vessels are aware of the flood warning and can take necessary precautions",
+      "risks": [],
+      "citations": [
+       "entity:113WACT1B",
+       "entity:MORE MAGIC",
+       "entity:NAB",
+       "entity:FREYA",
+       "entity:SULA"
+      ],
+      "grounded": false,
+      "unresolved": [
+       "entity:MORE MAGIC",
+       "entity:NAB",
+       "entity:FREYA",
+       "entity:SULA"
+      ]
+     },
+     {
+      "rank": 3,
+      "title": "Review utility water overflow data",
+      "summary": "Examine ongoing water overflows for potential impact",
+      "expectedEffect": "Assess potential water pressure and quality issues",
+      "risks": [],
+      "citations": [
+       "entity:WTR-SBB00156",
+       "entity:WTR-SBB00633",
+       "entity:WTR-SBB00755",
+       "entity:WTR-SBB00895",
+       "entity:WTR-SBB00984",
+       "entity:WTR-SBB01077",
+       "entity:WTR-SBB01095",
+       "entity:WTR-SBB01190",
+       "entity:WTR-SBB01385"
+      ],
+      "grounded": true,
+      "unresolved": []
+     }
+    ],
+    "unsupported": null,
+    "ms": 15033
+   },
+   "at": 1792716857545
+  },
+  "ask|*|which areas have power cuts?": {
+   "value": {
+    "answer": "Areas with power cuts are: West Sussex Zone (40 customers), Croydon Zone (78 customers), East Sussex Zone (2 customers), Brighton Zone (49 customers), Kingston Zone (12 customers), West Kent Zone (4 customers), Luton, Bedford, Stevenage, South West (39, 52, 5 customers respectively), East Midlands (20 customers), South Wales (1 customer), West Midlands (4 customers)",
+    "citations": [
+     "PWR-UKPN-INCD-106678-V",
+     "PWR-UKPN-INCD-106688-V",
+     "PWR-UKPN-INCD-465355-G",
+     "PWR-UKPN-INCD-465423-G",
+     "PWR-UKPN-INCD-465430-G",
+     "PWR-UKPN-INCD-465436-G",
+     "PWR-UKPN-INCD-465438-G",
+     "PWR-UKPN-INCD-465439-G",
+     "PWR-UKPN-INCD-639453-Z",
+     "PWR-UKPN-INCD-640376-Z",
+     "PWR-UKPN-INCD-640408-Z",
+     "PWR-NGED-INCD-109411-L",
+     "PWR-NGED-INCD-109435-L",
+     "PWR-NGED-INCD-109444-L",
+     "PWR-NGED-INCD-109453-L",
+     "PWR-NGED-INCD-141395-H",
+     "PWR-NGED-INCD-141417-H",
+     "PWR-NGED-INCD-141452-H",
+     "PWR-NGED-INCD-62252-F",
+     "PWR-NGED-INCD-75418-P"
+    ],
+    "unresolved": [],
+    "grounded": true,
+    "inferences": [],
+    "proposed": [],
+    "refusal": null,
+    "considered": 20,
+    "ms": 12981
+   },
+   "at": 1792717511176
+  }
+ },
+ "guide": {
+  "questions": [
+   {
+    "question": "What has changed in the Gulf watch?",
+    "region": "Gulf"
+   },
+   {
+    "question": "Which areas have power cuts?",
+    "region": "UK & Ireland"
+   },
+   {
+    "question": "Are any storm overflows discharging near here?",
+    "region": "UK & Ireland"
+   },
+   {
+    "question": "What are the most serious alerts in this area?",
+    "region": "UK & Ireland"
+   },
+   {
+    "question": "Where are aircraft or ships behaving unusually?",
+    "region": "UK & Ireland"
+   }
+  ],
+  "alerts": [
+   {
+    "key": "advise|entity:OONI-VN|",
+    "label": "Censorship rising · Internet censorship tests · Vietnam",
+    "subject": "OONI-VN",
+    "kind": "censorship-rising",
+    "region": null
+   },
+   {
+    "key": "advise|entity:MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND|",
+    "label": "Amber wind warning · South West England",
+    "subject": "MOWARN-E463C349-1282-41D3-A5D8-679DC3614DC6-SOUTH-WEST-ENGLAND",
+    "kind": "weather-warning",
+    "region": "UK & Ireland"
+   },
+   {
+    "key": "advise|entity:113FWC2T1A2|",
+    "label": "Flood · South Devon coast at Beesands, Torcross, Slapton and Dawlish",
+    "subject": "113FWC2T1A2",
+    "kind": "flood",
+    "region": "UK & Ireland"
+   }
+  ]
+ }
+}

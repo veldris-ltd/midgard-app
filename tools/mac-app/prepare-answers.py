@@ -12,7 +12,7 @@ printed; a 401 mid-run signs in again once and retries), then asks Mimir exactly
 Heimdall's console asks:
 
 - Map questions: each of AskCard.tsx's EXAMPLES (read from the source, so they stay in
-  step) and two of ours, as `POST /heimdall/ask?question=…&bbox=…` with no focus (the
+  step) and ours (OUR_QUESTIONS), as `POST /heimdall/ask?question=…&bbox=…` with no focus (the
   2D view). Each is asked over the region it is about, with that region's box exactly
   as the console sends it (regions.ts, `+v.toFixed(3)`): a question that names the
   Gulf over the 'gulf' region (`bbox=44,12,62,32`), everything else over the default
@@ -79,9 +79,9 @@ REGIONS_TS = os.path.join(REPO, "products", "heimdall", "ui", "src", "app", "reg
 PW_FILE = os.path.expanduser("~/Desktop/Midgard/airports-passwords.txt")
 RECORDINGS = os.path.expanduser("~/Library/Application Support/Midgard-dev/recordings")
 
-# Ours, besides AskCard's examples.
+# Ours, besides AskCard's examples. ("Is there anything unusual in the Gulf watch?" was
+# dropped: on hour-1 Granite's answers to it were muddled or cut off.)
 OUR_QUESTIONS = [
-    "Is there anything unusual in the Gulf watch?",
     "Where are aircraft or ships behaving unusually?",
 ]
 # The console's default region (regions.ts 'uk'), and the one Gulf questions are about.

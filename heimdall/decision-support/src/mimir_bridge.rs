@@ -14,8 +14,10 @@ use crate::error::DecisionError;
 use crate::prompt::AssembledPrompt;
 use crate::provider::OptionProvider;
 
-/// The most tokens an answer to a question may take.
-pub const ANSWER_MAX_TOKENS: u32 = 450;
+/// The most tokens an answer to a question may take. The reply is A.1 JSON: an answer
+/// citing many items ran past 450 and was cut off mid-string (a parse error after the
+/// whole wait), so the cap leaves room for that; most answers stop well short of it.
+pub const ANSWER_MAX_TOKENS: u32 = 768;
 
 /// An [`OptionProvider`] backed by a live Mimir [`Inference`] transport (typically a
 /// `mimir_bridge::PqMtlsClient`).
