@@ -1,0 +1,34 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Midgard.Core", "Midgard.Core\Midgard.Core.csproj", "{F8F360D0-C0E7-47FD-96C7-47E7C4D2657B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Midgard", "Midgard\Midgard.csproj", "{7EF2ABCF-4CE9-4DDC-850F-ADA3F88A9372}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Midgard.Core.Tests", "Midgard.Core.Tests\Midgard.Core.Tests.csproj", "{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F8F360D0-C0E7-47FD-96C7-47E7C4D2657B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F8F360D0-C0E7-47FD-96C7-47E7C4D2657B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F8F360D0-C0E7-47FD-96C7-47E7C4D2657B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F8F360D0-C0E7-47FD-96C7-47E7C4D2657B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7EF2ABCF-4CE9-4DDC-850F-ADA3F88A9372}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7EF2ABCF-4CE9-4DDC-850F-ADA3F88A9372}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7EF2ABCF-4CE9-4DDC-850F-ADA3F88A9372}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7EF2ABCF-4CE9-4DDC-850F-ADA3F88A9372}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

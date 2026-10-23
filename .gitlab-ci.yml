@@ -19,6 +19,7 @@
 #   - for the apple shell audit: a runner tagged `macos`;
 #   - for the Windows services build and tests: a Windows x64 runner tagged `windows`, with a
 #     shell executor, Git Bash on PATH as `bash`, rustup and the MSVC build tools.
+#     The C# shell's jobs need the .NET 8 SDK on it as well (apps/windows/global.json).
 #
 # Run a release dry run, a release, the shell audits or the Windows build by hand from
 # "Run pipeline", setting MIDGARD_RELEASE_MODE to `dry-run`, `release`, `audit` or
@@ -274,6 +275,19 @@ windows-smoke:
     when: on_failure
     paths:
       - target/windows-smoke/logs/
+
+# The Windows app's C# shell (apps/windows): no Rust, so no target/ cache.
+windows-shell-build:
+  extends: .windows
+  cache: []
+  script:
+    - bash tools/ci/run.sh windows-shell-build
+
+windows-shell-test:
+  extends: .windows
+  cache: []
+  script:
+    - bash tools/ci/run.sh windows-shell-test
 
 # --- client shell audits -----------------------------------------------------------------
 # A shell with no buildable project FAILS its audit — a record is never written for a UI

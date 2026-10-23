@@ -1,9 +1,12 @@
-# The suite's Rust services on Windows 11 x64. [NFR-OSS-1]
+# The Windows presentation app on Windows 11 x64: the suite's Rust services, and the C#
+# shell (apps/windows). [NFR-OSS-1]
 #
 # This file contains no build logic: every step is `bash tools/ci/run.sh <job>`, shared
 # with the GitLab pipeline (.gitlab-ci.yml). The services are built natively on a
 # Windows runner with the pinned toolchain (rust-toolchain.toml) and the vendored
 # crates, for the Windows presentation app (docs/plans/2026-10-23-windows-app-design.md).
+# The shell is built with the runner's .NET 8 SDK (apps/windows/global.json) from the
+# committed NuGet lock files.
 name: windows
 
 on:
@@ -55,3 +58,14 @@ jobs:
       # The tests run whether or not the smoke test passed, once the services built.
       - if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: bash tools/ci/run.sh windows-test
+
+  shell:
+    name: build, test and publish the C# shell (win-x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: build
+        run: bash tools/ci/run.sh windows-shell-build
+      # The tests run whether or not the publish passed, once the restore and build did.
+      - if: ${{ !cancelled() }}
+        run: bash tools/ci/run.sh windows-shell-test

@@ -65,6 +65,8 @@ shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-
 windows-build|host|release build of the suite services on a Windows x64 runner (Git Bash, MSVC)
 windows-test|host|clippy and tests of the whole Rust workspace on a Windows x64 runner (Git Bash, MSVC)
 windows-smoke|host|the services end to end on a fixture recording on a Windows x64 runner, after windows-build
+windows-shell-build|host|locked restore, release build and win-x64 single-file publish of the C# shell (apps/windows; .NET 8 SDK)
+windows-shell-test|host|locked restore and the xUnit tests of the C# shell (apps/windows; .NET 8 SDK)
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -568,6 +570,72 @@ job_windows_smoke() {
     mkdir -p "$out/logs"
     "$py" tools/win-app/make-fixture.py "$out/fixture"
     "$py" tools/win-app/run-suite.py --bin "$dir" --fixture "$out/fixture" --logs "$out/logs"
+}
+
+# The Windows app's C# shell (apps/windows, docs/plans/2026-10-23-windows-app-w2-shell.md):
+# Midgard.Core, the Midgard WinForms exe and the xUnit tests, with the .NET 8 SDK that
+# apps/windows/global.json pins (the GitHub windows runners carry it). Packages come only
+# from nuget.org (apps/windows/nuget.config) and only as each project's committed
+# packages.lock.json says: the restore is locked, so a package or version changes only by
+# a commit that changes a lock file. [NFR-OSS-1]
+WINDOWS_SHELL=apps/windows
+WINDOWS_SHELL_PROJECTS=(Midgard.Core Midgard Midgard.Core.Tests)
+WINDOWS_SHELL_OUT=target/windows-shell
+windows_dotnet() {
+    export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+    need dotnet "$1: the .NET 8 SDK is needed (the GitHub windows runners carry it)"
+    ci_group "dotnet SDKs"
+    dotnet --list-sdks
+    ci_endgroup
+    # From apps/windows, so global.json picks the SDK: this fails when no 8.0 SDK is there.
+    local version
+    version="$(cd "$WINDOWS_SHELL" && dotnet --version)"
+    echo "$1: .NET SDK $version"
+}
+# The locked restore of the solution. When it fails, or a lock file is missing, an
+# unlocked restore shows what the lock files would have to say, for review and commit,
+# and the job fails all the same.
+windows_shell_restore() {
+    local p missing=0
+    for p in "${WINDOWS_SHELL_PROJECTS[@]}"; do
+        if [ ! -f "$WINDOWS_SHELL/$p/packages.lock.json" ]; then
+            ci_error "$1: $WINDOWS_SHELL/$p/packages.lock.json is missing"
+            missing=1
+        fi
+    done
+    if [ "$missing" = 0 ] && dotnet restore "$WINDOWS_SHELL/Midgard.sln" --locked-mode; then
+        return 0
+    fi
+    dotnet restore "$WINDOWS_SHELL/Midgard.sln" --force-evaluate || true
+    for p in "${WINDOWS_SHELL_PROJECTS[@]}"; do
+        echo "--- what restore resolves for $WINDOWS_SHELL/$p/packages.lock.json:"
+        cat "$WINDOWS_SHELL/$p/packages.lock.json" 2>/dev/null || echo "(nothing)"
+    done
+    ci_error "$1: the NuGet lock files do not match the projects; review the files above and commit them"
+    return 1
+}
+
+job_windows_shell_build() {
+    local exe="$WINDOWS_SHELL_OUT/Midgard.exe"
+    windows_dotnet windows-shell-build
+    windows_shell_restore windows-shell-build
+    dotnet build "$WINDOWS_SHELL/Midgard.sln" -c Release --no-restore
+    rm -rf "$WINDOWS_SHELL_OUT"
+    dotnet publish "$WINDOWS_SHELL/Midgard/Midgard.csproj" -c Release -r win-x64 --self-contained \
+        -p:PublishSingleFile=true --no-restore -o "$WINDOWS_SHELL_OUT"
+    ls -l "$WINDOWS_SHELL_OUT"
+    if [ ! -f "$exe" ]; then
+        ci_error "windows-shell-build: $exe was not published"
+        return 1
+    fi
+    echo "Midgard.exe: $(wc -c < "$exe" | tr -d ' ') bytes; the publish folder: $(du -sk "$WINDOWS_SHELL_OUT" | cut -f1) KB"
+}
+
+job_windows_shell_test() {
+    windows_dotnet windows-shell-test
+    windows_shell_restore windows-shell-test
+    dotnet test "$WINDOWS_SHELL/Midgard.Core.Tests/Midgard.Core.Tests.csproj" -c Release --no-restore \
+        --logger "console;verbosity=normal"
 }
 
 case "${1:-}" in

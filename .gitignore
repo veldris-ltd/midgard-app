@@ -63,3 +63,9 @@ result-*
 # --- Swift (apps/mac; build with --scratch-path ~/Library/Caches/midgard-build/swift) ---
 apps/mac/.build/
 apps/mac/.swiftpm/
+
+# --- .NET (apps/windows; CI builds it, nothing is built in the suite folder) ---
+apps/windows/**/bin/
+apps/windows/**/obj/
+apps/windows/.vs/
+apps/windows/**/*.user

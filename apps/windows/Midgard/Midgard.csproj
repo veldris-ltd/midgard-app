@@ -1,0 +1,21 @@
+<!-- Midgard.exe: the WinForms window, published self-contained for win-x64 as one file
+     by the windows-shell-build job (tools/ci/run.sh). The runtime identifier is fixed
+     here so that the locked restore of the solution already holds the win-x64 runtime
+     packs publish needs, and the lock file has one shape. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>Midgard</AssemblyName>
+    <RootNamespace>Midgard</RootNamespace>
+    <!-- LibraryImport (WindowsFacts) generates unsafe marshalling code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Midgard.Core\Midgard.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+<!-- Everything testable without a window: paths, ports, the system check. No UI and no
+     Windows-only APIs, so its tests run on any OS; the window app (Midgard) supplies the
+     Windows-only facts. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Midgard.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Midgard.Core.Tests" />
+  </ItemGroup>
+</Project>
