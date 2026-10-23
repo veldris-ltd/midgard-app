@@ -256,7 +256,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   const lookAtRef = React.useRef<(LatLon & { km: number }) | null>(null);
   const tipRef = React.useRef<HTMLDivElement>(null);
   const compassRef = React.useRef<HTMLSpanElement>(null);
-  const [exaggeration, setExaggeration] = React.useState(() => readNumber(EXAGGERATION_KEY, 4));
+  const [exaggeration, setExaggeration] = React.useState(() => readNumber(EXAGGERATION_KEY, 18));
   const [follow, setFollow] = React.useState(false);
   const [tilted, setTilted] = React.useState(true);
   const [heightsOpen, setHeightsOpen] = React.useState(false);
