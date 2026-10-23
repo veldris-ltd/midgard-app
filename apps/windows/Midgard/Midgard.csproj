@@ -14,7 +14,14 @@
     <RootNamespace>Midgard</RootNamespace>
     <!-- LibraryImport (WindowsFacts) generates unsafe marshalling code. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- WebView2Loader.dll goes inside the single-file Midgard.exe too (extracted at run time). -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The window's web view (BSD-style licence, LICENSE.txt in the package; W4 copies it to
+         resources\licenses). Pinned; its hash is in packages.lock.json. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Midgard.Core\Midgard.Core.csproj" />
   </ItemGroup>

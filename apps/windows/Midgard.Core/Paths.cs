@@ -33,6 +33,8 @@ public sealed record Paths
     public string Logs { get; }
     /// <summary>The WebView2 user-data folder (the window's browser profile).</summary>
     public string WebView { get; }
+    /// <summary>The app's few remembered answers (<c>%LOCALAPPDATA%\Midgard\settings.json</c>; see <see cref="AppSettings"/>).</summary>
+    public string Settings { get; }
 
     /// <param name="environment">The process environment (only the MIDGARD_APP_* keys are read).</param>
     /// <param name="bundleResources">The package's resources folder.</param>
@@ -61,6 +63,7 @@ public sealed record Paths
         Home = Value("MIDGARD_APP_HOME") ?? Path.Join(app, "Home");
         Logs = Value("MIDGARD_APP_LOGS") ?? Path.Join(app, "Logs");
         WebView = Path.Join(app, "WebView");
+        Settings = Path.Join(app, "settings.json");
     }
 
     /// <summary>The environment keys <see cref="Paths"/> reads.</summary>
