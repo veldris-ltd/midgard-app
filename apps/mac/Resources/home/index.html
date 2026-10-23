@@ -222,7 +222,7 @@
       if (alerts.length) {
         out.push(el('h4', 'advise', 'Decision support — instant answers'));
         out.push(how(['In Heimdall, click the alert in the ', ['ALERTS IN VIEW'], ' list on the map (or in the bell’s ',
-          ['ALERTS'], ' drawer), then press ', ['ASK MIMIR'], '.']));
+          ['ALERTS'], ' drawer), then press ', ['ASK MIMIR'], '. These alerts appear within about 5 minutes of starting Midgard.']));
         byRegion(alerts, function (a) { return str(a.region); }).forEach(function (g) {
           out.push(regionLine(g.region));
           var ul = el('ul', 'alerts');
@@ -240,7 +240,7 @@
         });
       }
 
-      out.push(el('p', 'live', 'Anything else is answered live by Mimir and takes longer (about 15–60 seconds on this Mac).'));
+      out.push(el('p', 'live', 'Anything else is answered live by Mimir and takes longer: about 15–60 seconds on an Apple Silicon Mac, several minutes on an Intel Mac.'));
       body.replaceChildren.apply(body, out);
     }
 
