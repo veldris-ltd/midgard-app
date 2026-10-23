@@ -30,21 +30,26 @@ Agreed with the user on 23 Oct 2026. The Windows counterpart of the Mac presenta
 
 Behaviour:
 - **Offline:** WebView2 refuses every request outside the app's own 127.0.0.1 origin, and refuses new windows and outside links. This is done with `WebResourceRequested`, `NavigationStarting` and `NewWindowRequested`.
-- **Nothing left running:** every service runs in a Job Object with kill-on-close, so Windows ends them if Midgard.exe exits or crashes.
+- **Nothing left running:** every service runs in a Job Object with kill-on-close, so Windows ends them if Midgard.exe exits or crashes. The W1 smoke runner (`tools/win-app/run-suite.py`) already does this, one Job Object per service, so a service's children, such as replay's heimdall-source runs, end with it.
 - **Clip decoding:** `midgard-frames.exe` (C#, Windows Media Foundation) replaces the Mac's AVFoundation helper, so ffmpeg and its licence stay out.
 - **Mimir:** runs on the CPU (AVX2). Live answers will be slow on laptops, as on the Intel Mac, so prepared answers matter more. A Vulkan GPU build can come later.
 
 ## 2. Rust services on Windows
 
-Nine files use Unix-only features. Each gets a `#[cfg(windows)]` branch beside the existing `#[cfg(unix)]` code, using the small `windows-sys` crate, vendored as the offline-build rule requires.
+Nine files use Unix-only features. Each gets a `#[cfg(windows)]` branch beside the existing `#[cfg(unix)]` code. *Changed in W1:* the few Win32 functions needed are declared in `extern "system"` blocks (kernel32), not taken from `windows-sys`. Vendoring that crate would have added tens of MB to a folder at its storage limit.
 
-- **Directory locks** (`services/runtime/src/lock.rs`): use `LockFileEx`; liveness comes from the process handle and creation time.
-- **Secret and key files** (`crypto/pqc-agility/src/secret.rs`, `crypto/attest/src/keystore.rs`): the ACL is limited to the current user, and a file anyone else can read is refused.
-- **Durable writes** (`services/fabric/src/durable.rs`, `crypto/audit-writer/src/{file,journal}.rs`, `heimdall/store/src/{util,history_store}.rs`): use `FlushFileBuffers`, and `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` for rename-over. Close a file before replacing it.
+- **Directory locks** (`services/runtime/src/lock.rs`): the exclusive hold is the same `create_new` lock file as on Unix, recording `os=windows`. Liveness comes from OpenProcess, GetExitCodeProcess and the creation time from GetProcessTimes.
+- **Secret and key files** (`crypto/pqc-agility/src/secret.rs`, `crypto/attest/src/keystore.rs`): *changed in W1:* there is no ACL code. A file created 0600 on Unix inherits its folder's ACL on Windows, and the keystore's mode check is Unix only. The working copy, `%LOCALAPPDATA%\Midgard`, is private to the user by default, and the W2 shell checks its ACL once at start.
+- **Durable writes** (`services/fabric/src/durable.rs`, `crypto/audit-writer/src/{file,journal}.rs`, `heimdall/store/src/{util,history_store}.rs`):
+  - *As built in W1:* the fabric store's compaction closes the journal, then replaces it with `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`, retried for about 2 s while another handle blocks it. It cuts back a failed write through a writing handle of its own.
+  - **Other files:** they keep std's `sync_all` (FlushFileBuffers on Windows) and `rename` (MoveFileExW with REPLACE_EXISTING on Rust 1.82) wherever they already flush or replace, and their tests pass on Windows.
+  - **Forge CSVs:** replay's rename-over is retried for about 3 s while forge-worker has the file open.
 - **Heimdall alerts** (`heimdall/feed-server/src/alerts.rs`): Windows equivalents, or skipped where Windows has no such concept.
 - **Path, line-ending and file-lock hazards:** handle `\\?\` long paths where paths are built, CRLF line endings, and deletes that fail while a file is open.
 
-Mac and Linux behaviour must not change. The existing Linux CI and the Mac tests keep running.
+- **Recordings:** *decided in W1:* recordings ship **uncompressed** on Windows (`heimdall.jsonl`, not `.jsonl.gz`). Replay reads `.gz` through `/usr/bin/gzip`, which Windows lacks, and on Windows it refuses a `.gz` with a message saying to unpack it.
+
+Mac and Linux behaviour must not change. The existing Linux CI and the Mac tests keep running. W1's results are in `2026-10-23-windows-app-w1-services.md`.
 
 **New CI job (Windows):** on `windows-latest` it builds the services, runs the Rust tests, starts the suite with a tiny fixture recording, and runs the gateway smoke test against it. The smoke test covers sign-in, picture, ask (with a stub model server), cameras and replay. The job uploads the Windows binaries as an artefact.
 
@@ -75,7 +80,7 @@ Mac and Linux behaviour must not change. The existing Linux CI and the Mac tests
 
 - **Packaging (on the dev Mac):**
   1. `tools/win-app/fetch-artifacts.sh` downloads the CI artefacts for a commit and checks the commit.
-  2. `tools/win-app/build-zip.sh` adds the shared resources and the pinned Windows llama.cpp and Python runtimes.
+  2. `tools/win-app/build-zip.sh` adds the shared resources and the pinned Windows llama.cpp and Python runtimes. It unpacks the recording's `heimdall.jsonl.gz`, since recordings ship uncompressed on Windows.
   3. It writes `~/Desktop/Midgard-1.0-Windows.zip` (ZIP64) and checks every file and its size.
   4. It refuses mismatched commits, as `build-dmg.sh` does.
 - **Instruction sheet:** `Install Midgard on Windows.pdf`, one A4 page. It covers:

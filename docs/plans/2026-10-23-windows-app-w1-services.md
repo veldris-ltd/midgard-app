@@ -92,3 +92,82 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §2. Mac native run for re
 ### Task 6: Record results
 
 Record results in this plan: CI run links, test counts, anything excluded and why, smoke output. Update `docs/plans/2026-10-23-windows-app-design.md` if anything changed.
+
+## Results (23 Oct 2026)
+
+W1 is done. Every task's check passed on GitHub Actions `windows-latest` (Windows Server, x86_64-pc-windows-msvc, Rust 1.82.0, Git Bash).
+
+- **CI runs:**
+  - [40010805091](https://github.com/veldris-ltd/midgard-app/actions/runs/40010805091) on 5bce18c: Tasks 1 to 4 green (build, smoke, tests).
+  - [40012836561](https://github.com/veldris-ltd/midgard-app/actions/runs/40012836561) on 4be06ce: the same, plus the review follow-ups and the binaries artefact (Task 5).
+- **Commits:**
+  - Task 1: 3795ff5.
+  - Task 2: 1b6080d.
+  - Task 3: b346c70, ac7df50, 1b241c2, f356f3b, 0b6ff06, c578ec9, 7a153f1.
+  - Task 4: 5bce18c.
+  - Review follow-ups: 9362e80, fbbb306.
+  - Task 5: 4be06ce.
+- **Tests on Windows:** 1073 passed, 0 failed, 1 ignored on 5bce18c, and 1079 / 0 / 1 on 4be06ce with the new replay tests. Counted over every `test result:` line of the windows-test step, doc-tests included. The ignored one is `time_a_sync_sized_batch`, a timing probe that is run by hand on every platform.
+  - `windows-test` runs the justfile's 11 `cargo clippy` and 50 `cargo test` lines. Then it runs the workspace members those lines leave out, with their default features:
+    - lint: mg-model, midgard-replay, telemetry, mimir-bridge, heimdall-store, admin-orchestrator;
+    - test: the same, plus mg-bundle and mg-register.
+  - A recipe that yields no line fails the job.
+- **Excluded:** nothing. `WINDOWS_TEST_EXCLUDE` is empty. Unix-only checks inside tests are gated `#[cfg(unix)]`, each with a one-line reason:
+  - the 0600 modes;
+  - the keystore mode check;
+  - gzip in replay's tests;
+  - the pgrep leftover check.
+- **Fixes the Windows tests found:**
+  - **Fabric store** (c578ec9, Windows only):
+    - an append-only handle cannot truncate, so a failed write's cut-back opens a writing handle of its own;
+    - Windows will not rename over an open file, so the journal is closed (the store wedged meanwhile) before the compacted one replaces it.
+  - **Fabric store** (7a153f1):
+    - Windows: compaction's rename-over is MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH), retried for about 2 s while another handle blocks it, and the reopened journal is synced;
+    - Windows: a cut-back replaces the journal handle;
+    - **all platforms:** the store now stays wedged from the rename until the new journal is open. Before, a failed reopen could leave writes going to the replaced journal, which on Unix is unlinked.
+  - **Fleet check-in test:** each accepted socket is set blocking. It inherits the listener's non-blocking mode on macOS and Windows.
+  - **Directory locks** (Task 2): liveness and start time come from kernel32 (OpenProcess, GetExitCodeProcess, GetProcessTimes) in an `extern "system"` block. No new crate.
+- **Review follow-ups** (9362e80, fbbb306):
+  - **heimdall-source path:** replay's default `--source-bin` is `heimdall-source` + `EXE_SUFFIX` beside it.
+  - **Forge file rename:** the rename-over is retried for about 3 s (10 tries, 50 to 500 ms) on a Windows sharing violation or access denied, while forge-worker has the CSV open. Unix tries once.
+  - **Fake heimdall-source in tests:** the tests whose fake is a batch file running Git's `sh` are skipped, with a message, when there is no `sh`.
+  - **Recipe lines:** `recipe_cargo_lines` matches `cargo <sub>` (or `@cargo`) as the first two words.
+- **Recordings on Windows:** they ship **uncompressed** (`heimdall.jsonl`). Windows has no gzip for replay to read `heimdall.jsonl.gz` through. Given a `.gz`, replay on Windows refuses it: "Windows reads plain heimdall.jsonl; unpack the recording (gzip -d heimdall.jsonl.gz) before playing it". The packaging step (`build-zip.sh`, design §4) must unpack it. Mac recordings are unchanged.
+- **Working copy for the smoke test:** `make-starting-state.sh` copies a live enclosure home, which CI does not have. So `tools/win-app/run-suite.py` builds a minimal working copy, the way `deploy/compose/init.sh` first makes an enclosure:
+  - `mg-admin init`;
+  - the gateway policy and an ontology for the fixture;
+  - one analyst with a random password;
+  - mesh identities per service and per recorded feed;
+  - Heimdall's and Mimir's policies;
+  - one Forge job;
+  - a stub model directory signed by `mg-model`.
+
+  Each service runs in its own Job Object on Windows.
+- **Smoke output** (run 40012836561, the same as 40010805091):
+
+```
+fixture: target/windows-smoke/fixture: 19 observations in 11 batches from 6 feeds, 1 camera still, 1 Forge file
+run-suite: working copy made: keys, identities, policies, Forge job, signed stub model
+run-suite: stub-llm ready / mimir ready / gateway ready / heimdall ready / forge ready / replay ready
+ok   sign in
+ok   picture has the fixture's layers (10 entities; layers air,events,land,sea,utilities)
+ok   camera entity with its /media/ still (land-camera, with /media/CAM-TEST.jpg)
+ok   forge job ran on the CSV (3 site objects in the fabric)
+  smoke.py: ok   sign in / fabric object types (3) / heimdall picture (10 entities) / mimir model plane (granite-stub) / forge overview (1 jobs)
+ok   tools/mac-app/smoke.py (exit 0)
+ok   ask is grounded with the stub's answer (grounded=True, citations=['AREA-SUMMARY'], considered=10)
+run-suite: replay stopped / forge stopped / heimdall stopped / gateway stopped / mimir stopped / stub-llm stopped
+ok   every process stopped, none left running
+run-suite: 7 of 7 checks passed
+```
+
+- **Binaries artefact:** `midgard-services-windows-x64-4be06ce3bf382abe1fcdbbbf91160886a9aaa891`, 4.0 MB zipped, kept to 22 Nov 2026. `bash tools/win-app/fetch-artifacts.sh 4be06ce` put it in `~/Library/Caches/midgard-build/win/4be06ce…/`. `BUILD.txt` names the commit, and `file` reports `PE32+ executable (console) x86-64, for MS Windows` for each file:
+
+  | File | Bytes |
+  |---|---|
+  | http-gateway.exe | 3,119,616 |
+  | heimdall-feed.exe | 2,470,400 |
+  | heimdall-source.exe | 1,251,840 |
+  | mimir-server.exe | 1,747,456 |
+  | forge-worker.exe | 1,837,056 |
+  | midgard-replay.exe | 497,152 |
