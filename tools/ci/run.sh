@@ -439,7 +439,29 @@ job_windows_build() {
         fi
     done
     ls -l "$dir"/*.exe
-    return "$missing"
+    [ "$missing" = 0 ] || return 1
+    windows_services_artifact "$dir"
+}
+
+# The artefact the pipeline keeps (midgard-services-windows-x64-<sha>, 30 days) and
+# tools/win-app/fetch-artifacts.sh downloads: the six services and a BUILD.txt naming
+# the commit, toolchain and date, in target/windows-services.
+WINDOWS_ARTIFACT_DIR=target/windows-services
+windows_services_artifact() {
+    local b out="$WINDOWS_ARTIFACT_DIR"
+    rm -rf "$out"
+    mkdir -p "$out"
+    for b in "${WINDOWS_BINARIES[@]}"; do
+        cp "$1/$b.exe" "$out/"
+    done
+    {
+        echo "commit: $(ci_sha)"
+        echo "target: $WINDOWS_TARGET"
+        echo "toolchain: $(rustc --version)"
+        echo "cargo: $(cargo --version)"
+        echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } >"$out/BUILD.txt"
+    cat "$out/BUILD.txt"
 }
 
 # The whole Rust workspace, linted and tested natively on Windows. The workspace cannot

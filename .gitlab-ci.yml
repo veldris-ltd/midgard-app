@@ -233,7 +233,7 @@ release-dry-run:
 # The GitHub workflow (.github/workflows/windows.yml) runs this on every push to the
 # Windows app branch; here it runs by hand, on a runner tagged `windows`.
 
-windows-build:
+.windows:
   stage: verify
   tags:
     - windows
@@ -246,18 +246,27 @@ windows-build:
         - rust-toolchain.toml
     paths:
       - target/
+
+# Keeps the six services and BUILD.txt, for tools/win-app/fetch-artifacts.sh.
+windows-build:
+  extends: .windows
   script:
     - bash tools/ci/run.sh windows-build
+  artifacts:
+    name: midgard-services-windows-x64-$CI_COMMIT_SHA
+    paths:
+      - target/windows-services/
+    expire_in: 30 days
 
 windows-test:
-  extends: windows-build
+  extends: .windows
   script:
     - bash tools/ci/run.sh windows-test
 
 # The release build and the smoke test run in one job: the smoke test uses the .exe files
 # the build leaves in target/.
 windows-smoke:
-  extends: windows-build
+  extends: .windows
   script:
     - bash tools/ci/run.sh windows-build
     - bash tools/ci/run.sh windows-smoke

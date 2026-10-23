@@ -37,6 +37,13 @@ jobs:
             windows-target-${{ runner.arch }}-
       - id: build
         run: bash tools/ci/run.sh windows-build
+      # The six services and BUILD.txt, for tools/win-app/fetch-artifacts.sh.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: midgard-services-windows-x64-${{ github.sha }}
+          path: target/windows-services/
+          if-no-files-found: error
+          retention-days: 30
       - id: smoke
         run: bash tools/ci/run.sh windows-smoke
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
