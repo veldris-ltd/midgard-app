@@ -28,6 +28,14 @@
 //! [`DurableObjectStore::compact`] rewrites it as one `PutObject` per object and one
 //! `PutLink` per link, sealed afresh, and swaps it in with an atomic rename, so a
 //! crash leaves the old journal or the new one, never a mix.
+//!
+//! On Windows, which will not rename over an open file, the journal is closed first
+//! (the store refuses writes meanwhile) and replaced with `MoveFileExW(REPLACE_EXISTING
+//! | WRITE_THROUGH)`, which returns only once the rename is on disk. NTFS makes that one
+//! metadata change within a volume, though Windows does not document it as atomic.
+//! While another process (an antivirus or indexer scan) holds the journal, the rename
+//! is retried for about two seconds; if it still fails the old journal is reopened and
+//! the store carries on as before.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -73,6 +81,8 @@ enum Fault {
     Sync,
     /// Fail cutting a failed write back off the journal.
     Cut,
+    /// Fail reopening the journal once the compacted one has replaced it.
+    Reopen,
 }
 
 impl DurableObjectStore {
@@ -266,9 +276,11 @@ impl DurableObjectStore {
 
     /// Rewrite the journal to hold only what the store holds now, returning the record
     /// counts before and after. Written beside the journal, fsynced, then renamed over
-    /// it; on any error the old journal is untouched and still in use. Success also
+    /// it (on Windows with the journal closed first, see the module docs); on an error
+    /// before the rename the old journal is untouched and still in use. Success also
     /// un-wedges the store (see [`DurableObjectStore::wedged`]): the new journal holds
-    /// exactly what memory does.
+    /// exactly what memory does. If the new journal cannot be opened after the rename,
+    /// the store is left wedged, refusing writes, until a later compaction succeeds.
     pub fn compact(&mut self) -> Result<(u64, u64), FabricError> {
         let before = self.op_seq;
         let tmp = self.path.with_extension("compacting");
@@ -316,22 +328,37 @@ impl DurableObjectStore {
         std::fs::rename(&tmp, &self.path).map_err(io)?;
         #[cfg(windows)]
         {
-            let was_wedged = self.close_for_rename()?;
-            if let Err(e) = std::fs::rename(&tmp, &self.path) {
+            let was_wedged = match self.close_for_rename() {
+                Ok(was) => was,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&tmp);
+                    return Err(e);
+                }
+            };
+            if let Err(e) = win::replace_durably(&tmp, &self.path) {
                 let _ = std::fs::remove_file(&tmp);
                 return Err(self.reopen_after_failed_rename(e, was_wedged));
             }
         }
+        // The handle still names the old journal (on Unix an unlinked file, on Windows
+        // a stand-in): refuse writes until the new journal is open.
+        self.wedged = Some("the compacted journal could not be opened; compact again".into());
         if let Some(dir) = self.path.parent() {
             if let Ok(d) = File::open(dir) {
                 let _ = d.sync_all();
             }
+        }
+        #[cfg(test)]
+        if self.inject(Fault::Reopen) {
+            return Err(io(injected()));
         }
         self.file = OpenOptions::new()
             .append(true)
             .open(&self.path)
             .map_err(io)?;
         self.op_seq = seq;
+        #[cfg(windows)]
+        self.file.sync_all().map_err(io)?;
         self.wedged = None;
         Ok((before, seq))
     }
@@ -395,12 +422,18 @@ impl DurableObjectStore {
             self.file.sync_all()
         }
         // On Windows an append-only handle has no right to truncate (std opens it
-        // without FILE_WRITE_DATA), so the cut goes through a second, writing handle.
+        // without FILE_WRITE_DATA), so the cut goes through a second, writing handle
+        // opened by path: `self.path` always names the file `self.file` has open, since
+        // only `compact` replaces the journal and it swaps both together. The journal
+        // handle is then replaced as well, in case the failed write was its own fault;
+        // if that fails, the error wedges the store.
         #[cfg(windows)]
         {
             let cut = OpenOptions::new().write(true).open(&self.path)?;
             cut.set_len(len)?;
-            cut.sync_all()
+            cut.sync_all()?;
+            self.file = OpenOptions::new().append(true).open(&self.path)?;
+            Ok(())
         }
     }
 
@@ -448,6 +481,62 @@ impl DurableObjectStore {
                 true
             }
             None => false,
+        }
+    }
+}
+
+/// The Win32 rename that `std::fs::rename` does not offer: replace and write through.
+#[cfg(windows)]
+mod win {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    /// How long a rename blocked by another process's handle is retried.
+    pub const RETRY_FOR: Duration = Duration::from_secs(2);
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+
+    fn wide(p: &Path) -> Vec<u16> {
+        p.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    /// Rename `from` over `to`, returning once the rename is on disk. Retried with
+    /// backoff for up to [`RETRY_FOR`] while another handle blocks it.
+    pub fn replace_durably(from: &Path, to: &Path) -> std::io::Result<()> {
+        let (from, to) = (wide(from), wide(to));
+        let deadline = Instant::now() + RETRY_FOR;
+        let mut wait = Duration::from_millis(10);
+        loop {
+            // SAFETY: both are NUL-terminated UTF-16 strings that outlive the call.
+            let ok = unsafe {
+                MoveFileExW(
+                    from.as_ptr(),
+                    to.as_ptr(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+                )
+            };
+            if ok != 0 {
+                return Ok(());
+            }
+            let e = std::io::Error::last_os_error();
+            let blocked = matches!(
+                e.raw_os_error(),
+                Some(ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION)
+            );
+            let now = Instant::now();
+            if !blocked || now >= deadline {
+                return Err(e);
+            }
+            std::thread::sleep(wait.min(deadline - now));
+            wait = (wait * 2).min(Duration::from_millis(250));
         }
     }
 }
@@ -838,6 +927,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn a_journal_handle_that_cannot_be_written_wedges_the_store() {
         // A real I/O failure, no injection: a read-only handle refuses the write and
         // the cut-back alike.
@@ -848,15 +938,115 @@ mod tests {
             let bytes = len(&path);
             store.file = File::open(&path).unwrap();
             assert!(store.apply_batch(batch(&["b"])).is_err());
-            // On Windows the cut-back has a handle of its own (see `cut_back`), so only
-            // the write fails and the store is not wedged.
-            #[cfg(not(windows))]
             assert!(store.wedged().is_some());
-            #[cfg(windows)]
+            assert_eq!(len(&path), bytes);
+            assert_eq!(store.journal_records(), 1);
+            assert_eq!(ids(&store), vec!["a"]);
+            store.compact().unwrap();
+            store.apply_batch(batch(&["c"])).unwrap();
+        }
+        assert_eq!(ids(&open(&path)), vec!["a", "c"]);
+        cleanup(&path);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_journal_handle_that_cannot_be_written_is_replaced() {
+        // A real I/O failure, no injection: a read-only handle refuses the write. The
+        // cut-back has its own handle and replaces the journal handle too, so the store
+        // is not wedged and the next write goes through without a compaction.
+        let path = scratch("readonly");
+        {
+            let mut store = open(&path);
+            store.put_object_durable(obj("a")).unwrap();
+            let bytes = len(&path);
+            store.file = File::open(&path).unwrap();
+            assert!(store.apply_batch(batch(&["b"])).is_err());
             assert!(store.wedged().is_none());
             assert_eq!(len(&path), bytes);
             assert_eq!(store.journal_records(), 1);
             assert_eq!(ids(&store), vec!["a"]);
+            store.apply_batch(batch(&["c"])).unwrap();
+        }
+        assert_eq!(ids(&open(&path)), vec!["a", "c"]);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_journal_that_cannot_be_reopened_after_compaction_stays_wedged() {
+        let path = scratch("reopen");
+        {
+            let mut store = open(&path);
+            store.put_object_durable(obj("a")).unwrap();
+            store.faults.push(Fault::Reopen);
+            assert!(store.compact().is_err());
+            assert!(
+                store.wedged().is_some(),
+                "writes must not reach the old journal"
+            );
+            assert!(store.apply_batch(batch(&["b"])).is_err());
+            store.compact().unwrap();
+            assert!(store.wedged().is_none());
+            store.apply_batch(batch(&["c"])).unwrap();
+        }
+        assert_eq!(ids(&open(&path)), vec!["a", "c"]);
+        cleanup(&path);
+    }
+
+    /// The journal held open without delete sharing (as a scanner might) for longer
+    /// than the rename is retried.
+    #[cfg(windows)]
+    fn held(path: &Path) -> File {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        const FILE_SHARE_WRITE: u32 = 0x2;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(path)
+            .unwrap()
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_compaction_whose_rename_is_blocked_leaves_the_store_as_it_was() {
+        let path = scratch("blocked");
+        {
+            let mut store = open(&path);
+            store.put_object_durable(obj("a")).unwrap();
+            let records = store.journal_records();
+            let holder = held(&path);
+            let start = std::time::Instant::now();
+            assert!(store.compact().is_err());
+            assert!(start.elapsed() >= super::win::RETRY_FOR, "retried first");
+            drop(holder);
+            assert!(
+                store.wedged().is_none(),
+                "not wedged before, not wedged after"
+            );
+            assert!(!path.with_extension("compacting").exists());
+            assert_eq!(store.journal_records(), records);
+            store.apply_batch(batch(&["b"])).unwrap();
+        }
+        assert_eq!(ids(&open(&path)), vec!["a", "b"]);
+        cleanup(&path);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_wedged_store_whose_compaction_is_blocked_stays_wedged() {
+        let path = scratch("blocked-wedged");
+        {
+            let mut store = open(&path);
+            store.put_object_durable(obj("a")).unwrap();
+            store.faults.extend([Fault::Sync, Fault::Cut]);
+            assert!(store.apply_batch(batch(&["b"])).is_err());
+            let why = store.wedged().unwrap().to_string();
+            let holder = held(&path);
+            assert!(store.compact().is_err());
+            drop(holder);
+            assert_eq!(store.wedged(), Some(why.as_str()));
+            assert!(!path.with_extension("compacting").exists());
             store.compact().unwrap();
             store.apply_batch(batch(&["c"])).unwrap();
         }
