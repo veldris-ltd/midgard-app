@@ -15,26 +15,52 @@ static partial class SingleInstance
     /// <paramref name="held"/>, or null when the lock could not be taken: better to run
     /// than to refuse), else false after bringing the other one forward.
     /// </summary>
+    /// <remarks>
+    /// The lock counts as another app's only if the pid it names is a running Midgard.exe.
+    /// Something else can hold the file for a moment (an antivirus or backup scan), and a
+    /// holder that has just quit can leave its pid behind; those are retried for a couple
+    /// of seconds, and after that this app runs without the lock (held is null, so the
+    /// orphan sweep is skipped: <see cref="Orphans.SweepAsync"/>).
+    /// </remarks>
     public static bool Claim(string home, out InstanceLock? held)
     {
         held = null;
         var file = Home.InstanceLockFile(home);
-        switch (InstanceLock.Acquire(file))
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (true)
         {
-            case InstanceLock.Outcome.Acquired a:
-                held = a.Lock;
-                return true;
-            case InstanceLock.Outcome.HeldBy h:
-                if (h.Stopping && InstanceLock.Acquire(file, TimeSpan.FromSeconds(30)) is InstanceLock.Outcome.Acquired later)
-                {
-                    held = later.Lock;
+            switch (InstanceLock.Acquire(file))
+            {
+                case InstanceLock.Outcome.Acquired a:
+                    held = a.Lock;
                     return true;
-                }
-                if (h.Pid is { } pid) Focus(pid);
-                return false;
-            default:
-                return true;
+                case InstanceLock.Outcome.HeldBy { Pid: { } pid } h when IsMidgard(pid):
+                    if (h.Stopping && InstanceLock.Acquire(file, TimeSpan.FromSeconds(30)) is InstanceLock.Outcome.Acquired later)
+                    {
+                        held = later.Lock;
+                        return true;
+                    }
+                    Focus(pid);
+                    return false;
+                case InstanceLock.Outcome.HeldBy:
+                    // Held, but not by a running Midgard: a scan, or a holder on its way out.
+                    if (DateTime.UtcNow >= deadline) return true;
+                    Thread.Sleep(100);
+                    break;
+                default:
+                    return true;
+            }
         }
+    }
+
+    /// <summary>Whether process <paramref name="pid"/> runs an exe named as this one (Midgard.exe).</summary>
+    static bool IsMidgard(int pid)
+    {
+        if (pid == Environment.ProcessId) return false;
+        var image = WindowsProcesses.ImagePath(pid);
+        var mine = Path.GetFileName(Environment.ProcessPath);
+        return image is not null && mine is not null
+               && string.Equals(Path.GetFileName(image), mine, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

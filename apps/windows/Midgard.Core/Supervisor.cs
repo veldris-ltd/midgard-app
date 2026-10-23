@@ -113,8 +113,15 @@ public sealed class Supervisor : IAsyncDisposable
     readonly Timing timing;
     readonly IProcessLauncher launcher;
     readonly HttpClient http;
-    readonly Channel<ServiceEvent> channel =
-        Channel.CreateUnbounded<ServiceEvent>(new UnboundedChannelOptions { SingleReader = true });
+    /// <summary>
+    /// Bounded: if nobody reads the statuses (no starting screen, a headless run) the oldest
+    /// are dropped rather than kept for ever. <see cref="StatusOf"/> always has the latest.
+    /// </summary>
+    readonly Channel<ServiceEvent> channel = Channel.CreateBounded<ServiceEvent>(
+        new BoundedChannelOptions(StatusBuffer) { SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest });
+
+    /// <summary>How many status changes wait for the reader before the oldest are dropped.</summary>
+    public const int StatusBuffer = 1024;
     readonly Lock gate = new();
     // Guarded by `gate`.
     List<Service> services = [];
@@ -352,20 +359,23 @@ public sealed class Supervisor : IAsyncDisposable
     /// <summary>Waits; <see cref="SupervisorStoppedException"/> if the service is stopped meanwhile.</summary>
     static async Task Sleep(TimeSpan delay, Service service, CancellationToken cancellation)
     {
+        // One linked source per wait (every poll), disposed with it so none stays registered.
+        using var linked = cancellation.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(service.Stopping.Token, cancellation)
+            : null;
         try
         {
-            await Task.Delay(delay, Combined(service, cancellation)).ConfigureAwait(false);
+            await Task.Delay(delay, linked?.Token ?? service.Stopping.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
         {
             throw new SupervisorStoppedException();
         }
+        catch (ObjectDisposedException)
+        {
+            throw new SupervisorStoppedException();
+        }
     }
-
-    static CancellationToken Combined(Service service, CancellationToken cancellation) =>
-        cancellation.CanBeCanceled
-            ? CancellationTokenSource.CreateLinkedTokenSource(service.Stopping.Token, cancellation).Token
-            : service.Stopping.Token;
 
     Run Launch(Service service)
     {
@@ -391,7 +401,7 @@ public sealed class Supervisor : IAsyncDisposable
                 process = launcher.Start(spec.Executable, spec.Arguments, spec.Environment, spec.LogFile);
             }
             catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception
-                                          or UnauthorizedAccessException)
+                                          or UnauthorizedAccessException or ArgumentException)
             {
                 throw new ServiceFailedException(spec.Name, $"cannot start {spec.Executable}: {e.Message}");
             }
@@ -560,31 +570,56 @@ public sealed class Supervisor : IAsyncDisposable
     {
         foreach (var service in list)
         {
-            Run? run;
-            lock (gate) run = service.Run;
-            if (run is not null) await Terminate(service, run).ConfigureAwait(false);
-            if (service.Background is { } background)
+            // One service's failure to stop must not leave the ones before it running.
+            try
             {
+                await StopOne(service).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Note(service.Spec.LogFile, $"{service.Spec.Name}: stopping it failed: {e.Message}");
                 try
                 {
-                    await background.ConfigureAwait(false);
+                    // Closing its handles ends whatever is still in its job.
+                    Run? run;
+                    lock (gate) run = service.Run;
+                    run?.Process.Dispose();
                 }
                 catch (Exception)
                 {
-                    // Its outcome was published already; stopping is what matters now.
+                    // Nothing more can be done for it; the app's job ends it when the shell quits.
                 }
             }
-            // A restart may have launched a run between the lookup and the cancel.
-            lock (gate) run = service.Run;
-            if (run is not null) await Terminate(service, run).ConfigureAwait(false);
             Publish(service, new ServiceStatus.Stopped());
         }
+    }
+
+    async Task StopOne(Service service)
+    {
+        Run? run;
+        lock (gate) run = service.Run;
+        if (run is not null) await Terminate(service, run).ConfigureAwait(false);
+        if (service.Background is { } background)
+        {
+            try
+            {
+                await background.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Its outcome was published already; stopping is what matters now.
+            }
+        }
+        // A restart may have launched a run between the lookup and the cancel.
+        lock (gate) run = service.Run;
+        if (run is not null) await Terminate(service, run).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Ends the service's job (the service and everything it started) and waits up to
     /// <see cref="Timing.StopGrace"/> for it to be gone, then closes its handles (which ends
-    /// anything still in the job).
+    /// anything still in the job). Safe while another path disposes the same run (the
+    /// process's Kill, ActiveProcesses and Dispose exclude one another).
     /// </summary>
     async Task Terminate(Service service, Run run)
     {

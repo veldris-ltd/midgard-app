@@ -30,20 +30,37 @@ sealed unsafe class JobObject : IDisposable
         if (!Kernel32.AssignProcessToJobObject(Handle, process)) throw Kernel32.LastError("AssignProcessToJobObject");
     }
 
-    /// <summary>Ends every process in the job (and in the jobs nested in it).</summary>
-    public void Terminate() => Kernel32.TerminateJobObject(Handle, 1);
+    /// <summary>Ends every process in the job (and in the jobs nested in it); nothing once it is closed.</summary>
+    public void Terminate()
+    {
+        try
+        {
+            Kernel32.TerminateJobObject(Handle, 1);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Closed meanwhile: closing it ended everything in it.
+        }
+    }
 
     /// <summary>The processes in the job (and in the jobs nested in it) still running; 0 once it is closed.</summary>
     public int ActiveProcesses
     {
         get
         {
-            if (Handle.IsClosed) return 0;
             var info = new Kernel32.JOBOBJECT_BASIC_ACCOUNTING_INFORMATION();
-            return Kernel32.QueryInformationJobObject(Handle, Kernel32.JobObjectBasicAccountingInformation, &info,
-                                                      (uint)sizeof(Kernel32.JOBOBJECT_BASIC_ACCOUNTING_INFORMATION), null)
-                ? (int)info.ActiveProcesses
-                : 0;
+            try
+            {
+                // The marshaller holds a reference on the handle for the call, or throws if it is closed.
+                return Kernel32.QueryInformationJobObject(Handle, Kernel32.JobObjectBasicAccountingInformation, &info,
+                                                          (uint)sizeof(Kernel32.JOBOBJECT_BASIC_ACCOUNTING_INFORMATION), null)
+                    ? (int)info.ActiveProcesses
+                    : 0;
+            }
+            catch (ObjectDisposedException)
+            {
+                return 0;
+            }
         }
     }
 
@@ -75,15 +92,32 @@ sealed unsafe class JobObject : IDisposable
 [SupportedOSPlatform("windows")]
 public sealed unsafe class JobLauncher : IProcessLauncher
 {
-    static readonly Lazy<JobObject> appJob = new(() => new JobObject());
+    static readonly Lock appJobGate = new();
+    static JobObject? appJob;
+
+    /// <summary>
+    /// The app's job, made on first use. Not a Lazy: a failure (out of handles) is not
+    /// cached, so the next start tries again.
+    /// </summary>
+    static JobObject AppJob()
+    {
+        lock (appJobGate) return appJob ??= new JobObject();
+    }
 
     /// <summary>How many processes the app's job holds (every service of every supervisor, and their children).</summary>
-    public static int ActiveProcesses => appJob.Value.ActiveProcesses;
+    public static int ActiveProcesses => AppJob().ActiveProcesses;
 
+    /// <summary>
+    /// Starts an .exe. Anything else is refused: CreateProcessW runs a .bat or .cmd through
+    /// cmd.exe, which parses the command line by its own rules, so arguments quoted for the C
+    /// runtime could run commands ("BatBadBut").
+    /// </summary>
     public IServiceProcess Start(string executable, IReadOnlyList<string> arguments,
                                  IReadOnlyDictionary<string, string>? environment, string logFile)
     {
-        var app = appJob.Value;
+        if (!string.Equals(Path.GetExtension(executable), ".exe", StringComparison.OrdinalIgnoreCase))
+            throw new IOException($"only .exe programs are started, not {Path.GetFileName(executable)}");
+        var app = AppJob();
         var inheritable = new Kernel32.SECURITY_ATTRIBUTES
         {
             nLength = sizeof(Kernel32.SECURITY_ATTRIBUTES),
@@ -111,6 +145,7 @@ public sealed unsafe class JobLauncher : IProcessLauncher
                 app.Assign(info.hProcess);
                 job.Assign(info.hProcess);
                 if (Kernel32.ResumeThread(info.hThread) == uint.MaxValue) throw Kernel32.LastError("ResumeThread");
+                return new JobProcess(info.dwProcessId, process, job);
             }
             catch (Exception e)
             {
@@ -118,7 +153,6 @@ public sealed unsafe class JobLauncher : IProcessLauncher
                 process.Dispose();
                 throw new IOException(e.Message, e);
             }
-            return new JobProcess(info.dwProcessId, process, job);
         }
         catch
         {
@@ -197,13 +231,18 @@ public sealed unsafe class JobLauncher : IProcessLauncher
         readonly TaskCompletionSource<int> exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
         readonly RegisteredWaitHandle registration;
         readonly ProcessWaitHandle wait;
-        int disposed;
+        /// <summary>Kill, ActiveProcesses and Dispose take it, so none uses a handle another is closing.</summary>
+        readonly Lock gate = new();
+        bool disposed;
 
         public JobProcess(int pid, Win32Handle process, JobObject job)
         {
             Pid = pid;
             this.process = process;
             this.job = job;
+            // The wait has a handle of its own: the thread pool holds a reference on it while
+            // registered, so it is never closed under a wait that may still use it, whenever
+            // this object is disposed.
             wait = new ProcessWaitHandle(process);
             registration = ThreadPool.RegisterWaitForSingleObject(wait, (_, _) => OnExit(), null, Timeout.Infinite,
                                                                   executeOnlyOnce: true);
@@ -217,51 +256,79 @@ public sealed unsafe class JobLauncher : IProcessLauncher
         {
             uint code = 0;
             var ok = false;
-            var add = false;
+            var added = false;
+            var handle = wait.SafeWaitHandle;
             try
             {
-                process.DangerousAddRef(ref add);
-                ok = Kernel32.GetExitCodeProcess(process.DangerousGetHandle(), &code);
+                handle.DangerousAddRef(ref added);
+                ok = Kernel32.GetExitCodeProcess(handle.DangerousGetHandle(), &code);
             }
             catch (ObjectDisposedException)
             {
             }
             finally
             {
-                if (add) process.DangerousRelease();
+                if (added) handle.DangerousRelease();
             }
             exited.TrySetResult(ok ? unchecked((int)code) : -1);
         }
 
         public void Kill()
         {
-            if (Volatile.Read(ref disposed) != 0) return;
-            // The service's own job: it and everything it started, nothing else.
-            job.Terminate();
+            lock (gate)
+            {
+                if (disposed) return;
+                // The service's own job: it and everything it started, nothing else.
+                job.Terminate();
+            }
         }
 
-        public int ActiveProcesses => Volatile.Read(ref disposed) != 0 ? 0 : job.ActiveProcesses;
+        public int ActiveProcesses
+        {
+            get
+            {
+                lock (gate) return disposed ? 0 : job.ActiveProcesses;
+            }
+        }
 
         /// <summary>Closes the handles; closing the service's job also ends anything still in it.</summary>
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-            registration.Unregister(null);
-            job.Dispose();
-            if (!exited.Task.IsCompleted)
+            lock (gate)
             {
-                // Ended by closing the job: the exit is not waited for any more.
-                exited.TrySetResult(-1);
+                if (disposed) return;
+                disposed = true;
+                job.Dispose();
+                process.Dispose();
             }
+            registration.Unregister(null);
+            // Ended by closing the job: the exit is not waited for any more.
+            exited.TrySetResult(-1);
+            // Its handle closes once the thread pool lets go of it.
             wait.Dispose();
-            process.Dispose();
         }
     }
 
-    /// <summary>Waits on a process handle the caller keeps (the wait handle does not own it).</summary>
+    /// <summary>Waits on a process through its own copy of the handle (DuplicateHandle), which it owns.</summary>
     sealed class ProcessWaitHandle : WaitHandle
     {
-        public ProcessWaitHandle(SafeHandle process) =>
-            SafeWaitHandle = new SafeWaitHandle(process.DangerousGetHandle(), ownsHandle: false);
+        public ProcessWaitHandle(Win32Handle process)
+        {
+            nint copy = 0;
+            var added = false;
+            try
+            {
+                process.DangerousAddRef(ref added);
+                var self = Kernel32.GetCurrentProcess();
+                if (!Kernel32.DuplicateHandle(self, process.DangerousGetHandle(), self, &copy, 0, false,
+                                              Kernel32.DUPLICATE_SAME_ACCESS))
+                    throw Kernel32.LastError("DuplicateHandle");
+            }
+            finally
+            {
+                if (added) process.DangerousRelease();
+            }
+            SafeWaitHandle = new SafeWaitHandle(copy, ownsHandle: true);
+        }
     }
 }

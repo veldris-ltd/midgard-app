@@ -3,8 +3,15 @@ using System.Runtime.Versioning;
 
 namespace Midgard.Core;
 
-/// <summary>A process <see cref="Orphans.ReapAsync"/> ended.</summary>
+/// <summary>A process the sweep ended.</summary>
 public sealed record ReapedProcess(int Pid, string Executable);
+
+/// <summary>A leftover the sweep found but could not end, and why (for shell.log).</summary>
+public sealed record UnreapedProcess(int Pid, string Executable, string Reason);
+
+/// <summary>What a sweep did: what it ended, what it could not, or why it did not look at all.</summary>
+public sealed record SweepOutcome(IReadOnlyList<ReapedProcess> Reaped, IReadOnlyList<UnreapedProcess> NotEnded,
+                                  string? Skipped = null);
 
 /// <summary>
 /// Services a previous shell left running. The port of <c>Supervisor.reapOrphans</c> in
@@ -13,73 +20,132 @@ public sealed record ReapedProcess(int Pid, string Executable);
 /// what it cannot cover (a shell killed before it made the job, a service started by hand
 /// from the helpers folder), and the last check when quitting.
 /// </summary>
+/// <remarks>
+/// <para>Only processes in this Windows session running as this user are candidates: another
+/// account's Midgard on the same PC (fast user switching, Remote Desktop) is never touched.</para>
+/// <para>One install can serve two working copies (MIDGARD_APP_HOME), and both run their
+/// services from the same helpers folder, so a sweep by path from the second would end the
+/// first's services. <see cref="SweepAsync"/> is the call for the shell: it sweeps only
+/// when this shell holds its working copy's instance lock and no other Midgard.exe from the
+/// same install runs in this session. <see cref="ReapAsync"/> is the sweep itself.</para>
+/// </remarks>
 [SupportedOSPlatform("windows")]
 public static class Orphans
 {
     /// <summary>
-    /// Ends every process whose executable is inside <paramref name="helpers"/> or one of
-    /// <paramref name="alsoUnder"/> (the camera analytics' Python runtime in W3): replay
-    /// first, so it starts no more heimdall-source runs, which are in helpers\ too. Each is
-    /// ended at once (TerminateProcess; no service has a gentler stop on Windows), then
-    /// waited for up to <paramref name="grace"/>. Returns the processes it ended, replay
-    /// first. Unlike the Mac, a llama-server outside the helpers is not matched by its model
+    /// The shell's sweep: <see cref="ReapAsync"/>, unless it could end another shell's
+    /// services. Skipped (with the reason in <see cref="SweepOutcome.Skipped"/>) when
+    /// <paramref name="holdsInstanceLock"/> is false (the single-instance check could not take
+    /// the lock, so another shell may be running this working copy), or when another process
+    /// runs <paramref name="shell"/> (default: Midgard.exe beside <paramref name="helpers"/>)
+    /// in this session as this user.
+    /// </summary>
+    public static async Task<SweepOutcome> SweepAsync(string helpers, bool holdsInstanceLock,
+                                                      IEnumerable<string>? alsoUnder = null, TimeSpan? grace = null,
+                                                      string? shell = null)
+    {
+        if (!holdsInstanceLock)
+            return new SweepOutcome([], [], "this Midgard does not hold its working copy's instance lock");
+        shell ??= Path.Join(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(helpers))),
+                            "Midgard.exe");
+        var me = Environment.ProcessId;
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                if (process.Id != me && process.Id > 4 && WindowsProcesses.Runs(process.Id, shell))
+                    return new SweepOutcome([], [], $"another Midgard (pid {process.Id}) runs from {Path.GetDirectoryName(shell)}");
+            }
+        }
+        return await ReapAsync(helpers, alsoUnder, grace).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Ends every process in this session, running as this user, whose executable is inside
+    /// <paramref name="helpers"/> or one of <paramref name="alsoUnder"/> (the camera
+    /// analytics' Python runtime in W3): replay first, so it starts no more heimdall-source
+    /// runs, which are in helpers\ too. Each is ended at once (TerminateProcess; no service has
+    /// a gentler stop on Windows), then waited for up to <paramref name="grace"/> in all. A
+    /// process is reported reaped only if TerminateProcess succeeded and it exited; one that
+    /// could not be opened or ended, or did not exit, is in <see cref="SweepOutcome.NotEnded"/>.
+    /// Unlike the Mac, a llama-server outside the helpers is not matched by its model
     /// argument: Windows does not show another process's command line without reading its
     /// memory, and the bundled one is under helpers\llama\.
     /// </summary>
     /// <remarks>
-    /// Run it only after the single-instance check: a second shell would otherwise end the
-    /// services of the first. Also run after closing the supervisor when quitting, as a
-    /// last sweep (it should find nothing).
+    /// Run it only after the single-instance check (see <see cref="SweepAsync"/>): a second
+    /// shell would otherwise end the services of the first. Also run after closing the
+    /// supervisor when quitting, as a last sweep (it should find nothing).
     /// </remarks>
-    public static async Task<IReadOnlyList<ReapedProcess>> ReapAsync(string helpers, IEnumerable<string>? alsoUnder = null,
-                                                                     TimeSpan? grace = null)
+    public static async Task<SweepOutcome> ReapAsync(string helpers, IEnumerable<string>? alsoUnder = null,
+                                                     TimeSpan? grace = null)
     {
         var roots = new[] { helpers }.Concat(alsoUnder ?? Array.Empty<string>())
             .SelectMany(root => Forms(root, folder: true)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var me = Environment.ProcessId;
         var found = new List<(ReapedProcess Process, Win32Handle Handle)>();
+        var notEnded = new List<UnreapedProcess>();
         foreach (var process in Process.GetProcesses())
         {
             using (process)
             {
                 if (process.Id == me || process.Id <= 4) continue;
+                if (WindowsProcesses.SessionOf(process.Id) != WindowsProcesses.CurrentSession) continue;
+                string? path;
+                using (var query = Kernel32.OpenProcess(Kernel32.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)process.Id))
+                {
+                    // Not ours to ask (a protected or elevated process): not a service of ours either.
+                    if (query.IsInvalid) continue;
+                    path = WindowsProcesses.ImagePath(query);
+                    if (path is null) continue;
+                    var spellings = Forms(path, folder: false).ToList();
+                    if (!roots.Any(root => spellings.Any(p => p.StartsWith(root, StringComparison.OrdinalIgnoreCase))))
+                        continue;
+                    if (WindowsProcesses.UserOf(query) != WindowsProcesses.CurrentUser) continue;
+                }
                 var handle = Kernel32.OpenProcess(Kernel32.PROCESS_TERMINATE | Kernel32.PROCESS_QUERY_LIMITED_INFORMATION
                                                   | Kernel32.SYNCHRONIZE, false, (uint)process.Id);
                 if (handle.IsInvalid)
                 {
+                    notEnded.Add(new UnreapedProcess(process.Id, path, $"cannot open it: {Kernel32.LastError("OpenProcess").Message}"));
                     handle.Dispose();
                     continue;
                 }
-                var path = ImagePath(handle);
-                var spellings = path is null ? new List<string>() : Forms(path, folder: false).ToList();
-                if (path is not null
-                    && roots.Any(root => spellings.Any(p => p.StartsWith(root, StringComparison.OrdinalIgnoreCase))))
-                {
-                    found.Add((new ReapedProcess(process.Id, path), handle));
-                }
-                else
-                {
-                    handle.Dispose();
-                }
+                found.Add((new ReapedProcess(process.Id, path), handle));
             }
         }
         var ordered = found.Where(f => IsReplay(f.Process.Executable))
             .Concat(found.Where(f => !IsReplay(f.Process.Executable))).ToList();
+        var reaped = new List<ReapedProcess>();
         try
         {
-            foreach (var (_, handle) in ordered) Kernel32.TerminateProcess(handle.DangerousGetHandle(), 1);
-            var deadline = DateTime.UtcNow + (grace ?? TimeSpan.FromSeconds(10));
-            // The handles are kept open, so a pid cannot be reused meanwhile.
-            while (ordered.Any(f => Running(f.Handle)) && DateTime.UtcNow < deadline)
+            var ended = new List<(ReapedProcess Process, Win32Handle Handle)>();
+            foreach (var entry in ordered)
             {
-                await Task.Delay(50).ConfigureAwait(false);
+                if (Kernel32.TerminateProcess(entry.Handle.DangerousGetHandle(), 1)) ended.Add(entry);
+                else if (Running(entry.Handle))
+                    notEnded.Add(new UnreapedProcess(entry.Process.Pid, entry.Process.Executable,
+                                                     $"cannot end it: {Kernel32.LastError("TerminateProcess").Message}"));
             }
+            // The handles are kept open, so a pid cannot be reused meanwhile.
+            var deadline = DateTime.UtcNow + (grace ?? TimeSpan.FromSeconds(10));
+            await Task.Run(() =>
+            {
+                foreach (var (process, handle) in ended)
+                {
+                    var left = Math.Max(0, (deadline - DateTime.UtcNow).TotalMilliseconds);
+                    if (Kernel32.WaitForSingleObject(handle.DangerousGetHandle(), (uint)left) == Kernel32.WAIT_OBJECT_0)
+                        reaped.Add(process);
+                    else
+                        notEnded.Add(new UnreapedProcess(process.Pid, process.Executable, "it did not exit after being ended"));
+                }
+            }).ConfigureAwait(false);
         }
         finally
         {
             foreach (var (_, handle) in ordered) handle.Dispose();
         }
-        return ordered.Select(f => f.Process).ToList();
+        return new SweepOutcome(reaped, notEnded);
     }
 
     static bool IsReplay(string executable) =>
@@ -90,6 +156,9 @@ public static class Orphans
         uint code;
         return Kernel32.GetExitCodeProcess(handle.DangerousGetHandle(), &code) && code == Kernel32.STILL_ACTIVE;
     }
+
+    /// <summary>Every spelling of <paramref name="path"/> the sweep compares (see <see cref="Forms"/>).</summary>
+    internal static List<string> Spellings(string path, bool folder) => Forms(path, folder).ToList();
 
     /// <summary>The executable a process runs (QueryFullProcessImageNameW), null if it cannot be read.</summary>
     static unsafe string? ImagePath(Win32Handle process)

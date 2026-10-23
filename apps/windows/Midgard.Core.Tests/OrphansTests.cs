@@ -91,8 +91,11 @@ public sealed class OrphansTests : IDisposable
         await WaitFor(childFile);
         var child = int.Parse(File.ReadAllText(childFile));
 
-        var reaped = await Orphans.ReapAsync(Helpers, grace: TimeSpan.FromSeconds(5));
+        var outcome = await Orphans.ReapAsync(Helpers, grace: TimeSpan.FromSeconds(5));
+        var reaped = outcome.Reaped;
 
+        Assert.Null(outcome.Skipped);
+        Assert.Empty(outcome.NotEnded);
         Assert.Equal("midgard-replay.exe", Path.GetFileName(reaped[0].Executable));
         Assert.Equal(r.Id, reaped[0].Pid);
         Assert.Equal(new[] { r.Id, child, w.Id }.Order(), reaped.Select(p => p.Pid).Order());
@@ -109,8 +112,8 @@ public sealed class OrphansTests : IDisposable
         var runtime = Path.Join(dir, "resources", "analytics", "runtime");
         var python = Launch(Install(runtime, "python.exe"), "wait");
         Directory.CreateDirectory(Helpers);
-        var reaped = await Orphans.ReapAsync(Helpers, [runtime], TimeSpan.FromSeconds(5));
-        Assert.Equal(python.Id, Assert.Single(reaped).Pid);
+        var outcome = await Orphans.ReapAsync(Helpers, [runtime], TimeSpan.FromSeconds(5));
+        Assert.Equal(python.Id, Assert.Single(outcome.Reaped).Pid);
         Assert.True(await Processes.Gone(python.Id));
     }
 
@@ -121,8 +124,8 @@ public sealed class OrphansTests : IDisposable
         if (!OperatingSystem.IsWindows()) return;
         var worker = Launch(Install(Helpers, "forge-worker.exe"), "wait");
         await Task.Delay(200);
-        var reaped = await Orphans.ReapAsync(Helpers.ToUpperInvariant() + "\\", grace: TimeSpan.FromSeconds(5));
-        Assert.Equal(worker.Id, Assert.Single(reaped).Pid);
+        var outcome = await Orphans.ReapAsync(Helpers.ToUpperInvariant() + "\\", grace: TimeSpan.FromSeconds(5));
+        Assert.Equal(worker.Id, Assert.Single(outcome.Reaped).Pid);
     }
 
     [Fact]
@@ -130,6 +133,67 @@ public sealed class OrphansTests : IDisposable
     {
         if (!OperatingSystem.IsWindows()) return;
         Directory.CreateDirectory(Helpers);
-        Assert.Empty(await Orphans.ReapAsync(Helpers));
+        var outcome = await Orphans.ReapAsync(Helpers);
+        Assert.Empty(outcome.Reaped);
+        Assert.Empty(outcome.NotEnded);
+    }
+
+    /// <summary>Without the instance lock another shell may run this working copy: no sweep.</summary>
+    [Fact]
+    public async Task SweepIsSkippedWithoutTheInstanceLock()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var worker = Launch(Install(Helpers, "forge-worker.exe"), "wait");
+        await Task.Delay(200);
+        var outcome = await Orphans.SweepAsync(Helpers, holdsInstanceLock: false, grace: TimeSpan.FromSeconds(5));
+        Assert.Contains("instance lock", outcome.Skipped);
+        Assert.Empty(outcome.Reaped);
+        Assert.False(worker.HasExited);
+    }
+
+    /// <summary>
+    /// Another Midgard.exe from the same install (a second working copy, MIDGARD_APP_HOME)
+    /// runs its services from the same helpers: the sweep would end them, so it is skipped.
+    /// </summary>
+    [Fact]
+    public async Task SweepIsSkippedWhileAnotherShellFromTheSameInstallRuns()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var worker = Launch(Install(Helpers, "forge-worker.exe"), "wait");
+        var shell = Launch(Install(dir, "Midgard.exe"), "wait");
+        await Task.Delay(300);
+        var outcome = await Orphans.SweepAsync(Helpers, holdsInstanceLock: true, grace: TimeSpan.FromSeconds(5));
+        Assert.Contains($"pid {shell.Id}", outcome.Skipped);
+        Assert.False(worker.HasExited);
+
+        // Once it has gone, the sweep runs.
+        shell.Kill();
+        await shell.WaitForExitAsync();
+        outcome = await Orphans.SweepAsync(Helpers, holdsInstanceLock: true, grace: TimeSpan.FromSeconds(5));
+        Assert.Null(outcome.Skipped);
+        Assert.Equal(worker.Id, Assert.Single(outcome.Reaped).Pid);
+    }
+
+    /// <summary>A Midgard.exe elsewhere (another install) does not stop this install's sweep.</summary>
+    [Fact]
+    public async Task AShellFromAnotherInstallDoesNotStopTheSweep()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var worker = Launch(Install(Helpers, "forge-worker.exe"), "wait");
+        var other = Launch(Install(Path.Join(dir, "other-install"), "Midgard.exe"), "wait");
+        await Task.Delay(300);
+        var outcome = await Orphans.SweepAsync(Helpers, holdsInstanceLock: true, grace: TimeSpan.FromSeconds(5));
+        Assert.Null(outcome.Skipped);
+        Assert.Equal(worker.Id, Assert.Single(outcome.Reaped).Pid);
+        Assert.False(other.HasExited);
+    }
+
+    [Fact]
+    public void ProcessFactsOfThisProcess()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        Assert.Equal(WindowsProcesses.CurrentSession, WindowsProcesses.SessionOf(Environment.ProcessId));
+        Assert.True(WindowsProcesses.Runs(Environment.ProcessId, Environment.ProcessPath!));
+        Assert.False(WindowsProcesses.Runs(Environment.ProcessId, Path.Join(dir, "other.exe")));
     }
 }

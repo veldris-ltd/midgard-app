@@ -89,11 +89,26 @@ public static class CommandLine
     /// <paramref name="extra"/> on top, sorted by name as Windows requires, NUL-separated and
     /// ending with two NULs.
     /// </summary>
+    /// <exception cref="ArgumentException">
+    /// An extra name is empty or holds '=' or NUL, or a value holds NUL: either would split
+    /// into other variables in the block.
+    /// </exception>
     public static string EnvironmentBlock(IReadOnlyDictionary<string, string> current,
                                           IReadOnlyDictionary<string, string> extra)
     {
+        foreach (var (key, value) in extra)
+        {
+            if (key.Length == 0 || key.Contains('=') || key.Contains('\0'))
+                throw new ArgumentException($"not an environment variable name: \"{key.Replace("\0", "\\0")}\"", nameof(extra));
+            if (value.Contains('\0'))
+                throw new ArgumentException($"the value of {key} holds a NUL character", nameof(extra));
+        }
         var merged = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, value) in current) merged[key] = value;
+        // The inherited ones are as Windows gave them (it lists none with '=' in its name to .NET).
+        foreach (var (key, value) in current)
+        {
+            if (key.Length > 0 && !key.Contains('=') && !key.Contains('\0') && !value.Contains('\0')) merged[key] = value;
+        }
         foreach (var (key, value) in extra) merged[key] = value;
         var block = new System.Text.StringBuilder();
         foreach (var (key, value) in merged) block.Append(key).Append('=').Append(value).Append('\0');

@@ -79,6 +79,56 @@ public class FolderAccessTests
         Assert.Null(FolderAccess.Problem(Folder, [.. Default, new("S-1-5-21-1-2-3-1002", true, ReadAndExecute)]));
     }
 
+    [Theory]
+    [InlineData(FolderAccess.Interactive, "INTERACTIVE")]
+    [InlineData(FolderAccess.Guests, "Guests")]
+    [InlineData("S-1-5-21-111-222-333-513", "Domain Users")]
+    [InlineData("S-1-5-21-1004336348-1177238915-682003330-1002", "another account (S-1-5-21-1004336348-1177238915-682003330-1002)")]
+    public void OtherGroupsAndAccountsAreRefused(string sid, string name)
+    {
+        var problem = FolderAccess.Problem(Folder, [.. Default, new(sid, true, ReadAndExecute)], Me);
+        Assert.NotNull(problem);
+        Assert.Contains($"let {name} read it", problem);
+    }
+
+    [Theory]
+    [InlineData(FolderAccess.WriteDac)]
+    [InlineData(FolderAccess.WriteOwner)]
+    [InlineData(FolderAccess.GenericWrite)]
+    [InlineData(FolderAccess.WriteData)]
+    public void ChangeRightsAreRefusedToo(uint rights)
+    {
+        var problem = FolderAccess.Problem(Folder, [.. Default, new(FolderAccess.Users, true, rights)], Me);
+        Assert.NotNull(problem);
+        Assert.StartsWith($"Other people who use this PC can change {Folder}: its permissions let Users change it", problem);
+    }
+
+    [Fact]
+    public void ThePresenterSystemAndAdministratorsPassWithMe()
+    {
+        Assert.Null(FolderAccess.Problem(Folder, Default, Me));
+        // CREATOR OWNER, as inherit-only entries are often written.
+        Assert.Null(FolderAccess.Problem(Folder, [.. Default, new("S-1-3-0", true, FolderAccess.GenericAll)], Me));
+        // Deny entries are ignored (it can only err towards refusing).
+        Assert.NotNull(FolderAccess.Problem(Folder,
+            [.. Default, new(FolderAccess.Users, true, ReadAndExecute), new(FolderAccess.Users, false, ReadAndExecute)], Me));
+    }
+
+    /// <summary>With MIDGARD_APP_HOME the working copy's own folder (its siblings, the instance lock) is checked too.</summary>
+    [Fact]
+    public void ChecksTheFolderAMovedHomeIsIn()
+    {
+        if (!OperatingSystem.IsWindows()) return;  // Windows paths
+        const string Local = @"C:\Users\presenter\AppData\Local";
+        var paths = new Paths(new Dictionary<string, string> { ["MIDGARD_APP_HOME"] = @"D:\demo\Home" },
+                              @"C:\Midgard\resources", Local);
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { @"C:\", @"C:\Users", @"C:\Users\presenter", @"C:\Users\presenter\AppData", Local, @"D:\", @"D:\demo" };
+        Assert.Equal(new[] { @"D:\demo", Local }, FolderAccess.FoldersToCheck(paths, existing.Contains));
+        existing.Add(@"D:\demo\Home");
+        Assert.Equal(new[] { @"D:\demo\Home", Local, @"D:\demo" }, FolderAccess.FoldersToCheck(paths, existing.Contains));
+    }
+
     [Fact]
     public void ChecksHomeLogsAndTheWebViewFolderOrTheirNearestExistingParent()
     {
@@ -126,6 +176,8 @@ public class FolderAccessTests
         if (!OperatingSystem.IsWindows()) return;
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         Assert.Null(FolderAccess.Problem(local, WindowsAcl.Entries(local)));
+        var me = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
+        Assert.Null(FolderAccess.Problem(local, WindowsAcl.Entries(local), me));
 
         var dir = Path.Join(local, $"midgard-acl-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);

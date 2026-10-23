@@ -581,13 +581,15 @@ job_windows_smoke() {
 WINDOWS_SHELL=apps/windows
 WINDOWS_SHELL_PROJECTS=(Midgard.Core Midgard Midgard.Core.Tests)
 WINDOWS_SHELL_OUT=target/windows-shell
+WINDOWS_SHELL_TEST_OUT=target/windows-shell-test
 windows_dotnet() {
     export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
     need dotnet "$1: the .NET 10 SDK is needed (the GitHub windows runners carry it)"
     ci_group "dotnet SDKs"
     dotnet --list-sdks
     ci_endgroup
-    # From apps/windows, so global.json picks the SDK: this fails when no 10.0 SDK is there.
+    # From apps/windows, so global.json picks the SDK: this fails when no 10.0.4xx SDK is there
+    # (the band is pinned, latest patch, so a new feature band on the runners changes nothing).
     local version
     version="$(cd "$WINDOWS_SHELL" && dotnet --version)"
     echo "$1: .NET SDK $version"
@@ -634,8 +636,12 @@ job_windows_shell_build() {
 job_windows_shell_test() {
     windows_dotnet windows-shell-test
     windows_shell_restore windows-shell-test
+    # Results and, for a test that hangs 5 minutes, a dump of the test host go to
+    # $WINDOWS_SHELL_TEST_OUT (uploaded when the job fails).
+    rm -rf "$WINDOWS_SHELL_TEST_OUT"
     dotnet test "$WINDOWS_SHELL/Midgard.Core.Tests/Midgard.Core.Tests.csproj" -c Release --no-restore \
-        --logger "console;verbosity=normal"
+        --logger "console;verbosity=normal" --logger "trx;LogFileName=Midgard.Core.Tests.trx" \
+        --results-directory "$WINDOWS_SHELL_TEST_OUT" --blame-hang-timeout 5m
 }
 
 case "${1:-}" in

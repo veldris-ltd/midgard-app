@@ -33,4 +33,13 @@ public sealed class CommandLineTests
         Assert.Equal("A=0\0b=1\0c=2\0Path=C:\\other\0\0", block);
         Assert.Equal("\0\0", CommandLine.EnvironmentBlock(new Dictionary<string, string>(), new Dictionary<string, string>()));
     }
+
+    [Theory]
+    [InlineData("", "x")]
+    [InlineData("A=B", "x")]
+    [InlineData("A\0B", "x")]
+    [InlineData("A", "x\0B=y")]
+    public void EnvironmentBlockRefusesWhatWouldSplitIt(string key, string value) =>
+        Assert.Throws<ArgumentException>(() => CommandLine.EnvironmentBlock(
+            new Dictionary<string, string>(), new Dictionary<string, string> { [key] = value }));
 }
