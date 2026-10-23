@@ -35,6 +35,10 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §3. W1 (services on Windo
 
 - **Port `Home.swift`:** prepare (first run copies starting-state with an integrity check), the `.midgard-home` marker, refusing a folder that isn't a working copy, reset (Reset demo), the version check, and the instance lock (one app per working copy, a stale lock reclaimed; match the Mac behaviour).
 - **ACL check:** from the working copy's security descriptor. Tests use temp folders.
+- *As built:*
+  - `Midgard.Core/Home.cs`. Reset makes the fresh copy in a sibling (`Home.midgard-copy-…`) while Home is still in place. Only then does it swap the copy in and delete the old one, so a failure mid-copy leaves Home as it was. `Home.Reset` takes `servicesStopped` and refuses without it: Windows won't move a folder while a file in it is open. The copy is checked against the starting state (same file count and bytes) before it is marked. The room check is always made (NTFS has no clones). Copies lose the read-only attribute and the `Zone.Identifier` stream. Symbolic links and junctions in the starting state are refused. Long paths need nothing special (.NET adds `\\?\`).
+  - `InstanceLock.cs`: `<Home>.instance` beside Home, held open with `FileShare.Read` for the app's life. It holds the pid, then `stopping`. A second launch brings that pid's window forward (`Midgard/SingleInstance.cs`) or waits for a quitting app. A crashed holder's handle is closed by Windows, so its lock is free at once.
+  - `FolderAccess.cs` holds the decision, a pure function. `WindowsAcl.cs` reads the DACL (Windows only). The check covers Home, Logs and the WebView folder's parent, or each one's nearest existing ancestor. Any allow entry giving Everyone, Users or Authenticated Users read access (read data, generic read or generic all) is refused, and so is an ACL that can't be read. `Program` checks it after the system check.
 
 ### Task 3: Supervisor and SuiteSpecs with Job Objects
 
