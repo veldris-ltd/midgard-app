@@ -4,7 +4,8 @@ send and every Forge source file version, for a given time, packed as a recordin
 midgard-replay plays back (format version 1, see tools/replay/src/recording.rs).
 
     python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
-    python3 tools/mac-app/record.py pack RAW_DIR OUT_DIR                 # re-pack a capture
+    python3 tools/mac-app/record.py pack RAW_DIR OUT_DIR [--no-media] [--refresh-media]
+                                                                         # re-pack a capture
 
 Run `record` on the development Mac while the Docker suite and the live feeds run. It
 writes to ~/Library/Application Support/Midgard-dev/recordings/<name> (raw capture in
@@ -27,9 +28,20 @@ contract):
 This keeps every batch even when several sources share one feed file (regional-extra).
 adsb.lol (heimdall-poc/batch.jsonl, one writer, not sent by feeds.py) and the Forge CSVs are
 polled for changes.
+
+Cameras (land-camera) are kept. Their images and clips come from the internet, which the app
+never reaches, so packing also captures media: each camera's latest still (image_url) and, where
+it has one (TfL), its clip (video_url) are downloaded once into <out>/media/<entity>.<ext>
+(MEDIA_WORKERS at a time, MEDIA_TIMEOUT_S each, one retry; a file already there is reused unless
+--refresh-media) and those attributes are rewritten to the app-relative /media/<file>, which the
+app's web server serves. A camera whose media could not be fetched keeps no internet URL: the
+attribute is dropped. --no-media skips the downloads (and so drops every camera media URL).
+Camera analysis (land-camera-ai) is not recorded: the app runs its own.
 """
 import argparse
+import concurrent.futures
 import contextlib
+import hashlib
 import glob
 import gzip
 import json
@@ -40,6 +52,9 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 HOME = os.path.expanduser(os.environ.get("MIDGARD_HOME", "~/Desktop/Midgard"))
 RECORDINGS = os.path.expanduser(os.environ.get("MIDGARD_RECORDINGS",
@@ -54,8 +69,21 @@ POLL_S = 0.5
 STABLE_S = 1.0
 START_WAIT_S = 3
 NO_BATCH_WARN_S = 120
-# Kinds whose camera images need the internet: not recorded.
-CAMERA_KINDS = {"land-camera", "land-camera-ai"}
+# Camera analysis is not recorded (the app analyses its own stored clips).
+DROPPED_KINDS = {"land-camera-ai"}
+CAMERA_KIND = "land-camera"
+# Camera attributes that hold a URL: the first two are captured into media/, any other
+# (stream_url: a live stream cannot be stored) is dropped, so no internet URL is replayed.
+MEDIA_ATTRS = {"image_url": ("image", ".jpg"), "video_url": ("video", ".mp4")}
+URL_ATTRS = ("image_url", "video_url", "stream_url")
+MEDIA_PREFIX = "/media/"
+MEDIA_WORKERS = 6
+MEDIA_TIMEOUT_S = 20
+MEDIA_FILE_MAX = 8 * 1024 * 1024
+MEDIA_MAX_MB = 400
+MEDIA_UA = {"User-Agent": "VeldrisMidgardDemo/0.1 (offline recording; one fetch per camera)"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+VIDEO_EXTS = {".mp4", ".webm"}
 # Moving tracks kept at most once per THIN_S per entity; other kinds are all kept.
 THINNED_KINDS = {"air-track", "sea-vessel", "air-balloon", "land-train"}
 THIN_S = 30
@@ -201,9 +229,167 @@ def pid_alive(pidfile):
 
 # ---- packing (pure) ----
 
-def drop_cameras(batches):
-    return [dict(b, observations=[o for o in b["observations"] if o.get("kind") not in CAMERA_KINDS])
+def drop_kinds(batches):
+    return [dict(b, observations=[o for o in b["observations"] if o.get("kind") not in DROPPED_KINDS])
             for b in batches]
+
+
+# ---- camera media (pure, except capture_media's downloads) ----
+
+def safe_stem(entity, taken):
+    """A file name stem for `entity`: letters, digits, `.`, `_` and `-` only, never starting
+    with a dot; a stem already in `taken` (two entities that clean to the same name) gets a
+    short hash of the entity added."""
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", str(entity)).lstrip(".")[:100] or "camera"
+    if stem in taken:
+        stem = f"{stem}-{hashlib.sha1(str(entity).encode()).hexdigest()[:8]}"
+    return stem
+
+
+def media_ext(url, attr):
+    """The file extension for a media URL: its own if it is one served for that attribute,
+    else the attribute's default (.jpg for stills, .mp4 for clips)."""
+    kind, default = MEDIA_ATTRS[attr]
+    ext = os.path.splitext(urllib.parse.urlparse(url).path)[1].lower()
+    ok = IMAGE_EXTS if kind == "image" else VIDEO_EXTS
+    return ext if ext in ok else default
+
+
+def is_web_url(v):
+    return isinstance(v, str) and v.lower().startswith(("http://", "https://"))
+
+
+def media_plan(batches):
+    """{(entity, attr): (file, url)} for every camera's latest image and clip URL (the last
+    observation of the entity, in offset order, that has that attribute)."""
+    latest = {}
+    for b in sorted(batches, key=lambda b: b["offset"]):
+        for o in b["observations"]:
+            if o.get("kind") != CAMERA_KIND or not isinstance(o.get("attrs"), dict):
+                continue
+            for attr in MEDIA_ATTRS:
+                if is_web_url(o["attrs"].get(attr)):
+                    latest[(o.get("entity"), attr)] = o["attrs"][attr]
+    plan, stems = {}, {}
+    for entity, attr in sorted(latest, key=lambda k: (str(k[0]), k[1])):
+        if entity not in stems:
+            stems[entity] = safe_stem(entity, set(stems.values()))
+        url = latest[(entity, attr)]
+        plan[(entity, attr)] = (stems[entity] + media_ext(url, attr), url)
+    return plan
+
+
+def looks_like_media(data, kind):
+    """True if `data` starts like an image (JPEG, PNG, GIF, WebP) or a clip (MP4, WebM): an
+    error page or an empty body is not stored."""
+    if kind == "image":
+        return (data[:3] == b"\xff\xd8\xff" or data[:8] == b"\x89PNG\r\n\x1a\n"
+                or data[:4] == b"GIF8" or (data[:4] == b"RIFF" and data[8:12] == b"WEBP"))
+    return data[4:8] == b"ftyp" or data[:4] == b"\x1a\x45\xdf\xa3"
+
+
+def fetch_url(url, timeout=MEDIA_TIMEOUT_S):
+    """The body of `url` (at most MEDIA_FILE_MAX bytes); raises on HTTP errors and timeouts."""
+    req = urllib.request.Request(url, headers=MEDIA_UA)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = r.read(MEDIA_FILE_MAX + 1)
+    if len(data) > MEDIA_FILE_MAX:
+        raise ValueError(f"larger than {MEDIA_FILE_MAX} bytes")
+    return data
+
+
+def capture_media(plan, media_dir, fetch=fetch_url, refresh=False, workers=MEDIA_WORKERS,
+                  max_mb=MEDIA_MAX_MB, retry_wait=1.0):
+    """Download every planned file into `media_dir` (a file already there is kept unless
+    `refresh`); each download is tried twice, and one that fails or is not an image/clip is
+    skipped. Files no longer planned are removed. Raises SystemExit if the media would pass
+    `max_mb`. Returns {(entity, attr): file} for the files present afterwards, and
+    {attr: [saved, reused, failed]}."""
+    os.makedirs(media_dir, exist_ok=True)
+    counts = {attr: [0, 0, 0] for attr in MEDIA_ATTRS}
+    saved, todo = {}, []
+    for key, (file, url) in plan.items():
+        path = os.path.join(media_dir, file)
+        if not refresh and os.path.isfile(path) and os.path.getsize(path) > 0:
+            saved[key] = file
+            counts[key[1]][1] += 1
+        else:
+            todo.append((key, file, url))
+
+    def one(job):
+        key, file, url = job
+        for attempt in (1, 2):
+            try:
+                data = fetch(url)
+                if looks_like_media(data, MEDIA_ATTRS[key[1]][0]):
+                    return job, data
+                if attempt == 2:
+                    return job, None
+            except Exception:  # noqa: BLE001 - any failure: retry once, then skip
+                if attempt == 2:
+                    return job, None
+            time.sleep(retry_wait)
+        return job, None
+
+    total = sum(os.path.getsize(os.path.join(media_dir, f)) for f in saved.values())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for (key, file, _url), data in pool.map(one, todo):
+            if data is None:
+                counts[key[1]][2] += 1
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(os.path.join(media_dir, file))  # a stale copy is not kept
+                continue
+            total += len(data)
+            if total > max_mb * 1e6:
+                pool.shutdown(wait=False, cancel_futures=True)
+                raise SystemExit(f"camera media passed {max_mb} MB: stopped ({len(saved)} files "
+                                 f"in {media_dir}); nothing was re-packed")
+            part = os.path.join(media_dir, f".{file}.part")
+            with open(part, "wb") as f:
+                f.write(data)
+            os.replace(part, os.path.join(media_dir, file))
+            saved[key] = file
+            counts[key[1]][0] += 1
+    keep = set(saved.values())
+    for name in os.listdir(media_dir):
+        if name not in keep:
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(media_dir, name))
+    return saved, counts
+
+
+def localise_media(batches, saved):
+    """Point every camera observation's image_url/video_url at its stored file (/media/...),
+    and drop every camera URL attribute that is still an internet address (media not
+    captured, or a live stream)."""
+    out = []
+    for b in batches:
+        observations = []
+        for o in b["observations"]:
+            if o.get("kind") == CAMERA_KIND and isinstance(o.get("attrs"), dict):
+                attrs = dict(o["attrs"])
+                for attr in URL_ATTRS:
+                    if attr not in attrs:
+                        continue
+                    file = saved.get((o.get("entity"), attr))
+                    if file:
+                        attrs[attr] = MEDIA_PREFIX + file
+                    elif not (isinstance(attrs[attr], str) and attrs[attr].startswith(MEDIA_PREFIX)):
+                        del attrs[attr]
+                o = dict(o, attrs=attrs)
+            observations.append(o)
+        out.append(dict(b, observations=observations))
+    return out
+
+
+def camera_source(entity):
+    """A camera's source for the summary, from its entity name."""
+    e = str(entity)
+    for prefix, name in (("JamCams_", "tfl"), ("NZCAM-", "nzta"), ("BCCAM-", "drivebc"),
+                         ("SGCAM-", "data.gov.sg"), ("CAM-", "custom")):
+        if e.startswith(prefix):
+            return name
+    return "other"
 
 
 def thin(batches):
@@ -302,16 +488,48 @@ def link_or_copy(src, dst):
 KEY_FEEDS = ["adsb-fi", "adsb-lol", "aisstream"]
 
 
-def pack(raw, out, quiet=False):
+def no_fetch(url):
+    raise OSError("downloads off (--no-media)")
+
+
+def media_summary(plan, saved, media_dir):
+    """{source: {"cameras", "images", "clips", "failed", "mb"}} for the summary."""
+    out = {}
+    for (entity, attr), (file, _url) in plan.items():
+        s = out.setdefault(camera_source(entity), {"cameras": set(), "images": 0, "clips": 0,
+                                                   "failed": 0, "mb": 0.0})
+        s["cameras"].add(entity)
+        if (entity, attr) in saved:
+            s["images" if attr == "image_url" else "clips"] += 1
+            s["mb"] += os.path.getsize(os.path.join(media_dir, file)) / 1e6
+        else:
+            s["failed"] += 1
+    return {k: dict(v, cameras=len(v["cameras"])) for k, v in sorted(out.items())}
+
+
+def pack(raw, out, quiet=False, media=True, refresh_media=False, fetch=fetch_url,
+         max_media_mb=MEDIA_MAX_MB):
     """Pack a raw capture into a recording at `out`; returns the summary.
 
     Thinning keys on (kind, entity) across all feeds: adsb-fi's and adsb-lol's reports of
-    one aircraft are thinned together, deliberately (one track every 30 s is enough)."""
+    one aircraft are thinned together, deliberately (one track every 30 s is enough).
+    Camera media is captured into `out`/media first (see the module notes); with
+    media=False nothing is downloaded and only files already there are used."""
     with open(os.path.join(raw, "meta.json")) as f:
         meta = json.load(f)
     recorded_from = int(meta["recordedFrom"])
     nonfinite = {}
-    batches = drop_empty(thin(drop_cameras(read_batches(os.path.join(raw, "heimdall"), nonfinite))))
+    batches = drop_empty(thin(drop_kinds(read_batches(os.path.join(raw, "heimdall"), nonfinite))))
+    plan = media_plan(batches)
+    media_dir = os.path.join(out, "media")
+    saved, media_counts = {}, {}
+    if plan or os.path.isdir(media_dir):
+        if not quiet and media and plan:
+            print(f"capturing media for {len({e for e, _ in plan})} cameras into {media_dir}")
+        saved, media_counts = capture_media(plan, media_dir, fetch=fetch if media else no_fetch,
+                                            refresh=refresh_media, max_mb=max_media_mb,
+                                            retry_wait=1.0 if media else 0)
+    batches = localise_media(batches, saved)
     forge = read_forge(os.path.join(raw, "forge"))
     offsets = [b["offset"] for b in batches] + [f[0] for f in forge]
     if not offsets:
@@ -351,6 +569,9 @@ def pack(raw, out, quiet=False):
                   for feed in feeds},
         "forge": {file: sum(1 for m in manifest if m["file"] == file) for file in forge_files},
         "missing_key_feeds": [f for f in KEY_FEEDS if f not in feeds],
+        "media": media_summary(plan, saved, media_dir),
+        "media_counts": media_counts,
+        "media_mb": dir_size(media_dir) / 1e6 if os.path.isdir(media_dir) else 0.0,
     }
     if not quiet:
         print(f"packed {out}: {summary['mb']:.1f} MB (raw capture {raw_mb:.1f} MB), {duration} s")
@@ -360,6 +581,13 @@ def pack(raw, out, quiet=False):
             print(f"  {feed:<24} {n:>5} observations dropped for NaN/Infinity")
         for file, n in summary["forge"].items():
             print(f"  forge {file:<18} {n:>5} versions")
+        if summary["media"]:
+            print(f"  camera media {summary['media_mb']:.1f} MB in {media_dir}")
+            for src, m in summary["media"].items():
+                print(f"    {src:<12} {m['cameras']:>5} cameras {m['images']:>5} images "
+                      f"{m['clips']:>5} clips {m['failed']:>4} failed {m['mb']:>7.1f} MB")
+            for attr, (new_n, reused, failed) in summary["media_counts"].items():
+                print(f"    {attr:<12} {new_n:>5} downloaded {reused:>5} reused {failed:>4} failed")
         if summary["missing_key_feeds"]:
             print(f"WARNING: no batches from {', '.join(summary['missing_key_feeds'])}: the "
                   "replay will have no aircraft or ships from them (rate-limited, or not "
@@ -505,13 +733,17 @@ def main(argv):
     pk = sub.add_parser("pack", help="pack a raw capture into a recording")
     pk.add_argument("raw_dir")
     pk.add_argument("out_dir")
+    pk.add_argument("--no-media", action="store_true",
+                    help="download no camera media (files already in OUT_DIR/media are used)")
+    pk.add_argument("--refresh-media", action="store_true",
+                    help="download every camera's media again, even if already stored")
     args = ap.parse_args(argv)
     if args.command == "record":
         if args.minutes <= 0 or not plain(args.name):
             ap.error("--minutes must be positive and --name a plain name")
         record(args.minutes, args.name, args.drop_raw)
     else:
-        pack(args.raw_dir, args.out_dir)
+        pack(args.raw_dir, args.out_dir, media=not args.no_media, refresh_media=args.refresh_media)
 
 
 if __name__ == "__main__":

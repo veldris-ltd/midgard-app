@@ -1,5 +1,5 @@
-"""Tests for record.py: thinning, dropping camera kinds, packing a raw capture, and the
-capture rule that decides when a changed file is copied.
+"""Tests for record.py: thinning, dropping camera analysis, camera media capture, packing a
+raw capture, and the capture rule that decides when a changed file is copied.
 
     python3 -m unittest tools/mac-app/test_record.py -v
 """
@@ -49,17 +49,128 @@ class ThinTest(unittest.TestCase):
         self.assertEqual(sum(len(b["observations"]) for b in out), 2)
 
 
+JPEG = b"\xff\xd8\xff\xe0" + b"x" * 100
+MP4 = b"\x00\x00\x00\x18ftypmp42" + b"y" * 100
+
+
 class CameraTest(unittest.TestCase):
-    def test_camera_kinds_dropped_and_empty_batch_dropped(self):
-        t = 1_792_000_000
+    T = 1_792_000_000
+
+    def test_camera_analysis_dropped_cameras_kept(self):
         batches = [
-            batch(0, "cams", [obs("C1", "land-camera", t), obs("C2", "land-camera-ai", t)]),
-            batch(1, "mixed", [obs("C3", "land-camera", t), obs("S1", "sea-vessel", t)]),
+            batch(0, "cams", [obs("C1", "land-camera", self.T), obs("C2", "land-camera-ai", self.T)]),
+            batch(1, "ai", [obs("C3", "land-camera-ai", self.T)]),
         ]
-        out = record.drop_empty(record.drop_cameras(batches))
-        self.assertEqual(len(out), 1)
-        self.assertEqual(out[0]["feed"], "mixed")
-        self.assertEqual([o["entity"] for o in out[0]["observations"]], ["S1"])
+        out = record.drop_empty(record.drop_kinds(batches))
+        self.assertEqual([b["feed"] for b in out], ["cams"])
+        self.assertEqual([o["entity"] for o in out[0]["observations"]], ["C1"])
+
+    def test_safe_stem(self):
+        self.assertEqual(record.safe_stem("JamCams_00002.00865", set()), "JamCams_00002.00865")
+        self.assertEqual(record.safe_stem("../a/b c", set()), "_a_b_c")
+        self.assertEqual(record.safe_stem("...", set()), "camera")
+        clash = record.safe_stem("a/b", {"a_b"})
+        self.assertTrue(clash.startswith("a_b-") and len(clash) == 12)
+        self.assertNotIn("/", record.safe_stem("x/" * 200, set()))
+
+    def test_media_plan_uses_each_cameras_latest_urls(self):
+        batches = [
+            batch(10, "sg", [obs("SGCAM-1", "land-camera", self.T + 10, image_url="https://i/new.jpg")]),
+            batch(0, "sg", [obs("SGCAM-1", "land-camera", self.T, image_url="https://i/old.jpg")]),
+            batch(0, "tfl", [obs("JamCams_1", "land-camera", self.T, image_url="https://t/1.jpg",
+                                 video_url="https://t/1.mp4"),
+                             obs("Q1", "earthquake", self.T, image_url="https://q/1.jpg"),
+                             obs("X", "land-camera", self.T, image_url="/media/X.jpg")]),
+            batch(0, "bc", [obs("BCCAM-2", "land-camera", self.T, image_url="https://b/2?x=1")]),
+        ]
+        plan = record.media_plan(batches)
+        self.assertEqual(plan, {
+            ("BCCAM-2", "image_url"): ("BCCAM-2.jpg", "https://b/2?x=1"),
+            ("JamCams_1", "image_url"): ("JamCams_1.jpg", "https://t/1.jpg"),
+            ("JamCams_1", "video_url"): ("JamCams_1.mp4", "https://t/1.mp4"),
+            ("SGCAM-1", "image_url"): ("SGCAM-1.jpg", "https://i/new.jpg"),
+        })
+        self.assertEqual(record.media_ext("https://a/b.PNG", "image_url"), ".png")
+        self.assertEqual(record.media_ext("https://a/b.webm", "video_url"), ".webm")
+        self.assertEqual(record.media_ext("https://a/b.mp4", "image_url"), ".jpg")
+
+    def test_looks_like_media(self):
+        self.assertTrue(record.looks_like_media(JPEG, "image"))
+        self.assertTrue(record.looks_like_media(b"\x89PNG\r\n\x1a\nrest", "image"))
+        self.assertTrue(record.looks_like_media(MP4, "video"))
+        self.assertFalse(record.looks_like_media(b"<html>error</html>", "image"))
+        self.assertFalse(record.looks_like_media(b"", "image"))
+        self.assertFalse(record.looks_like_media(JPEG, "video"))
+
+    def test_localise_media_rewrites_and_drops_internet_urls(self):
+        batches = [batch(0, "tfl", [
+            obs("JamCams_1", "land-camera", self.T, image_url="https://t/1.jpg", video_url="https://t/1.mp4"),
+            obs("NZCAM-2", "land-camera", self.T, image_url="https://n/2.jpg", stream_url="https://s/live"),
+            obs("S1", "sea-vessel", self.T, image_url="https://ship/photo.jpg"),
+        ])]
+        saved = {("JamCams_1", "image_url"): "JamCams_1.jpg"}
+        out = record.localise_media(batches, saved)
+        tfl, nz, ship = out[0]["observations"]
+        self.assertEqual(tfl["attrs"]["image_url"], "/media/JamCams_1.jpg")
+        self.assertNotIn("video_url", tfl["attrs"])  # its clip failed: no internet URL left
+        self.assertNotIn("image_url", nz["attrs"])
+        self.assertNotIn("stream_url", nz["attrs"])
+        self.assertEqual(ship["attrs"]["image_url"], "https://ship/photo.jpg")  # not a camera
+        self.assertEqual(batches[0]["observations"][0]["attrs"]["image_url"], "https://t/1.jpg")  # input untouched
+
+
+class CaptureMediaTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.media = os.path.join(self.tmp.name, "media")
+        self.calls = []
+
+    def fetch(self, responses):
+        def f(url):
+            self.calls.append(url)
+            r = responses[url]
+            r = r.pop(0) if isinstance(r, list) else r
+            if isinstance(r, Exception):
+                raise r
+            return r
+        return f
+
+    def test_saves_retries_once_and_skips_failures(self):
+        plan = {("A", "image_url"): ("A.jpg", "u/a"), ("A", "video_url"): ("A.mp4", "u/a.mp4"),
+                ("B", "image_url"): ("B.jpg", "u/b"), ("C", "image_url"): ("C.jpg", "u/c")}
+        fetch = self.fetch({"u/a": [OSError("timeout"), JPEG], "u/a.mp4": MP4,
+                            "u/b": b"<html>no</html>", "u/c": OSError("down")})
+        saved, counts = record.capture_media(plan, self.media, fetch=fetch, retry_wait=0)
+        self.assertEqual(saved, {("A", "image_url"): "A.jpg", ("A", "video_url"): "A.mp4"})
+        self.assertEqual(counts, {"image_url": [1, 0, 2], "video_url": [1, 0, 0]})
+        self.assertEqual(sorted(os.listdir(self.media)), ["A.jpg", "A.mp4"])
+        with open(os.path.join(self.media, "A.jpg"), "rb") as f:
+            self.assertEqual(f.read(), JPEG)
+        self.assertEqual(self.calls.count("u/c"), 2)  # tried twice, not more
+        self.assertEqual(self.calls.count("u/a.mp4"), 1)
+
+    def test_reuses_stored_files_and_prunes_unplanned_ones(self):
+        os.makedirs(self.media)
+        for name in ("A.jpg", "OLD.jpg"):
+            with open(os.path.join(self.media, name), "wb") as f:
+                f.write(JPEG)
+        plan = {("A", "image_url"): ("A.jpg", "u/a")}
+        saved, counts = record.capture_media(plan, self.media, fetch=self.fetch({}), retry_wait=0)
+        self.assertEqual(saved, {("A", "image_url"): "A.jpg"})
+        self.assertEqual(counts["image_url"], [0, 1, 0])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(os.listdir(self.media), ["A.jpg"])
+        saved, counts = record.capture_media(plan, self.media, fetch=self.fetch({"u/a": OSError()}),
+                                             refresh=True, retry_wait=0)
+        self.assertEqual(saved, {})  # refresh failed: the stale copy is not kept
+        self.assertEqual(os.listdir(self.media), [])
+
+    def test_stops_past_the_size_cap(self):
+        plan = {(f"E{i}", "image_url"): (f"E{i}.jpg", f"u/{i}") for i in range(3)}
+        big = JPEG + b"z" * 600_000
+        with self.assertRaises(SystemExit):
+            record.capture_media(plan, self.media, fetch=lambda u: big, max_mb=1, workers=1, retry_wait=0)
 
 
 class PackTest(unittest.TestCase):
@@ -85,6 +196,7 @@ class PackTest(unittest.TestCase):
         heimdall("000000-adsb-fi.jsonl", [obs("A1", "air-track", t)])
         heimdall("000000-adsb-fi~002.jsonl", [obs("A2", "air-track", t)])
         heimdall("000003-cams.jsonl", [obs("C1", "land-camera", t)])
+        heimdall("000004-cams-ai.jsonl", [obs("AI-C1", "land-camera-ai", t)])
         heimdall("000002-adsb-lol.jsonl", [obs("A3", "air-track", t + 2), obs("A1", "air-track", t + 2)])
         for name, body in [("000000-aircraft.csv", "a,b\r\n1,2\r\n"),
                            ("000009-aircraft.csv", "a,b\r\n3,4\r\n"),
@@ -98,7 +210,7 @@ class PackTest(unittest.TestCase):
         meta = record.load_json(os.path.join(self.out, "meta.json"))
         self.assertEqual(meta["version"], 1)
         self.assertEqual(meta["recordedFrom"], 1_792_000_000)
-        self.assertEqual(meta["feeds"], ["adsb-fi", "adsb-lol", "usgs"])
+        self.assertEqual(meta["feeds"], ["adsb-fi", "adsb-lol", "cams", "usgs"])
         self.assertEqual(meta["forgeFiles"], ["aircraft.csv", "ships.csv"])
         self.assertGreater(meta["duration"], 9)
 
@@ -106,7 +218,7 @@ class PackTest(unittest.TestCase):
             lines = [json.loads(l) for l in f if l.strip()]
         offsets = [b["offset"] for b in lines]
         self.assertEqual(offsets, sorted(offsets))
-        self.assertEqual(offsets, [0, 0, 2, 7])  # the camera batch is dropped
+        self.assertEqual(offsets, [0, 0, 2, 3, 7])  # the camera kept, its analysis dropped
         lol = [b for b in lines if b["feed"] == "adsb-lol"][0]
         self.assertEqual([o["entity"] for o in lol["observations"]], ["A3"])  # A1 thinned
         for b in lines:
@@ -183,6 +295,34 @@ class PackDetailsTest(unittest.TestCase):
             summary = record.pack(self.raw, self.out)
         self.assertEqual(summary["missing_key_feeds"], [])
         self.assertNotIn("WARNING", out.getvalue())
+
+    def test_pack_captures_camera_media_and_rewrites_urls(self):
+        cams = [obs("JamCams_1", "land-camera", self.T, image_url="https://t/1.jpg", video_url="https://t/1.mp4"),
+                obs("NZCAM-2", "land-camera", self.T, image_url="https://n/2.jpg")]
+        with open(os.path.join(self.raw, "heimdall", "000001-tfl.jsonl"), "w") as f:
+            f.write("\n".join(json.dumps(o) for o in cams) + "\n")
+        bodies = {"https://t/1.jpg": JPEG, "https://t/1.mp4": MP4}
+
+        def fetch(url):
+            if url not in bodies:
+                raise OSError("404")
+            return bodies[url]
+        summary = record.pack(self.raw, self.out, quiet=True, fetch=fetch)
+        with gzip.open(os.path.join(self.out, "heimdall.jsonl.gz"), "rt") as f:
+            text = f.read()
+        self.assertNotIn("https://", text)
+        got = {o["entity"]: o["attrs"] for l in text.splitlines() if l for o in json.loads(l)["observations"]}
+        self.assertEqual(got["JamCams_1"]["image_url"], "/media/JamCams_1.jpg")
+        self.assertEqual(got["JamCams_1"]["video_url"], "/media/JamCams_1.mp4")
+        self.assertNotIn("image_url", got["NZCAM-2"])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.out, "media"))), ["JamCams_1.jpg", "JamCams_1.mp4"])
+        self.assertEqual(summary["media"]["tfl"]["images"], 1)
+        self.assertEqual(summary["media"]["tfl"]["clips"], 1)
+        self.assertEqual(summary["media"]["nzta"]["failed"], 1)
+        # Re-pack offline: stored files are used, nothing is fetched.
+        summary = record.pack(self.raw, self.out, quiet=True, media=False, fetch=None)
+        self.assertEqual(summary["media_counts"]["image_url"], [0, 1, 1])
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "media", "JamCams_1.mp4")))
 
     def test_forge_files_hard_linked(self):
         src = os.path.join(self.raw, "forge", "000000-aircraft.csv")

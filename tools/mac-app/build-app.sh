@@ -294,6 +294,12 @@ if [ -n "$RECORDING" ]; then
     clone_copy "$entry" "$R/recording/$(basename "$entry")"
   done
   echo "recording: $RECORDING"
+  # Camera stills and clips (record.py pack), served by the app at /media/.
+  if [ -d "$R/recording/media" ]; then
+    echo "recording media: $(find "$R/recording/media" -type f | wc -l | tr -d ' ') files, $(du -sh "$R/recording/media" | cut -f1)"
+  else
+    echo "recording media: none (cameras have no image or clip; re-pack with record.py pack)"
+  fi
 else
   echo "recording: none (the app starts without replay)"
 fi
@@ -348,6 +354,7 @@ du -sh "$APP"
 for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Helpers/llama/* "$APP"/Contents/Resources/*; do
   du -sh "$part" | sed "s|$APP/Contents/||"
 done
+[ ! -d "$APP/Contents/Resources/recording/media" ] || du -sh "$APP/Contents/Resources/recording/media" | sed "s|$APP/Contents/||"
 echo "free disk: $((FREE_BEFORE / 1024)) MB before, $((FREE_AFTER / 1024)) MB after ($(((FREE_BEFORE - FREE_AFTER) / 1024)) MB used, including any rebuilt dist/ and swift outputs)"
 echo "times: services+consoles+model server $((T_DEPS - T0)) s, shell $((T_SWIFT - T_DEPS)) s, bundle $((T_END - T_SWIFT)) s"
 echo "built $APP (1.0, build $BUILD_NUMBER, $SHORT_SHA)"

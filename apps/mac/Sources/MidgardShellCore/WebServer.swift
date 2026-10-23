@@ -8,11 +8,14 @@ import Network
 ///     /                      root/home/index.html
 ///     /home/…                root/home/…
 ///     /<product>/…           root/consoles/<product>/…   (midgard, heimdall, mimir, forge)
+///     /media/…               root/recording/media/…      (the recording's camera stills and clips)
 ///
 /// A directory serves its index.html; without its trailing slash it is redirected first,
 /// because the consoles load `./assets/…` relative to their own URL. Traversal (`..`,
 /// NUL, backslash, also when percent-encoded) is refused with 403 before the file system
-/// is touched, and a `Host` other than this server (DNS rebinding) gets 421.
+/// is touched, and a `Host` other than this server (DNS rebinding) gets 421. A single
+/// `Range: bytes=…` is answered with 206 (WebKit plays a <video> only from a server that
+/// does); anything else gets the whole file.
 public final class WebServer: @unchecked Sendable {
     public struct StartFailure: Error, CustomStringConvertible {
         public let description: String
@@ -204,29 +207,52 @@ public final class WebServer: @unchecked Sendable {
         case .redirect(let location):
             sendStatus(session, 301, method: method, extra: ["Location": location])
         case .success(let file):
-            sendFile(session, file, method: method)
+            sendFile(session, file, method: method, range: Self.header("range", in: lines.dropFirst()))
         }
     }
 
-    private func sendFile(_ session: Session, _ file: URL, method: String) {
+    private func sendFile(_ session: Session, _ file: URL, method: String, range: String?) {
         guard let handle = try? FileHandle(forReadingFrom: file),
               let size = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? NSNumber
         else { return sendStatus(session, 404, method: method) }
-        let head = Self.head(200, type: Self.contentType(for: file), length: size.intValue)
+        let total = size.intValue
+        let type = Self.contentType(for: file)
+        var bytes = 0..<total
+        var head = Self.head(200, type: type, length: total, extra: ["Accept-Ranges": "bytes"])
+        switch range.map({ Self.byteRange($0, size: total) }) {
+        case .some(.unsatisfiable):
+            try? handle.close()
+            return sendStatus(session, 416, method: method, extra: ["Content-Range": "bytes */\(total)"])
+        case .some(.part(let part)):
+            bytes = part
+            head = Self.head(206, type: type, length: part.count, extra: [
+                "Accept-Ranges": "bytes",
+                "Content-Range": "bytes \(part.lowerBound)-\(part.upperBound - 1)/\(total)",
+            ])
+        case .some(.whole), .none:
+            break
+        }
         guard method == "GET" else {
             try? handle.close()
             return finish(session, head)
         }
+        do {
+            try handle.seek(toOffset: UInt64(bytes.lowerBound))
+        } catch {
+            try? handle.close()
+            return session.connection.cancel()
+        }
         session.arm(stallTimeout, on: queue)
         session.connection.send(content: head, completion: .contentProcessed { [weak self] error in
             guard error == nil, let self else { try? handle.close(); return session.connection.cancel() }
-            self.stream(session, handle)
+            self.stream(session, handle, remaining: bytes.count)
         })
     }
 
-    /// Sends the file a chunk at a time, so a large map tile set never sits in memory.
-    private func stream(_ session: Session, _ handle: FileHandle) {
-        let data = (try? handle.read(upToCount: Self.chunk)) ?? nil
+    /// Sends `remaining` bytes of the file a chunk at a time, so a large map tile set never
+    /// sits in memory.
+    private func stream(_ session: Session, _ handle: FileHandle, remaining: Int) {
+        let data = remaining > 0 ? ((try? handle.read(upToCount: min(Self.chunk, remaining))) ?? nil) : nil
         guard let data, !data.isEmpty else {
             try? handle.close()
             return finish(session, nil)
@@ -234,7 +260,7 @@ public final class WebServer: @unchecked Sendable {
         session.arm(stallTimeout, on: queue)
         session.connection.send(content: data, completion: .contentProcessed { [weak self] error in
             guard error == nil, let self else { try? handle.close(); return session.connection.cancel() }
-            self.stream(session, handle)
+            self.stream(session, handle, remaining: remaining - data.count)
         })
     }
 
@@ -281,6 +307,19 @@ public final class WebServer: @unchecked Sendable {
         } else if products.contains(segments[0]) {
             file = root.appendingPathComponent("consoles")
             segments.forEach { file.appendPathComponent($0) }
+        } else if segments[0] == "media" {
+            // Files only: no index page, no redirect, nothing hidden (dot files).
+            guard segments.count > 1, !segments.contains(where: { $0.hasPrefix(".") }) else {
+                return .failure(404)
+            }
+            file = root.appendingPathComponent("recording/media")
+            segments.dropFirst().forEach { file.appendPathComponent($0) }
+            file = file.standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard file.path.hasPrefix(root.path + "/") else { return .failure(403) }
+            guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else { return .failure(404) }
+            return .success(file)
         } else {
             return .failure(404)
         }
@@ -298,6 +337,36 @@ public final class WebServer: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else { return .failure(404) }
         return .success(file)
+    }
+
+    enum ByteRange: Equatable {
+        case whole
+        case part(Range<Int>)
+        case unsatisfiable
+    }
+
+    /// A `Range` header against a file of `size` bytes: one `bytes=a-b`, `a-` or `-n` range
+    /// (clamped to the file); anything else (several ranges, other units, nonsense) is
+    /// answered with the whole file, as HTTP allows. A range starting past the end is 416.
+    static func byteRange(_ header: String, size: Int) -> ByteRange {
+        let value = header.trimmingCharacters(in: .whitespaces)
+        guard value.lowercased().hasPrefix("bytes=") else { return .whole }
+        let spec = value.dropFirst(6).trimmingCharacters(in: .whitespaces)
+        guard !spec.contains(","), let dash = spec.firstIndex(of: "-") else { return .whole }
+        let first = spec[..<dash].trimmingCharacters(in: .whitespaces)
+        let last = spec[spec.index(after: dash)...].trimmingCharacters(in: .whitespaces)
+        let digits = { (s: String) in !s.isEmpty && s.allSatisfy(\.isASCII) && s.allSatisfy(\.isNumber) }
+        if first.isEmpty {
+            guard digits(last), let n = Int(last) else { return .whole }
+            guard n > 0, size > 0 else { return .unsatisfiable }
+            return .part(max(0, size - n)..<size)
+        }
+        guard digits(first), let a = Int(first) else { return .whole }
+        guard a < size else { return .unsatisfiable }
+        if last.isEmpty { return .part(a..<size) }
+        guard digits(last), let b = Int(last) else { return .whole }
+        guard b >= a else { return .whole }
+        return .part(a..<(min(b, size - 1) + 1))
     }
 
     /// The value of the first header called `name` (lower case), if any.
@@ -327,6 +396,8 @@ public final class WebServer: @unchecked Sendable {
         case "png": return "image/png"
         case "jpg", "jpeg": return "image/jpeg"
         case "gif": return "image/gif"
+        case "mp4", "m4v": return "video/mp4"
+        case "webm": return "video/webm"
         case "webp": return "image/webp"
         case "ttf": return "font/ttf"
         case "woff": return "font/woff"
@@ -355,11 +426,13 @@ public final class WebServer: @unchecked Sendable {
     static func reason(_ status: Int) -> String {
         switch status {
         case 200: return "OK"
+        case 206: return "Partial Content"
         case 301: return "Moved Permanently"
         case 400: return "Bad Request"
         case 403: return "Forbidden"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
+        case 416: return "Range Not Satisfiable"
         case 421: return "Misdirected Request"
         case 431: return "Request Header Fields Too Large"
         default: return "Error"

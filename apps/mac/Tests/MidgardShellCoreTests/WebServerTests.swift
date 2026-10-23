@@ -104,6 +104,12 @@ final class WebServerTests: XCTestCase {
         big = Data(count: 5 * 1024 * 1024)
         big.withUnsafeMutableBytes { arc4random_buf($0.baseAddress, $0.count) }
         try put("consoles/mimir/data/big.i16", big)
+        try put("recording/media/JamCams_1.jpg", Data([0xFF, 0xD8, 0xFF, 0xE0] + Array("jpeg".utf8)))
+        try put("recording/media/JamCams_1.mp4", Data((0..<1000).map { UInt8($0 % 251) }))
+        try put("recording/media/x.webm", Data("webm".utf8))
+        try put("recording/media/.hidden.jpg", Data("hidden".utf8))
+        try put("recording/media/sub/a.png", Data("png".utf8))
+        try put("recording/heimdall.jsonl.gz", Data("recording".utf8))
         // Outside root: traversal must never reach it.
         try Data("secret".utf8).write(to: base.appendingPathComponent("secret.txt"))
 
@@ -270,6 +276,89 @@ final class WebServerTests: XCTestCase {
         let n = read(fd, &byte, 1)
         XCTAssertEqual(n, 0, "expected the server to close the connection (errno \(errno))")
         XCTAssertLessThan(Date().timeIntervalSince(started), 2.5)
+    }
+
+    func testServesRecordingMediaWithTypes() throws {
+        let jpg = try get("/media/JamCams_1.jpg?t=12345")
+        XCTAssertEqual(jpg.status, 200)
+        XCTAssertEqual(jpg.headers["content-type"], "image/jpeg")
+        XCTAssertEqual(jpg.headers["accept-ranges"], "bytes")
+        XCTAssertEqual(jpg.body.prefix(3), Data([0xFF, 0xD8, 0xFF]))
+        let mp4 = try get("/media/JamCams_1.mp4")
+        XCTAssertEqual(mp4.status, 200)
+        XCTAssertEqual(mp4.headers["content-type"], "video/mp4")
+        XCTAssertEqual(mp4.body.count, 1000)
+        XCTAssertEqual(try get("/media/x.webm", method: "HEAD").headers["content-type"], "video/webm")
+        XCTAssertEqual(try get("/media/sub/a.png").headers["content-type"], "image/png")
+    }
+
+    func testMediaRefusesEverythingButItsFiles() throws {
+        XCTAssertEqual(try get("/media/").status, 404)
+        XCTAssertEqual(try get("/media").status, 404)
+        XCTAssertEqual(try get("/media/sub").status, 404)  // a directory: no redirect, no index
+        XCTAssertEqual(try get("/media/nope.jpg").status, 404)
+        XCTAssertEqual(try get("/media/.hidden.jpg").status, 404)
+        XCTAssertEqual(try get("/recording/heimdall.jsonl.gz").status, 404)
+        for path in ["/media/../heimdall.jsonl.gz", "/media/%2e%2e/heimdall.jsonl.gz",
+                     "/media/..%2f..%2f..%2fsecret.txt", "/media/a%5c..%5cb.jpg", "/media/x.jpg%00.mp4"] {
+            let r = try get(path)
+            XCTAssertEqual(r.status, 403, path)
+            XCTAssertFalse(String(decoding: r.body, as: UTF8.self).contains("recording"), path)
+        }
+        let post = try rawRequest(
+            "POST /media/JamCams_1.jpg HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Length: 0\r\n\r\n", port: port)
+        XCTAssertEqual(post.status, 405)
+        let rebound = try rawRequest("GET /media/JamCams_1.jpg HTTP/1.1\r\nHost: evil.example:\(port)\r\n\r\n", port: port)
+        XCTAssertEqual(rebound.status, 421)
+    }
+
+    func ranged(_ path: String, _ range: String, method: String = "GET") throws -> RawResponse {
+        try rawRequest("\(method) \(path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nRange: \(range)\r\n\r\n", port: port)
+    }
+
+    /// WebKit asks for `bytes=0-1` first and plays a clip only if it gets 206.
+    func testRangeRequestsForClips() throws {
+        let all = (0..<1000).map { UInt8($0 % 251) }
+        let probe = try ranged("/media/JamCams_1.mp4", "bytes=0-1")
+        XCTAssertEqual(probe.status, 206)
+        XCTAssertEqual(probe.headers["content-range"], "bytes 0-1/1000")
+        XCTAssertEqual(probe.headers["content-length"], "2")
+        XCTAssertEqual(probe.headers["content-type"], "video/mp4")
+        XCTAssertEqual(Array(probe.body), Array(all[0...1]))
+        let middle = try ranged("/media/JamCams_1.mp4", "bytes=500-")
+        XCTAssertEqual(middle.headers["content-range"], "bytes 500-999/1000")
+        XCTAssertEqual(Array(middle.body), Array(all[500...]))
+        let tail = try ranged("/media/JamCams_1.mp4", "bytes=-10")
+        XCTAssertEqual(Array(tail.body), Array(all[990...]))
+        let clamped = try ranged("/media/JamCams_1.mp4", "bytes=990-5000")
+        XCTAssertEqual(clamped.headers["content-range"], "bytes 990-999/1000")
+        let head = try ranged("/media/JamCams_1.mp4", "bytes=0-99", method: "HEAD")
+        XCTAssertEqual(head.status, 206)
+        XCTAssertEqual(head.body.count, 0)
+        let past = try ranged("/media/JamCams_1.mp4", "bytes=1000-")
+        XCTAssertEqual(past.status, 416)
+        XCTAssertEqual(past.headers["content-range"], "bytes */1000")
+        for odd in ["bytes=0-1,5-6", "items=0-1", "bytes=5-2", "bytes=x-y", "bytes=99999999999999999999-"] {
+            let r = try ranged("/media/JamCams_1.mp4", odd)
+            XCTAssertEqual(r.status, 200, odd)
+            XCTAssertEqual(r.body.count, 1000, odd)
+        }
+        // The big file through a range: the stream stops at the range's end.
+        let big = try ranged("/mimir/data/big.i16", "bytes=1000000-1299999")
+        XCTAssertEqual(big.status, 206)
+        XCTAssertEqual(big.body, self.big.subdata(in: 1_000_000..<1_300_000))
+    }
+
+    func testByteRangeParsing() {
+        XCTAssertEqual(WebServer.byteRange("bytes=0-1", size: 10), .part(0..<2))
+        XCTAssertEqual(WebServer.byteRange("bytes=3-", size: 10), .part(3..<10))
+        XCTAssertEqual(WebServer.byteRange("bytes=-3", size: 10), .part(7..<10))
+        XCTAssertEqual(WebServer.byteRange("bytes=-30", size: 10), .part(0..<10))
+        XCTAssertEqual(WebServer.byteRange("bytes=-0", size: 10), .unsatisfiable)
+        XCTAssertEqual(WebServer.byteRange("bytes=10-", size: 10), .unsatisfiable)
+        XCTAssertEqual(WebServer.byteRange("bytes=0-", size: 0), .unsatisfiable)
+        XCTAssertEqual(WebServer.byteRange("bytes=+1-2", size: 10), .whole)
+        XCTAssertEqual(WebServer.byteRange("bytes=-", size: 10), .whole)
     }
 
     func testStopClosesTheListener() throws {

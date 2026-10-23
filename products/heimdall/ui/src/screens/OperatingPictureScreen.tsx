@@ -235,7 +235,9 @@ function FlightHistory({ points, replayAt }: { points: HeimdallHistoryPoint[]; r
 
 /** A camera's live view: the still image (reloaded every 30 s, as its source refreshes
  *  it), with its short clip or live stream on demand. Images and video come straight from
- *  the camera's source, so they need the internet. [FR-H-1] */
+ *  the camera's source, so they need the internet; in the offline build (the Mac app) they
+ *  are the recording's stored copies, app-relative `/media/…` URLs served by the app.
+ *  [FR-H-1] */
 function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail['camera']>; name: string }) {
   const gateway = useGateway<HeimdallGateway>();
   const [tick, setTick] = React.useState(() => Date.now());
@@ -323,7 +325,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
       {analysis}
       {!expanded && trend}
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6 }}>
-        IMAGE RELOADS EVERY 30 S · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
+        {OFFLINE ? 'STORED IMAGE AND CLIP FROM THE RECORDING' : 'IMAGE RELOADS EVERY 30 S'} · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
       </div>
       {expanded && (
         <div role="dialog" aria-label={`Camera ${name}`} onClick={() => setExpanded(false)}
