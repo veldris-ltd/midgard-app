@@ -454,7 +454,8 @@ sealed class MainForm : Form, IShellView
         foreach (var script in scripts) scriptIds.Add(await core.AddScriptToExecuteOnDocumentCreatedAsync(script));
     });
 
-    public void Load(string url) => Post(() =>
+    // Explicit: Form has a Load event.
+    void IShellView.Load(string url) => Post(() =>
     {
         if (web.CoreWebView2 is { } core) core.Navigate(url);
     });
