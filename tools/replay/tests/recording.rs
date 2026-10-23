@@ -59,8 +59,8 @@ fn loads_batches_and_forge_files_in_offset_order() {
     fs::write(d.join("heimdall.jsonl"), concat!(
         r#"{"offset":0,"feed":"usgs-quakes","observations":[{"entity":"Q1","kind":"event-earthquake","observedAt":1792000000,"attrs":{}}]}"#, "\n",
         r#"{"offset":90,"feed":"adsb-fi","observations":[{"entity":"A1","kind":"air-track","observedAt":1792000090,"attrs":{}}]}"#, "\n")).unwrap();
-    // Compressed, as recordings ship. Windows has no /usr/bin/gzip for the replay to read
-    // it with (an open question for the Windows app), so there it stays plain.
+    // Compressed, as recordings ship for the Mac. Windows has no gzip for the replay to
+    // read it with, and recordings ship plain there, so there it stays plain.
     #[cfg(unix)]
     assert!(std::process::Command::new("/usr/bin/gzip")
         .arg(d.join("heimdall.jsonl"))
@@ -212,11 +212,45 @@ fn refuses_an_offset_at_or_past_the_duration() {
     assert!(e.contains("forge entry 1") && e.contains("601"), "{e}");
 }
 
+#[cfg(unix)]
 #[test]
 fn refuses_a_corrupt_gzip_with_gzips_message() {
     let d = valid("badgz");
     fs::write(d.join("heimdall.jsonl.gz"), "not gzip").unwrap();
     assert!(load_err(&d).contains("gzip"));
+}
+
+/// Without a gzip (Windows), a compressed recording is refused, saying to unpack it,
+/// rather than failing on a gzip that is not there.
+#[test]
+fn without_a_gzip_a_compressed_recording_is_refused_saying_to_unpack_it() {
+    let d = valid("nogz");
+    fs::rename(d.join("heimdall.jsonl"), d.join("heimdall.jsonl.gz")).unwrap();
+    let e = match Recording::load_with(&d, None) {
+        Ok(_) => panic!("expected an error"),
+        Err(e) => e,
+    };
+    assert!(e.contains("heimdall.jsonl.gz"), "{e}");
+    assert!(
+        e.contains("Windows reads plain heimdall.jsonl; unpack the recording"),
+        "{e}"
+    );
+    // The same recording unpacked plays without one.
+    fs::rename(d.join("heimdall.jsonl.gz"), d.join("heimdall.jsonl")).unwrap();
+    assert!(Recording::load_with(&d, None).is_ok());
+}
+
+/// On Windows `load` is that: there is no gzip.
+#[cfg(windows)]
+#[test]
+fn on_windows_a_compressed_recording_is_refused_saying_to_unpack_it() {
+    let d = valid("wingz");
+    fs::write(d.join("heimdall.jsonl.gz"), "gzip bytes").unwrap();
+    assert!(
+        load_err(&d).contains("Windows reads plain heimdall.jsonl; unpack the recording"),
+        "{}",
+        load_err(&d)
+    );
 }
 
 #[test]

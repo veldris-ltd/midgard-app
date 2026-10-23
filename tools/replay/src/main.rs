@@ -1,7 +1,7 @@
 //! `midgard-replay` — plays a recording back on a loop. [design §2]
 use midgard_replay::player::{log, Player, SystemClock};
 use midgard_replay::recording::{Event, Recording};
-use midgard_replay::sinks::LiveSink;
+use midgard_replay::sinks::{default_source_bin, LiveSink};
 use service_runtime::Args;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -49,12 +49,7 @@ fn main() {
     let source_bin = args
         .get("source-bin")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.join("heimdall-source")))
-                .unwrap_or_else(|| "heimdall-source".into())
-        });
+        .unwrap_or_else(|| default_source_bin(std::env::current_exe().ok().as_deref()));
     if !Path::new(&forge_dir).is_dir() {
         fail(
             &format!("--forge-dir {forge_dir} is not a directory"),

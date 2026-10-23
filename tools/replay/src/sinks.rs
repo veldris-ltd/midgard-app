@@ -1,7 +1,7 @@
 //! The real sinks: Heimdall's signed ingest path and Forge's source directory.
 use crate::player::Sink;
-use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -17,6 +17,53 @@ pub struct LiveSink {
     pub forge_dir: PathBuf,
     /// How long one `heimdall-source` run may take before it is killed.
     pub timeout: Duration,
+}
+
+/// The `heimdall-source` the replay runs when `--source-bin` is not given: the one beside
+/// `exe` (this binary), named with the platform's executable suffix (`.exe` on Windows,
+/// none on Unix), or the bare name for PATH when `exe` has no directory.
+pub fn default_source_bin(exe: Option<&Path>) -> PathBuf {
+    let name = format!("heimdall-source{}", std::env::consts::EXE_SUFFIX);
+    exe.and_then(Path::parent)
+        .map(|d| d.join(&name))
+        .unwrap_or_else(|| name.into())
+}
+
+/// How many times a Forge file's rename-over is tried while it is refused for a reason
+/// that passes, and the waits between tries: from `RENAME_FIRST_WAIT`, doubling, at
+/// most `RENAME_MAX_WAIT` (about 3 s in all).
+pub const RENAME_TRIES: u32 = 10;
+pub const RENAME_FIRST_WAIT: Duration = Duration::from_millis(50);
+pub const RENAME_MAX_WAIT: Duration = Duration::from_millis(500);
+
+/// Whether a refused rename-over is worth trying again. On Windows `forge-worker` may
+/// have the CSV open while it reads it, and the rename (MoveFileExW) is then refused
+/// with a sharing violation (ERROR_SHARING_VIOLATION, 32) or access denied
+/// (ERROR_ACCESS_DENIED, 5) until it closes it. Never on Unix, where a rename over an
+/// open file succeeds and any failure is final.
+pub fn rename_refusal_passes(e: &io::Error) -> bool {
+    cfg!(windows) && matches!(e.raw_os_error(), Some(5) | Some(32))
+}
+
+/// Call `rename` until it succeeds or fails for a reason `passes` does not accept,
+/// at most `RENAME_TRIES` times, calling `sleep` with the backoff between tries; the
+/// last error is returned.
+pub fn rename_with_retry(
+    mut rename: impl FnMut() -> io::Result<()>,
+    passes: impl Fn(&io::Error) -> bool,
+    mut sleep: impl FnMut(Duration),
+) -> io::Result<()> {
+    let mut wait = RENAME_FIRST_WAIT;
+    for _ in 1..RENAME_TRIES {
+        match rename() {
+            Err(e) if passes(&e) => {
+                sleep(wait);
+                wait = (wait * 2).min(RENAME_MAX_WAIT);
+            }
+            done => return done,
+        }
+    }
+    rename()
 }
 
 /// How often a running child is checked against its deadline.
@@ -141,7 +188,9 @@ impl Sink for LiveSink {
 
     /// Replace `file` atomically: written beside it, then renamed over it, so
     /// `forge-worker` never reads half a file. No fsync before the rename: a crash loses
-    /// at most this one version, which the next loop writes again.
+    /// at most this one version, which the next loop writes again. On Windows a rename
+    /// refused while `forge-worker` has the file open is tried again for a few seconds
+    /// (`rename_with_retry`); on Unix it is tried once.
     fn forge(&self, file: &str, csv: &str) -> Result<(), String> {
         if file.is_empty() || file.contains('/') || file.contains('\\') || file.starts_with('.') {
             return Err(format!("{file} is not a plain file name"));
@@ -149,7 +198,12 @@ impl Sink for LiveSink {
         let tmp = self.forge_dir.join(format!(".{file}.replay"));
         std::fs::write(&tmp, csv).map_err(|e| format!("{}: {e}", tmp.display()))?;
         let dest = self.forge_dir.join(file);
-        std::fs::rename(&tmp, &dest).map_err(|e| {
+        rename_with_retry(
+            || std::fs::rename(&tmp, &dest),
+            rename_refusal_passes,
+            std::thread::sleep,
+        )
+        .map_err(|e| {
             let _ = std::fs::remove_file(&tmp);
             format!("{}: {e}", dest.display())
         })

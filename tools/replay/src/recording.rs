@@ -43,10 +43,20 @@ fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The gzip a compressed batches file (`heimdall.jsonl.gz`) is read through, or `None`
+/// on Windows, which has none: recordings for Windows ship uncompressed, as plain
+/// `heimdall.jsonl` (docs/plans/2026-10-23-windows-app-design.md).
+#[cfg(unix)]
+pub const GUNZIP: Option<&str> = Some("/usr/bin/gzip");
+#[cfg(not(unix))]
+pub const GUNZIP: Option<&str> = None;
+
 /// Call `each` with every line of the batches file (numbered from 1), streamed
-/// through macOS's gzip when compressed, so the whole file is never held at once.
+/// through `gunzip` when compressed, so the whole file is never held at once. A
+/// compressed file with no `gunzip` is refused, saying to unpack it.
 fn heimdall_lines(
     dir: &Path,
+    gunzip: Option<&str>,
     mut each: impl FnMut(usize, &str) -> Result<(), String>,
 ) -> Result<(), String> {
     let mut feed = |r: &mut dyn BufRead| -> Result<(), String> {
@@ -58,7 +68,14 @@ fn heimdall_lines(
     };
     let gz = dir.join("heimdall.jsonl.gz");
     if gz.exists() {
-        let mut child = Command::new("/usr/bin/gzip")
+        let Some(gunzip) = gunzip else {
+            return Err(format!(
+                "{}: Windows reads plain heimdall.jsonl; unpack the recording \
+                 (gzip -d heimdall.jsonl.gz) before playing it",
+                gz.display()
+            ));
+        };
+        let mut child = Command::new(gunzip)
             .arg("-dc")
             .arg(&gz)
             .stdout(Stdio::piped())
@@ -133,7 +150,14 @@ fn inside(dir: &Path, rel: &str) -> Result<PathBuf, String> {
 }
 
 impl Recording {
+    /// Load the recording in `dir`, reading a compressed batches file through this
+    /// platform's `GUNZIP`.
     pub fn load(dir: &Path) -> Result<Recording, String> {
+        Self::load_with(dir, GUNZIP)
+    }
+
+    /// `load` with the given gzip, or with none (as on Windows).
+    pub fn load_with(dir: &Path, gunzip: Option<&str>) -> Result<Recording, String> {
         let meta = parse(&read(&dir.join("meta.json"))?)?;
         if meta.get("version").and_then(Json::as_i64) != Some(1) {
             return Err("unsupported recording version (this replay reads version 1)".into());
@@ -149,7 +173,7 @@ impl Recording {
             .filter(|d| *d > 0)
             .ok_or("meta.json: no positive duration")? as u64;
         let mut events = Vec::new();
-        heimdall_lines(dir, |n, line| {
+        heimdall_lines(dir, gunzip, |n, line| {
             if line.trim().is_empty() {
                 return Ok(());
             }

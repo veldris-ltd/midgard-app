@@ -90,6 +90,35 @@ fn fake_source(d: &Path) {
     fs::write(d.join(FAKE), "@sh \"%~dp0heimdall-source.sh\" %*\r\n").unwrap();
 }
 
+/// Whether this test's fake `heimdall-source` can run, else a message saying it is
+/// skipped. On Windows the fakes are batch files that hand a script to the `sh` of Git
+/// for Windows (the Windows CI job runs under Git Bash); where no `sh` is on PATH the
+/// test is skipped with a clear message rather than failing on an unrelated error.
+/// Always true on Unix, where the fakes are `/bin/sh` scripts.
+fn have_sh(test: &str) -> bool {
+    #[cfg(windows)]
+    {
+        let ok = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            eprintln!(
+                "skipping {test}: its fake heimdall-source needs the sh of Git for Windows \
+                 on PATH (run the tests from Git Bash)"
+            );
+        }
+        ok
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = test;
+        true
+    }
+}
+
 fn run(d: &Path, extra: &[&str]) -> Output {
     let p = |s: &str| d.join(s).display().to_string();
     let mut args = vec![
@@ -108,6 +137,9 @@ fn run(d: &Path, extra: &[&str]) -> Output {
 
 #[test]
 fn plays_one_loop_through_heimdall_source_and_the_forge_dir() {
+    if !have_sh("plays_one_loop_through_heimdall_source_and_the_forge_dir") {
+        return;
+    }
     let t = setup("loop", "testfeed", "testfeed");
     let start = now();
     let out = run(&t.0, &["--loops", "1"]);
