@@ -16,10 +16,13 @@
 #     with a shell executor, docker, node and pnpm, and the CI/CD variables
 #     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH and
 #     MIDGARD_BIFROST_REGISTRY_PATH naming files on it;
-#   - for the apple shell audit: a runner tagged `macos`.
+#   - for the apple shell audit: a runner tagged `macos`;
+#   - for the Windows services build: a Windows x64 runner tagged `windows`, with a
+#     shell executor, Git Bash on PATH as `bash`, rustup and the MSVC build tools.
 #
-# Run a release dry run, a release, or the shell audits by hand from "Run pipeline",
-# setting MIDGARD_RELEASE_MODE to `dry-run`, `release` or `audit`.
+# Run a release dry run, a release, the shell audits or the Windows build by hand from
+# "Run pipeline", setting MIDGARD_RELEASE_MODE to `dry-run`, `release`, `audit` or
+# `windows`.
 
 stages:
   - hygiene
@@ -40,7 +43,7 @@ variables:
   GIT_DEPTH: "0"
   MIDGARD_RELEASE_MODE:
     value: ""
-    description: "Manual runs only. dry-run: gate everything, publish nothing. release: the release, on the kms runners. audit: the client shell audits."
+    description: "Manual runs only. dry-run: gate everything, publish nothing. release: the release, on the kms runners. audit: the client shell audits. windows: the Windows services build."
   MIDGARD_PUBLISH_TAG:
     value: ""
     description: "release mode only: upload the release files to the package registry under this tag."
@@ -225,6 +228,26 @@ release-dry-run:
   artifacts:
     paths:
       - target/release-out/release-manifest.txt
+
+# --- the services on Windows ------------------------------------------------------------
+# The GitHub workflow (.github/workflows/windows.yml) runs this on every push to the
+# Windows app branch; here it runs by hand, on a runner tagged `windows`.
+
+windows-build:
+  stage: verify
+  tags:
+    - windows
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "windows"
+  cache:
+    key:
+      files:
+        - Cargo.lock
+        - rust-toolchain.toml
+    paths:
+      - target/
+  script:
+    - bash tools/ci/run.sh windows-build
 
 # --- client shell audits -----------------------------------------------------------------
 # A shell with no buildable project FAILS its audit — a record is never written for a UI

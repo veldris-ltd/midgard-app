@@ -62,6 +62,7 @@ release-bundle|toolchain|pack the signed air-gap bundle
 release-publish|host|attach the release to a draft pre-release
 shell-audit|host|build one client shell and audit it on this runner: shell-audit <shell> <release>
 shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-gate <release>
+windows-build|host|release build of the suite services on a Windows x64 runner (Git Bash, MSVC)
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -401,6 +402,36 @@ job_shell_audit() {
 
 job_shell_audit_gate() {
     bash deploy/acceptance/verify-shell-audits.sh "${1:-$(release_name)}"
+}
+
+# The services the Windows presentation app ships, built natively on a Windows x64
+# runner with the pinned toolchain and the vendored crates (no network after the
+# toolchain install). The binaries are the same six tools/mac-app/build-services.sh
+# builds; heimdall-source comes from the heimdall-feed-server package. [NFR-OSS-1]
+WINDOWS_TARGET=x86_64-pc-windows-msvc
+WINDOWS_PACKAGES=(-p http-gateway -p heimdall-feed-server -p mimir-server -p forge-worker -p midgard-replay)
+WINDOWS_BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay)
+job_windows_build() {
+    local channel dir b missing=0
+    need rustup "windows-build: rustup is needed (the GitHub windows runners carry it)"
+    channel="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)"
+    ci_group "toolchain $channel ($WINDOWS_TARGET)"
+    rustup toolchain install "$channel" --profile minimal --target "$WINDOWS_TARGET"
+    rustc --version
+    cargo --version
+    ci_endgroup
+    cargo build --offline --locked --release --target "$WINDOWS_TARGET" "${WINDOWS_PACKAGES[@]}" --bins
+    dir="target/$WINDOWS_TARGET/release"
+    for b in "${WINDOWS_BINARIES[@]}"; do
+        if [ -f "$dir/$b.exe" ]; then
+            echo "$b.exe: $(wc -c < "$dir/$b.exe" | tr -d ' ') bytes"
+        else
+            ci_error "windows-build: $dir/$b.exe was not built"
+            missing=1
+        fi
+    done
+    ls -l "$dir"/*.exe
+    return "$missing"
 }
 
 case "${1:-}" in

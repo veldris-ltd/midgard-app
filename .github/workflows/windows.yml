@@ -1,0 +1,38 @@
+# The suite's Rust services on Windows 11 x64. [NFR-OSS-1]
+#
+# This file contains no build logic: every step is `bash tools/ci/run.sh <job>`, shared
+# with the GitLab pipeline (.gitlab-ci.yml). The services are built natively on a
+# Windows runner with the pinned toolchain (rust-toolchain.toml) and the vendored
+# crates, for the Windows presentation app (docs/plans/2026-10-23-windows-app-design.md).
+name: windows
+
+on:
+  push:
+    branches: [md_windows-app]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Git Bash, not the WSL launcher that `bash` can resolve to from PowerShell.
+    shell: bash
+
+jobs:
+  build:
+    name: build the services (x86_64-pc-windows-msvc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: target/
+          key: windows-target-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            windows-target-${{ runner.arch }}-
+      - run: bash tools/ci/run.sh windows-build
