@@ -41,7 +41,6 @@ import { URBAN } from '../places';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { buildDetail, zoomFor, type Box } from './detailPatch';
-import { OFFLINE } from '../offline';
 import { loadTrafficLines, TRAFFIC_COLOURS, type TrafficLines } from '../traffic';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
 import { D2R, EARTH_KM, drawnHeight, enu, raySphere, toVec } from './geo';
@@ -143,6 +142,9 @@ export interface GlobeCallbacks {
   onInteract?: () => void;
   /** The ground point under the mouse as it moves (null off the globe). */
   onPointerGround?: (at: LatLon | null) => void;
+  /** The close-up detail appeared (with satellite imagery or not) or went (null), so its
+   *  credits can show while it does. */
+  onDetail?: (shown: { imagery: boolean } | null) => void;
 }
 
 /** Marker sizes in CSS pixels. */
@@ -1921,6 +1923,7 @@ export class GlobeView {
         m.map?.dispose();
         m.dispose();
         this.detail = null;
+        this.cb.onDetail?.(null);
         this.requestRender();
       }
       this.updateTraffic(null);
@@ -1934,7 +1937,6 @@ export class GlobeView {
     const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
     const box: Box = { west: lon - span / cos / 2, east: lon + span / cos / 2, south: lat - span / 2, north: lat + span / 2 };
     this.updateTraffic(box);
-    if (OFFLINE) return; // the offline build keeps the bundled map close up
     const key = `${this.mapStyle}:${box.west.toFixed(3)}:${box.south.toFixed(3)}:${span.toFixed(3)}:${this.exaggeration}`;
     if (key === this.detailWant || key === this.detail?.key) return;
     this.detailWant = key;
@@ -1944,14 +1946,17 @@ export class GlobeView {
     buildDetail(box, this.mapStyle, ctrl.signal)
       .then((d) => {
         if (ctrl.signal.aborted || this.disposed || this.detailWant !== key) return;
-        // A grid over the box on the same terrain surface as the base map, so roads,
-        // rivers and overlays keep sitting on it; the detail is in the image.
-        const gw = 256, gh = Math.max(32, Math.round(256 * ((box.north - box.south) / (box.east - box.west)) * cos));
+        // A grid over the detail's box (the view's; offline, clipped to the recorded tiles)
+        // on the same terrain surface as the base map, so roads, rivers and overlays keep
+        // sitting on it; the detail is in the image.
+        const db = d.box;
+        const dcos = Math.max(0.2, Math.cos((((db.north + db.south) / 2) * Math.PI) / 180));
+        const gw = 256, gh = Math.max(32, Math.round(256 * ((db.north - db.south) / (db.east - db.west)) * dcos));
         const pos = new Float32Array((gw + 1) * (gh + 1) * 3), uv = new Float32Array((gw + 1) * (gh + 1) * 2);
         const v = new THREE.Vector3();
         for (let j = 0; j <= gh; j++) {
           for (let i = 0; i <= gw; i++) {
-            const la = box.north - (j / gh) * (box.north - box.south), lo = box.west + (i / gw) * (box.east - box.west);
+            const la = db.north - (j / gh) * (db.north - db.south), lo = db.west + (i / gw) * (db.east - db.west);
             // The surface from the detail's own elevation, so its shape matches its shading.
             toVec(la, lo, 1 + drawnHeight(Math.max(0, d.heightAt(la, lo)), this.exaggeration) + 0.00011, v);
             const k = j * (gw + 1) + i;
@@ -1984,6 +1989,7 @@ export class GlobeView {
         }
         this.scene.add(mesh);
         this.detail = { mesh, key };
+        this.cb.onDetail?.({ imagery: d.imagery });
         this.requestRender();
       })
       .catch(() => { if (this.detailWant === key) this.detailWant = ''; });

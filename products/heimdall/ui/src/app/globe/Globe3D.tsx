@@ -224,6 +224,9 @@ export interface Globe3DProps {
   sunTime?: number;
   /** The ground under the mouse (null off the globe), and the point the camera looks at. */
   onPointerGround?: (at: LatLon | null) => void;
+  /** The close-up detail appeared (with satellite imagery or not) or went (null): its
+   *  sources' credits show while it does (detailPatch.ts). */
+  onDetail?: (shown: { imagery: boolean } | null) => void;
   /** `km`: the camera's distance from that point, a measure of how much is in view. */
   onLookAt?: (at: LatLon, km: number) => void;
   /** A region picked from the REGION menu (so its data can be switched on). */
@@ -244,7 +247,7 @@ export interface Globe3DProps {
   onInteract?: () => void;
 }
 
-export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract, onPointerGround, onLookAt, onRegionPick, alerts, onAlertPick }: Globe3DProps) {
+export function Globe3D({ tracks, trails, selected, path, hoverPath = null, pathsFirst = false, hover, onSelect, onHover, bottomInset = 0, areas = [], radar = null, traffic = null, sunTime, measuring = false, measure = [], rings = null, onSurface, markerScale = 1, flyRequest = null, onInteract, onPointerGround, onLookAt, onRegionPick, alerts, onAlertPick, onDetail }: Globe3DProps) {
   const measureRef = React.useRef<HTMLDivElement>(null);
   const ringLabelRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const hostRef = React.useRef<HTMLDivElement>(null);
@@ -273,8 +276,8 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
   React.useEffect(() => { viewRef.current?.setMapStyle(mapStyle); }, [mapStyle]);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Callbacks read through a ref so the scene is built once.
-  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks, alerts, onAlertPick });
-  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks, alerts, onAlertPick };
+  const live = React.useRef({ onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks, alerts, onAlertPick, onDetail });
+  live.current = { onSelect, onHover, selected, hover, onSurface, onInteract, measure, rings, onPointerGround, onLookAt, tracks, alerts, onAlertPick, onDetail };
 
   /** Move the label, tooltip and compass to follow the camera (after every frame). */
   const overlays = React.useCallback(() => {
@@ -333,6 +336,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
         onSurface: (at) => live.current.onSurface?.(at),
         onPointerGround: (at) => live.current.onPointerGround?.(at),
         onInteract: () => live.current.onInteract?.(),
+        onDetail: (d) => live.current.onDetail?.(d),
       });
     } catch (err) {
       setFailed(err instanceof Error ? err.message : String(err));
@@ -343,6 +347,7 @@ export function Globe3D({ tracks, trails, selected, path, hoverPath = null, path
     return () => {
       view.dispose();
       viewRef.current = null;
+      live.current.onDetail?.(null);
     };
   }, [overlays]);
 

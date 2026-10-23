@@ -16,7 +16,7 @@ cd "$(dirname "$0")/../.."
 OUT=dist/mac/consoles
 PRODUCTS=(midgard heimdall mimir forge)
 # Endpoints (hosts the overlays fetch from); attribution links to the providers are allowed.
-FORBIDDEN=(api.tomtom.com api.rainviewer.com tilecache.rainviewer.com elevation-tiles-prod tiles.maps.eox.at)
+FORBIDDEN=(api.tomtom.com api.rainviewer.com tilecache.rainviewer.com elevation-tiles-prod s3.amazonaws.com tiles.maps.eox.at s2cloudless_3857)
 
 if ! command -v pnpm >/dev/null 2>&1; then
   echo "pnpm not found: install it (corepack enable, or brew install pnpm) and re-run" >&2

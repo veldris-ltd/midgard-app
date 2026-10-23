@@ -8,9 +8,26 @@
  *     plain relief colours for the dark map;
  *   - for the satellite map, Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains
  *     modified Copernicus Sentinel data 2016; CC BY 4.0), shaded with the same hillshade.
- * The caller lays it on the terrain surface. Needs the internet; without it the bundled
- * map stays. */
+ * The caller lays it on the terrain surface (over `Detail.box`). Online it needs the internet;
+ * without it the bundled map stays.
+ *
+ * The offline build (the Mac app) reads the same tiles recorded by tools/mac-app/
+ * capture-tiles.py from the app's /tiles/ instead (tilesReplay.ts): the finest recorded zoom
+ * at or below the one wanted, the close-up clipped to the recorded box (the UK and Ireland;
+ * the bundled map elsewhere), tiles not recorded drawn as sea. The tile hosts are not in
+ * that build.
+ * Attribution while the close-up shows (Globe3D): IMAGERY_CREDIT with the satellite imagery
+ * (EOX's own wording for this layer, from their WMTS capabilities), TERRAIN_CREDIT always
+ * (the Terrain Tiles attribution list, the sources over the UK, Ireland and Europe shown). */
 import { OFFLINE } from '../offline';
+import { clipToRecorded, parseTilesManifest, pickRecorded, recordedTileUrl, type TilePick, type TilesManifest } from './tilesReplay';
+
+export const IMAGERY_CREDIT = 'EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016)';
+export const IMAGERY_LICENCE = 'CC BY 4.0';
+export const IMAGERY_LINK = 'https://cloudless.eox.at';
+export const TERRAIN_CREDIT = 'Terrain: Mapzen Terrain Tiles (AWS Open Data) · United Kingdom terrain data © Environment Agency copyright and/or database right 2015. All rights reserved · Europe terrain data produced using Copernicus data and information funded by the European Union - EU-DEM layers · SRTM, GMTED2010 courtesy of the U.S. Geological Survey · ETOPO1 U.S. National Oceanic and Atmospheric Administration';
+/** The whole Terrain Tiles attribution list (github.com/tilezen/joerd docs/attribution.md). */
+export const TERRAIN_CREDIT_FULL = 'Mapzen; ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery and funded under National Science Foundation awards 1043681, 1559691, and 1542736; Australia terrain data © Commonwealth of Australia (Geoscience Australia) 2017; Austria terrain data © offene Daten Österreichs – Digitales Geländemodell (DGM) Österreich; Canada terrain data contains information licensed under the Open Government Licence – Canada; Europe terrain data produced using Copernicus data and information funded by the European Union - EU-DEM layers; Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration; Mexico terrain data source: INEGI, Continental relief, 2016; New Zealand terrain data Copyright 2011 Crown copyright (c) Land Information New Zealand and the New Zealand Government (All rights reserved); Norway terrain data © Kartverket; United Kingdom terrain data © Environment Agency copyright and/or database right 2015. All rights reserved; United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey.';
 
 export interface Box {
   west: number;
@@ -22,8 +39,11 @@ export interface Box {
 export type DetailStyle = 'tactical' | 'satellite' | 'dark';
 
 export interface Detail {
+  /** The area the image covers: the box asked for (offline, clipped to the recording). */
   box: Box;
   zoom: number;
+  /** The satellite imagery is in the image (show IMAGERY_CREDIT). */
+  imagery: boolean;
   canvas: HTMLCanvasElement;
   /** Height in metres at a point of the box (from the same elevation as the image). */
   heightAt: (lat: number, lon: number) => number;
@@ -31,6 +51,8 @@ export interface Detail {
 
 const TILE = 256;
 const MAX_TILES = 100;
+/** EOX's sea colour (its tile for open sea), under tiles not recorded. */
+const SEA = '#182c4e';
 
 const tileX = (lon: number, z: number) => ((lon + 180) / 360) * 2 ** z;
 const tileY = (lat: number, z: number) => {
@@ -55,37 +77,106 @@ export function zoomFor(box: Box, pixels = 2600): number {
   return Math.max(7, Math.min(12, z));
 }
 
-/** Tiles at `z` covering the box, drawn into one mosaic canvas. */
-async function mosaic(box: Box, z: number, url: (z: number, x: number, y: number) => string, signal?: AbortSignal) {
-  const x0 = Math.floor(tileX(box.west, z)), x1 = Math.floor(tileX(box.east, z));
-  const y0 = Math.floor(tileY(box.north, z)), y1 = Math.floor(tileY(box.south, z));
-  if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_TILES) throw new Error('too many tiles');
+/** The tiles of `pick`, drawn into one mosaic canvas (tiles not stored left blank, or
+ * `fill`). */
+async function mosaic(pick: TilePick, url: (z: number, x: number, y: number) => string, signal?: AbortSignal, fill?: string) {
+  const { z, x0, x1, y0, y1 } = pick;
   const c = document.createElement('canvas');
   c.width = (x1 - x0 + 1) * TILE;
   c.height = (y1 - y0 + 1) * TILE;
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  if (fill) { ctx.fillStyle = fill; ctx.fillRect(0, 0, c.width, c.height); }
   const jobs: Promise<void>[] = [];
   for (let x = x0; x <= x1; x++) {
     for (let y = y0; y <= y1; y++) {
+      if (!pick.stored(x, y)) continue;
       jobs.push(loadImage(url(z, x, y), signal).then((img) => { ctx.drawImage(img, (x - x0) * TILE, (y - y0) * TILE); }));
     }
   }
   const done = await Promise.allSettled(jobs);
   if (signal?.aborted) throw new Error('aborted');
-  if (done.every((d) => d.status === 'rejected')) throw new Error('tiles unreachable');
+  if (jobs.length > 0 && done.every((d) => d.status === 'rejected')) throw new Error('tiles unreachable');
   return { c, ctx, x0, y0 };
 }
 
-/** Build the detail image for the box in the given style. */
-export async function buildDetail(box: Box, style: DetailStyle, signal?: AbortSignal): Promise<Detail> {
-  if (OFFLINE) throw new Error('offline build: the bundled map stays');
+/** Every tile at `z` covering the box (the live sources have them all), or null if too many. */
+function allTiles(box: Box, z: number): TilePick | null {
+  const x0 = Math.floor(tileX(box.west, z)), x1 = Math.floor(tileX(box.east, z));
+  const y0 = Math.floor(tileY(box.north, z)), y1 = Math.floor(tileY(box.south, z));
+  if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_TILES) return null;
+  return { z, x0, x1, y0, y1, stored: () => true };
+}
+
+/** What to read for a close-up: the area, and the terrain and imagery tiles. */
+interface Plan {
+  box: Box;
+  dem: TilePick;
+  demUrl: (z: number, x: number, y: number) => string;
+  /** Null when there is no imagery to read (then the relief colours are used). */
+  sat: TilePick | null;
+  satUrl: (z: number, x: number, y: number) => string;
+}
+
+/** Online: the tile hosts, at the zoom for the box (imagery one finer). */
+async function livePlan(box: Box, style: DetailStyle): Promise<Plan> {
   const z = zoomFor(box);
-  const W = 2048;
+  const dem = allTiles(box, z);
+  if (!dem) throw new Error('too many tiles');
+  return {
+    box, dem, demUrl: (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`,
+    sat: style === 'satellite' ? allTiles(box, Math.min(13, z + 1)) : null,
+    satUrl: (z, x, y) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/${z}/${y}/${x}.jpg`,
+  };
+}
+
+// Offline: the manifest, read once.
+let recorded: Promise<TilesManifest> | null = null;
+
+function recordedManifest(): Promise<TilesManifest> {
+  if (!recorded) {
+    recorded = fetch('/tiles/manifest.json', { cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) throw new Error(res.status === 404 ? 'no close-up tiles in this recording' : `HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(parseTilesManifest);
+    recorded.catch(() => { recorded = null; });
+  }
+  return recorded;
+}
+
+/** Offline: the recorded tiles in the app's /tiles/, the box clipped to the recording. */
+async function recordedPlan(box: Box, style: DetailStyle): Promise<Plan> {
+  const m = await recordedManifest();
+  const clipped = clipToRecorded(box, m.box);
+  if (!clipped) throw new Error('outside the recorded tiles');
+  const z = zoomFor(box);
+  const dem = pickRecorded(m.sources.terrarium, clipped, z, MAX_TILES);
+  if (!dem) throw new Error('no recorded terrain here');
+  return {
+    box: clipped, dem, demUrl: (z, x, y) => recordedTileUrl('terrarium', z, x, y),
+    sat: style === 'satellite' ? pickRecorded(m.sources.s2cloudless, clipped, Math.min(13, z + 1), MAX_TILES) : null,
+    satUrl: (z, x, y) => recordedTileUrl('s2cloudless', z, x, y),
+  };
+}
+
+/** A build-time choice, so the offline build has no tile host in it. */
+const planDetail: (box: Box, style: DetailStyle) => Promise<Plan> = OFFLINE ? recordedPlan : livePlan;
+
+/** Build the detail image for the box in the given style. */
+export async function buildDetail(want: Box, style: DetailStyle, signal?: AbortSignal): Promise<Detail> {
+  const plan = await planDetail(want, style);
+  if (signal?.aborted) throw new Error('aborted');
+  const box = plan.box;
+  const z = plan.dem.z;
+  // About 2048 pixels on the longer side (square for a whole view).
   const midLat = (box.north + box.south) / 2;
-  const H = Math.round(W * ((box.north - box.south) / ((box.east - box.west) * Math.cos((midLat * Math.PI) / 180))));
+  const aspect = (box.north - box.south) / ((box.east - box.west) * Math.cos((midLat * Math.PI) / 180));
+  const W = aspect > 1 ? Math.max(1, Math.round(2048 / aspect)) : 2048;
+  const H = aspect > 1 ? 2048 : Math.max(1, Math.round(2048 * aspect));
 
   // Elevation, sampled onto the output's lat/lon pixels.
-  const dem = await mosaic(box, z, (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`, signal);
+  const dem = await mosaic(plan.dem, plan.demUrl, signal);
   const raw = dem.ctx.getImageData(0, 0, dem.c.width, dem.c.height).data;
   const elev = new Float32Array(W * H);
   const colOf = new Float32Array(W);
@@ -102,9 +193,9 @@ export async function buildDetail(box: Box, style: DetailStyle, signal?: AbortSi
 
   // Satellite imagery for the satellite map, onto the same pixels.
   let sat: Uint8ClampedArray | null = null;
-  if (style === 'satellite') {
-    const sz = Math.min(13, z + 1);
-    const im = await mosaic(box, sz, (z, x, y) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/${z}/${y}/${x}.jpg`, signal).catch(() => null);
+  if (style === 'satellite' && plan.sat) {
+    const sz = plan.sat.z;
+    const im = await mosaic(plan.sat, plan.satUrl, signal, SEA).catch(() => null);
     if (im) {
       const out = document.createElement('canvas');
       out.width = W;
@@ -182,5 +273,5 @@ export async function buildDetail(box: Box, style: DetailStyle, signal?: AbortSi
     const j = Math.round(((box.north - lat) / (box.north - box.south)) * H - 0.5);
     return e(i, j);
   };
-  return { box, zoom: z, canvas: out, heightAt };
+  return { box, zoom: z, imagery: sat !== null, canvas: out, heightAt };
 }

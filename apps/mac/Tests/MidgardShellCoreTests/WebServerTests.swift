@@ -115,6 +115,9 @@ final class WebServerTests: XCTestCase {
         try put("recording/radar/.hidden.json", Data("hidden".utf8))
         try put("recording/traffic/manifest.json", Data(#"{"version":1}"#.utf8))
         try put("recording/traffic/7/63/42.pbf", Data([0x1A, 0x09, 0x0A, 0x05, 0x65, 0x6D, 0x70, 0x74, 0x79, 0x78, 0x02]))
+        try put("recording/tiles/manifest.json", Data(#"{"version":1}"#.utf8))
+        try put("recording/tiles/terrarium/10/511/340.png", Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+        try put("recording/tiles/s2cloudless/11/681/1023.jpg", Data([0xFF, 0xD8, 0xFF, 0xE0]))
         // Outside root: traversal must never reach it.
         try Data("secret".utf8).write(to: base.appendingPathComponent("secret.txt"))
 
@@ -353,6 +356,25 @@ final class WebServerTests: XCTestCase {
         XCTAssertEqual(try get("/traffic/7/63").status, 404)  // a directory
         XCTAssertEqual(try get("/traffic/7/63/43.pbf").status, 404)
         for path in ["/traffic/../heimdall.jsonl.gz", "/traffic/%2e%2e/radar/manifest.json"] {
+            XCTAssertEqual(try get(path).status, 403, path)
+        }
+    }
+
+    func testServesRecordingTilesWithTheSameRules() throws {
+        let manifest = try get("/tiles/manifest.json")
+        XCTAssertEqual(manifest.status, 200)
+        XCTAssertEqual(manifest.headers["content-type"], "application/json")
+        let terrain = try get("/tiles/terrarium/10/511/340.png")
+        XCTAssertEqual(terrain.status, 200)
+        XCTAssertEqual(terrain.headers["content-type"], "image/png")
+        XCTAssertEqual(terrain.body.count, 8)
+        let imagery = try get("/tiles/s2cloudless/11/681/1023.jpg")
+        XCTAssertEqual(imagery.status, 200)
+        XCTAssertEqual(imagery.headers["content-type"], "image/jpeg")
+        XCTAssertEqual(try get("/tiles/").status, 404)
+        XCTAssertEqual(try get("/tiles/terrarium/10").status, 404)  // a directory
+        XCTAssertEqual(try get("/tiles/terrarium/10/511/341.png").status, 404)  // sea: not recorded
+        for path in ["/tiles/../heimdall.jsonl.gz", "/tiles/%2e%2e/traffic/manifest.json"] {
             XCTAssertEqual(try get(path).status, 403, path)
         }
     }

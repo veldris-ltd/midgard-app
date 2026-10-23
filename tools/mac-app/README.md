@@ -11,6 +11,7 @@ Silicon) and run from a folder, without Docker.
 | `record.py record \| pack` | Records the live feeds for offline replay (see [Recording and replay](#recording-and-replay)) |
 | `capture-radar.py [RECORDING]` | Stores RainViewer's past radar frames over the UK and Ireland in `RECORDING/radar/` for the app's RADAR chip (see [Recording and replay](#recording-and-replay)) |
 | `capture-traffic.py [RECORDING]` | Stores a snapshot of TomTom's traffic flow tiles over the UK and Ireland in `RECORDING/traffic/` for the app's TRAFFIC chip (see [Recording and replay](#recording-and-replay)) |
+| `capture-tiles.py [--plan] [RECORDING]` | Stores the globe's close-up terrain and satellite imagery tiles over the UK and Ireland in `RECORDING/tiles/` (see [Recording and replay](#recording-and-replay)) |
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
 | `build-app.sh` | Builds `Midgard.app`, the presentation app (see [The app](#the-app)) |
 | `fetch-llama.sh` | Downloads and lays out the pinned llama.cpp model server for the app (see [Model server](#model-server)) |
@@ -157,6 +158,29 @@ python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
   storing their results beyond client caching within the cache headers (the flow tiles
   expire in about a minute), allow evaluation keys for internal evaluation only (2.2), and
   require their copyright caption (17.3); shipping this snapshot is the user's call.
+- Close-up globe imagery: `python3 tools/mac-app/capture-tiles.py [--plan] [OUT]` stores the
+  tiles the globe's close-up detail reads (detailPatch.ts) over the UK and Ireland box in
+  `OUT/tiles/` with a `manifest.json`: Terrain Tiles (terrarium PNG, `terrarium/z/x/y.png`) and
+  EOX Sentinel-2 cloudless 2016 (`s2cloudless/z/y/x.jpg`), the same path shapes as the
+  sources. It prints the plan first (land tiles per zoom from the bundled height grid, sizes
+  from 12 sampled land tiles a zoom): terrain zooms with imagery one finer, coarse to fine,
+  then finer imagery alone, while the estimate stays under 300 MB (all zooms would be ~3 GB;
+  hour-1: terrain z7-10, imagery z8-11). Zoom 7 terrain is read whole; finer tiles only under
+  parent terrain with ground above sea level, so the sea costs nothing (the console draws a
+  tile not recorded as sea). Per host 4 downloads at a time, paced, one retry (Retry-After),
+  redirects to another host refused, each tile asked for once; terrain kept only if it
+  decodes as a 256 x 256 RGB PNG, imagery only if JPEG (EOX's one-colour sea PNGs dropped).
+  The app serves them at `/tiles/`; offline the globe uses the finest recorded zoom at or
+  below the one it wants, clipped to the recorded box (the bundled map outside it). Licences:
+  Sentinel-2 cloudless 2016 (`s2cloudless_3857`) is CC BY 4.0; EOX's capabilities give its
+  attribution as "EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains
+  modified Copernicus Sentinel data 2016)" (the console shows it with the imagery; the script
+  checks it). EOX's site asks those who need offline maps to contact them and says its demo
+  service is rate limited. Terrain Tiles (Mapzen, AWS Open Data) require their attribution
+  list (github.com/tilezen/joerd docs/attribution.md; the UK's: "© Environment Agency
+  copyright and/or database right 2015. All rights reserved", OGL v3); the console shows the
+  UK, Europe and global entries, the whole list on hover. Neither says anything about storing
+  tiles; shipping them is the user's call.
 
 ### Replaying
 

@@ -24,6 +24,7 @@ import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
 import { radarLabel, useRadar, RADAR_BOX, RADAR_CREDIT, RADAR_LINK } from '../app/radar';
 import { trafficLabel, useTraffic, TRAFFIC_COLOURS, TRAFFIC_LINK, type TrafficLines } from '../app/traffic';
 import { OFFLINE } from '../app/offline';
+import { IMAGERY_CREDIT, IMAGERY_LICENCE, IMAGERY_LINK, TERRAIN_CREDIT, TERRAIN_CREDIT_FULL } from '../app/globe/detailPatch';
 import { useWatchlist, type Watchlist } from '../app/watchlist';
 import { AreaLayer, ToolLayer } from '../app/MapOverlays2D';
 import type { LatLon } from '../app/geoMath';
@@ -884,6 +885,9 @@ export function OperatingPictureScreen() {
 
   // 2D map or 3D globe, remembered per browser. [FR-P3-7]
   const [view, setViewState] = React.useState<'2d' | '3d'>(readView);
+  // The globe's close-up detail (detailPatch.ts), for its credits.
+  const [detailShown, setDetailShown] = React.useState<{ imagery: boolean } | null>(null);
+  const closeUp = view === '3d' ? detailShown : null;
   const setView = (v: '2d' | '3d') => {
     setViewState(v);
     try { window.localStorage.setItem(VIEW_KEY, v); } catch { /* storage blocked: still switches */ }
@@ -1391,6 +1395,7 @@ export function OperatingPictureScreen() {
       {view === '3d' && (
         <React.Suspense fallback={<div style={{ position: 'absolute', top: '40%', width: '100%', textAlign: 'center', ...mono, color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}>
           <Globe3D tracks={visible} trails={globeTrails} selected={sel} path={selPath} hoverPath={hoverPath} pathsFirst={trailMins === 0 || trailMins >= 30} hover={hover} onSelect={select} onHover={setHover} bottomInset={bottomH}
+            onDetail={setDetailShown}
             onPointerGround={(at) => { const r = at ? regionAt(enabledRegions, at.lat, at.lon) : null; setPointerRegion((p) => (p?.id === r?.id ? p : r)); }}
             onRegionPick={(preset) => {
               // Flying to a region switches its data on (sub-areas belong to a region).
@@ -1636,9 +1641,16 @@ export function OperatingPictureScreen() {
       )}
       <style>{ALERT_PULSE_CSS}</style>
       {/* Overlay credits: RainViewer's terms make theirs, with a link, mandatory while the radar
-          shows; TomTom's ask for their copyright caption with the traffic. */}
-      {(radar.status === 'ready' || traffic.status === 'ready') && (
-        <div style={{ position: 'absolute', left: 10, bottom: bottomH + 6, zIndex: 4, display: 'flex', flexDirection: 'column', gap: 2, fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.04em', color: 'var(--text-faint)', textShadow: '0 0 3px #000' }}>
+          shows; TomTom's ask for their copyright caption with the traffic; the globe's close-up
+          (detailPatch.ts) shows EOX's wording for the Sentinel-2 cloudless layer with its licence
+          while the imagery shows, and the Terrain Tiles list (the UK, Europe and global sources;
+          the whole list on hover) while the close-up does. */}
+      {(radar.status === 'ready' || traffic.status === 'ready' || closeUp) && (
+        <div style={{ position: 'absolute', left: 10, bottom: bottomH + 6, zIndex: 4, maxWidth: 'min(400px, 32%)', display: 'flex', flexDirection: 'column', gap: 2, fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.04em', color: 'var(--text-faint)', textShadow: '0 0 3px #000' }}>
+          {closeUp?.imagery && (
+            <div><a href={IMAGERY_LINK} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{IMAGERY_CREDIT}</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{IMAGERY_LICENCE}</a>{OFFLINE ? ' · recorded tiles' : ''}</div>
+          )}
+          {closeUp && <div title={TERRAIN_CREDIT_FULL}>{TERRAIN_CREDIT}{OFFLINE ? ' · recorded tiles' : ''}</div>}
           {traffic.status === 'ready' && (
             <div>Traffic <a href={TRAFFIC_LINK} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{traffic.credit}</a>{OFFLINE ? ' · recorded snapshot' : ''}</div>
           )}
