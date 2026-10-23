@@ -5,14 +5,26 @@
  * Each road segment in a flow tile carries `traffic_level`, its current speed as a
  * fraction of free-flow speed, and `road_closure`. Segments are sorted into four classes:
  * light (75 % of free flow or better), moderate (40-75 %), heavy (under 40 %) and closed.
- * The UK and Ireland overview uses zoom 7 tiles (major roads, ~60 tiles a read, every 5
+ * The UK and Ireland overview uses zoom 7 tiles (major roads, ~70 tiles a read, every 5
  * minutes while on); the globe reads finer tiles for the area in view when close in
- * (loadTrafficLines with the view's box). Needs the internet; attribution "TomTom". */
+ * (loadTrafficLines with the view's box). Needs the internet.
+ *
+ * The offline build (the Mac app) reads the snapshot recorded by tools/mac-app/
+ * capture-traffic.py from the app's /traffic/ instead (manifest.json and the same tiles, at the
+ * finest recorded zoom at or below the one wanted; trafficReplay.ts), shown as current. The
+ * live code and the key are not in that build.
+ * Attribution (TomTom's terms: their copyright caption, from the Copyright API): TRAFFIC_CREDIT
+ * ("\u00a9TomTom", the caption the API returns; offline the one recorded with the tiles) wherever
+ * the overlay shows, and "TOMTOM" on the chip. */
 import * as React from 'react';
 import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
 import { RADAR_BOX } from './radar';
 import { OFFLINE } from './offline';
+import { parseTrafficManifest, recordedTiles, recordedTrafficUrl, type TrafficManifest } from './trafficReplay';
+
+export const TRAFFIC_CREDIT = '\u00a9TomTom';
+export const TRAFFIC_LINK = 'https://www.tomtom.com/';
 
 export interface TrafficBox {
   west: number;
@@ -32,7 +44,7 @@ export interface TrafficLines {
 export type TrafficState =
   | { status: 'off' }
   | { status: 'loading' }
-  | { status: 'ready'; lines: TrafficLines; at: number }
+  | { status: 'ready'; lines: TrafficLines; at: number; credit: string }
   | { status: 'unavailable'; reason: string };
 
 // Never read in the offline build, so no key is inlined into it.
@@ -49,46 +61,80 @@ const tileY = (lat: number, z: number) => {
 const lonOf = (x: number, z: number) => (x / 2 ** z) * 360 - 180;
 const latOf = (y: number, z: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** z))) * 180) / Math.PI;
 
-/** The traffic for a box from zoom-`z` flow tiles. */
-export async function loadTrafficLines(box: TrafficBox, z: number, signal?: AbortSignal): Promise<TrafficLines> {
-  if (OFFLINE) throw new Error('offline build');
+/** Reads the flow tiles `tiles` at `z` (`url(x, y)`) and sorts their segments by class. */
+async function readTiles(z: number, tiles: [number, number][], url: (x: number, y: number) => string, signal?: AbortSignal): Promise<TrafficLines> {
+  const out: TrafficLines = { light: [], moderate: [], heavy: [], closed: [] };
+  const jobs = tiles.map(([x, y]) => fetch(url(x, y), { signal })
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then((buf) => {
+      const layer = new VectorTile(new Pbf(buf)).layers['Traffic flow'];
+      if (!layer) return;
+      for (let i = 0; i < layer.length; i++) {
+        const f = layer.feature(i);
+        if (f.type !== 2) continue;
+        const p = f.properties as { traffic_level?: number; road_closure?: boolean };
+        const level = typeof p.traffic_level === 'number' ? p.traffic_level : 1;
+        const cls = p.road_closure ? 'closed' : level < 0.4 ? 'heavy' : level < 0.75 ? 'moderate' : 'light';
+        for (const ring of f.loadGeometry()) {
+          out[cls].push(ring.map((pt: { x: number; y: number }) => [latOf(y + pt.y / layer.extent, z), lonOf(x + pt.x / layer.extent, z)] as [number, number]));
+        }
+      }
+    }));
+  const done = await Promise.allSettled(jobs);
+  if (signal?.aborted) throw new Error('aborted');
+  if (jobs.length > 0 && done.every((d) => d.status === 'rejected')) throw new Error('traffic tiles unreachable');
+  return out;
+}
+
+/** The traffic for a box from TomTom's zoom-`z` flow tiles. */
+async function loadLiveTraffic(box: TrafficBox, z: number, signal?: AbortSignal): Promise<TrafficLines> {
   if (!KEY) throw new Error('no TomTom key (VITE_TOMTOM_KEY)');
   const x0 = Math.floor(tileX(box.west, z)), x1 = Math.floor(tileX(box.east, z));
   const y0 = Math.floor(tileY(box.north, z)), y1 = Math.floor(tileY(box.south, z));
   if ((x1 - x0 + 1) * (y1 - y0 + 1) > MAX_TILES) throw new Error('too many traffic tiles');
-  const out: TrafficLines = { light: [], moderate: [], heavy: [], closed: [] };
-  const jobs: Promise<void>[] = [];
-  for (let x = x0; x <= x1; x++) {
-    for (let y = y0; y <= y1; y++) {
-      jobs.push(fetch(`https://api.tomtom.com/traffic/map/4/tile/flow/relative/${z}/${x}/${y}.pbf?key=${KEY}`, { signal })
-        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((buf) => {
-          const layer = new VectorTile(new Pbf(buf)).layers['Traffic flow'];
-          if (!layer) return;
-          for (let i = 0; i < layer.length; i++) {
-            const f = layer.feature(i);
-            if (f.type !== 2) continue;
-            const p = f.properties as { traffic_level?: number; road_closure?: boolean };
-            const level = typeof p.traffic_level === 'number' ? p.traffic_level : 1;
-            const cls = p.road_closure ? 'closed' : level < 0.4 ? 'heavy' : level < 0.75 ? 'moderate' : 'light';
-            for (const ring of f.loadGeometry()) {
-              out[cls].push(ring.map((pt: { x: number; y: number }) => [latOf(y + pt.y / layer.extent, z), lonOf(x + pt.x / layer.extent, z)] as [number, number]));
-            }
-          }
-        }));
-    }
-  }
-  const done = await Promise.allSettled(jobs);
-  if (signal?.aborted) throw new Error('aborted');
-  if (done.every((d) => d.status === 'rejected')) throw new Error('traffic tiles unreachable');
-  return out;
+  const tiles: [number, number][] = [];
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) tiles.push([x, y]);
+  return readTiles(z, tiles, (x, y) => `https://api.tomtom.com/traffic/map/4/tile/flow/relative/${z}/${x}/${y}.pbf?key=${KEY}`, signal);
 }
 
-/** The UK and Ireland overview while `on`, refreshed every 5 minutes. */
+// Offline: the manifest, read once.
+let recorded: Promise<TrafficManifest> | null = null;
+
+function recordedManifest(): Promise<TrafficManifest> {
+  if (!recorded) {
+    recorded = fetch('/traffic/manifest.json', { cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) throw new Error(res.status === 404 ? 'no traffic in this recording' : `HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((raw) => parseTrafficManifest(raw, { overviewZoom: OVERVIEW_ZOOM, box: RADAR_BOX }));
+    recorded.catch(() => { recorded = null; });
+  }
+  return recorded;
+}
+
+/** The traffic for a box from the recorded tiles in the app's /traffic/ (outside the
+ * recording: no lines). */
+async function loadRecordedTraffic(box: TrafficBox, z: number, signal?: AbortSignal): Promise<TrafficLines> {
+  const m = await recordedManifest();
+  const pick = recordedTiles(m, box, z, MAX_TILES);
+  return readTiles(pick.z, pick.tiles, (x, y) => recordedTrafficUrl(pick.z, x, y), signal);
+}
+
+/** The traffic for a box from zoom-`z` flow tiles: TomTom's, or offline the recorded ones.
+ * A build-time choice, so the offline build has no TomTom endpoint (or key). */
+export const loadTrafficLines: (box: TrafficBox, z: number, signal?: AbortSignal) => Promise<TrafficLines> =
+  OFFLINE ? loadRecordedTraffic : loadLiveTraffic;
+
+/** The copyright caption to show with the overlay. */
+const trafficCredit = (): Promise<string> => (OFFLINE ? recordedManifest().then((m) => m.attribution) : Promise.resolve(TRAFFIC_CREDIT));
+
+/** The UK and Ireland overview while `on`, refreshed every 5 minutes (offline: read once,
+ * the recorded snapshot). */
 export function useTraffic(on: boolean): TrafficState {
   const [state, setState] = React.useState<TrafficState>({ status: 'off' });
   React.useEffect(() => {
-    if (!on || OFFLINE) {
+    if (!on) {
       setState({ status: 'off' });
       return;
     }
@@ -97,13 +143,13 @@ export function useTraffic(on: boolean): TrafficState {
     const read = () => {
       ctrl.abort();
       ctrl = new AbortController();
-      loadTrafficLines(RADAR_BOX, OVERVIEW_ZOOM, ctrl.signal)
-        .then((lines) => { if (live) setState({ status: 'ready', lines, at: Date.now() }); })
+      Promise.all([loadTrafficLines(RADAR_BOX, OVERVIEW_ZOOM, ctrl.signal), trafficCredit()])
+        .then(([lines, credit]) => { if (live) setState({ status: 'ready', lines, at: Date.now(), credit }); })
         .catch((err) => { if (live) setState((s) => (s.status === 'ready' ? s : { status: 'unavailable', reason: err instanceof Error ? err.message : String(err) })); });
     };
     setState({ status: 'loading' });
     read();
-    const timer = window.setInterval(read, REFRESH_MS);
+    const timer = OFFLINE ? undefined : window.setInterval(read, REFRESH_MS);
     return () => {
       live = false;
       ctrl.abort();

@@ -10,6 +10,7 @@ import Network
 ///     /<product>/…           root/consoles/<product>/…   (midgard, heimdall, mimir, forge)
 ///     /media/…               root/recording/media/…      (the recording's camera stills and clips)
 ///     /radar/…               root/recording/radar/…      (the recording's rain radar frames)
+///     /traffic/…             root/recording/traffic/…    (the recording's road traffic flow tiles)
 ///
 /// The recording's folders (`recordingFolders`) serve files only: no index page, no
 /// redirect, no dot files, and nothing whose real path (symlinks resolved) leaves the folder.
@@ -30,6 +31,7 @@ public final class WebServer: @unchecked Sendable {
     static let recordingFolders: [String: String] = [
         "media": "recording/media",
         "radar": "recording/radar",
+        "traffic": "recording/traffic",
     ]
     static let maxHead = 16 * 1024
     static let chunk = 256 * 1024

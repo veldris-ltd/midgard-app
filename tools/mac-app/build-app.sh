@@ -327,7 +327,7 @@ if [ -n "$RECORDING" ]; then
   for entry in "$RECORDING"/*; do
     case "$(basename "$entry")" in
       raw) continue ;;              # the raw capture is not replayed
-      *.tmp|*.old) continue ;;      # a capture (capture-radar.py) still being written or swapped
+      *.tmp|*.old) continue ;;      # a capture (capture-radar.py, capture-traffic.py) still being written or swapped
     esac
     clone_copy "$entry" "$R/recording/$(basename "$entry")"
   done
@@ -343,6 +343,12 @@ if [ -n "$RECORDING" ]; then
     echo "recording radar: $(find "$R/recording/radar" -name '*.png' -type f | wc -l | tr -d ' ') tiles, $(du -sh "$R/recording/radar" | cut -f1)"
   else
     echo "recording radar: none (the RADAR chip shows unavailable; run tools/mac-app/capture-radar.py)"
+  fi
+  # Road traffic flow snapshot (capture-traffic.py), served by the app at /traffic/.
+  if [ -f "$R/recording/traffic/manifest.json" ]; then
+    echo "recording traffic: $(find "$R/recording/traffic" -name '*.pbf' -type f | wc -l | tr -d ' ') tiles, $(du -sh "$R/recording/traffic" | cut -f1)"
+  else
+    echo "recording traffic: none (the TRAFFIC chip shows unavailable; run tools/mac-app/capture-traffic.py)"
   fi
 else
   echo "recording: none (the app starts without replay)"
@@ -412,7 +418,7 @@ for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Helper
     "$APP"/Contents/Resources/analytics/runtime/* "$APP/Contents/Resources/models/yolox"; do
   du -sh "$part" | sed "s|$APP/Contents/||"
 done
-for part in media radar; do
+for part in media radar traffic; do
   [ ! -d "$APP/Contents/Resources/recording/$part" ] || du -sh "$APP/Contents/Resources/recording/$part" | sed "s|$APP/Contents/||"
 done
 echo "free disk: $((FREE_BEFORE / 1024)) MB before, $((FREE_AFTER / 1024)) MB after ($(((FREE_BEFORE - FREE_AFTER) / 1024)) MB used, including any rebuilt dist/ and swift outputs)"

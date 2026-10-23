@@ -113,6 +113,8 @@ final class WebServerTests: XCTestCase {
         try put("recording/radar/manifest.json", Data(#"{"version":1}"#.utf8))
         try put("recording/radar/frames/0/31/19.png", Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
         try put("recording/radar/.hidden.json", Data("hidden".utf8))
+        try put("recording/traffic/manifest.json", Data(#"{"version":1}"#.utf8))
+        try put("recording/traffic/7/63/42.pbf", Data([0x1A, 0x09, 0x0A, 0x05, 0x65, 0x6D, 0x70, 0x74, 0x79, 0x78, 0x02]))
         // Outside root: traversal must never reach it.
         try Data("secret".utf8).write(to: base.appendingPathComponent("secret.txt"))
 
@@ -337,6 +339,22 @@ final class WebServerTests: XCTestCase {
             at: root.appendingPathComponent("recording/radar/cam.jpg"),
             withDestinationURL: root.appendingPathComponent("recording/media/JamCams_1.jpg"))
         XCTAssertEqual(try get("/radar/cam.jpg").status, 403)
+    }
+
+    func testServesRecordingTrafficWithTheSameRules() throws {
+        let manifest = try get("/traffic/manifest.json")
+        XCTAssertEqual(manifest.status, 200)
+        XCTAssertEqual(manifest.headers["content-type"], "application/json")
+        let tile = try get("/traffic/7/63/42.pbf")
+        XCTAssertEqual(tile.status, 200)
+        XCTAssertEqual(tile.headers["content-type"], "application/x-protobuf")
+        XCTAssertEqual(tile.body.count, 11)
+        XCTAssertEqual(try get("/traffic/").status, 404)
+        XCTAssertEqual(try get("/traffic/7/63").status, 404)  // a directory
+        XCTAssertEqual(try get("/traffic/7/63/43.pbf").status, 404)
+        for path in ["/traffic/../heimdall.jsonl.gz", "/traffic/%2e%2e/radar/manifest.json"] {
+            XCTAssertEqual(try get(path).status, 403, path)
+        }
     }
 
     func ranged(_ path: String, _ range: String, method: String = "GET") throws -> RawResponse {

@@ -10,6 +10,7 @@ Silicon) and run from a folder, without Docker.
 | `run-native.sh start \| stop \| status` | Runs the suite from `dist/mac/bin` against an enclosure home (default `~/Desktop/Midgard`, override with `MIDGARD_HOME`). Logs and pids in `$MIDGARD_HOME/native-run/` |
 | `record.py record \| pack` | Records the live feeds for offline replay (see [Recording and replay](#recording-and-replay)) |
 | `capture-radar.py [RECORDING]` | Stores RainViewer's past radar frames over the UK and Ireland in `RECORDING/radar/` for the app's RADAR chip (see [Recording and replay](#recording-and-replay)) |
+| `capture-traffic.py [RECORDING]` | Stores a snapshot of TomTom's traffic flow tiles over the UK and Ireland in `RECORDING/traffic/` for the app's TRAFFIC chip (see [Recording and replay](#recording-and-replay)) |
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
 | `build-app.sh` | Builds `Midgard.app`, the presentation app (see [The app](#the-app)) |
 | `fetch-llama.sh` | Downloads and lays out the pinned llama.cpp model server for the app (see [Model server](#model-server)) |
@@ -143,6 +144,19 @@ python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
   replays them on a loop, the newest as "now". 4 downloads at a time, one retry, non-PNG
   responses dropped. RainViewer's terms: free for personal, educational and small community
   use, credit "Weather data by RainViewer" with a link (the console shows it).
+- Road traffic: `python3 tools/mac-app/capture-traffic.py [OUT]` stores one snapshot of TomTom's
+  "relative" flow tiles over the overlay's box in `OUT/traffic/` with a `manifest.json`: zoom 7
+  (the overview, every tile) and zooms 9-10 under tiles with roads (the globe's close-in reads,
+  which reach zoom 10 at its closest over the UK), capped at 150 MB (hour-1: 1,295 tiles,
+  23 MB, about 1,630 requests in 5 minutes). The app serves them
+  at `/traffic/` and the offline console shows the snapshot as current, with TomTom's copyright
+  caption (fetched from their Copyright API at capture time) and "recorded snapshot". The key
+  comes from `TOMTOM_KEY`/`VITE_TOMTOM_KEY` or `products/heimdall/ui/.env.local` and is never
+  printed or stored; the manifest holds only z/x/y. 3 downloads at a time, one retry,
+  responses that are not vector tiles dropped. TomTom's developer terms (11.4) prohibit
+  storing their results beyond client caching within the cache headers (the flow tiles
+  expire in about a minute), allow evaluation keys for internal evaluation only (2.2), and
+  require their copyright caption (17.3); shipping this snapshot is the user's call.
 
 ### Replaying
 

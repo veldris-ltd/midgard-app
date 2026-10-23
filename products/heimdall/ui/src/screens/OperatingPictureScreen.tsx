@@ -22,7 +22,7 @@ import { AREA_LEGEND, BANDS, KIND_LEGEND, areaColour, bandOf, colourOf, inForce,
 import { useStatus } from '../app/status';
 import { AlertsBell, AlertsDrawer, agoText } from '../app/alerts';
 import { radarLabel, useRadar, RADAR_BOX, RADAR_CREDIT, RADAR_LINK } from '../app/radar';
-import { trafficLabel, useTraffic, TRAFFIC_COLOURS, type TrafficLines } from '../app/traffic';
+import { trafficLabel, useTraffic, TRAFFIC_COLOURS, TRAFFIC_LINK, type TrafficLines } from '../app/traffic';
 import { OFFLINE } from '../app/offline';
 import { useWatchlist, type Watchlist } from '../app/watchlist';
 import { AreaLayer, ToolLayer } from '../app/MapOverlays2D';
@@ -1635,10 +1635,16 @@ export function OperatingPictureScreen() {
             zoom: wall ? 1.15 : undefined, ...(view === '2d' ? { top: 56, left: 14 } : { top: 128, left: 12 }) }} />
       )}
       <style>{ALERT_PULSE_CSS}</style>
-      {/* RainViewer's terms make this credit, with a link, mandatory while the radar shows. */}
-      {radar.status === 'ready' && (
-        <div style={{ position: 'absolute', left: 10, bottom: bottomH + 6, zIndex: 4, fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.04em', color: 'var(--text-faint)', textShadow: '0 0 3px #000' }}>
-          <a href={RADAR_LINK} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{RADAR_CREDIT}</a>{OFFLINE ? ' · recorded frames, replayed' : ''} · rainviewer.com
+      {/* Overlay credits: RainViewer's terms make theirs, with a link, mandatory while the radar
+          shows; TomTom's ask for their copyright caption with the traffic. */}
+      {(radar.status === 'ready' || traffic.status === 'ready') && (
+        <div style={{ position: 'absolute', left: 10, bottom: bottomH + 6, zIndex: 4, display: 'flex', flexDirection: 'column', gap: 2, fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.04em', color: 'var(--text-faint)', textShadow: '0 0 3px #000' }}>
+          {traffic.status === 'ready' && (
+            <div>Traffic <a href={TRAFFIC_LINK} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{traffic.credit}</a>{OFFLINE ? ' · recorded snapshot' : ''}</div>
+          )}
+          {radar.status === 'ready' && (
+            <div><a href={RADAR_LINK} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{RADAR_CREDIT}</a>{OFFLINE ? ' · recorded frames, replayed' : ''} · rainviewer.com</div>
+          )}
         </div>
       )}
       {/* Credits the utility sources ask for, while their layers are on. [FR-H-1] */}
@@ -1668,11 +1674,13 @@ export function OperatingPictureScreen() {
         <Chip on={alertsOnMap} onClick={() => setAlertsOnMap(!alertsOnMap)} tone={alertsOnMap && openAlerts.some((a) => a.severity === 'critical' && !a.acknowledgedBy) ? 'var(--danger)' : undefined}
           label={alertsOnMap ? 'Hide alerts on the map' : 'Show open alerts on the map'}>ALERTS {alertMarks.length || openAlerts.length}</Chip>
         {gulfWatch.length > 0 && <Chip on={gulfWatchOn} onClick={() => setGulfWatchOn(!gulfWatchOn)} label={gulfWatchOn ? 'Hide the Gulf watch list' : 'Show the Gulf watch list'}>GULF WATCH</Chip>}
-        {/* TRAFFIC needs the internet: not in the offline build (app/offline.ts). RADAR there replays the recorded frames. */}
+        {/* Offline (app/offline.ts), RADAR replays the recorded frames and TRAFFIC shows the recorded snapshot. */}
         <Chip on={radarOn} onClick={() => setRadarOn(!radarOn)} tone={radar.status === 'unavailable' ? 'var(--warn)' : undefined}
           label={radarOn ? 'Hide rain radar' : OFFLINE ? 'Show rain radar (RainViewer, recorded frames replayed)' : 'Show rain radar (RainViewer, needs the internet)'}>{radarLabel(radar)}</Chip>
-        {!OFFLINE && <Chip on={trafficOn} onClick={() => setTrafficOn(!trafficOn)} tone={traffic.status === 'unavailable' ? 'var(--warn)' : undefined}
-          label={trafficOn ? 'Hide live traffic' : 'Show live traffic (TomTom, needs the internet): green light, amber moderate, red heavy, dark red closed'}>{trafficLabel(traffic)}</Chip>}
+        <Chip on={trafficOn} onClick={() => setTrafficOn(!trafficOn)} tone={traffic.status === 'unavailable' ? 'var(--warn)' : undefined}
+          label={trafficOn ? (OFFLINE ? 'Hide traffic' : 'Hide live traffic')
+            : OFFLINE ? 'Show traffic (TomTom, a recorded snapshot): green light, amber moderate, red heavy, dark red closed'
+              : 'Show live traffic (TomTom, needs the internet): green light, amber moderate, red heavy, dark red closed'}>{trafficLabel(traffic)}</Chip>
         {(
           <Chip on={measuring} onClick={() => { if (measuring) { setMeasuring(false); setMeasurePts([]); } else setMeasuring(true); }} label="Measure: click two points; Escape clears">
             {measuring ? (measurePts.length < 2 ? `MEASURE · CLICK POINT ${measurePts.length + 1}` : 'MEASURE · ESC CLEARS') : 'MEASURE'}
