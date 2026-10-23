@@ -102,7 +102,8 @@ fn plays_two_loops_with_times_shifted_to_each_loop() {
     assert_eq!(
         got,
         vec![
-            r#"f {"entity":"E","kind":"k","observedAt":2000000010,"attrs":{}}"#.to_string() + "\n",
+            // Primed when the first loop starts (dated then), not sent again at 10 s.
+            r#"f {"entity":"E","kind":"k","observedAt":2000000000,"attrs":{}}"#.to_string() + "\n",
             "forge a.csv key,observed_at\nA,2000000100\n".to_string(),
             r#"f {"entity":"E","kind":"k","observedAt":2000000110,"attrs":{}}"#.to_string() + "\n",
             "forge a.csv key,observed_at\nA,2000000200\n".to_string(),
@@ -130,14 +131,14 @@ fn far_behind_skips_the_rest_of_the_loop_and_restarts_from_now() {
         sink: &log,
     }
     .run(Some(2));
-    // Loop 0 played A at 2_000_000_010, then the clock jumped to 2_000_000_410: B and C
-    // were 390 s late, so loop 1 started at 2_000_000_410 with its shift from there.
-    let restart = 2_000_000_410;
+    // Loop 0 primed A at the start, then the clock jumped to 2_000_000_400: B and C were
+    // 380 s late, so loop 1 started at 2_000_000_400 with its shift from there.
+    let restart = 2_000_000_400;
     let got = log.got.borrow().clone();
     assert_eq!(
         got,
         vec![
-            format!("f {}\n", obs("A", 2_000_000_010)),
+            format!("f {}\n", obs("A", 2_000_000_000)),
             format!("f {}\n", obs("A", restart + 10)),
             format!("f {}\n", obs("B", restart + 20)),
             format!("f {}\n", obs("C", restart + 30)),
@@ -170,7 +171,8 @@ fn a_little_late_still_plays_every_event_in_order() {
     assert_eq!(
         got,
         vec![
-            format!("f {}\n", obs("A", 2_000_000_010)),
+            // A primed at the start; B on time; C 4 s late (the sink takes 5 s a batch).
+            format!("f {}\n", obs("A", 2_000_000_000)),
             format!("f {}\n", obs("B", 2_000_000_011)),
             format!("f {}\n", obs("C", 2_000_000_012)),
         ]
@@ -404,10 +406,10 @@ fn chunk_results_combine_into_one() {
 }
 
 #[test]
-fn the_first_loop_primes_each_late_feeds_first_batch_smallest_first() {
+fn the_first_loop_starts_with_every_feeds_first_batch_smallest_first() {
     // Feeds "big" and "late" first report 150 and 200 s in: without priming their layers
-    // would be empty for the first minutes of a fresh start. Feed "f" (10 s in) is soon
-    // enough to wait for, and plays first.
+    // would be empty for minutes after a fresh start. Every feed's first batch is sent when
+    // the loop starts, smallest first, dated then, and skipped at its place in that loop.
     let feed = |name: &str, offset: u64, entities: &[&str]| Event::Batch {
         offset,
         feed: name.into(),
@@ -444,20 +446,15 @@ fn the_first_loop_primes_each_late_feeds_first_batch_smallest_first() {
     assert_eq!(
         got,
         vec![
-            format!("f {}\n", obs("A", 2_000_000_010)),
-            // Primed after A, smallest first, each dated when it is sent.
-            format!("late {}\n", obs("L1", 2_000_000_011)),
+            // Every feed's first batch primed at the start, smallest first, dated the start.
+            format!("f {}\n", obs("A", 2_000_000_000)),
+            format!("late {}\n", obs("L1", 2_000_000_000)),
             format!(
                 "big {}\n{}\n",
-                obs("B1", 2_000_000_012),
-                obs("B2", 2_000_000_012)
+                obs("B1", 2_000_000_000),
+                obs("B2", 2_000_000_000)
             ),
-            format!(
-                "big {}\n{}\n",
-                obs("B1", 2_000_000_150),
-                obs("B2", 2_000_000_150)
-            ),
-            format!("late {}\n", obs("L1", 2_000_000_200)),
+            // A, L1 and the big batch are not sent again in this loop.
             format!("late {}\n", obs("L2", 2_000_000_300)),
             // Later loops are not primed: the picture already has every feed.
             format!("f {}\n", obs("A", second + 10)),

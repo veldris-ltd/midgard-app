@@ -16,6 +16,11 @@ pub trait Clock {
 pub trait Sink {
     fn batch(&self, feed: &str, lines: &str) -> Result<String, String>;
     fn forge(&self, file: &str, csv: &str) -> Result<(), String>;
+    /// Several batches (feed, lines), one result each in order. One at a time unless the
+    /// sink can send them side by side.
+    fn batches(&self, items: &[(String, String)]) -> Vec<Result<String, String>> {
+        items.iter().map(|(f, l)| self.batch(f, l)).collect()
+    }
 }
 
 /// The longest single sleep: how late a wait can end after the Mac wakes.
@@ -44,12 +49,6 @@ impl Clock for SystemClock {
         }
     }
 }
-
-/// A feed whose first batch comes this far (s) into the recording or later is primed:
-/// on the first loop, once the batches before this point have played, its first batch
-/// is played at once, dated then, so a fresh start shows every layer within about a
-/// minute instead of over the first minutes.
-pub const PRIME_AFTER: u64 = 60;
 
 pub struct Player<'a> {
     pub rec: &'a Recording,
@@ -221,11 +220,14 @@ impl Player<'_> {
             let shift = loop_start - self.rec.recorded_from;
             log("loop started", &[("loop", k.to_string())]);
             let mut next = loop_start + self.rec.duration as i64;
-            let mut primed = k > 0;
-            for e in &self.rec.events {
-                if !primed && e.offset() >= PRIME_AFTER {
-                    self.prime(&mut failures);
-                    primed = true;
+            let primed = if k == 0 {
+                self.prime(&mut failures)
+            } else {
+                Vec::new()
+            };
+            for (i, e) in self.rec.events.iter().enumerate() {
+                if primed.contains(&i) {
+                    continue;
                 }
                 let due = loop_start + e.offset() as i64;
                 self.clock.sleep_until(due);
@@ -246,25 +248,44 @@ impl Player<'_> {
         }
     }
 
-    /// Each feed's first batch, if it is `PRIME_AFTER` s or more in, played now with its
-    /// times shifted to now (its place in the loop is still ahead), smallest first so the
-    /// few huge ones (airspace, fires) do not hold up the rest. Each is played again at
-    /// its place, as on every loop.
-    fn prime(&self, failures: &mut Failures) {
+    /// Primes a fresh start: when the first loop starts, every feed's first batch is sent
+    /// at once rather than as each feed first reported in the hour, so every layer shows
+    /// within seconds. Times are shifted to now; all go through `Sink::batches` (side by
+    /// side where the sink can), smallest first. Returns their event indices, to skip in
+    /// this loop.
+    fn prime(&self, failures: &mut Failures) -> Vec<usize> {
         let mut seen = std::collections::BTreeSet::new();
-        let mut firsts: Vec<(usize, &Event)> = Vec::new();
-        for e in &self.rec.events {
+        let mut firsts: Vec<(usize, usize)> = Vec::new();
+        for (i, e) in self.rec.events.iter().enumerate() {
             if let Event::Batch { feed, lines, .. } = e {
-                if seen.insert(feed.as_str()) && e.offset() >= PRIME_AFTER {
-                    firsts.push((lines.len(), e));
+                if seen.insert(feed.as_str()) {
+                    firsts.push((lines.len(), i));
                 }
             }
         }
         firsts.sort_by_key(|(size, _)| *size);
-        for (_, e) in firsts {
-            let shift = self.clock.now() - self.rec.recorded_from - e.offset() as i64;
-            self.play(e, shift, 0, failures);
+        let now = self.clock.now();
+        let mut items = Vec::new();
+        let mut spans = Vec::new();
+        for (_, i) in &firsts {
+            if let Event::Batch {
+                feed,
+                lines,
+                offset,
+            } = &self.rec.events[*i]
+            {
+                let shift = now - self.rec.recorded_from - *offset as i64;
+                let chunks = chunks_of(lines, shift);
+                spans.push((*i, items.len(), chunks.len()));
+                items.extend(chunks.into_iter().map(|c| (feed.clone(), c)));
+            }
         }
+        let mut results = self.sink.batches(&items).into_iter();
+        for (i, _, n) in &spans {
+            let r = combine(results.by_ref().take(*n).collect());
+            self.report(&self.rec.events[*i], 0, r, failures);
+        }
+        firsts.into_iter().map(|(_, i)| i).collect()
     }
 
     fn play(&self, e: &Event, shift: i64, lag: i64, failures: &mut Failures) {
@@ -272,36 +293,11 @@ impl Player<'_> {
             Event::Batch { feed, lines, .. } => {
                 // Sent in chunks of at most CHUNK_LINES; every chunk is tried even after
                 // one fails, and the batch is logged once with the combined result.
-                let all: Vec<&str> = lines.lines().collect();
-                let results = all
-                    .chunks(CHUNK_LINES)
-                    .map(|chunk| {
-                        let mut out = String::new();
-                        for line in chunk {
-                            // Validated as objects at load; one that fails is sent unchanged.
-                            match parse(line) {
-                                Ok(o) => out.push_str(&shift_observation(&o, shift).encode()),
-                                Err(_) => out.push_str(line),
-                            }
-                            out.push('\n');
-                        }
-                        self.sink.batch(feed, &out)
-                    })
+                let results = chunks_of(lines, shift)
+                    .iter()
+                    .map(|chunk| self.sink.batch(feed, chunk))
                     .collect();
-                let r = combine(results);
-                let fields = [
-                    ("feed", feed.clone()),
-                    ("offset", e.offset().to_string()),
-                    ("lag", lag.to_string()),
-                ];
-                let lines = failures.note(
-                    self.clock.now(),
-                    &fields,
-                    r.as_deref().map_err(String::as_str),
-                );
-                for (message, fields) in lines {
-                    log(message, &fields);
-                }
+                self.report(e, lag, combine(results), failures);
             }
             Event::Forge { file, path, .. } => {
                 let r = std::fs::read_to_string(path)
@@ -316,4 +312,45 @@ impl Player<'_> {
             }
         }
     }
+
+    /// Log one batch's combined result (repeated failures folded, see `Failures`).
+    fn report(&self, e: &Event, lag: i64, r: Result<String, String>, failures: &mut Failures) {
+        let feed = match e {
+            Event::Batch { feed, .. } => feed.clone(),
+            Event::Forge { file, .. } => file.clone(),
+        };
+        let fields = [
+            ("feed", feed),
+            ("offset", e.offset().to_string()),
+            ("lag", lag.to_string()),
+        ];
+        let lines = failures.note(
+            self.clock.now(),
+            &fields,
+            r.as_deref().map_err(String::as_str),
+        );
+        for (message, fields) in lines {
+            log(message, &fields);
+        }
+    }
+}
+
+/// A batch's observations with their times moved by `shift`, in chunks of at most
+/// `CHUNK_LINES` lines, each line ending in a newline.
+fn chunks_of(lines: &str, shift: i64) -> Vec<String> {
+    let all: Vec<&str> = lines.lines().collect();
+    all.chunks(CHUNK_LINES)
+        .map(|chunk| {
+            let mut out = String::new();
+            for line in chunk {
+                // Validated as objects at load; one that fails is sent unchanged.
+                match parse(line) {
+                    Ok(o) => out.push_str(&shift_observation(&o, shift).encode()),
+                    Err(_) => out.push_str(line),
+                }
+                out.push('\n');
+            }
+            out
+        })
+        .collect()
 }

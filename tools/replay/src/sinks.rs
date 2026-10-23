@@ -44,7 +44,41 @@ fn drain(r: Option<impl Read + Send + 'static>) -> JoinHandle<Vec<u8>> {
     })
 }
 
+/// How many `heimdall-source` runs `batches` keeps going at once.
+pub const SIDE_BY_SIDE: usize = 4;
+
 impl Sink for LiveSink {
+    /// Up to `SIDE_BY_SIDE` batches at a time (each its own `heimdall-source` run), the
+    /// results in the order given.
+    fn batches(&self, items: &[(String, String)]) -> Vec<Result<String, String>> {
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let results: Vec<std::sync::Mutex<Option<Result<String, String>>>> =
+            items.iter().map(|_| std::sync::Mutex::new(None)).collect();
+        std::thread::scope(|scope| {
+            for _ in 0..SIDE_BY_SIDE.min(items.len()) {
+                scope.spawn(|| loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some((feed, lines)) = items.get(i) else {
+                        break;
+                    };
+                    let r = self.batch(feed, lines);
+                    if let Ok(mut slot) = results[i].lock() {
+                        *slot = Some(r);
+                    }
+                });
+            }
+        });
+        results
+            .into_iter()
+            .map(|m| {
+                m.into_inner()
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| Err("not sent".to_string()))
+            })
+            .collect()
+    }
+
     /// Pipe the batch to `heimdall-source` and return its summary line; a child still
     /// running after `timeout` is killed.
     fn batch(&self, feed: &str, lines: &str) -> Result<String, String> {

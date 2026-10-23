@@ -846,6 +846,12 @@ function Chip({ on, onClick, children, label, tone }: { on: boolean; onClick: ()
   );
 }
 
+
+/** The layer switches, always all listed in this order (label until Heimdall names it). */
+const LAYER_ORDER: [HeimdallLayerId, string][] = [
+  ['air', 'Air'], ['airspace', 'Airspace'], ['events', 'Events'], ['infrastructure', 'Infrastructure'],
+  ['ground', 'Land'], ['maritime', 'Maritime'], ['space', 'Space'], ['utilities', 'Utilities'],
+];
 export function OperatingPictureScreen() {
   const gateway = useGateway<HeimdallGateway>();
   const [regionIds, setRegionIdsState] = React.useState<string[]>(readRegions);
@@ -1370,7 +1376,16 @@ export function OperatingPictureScreen() {
         // Scrolls on its own when the regions and layers outgrow the window (the nav
         // above keeps its place).
         <div style={{ padding: '10px 10px 4px', display: 'flex', flexDirection: 'column', gap: 9, maxHeight: 'max(180px, calc(100vh - 430px))', overflowY: 'auto' }}>
-          <div className="mg-label" style={{ color: 'var(--text-faint)' }}>REGIONS</div>
+          {/* Layers first, so they are never scrolled out of sight; every layer is always
+              listed, greyed out ("loading") until its first data arrives. */}
+          <div className="mg-label" style={{ color: 'var(--text-faint)' }}>LAYERS</div>
+          {LAYER_ORDER.map(([id, fallback]) => {
+            const ready = geoLive.some((t) => t.layer === id);
+            const label = layerDefs.find((l) => l.id === id)?.label ?? fallback;
+            return <Switch key={id} checked={ready && layerOn(id)} disabled={!ready} onChange={(v) => setLayer(id, v)} label={ready ? label : `${label} · loading`} />;
+          })}
+          {geoLive.some(isGulfWatch) && <Switch checked={gulfWatchOn} onChange={setGulfWatchOn} label="Gulf watch" />}
+          <div className="mg-label" style={{ color: 'var(--text-faint)', marginTop: 6 }}>REGIONS</div>
           <Switch checked={focusHover} onChange={setFocusHover} label="Focus on hover" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto', paddingRight: 4, flex: 'none' }}>
             {REGION_LIST.map((r) => (
@@ -1379,12 +1394,6 @@ export function OperatingPictureScreen() {
             ))}
             <Switch checked={world} label="Whole world (heavy)" onChange={(v) => setRegionIds(v ? [...regionIds, WORLD_ID] : regionIds.filter((x) => x !== WORLD_ID))} />
           </div>
-          <div className="mg-label" style={{ color: 'var(--text-faint)', marginTop: 6 }}>LAYERS</div>
-          {/* Only layers with something on them. */}
-          {layerDefs.filter((l) => geoLive.some((t) => t.layer === l.id)).map((l) => (
-            <Switch key={l.id} checked={layerOn(l.id)} onChange={(v) => setLayer(l.id, v)} label={l.label} />
-          ))}
-          {geoLive.some(isGulfWatch) && <Switch checked={gulfWatchOn} onChange={setGulfWatchOn} label="Gulf watch" />}
         </div>
       }
       aside={aside ? (wall ? <div style={{ zoom: 1.2, display: 'flex', flexDirection: 'column', gap: 14 }}>{aside}</div> : aside) : undefined}

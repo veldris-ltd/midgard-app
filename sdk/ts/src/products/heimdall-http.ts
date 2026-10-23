@@ -118,6 +118,8 @@ const wireLayer = (id: HeimdallLayerId): string =>
  *  picture read (airspace alone is most of the picture's size). [FR-H-1] */
 const STATIC_LAYERS = ['airspace', 'infrastructure'];
 const STATIC_EVERY_MS = 15 * 60 * 1000;
+/** Every wire layer that is not static, read on every fetch. */
+const MOVING_LAYERS = Object.keys(WIRE_LAYERS).filter((id) => !STATIC_LAYERS.includes(id));
 
 /** Reported positions kept per track for its trail (about 15 minutes at 45 s). */
 const TRAIL_POINTS = 20;
@@ -712,17 +714,18 @@ export class HeimdallHttp implements HeimdallGateway {
       this.staticLayers = { at: now, picture: read };
       read.catch(() => { if (this.staticLayers?.picture === read) this.staticLayers = null; });
     }
-    // Every other layer: whatever Heimdall serves except the static ones. The layer list
-    // comes from the static read (Heimdall lists every layer on every page).
+    // Every other layer, by a fixed list: not the static read's layer list, which names only
+    // the layers that had reported when it was read and is kept for STATIC_EVERY_MS (read at
+    // a fresh start, it left land, sea and space unread for 15 minutes).
     const cached = this.staticLayers;
     const stat = await cached.picture.catch(() => ({ layers: [], entities: [] }) as WirePicture);
-    // Nothing yet (a fresh start, before the static feeds have reported): read again next
-    // time rather than keeping an empty airspace and infrastructure for STATIC_EVERY_MS.
-    if (!stat.entities.length && this.staticLayers === cached) this.staticLayers = null;
-    const moving = stat.layers.length
-      ? stat.layers.map((l) => l.id).filter((id) => !STATIC_LAYERS.includes(id))
-      : undefined;
-    const live = await this.readPicture(moving);
+    const live = await this.readPicture(MOVING_LAYERS);
+    // Heimdall lists every layer it has on every page. A static layer it now has that the
+    // kept read has nothing on (it reported after that read): read the static layers again
+    // next time rather than keeping them empty for STATIC_EVERY_MS.
+    const kept = new Set(stat.entities.map((e) => e.layer));
+    const late = live.layers.some((l) => STATIC_LAYERS.includes(l.id) && !kept.has(l.id));
+    if ((late || !stat.entities.length) && this.staticLayers === cached) this.staticLayers = null;
     const picture: WirePicture = { layers: live.layers.length ? live.layers : stat.layers, entities: [...live.entities, ...stat.entities] };
     this.fetchedAt = Date.now();
     this.remember(picture);
