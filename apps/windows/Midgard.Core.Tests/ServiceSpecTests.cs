@@ -24,7 +24,7 @@ public sealed class ServiceSpecTests
         SuiteSpecs.Make(Helpers, Models, Home, Logs, Ports, Origin, recording, Llama);
 
     static ServiceSpec Spec(string name, IReadOnlyList<ServiceSpec>? all = null) =>
-        Assert.Single((all ?? Specs(Recording)).Where(s => s.Name == name));
+        Assert.Single(all ?? Specs(Recording), s => s.Name == name);
 
     [Fact]
     public void StartOrderWithoutRecording() =>
