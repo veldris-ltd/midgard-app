@@ -63,6 +63,7 @@ release-publish|host|attach the release to a draft pre-release
 shell-audit|host|build one client shell and audit it on this runner: shell-audit <shell> <release>
 shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-gate <release>
 windows-build|host|release build of the suite services on a Windows x64 runner (Git Bash, MSVC)
+windows-test|host|clippy and tests of the Windows-ported crates on a Windows x64 runner (Git Bash, MSVC)
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -411,15 +412,21 @@ job_shell_audit_gate() {
 WINDOWS_TARGET=x86_64-pc-windows-msvc
 WINDOWS_PACKAGES=(-p http-gateway -p heimdall-feed-server -p mimir-server -p forge-worker -p midgard-replay)
 WINDOWS_BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay)
-job_windows_build() {
-    local channel dir b missing=0
-    need rustup "windows-build: rustup is needed (the GitHub windows runners carry it)"
+# The pinned toolchain for the Windows target, installed by rustup on the runner.
+windows_toolchain() {
+    local channel
+    need rustup "$1: rustup is needed (the GitHub windows runners carry it)"
     channel="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)"
     ci_group "toolchain $channel ($WINDOWS_TARGET)"
-    rustup toolchain install "$channel" --profile minimal --target "$WINDOWS_TARGET"
+    rustup toolchain install "$channel" --profile minimal --component clippy --target "$WINDOWS_TARGET"
     rustc --version
     cargo --version
     ci_endgroup
+}
+
+job_windows_build() {
+    local dir b missing=0
+    windows_toolchain windows-build
     cargo build --offline --locked --release --target "$WINDOWS_TARGET" "${WINDOWS_PACKAGES[@]}" --bins
     dir="target/$WINDOWS_TARGET/release"
     for b in "${WINDOWS_BINARIES[@]}"; do
@@ -432,6 +439,14 @@ job_windows_build() {
     done
     ls -l "$dir"/*.exe
     return "$missing"
+}
+
+# The crates whose Windows code paths have been ported and are tested natively.
+WINDOWS_TEST_PACKAGES=(-p service-runtime)
+job_windows_test() {
+    windows_toolchain windows-test
+    cargo clippy --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}" --all-targets -- -D warnings
+    cargo test --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}"
 }
 
 case "${1:-}" in

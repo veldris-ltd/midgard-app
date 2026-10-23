@@ -8,12 +8,14 @@
 //!
 //! A process killed outright (SIGKILL, an OOM kill, a container stop) never runs its
 //! drop and leaves the lock file behind. The lock records its holder's pid, the
-//! operating system it ran on and, on Linux and macOS, that process's start time, so a
-//! later acquire can tell a live holder from a dead one — including a new process that
-//! happens to reuse the pid, as a restarted container's pid 1 does — and takes over only
-//! a lock whose holder is gone. On Linux the start time comes from `/proc`; on macOS from
-//! `proc_pidinfo`, which also refuses to describe another user's live process, and such a
-//! holder counts as running.
+//! operating system it ran on and, on Linux, macOS and Windows, that process's start
+//! time, so a later acquire can tell a live holder from a dead one — including a new
+//! process that happens to reuse the pid, as a restarted container's pid 1 does — and
+//! takes over only a lock whose holder is gone. On Linux the start time comes from
+//! `/proc`; on macOS from `proc_pidinfo`, which also refuses to describe another user's
+//! live process, and such a holder counts as running; on Windows from `GetProcessTimes`,
+//! where a process that cannot be opened for any reason but "no such process" likewise
+//! counts as running.
 //!
 //! A state directory may be bind-mounted into a container while a native process can
 //! also reach it, and a container's pid means nothing on the host. So a lock recorded on
@@ -189,12 +191,110 @@ fn may_be_running(pid: u32) -> bool {
     bsd_start(pid).map_or_else(|errno| errno != libc::ESRCH, |_| true)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+/// What Windows says about a pid.
+#[cfg(windows)]
+#[derive(Debug, PartialEq, Eq)]
+enum WinProbe {
+    /// Running, created at this many 100 ns intervals since 1601 (a `FILETIME`).
+    Running(u64),
+    /// No such process, or one that has exited and is kept only by an open handle.
+    Gone,
+    /// Windows would not say (access denied, or a call failed): it may be running.
+    Unknown,
+}
+
+#[cfg(windows)]
+mod win {
+    //! The few kernel32 calls a lock needs. std links kernel32 already; declaring them
+    //! here keeps the runtime free of a Windows bindings crate.
+    use std::ffi::c_void;
+
+    pub type Handle = *mut c_void;
+
+    pub const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    pub const STILL_ACTIVE: u32 = 259;
+    /// What `OpenProcess` reports for a pid no process has.
+    pub const ERROR_INVALID_PARAMETER: i32 = 87;
+
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct FileTime {
+        pub low: u32,
+        pub high: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        pub fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> Handle;
+        pub fn GetProcessTimes(
+            process: Handle,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+        pub fn GetExitCodeProcess(process: Handle, exit_code: *mut u32) -> i32;
+        pub fn CloseHandle(object: Handle) -> i32;
+    }
+
+    /// A process's creation time as a `FILETIME` count, from a handle to it.
+    pub fn creation_time(process: Handle) -> Option<u64> {
+        let (mut creation, mut exit) = (FileTime::default(), FileTime::default());
+        let (mut kernel, mut user) = (FileTime::default(), FileTime::default());
+        // SAFETY: `process` is an open process handle and the four out-pointers are
+        // distinct, writable `FILETIME`s.
+        let ok =
+            unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) };
+        (ok != 0).then(|| (u64::from(creation.high) << 32) | u64::from(creation.low))
+    }
+}
+
+#[cfg(windows)]
+fn win_probe(pid: u32) -> WinProbe {
+    // SAFETY: OpenProcess takes plain values and returns null or a handle we own.
+    let process = unsafe { win::OpenProcess(win::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return match std::io::Error::last_os_error().raw_os_error() {
+            Some(win::ERROR_INVALID_PARAMETER) => WinProbe::Gone,
+            _ => WinProbe::Unknown,
+        };
+    }
+    let mut code = 0u32;
+    // SAFETY: `process` is open with query rights and `code` is a writable u32.
+    let probe = if unsafe { win::GetExitCodeProcess(process, &mut code) } == 0 {
+        WinProbe::Unknown
+    } else if code != win::STILL_ACTIVE {
+        WinProbe::Gone
+    } else {
+        // A process that exited with code 259 reads as running here; its creation time
+        // still matches, so its lock is kept, never wrongly taken.
+        win::creation_time(process).map_or(WinProbe::Unknown, WinProbe::Running)
+    };
+    // SAFETY: `process` is a handle we opened and close exactly once.
+    unsafe { win::CloseHandle(process) };
+    probe
+}
+
+#[cfg(windows)]
+fn process_start(pid: u32) -> Option<u64> {
+    match win_probe(pid) {
+        WinProbe::Running(start) => Some(start),
+        WinProbe::Gone | WinProbe::Unknown => None,
+    }
+}
+
+/// Only "no such process" or a recorded exit proves the holder gone on Windows.
+#[cfg(windows)]
+fn may_be_running(pid: u32) -> bool {
+    win_probe(pid) != WinProbe::Gone
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn process_start(_pid: u32) -> Option<u64> {
     None
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn may_be_running(_pid: u32) -> bool {
     true
 }
@@ -205,7 +305,7 @@ impl Drop for DirLock {
     }
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos", windows)))]
 mod tests {
     use super::*;
 
@@ -309,6 +409,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_recorded_on_windows_is_refused() {
+        let dir = scratch("from-windows");
+        std::fs::write(
+            dir.join(LOCK),
+            "http-gateway\npid=4294967294\nstart=1\nos=windows\n",
+        )
+        .unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "gateway").expect_err("foreign lock");
+        assert!(refused.contains("another system"), "{refused}");
+        assert!(refused.contains("windows"), "{refused}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn a_lock_recording_no_system_is_foreign_on_macos() {
@@ -336,6 +451,110 @@ mod tests {
         .unwrap();
         let refused = DirLock::acquire(&dir, LOCK, "second").expect_err("live holder");
         assert!(refused.contains("in use by http-gateway"), "{refused}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_lock_on_windows_records_the_system_and_a_start_time() {
+        let dir = scratch("win-record");
+        let held = DirLock::acquire(&dir, LOCK, "gateway").expect("free");
+        let lock = std::fs::read_to_string(dir.join(LOCK)).unwrap();
+        assert!(lock.contains("\nos=windows\n"), "{lock}");
+        let start = process_start(std::process::id()).expect("our own start time");
+        assert!(lock.contains(&format!("\nstart={start}\n")), "{lock}");
+        drop(held);
+        assert!(!dir.join(LOCK).exists(), "released on drop");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A child that stays alive until killed.
+    #[cfg(windows)]
+    fn long_lived_child() -> std::process::Child {
+        std::process::Command::new("ping")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_live_holder_on_windows_keeps_the_lock_until_its_start_time_differs() {
+        use std::os::windows::io::AsRawHandle;
+
+        let dir = scratch("win-live");
+        let mut child = long_lived_child();
+        let pid = child.id();
+        let start = win::creation_time(child.as_raw_handle()).expect("the child's start");
+        assert_eq!(win_probe(pid), WinProbe::Running(start));
+        std::fs::write(
+            dir.join(LOCK),
+            format!("http-gateway\npid={pid}\nstart={start}\nos=windows\n"),
+        )
+        .unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "gateway").expect_err("the child runs");
+        assert!(refused.contains("in use by http-gateway"), "{refused}");
+        // The same pid with another start time: a previous process that had this pid.
+        std::fs::write(
+            dir.join(LOCK),
+            format!("http-gateway\npid={pid}\nstart={}\nos=windows\n", start + 1),
+        )
+        .unwrap();
+        let taken = DirLock::acquire(&dir, LOCK, "restarted");
+        let _ = child.kill();
+        let _ = child.wait();
+        taken.expect("the pid was reused");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_lock_left_by_an_exited_windows_process_is_taken_over() {
+        use std::os::windows::io::AsRawHandle;
+
+        let dir = scratch("win-exited");
+        let mut child = std::process::Command::new("cmd")
+            .args(["/c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        // Our handle keeps the exited process's record (and so its pid) alive: its real
+        // start time is still readable, and Windows reports it exited.
+        let start = win::creation_time(child.as_raw_handle()).expect("the child's start");
+        assert_eq!(win_probe(pid), WinProbe::Gone);
+        std::fs::write(
+            dir.join(LOCK),
+            format!("http-gateway\npid={pid}\nstart={start}\nos=windows\n"),
+        )
+        .unwrap();
+        DirLock::acquire(&dir, LOCK, "restarted").expect("the holder has exited");
+        drop(child);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_pid_no_windows_process_has_is_gone() {
+        assert_eq!(win_probe(4_294_967_294), WinProbe::Gone);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_lock_recording_no_system_is_foreign_on_windows() {
+        let dir = scratch("win-unrecorded");
+        std::fs::write(dir.join(LOCK), "http-gateway\npid=4294967294\nstart=1\n").unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "gateway").expect_err("no system recorded");
+        assert!(refused.contains("another system"), "{refused}");
+        // And a lock from another system is refused here, whatever its pid.
+        std::fs::write(
+            dir.join(LOCK),
+            "http-gateway\npid=4294967294\nstart=1\nos=macos\n",
+        )
+        .unwrap();
+        let refused = DirLock::acquire(&dir, LOCK, "gateway").expect_err("macOS lock");
+        assert!(refused.contains("macos"), "{refused}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

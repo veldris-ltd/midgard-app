@@ -25,7 +25,7 @@ defaults:
 
 jobs:
   build:
-    name: build the services (x86_64-pc-windows-msvc)
+    name: build and test the services (x86_64-pc-windows-msvc)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -36,3 +36,4 @@ jobs:
           restore-keys: |
             windows-target-${{ runner.arch }}-
       - run: bash tools/ci/run.sh windows-build
+      - run: bash tools/ci/run.sh windows-test
