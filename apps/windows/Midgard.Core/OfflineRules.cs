@@ -13,10 +13,15 @@ namespace Midgard.Core;
 /// followed by <c>/</c>, <c>?</c>, <c>#</c> or the end), <c>blob:</c> URLs of those origins,
 /// <c>data:</c> and <c>about:blank</c>/<c>about:srcdoc</c>.</para>
 /// <para>Refused: everything else, among them other ports, other loopback addresses
-/// (<c>127.0.0.2</c>, <c>localhost</c>, <c>[::1]</c>), https, <c>ws:</c>/<c>wss:</c> (no console
-/// uses WebSockets), <c>file:</c>, other <c>about:</c> pages and external schemes
-/// (<c>mailto:</c>, <c>ms-settings:</c> …). Stricter than the Mac's content rules, which let
-/// any loopback port through: here there is one decision for requests and navigations.</para>
+/// (<c>127.0.0.2</c>, <c>localhost</c>, <c>[::1]</c>), https, <c>file:</c>, other <c>about:</c>
+/// pages and external schemes (<c>mailto:</c>, <c>ms-settings:</c> …). Stricter than the Mac's
+/// content rules, which let any loopback port through: here there is one decision for
+/// requests and navigations.</para>
+/// <para>Not covered: WebSockets. <c>ws:</c>/<c>wss:</c> would be refused here, but WebView2
+/// never asks: WebResourceRequested does not see WebSocket connections. One to another host
+/// goes to the browser's proxy (the app's own web server, which refuses it: see
+/// Midgard\MainForm.cs), but one to a loopback address bypasses the proxy and is not filtered
+/// at all. No console opens a WebSocket.</para>
 /// <para>WebView2 hands over canonical URLs (scheme and host in lower case), but the check
 /// does not rely on it: the scheme and host are compared without regard to case.</para>
 /// </remarks>
@@ -51,6 +56,15 @@ public static class OfflineRules
                 return false;
         }
     }
+
+    /// <summary>
+    /// True for an http page of the app or the gateway itself (what a new-window request may
+    /// open in the window): <see cref="IsAllowed"/> and at one of those origins, so never
+    /// <c>data:</c>, <c>blob:</c>, <c>about:</c> or <c>file:</c>.
+    /// </summary>
+    public static bool IsPageOfOrigins(string? url, string appOrigin, string? gatewayOrigin) =>
+        url is not null && url.StartsWith("http:", StringComparison.OrdinalIgnoreCase)
+        && IsAllowedHttp(url, appOrigin, gatewayOrigin);
 
     static bool IsAllowedHttp(string url, string appOrigin, string? gatewayOrigin) =>
         IsAt(url, appOrigin) || (gatewayOrigin is not null && IsAt(url, gatewayOrigin));

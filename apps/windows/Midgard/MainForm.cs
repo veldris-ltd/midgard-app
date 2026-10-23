@@ -63,6 +63,11 @@ sealed class MainForm : Form, IShellView
 
     bool closeAllowed;
     bool quitting;
+    // Windows is logging off or shutting down: nothing may wait for the window's thread.
+    volatile bool endingSession;
+    // The web view was closed for quitting (CloseAsync); nothing may touch it after.
+    bool webClosed;
+    CoreWebView2Environment? environment;
     bool offeredShortcut;
 
     /// <summary>
@@ -264,7 +269,7 @@ sealed class MainForm : Form, IShellView
         if (shell is null) return;
         var state = shell.State;
         var ready = state.Phase == ShellPhase.Ready;
-        web.Visible = ready;
+        if (!webClosed) web.Visible = ready;
         startingPanel.Visible = !ready;
         homeButton.Enabled = ready;
         resetButton.Enabled = ready && state.CanReset;
@@ -391,6 +396,32 @@ sealed class MainForm : Form, IShellView
     /// <summary>Closing the window quits: every service is stopped first, then the window closes.</summary>
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (e.CloseReason == CloseReason.WindowsShutDown && shell is not null && !closeAllowed)
+        {
+            // Logoff or shutdown: never hold Windows up. At most about 5 s for an orderly
+            // stop; whatever is left then ends with this process (the app's Job Object is
+            // kill-on-close).
+            closeAllowed = true;
+            endingSession = true;
+            log.Write("quit: Windows is ending the session");
+            if (!quitting)
+            {
+                quitting = true;
+                shell.BeginShutdown();
+                var stopping = shell.ShutdownAsync();
+                try
+                {
+                    if (!stopping.Wait(TimeSpan.FromSeconds(5))) log.Write("quit: not finished after 5 s; leaving the rest to Windows");
+                }
+                catch (AggregateException ex)
+                {
+                    log.Write($"quit: {ex.InnerException?.Message}");
+                }
+            }
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= PowerModeChanged;
+            base.OnFormClosing(e);
+            return;
+        }
         if (!closeAllowed && shell is not null)
         {
             e.Cancel = true;
@@ -460,6 +491,8 @@ sealed class MainForm : Form, IShellView
     {
         this.appOrigin = appOrigin;
         this.gatewayOrigin = gatewayOrigin;
+        // A failed creation is tried again on the next call (Try again), not remembered.
+        if (creating is { IsFaulted: true } or { IsCanceled: true }) creating = null;
         creating ??= Create(appOrigin);
         await creating;
         var core = web.CoreWebView2;
@@ -471,20 +504,57 @@ sealed class MainForm : Form, IShellView
     // Explicit: Form has a Load event.
     void IShellView.Load(string url) => Post(() =>
     {
-        if (web.CoreWebView2 is { } core) core.Navigate(url);
+        if (!webClosed && web.CoreWebView2 is { } core) core.Navigate(url);
     });
 
-    public void Reload() => Post(() => web.CoreWebView2?.Reload());
+    public void Reload() => Post(() =>
+    {
+        if (!webClosed) web.CoreWebView2?.Reload();
+    });
 
     public void Evaluate(string script) => Post(() =>
     {
-        if (web.CoreWebView2 is { } core) _ = core.ExecuteScriptAsync(script);
+        if (!webClosed && web.CoreWebView2 is { } core) _ = core.ExecuteScriptAsync(script);
     });
 
     public Task ClearBrowsingDataAsync() => OnUiAsync(async () =>
     {
-        if (web.CoreWebView2 is { } core) await core.Profile.ClearBrowsingDataAsync();
+        if (!webClosed && web.CoreWebView2 is { } core) await core.Profile.ClearBrowsingDataAsync();
     });
+
+    /// <summary>How long quitting waits for the WebView2 browser process to exit.</summary>
+    static readonly TimeSpan BrowserExitTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Closes the web view (its controller) and waits up to <see cref="BrowserExitTimeout"/>
+    /// for the browser process to exit, so the profile in <see cref="Paths.WebView"/> is free
+    /// before the instance lock goes: a launch that takes the lock next can open it. At
+    /// logoff it returns at once (Windows ends the processes anyway).
+    /// </summary>
+    public Task CloseAsync()
+    {
+        if (endingSession) return Task.CompletedTask;
+        return OnUiAsync(async () =>
+        {
+            if (webClosed) return;
+            webClosed = true;
+            if (environment is not { } env || creating is not { IsCompletedSuccessfully: true })
+            {
+                web.Dispose();
+                return;
+            }
+            var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Exited(object? sender, CoreWebView2BrowserProcessExitedEventArgs e) => exited.TrySetResult();
+            env.BrowserProcessExited += Exited;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            web.Dispose();  // closes the controller; the browser process exits once its last view is gone
+            var done = await Task.WhenAny(exited.Task, Task.Delay(BrowserExitTimeout));
+            env.BrowserProcessExited -= Exited;
+            log.Write(done == exited.Task
+                ? $"web view: closed, its browser process exited ({watch.Elapsed.TotalSeconds:0.0} s)"
+                : $"web view: closed, but its browser process had not exited after {BrowserExitTimeout.TotalSeconds:0} s");
+        });
+    }
 
     // Tests only (HeadlessCheck): load a page and wait for it, read it, and capture it.
 
@@ -552,8 +622,11 @@ sealed class MainForm : Form, IShellView
     /// offline rules before anything loads. Besides the request filter and the navigation
     /// checks, the browser is given the app's own web server as its proxy: Chromium sends
     /// loopback traffic direct, so this changes nothing for the app's pages and the gateway,
-    /// while anything that slips past WebResourceRequested (WebSockets do) goes to a server
-    /// that refuses it (421 for another host, 405 for CONNECT) rather than out to the network.
+    /// while anything that slips past WebResourceRequested (WebSockets do) and is not for
+    /// loopback goes to a server that refuses it (421: its Host check comes first, so a
+    /// CONNECT for another host gets 421 too) rather than out to the network. WebSockets to a
+    /// loopback address are not filtered at all (neither WebResourceRequested nor the proxy
+    /// sees them); no console opens one, and the only listeners there are Midgard's own.
     /// </summary>
     async Task Create(string origin)
     {
@@ -571,7 +644,9 @@ sealed class MainForm : Form, IShellView
             ExclusiveUserDataFolderAccess = true,
         };
         Directory.CreateDirectory(paths.WebView);
+        log.Write($"web view: browser arguments {options.AdditionalBrowserArguments}");
         var environment = await CoreWebView2Environment.CreateAsync(null, paths.WebView, options);
+        this.environment = environment;
         await web.EnsureCoreWebView2Async(environment);
         var core = web.CoreWebView2;
         log.Write($"web view: WebView2 {environment.BrowserVersionString}, profile {paths.WebView}");
@@ -595,6 +670,8 @@ sealed class MainForm : Form, IShellView
         catch (Exception e) when (e is NotImplementedException or InvalidCastException or ArgumentException)
         {
             // An older runtime without service-worker filtering: documents only.
+            log.Write($"web view: request filter without source kinds ({e.GetType().Name}); "
+                      + "service and shared workers' requests are not filtered");
             core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
         }
         core.WebResourceRequested += (_, e) =>
@@ -626,7 +703,8 @@ sealed class MainForm : Form, IShellView
         {
             // target=_blank and window.open: the same view, never a new window.
             e.Handled = true;
-            var allowed = OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin);
+            // Only a page of the app or the gateway, never data:, blob:, about: or file:.
+            var allowed = OfflineRules.IsPageOfOrigins(e.Uri, appOrigin, gatewayOrigin);
             Observe?.Invoke("new window", e.Uri, allowed);
             if (allowed) core.Navigate(e.Uri);
             else log.Write($"web view: refused new window for {Short(e.Uri)}");

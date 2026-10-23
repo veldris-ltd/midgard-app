@@ -708,7 +708,16 @@ job_windows_shell_e2e() {
     # folder check sees a real profile's permissions; fresh for each run.
     app="$(cygpath -u "$LOCALAPPDATA")/MidgardE2E"
     rm -rf "$app"
+    # The check refuses to run without the opt-in and both folders set (HeadlessGuard.cs):
+    # first that refusal, from the real exe, which must touch nothing.
+    local refused=0
     MIDGARD_APP_HOME="$(cygpath -w "$app/Home")" MIDGARD_APP_LOGS="$(cygpath -w "$app/Logs")" \
+        "$pkg/Midgard.exe" --headless-check "$(cygpath -w "$out/refused.json")" || refused=$?
+    if [ "$refused" != 3 ] || [ -e "$app" ] || [ -e "$out/refused.json" ]; then
+        ci_error "windows-shell-e2e: --headless-check without MIDGARD_HEADLESS_CHECK=1 did not refuse (exit $refused)"
+        return 1
+    fi
+    MIDGARD_HEADLESS_CHECK=1 MIDGARD_APP_HOME="$(cygpath -w "$app/Home")" MIDGARD_APP_LOGS="$(cygpath -w "$app/Logs")" \
         "$pkg/Midgard.exe" --headless-check "$(cygpath -w "$out/report/report.json")" \
         --model-stub "$(cygpath -w "$py")" "$(cygpath -w "$PWD/tools/win-app/stub_llm.py")" || status=$?
     cp -R "$app/Logs/." "$out/report/logs/" 2>/dev/null || true

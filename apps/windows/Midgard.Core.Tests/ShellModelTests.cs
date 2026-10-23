@@ -29,6 +29,13 @@ sealed class RecordingView(Action<string> record) : IShellView
         record("view clear data");
         return Task.CompletedTask;
     }
+
+    public Exception? CloseFails;
+    public Task CloseAsync()
+    {
+        record("view close");
+        return CloseFails is null ? Task.CompletedTask : Task.FromException(CloseFails);
+    }
 }
 
 /// <summary>Fake steps for the shell: each records its name; failures and answers are set per test.</summary>
@@ -40,7 +47,7 @@ sealed class FakeShell
     public readonly Channel<ServiceEvent> Events = Channel.CreateUnbounded<ServiceEvent>();
     public InstanceClaim Claim = InstanceClaim.Held;
     public string? SystemProblem, FolderProblem;
-    public Exception? PrepareFails, UsersFail, WebServerFails, StartFails, ResetFails;
+    public Exception? PrepareFails, UsersFail, WebServerFails, StartFails, ResetFails, CloseFails, FinalSweepFails;
     public Func<int, Exception?> SignInFails = _ => null;
     public bool ModelServerMissing;
     public TaskCompletionSource? StartGate;
@@ -121,7 +128,7 @@ sealed class FakeShell
             }
         },
         StopServices = () => { Record("stop services"); return Task.CompletedTask; },
-        CloseServices = () => { Record("close supervisor"); return Task.CompletedTask; },
+        CloseServices = () => { Record("close supervisor"); return CloseFails is null ? Task.CompletedTask : Task.FromException(CloseFails); },
         Statuses = Read,
         SignIn = (api, user, patient, _) =>
         {
@@ -136,7 +143,11 @@ sealed class FakeShell
             if (ResetFails is not null) throw ResetFails;
             return new Home.ResetReport();
         },
-        FinalSweep = () => { Record("final sweep"); return Task.FromResult("final sweep found nothing running"); },
+        FinalSweep = () =>
+        {
+            Record("final sweep");
+            return FinalSweepFails is null ? Task.FromResult("final sweep found nothing running") : Task.FromException<string>(FinalSweepFails);
+        },
         StopWebServer = () => { Record("stop web server"); return Task.CompletedTask; },
         MarkStopping = () => Record("mark stopping"),
         ReleaseInstance = () => Record("release lock"),
@@ -362,13 +373,32 @@ public class ShellModelTests
         await fake.Launched();
         var before = fake.Calls.Count;
         await fake.Shell.ShutdownAsync();
-        Assert.Equal(new[] { "mark stopping", "close supervisor", "final sweep", "stop web server", "release lock" },
+        Assert.Equal(new[] { "mark stopping", "view close", "close supervisor", "final sweep", "stop web server", "release lock" },
                      fake.Calls.Skip(before).ToArray());
         Assert.Equal(ShellPhase.Stopping, fake.Shell.State.Phase);
         Assert.Equal("Stopping Midgard…", fake.Shell.State.Title);
         // Again: nothing more.
         await fake.Shell.ShutdownAsync();
-        Assert.Equal(before + 5, fake.Calls.Count);
+        Assert.Equal(before + 6, fake.Calls.Count);
+    }
+
+    /// <summary>A step that fails (the web view, the supervisor, the sweep) never skips the ones after it.</summary>
+    [Fact]
+    public async Task EveryQuitStepRunsEvenIfOneFails()
+    {
+        var fake = new FakeShell { CloseFails = new InvalidOperationException("stuck"), FinalSweepFails = new IOException("denied") };
+        fake.View.CloseFails = new InvalidOperationException("browser hung");
+        await fake.Launched();
+        var before = fake.Calls.Count;
+        await fake.Shell.ShutdownAsync();
+        Assert.Equal(new[] { "mark stopping", "view close", "close supervisor", "final sweep", "stop web server", "release lock" },
+                     fake.Calls.Skip(before).ToArray());
+        lock (fake.Log)
+        {
+            Assert.Contains(fake.Log, l => l.StartsWith("quit: closing the web view failed", StringComparison.Ordinal));
+            Assert.Contains(fake.Log, l => l.StartsWith("quit: closing the supervisor failed", StringComparison.Ordinal));
+            Assert.Contains(fake.Log, l => l.StartsWith("quit: the final sweep failed", StringComparison.Ordinal));
+        }
     }
 
     [Fact]

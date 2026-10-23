@@ -85,6 +85,19 @@ public class OfflineRulesTests
     [InlineData("http://")]
     public void EverythingElseIsRefused(string url) => Assert.False(Allowed(url), url);
 
+    [Theory]
+    [InlineData("http://127.0.0.1:61235/heimdall/index.html", true)]
+    [InlineData("http://127.0.0.1:7710/api/v1/health", true)]
+    [InlineData("data:text/html,<script>x</script>", false)]
+    [InlineData("blob:http://127.0.0.1:61235/0b4e7a8c", false)]
+    [InlineData("about:blank", false)]
+    [InlineData("file:///C:/Windows/win.ini", false)]
+    [InlineData("https://example.com/", false)]
+    [InlineData("http://127.0.0.1:61235@example.com/", false)]
+    [InlineData(null, false)]
+    public void NewWindowsOpenOnlyPagesOfTheOrigins(string? url, bool opens) =>
+        Assert.Equal(opens, OfflineRules.IsPageOfOrigins(url, App, Gateway));
+
     [Fact]
     public void NullIsRefused() => Assert.False(OfflineRules.IsAllowed(null, App, Gateway));
 

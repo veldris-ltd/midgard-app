@@ -332,6 +332,42 @@ public sealed class WebServerTests : IDisposable
         }
     }
 
+    /// <summary>The redirect is built from the path's segments: "//midgard" is not sent on to another host.</summary>
+    [Fact]
+    public void RedirectNeverLeavesThisServer()
+    {
+        var r = Get("//midgard");
+        Assert.Equal(301, r.Status);
+        Assert.Equal("/midgard/", r["location"]);
+        Assert.Equal("/forge/docs/?x=1", Get("//forge//docs?x=1")["location"]);
+        Assert.Equal("/forge/docs/", Get("/forge/./docs")["location"]);
+        Assert.IsType<WebServer.Resolution.Redirect>(WebServer.Resolve("//midgard", root));
+        Assert.Equal("/midgard/", ((WebServer.Resolution.Redirect)WebServer.Resolve("//midgard", root)).Location);
+    }
+
+    /// <summary>Beyond MaxConnections, a connection waits until one ends.</summary>
+    [Fact]
+    public void ConnectionsBeyondTheCapWait()
+    {
+        using var capped = new WebServer(root, maxConnections: 2);
+        capped.Start();
+        Assert.Equal(2, capped.MaxConnections);
+        Assert.Equal(64, server.MaxConnections);
+        using var idle1 = Connect("127.0.0.1", capped.BoundPort);
+        var idle2 = Connect("127.0.0.1", capped.BoundPort);
+        Thread.Sleep(300);  // both accepted, each waiting for its head
+        using var third = Connect("127.0.0.1", capped.BoundPort);
+        third.ReceiveTimeout = 1000;
+        third.Send(Encoding.UTF8.GetBytes($"GET / HTTP/1.1\r\nHost: 127.0.0.1:{capped.BoundPort}\r\n\r\n"));
+        var buffer = new byte[4096];
+        var e = Assert.Throws<SocketException>(() => third.Receive(buffer));
+        Assert.Equal(SocketError.TimedOut, e.SocketErrorCode);
+        idle2.Dispose();  // a slot comes free
+        third.ReceiveTimeout = 5000;
+        var n = third.Receive(buffer);
+        Assert.StartsWith("HTTP/1.1 200", Encoding.ASCII.GetString(buffer, 0, n));
+    }
+
     [Fact]
     public void IdleConnectionIsClosed()
     {

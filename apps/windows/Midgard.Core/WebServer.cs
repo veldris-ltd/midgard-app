@@ -43,6 +43,13 @@ public sealed class WebServerStartException(string message, Exception? inner = n
 /// on the handle of the file actually opened (so a link swapped in between is caught too),
 /// compared without regard to case. An 8.3 short name cannot reach a dot file either: the
 /// real name is checked.</para>
+/// <para>Hard links are not caught: a hard link is a second name for the same file, not a
+/// link to resolve, so one inside a served folder to a file elsewhere on the volume would be
+/// served. Making one needs write access to the folder, which only the presenter (and the
+/// PC's administrators) have; the package and the starting state hold none.</para>
+/// <para>At most <see cref="MaxConnections"/> connections are served at once (64 by
+/// default; the web view opens a handful); further ones wait in the listen backlog until
+/// one ends, so a flood of idle connections cannot pile up timers and buffers.</para>
 /// </remarks>
 public sealed class WebServer : IDisposable
 {
@@ -80,6 +87,10 @@ public sealed class WebServer : IDisposable
     readonly TimeSpan headTimeout;
     readonly TimeSpan stallTimeout;
     readonly Action<Exception>? onFailure;
+    /// <summary>Connections served at once; more wait to be accepted.</summary>
+    public int MaxConnections { get; }
+    readonly SemaphoreSlim slots;
+    CancellationTokenSource? stopping;
 
     readonly object gate = new();
     Socket? listener;
@@ -92,9 +103,12 @@ public sealed class WebServer : IDisposable
     /// <param name="headTimeout">A connection that has not sent a whole request head by then is closed (15 s).</param>
     /// <param name="stallTimeout">A response the client stops reading for this long is abandoned (30 s).</param>
     /// <param name="onFailure">Called if the listener fails after <see cref="Start"/>.</param>
+    /// <param name="maxConnections">Connections served at once (64).</param>
     public WebServer(string root, ushort port = 0, TimeSpan? headTimeout = null, TimeSpan? stallTimeout = null,
-                     Action<Exception>? onFailure = null)
+                     Action<Exception>? onFailure = null, int maxConnections = 64)
     {
+        MaxConnections = Math.Max(1, maxConnections);
+        slots = new SemaphoreSlim(MaxConnections, MaxConnections);
         Root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         Port = port;
         this.headTimeout = headTimeout ?? TimeSpan.FromSeconds(15);
@@ -137,7 +151,8 @@ public sealed class WebServer : IDisposable
             // Before any connection is accepted, so the Host check sees it.
             bound = ((IPEndPoint)socket.LocalEndPoint!).Port;
             listener = socket;
-            acceptLoop = Task.Run(() => AcceptLoop(socket));
+            var stop = stopping = new CancellationTokenSource();
+            acceptLoop = Task.Run(() => AcceptLoop(socket, stop.Token));
         }
     }
 
@@ -149,14 +164,18 @@ public sealed class WebServer : IDisposable
     {
         Socket? socket;
         Task? loop;
+        CancellationTokenSource? stop;
         lock (gate)
         {
             socket = listener;
             loop = acceptLoop;
+            stop = stopping;
             listener = null;
             acceptLoop = null;
+            stopping = null;
             bound = 0;
         }
+        stop?.Cancel();
         socket?.Dispose();
         try
         {
@@ -175,11 +194,20 @@ public sealed class WebServer : IDisposable
         lock (gate) return ReferenceEquals(listener, socket);
     }
 
-    async Task AcceptLoop(Socket socket)
+    async Task AcceptLoop(Socket socket, CancellationToken stop)
     {
         while (true)
         {
             Socket client;
+            try
+            {
+                // A free slot first: beyond MaxConnections, clients wait in the backlog.
+                await slots.WaitAsync(stop).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
             try
             {
                 client = await socket.AcceptAsync().ConfigureAwait(false);
@@ -187,10 +215,12 @@ public sealed class WebServer : IDisposable
             catch (SocketException e) when ((e.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionAborted)
                                              && IsCurrent(socket))
             {
+                slots.Release();
                 continue;  // a client that gave up while it waited to be accepted
             }
             catch (Exception e) when (e is SocketException or ObjectDisposedException)
             {
+                slots.Release();
                 if (IsCurrent(socket))
                 {
                     onFailure?.Invoke(e);
@@ -260,6 +290,7 @@ public sealed class WebServer : IDisposable
         {
             sessions.TryRemove(session, out _);
             session.Close();
+            slots.Release();
         }
     }
 
@@ -503,7 +534,10 @@ public sealed class WebServer : IDisposable
         if (!file.StartsWith(root + Path.DirectorySeparatorChar, PathComparison)) return new Resolution.Failure(403);
 
         var isDirectory = Directory.Exists(file);
-        if (segments.Length > 0 && !path.EndsWith('/') && isDirectory) return new Resolution.Redirect(raw + "/" + query);
+        // Built from the segments, never the raw target: "//heimdall" must not become the
+        // protocol-relative "//heimdall/" (another host).
+        if (segments.Length > 0 && !path.EndsWith('/') && isDirectory)
+            return new Resolution.Redirect("/" + string.Join("/", segments.Where(x => x != ".").Select(Uri.EscapeDataString)) + "/" + query);
         if ((segments.Length > 0 && path.EndsWith('/')) || isDirectory) file = Path.Join(file, "index.html");
         if (!File.Exists(file)) return new Resolution.Failure(404);
         return Contain(RealPath.Of(file), root, filesOnly: false) == Containment.Inside

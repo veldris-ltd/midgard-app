@@ -42,6 +42,11 @@ public interface IShellView
     void Evaluate(string script);
     /// <summary>Every page's stored data (local and session storage, IndexedDB, caches, cookies).</summary>
     Task ClearBrowsingDataAsync();
+    /// <summary>
+    /// Closes the web view and waits (with a timeout) for its browser process to exit, so
+    /// the profile folder is free before the instance lock is released. Never throws.
+    /// </summary>
+    Task CloseAsync();
 }
 
 /// <summary>
@@ -117,9 +122,11 @@ public sealed record ShellState(
 /// <para>Starting, Try again and Reset demo each run as one task tagged with a generation
 /// number; a newer one cancels and waits for the older, and an older one never changes
 /// what the window shows.</para>
-/// <para>Quitting closes the supervisor (every service stopped, none can start) before the
-/// final sweep, the web server and, last, the instance lock: a launch meanwhile waits for
-/// this app rather than starting services beside its own.</para>
+/// <para>Quitting closes the web view (waiting for its browser process, which holds the
+/// profile), then the supervisor (every service stopped, none can start), then the final
+/// sweep, the web server and, last, the instance lock: a launch meanwhile waits for this
+/// app rather than starting services or a browser beside its own. Each step runs even if
+/// one before it failed.</para>
 /// </remarks>
 public sealed class ShellModel
 {
@@ -970,17 +977,26 @@ public sealed class ShellModel
         {
             Log($"quit: the start ended with {e.Message}");
         }
-        try
+        // Each step on its own, so one that fails never skips the rest.
+        async Task Step(string name, Func<Task> work)
         {
-            await steps.CloseServices().ConfigureAwait(false);
-            // A last sweep: anything still running from the helpers should not outlive the app.
-            Log($"quit: {await steps.FinalSweep().ConfigureAwait(false)}");
-            await steps.StopWebServer().ConfigureAwait(false);
+            try
+            {
+                await work().ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Log($"quit: {name} failed: {e}");
+            }
         }
-        catch (Exception e)
-        {
-            Log($"quit: {e}");
-        }
+        // The pages first (they talk to the gateway), and their browser process with them:
+        // a launch that takes the lock next must find the WebView2 profile free.
+        await Step("closing the web view", view.CloseAsync).ConfigureAwait(false);
+        await Step("closing the supervisor", steps.CloseServices).ConfigureAwait(false);
+        // A last sweep: anything still running from the helpers should not outlive the app.
+        await Step("the final sweep", async () => Log($"quit: {await steps.FinalSweep().ConfigureAwait(false)}"))
+            .ConfigureAwait(false);
+        await Step("stopping the web server", steps.StopWebServer).ConfigureAwait(false);
         await statusCancel.CancelAsync().ConfigureAwait(false);
         Log($"quit: stopped ({Seconds(started)})");
         // Last: a launch meanwhile has waited for this app to finish.

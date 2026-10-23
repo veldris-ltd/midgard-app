@@ -32,7 +32,13 @@ namespace Midgard;
 /// <para>The window part needs an interactive desktop and the WebView2 runtime; without
 /// either (or with <c>--no-window</c>) it is skipped, the report says why, and the rest runs
 /// with a view that shows nothing.</para>
-/// <para>Exit 0 only when every step passed; 1 when one failed, 2 for bad arguments, 4 when
+/// <para>Guarded (<see cref="HeadlessGuard"/>): it runs only with MIDGARD_HEADLESS_CHECK=1 and both
+/// MIDGARD_APP_HOME and MIDGARD_APP_LOGS set explicitly, as the windows-shell-e2e job sets
+/// them, because it resets the working copy (Reset demo, confirmed by itself) and may run a
+/// model stub. Otherwise it refuses with exit 3 before it reads or writes anything, so a
+/// presenter who stumbles on the switch can never wipe their own demo.</para>
+/// <para>Exit 0 only when every step passed; 1 when one failed, 2 for bad arguments, 3 when
+/// the guard refused, 4 when
 /// it did not finish within the timeout (the report is written then too, and the services
 /// end with this process: the app's job is kill-on-close).</para>
 /// </remarks>
@@ -48,6 +54,11 @@ static class HeadlessCheck
 
     public static int Run(string[] args)
     {
+        if (HeadlessGuard.Refusal(HeadlessGuard.ProcessEnvironment()) is { } refused)
+        {
+            Console.Error.WriteLine($"Midgard.exe: {refused}");
+            return 3;
+        }
         string? reportFile = null, python = null, stub = null;
         var noWindow = false;
         var minutes = 25;
@@ -454,6 +465,7 @@ static class HeadlessCheck
         public void Reload() { }
         public void Evaluate(string script) { }
         public Task ClearBrowsingDataAsync() => Task.CompletedTask;
+        public Task CloseAsync() => Task.CompletedTask;
     }
 }
 
