@@ -488,6 +488,7 @@ job_windows_test() {
         cargo clippy "${common[@]}" $line </dev/null || failed=1
     done < <(recipe_cargo_lines lint clippy)
     if [ -n "$rest_lint" ]; then
+        echo "+ cargo clippy $rest_lint--all-targets -- -D warnings"
         # shellcheck disable=SC2086
         cargo clippy "${common[@]}" $rest_lint --all-targets -- -D warnings || failed=1
     fi
@@ -497,6 +498,7 @@ job_windows_test() {
         cargo test "${common[@]}" $line --no-fail-fast </dev/null || failed=1
     done < <(recipe_cargo_lines test test)
     if [ -n "$rest_test" ]; then
+        echo "+ cargo test $rest_test"
         # shellcheck disable=SC2086
         cargo test "${common[@]}" $rest_test --no-fail-fast || failed=1
     fi

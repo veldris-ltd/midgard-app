@@ -312,7 +312,16 @@ impl DurableObjectStore {
             let _ = std::fs::remove_file(&tmp);
             return Err(e);
         }
+        #[cfg(not(windows))]
         std::fs::rename(&tmp, &self.path).map_err(io)?;
+        #[cfg(windows)]
+        {
+            let was_wedged = self.close_for_rename()?;
+            if let Err(e) = std::fs::rename(&tmp, &self.path) {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(self.reopen_after_failed_rename(e, was_wedged));
+            }
+        }
         if let Some(dir) = self.path.parent() {
             if let Ok(d) = File::open(dir) {
                 let _ = d.sync_all();
@@ -380,8 +389,54 @@ impl DurableObjectStore {
         if self.inject(Fault::Cut) {
             return Err(injected());
         }
-        self.file.set_len(len)?;
-        self.file.sync_all()
+        #[cfg(not(windows))]
+        {
+            self.file.set_len(len)?;
+            self.file.sync_all()
+        }
+        // On Windows an append-only handle has no right to truncate (std opens it
+        // without FILE_WRITE_DATA), so the cut goes through a second, writing handle.
+        #[cfg(windows)]
+        {
+            let cut = OpenOptions::new().write(true).open(&self.path)?;
+            cut.set_len(len)?;
+            cut.sync_all()
+        }
+    }
+
+    /// Windows will not rename over an open file: close the journal before the
+    /// compacted one replaces it, returning whether the store was wedged. Until the
+    /// journal is reopened the store is wedged, so nothing is written to the stand-in.
+    #[cfg(windows)]
+    fn close_for_rename(&mut self) -> Result<Option<String>, FabricError> {
+        let stand_in = File::open("NUL").map_err(io)?;
+        let was = self
+            .wedged
+            .replace("the journal is closed for compaction".into());
+        drop(std::mem::replace(&mut self.file, stand_in));
+        Ok(was)
+    }
+
+    /// The compacted journal could not replace the old one, which is untouched: reopen
+    /// it so the store carries on as it was (wedged as before, or not).
+    #[cfg(windows)]
+    fn reopen_after_failed_rename(
+        &mut self,
+        e: std::io::Error,
+        was_wedged: Option<String>,
+    ) -> FabricError {
+        match OpenOptions::new().append(true).open(&self.path) {
+            Ok(file) => {
+                self.file = file;
+                self.wedged = was_wedged;
+            }
+            Err(reopen) => {
+                self.wedged = Some(format!(
+                    "the journal could not be reopened after a failed compaction ({reopen})"
+                ));
+            }
+        }
+        io(e)
     }
 
     /// Take `fault` if it is armed.
@@ -793,7 +848,12 @@ mod tests {
             let bytes = len(&path);
             store.file = File::open(&path).unwrap();
             assert!(store.apply_batch(batch(&["b"])).is_err());
+            // On Windows the cut-back has a handle of its own (see `cut_back`), so only
+            // the write fails and the store is not wedged.
+            #[cfg(not(windows))]
             assert!(store.wedged().is_some());
+            #[cfg(windows)]
+            assert!(store.wedged().is_none());
             assert_eq!(len(&path), bytes);
             assert_eq!(store.journal_records(), 1);
             assert_eq!(ids(&store), vec!["a"]);
