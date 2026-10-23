@@ -640,6 +640,16 @@ impl HeimdallBridge {
     }
 }
 
+/// A text query parameter (`key=...`), percent-decoded; absent is `None`, a malformed
+/// escape a 400. The consoles send `encodeURIComponent(question)`. [FR-MI-3]
+pub fn query_text(query: &str, key: &str) -> Result<Option<String>, EdgeError> {
+    query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
+        .map(percent_decode)
+        .transpose()
+}
+
 /// The `layers` query parameter of the picture route: comma-separated layer ids (letters,
 /// digits, `-` and `_`), at most 16; absent means every layer. [FR-H-1]
 pub fn picture_layers_param(query: &str) -> Result<Vec<String>, EdgeError> {
@@ -1005,6 +1015,24 @@ mod tests {
                 .status,
             400
         );
+    }
+
+    #[test]
+    fn a_question_in_the_query_is_percent_decoded() {
+        // The consoles send encodeURIComponent(question): Heimdall ranks its evidence by
+        // the question's words, so it must get the words, not "Which%20power%20cuts".
+        let q = |query: &str| super::query_text(query, "question");
+        assert_eq!(
+            q("question=Which%20power%20cuts%3F&bbox=-12,48,4,62").unwrap(),
+            Some("Which power cuts?".to_string())
+        );
+        assert_eq!(
+            q("bbox=1&question=a+b%2Bc").unwrap(),
+            Some("a b+c".to_string())
+        );
+        assert_eq!(q("questions=x").unwrap(), None);
+        assert_eq!(q("").unwrap(), None);
+        assert_eq!(q("question=bad%2").unwrap_err().status, 400);
     }
 
     #[test]

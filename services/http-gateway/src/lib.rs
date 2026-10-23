@@ -756,8 +756,9 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             // A question over the picture (the Mimir core agent via Heimdall), a read like
             // decision support: it answers and changes nothing. [FR-MI-3] [FR-H-4]
             ("POST", heimdall_bridge::ASK_PATH) => match &self.heimdall {
-                Some(bridge) => match req.query_param("question") {
-                    Some(q) if q.trim().chars().count() >= 3 => {
+                Some(bridge) => match heimdall_bridge::query_text(&req.query, "question") {
+                    Err(e) => Err(e),
+                    Ok(Some(q)) if q.trim().chars().count() >= 3 => {
                         heimdall_bridge::Boxes::from_query(&req.query).and_then(|boxes| {
                             let focus =
                                 heimdall_bridge::ask_focus(req.query_param("focus").as_deref())?;
@@ -776,12 +777,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             ("POST", path) if heimdall_bridge::advise_target(path).is_some() => {
                 match (&self.heimdall, heimdall_bridge::advise_target(path)) {
                     (Some(bridge), Some(target)) => target.and_then(|(kind, id)| {
-                        bridge.advise(
-                            kind,
-                            &id,
-                            &claims.subject,
-                            req.query_param("question").as_deref(),
-                        )
+                        let question = heimdall_bridge::query_text(&req.query, "question")?;
+                        bridge.advise(kind, &id, &claims.subject, question.as_deref())
                     }),
                     _ => Err(EdgeError::new(
                         404,
