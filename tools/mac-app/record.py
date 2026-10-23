@@ -31,11 +31,12 @@ polled for changes.
 
 Cameras (land-camera) are kept. Their images and clips come from the internet, which the app
 never reaches, so packing also captures media: each camera's latest still (image_url) and, where
-it has one (TfL), its clip (video_url) are downloaded once into <out>/media/<entity>.<ext>
-(MEDIA_WORKERS at a time, MEDIA_TIMEOUT_S each, one retry; a file already there is reused unless
---refresh-media) and those attributes are rewritten to the app-relative /media/<file>, which the
-app's web server serves. A camera whose media could not be fetched keeps no internet URL: the
-attribute is dropped. --no-media skips the downloads (and so drops every camera media URL).
+it has one (TfL), its clip (video_url) are downloaded when packing (so the frame current then,
+not during the recording) into <out>/media/<entity>.<ext> (MEDIA_WORKERS at a time,
+MEDIA_TIMEOUT_S each, one retry; a stored file is reused unless --refresh-media, and kept if its
+new download fails), and those attributes are rewritten to the app-relative /media/<file>, which
+the app's web server serves. A camera whose media could not be fetched keeps no internet URL:
+the attribute is dropped. --no-media downloads nothing and uses only the files already stored.
 Camera analysis (land-camera-ai) is not recorded: the app runs its own.
 """
 import argparse
@@ -298,48 +299,60 @@ def fetch_url(url, timeout=MEDIA_TIMEOUT_S):
     return data
 
 
-def capture_media(plan, media_dir, fetch=fetch_url, refresh=False, workers=MEDIA_WORKERS,
+def capture_media(plan, media_dir, fetch=None, refresh=False, workers=MEDIA_WORKERS,
                   max_mb=MEDIA_MAX_MB, retry_wait=1.0):
     """Download every planned file into `media_dir` (a file already there is kept unless
     `refresh`); each download is tried twice, and one that fails or is not an image/clip is
-    skipped. Files no longer planned are removed. Raises SystemExit if the media would pass
-    `max_mb`. Returns {(entity, attr): file} for the files present afterwards, and
-    {attr: [saved, reused, failed]}."""
+    skipped. A file is replaced only by a successful download: a failed refresh keeps the
+    stored copy. Files no longer planned are removed. Raises SystemExit (stopping the
+    downloads) as soon as the media would pass `max_mb`. Returns {(entity, attr): file} for
+    the files present afterwards, and {attr: [downloaded, reused, failed]} ("reused" counts
+    stored files used without a new download, also those kept after a failed refresh).
+    `fetch` defaults to fetch_url (looked up at call time)."""
+    fetch = fetch or fetch_url
     os.makedirs(media_dir, exist_ok=True)
     counts = {attr: [0, 0, 0] for attr in MEDIA_ATTRS}
     saved, todo = {}, []
-    for key, (file, url) in plan.items():
+
+    def stored(file):
         path = os.path.join(media_dir, file)
-        if not refresh and os.path.isfile(path) and os.path.getsize(path) > 0:
+        return os.path.getsize(path) if os.path.isfile(path) and os.path.getsize(path) > 0 else 0
+
+    for key, (file, url) in plan.items():
+        if not refresh and stored(file):
             saved[key] = file
             counts[key[1]][1] += 1
         else:
             todo.append((key, file, url))
 
     def one(job):
-        key, file, url = job
+        key, _file, url = job
         for attempt in (1, 2):
             try:
                 data = fetch(url)
                 if looks_like_media(data, MEDIA_ATTRS[key[1]][0]):
-                    return job, data
-                if attempt == 2:
-                    return job, None
+                    return data
             except Exception:  # noqa: BLE001 - any failure: retry once, then skip
-                if attempt == 2:
-                    return job, None
-            time.sleep(retry_wait)
-        return job, None
+                pass
+            if attempt == 1:
+                time.sleep(retry_wait)
+        return None
 
-    total = sum(os.path.getsize(os.path.join(media_dir, f)) for f in saved.values())
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        for (key, file, _url), data in pool.map(one, todo):
+    total = sum(stored(file) for file, _url in plan.values())  # what is on disk now
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers))
+    try:
+        futures = {pool.submit(one, job): job for job in todo}
+        for future in concurrent.futures.as_completed(futures):
+            key, file, _url = futures[future]
+            data = future.result()
+            old = stored(file)
             if data is None:
                 counts[key[1]][2] += 1
-                with contextlib.suppress(FileNotFoundError):
-                    os.remove(os.path.join(media_dir, file))  # a stale copy is not kept
+                if old:  # a failed refresh: the stored copy stays
+                    saved[key] = file
+                    counts[key[1]][1] += 1
                 continue
-            total += len(data)
+            total += len(data) - old
             if total > max_mb * 1e6:
                 pool.shutdown(wait=False, cancel_futures=True)
                 raise SystemExit(f"camera media passed {max_mb} MB: stopped ({len(saved)} files "
@@ -350,6 +363,8 @@ def capture_media(plan, media_dir, fetch=fetch_url, refresh=False, workers=MEDIA
             os.replace(part, os.path.join(media_dir, file))
             saved[key] = file
             counts[key[1]][0] += 1
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     keep = set(saved.values())
     for name in os.listdir(media_dir):
         if name not in keep:
@@ -507,7 +522,7 @@ def media_summary(plan, saved, media_dir):
     return {k: dict(v, cameras=len(v["cameras"])) for k, v in sorted(out.items())}
 
 
-def pack(raw, out, quiet=False, media=True, refresh_media=False, fetch=fetch_url,
+def pack(raw, out, quiet=False, media=True, refresh_media=False, fetch=None,
          max_media_mb=MEDIA_MAX_MB):
     """Pack a raw capture into a recording at `out`; returns the summary.
 
@@ -738,6 +753,8 @@ def main(argv):
     pk.add_argument("--refresh-media", action="store_true",
                     help="download every camera's media again, even if already stored")
     args = ap.parse_args(argv)
+    if args.command == "pack" and args.no_media and args.refresh_media:
+        ap.error("--no-media and --refresh-media cannot be used together")
     if args.command == "record":
         if args.minutes <= 0 or not plain(args.name):
             ap.error("--minutes must be positive and --name a plain name")

@@ -317,6 +317,29 @@ final class WebServerTests: XCTestCase {
     }
 
     /// WebKit asks for `bytes=0-1` first and plays a clip only if it gets 206.
+    func testSymlinksOutOfTheTreeAreRefused() throws {
+        let fm = FileManager.default
+        let media = root.appendingPathComponent("recording/media")
+        // A link to a file outside root, one to the recording (inside root, outside media),
+        // a link to a directory outside, and a link that stays inside media (allowed).
+        try fm.createSymbolicLink(at: media.appendingPathComponent("out.jpg"),
+                                  withDestinationURL: base.appendingPathComponent("secret.txt"))
+        try fm.createSymbolicLink(at: media.appendingPathComponent("rec.jpg"),
+                                  withDestinationURL: root.appendingPathComponent("recording/heimdall.jsonl.gz"))
+        try fm.createSymbolicLink(at: media.appendingPathComponent("up"), withDestinationURL: base)
+        try fm.createSymbolicLink(at: media.appendingPathComponent("same.jpg"),
+                                  withDestinationURL: media.appendingPathComponent("JamCams_1.jpg"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("consoles/heimdall/assets/out.js"),
+                                  withDestinationURL: base.appendingPathComponent("secret.txt"))
+        for path in ["/media/out.jpg", "/media/rec.jpg", "/media/up/secret.txt", "/heimdall/assets/out.js"] {
+            let r = try get(path)
+            XCTAssertEqual(r.status, 403, path)
+            XCTAssertFalse(String(decoding: r.body, as: UTF8.self).contains("secret"), path)
+            XCTAssertFalse(String(decoding: r.body, as: UTF8.self).contains("recording"), path)
+        }
+        XCTAssertEqual(try get("/media/same.jpg").status, 200)
+    }
+
     func testRangeRequestsForClips() throws {
         let all = (0..<1000).map { UInt8($0 % 251) }
         let probe = try ranged("/media/JamCams_1.mp4", "bytes=0-1")

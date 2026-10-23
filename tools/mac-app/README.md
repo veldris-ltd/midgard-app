@@ -128,12 +128,13 @@ python3 tools/mac-app/record.py record --minutes 60 [--name NAME] [--drop-raw]
   is in `record.py`'s docstring.
 - Ctrl-C stops early and still packs. After a crash, re-pack the raw capture with
   `python3 tools/mac-app/record.py pack RAW OUT`.
-- Cameras are kept, and `pack` stores their media: each camera's latest still and (TfL) clip
+- Cameras are kept, and `pack` stores their media (fetched when `pack` runs, so the latest
+  frame then, not the one current during the recording): each camera's latest still and (TfL) clip
   go into `OUT/media/` (about 180 MB for the recorded hour; 6 downloads at a time, one retry,
   stops past 400 MB) and the batches point at `/media/<file>`, which the app's web server
   serves. A camera whose media failed has no image URL rather than an internet one. Stored
-  files are reused on a re-pack; `--refresh-media` downloads again, `--no-media` downloads
-  nothing.
+  files are reused on a re-pack; `--refresh-media` downloads again (a failed download keeps
+  the stored file), `--no-media` downloads nothing.
 
 ### Replaying
 

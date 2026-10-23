@@ -325,7 +325,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
       {analysis}
       {!expanded && trend}
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6 }}>
-        {OFFLINE ? 'STORED IMAGE AND CLIP FROM THE RECORDING' : 'IMAGE RELOADS EVERY 30 S'} · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
+        {OFFLINE ? (camera.videoUrl ? 'STORED IMAGE AND CLIP FROM THE RECORDING' : 'STORED IMAGE FROM THE RECORDING') : 'IMAGE RELOADS EVERY 30 S'} · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
       </div>
       {expanded && (
         <div role="dialog" aria-label={`Camera ${name}`} onClick={() => setExpanded(false)}

@@ -312,13 +312,15 @@ public final class WebServer: @unchecked Sendable {
             guard segments.count > 1, !segments.contains(where: { $0.hasPrefix(".") }) else {
                 return .failure(404)
             }
-            file = root.appendingPathComponent("recording/media")
+            let media = root.appendingPathComponent("recording/media")
+            file = media
             segments.dropFirst().forEach { file.appendPathComponent($0) }
             file = file.standardizedFileURL
             var isDirectory: ObjCBool = false
             guard file.path.hasPrefix(root.path + "/") else { return .failure(403) }
             guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
                   !isDirectory.boolValue else { return .failure(404) }
+            guard isInside(file, media) else { return .failure(403) }
             return .success(file)
         } else {
             return .failure(404)
@@ -336,7 +338,16 @@ public final class WebServer: @unchecked Sendable {
         }
         guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else { return .failure(404) }
+        guard isInside(file, root) else { return .failure(403) }
         return .success(file)
+    }
+
+    /// True if `file`, with every symlink resolved, is still inside `dir` (also resolved):
+    /// a link pointing out of the served tree is refused.
+    static func isInside(_ file: URL, _ dir: URL) -> Bool {
+        let real = file.resolvingSymlinksInPath().path
+        let base = dir.resolvingSymlinksInPath().path
+        return real.hasPrefix(base + "/")
     }
 
     enum ByteRange: Equatable {

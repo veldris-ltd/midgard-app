@@ -12,10 +12,24 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import record  # noqa: E402
+
+
+class NetworkRefused(BaseException):
+    """Raised by the default fetch in tests: a BaseException, so capture_media's retry
+    (which catches Exception) cannot swallow it and the test fails loudly."""
+
+
+def refuse_network(url):
+    raise NetworkRefused(f"a test tried to reach the internet: {url}")
+
+
+# No test may download anything: pack() and capture_media() look fetch_url up at call time.
+record.fetch_url = refuse_network
 
 
 def obs(entity, kind, at, **attrs):
@@ -161,16 +175,54 @@ class CaptureMediaTest(unittest.TestCase):
         self.assertEqual(counts["image_url"], [0, 1, 0])
         self.assertEqual(self.calls, [])
         self.assertEqual(os.listdir(self.media), ["A.jpg"])
-        saved, counts = record.capture_media(plan, self.media, fetch=self.fetch({"u/a": OSError()}),
+        saved, counts = record.capture_media(plan, self.media, fetch=self.fetch({"u/a": JPEG + b"new"}),
                                              refresh=True, retry_wait=0)
-        self.assertEqual(saved, {})  # refresh failed: the stale copy is not kept
-        self.assertEqual(os.listdir(self.media), [])
+        self.assertEqual(counts["image_url"], [1, 0, 0])
+        with open(os.path.join(self.media, "A.jpg"), "rb") as f:
+            self.assertEqual(f.read(), JPEG + b"new")  # replaced by a successful download
 
-    def test_stops_past_the_size_cap(self):
-        plan = {(f"E{i}", "image_url"): (f"E{i}.jpg", f"u/{i}") for i in range(3)}
+    def test_failed_refresh_keeps_the_stored_file(self):
+        os.makedirs(self.media)
+        with open(os.path.join(self.media, "A.jpg"), "wb") as f:
+            f.write(JPEG)
+        plan = {("A", "image_url"): ("A.jpg", "u/a"), ("B", "image_url"): ("B.jpg", "u/b")}
+        fetch = self.fetch({"u/a": OSError("outage"), "u/b": OSError("outage")})
+        saved, counts = record.capture_media(plan, self.media, fetch=fetch, refresh=True, retry_wait=0)
+        self.assertEqual(saved, {("A", "image_url"): "A.jpg"})
+        self.assertEqual(counts["image_url"], [0, 1, 2])  # both failed; A's stored copy used
+        self.assertEqual(os.listdir(self.media), ["A.jpg"])
+        with open(os.path.join(self.media, "A.jpg"), "rb") as f:
+            self.assertEqual(f.read(), JPEG)
+        # A bad body (an error page) does not replace it either.
+        saved, _ = record.capture_media(plan, self.media, fetch=lambda u: b"<html>503</html>",
+                                        refresh=True, retry_wait=0)
+        self.assertEqual(saved, {("A", "image_url"): "A.jpg"})
+        with open(os.path.join(self.media, "A.jpg"), "rb") as f:
+            self.assertEqual(f.read(), JPEG)
+
+    def test_default_fetch_is_refused_in_tests(self):
+        with self.assertRaises(NetworkRefused):
+            record.capture_media({("A", "image_url"): ("A.jpg", "https://example.invalid/a.jpg")},
+                                 self.media, retry_wait=0)
+
+    def test_stops_past_the_size_cap_as_results_arrive(self):
+        plan = {(f"E{i}", "image_url"): (f"E{i}.jpg", f"u/{i}") for i in range(20)}
         big = JPEG + b"z" * 600_000
+
+        def fetch(url):
+            self.calls.append(url)
+            time.sleep(0.01)
+            return big
         with self.assertRaises(SystemExit):
-            record.capture_media(plan, self.media, fetch=lambda u: big, max_mb=1, workers=1, retry_wait=0)
+            record.capture_media(plan, self.media, fetch=fetch, max_mb=1, workers=1, retry_wait=0)
+        self.assertLess(len(self.calls), 6)  # the rest were cancelled, not downloaded
+        self.assertEqual(len(os.listdir(self.media)), 1)  # nothing past the cap was written
+
+    def test_cli_rejects_no_media_with_refresh_media(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            record.main(["pack", "raw", "out", "--no-media", "--refresh-media"])
+        self.assertIn("cannot be used together", err.getvalue())
 
 
 class PackTest(unittest.TestCase):
