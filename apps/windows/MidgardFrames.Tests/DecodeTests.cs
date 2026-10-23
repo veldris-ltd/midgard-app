@@ -36,12 +36,24 @@ public sealed class Fixtures : IDisposable
         Make("testsrc.mp4", $"-f lavfi -i testsrc2=s=352x288:r=25:d=10.4 {x264} -crf 23 -g 50");
         Make("hd.mp4", $"-f lavfi -i testsrc2=s=1920x1080:r=25:d=1 {x264} -crf 23 -g 25");
         Make("still.jpg", "-f lavfi -i testsrc2=s=640x480:r=1 -frames:v 1 -q:v 3");
+        // HEVC, for a codec Windows may have no decoder for (the HEVC Video Extensions).
+        HevcMade = TryMake("hevc.mp4", "-f lavfi -i testsrc2=s=352x288:r=25:d=1 -c:v libx265 -pix_fmt yuv420p -tag:v hvc1");
     }
+
+    public bool HevcMade { get; }
 
     void Make(string name, string args)
     {
-        var (code, _, err) = Tools.Run(Ffmpeg!, ["-v", "error", "-y", .. args.Split(' '), Path.Combine(Dir, name)]);
-        if (code != 0) throw new InvalidOperationException($"ffmpeg could not make {name}: {err}");
+        if (!TryMake(name, args, out var err)) throw new InvalidOperationException($"ffmpeg could not make {name}: {err}");
+    }
+
+    bool TryMake(string name, string args) => TryMake(name, args, out _);
+
+    bool TryMake(string name, string args, out string err)
+    {
+        var (code, _, e) = Tools.Run(Ffmpeg!, ["-v", "error", "-y", .. args.Split(' '), Path.Combine(Dir, name)]);
+        err = e;
+        return code == 0;
     }
 
     public string this[string name] => Path.Combine(Dir, name);
@@ -75,9 +87,11 @@ static class Tools
     }
 
     /// <summary>What analytics.py runs when it has no helper (decode(), the ffmpeg branch).</summary>
-    public static byte[] FfmpegDecode(string ffmpeg, string path, int w, int h, int fps, int maxFrames, bool still)
+    public static byte[] FfmpegDecode(string ffmpeg, string path, int w, int h, int fps, int maxFrames, bool still,
+                                      string? matrix = null)
     {
-        string vf = still ? $"scale={w}:{h}:flags=bilinear" : $"fps={fps},scale={w}:{h}:flags=bilinear";
+        string scale = $"scale={w}:{h}:flags=bilinear" + (matrix != null ? $":in_color_matrix={matrix}" : "");
+        string vf = still ? scale : $"fps={fps},{scale}";
         var (code, output, err) = Run(ffmpeg, ["-v", "error", "-threads", "1", "-filter_threads", "1", "-i", path,
             "-vf", vf, "-frames:v", still ? "1" : maxFrames.ToString(CultureInfo.InvariantCulture),
             "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]);
@@ -189,7 +203,9 @@ public class DecodeTests(Fixtures fixtures, ITestOutputHelper output) : IClassFi
         var reference = Tools.FfmpegDecode(fixtures.Ffmpeg!, fixtures["grey8.mp4"], 64, 52, 4, 40, still: false);
         Assert.Single(one);
         Assert.Equal(64 * 52 * 3, reference.Length);
-        Assert.True(Tools.MeanAbsDiff(one[0], reference) < 1.5);
+        double d = Tools.MeanAbsDiff(one[0], reference);
+        Assert.True(d < 1.5, $"grey8.mp4: ours {one[0][100]}, ffmpeg's {reference[100]}, mean |diff| {d:F3}");
+        Assert.InRange(one[0][100], 2 * 3 * 255.0 / 219 - 4, 2 * 3 * 255.0 / 219 + 4);  // input frame 3
 
         // The command line writes the same frames to stdout.
         using var stdout = new MemoryStream();
@@ -205,18 +221,45 @@ public class DecodeTests(Fixtures fixtures, ITestOutputHelper output) : IClassFi
     public void MatchesFfmpegOnAPatternClip()
     {
         if (!Ready()) return;
-        Compare("testsrc.mp4", 352, 288, 40, maxMean: 6);
-        Compare("hd.mp4", 1920, 1080, 4, maxMean: 6);
+        Compare("testsrc.mp4", 352, 288, 40, maxMean: 4);
+        // An untagged HD clip: Media Foundation takes it as BT.709 (its default for HD), where
+        // ffmpeg's swscale takes BT.601; so it is compared with ffmpeg told BT.709 too (the
+        // difference from ffmpeg's default is only recorded).
+        Compare("hd.mp4", 1920, 1080, 4, maxMean: 1000);
+        Compare("hd.mp4", 1920, 1080, 4, maxMean: 4, matrix: "bt709");
     }
 
-    void Compare(string name, int width, int height, int count, double maxMean)
+    /// A clip whose codec Windows has no decoder for gets a one-line reason, not a crash; an
+    /// H.264 clip without a decoder gets the Media Feature Pack message (not testable here).
+    [Fact]
+    public void ACodecWithoutADecoderIsNamed()
+    {
+        if (!Ready()) return;
+        if (!fixtures.HevcMade)
+        {
+            Tools.Record(output, "hevc.mp4: this ffmpeg cannot make HEVC; not tried");
+            return;
+        }
+        try
+        {
+            var size = Frames.Probe(fixtures["hevc.mp4"]);
+            Tools.Record(output, $"hevc.mp4: this Windows decodes HEVC ({size.Width}x{size.Height})");
+        }
+        catch (FramesException e)
+        {
+            Tools.Record(output, $"hevc.mp4: {e.Message}");
+            Assert.StartsWith("no Media Foundation decoder for hevc.mp4's video", e.Message);
+        }
+    }
+
+    void Compare(string name, int width, int height, int count, double maxMean, string? matrix = null)
     {
         var (W, H) = Frames.Probe(fixtures[name]);
         Assert.Equal((width, height), (W, H));
         var (w, h) = Frames.LetterboxSize(W, H, 640);
         int size = w * h * 3;
         var frames = Decode(fixtures[name], w, h, 4, 40);
-        var reference = Tools.FfmpegDecode(fixtures.Ffmpeg!, fixtures[name], w, h, 4, 40, still: false);
+        var reference = Tools.FfmpegDecode(fixtures.Ffmpeg!, fixtures[name], w, h, 4, 40, still: false, matrix);
         Assert.Equal(count, frames.Count);
         Assert.Equal(frames.Count * size, reference.Length);
         double total = 0, worst = 0;
@@ -230,7 +273,7 @@ public class DecodeTests(Fixtures fixtures, ITestOutputHelper output) : IClassFi
             max = Math.Max(max, Tools.MaxAbsDiff(frames[i], theirs));
         }
         double mean = total / frames.Count;
-        Tools.Record(output, $"{name} {W}x{H} -> {w}x{h} @4fps: {frames.Count} frames as ffmpeg's; mean |diff| {mean:F3}, worst frame {worst:F3}, largest pixel diff {max}");
+        Tools.Record(output, $"{name} {W}x{H} -> {w}x{h} @4fps{(matrix != null ? $", ffmpeg told {matrix}" : "")}: {frames.Count} frames as ffmpeg's; mean |diff| {mean:F3}, worst frame {worst:F3}, largest pixel diff {max}");
         Assert.True(mean < maxMean, $"{name}: mean |diff| {mean:F3} from ffmpeg");
     }
 

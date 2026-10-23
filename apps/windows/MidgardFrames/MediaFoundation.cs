@@ -30,6 +30,7 @@ static unsafe partial class MediaFoundation
     static readonly Guid MF_MT_DEFAULT_STRIDE = new("644b4e48-1e02-4516-b0eb-c01ca9d49ac6");
     static readonly Guid MFMediaType_Video = new("73646976-0000-0010-8000-00aa00389b71");
     static readonly Guid MFVideoFormat_RGB32 = new("00000016-0000-0010-8000-00aa00389b71");
+    static readonly Guid MFVideoFormat_H264 = new("34363248-0000-0010-8000-00aa00389b71");
     static readonly Guid MFT_CATEGORY_VIDEO_DECODER = new("d6c02d4b-6833-45b4-971a-05a4b04bab91");
     static readonly Guid IID_IMF2DBuffer = new("7dc9d5f9-9ed9-44ec-9bbf-0600bb589fbb");
 
@@ -99,6 +100,16 @@ static unsafe partial class MediaFoundation
 
     static int SetGUID(nint p, Guid key, Guid v) =>
         ((delegate* unmanaged<nint, Guid*, Guid*, int>)Com.Slot(p, 24))(p, &key, &v);
+
+    /// <summary>A video subtype's FourCC (its first four bytes), as "HEVC".</summary>
+    static string FourCC(Guid subtype)
+    {
+        Span<byte> b = stackalloc byte[16];
+        subtype.TryWriteBytes(b);
+        return b[..4].ToArray().All(c => c is >= 0x20 and < 0x7F)
+            ? System.Text.Encoding.ASCII.GetString(b[..4])
+            : subtype.ToString();
+    }
 
     /// <summary>Whether Media Foundation has a decoder for a compressed video subtype (unknown: yes).</summary>
     static bool HasDecoder(Guid subtype)
@@ -197,10 +208,12 @@ static unsafe partial class MediaFoundation
                 hr = SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, type);
                 if (Com.Failed(hr))
                 {
-                    // No decoder for the clip's video (H.264 on an N edition without the Media
-                    // Feature Pack, or a Windows Server without its Media Foundation feature).
+                    // No decoder for the clip's video: for H.264 (the cameras' clips), an N edition
+                    // of Windows without the Media Feature Pack; otherwise a codec Windows lacks.
                     if (hr == MF_E_TOPO_CODEC_NOT_FOUND || (native != Guid.Empty && !HasDecoder(native)))
-                        throw new FramesException(FramesException.NoMediaFeaturePack);
+                        throw new FramesException(native == MFVideoFormat_H264 || native == Guid.Empty
+                            ? FramesException.NoMediaFeaturePack
+                            : $"no Media Foundation decoder for {name}'s video ({FourCC(native)})");
                     throw new FramesException($"cannot decode {name} to RGB32 ({Com.Hex(hr)})");
                 }
             }
