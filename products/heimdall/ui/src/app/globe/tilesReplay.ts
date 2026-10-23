@@ -80,11 +80,11 @@ export function parseTilesManifest(raw: unknown): TilesManifest {
   };
 }
 
-/** The part of `box` inside the recorded box, or null when (nearly) none of it is. */
+/** The part of `box` inside the recorded box, or null when too little of it is. */
 export function clipToRecorded(box: TileBox, rec: TileBox): TileBox | null {
   const out = { west: Math.max(box.west, rec.west), east: Math.min(box.east, rec.east), south: Math.max(box.south, rec.south), north: Math.min(box.north, rec.north) };
-  // Under a hundredth of the view across either way: not worth a close-up.
-  const minW = (box.east - box.west) / 100, minH = (box.north - box.south) / 100;
+  // Under a tenth of the view across either way: not worth a close-up (the bundled map stays).
+  const minW = (box.east - box.west) / 10, minH = (box.north - box.south) / 10;
   return out.east - out.west > minW && out.north - out.south > minH ? out : null;
 }
 

@@ -51,8 +51,11 @@ export interface Detail {
 
 const TILE = 256;
 const MAX_TILES = 100;
-/** EOX's sea colour (its tile for open sea), under tiles not recorded. */
+/** EOX's sea colour (its tile for open sea), under imagery tiles not recorded. */
 const SEA = '#182c4e';
+/** 0 m in the terrarium encoding (R * 256 + G + B / 256 - 32768), under terrain tiles not
+ *  recorded or not loaded, so they read as sea level, not -32768 m (no hillshade specks). */
+const SEA_LEVEL = '#800000';
 
 const tileX = (lon: number, z: number) => ((lon + 180) / 360) * 2 ** z;
 const tileY = (lat: number, z: number) => {
@@ -150,7 +153,8 @@ async function recordedPlan(box: Box, style: DetailStyle): Promise<Plan> {
   const m = await recordedManifest();
   const clipped = clipToRecorded(box, m.box);
   if (!clipped) throw new Error('outside the recorded tiles');
-  const z = zoomFor(box);
+  // The zoom for the area drawn (the clipped box), capped by the recorded levels.
+  const z = zoomFor(clipped);
   const dem = pickRecorded(m.sources.terrarium, clipped, z, MAX_TILES);
   if (!dem) throw new Error('no recorded terrain here');
   return {
@@ -176,7 +180,7 @@ export async function buildDetail(want: Box, style: DetailStyle, signal?: AbortS
   const H = aspect > 1 ? 2048 : Math.max(1, Math.round(2048 * aspect));
 
   // Elevation, sampled onto the output's lat/lon pixels.
-  const dem = await mosaic(plan.dem, plan.demUrl, signal);
+  const dem = await mosaic(plan.dem, plan.demUrl, signal, SEA_LEVEL);
   const raw = dem.ctx.getImageData(0, 0, dem.c.width, dem.c.height).data;
   const elev = new Float32Array(W * H);
   const colOf = new Float32Array(W);

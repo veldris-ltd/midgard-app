@@ -287,6 +287,29 @@ def tree_size(path):
     return sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(path) for f in fs)
 
 
+def recover_previous(out):
+    """A capture stopped between the two renames of swap_in leaves only <out>.old: put it
+    back, so the previous capture is not lost."""
+    old = out + ".old"
+    if os.path.isdir(old) and not os.path.exists(out):
+        os.rename(old, out)
+
+
+def swap_in(tmp, out):
+    """Replaces `out` with the finished `tmp`; if that fails, the previous `out` is restored."""
+    old = out + ".old"
+    shutil.rmtree(old, ignore_errors=True)
+    if os.path.exists(out):
+        os.rename(out, old)
+    try:
+        os.rename(tmp, out)
+    except OSError:
+        if os.path.exists(old) and not os.path.exists(out):
+            os.rename(old, out)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def main(argv):
     if len(argv) > 2 or (len(argv) == 2 and argv[1].startswith("-")):
         print(__doc__.split("\n\n")[1], file=sys.stderr)
@@ -301,6 +324,7 @@ def main(argv):
               file=sys.stderr)
         return 1
     out = os.path.join(recording, "traffic")
+    recover_previous(out)
     tmp = out + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
@@ -373,12 +397,7 @@ def main(argv):
         return 1
     with open(os.path.join(tmp, "manifest.json"), "w") as f:
         json.dump(manifest, f, separators=(",", ":"))
-    old = out + ".old"
-    shutil.rmtree(old, ignore_errors=True)
-    if os.path.exists(out):
-        os.rename(out, old)
-    os.rename(tmp, out)
-    shutil.rmtree(old, ignore_errors=True)
+    swap_in(tmp, out)
     print("traffic: zooms %s, %d tiles, %.1f MB in %s (%d s)" % (
         ",".join(str(lv["z"]) for lv in manifest["levels"]),
         sum(len(lv["tiles"]) for lv in manifest["levels"]), tree_size(out) / 1e6, out,

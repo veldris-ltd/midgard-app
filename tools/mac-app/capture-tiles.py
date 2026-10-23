@@ -481,6 +481,29 @@ def sample_sizes(grid, pacers, cache, n=SAMPLES):
     return sizes, {z: len(t) for z, t in counts.items()}
 
 
+def recover_previous(out):
+    """A capture stopped between the two renames of swap_in leaves only <out>.old: put it
+    back, so the previous capture is not lost."""
+    old = out + ".old"
+    if os.path.isdir(old) and not os.path.exists(out):
+        os.rename(old, out)
+
+
+def swap_in(tmp, out):
+    """Replaces `out` with the finished `tmp`; if that fails, the previous `out` is restored."""
+    old = out + ".old"
+    shutil.rmtree(old, ignore_errors=True)
+    if os.path.exists(out):
+        os.rename(out, old)
+    try:
+        os.rename(tmp, out)
+    except OSError:
+        if os.path.exists(old) and not os.path.exists(out):
+            os.rename(old, out)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def main(argv):
     args = argv[1:]
     plan_only = "--plan" in args
@@ -538,6 +561,7 @@ def main(argv):
         return 0 if keep else 1
 
     out = os.path.join(recording, "tiles")
+    recover_previous(out)
     tmp = out + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
@@ -658,12 +682,7 @@ def main(argv):
         return 1
     with open(os.path.join(tmp, "manifest.json"), "w") as f:
         json.dump(manifest, f, separators=(",", ":"))
-    old = out + ".old"
-    shutil.rmtree(old, ignore_errors=True)
-    if os.path.exists(out):
-        os.rename(out, old)
-    os.rename(tmp, out)
-    shutil.rmtree(old, ignore_errors=True)
+    swap_in(tmp, out)
     for name, src in manifest["sources"].items():
         print("tiles %s: zooms %s, %d tiles, %.1f MB" % (
             name, ",".join(str(l["z"]) for l in src["levels"]),

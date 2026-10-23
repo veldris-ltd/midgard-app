@@ -172,6 +172,29 @@ def build_manifest(frames, missing, captured, rng=None):
     }
 
 
+def recover_previous(out):
+    """A capture stopped between the two renames of swap_in leaves only <out>.old: put it
+    back, so the previous capture is not lost."""
+    old = out + ".old"
+    if os.path.isdir(old) and not os.path.exists(out):
+        os.rename(old, out)
+
+
+def swap_in(tmp, out):
+    """Replaces `out` with the finished `tmp`; if that fails, the previous `out` is restored."""
+    old = out + ".old"
+    shutil.rmtree(old, ignore_errors=True)
+    if os.path.exists(out):
+        os.rename(out, old)
+    try:
+        os.rename(tmp, out)
+    except OSError:
+        if os.path.exists(old) and not os.path.exists(out):
+            os.rename(old, out)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def main(argv):
     if len(argv) > 2 or (len(argv) == 2 and argv[1].startswith("-")):
         print(__doc__.split("\n\n")[1], file=sys.stderr)
@@ -181,6 +204,7 @@ def main(argv):
         print("not a recording (no meta.json): %s" % recording, file=sys.stderr)
         return 1
     out = os.path.join(recording, "radar")
+    recover_previous(out)
     tmp = out + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
 
@@ -234,12 +258,7 @@ def main(argv):
     os.makedirs(tmp, exist_ok=True)
     with open(os.path.join(tmp, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=1)
-    old = out + ".old"
-    shutil.rmtree(old, ignore_errors=True)
-    if os.path.exists(out):
-        os.rename(out, old)
-    os.rename(tmp, out)
-    shutil.rmtree(old, ignore_errors=True)
+    swap_in(tmp, out)
     size = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(out) for f in fs)
     span = manifest["frames"][-1]["offset"]
     print("radar: %d frames over %d min, %.1f MB in %s" % (

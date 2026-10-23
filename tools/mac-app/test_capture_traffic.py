@@ -80,6 +80,32 @@ class CaptureTrafficTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ct.build_manifest([], "c", 1)
 
+    def test_swap_is_recoverable(self):
+        with tempfile.TemporaryDirectory() as d:
+            out, tmp = os.path.join(d, "x"), os.path.join(d, "x.tmp")
+            def put(path, text):
+                os.makedirs(path, exist_ok=True)
+                with open(os.path.join(path, "manifest.json"), "w") as f:
+                    f.write(text)
+            def read(path):
+                with open(os.path.join(path, "manifest.json")) as f:
+                    return f.read()
+            # Stopped between the renames: only x.old is left, and it is put back.
+            put(out + ".old", "previous")
+            ct.recover_previous(out)
+            self.assertEqual(read(out), "previous")
+            self.assertFalse(os.path.exists(out + ".old"))
+            ct.recover_previous(out)  # nothing to do
+            # The second rename fails (no tmp): the previous capture is restored.
+            with self.assertRaises(OSError):
+                ct.swap_in(tmp, out)
+            self.assertEqual(read(out), "previous")
+            # A good swap replaces it and leaves no .old.
+            put(tmp, "new")
+            ct.swap_in(tmp, out)
+            self.assertEqual(read(out), "new")
+            self.assertFalse(os.path.exists(out + ".old") or os.path.exists(tmp))
+
 
 if __name__ == "__main__":
     unittest.main()

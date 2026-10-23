@@ -41,6 +41,7 @@ import { URBAN } from '../places';
 import { GLOBE_LAND_110M } from '../globeLand';
 import { TERRAIN } from './terrainUK';
 import { buildDetail, zoomFor, type Box } from './detailPatch';
+import { detailGrid, gridIndex } from './detailGrid';
 import { loadTrafficLines, TRAFFIC_COLOURS, type TrafficLines } from '../traffic';
 import { BALTIC_VIEW, GlobeCamera, UK_VIEW, maxTilt, type CameraState } from './GlobeCamera';
 import { D2R, EARTH_KM, drawnHeight, enu, raySphere, toVec } from './geo';
@@ -483,7 +484,10 @@ export class GlobeView {
    *  group (colour and width). */
   private readonly infraFat = new Map<string, LineSegments2>();
   /** Close-up detail laid on the terrain for the area in view (see detailPatch.ts). */
-  private detail: { mesh: THREE.Mesh; key: string } | null = null;
+  private detail: { mesh: THREE.Mesh; key: string; box: Box; heightAt: (lat: number, lon: number) => number } | null = null;
+  /** The close-up's box (west, south, east, north), where the base relief is not drawn while
+   *  it shows; west >= east when there is none. */
+  private readonly detailHide = { value: new THREE.Vector4(0, 0, 0, 0) };
   private detailWant = '';
   private detailTimer = 0;
   private detailAbort: AbortController | null = null;
@@ -726,6 +730,26 @@ export class GlobeView {
     // Night side shading on the globe and the terrain.
     shadeNight(this.globeMaterial, this.sun, this.night);
     shadeNight(this.terrain.material as THREE.Material, this.sun, this.night);
+    // While the close-up shows, the base relief inside its box is not drawn: the close-up is
+    // the ground there (a coarser surface just below it would otherwise poke through it).
+    const tmat = this.terrain.material as THREE.Material;
+    const nightShader = tmat.onBeforeCompile;
+    tmat.onBeforeCompile = (sh, r) => {
+      nightShader.call(tmat, sh, r);
+      sh.uniforms.uHide = this.detailHide;
+      sh.fragmentShader = sh.fragmentShader
+        .replace('uniform float uNight;', 'uniform float uNight;\nuniform vec4 uHide;')
+        .replace('void main() {', [
+          'void main() {',
+          '  if (uHide.x < uHide.z) {',
+          '    vec3 hp = normalize(vEarthN);',
+          '    float hLat = degrees(asin(clamp(hp.y, -1.0, 1.0)));',
+          '    float hLon = degrees(atan(hp.x, hp.z));',
+          '    if (hLon > uHide.x && hLon < uHide.z && hLat > uHide.y && hLat < uHide.w) discard;',
+          '  }',
+        ].join('\n'));
+    };
+    tmat.needsUpdate = true;
     this.setSunTime(Date.now());
 
     this.ro = new ResizeObserver(() => this.resize());
@@ -880,6 +904,7 @@ export class GlobeView {
     this.buildPath();
     this.buildAreas();
     this.buildMeasure();
+    this.relayDetail();
     this.requestRender();
   }
 
@@ -1327,6 +1352,7 @@ export class GlobeView {
         this.place();
         this.buildAreas();
         this.buildTrails();
+        this.relayDetail();
         this.requestRender();
       })
       .catch(() => { /* keep the bundled 5 km grid */ });
@@ -1923,6 +1949,7 @@ export class GlobeView {
         m.map?.dispose();
         m.dispose();
         this.detail = null;
+        this.detailHide.value.set(0, 0, 0, 0);
         this.cb.onDetail?.(null);
         this.requestRender();
       }
@@ -1937,7 +1964,8 @@ export class GlobeView {
     const cos = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
     const box: Box = { west: lon - span / cos / 2, east: lon + span / cos / 2, south: lat - span / 2, north: lat + span / 2 };
     this.updateTraffic(box);
-    const key = `${this.mapStyle}:${box.west.toFixed(3)}:${box.south.toFixed(3)}:${span.toFixed(3)}:${this.exaggeration}`;
+    // (Not the height stretch: setExaggeration re-lays the same image at the new stretch.)
+    const key = `${this.mapStyle}:${box.west.toFixed(3)}:${box.south.toFixed(3)}:${span.toFixed(3)}`;
     if (key === this.detailWant || key === this.detail?.key) return;
     this.detailWant = key;
     this.detailAbort?.abort();
@@ -1946,35 +1974,7 @@ export class GlobeView {
     buildDetail(box, this.mapStyle, ctrl.signal)
       .then((d) => {
         if (ctrl.signal.aborted || this.disposed || this.detailWant !== key) return;
-        // A grid over the detail's box (the view's; offline, clipped to the recorded tiles)
-        // on the same terrain surface as the base map, so roads, rivers and overlays keep
-        // sitting on it; the detail is in the image.
-        const db = d.box;
-        const dcos = Math.max(0.2, Math.cos((((db.north + db.south) / 2) * Math.PI) / 180));
-        const gw = 256, gh = Math.max(32, Math.round(256 * ((db.north - db.south) / (db.east - db.west)) * dcos));
-        const pos = new Float32Array((gw + 1) * (gh + 1) * 3), uv = new Float32Array((gw + 1) * (gh + 1) * 2);
-        const v = new THREE.Vector3();
-        for (let j = 0; j <= gh; j++) {
-          for (let i = 0; i <= gw; i++) {
-            const la = db.north - (j / gh) * (db.north - db.south), lo = db.west + (i / gw) * (db.east - db.west);
-            // The surface from the detail's own elevation, so its shape matches its shading.
-            toVec(la, lo, 1 + drawnHeight(Math.max(0, d.heightAt(la, lo)), this.exaggeration) + 0.00011, v);
-            const k = j * (gw + 1) + i;
-            pos[k * 3] = v.x; pos[k * 3 + 1] = v.y; pos[k * 3 + 2] = v.z;
-            uv[k * 2] = i / gw; uv[k * 2 + 1] = 1 - j / gh;
-          }
-        }
-        const index: number[] = [];
-        for (let j = 0; j < gh; j++) {
-          for (let i = 0; i < gw; i++) {
-            const a = j * (gw + 1) + i, b = a + 1, c = a + gw + 1, e = c + 1;
-            index.push(a, c, b, b, c, e);
-          }
-        }
-        const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-        g.setIndex(index);
+        const g = this.detailGeometry(d.box, d.heightAt);
         const tex = new THREE.CanvasTexture(d.canvas);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
@@ -1988,11 +1988,49 @@ export class GlobeView {
           m.dispose();
         }
         this.scene.add(mesh);
-        this.detail = { mesh, key };
+        this.detail = { mesh, key, box: d.box, heightAt: d.heightAt };
+        this.detailHide.value.set(d.box.west, d.box.south, d.box.east, d.box.north);
         this.cb.onDetail?.({ imagery: d.imagery });
         this.requestRender();
       })
       .catch(() => { if (this.detailWant === key) this.detailWant = ''; });
+  }
+
+  /** The close-up's surface over its box (the view's; offline, clipped to the recorded
+   *  tiles): a grid of about square cells (detailGrid) at the base relief's own heights where
+   *  it has them (terrainAt, the bundled grid over the UK and Ireland), so the roads, rails,
+   *  coast, area fills, tracks and labels draped on that relief stay just above it; the fine
+   *  detail is in the shaded image. Outside the bundled grid (online, other regions), where
+   *  nothing is draped on relief, the detail's own elevation. */
+  private detailGeometry(b: Box, heightAt: (lat: number, lon: number) => number): THREE.BufferGeometry {
+    const { gw, gh } = detailGrid(b);
+    const { west, north, step, nx, ny } = GRID;
+    const onGrid = (la: number, lo: number) => lo >= west && lo <= west + (nx - 1) * step && la <= north && la >= north - (ny - 1) * step;
+    const pos = new Float32Array((gw + 1) * (gh + 1) * 3), uv = new Float32Array((gw + 1) * (gh + 1) * 2);
+    const v = new THREE.Vector3();
+    for (let j = 0; j <= gh; j++) {
+      for (let i = 0; i <= gw; i++) {
+        const la = b.north - (j / gh) * (b.north - b.south), lo = b.west + (i / gw) * (b.east - b.west);
+        const h = onGrid(la, lo) ? terrainAt(la, lo) : heightAt(la, lo);
+        toVec(la, lo, 1 + drawnHeight(Math.max(0, h), this.exaggeration) + 0.00011, v);
+        const k = j * (gw + 1) + i;
+        pos[k * 3] = v.x; pos[k * 3 + 1] = v.y; pos[k * 3 + 2] = v.z;
+        uv[k * 2] = i / gw; uv[k * 2 + 1] = 1 - j / gh;
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(new THREE.BufferAttribute(gridIndex(gw, gh), 1));
+    return g;
+  }
+
+  /** Lays the shown close-up again on the current relief and height stretch. */
+  private relayDetail(): void {
+    if (!this.detail) return;
+    const old = this.detail.mesh.geometry;
+    this.detail.mesh.geometry = this.detailGeometry(this.detail.box, this.detail.heightAt);
+    old.dispose();
   }
 
   dispose(): void {

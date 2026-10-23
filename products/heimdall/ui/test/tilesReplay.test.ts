@@ -48,6 +48,8 @@ test('the close-up is clipped to the recorded box', () => {
   assert.deepEqual(clipToRecorded({ west: 2, east: 6, south: 50, north: 52 }, box), { west: 2, east: 4, south: 50, north: 52 });
   assert.equal(clipToRecorded({ west: 10, east: 12, south: 50, north: 52 }, box), null); // Germany: the bundled map
   assert.equal(clipToRecorded({ west: 3.999, east: 8, south: 50, north: 52 }, box), null); // a sliver
+  assert.equal(clipToRecorded({ west: 3.7, east: 7, south: 50, north: 52 }, box), null); // under a tenth of the view
+  assert.deepEqual(clipToRecorded({ west: 3.6, east: 7, south: 50, north: 52 }, box), { west: 3.6, east: 4, south: 50, north: 52 });
 });
 
 test('the finest recorded zoom at or below the one wanted', () => {
