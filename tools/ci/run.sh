@@ -64,6 +64,7 @@ shell-audit|host|build one client shell and audit it on this runner: shell-audit
 shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-gate <release>
 windows-build|host|release build of the suite services on a Windows x64 runner (Git Bash, MSVC)
 windows-test|host|clippy and tests of the whole Rust workspace on a Windows x64 runner (Git Bash, MSVC)
+windows-smoke|host|the services end to end on a fixture recording on a Windows x64 runner, after windows-build
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -503,6 +504,27 @@ job_windows_test() {
         cargo test "${common[@]}" $rest_test --no-fail-fast || failed=1
     fi
     return "$failed"
+}
+
+# The suite end to end on Windows: the release services windows-build made, a synthetic
+# fixture recording (tools/win-app/make-fixture.py) and a stub model server, started,
+# checked and stopped by tools/win-app/run-suite.py. mg-admin and mg-model, which build
+# the working copy, are built here. Nothing is downloaded. The services' logs are left
+# in target/windows-smoke/logs for the pipeline to keep when the job fails.
+job_windows_smoke() {
+    local dir="target/$WINDOWS_TARGET/release" out=target/windows-smoke py
+    windows_toolchain windows-smoke
+    cargo build --offline --locked --release --target "$WINDOWS_TARGET" -p mg-admin -p mg-model --bins
+    py="$(command -v python || command -v python3)" || {
+        ci_error "windows-smoke: python is not on PATH"
+        exit 1
+    }
+    "$py" --version
+    # Relative paths: a native Windows python is handed no POSIX path to translate.
+    rm -rf "$out"
+    mkdir -p "$out/logs"
+    "$py" tools/win-app/make-fixture.py "$out/fixture"
+    "$py" tools/win-app/run-suite.py --bin "$dir" --fixture "$out/fixture" --logs "$out/logs"
 }
 
 case "${1:-}" in

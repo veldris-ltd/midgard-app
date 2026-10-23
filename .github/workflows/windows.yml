@@ -25,7 +25,7 @@ defaults:
 
 jobs:
   build:
-    name: build and test the services (x86_64-pc-windows-msvc)
+    name: build, smoke-test and test the services (x86_64-pc-windows-msvc)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -35,5 +35,16 @@ jobs:
           key: windows-target-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             windows-target-${{ runner.arch }}-
-      - run: bash tools/ci/run.sh windows-build
-      - run: bash tools/ci/run.sh windows-test
+      - id: build
+        run: bash tools/ci/run.sh windows-build
+      - id: smoke
+        run: bash tools/ci/run.sh windows-smoke
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure() && steps.smoke.outcome == 'failure'
+        with:
+          name: windows-smoke-logs
+          path: target/windows-smoke/logs/
+          if-no-files-found: warn
+      # The tests run whether or not the smoke test passed, once the services built.
+      - if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash tools/ci/run.sh windows-test

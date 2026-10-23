@@ -2,15 +2,26 @@
 """Smoke-test a running suite through its gateway: sign in, then check the fabric,
 Heimdall's picture, Mimir's model plane and Forge's overview. Exit 1 on any failure.
 
-    python3 tools/mac-app/smoke.py [--base http://127.0.0.1:7710/api/v1]
+    python3 tools/mac-app/smoke.py [--base http://127.0.0.1:7710/api/v1] [--passwords FILE]
+                                   [--forge-jobs N] [--min-object-types N]
 
-The analyst password is read from ~/Desktop/Midgard/airports-passwords.txt and is
-never printed; neither is the session token.
+The analyst password is read from --passwords (default
+~/Desktop/Midgard/airports-passwords.txt) and is never printed; neither is the session
+token. --forge-jobs (default 11) is how many jobs Forge's overview must list and
+--min-object-types (default 20) how many object types the fabric must have at least:
+the enclosure home's; tools/win-app/run-suite.py passes its fixture's.
 """
 import json, os, re, sys, urllib.error, urllib.request
 
-BASE = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else "http://127.0.0.1:7710/api/v1"
-PW_FILE = os.path.expanduser("~/Desktop/Midgard/airports-passwords.txt")
+
+def opt(name, default):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+
+BASE = opt("--base", "http://127.0.0.1:7710/api/v1")
+PW_FILE = os.path.expanduser(opt("--passwords", "~/Desktop/Midgard/airports-passwords.txt"))
+FORGE_JOBS = int(opt("--forge-jobs", "11"))
+MIN_OBJECT_TYPES = int(opt("--min-object-types", "20"))
 
 
 def call(path, body=None, token=None):
@@ -60,7 +71,8 @@ def run(name, path, token, test):
 
 # Sign in: nothing else can work without it.
 try:
-    m = re.search(r"^analyst \(internal\): (\S+)", open(PW_FILE).read(), re.M)
+    with open(PW_FILE, encoding="utf-8") as f:
+        m = re.search(r"^analyst \(internal\): (\S+)", f.read(), re.M)
     if not m:
         raise ValueError("no 'analyst (internal):' line in the passwords file")
     tok = call("/login", {"username": "analyst", "password": m.group(1)}).get("token")
@@ -72,7 +84,7 @@ if failures:
 
 
 def object_types(r):
-    return isinstance(r, list) and len(r) >= 20, f"({len(r) if isinstance(r, list) else 'not a list'})"
+    return isinstance(r, list) and len(r) >= MIN_OBJECT_TYPES, f"({len(r) if isinstance(r, list) else 'not a list'})"
 
 
 def picture(r):
@@ -88,7 +100,7 @@ def mimir(r):
 
 def forge(r):
     jobs = r.get("jobs", []) if isinstance(r, dict) else []
-    return len(jobs) == 11, f"({len(jobs)} jobs)"
+    return len(jobs) == FORGE_JOBS, f"({len(jobs)} jobs)"
 
 
 run("fabric object types", "/object-types", tok, object_types)

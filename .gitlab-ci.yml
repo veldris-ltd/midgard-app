@@ -254,6 +254,18 @@ windows-test:
   script:
     - bash tools/ci/run.sh windows-test
 
+# The release build and the smoke test run in one job: the smoke test uses the .exe files
+# the build leaves in target/.
+windows-smoke:
+  extends: windows-build
+  script:
+    - bash tools/ci/run.sh windows-build
+    - bash tools/ci/run.sh windows-smoke
+  artifacts:
+    when: on_failure
+    paths:
+      - target/windows-smoke/logs/
+
 # --- client shell audits -----------------------------------------------------------------
 # A shell with no buildable project FAILS its audit — a record is never written for a UI
 # that did not run — so these are red until all six shells exist. That is the gate
