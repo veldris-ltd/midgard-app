@@ -1,10 +1,10 @@
 # Windows app W2: the C# shell — implementation plan
 
-**Goal:** `Midgard.exe`, a C#/.NET 8 WinForms app hosting WebView2. Like the Mac shell (`apps/mac`), it checks the PC, keeps the working copy, starts and supervises the services, serves the home page, consoles and recording files on loopback, signs the presenter in, and shows everything offline in one window. Quitting leaves nothing running.
+**Goal:** `Midgard.exe`, a C#/.NET 10 (LTS) WinForms app hosting WebView2. Like the Mac shell (`apps/mac`), it checks the PC, keeps the working copy, starts and supervises the services, serves the home page, consoles and recording files on loopback, signs the presenter in, and shows everything offline in one window. Quitting leaves nothing running.
 
 **Architecture:** a port of `apps/mac/Sources/MidgardShellCore`, about 4,000 lines of Swift across Paths, Ports, SystemCheck, Home, ServiceSpec/SuiteSpecs, Supervisor, ModelServer, Session, WebServer and Shell. The port is a core library, `Midgard.Core`, with no UI and testable with xUnit on any OS where it can be. The window app (`Midgard`) uses WinForms, WebView2 and Job Objects. Behaviour matches the Swift code unless Windows needs otherwise; read the Swift file before writing each part.
 
-**Tech Stack:** .NET 8 SDK (`actions/setup-dotnet`, pinned), C# 12, WinForms, Microsoft.Web.WebView2 (NuGet, pinned version and hash in `packages.lock.json`), xUnit. Publish: `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`. CI goes through `tools/ci/run.sh` jobs (`windows-shell-build`, `windows-shell-test`), mirrored in `.gitlab-ci.yml` per `tools/ci/pipelines.sh`.
+**Tech Stack:** .NET 10 SDK (LTS; the windows-latest runners carry it, picked by `apps/windows/global.json`), C# 14 (net10's default), WinForms, Microsoft.Web.WebView2 (NuGet, pinned version and hash in `packages.lock.json`), xUnit. Publish: `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`. CI goes through `tools/ci/run.sh` jobs (`windows-shell-build`, `windows-shell-test`), mirrored in `.gitlab-ci.yml` per `tools/ci/pipelines.sh`.
 
 Design: `docs/plans/2026-10-23-windows-app-design.md` §3. W1 (services on Windows, `tools/win-app/run-suite.py`, which already uses Job Objects and a working-copy builder): `docs/plans/2026-10-23-windows-app-w1-services.md`.
 
@@ -13,7 +13,10 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §3. W1 (services on Windo
 ## Background
 
 - **Layout of the extracted ZIP:** `Midgard\Midgard.exe`, `Midgard\helpers\*.exe` (the services, llama, analytics runtime and frames helper in W3), and `Midgard\resources\` (the consoles, home, starting-state, models, recording, licences). `Paths` finds them from the exe's folder.
-- **Working copy:** `%LOCALAPPDATA%\Midgard`, which is private to the user by default. Check its ACL once at start: refuse if Everyone, Users or Authenticated Users can read it, and explain. Logs go in `%LOCALAPPDATA%\Midgard\Logs`.
+- **The app's folder:** `%LOCALAPPDATA%\Midgard`, which is private to the user by default. Check its ACL once at start: refuse if Everyone, Users or Authenticated Users can read it, and explain. It holds three folders, so Reset demo can wipe the working copy without touching the logs or the browser profile:
+  - `Home\`: the working copy (`MIDGARD_APP_HOME` overrides this one only);
+  - `Logs\`: one log per service plus shell.log (`MIDGARD_APP_LOGS` overrides this one only);
+  - `WebView\`: the WebView2 user-data folder (Task 6).
 - **Starting state:** the same `resources\starting-state` as the Mac bundle, built on the Mac by `tools/mac-app/make-starting-state.sh` and copied by the W4 packager. W2 tests use the W1 minimal working copy from run-suite.py's builder.
 - **Readiness patterns, arguments and order:** follow `SuiteSpecs.make` (ServiceSpec.swift) and `tools/mac-app/run-native.sh`. Analytics starts last and is optional; it is added in W3.
 - **NuGet:** use a lock file (`RestorePackagesWithLockFile`) and `--locked-mode` restore in CI. No packages beyond WebView2, the WinForms SDK and the test packages. Record each package's licence in `resources\licenses`.
@@ -21,9 +24,9 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §3. W1 (services on Windo
 
 ### Task 1: Solution, CI and Paths/Ports/SystemCheck
 
-- **Projects:** `apps/windows/Midgard.sln` with `Midgard.Core` (net8.0 class library), `Midgard` (net8.0-windows WinForms exe, which can show a blank window for now) and `Midgard.Core.Tests` (xUnit).
+- **Projects:** `apps/windows/Midgard.sln` with `Midgard.Core` (net10.0 class library), `Midgard` (net10.0-windows WinForms exe, which can show a blank window for now) and `Midgard.Core.Tests` (xUnit).
 - **Port these:**
-  - `Paths`, the bundle layout plus the working copy and logs, overridable with `MIDGARD_APP_HOME` and `MIDGARD_APP_LOGS` like the Mac app;
+  - `Paths`, the bundle layout plus the working copy, logs and WebView2 folder, overridable with `MIDGARD_APP_HOME` and `MIDGARD_APP_LOGS` like the Mac app;
   - `Ports`, free loopback ports;
   - `SystemCheck`: Windows 11 build ≥ 22000, x64, ≥ 8 GB RAM, ≥ 4 GB free disk on the working-copy drive, WebView2 runtime version present. It should read like the Mac messages.
 - **CI:** `windows-shell-build` and `windows-shell-test` jobs on windows-latest run restore (locked), build, test and publish win-x64 single-file, then list the output size.
@@ -76,7 +79,7 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §3. W1 (services on Windo
   - refresh before expiry;
   - the injection script, with the same contents and checks: `location.origin` guard, gateway URL, console URL, prepared-answers URL, session token in sessionStorage.
 - **Window (`Midgard`):** WinForms with a WebView2 control.
-  - **Profile:** the WebView2 user-data folder is in the working copy.
+  - **Profile:** the WebView2 user-data folder is `Paths.WebView` (`%LOCALAPPDATA%\Midgard\WebView`), outside the working copy.
   - **Session script:** `AddScriptToExecuteOnDocumentCreatedAsync`.
   - **Offline rules:**
     - `AddWebResourceRequestedFilter("*")`, which refuses any request outside the app's origin (127.0.0.1:<webport>) or the gateway (127.0.0.1:<gatewayport>);

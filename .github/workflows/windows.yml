@@ -5,7 +5,7 @@
 # with the GitLab pipeline (.gitlab-ci.yml). The services are built natively on a
 # Windows runner with the pinned toolchain (rust-toolchain.toml) and the vendored
 # crates, for the Windows presentation app (docs/plans/2026-10-23-windows-app-design.md).
-# The shell is built with the runner's .NET 8 SDK (apps/windows/global.json) from the
+# The shell is built with the runner's .NET 10 SDK (apps/windows/global.json) from the
 # committed NuGet lock files.
 name: windows
 

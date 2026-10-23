@@ -16,8 +16,9 @@ public class PathsTests
     {
         var p = new Paths(NoEnv, Bundle, LocalAppData);
         Assert.Equal(Bundle, p.Resources);
-        Assert.Equal(Path.Join(LocalAppData, "Midgard"), p.Home);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "Home"), p.Home);
         Assert.Equal(Path.Join(LocalAppData, "Midgard", "Logs"), p.Logs);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "WebView"), p.WebView);
     }
 
     [Fact]
@@ -33,14 +34,39 @@ public class PathsTests
         Assert.Equal(@"D:\dev\res", p.Resources);
         Assert.Equal(@"D:\dev\home", p.Home);
         Assert.Equal(@"D:\dev\logs", p.Logs);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "WebView"), p.WebView);
     }
 
     [Fact]
-    public void HomeOverrideKeepsDefaultLogs()
+    public void HomeOverrideMovesOnlyHome()
     {
         var p = new Paths(new Dictionary<string, string> { ["MIDGARD_APP_HOME"] = @"D:\dev\home" },
                           Bundle, LocalAppData);
+        Assert.Equal(@"D:\dev\home", p.Home);
         Assert.Equal(Path.Join(LocalAppData, "Midgard", "Logs"), p.Logs);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "WebView"), p.WebView);
+    }
+
+    [Fact]
+    public void LogsOverrideMovesOnlyLogs()
+    {
+        var p = new Paths(new Dictionary<string, string> { ["MIDGARD_APP_LOGS"] = @"D:\dev\logs" },
+                          Bundle, LocalAppData);
+        Assert.Equal(@"D:\dev\logs", p.Logs);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "Home"), p.Home);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "WebView"), p.WebView);
+    }
+
+    [Fact]
+    public void HomeLogsAndWebViewAreSeparateFolders()
+    {
+        // Reset demo wipes Home: the logs and the browser profile must not be inside it.
+        var p = new Paths(NoEnv, Bundle, LocalAppData);
+        var home = p.Home + Path.DirectorySeparatorChar;
+        Assert.False(p.Logs.StartsWith(home, StringComparison.OrdinalIgnoreCase));
+        Assert.False(p.WebView.StartsWith(home, StringComparison.OrdinalIgnoreCase));
+        Assert.NotEqual(p.Home, p.Logs);
+        Assert.NotEqual(p.Home, p.WebView);
     }
 
     [Fact]
@@ -72,7 +98,7 @@ public class PathsTests
     public void EmptyOverrideIsIgnored()
     {
         var p = new Paths(new Dictionary<string, string> { ["MIDGARD_APP_HOME"] = "" }, Bundle, LocalAppData);
-        Assert.Equal(Path.Join(LocalAppData, "Midgard"), p.Home);
+        Assert.Equal(Path.Join(LocalAppData, "Midgard", "Home"), p.Home);
     }
 
     [Fact]
@@ -80,7 +106,7 @@ public class PathsTests
     {
         var p = Paths.Current(NoEnv);
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        Assert.Equal(Path.Join(local, "Midgard"), p.Home);
+        Assert.Equal(Path.Join(local, "Midgard", "Home"), p.Home);
         Assert.Equal(Path.Join(AppContext.BaseDirectory, "resources"), p.Resources);
         Assert.Equal(Path.Join(AppContext.BaseDirectory, "helpers"), p.Helpers);
         Assert.False(p.DevLayout);

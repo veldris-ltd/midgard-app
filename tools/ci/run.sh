@@ -65,8 +65,8 @@ shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-
 windows-build|host|release build of the suite services on a Windows x64 runner (Git Bash, MSVC)
 windows-test|host|clippy and tests of the whole Rust workspace on a Windows x64 runner (Git Bash, MSVC)
 windows-smoke|host|the services end to end on a fixture recording on a Windows x64 runner, after windows-build
-windows-shell-build|host|locked restore, release build and win-x64 single-file publish of the C# shell (apps/windows; .NET 8 SDK)
-windows-shell-test|host|locked restore and the xUnit tests of the C# shell (apps/windows; .NET 8 SDK)
+windows-shell-build|host|locked restore, release build and win-x64 single-file publish of the C# shell (apps/windows; .NET 10 SDK)
+windows-shell-test|host|locked restore and the xUnit tests of the C# shell (apps/windows; .NET 10 SDK)
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -573,7 +573,7 @@ job_windows_smoke() {
 }
 
 # The Windows app's C# shell (apps/windows, docs/plans/2026-10-23-windows-app-w2-shell.md):
-# Midgard.Core, the Midgard WinForms exe and the xUnit tests, with the .NET 8 SDK that
+# Midgard.Core, the Midgard WinForms exe and the xUnit tests, with the .NET 10 SDK that
 # apps/windows/global.json pins (the GitHub windows runners carry it). Packages come only
 # from nuget.org (apps/windows/nuget.config) and only as each project's committed
 # packages.lock.json says: the restore is locked, so a package or version changes only by
@@ -583,11 +583,11 @@ WINDOWS_SHELL_PROJECTS=(Midgard.Core Midgard Midgard.Core.Tests)
 WINDOWS_SHELL_OUT=target/windows-shell
 windows_dotnet() {
     export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
-    need dotnet "$1: the .NET 8 SDK is needed (the GitHub windows runners carry it)"
+    need dotnet "$1: the .NET 10 SDK is needed (the GitHub windows runners carry it)"
     ci_group "dotnet SDKs"
     dotnet --list-sdks
     ci_endgroup
-    # From apps/windows, so global.json picks the SDK: this fails when no 8.0 SDK is there.
+    # From apps/windows, so global.json picks the SDK: this fails when no 10.0 SDK is there.
     local version
     version="$(cd "$WINDOWS_SHELL" && dotnet --version)"
     echo "$1: .NET SDK $version"

@@ -7,7 +7,7 @@ Agreed with the user on 23 Oct 2026. The Windows counterpart of the Mac presenta
 - **Platform:** Windows 11 on Intel/AMD x64 only. ARM laptops run it emulated, which isn't supported.
 - **Signing:** unsigned for now. Presenters click *More info → Run anyway* once.
 - **Build and test:** on GitHub Actions `windows-latest` runners. The repo is public, so these runners are free. Only code goes to GitHub. The recording, media, radar, TomTom traffic, imagery tiles and the models never leave the dev Mac, since some of them can't be republished.
-- **Shell language:** C# / .NET 8, WinForms with WebView2, published self-contained for win-x64.
+- **Shell language:** C# / .NET 10 (LTS), WinForms with WebView2, published self-contained for win-x64.
 - **Delivery:** one ZIP (`Midgard-1.0-Windows.zip`) with no installer. Extract it, then double-click `Midgard.exe`. No admin rights are needed. To remove it, delete the folder and `%LOCALAPPDATA%\Midgard`.
 - **Test hardware:** none yet. The first presenter-ready build needs one person to try it on a real Windows laptop. If the user sets up SSH to a PC, that check runs over it.
 
@@ -17,7 +17,7 @@ Agreed with the user on 23 Oct 2026. The Windows counterpart of the Mac presenta
 
 - **`Midgard.exe`:** the C# shell. It does the same jobs as the Mac app:
   - checks the PC;
-  - keeps the working copy in `%LOCALAPPDATA%\Midgard`, with Reset demo;
+  - keeps the working copy in `%LOCALAPPDATA%\Midgard\Home`, with Reset demo;
   - starts the services on free loopback ports and signs in the presenter;
   - shows the home page and consoles in WebView2;
   - quits cleanly.
@@ -39,7 +39,7 @@ Behaviour:
 Nine files use Unix-only features. Each gets a `#[cfg(windows)]` branch beside the existing `#[cfg(unix)]` code. *Changed in W1:* the few Win32 functions needed are declared in `extern "system"` blocks (kernel32), not taken from `windows-sys`. Vendoring that crate would have added tens of MB to a folder at its storage limit.
 
 - **Directory locks** (`services/runtime/src/lock.rs`): the exclusive hold is the same `create_new` lock file as on Unix, recording `os=windows`. Liveness comes from OpenProcess, GetExitCodeProcess and the creation time from GetProcessTimes.
-- **Secret and key files** (`crypto/pqc-agility/src/secret.rs`, `crypto/attest/src/keystore.rs`): *changed in W1:* there is no ACL code. A file created 0600 on Unix inherits its folder's ACL on Windows, and the keystore's mode check is Unix only. The working copy, `%LOCALAPPDATA%\Midgard`, is private to the user by default, and the W2 shell checks its ACL once at start.
+- **Secret and key files** (`crypto/pqc-agility/src/secret.rs`, `crypto/attest/src/keystore.rs`): *changed in W1:* there is no ACL code. A file created 0600 on Unix inherits its folder's ACL on Windows, and the keystore's mode check is Unix only. The app's folder, `%LOCALAPPDATA%\Midgard`, is private to the user by default, and the W2 shell checks its ACL once at start.
 - **Durable writes** (`services/fabric/src/durable.rs`, `crypto/audit-writer/src/{file,journal}.rs`, `heimdall/store/src/{util,history_store}.rs`):
   - *As built in W1:* the fabric store's compaction closes the journal, then replaces it with `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`, retried for about 2 s while another handle blocks it. It cuts back a failed write through a writing handle of its own.
   - **Other files:** they keep std's `sync_all` (FlushFileBuffers on Windows) and `rename` (MoveFileExW with REPLACE_EXISTING on Rust 1.82) wherever they already flush or replace, and their tests pass on Windows.
@@ -56,13 +56,13 @@ Mac and Linux behaviour must not change. The existing Linux CI and the Mac tests
 ## 3. The C# shell (`apps/windows/`)
 
 - **SystemCheck:** Windows 11 build 22000 or later, x64, at least 8 GB of memory and 4 GB free disk, and the WebView2 runtime present. Anything missing is explained in plain words.
-- **Paths and Home:** the working copy is `%LOCALAPPDATA%\Midgard`, created from `resources\starting-state`. It's checked with the `.midgard-home` marker, and a folder that isn't a working copy is refused. Reset demo is supported, and the version is checked.
+- **Paths and Home:** the working copy is `%LOCALAPPDATA%\Midgard\Home`, created from `resources\starting-state`. It's checked with the `.midgard-home` marker, and a folder that isn't a working copy is refused. Reset demo is supported, and the version is checked.
 - **Ports and Supervisor:**
   - **Ports:** free ports are picked on 127.0.0.1.
   - **Start order:** llama, mimir, gateway, heimdall, forge, replay, with analytics last and optional.
   - **Readiness and retry:** each service has a readiness check and a timeout, and is retried once.
   - **Shutdown and leftovers:** the Job Object ends every service when the app exits. Leftovers from a previous crash are swept by path.
-  - **Logs:** they go to `%LOCALAPPDATA%\Midgard\Logs`.
+  - **Logs:** they go to `%LOCALAPPDATA%\Midgard\Logs`, beside the working copy and the WebView2 profile (`%LOCALAPPDATA%\Midgard\WebView`), so Reset demo wipes `Home` alone.
 - **WebServer:**
   - **Routes:** a loopback static server with the Swift server's rules, serving `/home`, the four consoles, `/media/`, `/radar/`, `/traffic/` and `/tiles/`.
   - **Safety:** Host check, no traversal, symlinks and junctions must resolve inside their folder, and byte ranges are supported.

@@ -8,8 +8,10 @@ namespace Midgard.Core;
 /// <remarks>
 /// The extracted ZIP is one folder: <c>Midgard\Midgard.exe</c>, <c>Midgard\helpers\</c>
 /// (the service executables) and <c>Midgard\resources\</c> (consoles, home,
-/// starting-state, models …). The working copy is <c>%LOCALAPPDATA%\Midgard</c> and the
-/// logs <c>%LOCALAPPDATA%\Midgard\Logs</c>.
+/// starting-state, models …). Everything the shell writes is under
+/// <c>%LOCALAPPDATA%\Midgard</c>, in three folders so Reset demo can wipe the working copy
+/// without touching the others: <c>Home\</c> (the working copy), <c>Logs\</c> and
+/// <c>WebView\</c> (the WebView2 user-data folder).
 /// </remarks>
 public sealed record Paths
 {
@@ -29,6 +31,8 @@ public sealed record Paths
     public string Home { get; }
     /// <summary>One log per service plus shell.log.</summary>
     public string Logs { get; }
+    /// <summary>The WebView2 user-data folder (the window's browser profile).</summary>
+    public string WebView { get; }
 
     /// <param name="environment">The process environment (only the MIDGARD_APP_* keys are read).</param>
     /// <param name="bundleResources">The package's resources folder.</param>
@@ -53,8 +57,10 @@ public sealed record Paths
             DevLayout = true;
         }
         var app = Path.Join(localAppData, "Midgard");
-        Home = Value("MIDGARD_APP_HOME") ?? app;
+        // MIDGARD_APP_HOME moves the working copy only, MIDGARD_APP_LOGS the logs only.
+        Home = Value("MIDGARD_APP_HOME") ?? Path.Join(app, "Home");
         Logs = Value("MIDGARD_APP_LOGS") ?? Path.Join(app, "Logs");
+        WebView = Path.Join(app, "WebView");
     }
 
     /// <summary>The environment keys <see cref="Paths"/> reads.</summary>
