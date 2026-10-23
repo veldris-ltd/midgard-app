@@ -46,8 +46,9 @@ impl Clock for SystemClock {
 }
 
 /// A feed whose first batch comes this far (s) into the recording or later is primed:
-/// on the first loop its first batch is played at once, dated the start, so a fresh
-/// start shows every layer within seconds instead of over the first minutes.
+/// on the first loop, once the batches before this point have played, its first batch
+/// is played at once, dated then, so a fresh start shows every layer within about a
+/// minute instead of over the first minutes.
 pub const PRIME_AFTER: u64 = 60;
 
 pub struct Player<'a> {
@@ -220,10 +221,12 @@ impl Player<'_> {
             let shift = loop_start - self.rec.recorded_from;
             log("loop started", &[("loop", k.to_string())]);
             let mut next = loop_start + self.rec.duration as i64;
-            if k == 0 {
-                self.prime(shift, &mut failures);
-            }
+            let mut primed = k > 0;
             for e in &self.rec.events {
+                if !primed && e.offset() >= PRIME_AFTER {
+                    self.prime(&mut failures);
+                    primed = true;
+                }
                 let due = loop_start + e.offset() as i64;
                 self.clock.sleep_until(due);
                 let now = self.clock.now();
@@ -244,16 +247,23 @@ impl Player<'_> {
     }
 
     /// Each feed's first batch, if it is `PRIME_AFTER` s or more in, played now with its
-    /// times shifted to now (not to its place in the loop, which is still ahead). It is
-    /// played again at that place, as on every loop.
-    fn prime(&self, shift: i64, failures: &mut Failures) {
+    /// times shifted to now (its place in the loop is still ahead), smallest first so the
+    /// few huge ones (airspace, fires) do not hold up the rest. Each is played again at
+    /// its place, as on every loop.
+    fn prime(&self, failures: &mut Failures) {
         let mut seen = std::collections::BTreeSet::new();
+        let mut firsts: Vec<(usize, &Event)> = Vec::new();
         for e in &self.rec.events {
-            if let Event::Batch { feed, .. } = e {
+            if let Event::Batch { feed, lines, .. } = e {
                 if seen.insert(feed.as_str()) && e.offset() >= PRIME_AFTER {
-                    self.play(e, shift - e.offset() as i64, 0, failures);
+                    firsts.push((lines.len(), e));
                 }
             }
+        }
+        firsts.sort_by_key(|(size, _)| *size);
+        for (_, e) in firsts {
+            let shift = self.clock.now() - self.rec.recorded_from - e.offset() as i64;
+            self.play(e, shift, 0, failures);
         }
     }
 
