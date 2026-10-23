@@ -83,7 +83,8 @@ public sealed class WebServerTests : IDisposable
         File.WriteAllBytes(path, data);
     }
 
-    string R(string relative) => Path.Join(root, relative);
+    // Made full, so the separators are Windows' (mklink reads a / as a switch).
+    string R(string relative) => Path.GetFullPath(Path.Join(root, relative));
 
     // The raw client: sends the request verbatim (HttpClient would normalise `..` away) and reads to EOF.
 
@@ -537,7 +538,8 @@ public sealed class WebServerTests : IDisposable
             Refused(403, Get(path), path);
         // A lone "." is the folder itself, as on the Mac.
         Assert.Equal("<h1>midgard</h1>", Get("/midgard/./index.html").Text);
-        Assert.Equal(200, Get("/media/./JamCams_1.jpg").Status);
+        // The recording folders refuse it with the dot files, as on the Mac.
+        Assert.Equal(404, Get("/media/./JamCams_1.jpg").Status);
     }
 
     [Fact]
@@ -561,7 +563,8 @@ public sealed class WebServerTests : IDisposable
     static void Junction(string link, string target)
     {
         var info = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true };
-        foreach (var arg in new[] { "/c", "mklink", "/J", link, target }) info.ArgumentList.Add(arg);
+        foreach (var arg in new[] { "/c", "mklink", "/J", Path.GetFullPath(link), Path.GetFullPath(target) })
+            info.ArgumentList.Add(arg);
         using var mklink = Process.Start(info)!;
         mklink.WaitForExit();
         Assert.Equal(0, mklink.ExitCode);
