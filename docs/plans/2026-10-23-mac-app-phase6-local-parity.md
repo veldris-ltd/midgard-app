@@ -17,10 +17,15 @@ Branch: `md_mac-installer` only. Commits signed. Storage: nothing new in `~/Desk
 - `build-app.sh`: bundles media with the recording (already copies the recording; check size and the raw/ exclusion).
 - Check: app shows camera icons in London, NZ, BC; clicking a TfL camera shows its still and plays its clip.
 
-### Task 2: Precomputed camera analysis
+### Task 2: Camera analysis, live on the Mac
 
-- Run the real analytics (`heimdall-poc/analytics/analytics.py`, YOLOX-s, its venv) over the stored TfL clips; save the `land-camera-ai` observations (and any annotated frames the console uses) into the recording as a feed played at the start of each loop.
-- The app's gateway camera routes (`POST …/cameras/{id}/analyse`, `/watch`, `GET …/trend`) answered from the stored results by a small local responder (e.g. in midgard-replay behind `--analytics-addr`), so Analyse works instantly.
+User decision (23 Oct, revised): analysis really runs in the app, not precomputed.
+
+- Bundle the analytics service (`heimdall-poc/analytics/analytics.py`, brought into git under `heimdall/analytics/` without its venv, logs or state) and run it under the app's supervisor as one more service (`analytics`), with the gateway started with `--analytics-addr` and `--analytics-token-file` as in the live setup, so Analyse, Watch and Trend work as they do locally.
+- Runtime, per architecture (arm64 and x86_64, chosen like the model server): a pinned, relocatable CPython (python-build-standalone `install_only`, SHA-256 in a lock file like `llama.lock`), with pinned onnxruntime and numpy wheels installed into it at build time; the YOLOX-s ONNX model (`models/yolox_s.onnx`, Apache-2.0, SHA-256 in MODEL.md) in Resources with its licence. CoreML execution provider on Apple Silicon, CPU on Intel (as analytics.py already falls back).
+- Clip decoding without Homebrew: replace the ffmpeg/ffprobe calls with a small bundled Swift helper (AVFoundation: probe size, decode ~4 fps to raw BGR frames resized for the letterbox) with the same output analytics.py reads, so no ffmpeg build (and its licence) ships. Keep ffmpeg as the path when the helper is absent (the dev setup).
+- Clips come from Task 1's stored media (local paths or `/media/…` on the app's web server), never the internet.
+- Everything Mach-O signed one by one before the bundle (as the llama helpers); verify under Rosetta that the x86_64 runtime analyses a clip.
 
 ### Task 3: Rain radar
 
