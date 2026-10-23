@@ -5,6 +5,8 @@
     <IsTestProject>true</IsTestProject>
     <!-- Its Main is FakeService's: the supervisor tests run this exe as their fake services. -->
     <GenerateProgramFile>false</GenerateProgramFile>
+    <!-- …as Midgard.Core.Tests.exe (the test SDK builds no apphost by default). -->
+    <UseAppHost>true</UseAppHost>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
