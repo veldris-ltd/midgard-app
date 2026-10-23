@@ -1,0 +1,28 @@
+{
+  "interval_s": 300,
+  "tfl_cameras_per_cycle": 120,
+  "always_include": [
+    "JamCams_00001.07450",
+    "JamCams_00001.04227",
+    "JamCams_00001.07369",
+    "JamCams_00001.03500",
+    "JamCams_00001.03604",
+    "JamCams_00001.07387",
+    "JamCams_00001.06515",
+    "JamCams_00001.06502"
+  ],
+  "stills": {
+    "drivebc": 2,
+    "nz": 2,
+    "sg": 2
+  },
+  "still_ids": [],
+  "model": "yolox_s",
+  "provider": "coreml",
+  "threads": 2,
+  "fps": 4,
+  "max_frames": 40,
+  "conf": 0.35,
+  "low_conf": 0.15,
+  "nms": 0.45
+}

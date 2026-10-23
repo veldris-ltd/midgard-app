@@ -10,12 +10,17 @@ let package = Package(
     products: [
         .executable(name: "Midgard", targets: ["Midgard"]),
         .library(name: "MidgardShellCore", targets: ["MidgardShellCore"]),
+        // The camera analytics' decoder (AVFoundation), bundled in Contents/Helpers.
+        .executable(name: "midgard-frames", targets: ["midgard-frames"]),
     ],
     targets: [
         // Everything testable without a window: ports, paths, checks, the web server.
         .target(name: "MidgardShellCore"),
         .executableTarget(name: "Midgard", dependencies: ["MidgardShellCore"]),
         .testTarget(name: "MidgardShellCoreTests", dependencies: ["MidgardShellCore"]),
+        .target(name: "MidgardFrames"),
+        .executableTarget(name: "midgard-frames", dependencies: ["MidgardFrames"]),
+        .testTarget(name: "MidgardFramesTests", dependencies: ["MidgardFrames"]),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -1,0 +1,13 @@
+# Runtime state and local files of the development setup; never committed.
+.venv/
+models/
+secret
+*.log
+analytics.out
+analytics.pid
+state.json
+trend.jsonl
+watches.json
+out/
+test/
+__pycache__/
