@@ -714,7 +714,11 @@ export class HeimdallHttp implements HeimdallGateway {
     }
     // Every other layer: whatever Heimdall serves except the static ones. The layer list
     // comes from the static read (Heimdall lists every layer on every page).
-    const stat = await this.staticLayers.picture.catch(() => ({ layers: [], entities: [] }) as WirePicture);
+    const cached = this.staticLayers;
+    const stat = await cached.picture.catch(() => ({ layers: [], entities: [] }) as WirePicture);
+    // Nothing yet (a fresh start, before the static feeds have reported): read again next
+    // time rather than keeping an empty airspace and infrastructure for STATIC_EVERY_MS.
+    if (!stat.entities.length && this.staticLayers === cached) this.staticLayers = null;
     const moving = stat.layers.length
       ? stat.layers.map((l) => l.id).filter((id) => !STATIC_LAYERS.includes(id))
       : undefined;

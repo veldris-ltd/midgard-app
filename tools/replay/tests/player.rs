@@ -402,3 +402,42 @@ fn chunk_results_combine_into_one() {
         Ok("batch: 1 accepted, 0 refused, 0 unreadable; batch: 2 accepted".to_string())
     );
 }
+
+#[test]
+fn the_first_loop_starts_with_each_late_feeds_first_batch_dated_now() {
+    // Feed "late" first reports 200 s in: without priming its layer would be empty for
+    // the first minutes of a fresh start. Feed "f" (10 s in) is soon enough to wait for.
+    let late = |offset: u64, entity: &str| Event::Batch {
+        offset,
+        feed: "late".into(),
+        lines: obs(entity, 1_000_000_000 + offset as i64) + "\n",
+    };
+    let rec = Recording {
+        recorded_from: 1_000_000_000,
+        duration: 400,
+        events: vec![batch(10, "A"), late(200, "L1"), late(300, "L2")],
+    };
+    let clock = FakeClock(RefCell::new(2_000_000_000));
+    let log = Log::new();
+    Player {
+        rec: &rec,
+        clock: &clock,
+        sink: &log,
+    }
+    .run(Some(2));
+    let got = log.got.borrow().clone();
+    let second = 2_000_000_400;
+    assert_eq!(
+        got,
+        vec![
+            format!("late {}\n", obs("L1", 2_000_000_000)), // primed, dated the start
+            format!("f {}\n", obs("A", 2_000_000_010)),
+            format!("late {}\n", obs("L1", 2_000_000_200)),
+            format!("late {}\n", obs("L2", 2_000_000_300)),
+            // Later loops are not primed: the picture already has every feed.
+            format!("f {}\n", obs("A", second + 10)),
+            format!("late {}\n", obs("L1", second + 200)),
+            format!("late {}\n", obs("L2", second + 300)),
+        ]
+    );
+}
