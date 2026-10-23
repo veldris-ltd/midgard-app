@@ -6,10 +6,12 @@
 # (build-consoles.sh → dist/mac/consoles) unless skipped; the Swift shell as a universal
 # release build; then the bundle, assembled next to the old one, signed, verified, and only
 # then swapped in:
-#   Contents/Info.plist, MacOS/Midgard, Helpers/<service binaries>,
+#   Contents/Info.plist, MacOS/Midgard, Helpers/<service binaries>, Helpers/midgard-frames,
 #   Helpers/llama/{arm64,x64}/ (llama-server and its dylibs, from fetch-llama.sh),
-#   Resources/licenses/llama.cpp-LICENSE,
-#   Resources/{consoles,home,starting-state,models/{granite,trust}[,recording]}
+#   Resources/licenses/{llama.cpp-LICENSE,<the camera analytics' licences>},
+#   Resources/analytics/{analytics.py,config.json,runtime/{arm64,x64}/} (the camera analytics
+#     and a Python runtime per chip, from heimdall/analytics and fetch-analytics.sh),
+#   Resources/{consoles,home,starting-state,models/{granite,trust,yolox}[,recording]}
 # The starting state comes from make-starting-state.sh (~/Library/Caches/midgard-build/
 # starting-state) and the model from ~/Desktop/Midgard/mimir-models; both are copied as
 # APFS clones (cp -c), so they share disk with their sources; across volumes the script
@@ -18,10 +20,14 @@
 # (codesign treats it as nested code). It is signed ad hoc: each helper and every Mach-O of
 # the model server, then the bundle. fetch-llama.sh signed the x64 server already; signing
 # it again here is deliberate: every Mach-O in Helpers gets this build's signature. The shell runs the model server
-# for the Mac's chip (arm64 with Metal, x64 on the CPU).
+# for the Mac's chip (arm64 with Metal, x64 on the CPU), and the analytics runtime likewise
+# (arm64 with CoreML, x64 on the CPU). That runtime holds Python sources, so it lives in
+# Resources (codesign takes only Mach-O in Helpers); each of its Mach-O files (the
+# interpreter, extension modules, numpy's and onnxruntime's dylibs) is signed one by one
+# before the bundle.
 #
 #   bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles] [--skip-llama]
-#                                   [--recording DIR] [--out DIR]
+#                                   [--skip-analytics] [--recording DIR] [--out DIR]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -35,23 +41,28 @@ PREPARED=apps/mac/Resources/home/prepared-answers.json
 SKIP_SERVICES=0
 SKIP_CONSOLES=0
 SKIP_LLAMA=0
+SKIP_ANALYTICS=0
 STATE="$BUILD/starting-state"
 MODELS="${MIDGARD_MODELS:-$HOME/Desktop/Midgard/mimir-models}"
 BIN=dist/mac/bin
 CONSOLES=dist/mac/consoles
 LLAMA="$BUILD/llama/current"     # fetch-llama.sh's layout: {arm64,x64}/llama-server + dylibs
 LLAMA_ARCHES=(arm64 x64)
+ANALYTICS="$BUILD/analytics"     # fetch-analytics.sh's layout: runtime/{arm64,x64}, models, licenses
+ANALYTICS_SRC=heimdall/analytics
 BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay)
 PRODUCTS=(midgard heimdall mimir forge)
 
 usage() {
   cat >&2 <<'EOF'
 usage: bash tools/mac-app/build-app.sh [--skip-services] [--skip-consoles] [--skip-llama]
-                                       [--recording DIR] [--out DIR]
+                                       [--skip-analytics] [--recording DIR] [--out DIR]
   --skip-services   reuse dist/mac/bin as it is (warns if Rust sources are newer)
   --skip-consoles   reuse dist/mac/consoles as it is (warns if console sources are newer)
   --skip-llama      reuse ~/Library/Caches/midgard-build/llama/current as it is (no
                     fetch-llama.sh run)
+  --skip-analytics  reuse ~/Library/Caches/midgard-build/analytics as it is (no
+                    fetch-analytics.sh run)
   --recording DIR   a phase 2 recording to bundle and replay (or MIDGARD_RECORDING); it
                     must contain meta.json; its raw/ capture is left out. Not given: the
                     recorded hour (recordings/hour-1 in ~/Library/Application Support/
@@ -66,6 +77,7 @@ while [ $# -gt 0 ]; do
     --skip-services) SKIP_SERVICES=1 ;;
     --skip-consoles) SKIP_CONSOLES=1 ;;
     --skip-llama) SKIP_LLAMA=1 ;;
+    --skip-analytics) SKIP_ANALYTICS=1 ;;
     --recording) [ $# -ge 2 ] || usage; RECORDING="$2"; RECORDING_GIVEN=1; shift ;;
     --out) [ $# -ge 2 ] || usage; OUT="$2"; shift ;;
     -h|--help) usage ;;
@@ -189,6 +201,18 @@ fi
 for a in "${LLAMA_ARCHES[@]}"; do
   [ -x "$LLAMA/$a/llama-server" ] || die "no $LLAMA/$a/llama-server: run bash tools/mac-app/fetch-llama.sh"
 done
+
+if [ "$SKIP_ANALYTICS" = 1 ]; then
+  echo "== camera analytics runtime: reusing $ANALYTICS"
+else
+  echo "== camera analytics runtime"
+  MIDGARD_BUILD_DIR="$BUILD" bash tools/mac-app/fetch-analytics.sh
+fi
+for a in arm64 x64; do
+  [ -x "$ANALYTICS/runtime/$a/bin/python3.13" ] || die "no $ANALYTICS/runtime/$a: run bash tools/mac-app/fetch-analytics.sh"
+done
+[ -f "$ANALYTICS/models/yolox_s.onnx" ] || die "no $ANALYTICS/models/yolox_s.onnx: run bash tools/mac-app/fetch-analytics.sh"
+for f in analytics.py config.json; do [ -f "$ANALYTICS_SRC/$f" ] || die "no $ANALYTICS_SRC/$f"; done
 T_DEPS=$(now)
 
 # --- the shell ------------------------------------------------------------------------
@@ -196,12 +220,15 @@ echo "== shell (swift, universal release)"
 SWIFT_ARGS=(-c release --arch arm64 --arch x86_64 --package-path apps/mac --scratch-path "$BUILD/swift")
 swift build "${SWIFT_ARGS[@]}"
 SHELL_BIN="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)/Midgard"
-[ -x "$SHELL_BIN" ] || die "built shell not found at $SHELL_BIN"
-archs=$(lipo -archs "$SHELL_BIN")
-for a in arm64 x86_64; do
-  case " $archs " in *" $a "*) ;; *) die "shell is not universal: $archs" ;; esac
+FRAMES_BIN="$(dirname "$SHELL_BIN")/midgard-frames"   # the camera analytics' decoder
+for b in "$SHELL_BIN" "$FRAMES_BIN"; do
+  [ -x "$b" ] || die "built $(basename "$b") not found at $b"
+  archs=$(lipo -archs "$b")
+  for a in arm64 x86_64; do
+    case " $archs " in *" $a "*) ;; *) die "$(basename "$b") is not universal: $archs" ;; esac
+  done
 done
-echo "shell: $archs"
+echo "shell, midgard-frames: $archs"
 T_SWIFT=$(now)
 
 # --- the bundle -----------------------------------------------------------------------
@@ -260,6 +287,7 @@ plutil -lint "$C/Info.plist"
 
 cp "$SHELL_BIN" "$C/MacOS/Midgard"
 for b in "${BINARIES[@]}"; do cp "$BIN/$b" "$C/Helpers/$b"; done
+cp "$FRAMES_BIN" "$C/Helpers/midgard-frames"
 # The model server: only its Mach-O files go in Helpers (real files: -L dereferences);
 # llama.cpp's LICENSE goes in Resources/licenses (one copy when both builds' are the same).
 mkdir -p "$C/Helpers/llama" "$R/licenses"
@@ -282,6 +310,13 @@ if cmp -s "$LLAMA/arm64/LICENSE" "$LLAMA/x64/LICENSE"; then
 else
   for a in "${LLAMA_ARCHES[@]}"; do cp -L "$LLAMA/$a/LICENSE" "$R/licenses/llama.cpp-LICENSE-$a"; done
 fi
+# The camera analytics: the code, a runtime per chip (real files only, as fetch-analytics.sh
+# checked), the model and the licences.
+mkdir -p "$R/analytics/runtime" "$R/models/yolox"
+cp "$ANALYTICS_SRC/analytics.py" "$ANALYTICS_SRC/config.json" "$R/analytics/"
+for a in arm64 x64; do clone_copy "$ANALYTICS/runtime/$a" "$R/analytics/runtime/$a"; done
+clone_copy "$ANALYTICS/models/yolox_s.onnx" "$R/models/yolox/yolox_s.onnx"
+for f in "$ANALYTICS"/licenses/*; do cp "$f" "$R/licenses/"; done
 cp -RL "$CONSOLES" "$R/consoles"
 cp -RL apps/mac/Resources/home "$R/home"          # fonts is a symlink in the repo
 clone_copy "$STATE" "$R/starting-state"
@@ -316,7 +351,7 @@ xattr -cr "$NEW"
 while IFS= read -r -d '' f; do
   is_macho "$f" || die "not a Mach-O file in Contents/Helpers: ${f#"$C/"}"
 done < <(find "$C/Helpers" -type f -print0)
-for b in "${BINARIES[@]}"; do codesign --force --sign - "$C/Helpers/$b"; done
+for b in "${BINARIES[@]}" midgard-frames; do codesign --force --sign - "$C/Helpers/$b"; done
 # Every file of the model server (llama-server and its dylibs, all Mach-O as checked).
 LLAMA_MACHOS=()
 while IFS= read -r -d '' f; do LLAMA_MACHOS+=("$f"); done < <(find "$C/Helpers/llama" -type f -print0)
@@ -325,12 +360,25 @@ for a in "${LLAMA_ARCHES[@]}"; do
 done
 for f in "${LLAMA_MACHOS[@]}"; do codesign --force --sign - "$f"; done
 echo "model server: ${#LLAMA_MACHOS[@]} Mach-O files signed"
+# Every Mach-O of the analytics runtimes, inside site-packages too, before the bundle.
+ANALYTICS_MACHOS=()
+while IFS= read -r -d '' f; do
+  is_macho "$f" && ANALYTICS_MACHOS+=("$f")
+done < <(find "$R/analytics/runtime" -type f -print0)
+[ ${#ANALYTICS_MACHOS[@]} -gt 0 ] || die "no Mach-O files in Resources/analytics/runtime"
+for f in "${ANALYTICS_MACHOS[@]}"; do codesign --force --sign - "$f"; done
+echo "camera analytics runtime: ${#ANALYTICS_MACHOS[@]} Mach-O files signed"
 codesign --force --sign - "$NEW"
 
 echo "== codesign verify"
-for b in "${BINARIES[@]}"; do
+for b in "${BINARIES[@]}" midgard-frames; do
   codesign --verify --strict "$C/Helpers/$b" || die "helper $b fails codesign --verify"
 done
+for f in "${ANALYTICS_MACHOS[@]}"; do
+  codesign --verify --strict "$f" || die "${f#"$C/"} fails codesign --verify"
+done
+[ "$(lipo -archs "$R/analytics/runtime/arm64/bin/python3.13")" = arm64 ] || die "the arm64 analytics runtime is not arm64"
+[ "$(lipo -archs "$R/analytics/runtime/x64/bin/python3.13")" = x86_64 ] || die "the x64 analytics runtime is not x86_64"
 for f in "${LLAMA_MACHOS[@]}"; do
   codesign --verify --strict "$f" || die "${f#"$C/"} fails codesign --verify"
 done
@@ -351,11 +399,12 @@ T_END=$(now)
 FREE_AFTER=$(free_kb "$OUT")
 echo "== sizes (clones count in full here but share disk with their sources)"
 du -sh "$APP"
-for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Helpers/llama/* "$APP"/Contents/Resources/*; do
+for part in "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP"/Contents/Helpers/llama/* "$APP"/Contents/Resources/* \
+    "$APP"/Contents/Resources/analytics/runtime/* "$APP/Contents/Resources/models/yolox"; do
   du -sh "$part" | sed "s|$APP/Contents/||"
 done
 [ ! -d "$APP/Contents/Resources/recording/media" ] || du -sh "$APP/Contents/Resources/recording/media" | sed "s|$APP/Contents/||"
 echo "free disk: $((FREE_BEFORE / 1024)) MB before, $((FREE_AFTER / 1024)) MB after ($(((FREE_BEFORE - FREE_AFTER) / 1024)) MB used, including any rebuilt dist/ and swift outputs)"
-echo "times: services+consoles+model server $((T_DEPS - T0)) s, shell $((T_SWIFT - T_DEPS)) s, bundle $((T_END - T_SWIFT)) s"
+echo "times: services+consoles+model server+analytics $((T_DEPS - T0)) s, shell $((T_SWIFT - T_DEPS)) s, bundle $((T_END - T_SWIFT)) s"
 echo "built $APP (1.0, build $BUILD_NUMBER, $SHORT_SHA)"
 echo "open it with: open \"$APP\""

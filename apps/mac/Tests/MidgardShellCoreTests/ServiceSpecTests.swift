@@ -8,7 +8,8 @@ final class ServiceSpecTests: XCTestCase {
     let home = URL(fileURLWithPath: "/H", isDirectory: true)
     let logs = URL(fileURLWithPath: "/L", isDirectory: true)
     let ports = SuitePorts(gatewayHTTP: 1001, gatewayMesh: 1002, mimirMesh: 1003, mimirObserver: 1004,
-                           mimirHealth: 1005, heimdallMesh: 1006, heimdallHealth: 1007, llama: 1008)
+                           mimirHealth: 1005, heimdallMesh: 1006, heimdallHealth: 1007, llama: 1008,
+                           analytics: 1009)
     let origin = "http://127.0.0.1:2000"
 
     let appleSilicon = ModelServer.Hardware(arm64: true, physicalCores: 10)
@@ -127,19 +128,121 @@ final class ServiceSpecTests: XCTestCase {
                                    logFile: logs).readyTimeout, 180)
     }
 
-    func testNoAnalyticsArguments() {
+    func testNoAnalyticsWithoutTheBundledAnalytics() {
         let all = specs(recording: URL(fileURLWithPath: "/R/recording"))
         for spec in all {
             XCTAssertFalse(spec.arguments.contains { $0.contains("analytics") }, spec.name)
         }
     }
 
+    // MARK: camera analytics
+
+    let recording = URL(fileURLWithPath: "/R/recording", isDirectory: true)
+    var analytics: CameraAnalytics {
+        CameraAnalytics(root: URL(fileURLWithPath: "/R/analytics", isDirectory: true),
+                        models: URL(fileURLWithPath: "/R/models/yolox", isDirectory: true), recording: recording)
+    }
+
+    func withAnalytics(_ hardware: ModelServer.Hardware? = nil) -> [ServiceSpec] {
+        SuiteSpecs.make(bin: bin, models: models, home: home, logs: logs, ports: ports, webOrigin: origin,
+                        recording: recording, hardware: hardware ?? appleSilicon, analytics: analytics)
+    }
+
+    func analyticsCommon(_ tail: [String]) -> [String] {
+        ["-I", "-B", "/R/analytics/analytics.py", "--serve",
+         "--port", "1009", "--token-file", "/H/heimdall-poc/analytics/secret",
+         "--state-dir", "/H/heimdall-poc/analytics", "--log", "-", "--config", "/R/analytics/config.json",
+         "--model-dir", "/R/models/yolox"] + tail + [
+         "--frames-helper", "/R/bin/midgard-frames", "--recording", "/R/recording",
+         "--source-bin", "/R/bin/heimdall-source", "--source-identity-dir", "/H/airports-mesh/feeds",
+         "--source-addr", "127.0.0.1:1006", "--nice", "10"]
+    }
+
+    func testAnalyticsStartAfterHeimdall() {
+        XCTAssertEqual(withAnalytics().map(\.name),
+                       ["llama", "mimir", "gateway", "heimdall", "analytics", "forge", "replay"])
+        XCTAssertEqual(withAnalytics().map(\.readyTimeout), Array(repeating: 180, count: 7))
+    }
+
+    func testAnalyticsOnAppleSiliconUseTheArm64RuntimeWithCoreML() throws {
+        let a = try spec("analytics", withAnalytics())
+        XCTAssertEqual(a.executable.path, "/R/analytics/runtime/arm64/bin/python3.13")
+        XCTAssertEqual(a.arguments, analyticsCommon(["--provider", "coreml", "--threads", "2"]))
+        XCTAssertEqual(a.readiness, .logLine("SERVE pid="))
+        XCTAssertEqual(a.logFile.path, "/L/analytics.log")
+        XCTAssertNil(a.environment)
+    }
+
+    func testAnalyticsOnIntelUseTheX64RuntimeOnTheCPU() throws {
+        let a = try spec("analytics", withAnalytics(.init(arm64: false, physicalCores: 8)))
+        XCTAssertEqual(a.executable.path, "/R/analytics/runtime/x64/bin/python3.13")
+        XCTAssertEqual(a.arguments, analyticsCommon(["--provider", "cpu", "--threads", "4"]))
+        let small = try spec("analytics", withAnalytics(.init(arm64: false, physicalCores: 2)))
+        XCTAssertEqual(small.arguments, analyticsCommon(["--provider", "cpu", "--threads", "2"]))
+        // MIDGARD_FORCE_INTEL_MODEL on Apple Silicon picks the x64 runtime, as the model server.
+        let forced = ModelServer.Hardware.from(
+            sysctl: { ["hw.optional.arm64": 1, "hw.physicalcpu": 10][$0] }, activeProcessors: 10,
+            environment: ["MIDGARD_FORCE_INTEL_MODEL": "1", "MIDGARD_MODEL_THREADS": "4"])
+        let f = try spec("analytics", withAnalytics(forced))
+        XCTAssertEqual(f.executable.path, "/R/analytics/runtime/x64/bin/python3.13")
+        XCTAssertEqual(f.arguments, analyticsCommon(["--provider", "cpu", "--threads", "4"]))
+    }
+
+    func testGatewayIsGivenTheAnalytics() throws {
+        let gateway = try spec("gateway", withAnalytics())
+        XCTAssertEqual(Array(gateway.arguments.suffix(4)), [
+            "--analytics-addr", "127.0.0.1:1009", "--analytics-token-file", "/H/heimdall-poc/analytics/secret",
+        ])
+        let plain = try spec("gateway", specs(recording: recording))
+        XCTAssertEqual(gateway.arguments.dropLast(4), plain.arguments[...])
+        // Everything else is as without the analytics.
+        let others = withAnalytics().filter { !["analytics", "gateway"].contains($0.name) }
+        XCTAssertEqual(others, specs(recording: recording).filter { $0.name != "gateway" })
+    }
+
+    func testLocateNeedsEverythingAndARecording() {
+        let resources = URL(fileURLWithPath: "/R", isDirectory: true)
+        let files: Set<String> = ["/R/analytics/analytics.py", "/R/analytics/config.json",
+                                  "/R/models/yolox/yolox_s.onnx"]
+        let executables: Set<String> = ["/R/analytics/runtime/arm64/bin/python3.13"]
+        func locate(recording: URL?, hardware: ModelServer.Hardware, files: Set<String> = files) -> CameraAnalytics? {
+            CameraAnalytics.locate(resources: resources, recording: recording, hardware: hardware,
+                                   isExecutable: { executables.contains($0) }, exists: { files.contains($0) })
+        }
+        XCTAssertEqual(locate(recording: recording, hardware: appleSilicon), analytics)
+        XCTAssertNil(locate(recording: nil, hardware: appleSilicon))
+        XCTAssertNil(locate(recording: recording, hardware: .init(arm64: false, physicalCores: 4)), "no x64 runtime")
+        for missing in files {
+            XCTAssertNil(locate(recording: recording, hardware: appleSilicon, files: files.subtracting([missing])), missing)
+        }
+        XCTAssertEqual(CameraAnalytics.runtimes(root: analytics.root).path, "/R/analytics/runtime")
+    }
+
+    func testTokenIsCreatedOnceWithOwnerOnlyAccess() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("token-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = CameraAnalytics.tokenFile(home: dir)
+        XCTAssertEqual(file.path, dir.appendingPathComponent("heimdall-poc/analytics/secret").path)
+        try CameraAnalytics.ensureToken(at: file)
+        let token = try String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(token.count, 48)
+        XCTAssertTrue(token.allSatisfy { $0.isHexDigit })
+        let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o600)
+        try CameraAnalytics.ensureToken(at: file)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), token)
+        // An empty file is replaced.
+        try Data().write(to: file)
+        try CameraAnalytics.ensureToken(at: file)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines).count, 48)
+    }
+
     func testPortsFromAList() throws {
-        XCTAssertEqual(SuitePorts.count, 8)
-        let made = try XCTUnwrap(SuitePorts([1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008]))
+        XCTAssertEqual(SuitePorts.count, 9)
+        let made = try XCTUnwrap(SuitePorts([1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009]))
         XCTAssertEqual(made, ports)
         XCTAssertNil(SuitePorts([1, 2, 3]))
         let free = try SuitePorts.free()
-        XCTAssertEqual(Set(free.all).count, 8)
+        XCTAssertEqual(Set(free.all).count, 9)
     }
 }

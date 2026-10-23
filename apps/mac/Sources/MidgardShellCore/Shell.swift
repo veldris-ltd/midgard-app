@@ -214,6 +214,7 @@ public enum ServiceNames {
         case "heimdall": return "Heimdall"
         case "forge": return "Forge"
         case "replay": return "Replay"
+        case "analytics": return "Camera analytics"
         default: return name.prefix(1).uppercased() + name.dropFirst()
         }
     }

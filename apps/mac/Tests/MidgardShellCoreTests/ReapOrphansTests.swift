@@ -91,6 +91,24 @@ final class ReapOrphansTests: XCTestCase {
         XCTAssertEqual(none, [])
     }
 
+    /// The camera analytics' Python runs from Resources/analytics/runtime, outside the
+    /// helpers: it is ended when that folder is given, and only then.
+    func testReapsProcessesUnderTheAnalyticsRuntimes() async throws {
+        let runtimes = dir.appendingPathComponent("analytics/runtime", isDirectory: true)
+        let arm = runtimes.appendingPathComponent("arm64/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: arm, withIntermediateDirectories: true)
+        let python = try install("/bin/sleep", as: "python3.13", in: arm)
+        let p = try launch(python, ["300"])
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let without = await Supervisor.reapOrphans(binDir: bin, grace: 1)
+        XCTAssertEqual(without, [])
+        XCTAssertTrue(p.isRunning)
+        let reaped = await Supervisor.reapOrphans(binDir: bin, alsoUnder: [runtimes], grace: 1)
+        XCTAssertEqual(reaped.map(\.pid), [p.processIdentifier])
+        let isGone = await gone(p.processIdentifier)
+        XCTAssertTrue(isGone)
+    }
+
     /// The model server runs from outside the bin dir (Homebrew's llama-server): it is
     /// found by its name, llama-server, together with an argument that starts with the
     /// bundle's models path. Anything else stays: a user's editor, shasum or shell on a

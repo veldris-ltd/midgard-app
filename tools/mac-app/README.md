@@ -12,6 +12,7 @@ Silicon) and run from a folder, without Docker.
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
 | `build-app.sh` | Builds `Midgard.app`, the presentation app (see [The app](#the-app)) |
 | `fetch-llama.sh` | Downloads and lays out the pinned llama.cpp model server for the app (see [Model server](#model-server)) |
+| `fetch-analytics.sh` | Downloads and lays out the pinned Python runtime, numpy, onnxruntime and model of the camera analytics for the app (see [Camera analytics](#camera-analytics)) |
 
 ## Prerequisites
 
@@ -180,7 +181,7 @@ internet.
 ### Building
 
 ```bash
-bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-consoles] [--skip-llama] [--out DIR]
+bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-consoles] [--skip-llama] [--skip-analytics] [--out DIR]
 ```
 
 - Needs the starting state from `make-starting-state.sh` (in
@@ -228,6 +229,16 @@ bash tools/mac-app/build-app.sh [--recording DIR] [--skip-services] [--skip-cons
   the x64 server on the CPU (logged as "forced Intel model server"), and
   `MIDGARD_MODEL_THREADS=N` sets its thread count, e.g.
   `MIDGARD_FORCE_INTEL_MODEL=1 MIDGARD_MODEL_THREADS=4 arch -x86_64 Midgard.app/Contents/MacOS/Midgard`.
+- The camera analytics: the build runs `fetch-analytics.sh` (`--skip-analytics` reuses
+  `~/Library/Caches/midgard-build/analytics` as it is), builds `midgard-frames` (universal,
+  `apps/mac`) into `Contents/Helpers`, and copies `heimdall/analytics/{analytics.py,config.json}`
+  and both runtimes into `Contents/Resources/analytics/` (`runtime/{arm64,x64}`), the model into
+  `Contents/Resources/models/yolox/` and the licences (CPython, numpy, onnxruntime and its
+  third-party notices, YOLOX, python-build-standalone's note) into `Contents/Resources/licenses/`.
+  The runtimes hold Python sources, which codesign refuses in `Helpers`, so they live in
+  Resources; every Mach-O in them (about 27 per runtime, inside site-packages too) is signed ad
+  hoc and verified one by one before the bundle. The shell runs the `analytics` service after
+  `heimdall` (see [Camera analytics](#camera-analytics)).
 - Signing, notarisation and delivery for phase 5: "Phase 5 notes" in
   `docs/plans/2026-10-22-mac-presentation-app-design.md`.
 
@@ -261,6 +272,44 @@ build. It prints each `--version` (x64 under Rosetta).
   is ready in about 3 s and generates about 7 tokens/s.
 - To move to another build: change `llama.lock` (URLs and SHA-256 from the release, checked
   against GitHub's digests) and run the script again.
+
+### Camera analytics
+
+Analyse, Watch and Trend on a camera card run live in the app, offline (see
+`heimdall/analytics/README.md`). `analytics.lock` pins CPython 3.13.16 (python-build-standalone,
+`install_only`, both architectures), numpy 2.5.4 and onnxruntime 1.23.2 wheels per architecture
+(1.23.2 is the newest onnxruntime with a macOS x86_64 wheel) and the YOLOX-s model, each by URL
+and SHA-256.
+
+```bash
+bash tools/mac-app/fetch-analytics.sh
+```
+
+downloads them (HTTPS only, each checked before it takes its final name) into
+`~/Library/Caches/midgard-build/analytics/downloads/`, and lays out `runtime/{arm64,x64}` (each
+archive's member names checked, extracted into its own empty folder; the wheels installed by an
+unpruned copy of this Mac's runtime, `tool/`, with pip `--no-index --no-deps --only-binary` for
+the target platform; Tk, headers, pip, libpython, tests and onnxruntime's tools removed; the
+standard library and packages compiled to unchecked-hash .pyc; no symlinks; Mach-O files signed
+ad hoc where they did not verify), `models/yolox_s.onnx` and `licenses/`. Stamps make re-runs a
+no-op. About 131 MB arm64, 156 MB x64, 36 MB for the model.
+
+- The shell starts `analytics` after `heimdall` when the bundle has the analytics and a
+  recording: `Resources/analytics/runtime/arm64/bin/python3.13` with the CoreML execution
+  provider on Apple Silicon (also under Rosetta), the x64 runtime on the CPU (up to 4 threads)
+  on Intel or with `MIDGARD_FORCE_INTEL_MODEL=1`. It runs `python3.13 -I -B analytics.py --serve`
+  on a free loopback port with the recording's cameras and stored media, `Helpers/midgard-frames`
+  to decode, and `Helpers/heimdall-source` to send its results to Heimdall as `camera-analytics`
+  (the identity in the starting state's `airports-mesh/feeds`). Before anything starts the shell
+  writes the gateway's token (`<home>/heimdall-poc/analytics/secret`, 0600, where run-native.sh
+  keeps the development one) and the gateway gets `--analytics-addr`/`--analytics-token-file`.
+  Its trend and watches live in `<home>/heimdall-poc/analytics/`, its log in `analytics.log`.
+  Ready on its `SERVE` line (after a warm-up inference). Quitting ends it like the others, and
+  the leftover sweep also covers `Resources/analytics/runtime`.
+- Checked on an M4 (stored TfL clips, 40 frames): through the gateway in the app, about 1.3 s
+  per clip with CoreML (ready 3.6 s after launch); with `MIDGARD_FORCE_INTEL_MODEL=1
+  MIDGARD_MODEL_THREADS=4 arch -x86_64`, the x64 runtime (translated) takes about 10 s per clip
+  (7.7 s alone, outside the app), with the same detections; the gateway allows 30 s.
 
 ### Prepared answers and the Presenter's guide
 

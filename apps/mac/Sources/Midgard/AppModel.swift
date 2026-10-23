@@ -122,6 +122,10 @@ final class AppModel: ObservableObject {
     /// In the model server's arguments: reaping knows it by this as well as by the helpers
     /// folder (a development run may use one outside it, e.g. Homebrew's).
     private var modelsMarker: String { resources.appendingPathComponent("models", isDirectory: true).path + "/" }
+    /// The camera analytics' Python runtimes: outside the helpers, so reaping is told of them.
+    private var analyticsRuntimes: URL {
+        CameraAnalytics.runtimes(root: resources.appendingPathComponent("analytics", isDirectory: true))
+    }
 
     // MARK: Launch
 
@@ -260,7 +264,8 @@ final class AppModel: ObservableObject {
     private func bootstrap(_ gen: Int) async {
         showStarting("Starting Midgard…", step: nil)
         if !reaped {
-            let found = await Supervisor.reapOrphans(binDir: bin, modelsPrefix: modelsMarker)
+            let found = await Supervisor.reapOrphans(binDir: bin, alsoUnder: [analyticsRuntimes],
+                                                        modelsPrefix: modelsMarker)
             reaped = true
             if found.isEmpty {
                 log("no orphaned services")
@@ -366,10 +371,13 @@ final class AppModel: ObservableObject {
         var hardware: ModelServer.Hardware
         /// The model server to run instead of the bundled one (development runs only).
         var llama: URL?
+        /// The camera analytics, when bundled (and there is a recording).
+        var analytics: CameraAnalytics?
 
         func specs(_ ports: SuitePorts) -> [ServiceSpec] {
             SuiteSpecs.make(bin: bin, models: models, home: home, logs: logs, ports: ports,
-                            webOrigin: origin, recording: recording, hardware: hardware)
+                            webOrigin: origin, recording: recording, hardware: hardware,
+                            analytics: analytics)
                 .map { spec in
                     var spec = spec
                     if spec.name == "llama", let llama { spec.executable = llama }
@@ -399,12 +407,29 @@ final class AppModel: ObservableObject {
                         canRetry: false)
         }
         let bundled = llama == ModelServer.choose(hardware: hardware, helpers: bin, models: models, port: 0).executable
+        let recorded = recording()
+        var analytics = CameraAnalytics.locate(resources: resources, recording: recorded, hardware: hardware,
+                                               isExecutable: { fm.isExecutableFile(atPath: $0) },
+                                               exists: { fm.fileExists(atPath: $0) })
+        if let found = analytics {
+            // The gateway reads the token when it starts, so it exists before anything starts.
+            do {
+                try CameraAnalytics.ensureToken(at: CameraAnalytics.tokenFile(home: paths.home))
+                log("camera analytics: \(CameraAnalytics.python(hardware: hardware, root: found.root).path)"
+                    + (hardware.arm64 ? ", CoreML" : ", CPU"))
+            } catch {
+                log("camera analytics left out: cannot write the token (\(error))")
+                analytics = nil
+            }
+        } else {
+            log(recorded == nil ? "camera analytics: none (no recording)"
+                : "camera analytics: not bundled (\(resources.path)/analytics, models/yolox)")
+        }
         let launch = Launch(bin: bin, models: models, home: paths.home, logs: paths.logs, origin: origin,
-                            recording: recording(), hardware: hardware, llama: bundled ? nil : llama)
+                            recording: recorded, hardware: hardware, llama: bundled ? nil : llama,
+                            analytics: analytics)
         replaying = launch.recording != nil
-        serviceOrder = launch.specs(SuitePorts(gatewayHTTP: 0, gatewayMesh: 0, mimirMesh: 0, mimirObserver: 0,
-                                               mimirHealth: 0, heimdallMesh: 0, heimdallHealth: 0, llama: 0))
-            .map(\.name)
+        serviceOrder = launch.specs(SuitePorts(Array(repeating: 0, count: SuitePorts.count))!).map(\.name)
         log("starting services \(serviceOrder.joined(separator: ", ")) (llama-server \(llama.path)"
             + (hardware.arm64 ? ", Apple Silicon, Metal" : ", Intel, CPU, \(hardware.physicalCores) threads")
             + (launch.recording.map { ", replaying \($0.path)" } ?? ", no recording") + ")")
@@ -682,7 +707,8 @@ final class AppModel: ObservableObject {
         await supervisor.close()
         // A last sweep: anything still running from the helpers, or a model server given
         // this bundle's models, should not outlive the app. Normally it finds nothing.
-        let leftovers = await Supervisor.reapOrphans(binDir: bin, modelsPrefix: modelsMarker, grace: 5)
+        let leftovers = await Supervisor.reapOrphans(binDir: bin, alsoUnder: [analyticsRuntimes],
+                                                       modelsPrefix: modelsMarker, grace: 5)
         if leftovers.isEmpty {
             log("quit: final sweep found nothing running")
         } else {

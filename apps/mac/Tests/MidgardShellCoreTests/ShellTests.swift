@@ -155,7 +155,7 @@ final class SuiteStartTests: XCTestCase {
         func ports() -> SuitePorts {
             lock.lock(); defer { lock.unlock() }
             next += 10
-            return SuitePorts(Array(next..<next + 8))!
+            return SuitePorts(Array(next..<next + UInt16(SuitePorts.count)))!
         }
     }
 

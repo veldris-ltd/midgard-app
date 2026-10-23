@@ -408,7 +408,8 @@ public final class Supervisor: @unchecked Sendable {
         public let executable: String
     }
 
-    /// Ends every process whose executable is inside `binDir`, and (with `modelsPrefix`)
+    /// Ends every process whose executable is inside `binDir` or one of `alsoUnder` (the
+    /// camera analytics' Python runtimes, which live in Resources), and (with `modelsPrefix`)
     /// every `llama-server` given a model under that folder (an argument starting with
     /// it): the bundled model server is inside `binDir` (`llama/<arch>/`), but a
     /// development run may use one outside it (Homebrew's), so it is also known by its
@@ -421,13 +422,13 @@ public final class Supervisor: @unchecked Sendable {
     /// Run it only after the single-instance check: a second shell would otherwise end
     /// the services of the first. Also run after `close()` when quitting, as a last
     /// sweep (it should find nothing).
-    public static func reapOrphans(binDir: URL, modelsPrefix: String? = nil,
+    public static func reapOrphans(binDir: URL, alsoUnder: [URL] = [], modelsPrefix: String? = nil,
                                    grace: TimeInterval = 10) async -> [ReapedProcess] {
-        let root = realPath(binDir) + "/"
+        let roots = ([binDir] + alsoUnder).map { realPath($0) + "/" }
         let me = getpid()
         let found = allPids().compactMap { pid -> ReapedProcess? in
             guard pid > 0, pid != me, let path = executablePath(of: pid) else { return nil }
-            if path.hasPrefix(root) { return ReapedProcess(pid: pid, executable: path) }
+            if roots.contains(where: { path.hasPrefix($0) }) { return ReapedProcess(pid: pid, executable: path) }
             if let modelsPrefix, !modelsPrefix.isEmpty, isModelServer(path),
                arguments(of: pid)?.dropFirst().contains(where: { $0.hasPrefix(modelsPrefix) }) == true {
                 return ReapedProcess(pid: pid, executable: path)
