@@ -441,15 +441,64 @@ job_windows_build() {
     return "$missing"
 }
 
-# The whole workspace, linted and tested natively on Windows. A crate that cannot apply
-# on Windows is left out here with --exclude and a one-line reason; none is today.
-WINDOWS_TEST_PACKAGES=(--workspace)
+# The whole Rust workspace, linted and tested natively on Windows. The workspace cannot
+# be built in one `cargo test --workspace`: the INSECURE `test-backend` and the real
+# `backend-fips` refuse to build together (crypto/pqc-agility), so the feature sets
+# are chosen per crate. This runs what `just lint` and `just test` run, line by line,
+# then the workspace members each recipe leaves out, with their default features.
+# A crate that cannot apply on Windows goes in WINDOWS_TEST_EXCLUDE with a one-line
+# reason; none does today.
+WINDOWS_TEST_EXCLUDE=()
+# The `cargo <sub>` lines of a justfile recipe, without the leading `cargo <sub>`.
+recipe_cargo_lines() {
+    awk -v r="$1:" -v c="cargo $2 " '
+        $1 == r { on = 1; next }
+        on && /^[^ \t#]/ { on = 0 }
+        on && index($0, c) { sub(/^[ \t]+/, ""); print substr($0, length(c) + 1) }' justfile
+}
+# The workspace members' package names.
+workspace_packages() {
+    local m
+    for m in $(sed -n '/^members *= *\[/,/^\]/p' Cargo.toml | sed -n 's/^ *"\(.*\)",*/\1/p'); do
+        sed -n 's/^name *= *"\(.*\)"/\1/p' "$m/Cargo.toml" | head -n 1
+    done
+}
+# `-p NAME` for each workspace member that no line of recipe $1 (`cargo $2`) names.
+windows_rest_packages() {
+    local named pkg
+    named=" $(recipe_cargo_lines "$1" "$2" |
+        grep -oE -- '-p [A-Za-z0-9_-]+' | awk '{ print $2 }' | tr '\n' ' ') ${WINDOWS_TEST_EXCLUDE[*]} "
+    for pkg in $(workspace_packages); do
+        case "$named" in *" $pkg "*) ;; *) printf -- '-p %s ' "$pkg" ;; esac
+    done
+}
 job_windows_test() {
-    local failed=0
+    local failed=0 line rest_lint rest_test
+    local common=(--offline --locked --target "$WINDOWS_TARGET")
     windows_toolchain windows-test
-    # Both steps always run, so one run shows every lint and every test failure.
-    cargo clippy --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}" --all-targets -- -D warnings || failed=1
-    cargo test --offline --locked --target "$WINDOWS_TARGET" "${WINDOWS_TEST_PACKAGES[@]}" --no-fail-fast || failed=1
+    rest_lint="$(windows_rest_packages lint clippy)"
+    rest_test="$(windows_rest_packages test test)"
+    echo "not in just lint: ${rest_lint:-none}"
+    echo "not in just test: ${rest_test:-none}"
+    # Every step runs, so one run shows every lint and every test failure.
+    while read -r line; do
+        echo "+ cargo clippy $line"
+        # shellcheck disable=SC2086 # the recipe line is split into its words
+        cargo clippy "${common[@]}" $line || failed=1
+    done < <(recipe_cargo_lines lint clippy)
+    if [ -n "$rest_lint" ]; then
+        # shellcheck disable=SC2086
+        cargo clippy "${common[@]}" $rest_lint --all-targets -- -D warnings || failed=1
+    fi
+    while read -r line; do
+        echo "+ cargo test $line"
+        # shellcheck disable=SC2086
+        cargo test "${common[@]}" $line --no-fail-fast || failed=1
+    done < <(recipe_cargo_lines test test)
+    if [ -n "$rest_test" ]; then
+        # shellcheck disable=SC2086
+        cargo test "${common[@]}" $rest_test --no-fail-fast || failed=1
+    fi
     return "$failed"
 }
 
