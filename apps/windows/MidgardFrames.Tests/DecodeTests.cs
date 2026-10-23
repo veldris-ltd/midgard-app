@@ -87,13 +87,14 @@ static class Tools
     }
 
     /// <summary>What analytics.py runs when it has no helper (decode(), the ffmpeg branch).</summary>
+    /// every: all the frames, scaled only (still: true, every: true).
     public static byte[] FfmpegDecode(string ffmpeg, string path, int w, int h, int fps, int maxFrames, bool still,
-                                      string? matrix = null)
+                                      string? matrix = null, bool every = false)
     {
         string scale = $"scale={w}:{h}:flags=bilinear" + (matrix != null ? $":in_color_matrix={matrix}" : "");
         string vf = still ? scale : $"fps={fps},{scale}";
         var (code, output, err) = Run(ffmpeg, ["-v", "error", "-threads", "1", "-filter_threads", "1", "-i", path,
-            "-vf", vf, "-frames:v", still ? "1" : maxFrames.ToString(CultureInfo.InvariantCulture),
+            "-vf", vf, "-frames:v", still && !every ? "1" : maxFrames.ToString(CultureInfo.InvariantCulture),
             "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]);
         if (code != 0) throw new InvalidOperationException($"ffmpeg could not decode {path}: {err}");
         return output;
@@ -162,8 +163,36 @@ public class DecodeTests(Fixtures fixtures, ITestOutputHelper output) : IClassFi
         Assert.Empty(stderr.ToString());
     }
 
-    /// 4 s at 25 fps, asked for 4 fps: the 16 frames ffmpeg gives (slots 0-15), each the same
-    /// input frame ffmpeg picks (frames 3, 9, 15, 21, 28, …), in the shape analytics.py reads.
+    /// Which input frames ffmpeg's fps output holds: each output frame found among all the
+    /// clip's frames, decoded by ffmpeg at the same size (an exact match).
+    int[] FfmpegSelection(string name, int w, int h, int maxFrames)
+    {
+        int size = w * h * 3;
+        var selected = Tools.FfmpegDecode(fixtures.Ffmpeg!, fixtures[name], w, h, 4, maxFrames, still: false);
+        var all = Tools.FfmpegDecode(fixtures.Ffmpeg!, fixtures[name], w, h, 0, 10_000, still: true, every: true);
+        int n = all.Length / size;
+        return Enumerable.Range(0, selected.Length / size).Select(k =>
+        {
+            var diffs = Enumerable.Range(0, n).Select(j => Tools.MeanAbsDiff(selected.AsSpan(k * size, size), all.AsSpan(j * size, size))).ToArray();
+            return Array.IndexOf(diffs, diffs.Min());
+        }).ToArray();
+    }
+
+    /// Which input frames ours are, from their grey: frame N is Y = 16 + 2N, so 2N x 255/219 in
+    /// RGB, 2.3 levels from the next; the value must be within 1.1 of it.
+    static int[] OurSelection(List<byte[]> frames)
+    {
+        return frames.Select(f =>
+        {
+            int v = f[f.Length / 2];
+            int n = (int)Math.Round(v * 219.0 / 510);
+            Assert.InRange(v, 2 * n * 255.0 / 219 - 1.1, 2 * n * 255.0 / 219 + 1.1);
+            return n;
+        }).ToArray();
+    }
+
+    /// 4 s at 25 fps, asked for 4 fps: the 16 frames ffmpeg gives (slots 0-15), each the input
+    /// frame ffmpeg picks (frames 3, 9, 15, 21, 28, …), in the shape analytics.py reads.
     [Fact]
     public void SelectsTheFramesFfmpegSelects()
     {
@@ -174,24 +203,14 @@ public class DecodeTests(Fixtures fixtures, ITestOutputHelper output) : IClassFi
         var frames = Decode(fixtures["grey.mp4"], w, h, 4, 40);
         Assert.Equal(16, frames.Count);
         Assert.All(frames, f => Assert.Equal(size, f.Length));
+        int[] expected = [3, 9, 15, 21, 28, 34, 40, 46, 53, 59, 65, 71, 78, 84, 90, 96];
+        Assert.Equal(expected, OurSelection(frames));
+        Assert.Equal(expected, FfmpegSelection("grey.mp4", 64, 52, 40));
 
         var reference = Tools.FfmpegDecode(fixtures.Ffmpeg!, fixtures["grey.mp4"], w, h, 4, 40, still: false);
         Assert.Equal(frames.Count * size, reference.Length);
-        // Each of ours is closest to ffmpeg's in the same place (adjacent input frames differ by
-        // about 2.3 grey levels), and the greys are the selected input frames' (Y = 16 + 2N).
-        int[] expected = [3, 9, 15, 21, 28, 34, 40, 46, 53, 59, 65, 71, 78, 84, 90, 96];
-        double worst = 0;
-        for (int i = 0; i < frames.Count; i++)
-        {
-            var diffs = Enumerable.Range(0, frames.Count)
-                .Select(j => Tools.MeanAbsDiff(frames[i], reference.AsSpan(j * size, size))).ToArray();
-            Assert.Equal(i, Array.IndexOf(diffs, diffs.Min()));
-            worst = Math.Max(worst, diffs[i]);
-            double grey = 2 * expected[i] * 255.0 / 219;
-            Assert.InRange(frames[i][size / 2], grey - 4, grey + 4);
-        }
-        Assert.True(worst < 1.5, $"a grey frame differs from ffmpeg's by {worst:F2} on average");
-        Tools.Record(output, $"grey.mp4 352x288 -> 640x523 @4fps: {frames.Count} frames as ffmpeg's; worst frame mean |diff| {worst:F3}");
+        double worst = Enumerable.Range(0, frames.Count).Max(i => Tools.MeanAbsDiff(frames[i], reference.AsSpan(i * size, size)));
+        Tools.Record(output, $"grey.mp4 352x288 -> 640x523 @4fps: input frames {string.Join(",", expected)}, as ffmpeg's; worst frame mean |diff| {worst:F3}");
     }
 
     [Fact]
@@ -199,13 +218,9 @@ public class DecodeTests(Fixtures fixtures, ITestOutputHelper output) : IClassFi
     {
         if (!Ready()) return;
         Assert.Equal(5, Decode(fixtures["grey.mp4"], 64, 52, 4, 5).Count);
-        var one = Decode(fixtures["grey8.mp4"], 64, 52, 4, 40);
-        var reference = Tools.FfmpegDecode(fixtures.Ffmpeg!, fixtures["grey8.mp4"], 64, 52, 4, 40, still: false);
-        Assert.Single(one);
-        Assert.Equal(64 * 52 * 3, reference.Length);
-        double d = Tools.MeanAbsDiff(one[0], reference);
-        Assert.True(d < 1.5, $"grey8.mp4: ours {one[0][100]}, ffmpeg's {reference[100]}, mean |diff| {d:F3}");
-        Assert.InRange(one[0][100], 2 * 3 * 255.0 / 219 - 4, 2 * 3 * 255.0 / 219 + 4);  // input frame 3
+        // 0.32 s: one frame, input frame 3, as ffmpeg.
+        Assert.Equal(new[] { 3 }, OurSelection(Decode(fixtures["grey8.mp4"], 64, 52, 4, 40)));
+        Assert.Equal(new[] { 3 }, FfmpegSelection("grey8.mp4", 64, 52, 40));
 
         // The command line writes the same frames to stdout.
         using var stdout = new MemoryStream();
