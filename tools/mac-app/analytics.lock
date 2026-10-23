@@ -1,0 +1,29 @@
+# Camera analytics runtime bundled in Midgard.app (read by fetch-analytics.sh; key=value, no
+# quotes). SHA-256s: python-build-standalone's SHA256SUMS for the release (which GitHub's asset
+# digests match), PyPI's digests for the wheels, MODEL.md's for the model.
+#
+# CPython 3.13 and onnxruntime 1.23.2: onnxruntime 1.23.2 is the newest release with a macOS
+# x86_64 wheel (1.24.0 onwards publish arm64 only), and its newest CPython wheel is cp313, so
+# both architectures run the same Python and onnxruntime (the development .venv has Python 3.14
+# with onnxruntime 1.24.4). numpy 2.5.4 as the development .venv; its macosx_11_0 arm64 and
+# macosx_10_13 x86_64 wheels (OpenBLAS) rather than the macosx_14_0 ones (Accelerate, macOS 14+),
+# since the app runs on macOS 13.3. onnxruntime is installed without its declared dependencies
+# (coloredlogs, flatbuffers, packaging, protobuf, sympy): inference does not import them.
+# Release 20261009 (CPython 3.13.16) was two weeks old when pinned on 2026-10-23.
+date=2026-10-23
+python_version=3.13.16
+python_release=20261009
+arm64_python_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-apple-darwin-install_only.tar.gz
+arm64_python_sha256=3338fcd572a670ec45ac9ef75480b95595ea9b6b5dd320952fcf5df185089941
+x64_python_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-x86_64-apple-darwin-install_only.tar.gz
+x64_python_sha256=1c3ecfe6c0c1c200508ff9f93b436e3d8125faf9ff9e70a9dee65699593297da
+arm64_numpy_url=https://files.pythonhosted.org/packages/83/8c/b0ea9477fb1f0d4484bbc5cba21678cc9969704d8d7f3f158d1db35f8e14/numpy-2.5.4-cp313-cp313-macosx_11_0_arm64.whl
+arm64_numpy_sha256=7415db95818b39ec475a5eea54d9e3b6bc83e3912158e46da3438cdce399804d
+x64_numpy_url=https://files.pythonhosted.org/packages/67/14/1c3ee0118a8fce08565a5d8482631608426a33af10a01077fada5dc7c119/numpy-2.5.4-cp313-cp313-macosx_10_13_x86_64.whl
+x64_numpy_sha256=2377da2dd3ba2c1200956acbab2a358c83b8e1f8531191672d1cd6ad83250d53
+arm64_onnxruntime_url=https://files.pythonhosted.org/packages/3d/41/fba0cabccecefe4a1b5fc8020c44febb334637f133acefc7ec492029dd2c/onnxruntime-1.23.2-cp313-cp313-macosx_13_0_arm64.whl
+arm64_onnxruntime_sha256=2ff531ad8496281b4297f32b83b01cdd719617e2351ffe0dba5684fb283afa1f
+x64_onnxruntime_url=https://files.pythonhosted.org/packages/fe/f9/2d49ca491c6a986acce9f1d1d5fc2099108958cc1710c28e89a032c9cfe9/onnxruntime-1.23.2-cp313-cp313-macosx_13_0_x86_64.whl
+x64_onnxruntime_sha256=162f4ca894ec3de1a6fd53589e511e06ecdc3ff646849b62a9da7489dee9ce95
+model_url=https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_s.onnx
+model_sha256=c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063

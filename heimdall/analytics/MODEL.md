@@ -19,6 +19,12 @@ onnxruntime 1.24.4 and numpy 2.5.4 (pinned in `.venv`, Python 3.14). Execution p
 on the CPU provider with 2 threads, with identical detections. If CoreML fails to load, the code falls
 back to the CPU provider with `threads` (default 2) intra-op threads.
 
+In Midgard.app the runtime is CPython 3.13.16 (python-build-standalone) with onnxruntime 1.23.2 and
+numpy 2.5.4 for both arm64 and x86_64 (`tools/mac-app/analytics.lock`: 1.23.2 is the newest
+onnxruntime with a macOS x86_64 wheel): CoreML on Apple Silicon, the CPU provider on Intel. Measured
+23 Oct 2026 on stored TfL clips (40 frames): about 0.7 s per clip with CoreML, about 7.7 s with the
+x86_64 runtime under Rosetta on 4 CPU threads, with the same detections.
+
 ## Pre/post-processing (as in YOLOX `demo/ONNXRuntime`)
 
 * BGR, 0-255 float32, **no mean/std normalisation** (removed in 0.1.1rc0; older `--legacy` weights differ).
