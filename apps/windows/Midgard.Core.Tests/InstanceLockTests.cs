@@ -1,10 +1,13 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using Midgard.Core;
 
 namespace Midgard.Core.Tests;
 
 // The cases of InstanceLockTests in apps/mac/Tests/MidgardShellCoreTests/ShellTests.swift,
-// plus a lock left by a killed process. Windows only (share modes are Windows').
+// plus a lock left by a killed process. Windows only (share modes are Windows'): each
+// test returns at once elsewhere.
+[SupportedOSPlatform("windows")]
 public sealed class InstanceLockTests : IDisposable
 {
     readonly string dir = Path.Join(Path.GetTempPath(), $"lock-{Guid.NewGuid():N}");
