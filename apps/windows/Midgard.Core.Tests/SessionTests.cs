@@ -354,7 +354,6 @@ public class SessionTests
         Assert.DoesNotContain("<", script);
         Assert.DoesNotContain("\u2028", script);
         Assert.DoesNotContain("\u2029", script);
-        Assert.DoesNotContain("\0", script);
         Assert.True(script.All(c => c is '\n' or >= ' ' and <= '~'), "only printable ASCII and newlines");
         if (Evaluate(script) is not { } got) return;
         Assert.Equal(Nasty, got.Gateway);

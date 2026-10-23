@@ -144,6 +144,7 @@ public static class Session
     public static async Task<SessionInfo> LoginAsync(Uri gateway, DemoUser user, HttpClient? client = null,
                                                      CancellationToken cancellation = default)
     {
+        cancellation.ThrowIfCancellationRequested();
         client ??= Loopback;
         var url = new Uri(gateway.AbsoluteUri.TrimEnd('/') + "/login");
         var body = JsonSerializer.SerializeToUtf8Bytes(
