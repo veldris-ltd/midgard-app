@@ -40,6 +40,11 @@ stopwords = [
   "GGUF/quantised",
   # SAD_02b — "…behind the existing inference API, Forge/Bifrost/Heimdall are unchanged…"
   "Forge/Bifrost/Heimdall",
+  # Fixture tokens in tests on branch md_mixedfeeds_3d, which CI scans with every
+  # branch: tools/mac-app/test_prepare_answers.py and, asserting that a session never
+  # prints its token, apps/mac/Tests/MidgardShellCoreTests/SessionTests.swift.
+  "tok-abcdef-123456",
+  "tok-SECRET-123",
 ]
 
 [[allowlists]]
