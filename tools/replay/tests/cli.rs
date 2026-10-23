@@ -1,7 +1,7 @@
 use service_runtime::json::parse;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::{fs, os::unix::fs::PermissionsExt};
 
 const BIN: &str = env!("CARGO_BIN_EXE_midgard-replay");
 
@@ -52,7 +52,16 @@ fn setup(name: &str, feed: &str, cert_for: &str) -> TempDir {
     .unwrap();
     fs::write(d.join(format!("ids/{cert_for}.cert")), "").unwrap();
     fs::write(d.join("ids/mesh.anchor"), "").unwrap();
-    let fake = d.join("heimdall-source");
+    fake_source(&d);
+    TempDir(d)
+}
+
+#[cfg(unix)]
+const FAKE: &str = "heimdall-source";
+#[cfg(unix)]
+fn fake_source(d: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let fake = d.join(FAKE);
     fs::write(
         &fake,
         format!(
@@ -62,7 +71,23 @@ fn setup(name: &str, feed: &str, cert_for: &str) -> TempDir {
     )
     .unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
-    TempDir(d)
+}
+
+/// On Windows the fake is a batch file that hands the same script to the `sh` of Git
+/// for Windows, which the Windows CI job runs under; `sh` reads `\` as an escape.
+#[cfg(windows)]
+const FAKE: &str = "heimdall-source.cmd";
+#[cfg(windows)]
+fn fake_source(d: &Path) {
+    fs::write(
+        d.join("heimdall-source.sh"),
+        format!(
+            "echo \"$@\" > {0}/args\ncat > {0}/stdin\necho 'batch: 1 accepted, 0 refused, 0 unreadable'\n",
+            d.display().to_string().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+    fs::write(d.join(FAKE), "@sh \"%~dp0heimdall-source.sh\" %*\r\n").unwrap();
 }
 
 fn run(d: &Path, extra: &[&str]) -> Output {
@@ -75,7 +100,7 @@ fn run(d: &Path, extra: &[&str]) -> Output {
         "--forge-dir".into(),
         p("forge"),
         "--source-bin".into(),
-        p("heimdall-source"),
+        p(FAKE),
     ];
     args.extend(extra.iter().map(|s| s.to_string()));
     Command::new(BIN).args(&args).output().unwrap()

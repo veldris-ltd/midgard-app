@@ -1,6 +1,6 @@
 use midgard_replay::recording::{Event, Recording};
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::{fs, process::Command};
 
 /// A fresh temp recording dir, removed again when dropped.
 struct TempDir(PathBuf);
@@ -59,7 +59,10 @@ fn loads_batches_and_forge_files_in_offset_order() {
     fs::write(d.join("heimdall.jsonl"), concat!(
         r#"{"offset":0,"feed":"usgs-quakes","observations":[{"entity":"Q1","kind":"event-earthquake","observedAt":1792000000,"attrs":{}}]}"#, "\n",
         r#"{"offset":90,"feed":"adsb-fi","observations":[{"entity":"A1","kind":"air-track","observedAt":1792000090,"attrs":{}}]}"#, "\n")).unwrap();
-    assert!(Command::new("/usr/bin/gzip")
+    // Compressed, as recordings ship. Windows has no /usr/bin/gzip for the replay to read
+    // it with (an open question for the Windows app), so there it stays plain.
+    #[cfg(unix)]
+    assert!(std::process::Command::new("/usr/bin/gzip")
         .arg(d.join("heimdall.jsonl"))
         .status()
         .unwrap()

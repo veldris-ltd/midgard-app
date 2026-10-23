@@ -1,8 +1,8 @@
 use midgard_replay::player::Sink;
 use midgard_replay::sinks::LiveSink;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use std::{fs, os::unix::fs::PermissionsExt};
 
 /// A fresh temp dir with a `forge` subdirectory, removed again when dropped.
 struct TempDir(PathBuf);
@@ -20,11 +20,28 @@ fn temp_dir(name: &str) -> TempDir {
 }
 
 /// A fake `heimdall-source` in `d` running `body`.
+#[cfg(unix)]
 fn script(d: &Path, body: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
     let fake = d.join("heimdall-source");
     fs::write(&fake, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
     fake
+}
+
+/// A fake `heimdall-source` in `d` running `body`: a batch file that hands it to the
+/// `sh` of Git for Windows, which the Windows CI job runs under.
+#[cfg(windows)]
+fn script(d: &Path, body: &str) -> PathBuf {
+    fs::write(d.join("heimdall-source.sh"), format!("{body}\n")).unwrap();
+    let fake = d.join("heimdall-source.cmd");
+    fs::write(&fake, "@sh \"%~dp0heimdall-source.sh\" %*\r\n").unwrap();
+    fake
+}
+
+/// `d` as the fake's shell writes it: `sh` reads a backslash as an escape.
+fn sh_path(d: &Path) -> String {
+    d.display().to_string().replace('\\', "/")
 }
 
 fn sink(d: &Path, source_bin: PathBuf) -> LiveSink {
@@ -45,7 +62,7 @@ fn pipes_batches_to_heimdall_source_and_writes_forge_files_atomically() {
         d,
         &format!(
             "echo \"$@\" > {0}/args\ncat > {0}/stdin\necho 'batch: 1 accepted, 0 refused, 0 unreadable'",
-            d.display()
+            sh_path(d)
         ),
     );
     let sink = sink(d, fake);
@@ -151,13 +168,18 @@ fn a_child_that_runs_too_long_is_killed() {
         start.elapsed()
     );
     assert!(err.contains("timed out after 1 s"), "{err}");
-    let found = std::process::Command::new("/usr/bin/pgrep")
-        .args(["-f", &marker])
-        .output()
-        .unwrap();
-    assert!(
-        !found.status.success(),
-        "still running: {}",
-        String::from_utf8_lossy(&found.stdout)
-    );
+    // Only the direct child is killed; on Windows that is the batch file's cmd.exe, and
+    // there is no pgrep, so the leftover check is Unix only.
+    #[cfg(unix)]
+    {
+        let found = std::process::Command::new("/usr/bin/pgrep")
+            .args(["-f", &marker])
+            .output()
+            .unwrap();
+        assert!(
+            !found.status.success(),
+            "still running: {}",
+            String::from_utf8_lossy(&found.stdout)
+        );
+    }
 }
