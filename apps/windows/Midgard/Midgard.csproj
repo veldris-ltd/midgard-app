@@ -16,6 +16,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- WebView2Loader.dll goes inside the single-file Midgard.exe too (extracted at run time). -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- No referenced assemblies' .xml docs beside Midgard.exe (WebView2 ships three). -->
+    <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
   <ItemGroup>
     <!-- The window's web view (BSD-style licence, LICENSE.txt in the package; W4 copies it to
@@ -25,4 +27,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Midgard.Core\Midgard.Core.csproj" />
   </ItemGroup>
+  <!-- WebView2's targets reference its WPF control too, which pulls in WPF's WindowsBase
+       (MSB3277 against the one WinForms has). The window is WinForms only. -->
+  <Target Name="MidgardDropWebView2Wpf" AfterTargets="ResolveLockFileReferences" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
 </Project>
