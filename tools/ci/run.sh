@@ -480,11 +480,12 @@ job_windows_test() {
     rest_test="$(windows_rest_packages test test)"
     echo "not in just lint: ${rest_lint:-none}"
     echo "not in just test: ${rest_test:-none}"
-    # Every step runs, so one run shows every lint and every test failure.
+    # Every step runs, so one run shows every lint and every test failure. Cargo reads
+    # nothing: the loop's input is the recipe.
     while read -r line; do
         echo "+ cargo clippy $line"
         # shellcheck disable=SC2086 # the recipe line is split into its words
-        cargo clippy "${common[@]}" $line || failed=1
+        cargo clippy "${common[@]}" $line </dev/null || failed=1
     done < <(recipe_cargo_lines lint clippy)
     if [ -n "$rest_lint" ]; then
         # shellcheck disable=SC2086
@@ -493,7 +494,7 @@ job_windows_test() {
     while read -r line; do
         echo "+ cargo test $line"
         # shellcheck disable=SC2086
-        cargo test "${common[@]}" $line --no-fail-fast || failed=1
+        cargo test "${common[@]}" $line --no-fail-fast </dev/null || failed=1
     done < <(recipe_cargo_lines test test)
     if [ -n "$rest_test" ]; then
         # shellcheck disable=SC2086
