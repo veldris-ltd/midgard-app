@@ -8,7 +8,7 @@
 # then swapped in:
 #   Contents/Info.plist, MacOS/Midgard, Helpers/<service binaries>, Helpers/midgard-frames,
 #   Helpers/llama/{arm64,x64}/ (llama-server and its dylibs, from fetch-llama.sh),
-#   Resources/licenses/{llama.cpp-LICENSE,<the camera analytics' licences>},
+#   Resources/licenses/{CREDITS.txt,llama.cpp-LICENSE,<the camera analytics' licences>},
 #   Resources/analytics/{analytics.py,config.json,runtime/{arm64,x64}/} (the camera analytics
 #     and a Python runtime per chip, from heimdall/analytics and fetch-analytics.sh),
 #   Resources/{consoles,home,starting-state,models/{granite,trust,yolox}[,recording]}
@@ -319,6 +319,10 @@ clone_copy "$ANALYTICS/models/yolox_s.onnx" "$R/models/yolox/yolox_s.onnx"
 for f in "$ANALYTICS"/licenses/*; do cp "$f" "$R/licenses/"; done
 cp -RL "$CONSOLES" "$R/consoles"
 cp -RL apps/mac/Resources/home "$R/home"          # fonts is a symlink in the repo
+# The data and software credits: with the licences, and in home/ for the home page's
+# "Data and credits" panel (served at /home/credits.txt).
+cp tools/mac-app/CREDITS.txt "$R/licenses/CREDITS.txt"
+cp tools/mac-app/CREDITS.txt "$R/home/credits.txt"
 clone_copy "$STATE" "$R/starting-state"
 clone_copy "$MODELS/granite" "$R/models/granite"
 clone_copy "$MODELS/trust" "$R/models/trust"

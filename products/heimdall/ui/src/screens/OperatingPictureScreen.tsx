@@ -37,6 +37,7 @@ import { Timeline, useReplayClock } from '../app/Timeline';
 import type { GlobeTrail, InfraLineGroup } from '../app/globe/GlobeView';
 import { AreaCamerasCard } from '../app/AreaCameras';
 import { CameraTrend } from '../app/CameraTrend';
+import { cameraCredit } from '../app/cameraCredit';
 import { AlertsPanel } from '../app/AlertsPanel';
 import { GulfWatchPanel, gulfWatchName, isGulfWatch } from '../app/GulfWatchPanel';
 import { AdviceCard } from '../app/AdviceCard';
@@ -326,7 +327,7 @@ function CameraCard({ camera, name }: { camera: NonNullable<HeimdallTrackDetail[
       {analysis}
       {!expanded && trend}
       <div style={{ ...mono, fontSize: 8, color: 'var(--text-faint)', marginTop: 6 }}>
-        {OFFLINE ? (camera.videoUrl ? 'STORED IMAGE AND CLIP FROM THE RECORDING' : 'STORED IMAGE FROM THE RECORDING') : 'IMAGE RELOADS EVERY 30 S'} · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : 'MEDIA FROM THE CAMERA OPERATOR'}
+        {OFFLINE ? (camera.videoUrl ? 'STORED IMAGE AND CLIP FROM THE RECORDING' : 'STORED IMAGE FROM THE RECORDING') : 'IMAGE RELOADS EVERY 30 S'} · {camera.streamType === 'hls' ? 'HLS PLAYS IN SAFARI; OTHER BROWSERS NEED AN MP4 OR MJPEG URL' : cameraCredit(camera.id) ?? 'MEDIA FROM THE CAMERA OPERATOR'}
       </div>
       {expanded && (
         <div role="dialog" aria-label={`Camera ${name}`} onClick={() => setExpanded(false)}

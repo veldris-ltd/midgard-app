@@ -1,0 +1,81 @@
+Midgard 1.0 for Mac: data and software credits
+==============================================
+
+Midgard runs offline. Everything it shows was recorded once, ahead of time, from the
+sources below, and is replayed from files inside the app (Contents/Resources). The
+licence texts of the bundled software are in this folder (Contents/Resources/licenses).
+
+Cameras (stills and clips)
+  - London: Powered by TfL Open Data (Transport for London JamCams; TfL open data terms).
+  - New Zealand: NZ Transport Agency Waka Kotahi traffic cameras (trafficnz.info; NZTA
+    traffic data, published for reuse with attribution).
+  - British Columbia: DriveBC highway webcams, BC Ministry of
+    Transportation (Open Government Licence - British Columbia).
+  - Singapore: traffic camera images from the Land Transport Authority via data.gov.sg
+    (Singapore Open Data Licence).
+
+Rain radar
+  - Weather data by RainViewer (https://www.rainviewer.com/). Recorded frames, replayed.
+
+Road traffic flow
+  - Traffic ©TomTom (TomTom Traffic Flow, one recorded snapshot).
+
+Close-up satellite imagery
+  - EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified
+    Copernicus Sentinel data 2016), licensed under CC BY 4.0
+    (https://creativecommons.org/licenses/by/4.0/).
+
+Terrain (elevation)
+  - Terrain Tiles, Mapzen (hosted on AWS Open Data), built from:
+    United Kingdom terrain data © Environment Agency copyright and/or database right 2015.
+    All rights reserved (Open Government Licence);
+    Europe terrain data produced using Copernicus data and information funded by the
+    European Union - EU-DEM layers;
+    SRTM and GMTED2010 terrain data courtesy of the U.S. Geological Survey;
+    ETOPO1 terrain data, U.S. National Oceanic and Atmospheric Administration (NOAA).
+
+Air
+  - Aircraft: adsb.fi and adsb.lol (ADS-B aggregators; adsb.lol data under ODbL).
+  - Airports: OurAirports (public domain); METAR and TAF, and SIGMETs: NOAA
+    aviationweather.gov (public domain).
+  - Airspace: openAIP (openaip.net).
+  - Conflict-zone bulletins: Source: EASA. US flight prohibitions: US FAA (public domain).
+  - Radiosondes: SondeHub.
+
+Sea
+  - Ships: AISStream (aisstream.io); Baltic: Fintraffic Digitraffic marine API (CC BY 4.0).
+  - Offshore installations: NSTA (NSTA Open User Licence). Offshore wind: The Crown Estate
+    (Open Data Licence (GIS) v1.1) and Crown Estate Scotland (Open Government Licence v3).
+
+Space
+  - Satellites: CelesTrak. Space weather: NOAA SWPC (public domain).
+
+Land and events
+  - Rail: contains data from Network Rail Infrastructure Ltd (Open Government Licence).
+  - Roads: National Highways (Open Government Licence); TfL road disruptions (Powered by
+    TfL Open Data); DriveBC Open511 (Open Government Licence - British Columbia); NZ
+    Transport Agency Waka Kotahi; Main Roads Western Australia (CC BY 4.0).
+  - Floods and reservoirs: Environment Agency (Open Government Licence v3.0).
+  - Weather warnings: Met Office (Crown copyright); MeteoAlarm (EUMETNET, meteoalarm.org);
+    Environment and Climate Change Canada; MetService (CC BY 4.0).
+  - Earthquakes: USGS (public domain). Disasters: GDACS (EC JRC / UN OCHA). Fires: NASA
+    FIRMS (VIIRS). News volume: GDELT Project. Censorship: OONI (CC BY 4.0).
+  - Internet outages: IODA, Georgia Tech; Cloudflare Radar (CC BY-NC 4.0).
+  - Country label points: Natural Earth (public domain); NUTS areas: Eurostat GISCO.
+
+Utilities (GB)
+  - Contains BMRS data © Elexon Limited; NESO Carbon Intensity (CC BY 4.0); UK Power
+    Networks (CC BY 4.0); Supported by Northern Powergrid Open Data; NGED; storm overflow
+    data via Stream (CC BY 4.0); Environment Agency (OGL); National Gas Transmission Data
+    Portal; Source: GIE AGSI+ / ALSI.
+  - Networks (power, water, gas, telecoms): © OpenStreetMap contributors (ODbL).
+
+Software and models
+  - Granite 3.3 2B Instruct, IBM (Apache-2.0; the Apache License 2.0 text is in
+    YOLOX-LICENSE.txt). The Mimir model.
+  - llama.cpp (MIT; llama.cpp-LICENSE). Runs the Mimir model.
+  - YOLOX-s, Megvii (Apache-2.0; YOLOX-LICENSE.txt). Camera analysis.
+  - ONNX Runtime (MIT; onnxruntime-LICENSE.txt, onnxruntime-ThirdPartyNotices.txt),
+    NumPy (BSD; numpy-LICENSE.txt), CPython (PSF; CPython-LICENSE.txt) built by
+    python-build-standalone (python-build-standalone-NOTICE.txt).
+  - Fonts: Oxanium, Space Grotesk, JetBrains Mono (SIL Open Font License 1.1).

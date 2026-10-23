@@ -102,6 +102,11 @@
   .guide li .where { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--grey-400); margin-top: 2px; }
   .guide .live { margin-top: 18px; color: var(--grey-400); font-size: 15px; }
   .guide .hint { margin: 0 0 4px; font-family: var(--font-mono); font-size: 12px; color: var(--warn); }
+
+  footer.credits { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--ink-600); color: var(--grey-500); font-size: 12px; line-height: 1.55; }
+  footer.credits p { margin: 0 0 8px; }
+  footer.credits summary { cursor: pointer; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--grey-400); }
+  footer.credits pre { white-space: pre-wrap; font-family: var(--font-mono); font-size: 12px; color: var(--grey-300); margin: 10px 0 0; }
 </style>
 </head>
 <body>
@@ -139,6 +144,14 @@
     <h3 id="guide-title">Presenter's guide</h3>
     <div id="guide-body"><p>Loading the prepared answers…</p></div>
   </section>
+
+  <!-- Every source, as their terms ask; the full list is tools/mac-app/CREDITS.txt, bundled
+       as /home/credits.txt (and Resources/licenses/CREDITS.txt). Plain text, no links: the
+       app opens nothing off this Mac. -->
+  <footer class="credits" aria-label="Data and credits">
+    <p>Recorded data, replayed offline. Cameras: Powered by TfL Open Data · NZ Transport Agency Waka Kotahi · DriveBC (Open Government Licence – British Columbia) · LTA camera images via data.gov.sg (Singapore Open Data Licence). Weather data by RainViewer · Traffic ©TomTom · EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016), CC BY 4.0 · Terrain Tiles (Mapzen, AWS Open Data): © Environment Agency 2015 (OGL), EU-DEM (Copernicus), SRTM and GMTED2010 courtesy of the USGS, ETOPO1 NOAA · and the open data feeds in the full list. Software: Granite (Apache-2.0), llama.cpp (MIT), YOLOX (Apache-2.0).</p>
+    <details id="credits"><summary>Data and credits: full list</summary><pre id="credits-body">Loading…</pre></details>
+  </footer>
 </main>
 <script>
   // The app sets the status line with evaluateJavaScript("window.midgardStatus(…)").
@@ -247,6 +260,19 @@
     fetch('/home/prepared-answers.json', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then(function (file) { try { render(file); } catch (e) { none(); } }, none);
+  })();
+
+  // The full credits, loaded the first time the panel is opened (text only).
+  (function () {
+    var box = document.getElementById('credits'), pre = document.getElementById('credits-body'), loaded = false;
+    box.addEventListener('toggle', function () {
+      if (!box.open || loaded) return;
+      loaded = true;
+      fetch('/home/credits.txt', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+        .then(function (t) { pre.textContent = t; },
+              function () { pre.textContent = 'The full list is in Midgard.app/Contents/Resources/licenses/CREDITS.txt.'; loaded = false; });
+    });
   })();
 </script>
 </body>

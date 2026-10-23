@@ -28,12 +28,12 @@
   html, body { margin: 0; padding: 0; }
   body {
     width: 210mm;
-    font-family: var(--font-sans); font-size: 9pt; line-height: 1.34; color: var(--ink-800);
+    font-family: var(--font-sans); font-size: 9pt; line-height: 1.3; color: var(--ink-800);
     background: #ffffff;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   header {
-    background: var(--ink-900); color: #fff; padding: 5.5mm 14mm 4.5mm;
+    background: var(--ink-900); color: #fff; padding: 5mm 14mm 4mm;
     border-bottom: 1.2mm solid var(--midgard-500);
   }
   .eyebrow { font-family: var(--font-mono); font-size: 7pt; letter-spacing: 0.18em; text-transform: uppercase; color: var(--grey-300); margin: 0 0 1.5mm; }
@@ -42,18 +42,18 @@
   header p.lead { margin: 2mm 0 0; color: var(--grey-100); font-size: 9.6pt; }
   main { padding: 4mm 14mm 0; }
   h2 {
-    font-family: var(--font-display); font-weight: 700; font-size: 11pt; margin: 0 0 2mm;
+    font-family: var(--font-display); font-weight: 700; font-size: 11pt; margin: 0 0 1.6mm;
     color: var(--ink-900); text-transform: uppercase; letter-spacing: 0.06em;
   }
   h2::before { content: ''; display: inline-block; width: 2.6mm; height: 2.6mm; background: var(--midgard-500); margin-right: 2mm; vertical-align: 0.05em; }
   b { font-weight: 700; color: var(--ink-900); }
   .mac { font-style: normal; color: var(--ink-900); }
-  .needs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm; margin: 0 0 3.5mm; }
+  .needs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm; margin: 0 0 2.8mm; }
   .need { border: 0.3mm solid var(--grey-300); border-top: 0.9mm solid var(--ink-900); padding: 1.6mm 2.4mm; }
   .need .big { font-family: var(--font-display); font-weight: 700; font-size: 12pt; color: var(--ink-900); line-height: 1.1; }
   .need .small { font-size: 7.6pt; color: var(--grey-600); line-height: 1.28; margin-top: 0.6mm; }
   ol.steps { list-style: none; margin: 0 0 3mm; padding: 0; counter-reset: step; }
-  ol.steps > li { counter-increment: step; position: relative; padding: 0 0 0 10mm; margin: 0 0 2mm; min-height: 7mm; }
+  ol.steps > li { counter-increment: step; position: relative; padding: 0 0 0 10mm; margin: 0 0 1.6mm; min-height: 7mm; }
   ol.steps > li::before {
     content: counter(step); position: absolute; left: 0; top: 0;
     width: 7mm; height: 7mm; border-radius: 50%; background: var(--midgard-500); color: #fff;
@@ -63,15 +63,17 @@
   ol.steps p { margin: 0; }
   .say { margin: 1mm 0 0 !important; padding: 1.2mm 2.4mm; background: var(--midgard-tint); border-left: 0.8mm solid var(--midgard-500); font-size: 8.2pt; }
   .note { font-size: 8.2pt; color: var(--grey-600); margin-top: 0.6mm !important; }
-  .after { margin: 0 0 3.5mm; padding: 1.8mm 3mm; border: 0.3mm solid var(--grey-300); font-size: 8.6pt; }
+  .after { margin: 0 0 3mm; padding: 1.8mm 3mm; border: 0.3mm solid var(--grey-300); font-size: 8.6pt; }
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; }
   dl { margin: 0; }
-  dt { font-weight: 700; color: var(--ink-900); margin-top: 1.5mm; font-size: 9pt; }
+  dt { font-weight: 700; color: var(--ink-900); margin-top: 1.1mm; font-size: 9pt; }
   dt:first-child { margin-top: 0; }
   dd { margin: 0.2mm 0 0; font-size: 8.5pt; }
   .trouble dt { color: var(--midgard-600); }
+  .credits { margin: 2.4mm 14mm 0; padding-top: 1.4mm; border-top: 0.3mm solid var(--grey-300); font-size: 6.3pt; line-height: 1.32; color: var(--grey-600); }
+  .credits b { font-family: var(--font-mono); font-size: 6pt; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-900); }
   footer {
-    margin: 3mm 14mm 0;
+    margin: 1.6mm 14mm 0;
     display: flex; justify-content: space-between; border-top: 0.3mm solid var(--grey-300); padding-top: 1.6mm;
     font-family: var(--font-mono); font-size: 6.8pt; color: var(--grey-500); letter-spacing: 0.04em;
   }
@@ -148,6 +150,10 @@
     </section>
   </div>
 </main>
+
+<section class="credits" aria-label="Data and credits">
+  <b>Data and credits</b> Midgard replays data recorded from these sources. Cameras: Powered by TfL Open Data · NZ Transport Agency Waka Kotahi · DriveBC (Open Government Licence – British Columbia) · LTA camera images via data.gov.sg (Singapore Open Data Licence). Weather data by RainViewer. Traffic ©TomTom. EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016), CC BY 4.0. Terrain Tiles (Mapzen, AWS Open Data): UK © Environment Agency copyright and/or database right 2015 (OGL), EU-DEM (Copernicus, EU), SRTM and GMTED2010 courtesy of the U.S. Geological Survey, ETOPO1 NOAA. Plus about 40 open data feeds (Environment Agency, Met Office, NOAA, USGS, Elexon, OpenStreetMap contributors and others). Software: Granite (Apache-2.0), llama.cpp (MIT), YOLOX (Apache-2.0). Full list with licences: <b>Data and credits</b> on Midgard’s home page, or Midgard.app/Contents/Resources/licenses/CREDITS.txt.
+</section>
 
 <footer><span>MIDGARD · INSTALL SHEET · 1.0</span><span>Runs offline · Nothing leaves this Mac</span></footer>
 </body>
