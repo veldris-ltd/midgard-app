@@ -675,21 +675,32 @@ windows_ffmpeg() {
     echo "$dir/$name/bin/ffmpeg.exe"
 }
 
-# Media Foundation's state on this runner: on Windows Server it is the optional
-# Server-Media-Foundation feature (H.264 decoding included); it is added on a GitHub runner
-# (throwaway, administrator) when it is missing. On client Windows it is part of the OS,
-# except on N editions without the Media Feature Pack.
+# Media Foundation's state on this runner: on Windows Server, H.264 decoding is the optional
+# Server-Media-Foundation feature (mfplat.dll is there without it). On a GitHub runner
+# (throwaway, administrator) without it, the helper is first run on a clip to record what a
+# Windows without an H.264 decoder (an N edition without the Media Feature Pack) gets, then the
+# feature is added. On client Windows it is part of the OS, except on N editions.
 windows_media_foundation() {
-    local state
+    local state helper clip code=0 out="$WINDOWS_SHELL_TEST_OUT/no-h264.txt"
     state="$(powershell.exe -NoProfile -NonInteractive -Command \
         "if (Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue) { (Get-WindowsFeature Server-Media-Foundation).InstallState } else { 'client' }" \
         2>/dev/null | tr -d '\r')" || state=unknown
     echo "$1: Media Foundation: $state (mfplat.dll: $( [ -f /c/Windows/System32/mfplat.dll ] && echo present || echo absent))"
-    if [ "$state" = Available ] && [ "${GITHUB_ACTIONS:-}" = true ]; then
-        ci_group "Install-WindowsFeature Server-Media-Foundation"
-        powershell.exe -NoProfile -NonInteractive -Command "Install-WindowsFeature Server-Media-Foundation | Format-List" || true
-        ci_endgroup
+    [ "$state" = Available ] && [ "${GITHUB_ACTIONS:-}" = true ] || return 0
+    dotnet build "$WINDOWS_SHELL/MidgardFrames/MidgardFrames.csproj" -c Release --no-restore -v quiet -nologo
+    helper="$WINDOWS_SHELL/MidgardFrames/bin/Release/net10.0-windows/win-x64/midgard-frames.exe"
+    clip="$WINDOWS_SHELL_TEST_OUT/no-h264.mp4"
+    "$2" -v error -y -f lavfi -i testsrc2=s=352x288:r=25:d=1 -c:v libx264 -pix_fmt yuv420p "$clip"
+    "$helper" probe "$clip" >/dev/null 2>"$out" || code=$?
+    rm -f "$clip"
+    echo "$1: without Server-Media-Foundation, midgard-frames probe exits $code: $(cat "$out")"
+    if [ "$code" != 0 ] && ! grep -q "lacks the Media Feature Pack" "$out"; then
+        ci_error "$1: with no H.264 decoder, midgard-frames did not say the Media Feature Pack is missing"
+        return 1
     fi
+    ci_group "Install-WindowsFeature Server-Media-Foundation"
+    powershell.exe -NoProfile -NonInteractive -Command "Install-WindowsFeature Server-Media-Foundation | Format-List" || true
+    ci_endgroup
 }
 
 job_windows_shell_test() {
@@ -705,9 +716,9 @@ job_windows_shell_test() {
         --results-directory "$WINDOWS_SHELL_TEST_OUT" --blame-hang-timeout 5m || status=$?
     # The frames helper's tests: synthetic clips made by ffmpeg, the helper's frames compared
     # with ffmpeg's; the comparison is recorded in $report (and printed).
-    windows_media_foundation windows-shell-test
     ffmpeg="$(windows_ffmpeg windows-shell-test)"
-    MIDGARD_FFMPEG="$(cygpath -w "$ffmpeg")" MIDGARD_FRAMES_REPORT="$(cygpath -w "$report")" \
+    windows_media_foundation windows-shell-test "$ffmpeg" || status=$?
+    MIDGARD_FFMPEG="$(cygpath -aw "$ffmpeg")" MIDGARD_FRAMES_REPORT="$(cygpath -aw "$report")" \
         dotnet test "$WINDOWS_SHELL/MidgardFrames.Tests/MidgardFrames.Tests.csproj" -c Release --no-restore \
         --logger "console;verbosity=normal" --logger "trx;LogFileName=MidgardFrames.Tests.trx" \
         --results-directory "$WINDOWS_SHELL_TEST_OUT" --blame-hang-timeout 5m || status=$?

@@ -14,5 +14,8 @@
     <!-- The Media Foundation and WIC calls go through COM vtables (function pointers). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Trimmed: no reflection or built-in COM here (LibraryImport and vtable calls only), and
+         the untrimmed single file is about 70 MB for a few hundred lines. -->
+    <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
 </Project>
