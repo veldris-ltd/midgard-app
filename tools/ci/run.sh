@@ -448,37 +448,58 @@ job_windows_build() {
 # are chosen per crate. This runs what `just lint` and `just test` run, line by line,
 # then the workspace members each recipe leaves out, with their default features.
 # A crate that cannot apply on Windows goes in WINDOWS_TEST_EXCLUDE with a one-line
-# reason; none does today.
+# reason; none does today. It applies to the leftover packages only (those no recipe
+# line names): a crate a recipe line names is linted and tested as the recipe says.
 WINDOWS_TEST_EXCLUDE=()
-# The `cargo <sub>` lines of a justfile recipe, without the leading `cargo <sub>`.
+# The arguments of recipe $1's `cargo $2 ...` lines (words 3 on), one line each: a line
+# is one whose first word is `cargo` (or `@cargo`, just's quiet prefix) and second is
+# $2. Fails when there are none, so a renamed recipe cannot pass with nothing run.
 recipe_cargo_lines() {
-    awk -v r="$1:" -v c="cargo $2 " '
+    awk -v r="$1:" -v c="$2" '
         $1 == r { on = 1; next }
         on && /^[^ \t#]/ { on = 0 }
-        on && index($0, c) { sub(/^[ \t]+/, ""); print substr($0, length(c) + 1) }' justfile
+        on && ($1 == "cargo" || $1 == "@cargo") && $2 == c {
+            line = $0
+            sub(/^[ \t]*@?cargo[ \t]+[^ \t]+[ \t]*/, "", line)
+            print line
+            n++
+        }
+        END { exit n == 0 }' justfile
 }
-# The workspace members' package names.
+# The workspace members' package names. This assumes the root Cargo.toml lists
+# `members = [` with one quoted path per line up to a closing `]` on its own line, no
+# globs, and that each member's first `name = "..."` line is its package name (the
+# [package] table comes first).
 workspace_packages() {
     local m
     for m in $(sed -n '/^members *= *\[/,/^\]/p' Cargo.toml | sed -n 's/^ *"\(.*\)",*/\1/p'); do
         sed -n 's/^name *= *"\(.*\)"/\1/p' "$m/Cargo.toml" | head -n 1
     done
 }
-# `-p NAME` for each workspace member that no line of recipe $1 (`cargo $2`) names.
+# `-p NAME` for each workspace member that none of `lines` (recipe_cargo_lines output)
+# names, nor WINDOWS_TEST_EXCLUDE.
 windows_rest_packages() {
-    local named pkg
-    named=" $(recipe_cargo_lines "$1" "$2" |
-        grep -oE -- '-p [A-Za-z0-9_-]+' | awk '{ print $2 }' | tr '\n' ' ') ${WINDOWS_TEST_EXCLUDE[*]} "
+    local named pkg rest=()
+    named=" $(grep -oE -- '-p [A-Za-z0-9_-]+' <<<"$1" | awk '{ print $2 }' | tr '\n' ' ') ${WINDOWS_TEST_EXCLUDE[*]} "
     for pkg in $(workspace_packages); do
-        case "$named" in *" $pkg "*) ;; *) printf -- '-p %s ' "$pkg" ;; esac
+        case "$named" in *" $pkg "*) ;; *) rest+=(-p "$pkg") ;; esac
     done
+    echo "${rest[*]}"
 }
 job_windows_test() {
-    local failed=0 line rest_lint rest_test
+    local failed=0 line lint_lines test_lines rest_lint rest_test
     local common=(--offline --locked --target "$WINDOWS_TARGET")
     windows_toolchain windows-test
-    rest_lint="$(windows_rest_packages lint clippy)"
-    rest_test="$(windows_rest_packages test test)"
+    lint_lines="$(recipe_cargo_lines lint clippy)" || {
+        ci_error "windows-test: the justfile's lint recipe has no cargo clippy line"
+        exit 1
+    }
+    test_lines="$(recipe_cargo_lines test test)" || {
+        ci_error "windows-test: the justfile's test recipe has no cargo test line"
+        exit 1
+    }
+    rest_lint="$(windows_rest_packages "$lint_lines")"
+    rest_test="$(windows_rest_packages "$test_lines")"
     echo "not in just lint: ${rest_lint:-none}"
     echo "not in just test: ${rest_test:-none}"
     # Every step runs, so one run shows every lint and every test failure. Cargo reads
@@ -487,9 +508,9 @@ job_windows_test() {
         echo "+ cargo clippy $line"
         # shellcheck disable=SC2086 # the recipe line is split into its words
         cargo clippy "${common[@]}" $line </dev/null || failed=1
-    done < <(recipe_cargo_lines lint clippy)
+    done <<<"$lint_lines"
     if [ -n "$rest_lint" ]; then
-        echo "+ cargo clippy $rest_lint--all-targets -- -D warnings"
+        echo "+ cargo clippy $rest_lint --all-targets -- -D warnings"
         # shellcheck disable=SC2086
         cargo clippy "${common[@]}" $rest_lint --all-targets -- -D warnings || failed=1
     fi
@@ -497,7 +518,7 @@ job_windows_test() {
         echo "+ cargo test $line"
         # shellcheck disable=SC2086
         cargo test "${common[@]}" $line --no-fail-fast </dev/null || failed=1
-    done < <(recipe_cargo_lines test test)
+    done <<<"$test_lines"
     if [ -n "$rest_test" ]; then
         echo "+ cargo test $rest_test"
         # shellcheck disable=SC2086
