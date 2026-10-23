@@ -65,8 +65,8 @@ shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-
 windows-build|host|release build of the suite services on a Windows x64 runner (Git Bash, MSVC)
 windows-test|host|clippy and tests of the whole Rust workspace on a Windows x64 runner (Git Bash, MSVC)
 windows-smoke|host|the services end to end on a fixture recording on a Windows x64 runner, after windows-build
-windows-shell-build|host|locked restore, release build and win-x64 single-file publish of the C# shell (apps/windows; .NET 10 SDK)
-windows-shell-test|host|locked restore and the xUnit tests of the C# shell (apps/windows; .NET 10 SDK)
+windows-shell-build|host|locked restore, release build and win-x64 single-file publish of the C# shell and midgard-frames.exe (apps/windows; .NET 10 SDK)
+windows-shell-test|host|locked restore and the xUnit tests of the C# shell and of midgard-frames.exe against a pinned ffmpeg (apps/windows; .NET 10 SDK)
 windows-shell-e2e|host|the C# shell end to end on a Windows x64 runner: Midgard.exe --headless-check on a package of the services, consoles and a fixture
 '
 
@@ -580,7 +580,7 @@ job_windows_smoke() {
 # packages.lock.json says: the restore is locked, so a package or version changes only by
 # a commit that changes a lock file. [NFR-OSS-1]
 WINDOWS_SHELL=apps/windows
-WINDOWS_SHELL_PROJECTS=(Midgard.Core Midgard Midgard.Core.Tests)
+WINDOWS_SHELL_PROJECTS=(Midgard.Core Midgard Midgard.Core.Tests MidgardFrames MidgardFrames.Tests)
 WINDOWS_SHELL_OUT=target/windows-shell
 WINDOWS_SHELL_TEST_OUT=target/windows-shell-test
 windows_dotnet() {
@@ -619,19 +619,77 @@ windows_shell_restore() {
 }
 
 job_windows_shell_build() {
-    local exe="$WINDOWS_SHELL_OUT/Midgard.exe"
+    local exe="$WINDOWS_SHELL_OUT/Midgard.exe" frames="$WINDOWS_SHELL_OUT/midgard-frames.exe"
     windows_dotnet windows-shell-build
     windows_shell_restore windows-shell-build
     dotnet build "$WINDOWS_SHELL/Midgard.sln" -c Release --no-restore
     rm -rf "$WINDOWS_SHELL_OUT"
     dotnet publish "$WINDOWS_SHELL/Midgard/Midgard.csproj" -c Release -r win-x64 --self-contained \
         -p:PublishSingleFile=true --no-restore -o "$WINDOWS_SHELL_OUT"
+    # midgard-frames.exe, the analytics' clip decoder (W3 Task 1), beside it.
+    dotnet publish "$WINDOWS_SHELL/MidgardFrames/MidgardFrames.csproj" -c Release -r win-x64 --self-contained \
+        -p:PublishSingleFile=true --no-restore -o "$WINDOWS_SHELL_OUT"
     ls -l "$WINDOWS_SHELL_OUT"
-    if [ ! -f "$exe" ]; then
-        ci_error "windows-shell-build: $exe was not published"
+    if [ ! -f "$exe" ] || [ ! -f "$frames" ]; then
+        ci_error "windows-shell-build: $exe or $frames was not published"
         return 1
     fi
-    echo "Midgard.exe: $(wc -c < "$exe" | tr -d ' ') bytes; the publish folder: $(du -sk "$WINDOWS_SHELL_OUT" | cut -f1) KB"
+    # The published helper runs: no arguments is bad usage (exit 2, the usage on stderr).
+    local status=0
+    "$frames" 2>"$WINDOWS_SHELL_OUT/frames-usage.txt" || status=$?
+    if [ "$status" != 2 ] || ! grep -q '^midgard-frames: usage:' "$WINDOWS_SHELL_OUT/frames-usage.txt"; then
+        cat "$WINDOWS_SHELL_OUT/frames-usage.txt"
+        ci_error "windows-shell-build: midgard-frames.exe with no arguments exited $status, not 2 with its usage"
+        return 1
+    fi
+    rm -f "$WINDOWS_SHELL_OUT/frames-usage.txt"
+    echo "Midgard.exe: $(wc -c < "$exe" | tr -d ' ') bytes; midgard-frames.exe: $(wc -c < "$frames" | tr -d ' ') bytes;" \
+        "the publish folder: $(du -sk "$WINDOWS_SHELL_OUT" | cut -f1) KB"
+}
+
+# ffmpeg for the frames helper's tests only (making the synthetic clips, and the decode
+# they are compared with): gyan.dev's essentials build, pinned by its SHA-256. Never shipped.
+FFMPEG_WIN_VERSION=9.0.2
+FFMPEG_WIN_SHA256=4705843ccaaf54257c16ad90f3e952ece33c17df964ecf7bfdbb0f49c7171077
+windows_ffmpeg() {
+    local dir="$CACHE_DIR/ffmpeg-$FFMPEG_WIN_VERSION" name="ffmpeg-$FFMPEG_WIN_VERSION-essentials_build" got sevenzip
+    if [ ! -x "$dir/$name/bin/ffmpeg.exe" ]; then
+        need curl "$1: curl is needed to fetch ffmpeg"
+        mkdir -p "$dir"
+        curl -fsSL -o "$dir/ffmpeg.7z" \
+            "https://github.com/GyanD/codexffmpeg/releases/download/$FFMPEG_WIN_VERSION/$name.7z"
+        got="$( (sha256sum "$dir/ffmpeg.7z" 2>/dev/null || shasum -a 256 "$dir/ffmpeg.7z") | awk '{print $1}')"
+        if [ "$got" != "$FFMPEG_WIN_SHA256" ]; then
+            rm -f "$dir/ffmpeg.7z"
+            ci_error "$1: the ffmpeg download does not match its pinned checksum (got $got)"
+            exit 1
+        fi
+        sevenzip="$(command -v 7z || command -v "/c/Program Files/7-Zip/7z.exe")" || {
+            ci_error "$1: 7-Zip is needed to unpack ffmpeg"
+            exit 1
+        }
+        "$sevenzip" x -y -bd -o"$dir" "$dir/ffmpeg.7z" "$name/bin/ffmpeg.exe" "$name/bin/ffprobe.exe" >/dev/null
+        rm -f "$dir/ffmpeg.7z"
+    fi
+    "$dir/$name/bin/ffmpeg.exe" -hide_banner -version | sed -n 1p >&2
+    echo "$dir/$name/bin/ffmpeg.exe"
+}
+
+# Media Foundation's state on this runner: on Windows Server it is the optional
+# Server-Media-Foundation feature (H.264 decoding included); it is added on a GitHub runner
+# (throwaway, administrator) when it is missing. On client Windows it is part of the OS,
+# except on N editions without the Media Feature Pack.
+windows_media_foundation() {
+    local state
+    state="$(powershell.exe -NoProfile -NonInteractive -Command \
+        "if (Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue) { (Get-WindowsFeature Server-Media-Foundation).InstallState } else { 'client' }" \
+        2>/dev/null | tr -d '\r')" || state=unknown
+    echo "$1: Media Foundation: $state (mfplat.dll: $( [ -f /c/Windows/System32/mfplat.dll ] && echo present || echo absent))"
+    if [ "$state" = Available ] && [ "${GITHUB_ACTIONS:-}" = true ]; then
+        ci_group "Install-WindowsFeature Server-Media-Foundation"
+        powershell.exe -NoProfile -NonInteractive -Command "Install-WindowsFeature Server-Media-Foundation | Format-List" || true
+        ci_endgroup
+    fi
 }
 
 job_windows_shell_test() {
@@ -640,9 +698,24 @@ job_windows_shell_test() {
     # Results and, for a test that hangs 5 minutes, a dump of the test host go to
     # $WINDOWS_SHELL_TEST_OUT (uploaded when the job fails).
     rm -rf "$WINDOWS_SHELL_TEST_OUT"
+    mkdir -p "$WINDOWS_SHELL_TEST_OUT"
+    local status=0 ffmpeg report="$WINDOWS_SHELL_TEST_OUT/frames-comparison.txt"
     dotnet test "$WINDOWS_SHELL/Midgard.Core.Tests/Midgard.Core.Tests.csproj" -c Release --no-restore \
         --logger "console;verbosity=normal" --logger "trx;LogFileName=Midgard.Core.Tests.trx" \
-        --results-directory "$WINDOWS_SHELL_TEST_OUT" --blame-hang-timeout 5m
+        --results-directory "$WINDOWS_SHELL_TEST_OUT" --blame-hang-timeout 5m || status=$?
+    # The frames helper's tests: synthetic clips made by ffmpeg, the helper's frames compared
+    # with ffmpeg's; the comparison is recorded in $report (and printed).
+    windows_media_foundation windows-shell-test
+    ffmpeg="$(windows_ffmpeg windows-shell-test)"
+    MIDGARD_FFMPEG="$(cygpath -w "$ffmpeg")" MIDGARD_FRAMES_REPORT="$(cygpath -w "$report")" \
+        dotnet test "$WINDOWS_SHELL/MidgardFrames.Tests/MidgardFrames.Tests.csproj" -c Release --no-restore \
+        --logger "console;verbosity=normal" --logger "trx;LogFileName=MidgardFrames.Tests.trx" \
+        --results-directory "$WINDOWS_SHELL_TEST_OUT" --blame-hang-timeout 5m || status=$?
+    if [ -f "$report" ]; then
+        echo "--- midgard-frames against ffmpeg $FFMPEG_WIN_VERSION:"
+        cat "$report"
+    fi
+    return "$status"
 }
 
 # The real shell end to end on Windows (docs/plans/2026-10-23-windows-app-w2-shell.md,

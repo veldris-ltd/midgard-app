@@ -1,0 +1,18 @@
+<!-- midgard-frames.exe: the camera analytics' clip and image decoder on Windows, in place of
+     ffprobe and ffmpeg (heimdall/analytics/analytics.py, --frames-helper). The Windows twin of
+     apps/mac/Sources/midgard-frames: the same CLI, probe output and raw BGR frames, from Media
+     Foundation (clips) and WIC (stills). Published self-contained for win-x64 as one file by
+     the windows-shell-build job (tools/ci/run.sh), next to Midgard.exe. No packages. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <AssemblyName>midgard-frames</AssemblyName>
+    <RootNamespace>MidgardFrames</RootNamespace>
+    <!-- The Media Foundation and WIC calls go through COM vtables (function pointers). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

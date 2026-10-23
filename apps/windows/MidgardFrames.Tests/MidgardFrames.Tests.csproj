@@ -1,0 +1,25 @@
+<!-- The tests of midgard-frames.exe (apps/windows/MidgardFrames), Windows only. They compile the
+     helper's sources in (all but Program.cs) rather than reference the self-contained exe, and
+     call Frames and Cli in process. The decoding tests need ffmpeg (MIDGARD_FFMPEG; the
+     windows-shell-test job fetches a pinned build) to make their synthetic clips and stills and
+     to compare against; they record the comparison in MIDGARD_FRAMES_REPORT. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>MidgardFrames.Tests</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\MidgardFrames\*.cs" Exclude="..\MidgardFrames\Program.cs" Link="Helper\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

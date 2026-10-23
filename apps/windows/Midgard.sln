@@ -9,6 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Midgard", "Midgard\Midgard.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Midgard.Core.Tests", "Midgard.Core.Tests\Midgard.Core.Tests.csproj", "{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidgardFrames", "MidgardFrames\MidgardFrames.csproj", "{3B6C2E51-9D4A-4E0B-8C1F-6A2D7E9B5C10}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MidgardFrames.Tests", "MidgardFrames.Tests\MidgardFrames.Tests.csproj", "{A4F1C8D2-57E3-4B96-9E0A-2C7D3B8F6E21}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +31,14 @@ Global
 		{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8E96AA8A-1EF2-4CC5-85C7-DC351B5FDC42}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3B6C2E51-9D4A-4E0B-8C1F-6A2D7E9B5C10}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3B6C2E51-9D4A-4E0B-8C1F-6A2D7E9B5C10}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3B6C2E51-9D4A-4E0B-8C1F-6A2D7E9B5C10}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3B6C2E51-9D4A-4E0B-8C1F-6A2D7E9B5C10}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A4F1C8D2-57E3-4B96-9E0A-2C7D3B8F6E21}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4F1C8D2-57E3-4B96-9E0A-2C7D3B8F6E21}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A4F1C8D2-57E3-4B96-9E0A-2C7D3B8F6E21}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4F1C8D2-57E3-4B96-9E0A-2C7D3B8F6E21}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
