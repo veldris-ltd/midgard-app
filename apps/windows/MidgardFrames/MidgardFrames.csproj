@@ -1,5 +1,5 @@
 <!-- midgard-frames.exe: the camera analytics' clip and image decoder on Windows, in place of
-     ffprobe and ffmpeg (heimdall/analytics/analytics.py, --frames-helper). The Windows twin of
+     ffprobe and ffmpeg (heimdall/analytics/analytics.py, its frames-helper option). The Windows twin of
      apps/mac/Sources/midgard-frames: the same CLI, probe output and raw BGR frames, from Media
      Foundation (clips) and WIC (stills). Published self-contained for win-x64 as one file by
      the windows-shell-build job (tools/ci/run.sh), next to Midgard.exe. No packages. -->
