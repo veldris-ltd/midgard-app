@@ -79,3 +79,30 @@ jobs:
           name: windows-shell-test-results
           path: target/windows-shell-test/
           if-no-files-found: warn
+
+  # The real shell end to end: Midgard.exe --headless-check on a package of the services,
+  # the consoles and a fixture, with its window (WebView2) on the runner's desktop. It
+  # builds the services itself, from the target/ cache the build job keeps (restored
+  # only, never saved here).
+  shell-e2e:
+    name: the C# shell end to end (headless check, win-x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: target/
+          key: windows-target-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            windows-target-${{ runner.arch }}-
+      - id: e2e
+        run: bash tools/ci/run.sh windows-shell-e2e
+      # The report, home.png, heimdall.png and the shell's and services' logs, pass or fail.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-shell-e2e
+          path: target/windows-shell-e2e/report/
+          if-no-files-found: warn
+          retention-days: 14

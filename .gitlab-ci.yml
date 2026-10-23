@@ -289,6 +289,18 @@ windows-shell-test:
   script:
     - bash tools/ci/run.sh windows-shell-test
 
+# The real shell end to end (Midgard.exe --headless-check); it builds the services, so it
+# keeps the target/ cache. The report, screenshots and logs are kept pass or fail.
+windows-shell-e2e:
+  extends: .windows
+  script:
+    - bash tools/ci/run.sh windows-shell-e2e
+  artifacts:
+    when: always
+    paths:
+      - target/windows-shell-e2e/report/
+    expire_in: 14 days
+
 # --- client shell audits -----------------------------------------------------------------
 # A shell with no buildable project FAILS its audit — a record is never written for a UI
 # that did not run — so these are red until all six shells exist. That is the gate

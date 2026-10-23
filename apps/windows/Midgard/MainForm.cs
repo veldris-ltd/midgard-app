@@ -65,6 +65,15 @@ sealed class MainForm : Form, IShellView
     bool quitting;
     bool offeredShortcut;
 
+    /// <summary>
+    /// Tests only (<see cref="HeadlessCheck"/>): no Start-menu offer or other dialog, and
+    /// <see cref="Observe"/> is told of every request and navigation with the offline rules' decision.
+    /// </summary>
+    internal bool Headless { get; init; }
+
+    /// <summary>Tests only: (kind, URL, allowed) for each request, navigation and new window, on the window's thread.</summary>
+    internal Action<string, string, bool>? Observe { get; set; }
+
     public MainForm(Paths paths, ShellLog log)
     {
         this.paths = paths;
@@ -95,15 +104,18 @@ sealed class MainForm : Form, IShellView
         startingPanel.BringToFront();
     }
 
-    /// <summary>Connects the shell (made with this form as its view) and starts it once the window shows.</summary>
-    public void Attach(ShellModel model)
+    /// <summary>
+    /// Connects the shell (made with this form as its view) and starts it once the window
+    /// shows, unless <paramref name="launch"/> is false (the headless check launches it itself).
+    /// </summary>
+    public void Attach(ShellModel model, bool launch = true)
     {
         shell = model;
         model.Changed += () => Post(Render);
         Shown += (_, _) =>
         {
             Render();
-            _ = model.LaunchAsync();
+            if (launch) _ = model.LaunchAsync();
         };
         Microsoft.Win32.SystemEvents.PowerModeChanged += PowerModeChanged;
     }
@@ -290,7 +302,7 @@ sealed class MainForm : Form, IShellView
         card.ResumeLayout();
         CenterCard();
 
-        if (ready && !offeredShortcut)
+        if (ready && !offeredShortcut && !Headless)
         {
             offeredShortcut = true;
             BeginInvoke(OfferShortcut);
@@ -472,6 +484,67 @@ sealed class MainForm : Form, IShellView
         if (web.CoreWebView2 is { } core) await core.Profile.ClearBrowsingDataAsync();
     });
 
+    // Tests only (HeadlessCheck): load a page and wait for it, read it, and capture it.
+
+    /// <summary>
+    /// Navigates to <paramref name="url"/> and waits for a navigation to it to finish (a
+    /// cancelled one, such as the load it replaced, is passed over): whether it loaded, and how.
+    /// </summary>
+    internal async Task<(bool Ok, string Detail)> NavigateAndWaitAsync(string url, TimeSpan timeout)
+    {
+        var done = new TaskCompletionSource<(bool, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        CoreWebView2? core = null;
+        void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (!e.IsSuccess && e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+            var source = core!.Source;
+            if (e.IsSuccess && !source.StartsWith(url, StringComparison.Ordinal)) return;
+            done.TrySetResult(e.IsSuccess ? (true, $"loaded {source}") : (false, $"{e.WebErrorStatus} for {source}"));
+        }
+        await OnUiAsync(() =>
+        {
+            core = web.CoreWebView2 ?? throw new InvalidOperationException("the web view was not created");
+            core.NavigationCompleted += Completed;
+            core.Navigate(url);
+            return Task.CompletedTask;
+        });
+        try
+        {
+            var finished = await Task.WhenAny(done.Task, Task.Delay(timeout));
+            return finished == done.Task ? await done.Task : (false, $"not loaded after {timeout.TotalSeconds:0} s");
+        }
+        finally
+        {
+            Post(() =>
+            {
+                core!.NavigationCompleted -= Completed;
+            });
+        }
+    }
+
+    /// <summary>The JSON result of <paramref name="script"/> in the open page.</summary>
+    internal async Task<string> EvaluateForResultAsync(string script)
+    {
+        var result = "null";
+        await OnUiAsync(async () =>
+        {
+            var core = web.CoreWebView2 ?? throw new InvalidOperationException("the web view was not created");
+            result = await core.ExecuteScriptAsync(script);
+        });
+        return result;
+    }
+
+    /// <summary>The web view as it shows now, as a PNG in <paramref name="file"/>.</summary>
+    internal Task CaptureAsync(string file) => OnUiAsync(async () =>
+    {
+        var core = web.CoreWebView2 ?? throw new InvalidOperationException("the web view was not created");
+        await using var stream = File.Create(file);
+        await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
+    });
+
+    /// <summary>The web view's size on screen, in pixels.</summary>
+    internal Size WebViewSize => web.Size;
+
     /// <summary>
     /// Creates the WebView2 environment (profile in <see cref="Paths.WebView"/>) and sets the
     /// offline rules before anything loads. Besides the request filter and the navigation
@@ -525,19 +598,25 @@ sealed class MainForm : Form, IShellView
         core.WebResourceRequested += (_, e) =>
         {
             var uri = e.Request.Uri;
-            if (OfflineRules.IsAllowed(uri, appOrigin, gatewayOrigin)) return;
+            var allowed = OfflineRules.IsAllowed(uri, appOrigin, gatewayOrigin);
+            Observe?.Invoke("request", uri, allowed);
+            if (allowed) return;
             log.Write($"web view: refused request {Short(uri)}");
             e.Response = environment.CreateWebResourceResponse(null, 403, "Forbidden", "Content-Type: text/plain");
         };
         core.NavigationStarting += (_, e) =>
         {
-            if (OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin)) return;
+            var allowed = OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin);
+            Observe?.Invoke("navigation", e.Uri, allowed);
+            if (allowed) return;
             log.Write($"web view: refused navigation to {Short(e.Uri)}");
             e.Cancel = true;
         };
         core.FrameNavigationStarting += (_, e) =>
         {
-            if (OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin)) return;
+            var allowed = OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin);
+            Observe?.Invoke("frame navigation", e.Uri, allowed);
+            if (allowed) return;
             log.Write($"web view: refused frame navigation to {Short(e.Uri)}");
             e.Cancel = true;
         };
@@ -545,7 +624,9 @@ sealed class MainForm : Form, IShellView
         {
             // target=_blank and window.open: the same view, never a new window.
             e.Handled = true;
-            if (OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin)) core.Navigate(e.Uri);
+            var allowed = OfflineRules.IsAllowed(e.Uri, appOrigin, gatewayOrigin);
+            Observe?.Invoke("new window", e.Uri, allowed);
+            if (allowed) core.Navigate(e.Uri);
             else log.Write($"web view: refused new window for {Short(e.Uri)}");
         };
         core.DownloadStarting += (_, e) =>

@@ -8,12 +8,20 @@ namespace Midgard;
 /// ACL checks, the orphan sweep, the working copy, the web server, the supervisor and the
 /// gateway sign-in. <see cref="ShellModel"/> runs them in order.
 /// </summary>
-sealed class ShellWiring(Paths paths, ShellLog log)
+/// <param name="testModel">
+/// Tests only (<see cref="HeadlessCheck"/>): the model server's command for its port, in
+/// place of llama-server (CI runs tools/win-app/stub_llm.py with python.exe). Null, as
+/// <see cref="Program"/> passes it, runs the real one (<see cref="ModelServer"/>).
+/// </param>
+sealed class ShellWiring(Paths paths, ShellLog log, Func<ushort, Command>? testModel = null)
 {
     readonly Supervisor supervisor = new();
     readonly Lock gate = new();
     InstanceLock? instance;
     WebServer? server;
+
+    /// <summary>The supervisor the steps drive (the headless check reads its pids).</summary>
+    internal Supervisor Supervisor => supervisor;
 
     string Starting => Path.Join(paths.Resources, "starting-state");
     string Models => Path.Join(paths.Resources, "models");
@@ -139,6 +147,9 @@ sealed class ShellWiring(Paths paths, ShellLog log)
 
     IReadOnlyList<ServiceSpec>? Specs(SuitePorts ports, string origin)
     {
+        if (testModel is not null)
+            return SuiteSpecs.Make(paths.Helpers, Models, paths.Home, paths.Logs, ports, origin, Recording(),
+                                   testModel(ports.Llama));
         var env = ModelEnvironment();
         var llama = ModelServer.Locate(paths.Helpers, paths.DevLayout, env, File.Exists);
         if (llama is null)

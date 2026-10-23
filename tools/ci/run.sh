@@ -67,6 +67,7 @@ windows-test|host|clippy and tests of the whole Rust workspace on a Windows x64 
 windows-smoke|host|the services end to end on a fixture recording on a Windows x64 runner, after windows-build
 windows-shell-build|host|locked restore, release build and win-x64 single-file publish of the C# shell (apps/windows; .NET 10 SDK)
 windows-shell-test|host|locked restore and the xUnit tests of the C# shell (apps/windows; .NET 10 SDK)
+windows-shell-e2e|host|the C# shell end to end on a Windows x64 runner: Midgard.exe --headless-check on a package of the services, consoles and a fixture
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -642,6 +643,91 @@ job_windows_shell_test() {
     dotnet test "$WINDOWS_SHELL/Midgard.Core.Tests/Midgard.Core.Tests.csproj" -c Release --no-restore \
         --logger "console;verbosity=normal" --logger "trx;LogFileName=Midgard.Core.Tests.trx" \
         --results-directory "$WINDOWS_SHELL_TEST_OUT" --blame-hang-timeout 5m
+}
+
+# The real shell end to end on Windows (docs/plans/2026-10-23-windows-app-w2-shell.md,
+# Task 7). It builds what a package holds and lays it out as the ZIP will:
+#   Midgard\Midgard.exe                 the published single-file shell
+#   Midgard\helpers\*.exe               the six services (built here; the cache makes it quick)
+#   Midgard\resources\home, consoles    the home page and the four offline consoles
+#   Midgard\resources\recording         the fixture (tools/win-app/make-fixture.py)
+#   Midgard\resources\starting-state, models   tools/win-app/make-starting-state.py's
+# then runs `Midgard.exe --headless-check` (Midgard/HeadlessCheck.cs) with the working
+# copy and logs in %LOCALAPPDATA%\MidgardE2E and tools/win-app/stub_llm.py, run by this
+# python.exe, as the model server. Its report, home.png, heimdall.png and the logs go to
+# $WINDOWS_SHELL_E2E_OUT/report for the pipeline to keep, pass or fail. The consoles need
+# the JS workspace installed (pnpm, from the lock file; the only download besides NuGet).
+WINDOWS_SHELL_E2E_OUT=target/windows-shell-e2e
+job_windows_shell_e2e() {
+    local dir="target/$WINDOWS_TARGET/release" out="$WINDOWS_SHELL_E2E_OUT" py pkg app status=0
+    windows_toolchain windows-shell-e2e
+    cargo build --offline --locked --release --target "$WINDOWS_TARGET" "${WINDOWS_PACKAGES[@]}" \
+        -p mg-admin -p mg-model --bins
+    windows_dotnet windows-shell-e2e
+    windows_shell_restore windows-shell-e2e
+    rm -rf "$out"
+    mkdir -p "$out/report/logs"
+    dotnet publish "$WINDOWS_SHELL/Midgard/Midgard.csproj" -c Release -r win-x64 --self-contained \
+        -p:PublishSingleFile=true --no-restore -o "$out/publish"
+    need node "windows-shell-e2e: node is not on PATH (the consoles are built with it)"
+    node --version
+    if ! command -v pnpm >/dev/null 2>&1; then
+        need corepack "windows-shell-e2e: neither pnpm nor corepack is on PATH"
+        corepack enable pnpm
+    fi
+    ci_group "consoles"
+    pnpm install --frozen-lockfile --prefer-offline
+    bash tools/mac-app/build-consoles.sh
+    ci_endgroup
+    py="$(command -v python || command -v python3)" || {
+        ci_error "windows-shell-e2e: python is not on PATH"
+        exit 1
+    }
+    "$py" --version
+
+    pkg="$out/package/Midgard"
+    mkdir -p "$pkg/helpers" "$pkg/resources"
+    cp "$out/publish/Midgard.exe" "$pkg/"
+    for b in "${WINDOWS_BINARIES[@]}"; do
+        cp "$dir/$b.exe" "$pkg/helpers/"
+    done
+    cp -R apps/mac/Resources/home "$pkg/resources/home"
+    cp -R dist/mac/consoles "$pkg/resources/consoles"
+    # Relative paths: a native Windows python is handed no POSIX path to translate.
+    "$py" tools/win-app/make-fixture.py "$pkg/resources/recording"
+    "$py" tools/win-app/make-starting-state.py --tools "$dir" --fixture "$pkg/resources/recording" \
+        --out "$pkg/resources/starting-state" --models "$pkg/resources/models"
+    echo "package: $(du -sk "$pkg" | cut -f1) KB"
+    ls -l "$pkg" "$pkg/helpers" "$pkg/resources"
+
+    # The working copy and logs where a presenter's would be (%LOCALAPPDATA%), so the
+    # folder check sees a real profile's permissions; fresh for each run.
+    app="$(cygpath -u "$LOCALAPPDATA")/MidgardE2E"
+    rm -rf "$app"
+    MIDGARD_APP_HOME="$(cygpath -w "$app/Home")" MIDGARD_APP_LOGS="$(cygpath -w "$app/Logs")" \
+        "$pkg/Midgard.exe" --headless-check "$(cygpath -w "$out/report/report.json")" \
+        --model-stub "$(cygpath -w "$py")" "$(cygpath -w "$PWD/tools/win-app/stub_llm.py")" || status=$?
+    cp -R "$app/Logs/." "$out/report/logs/" 2>/dev/null || true
+    if [ ! -f "$out/report/report.json" ]; then
+        ci_error "windows-shell-e2e: Midgard.exe wrote no report (exit $status)"
+        return 1
+    fi
+    ci_group "report.json"
+    cat "$out/report/report.json"
+    ci_endgroup
+    "$py" - "$out/report/report.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1], encoding="utf-8"))
+for s in r["steps"]:
+    print(f"{'ok  ' if s['ok'] else 'FAIL'} {s['step']} ({s['took_s']} s) {s.get('detail') or ''}"[:400])
+print(f"window: {r['facts'].get('window')}; screenshots: {', '.join(r['screenshots']) or 'none'}; "
+      f"requests {len(r['requests'])}, blocked {len(r['blockedRequests'])}")
+print(f"{r['result']}: {r['passed']} passed, {r['failed']} failed in {r['took_s']} s")
+PY
+    if [ "$status" != 0 ]; then
+        ci_error "windows-shell-e2e: Midgard.exe --headless-check failed (exit $status)"
+        return 1
+    fi
 }
 
 case "${1:-}" in

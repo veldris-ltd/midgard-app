@@ -80,8 +80,7 @@ public static class Orphans
     public static async Task<SweepOutcome> ReapAsync(string helpers, IEnumerable<string>? alsoUnder = null,
                                                      TimeSpan? grace = null)
     {
-        var roots = new[] { helpers }.Concat(alsoUnder ?? Array.Empty<string>())
-            .SelectMany(root => Forms(root, folder: true)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var roots = Roots(helpers, alsoUnder);
         var me = Environment.ProcessId;
         var found = new List<(ReapedProcess Process, Win32Handle Handle)>();
         var notEnded = new List<UnreapedProcess>();
@@ -90,19 +89,7 @@ public static class Orphans
             using (process)
             {
                 if (process.Id == me || process.Id <= 4) continue;
-                if (WindowsProcesses.SessionOf(process.Id) != WindowsProcesses.CurrentSession) continue;
-                string? path;
-                using (var query = Kernel32.OpenProcess(Kernel32.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)process.Id))
-                {
-                    // Not ours to ask (a protected or elevated process): not a service of ours either.
-                    if (query.IsInvalid) continue;
-                    path = WindowsProcesses.ImagePath(query);
-                    if (path is null) continue;
-                    var spellings = Forms(path, folder: false).ToList();
-                    if (!roots.Any(root => spellings.Any(p => p.StartsWith(root, StringComparison.OrdinalIgnoreCase))))
-                        continue;
-                    if (WindowsProcesses.UserOf(query) != WindowsProcesses.CurrentUser) continue;
-                }
+                if (Match(process.Id, roots) is not { } path) continue;
                 var handle = Kernel32.OpenProcess(Kernel32.PROCESS_TERMINATE | Kernel32.PROCESS_QUERY_LIMITED_INFORMATION
                                                   | Kernel32.SYNCHRONIZE, false, (uint)process.Id);
                 if (handle.IsInvalid)
@@ -146,6 +133,49 @@ public static class Orphans
             foreach (var (_, handle) in ordered) handle.Dispose();
         }
         return new SweepOutcome(reaped, notEnded);
+    }
+
+    /// <summary>
+    /// What <see cref="ReapAsync"/> would end, ending nothing: every process in this session,
+    /// running as this user, whose executable is inside <paramref name="helpers"/> or one of
+    /// <paramref name="alsoUnder"/> (the headless check's last look after quitting).
+    /// </summary>
+    public static IReadOnlyList<ReapedProcess> Running(string helpers, IEnumerable<string>? alsoUnder = null)
+    {
+        var roots = Roots(helpers, alsoUnder);
+        var me = Environment.ProcessId;
+        var found = new List<ReapedProcess>();
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                if (process.Id != me && process.Id > 4 && Match(process.Id, roots) is { } path)
+                    found.Add(new ReapedProcess(process.Id, path));
+            }
+        }
+        return found;
+    }
+
+    /// <summary>Every spelling of the folders a sweep looks in (see <see cref="Forms"/>).</summary>
+    static List<string> Roots(string helpers, IEnumerable<string>? alsoUnder) =>
+        new[] { helpers }.Concat(alsoUnder ?? Array.Empty<string>())
+            .SelectMany(root => Forms(root, folder: true)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>
+    /// The executable of process <paramref name="pid"/> when it is in this session, runs as
+    /// this user and is inside one of <paramref name="roots"/>; else null.
+    /// </summary>
+    static string? Match(int pid, List<string> roots)
+    {
+        if (WindowsProcesses.SessionOf(pid) != WindowsProcesses.CurrentSession) return null;
+        using var query = Kernel32.OpenProcess(Kernel32.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
+        // Not ours to ask (a protected or elevated process): not a service of ours either.
+        if (query.IsInvalid) return null;
+        var path = WindowsProcesses.ImagePath(query);
+        if (path is null) return null;
+        var spellings = Forms(path, folder: false).ToList();
+        if (!roots.Any(root => spellings.Any(p => p.StartsWith(root, StringComparison.OrdinalIgnoreCase)))) return null;
+        return WindowsProcesses.UserOf(query) == WindowsProcesses.CurrentUser ? path : null;
     }
 
     static bool IsReplay(string executable) =>

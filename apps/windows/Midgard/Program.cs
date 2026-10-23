@@ -5,9 +5,11 @@ namespace Midgard;
 static class Program
 {
     [STAThread]
-    static int Main()
+    static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        // Tests only, not for presenters: the end-to-end check CI runs (HeadlessCheck.cs).
+        if (args.Length > 0 && args[0] == HeadlessCheck.Switch) return HeadlessCheck.Run(args[1..]);
         var paths = Paths.Current();
         var log = new ShellLog(Path.Join(paths.Logs, "shell.log"));
         log.Write($"launch: Midgard {Application.ProductVersion}, resources {paths.Resources}, helpers {paths.Helpers}, "
