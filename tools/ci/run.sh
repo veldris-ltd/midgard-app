@@ -691,7 +691,11 @@ job_windows_shell_e2e() {
     for b in "${WINDOWS_BINARIES[@]}"; do
         cp "$dir/$b.exe" "$pkg/helpers/"
     done
-    cp -R apps/mac/Resources/home "$pkg/resources/home"
+    # home/fonts is a symbolic link in the repo (to the design system's fonts), which a
+    # Windows checkout does not make: the files go in as build-app.sh's `cp -RL` puts them.
+    mkdir -p "$pkg/resources/home"
+    cp apps/mac/Resources/home/index.html apps/mac/Resources/home/prepared-answers.json "$pkg/resources/home/"
+    cp -R ui/design-system/src/fonts "$pkg/resources/home/fonts"
     cp -R dist/mac/consoles "$pkg/resources/consoles"
     # Relative paths: a native Windows python is handed no POSIX path to translate.
     "$py" tools/win-app/make-fixture.py "$pkg/resources/recording"
