@@ -1,11 +1,14 @@
 <!-- Everything testable without a window: paths, ports, the system check, the working
-     copy. No UI. The few Windows-only APIs (the ACL reader, the instance lock) are in
-     classes marked [SupportedOSPlatform("windows")], so the rest and its tests run on any
-     OS; the window app (Midgard) supplies the other Windows-only facts. -->
+     copy, the service specs and the supervisor. No UI. The Windows-only APIs (the ACL
+     reader, the instance lock, the Job Object launcher, the orphan sweep) are in classes
+     marked [SupportedOSPlatform("windows")], so the rest and its tests run on any OS; the
+     window app (Midgard) supplies the other Windows-only facts. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Midgard.Core</RootNamespace>
+    <!-- The kernel32 calls (Kernel32.cs): Job Objects, CreateProcessW, process queries. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Midgard.Core.Tests" />
