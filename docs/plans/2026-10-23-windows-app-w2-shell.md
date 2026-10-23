@@ -67,6 +67,11 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §3. W1 (services on Windo
 - **Port `ModelServer.swift`'s arguments:** model path, alias, ctx 8192, threads = physical cores up to 8, `--n-gpu-layers 0`, and parallel/`--cont-batching` as the Mac uses.
 - **Locate:** `helpers\llama\llama-server.exe` (fetched in W4). Fall back to `MIDGARD_LLAMA` for dev.
 - **Tests:** arguments for 4/8/16 cores.
+- *As built:*
+  - `Midgard.Core/ModelServer.cs`: `Make(executable, models, port, threads)` gives the `Command` `SuiteSpecs.Make` takes, with the Mac's Intel arguments: `-m <models>\granite\granite-3.3-2b-instruct-Q4_K_M.gguf`, `--alias granite-3.3-2b-instruct-q4km`, 127.0.0.1 and the port, `--ctx-size 8192`, `--parallel 1`, `--temp 0.2`, the `{"type":"object"}` JSON schema, `--n-gpu-layers 0` and `--threads`. The Mac passes no `--cont-batching` (llama-server's default), so neither does this.
+  - **Threads:** `Threads(physicalCores, logicalProcessors, environment)`: the physical cores (the logical processors when unknown), clamped to 1–8. `PhysicalCores()` counts GetLogicalProcessorInformationEx's `RelationProcessorCore` records (null off Windows). MIDGARD_MODEL_THREADS, a positive number, is honoured as given, past the cap too, as on the Mac.
+  - **Locate:** in a package only `helpers\llama\llama-server.exe`, null if missing (as the Mac refuses to fall back in a bundle). A development layout (`Paths.DevLayout`) runs MIDGARD_LLAMA when it is set, null if that file is missing, else the bundled one, else `helpers\llama-server.exe`.
+  - Tests: 4/8/16 (and 2/6) cores, at least one thread, unknown cores, the override and bad values, the arguments in full, SuiteSpecs running the command, locating in a package and a dev layout, and this PC's core count.
 
 ### Task 5: WebServer
 
@@ -82,6 +87,11 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §3. W1 (services on Windo
   - the offline console rules.
 - **Implementation:** HttpListener needs URL ACLs or admin rights for anything other than localhost, so use a TcpListener-based minimal server like the Swift one. Bind only to 127.0.0.1.
 - **Tests:** port the Swift WebServerTests cases one for one, plus the Windows-specific path cases.
+- *As built:*
+  - `Midgard.Core/WebServer.cs` follows WebServer.swift: a `Socket` bound to 127.0.0.1 (port 0 by default, no SO_REUSEADDR), one request per connection, a 16 KB head limit (431), the 15 s head timeout and the 30 s stall timeout re-armed for each 256 KB chunk, the Host check (400 without one, 421 for another), GET/HEAD only (405 with `Allow`), the routes and recording folders, the 301 to a trailing slash, the byte ranges (206/416, suffix ranges, HEAD) and the content types. Like NWListener it sets no limit on connections. Unlike the Swift server it reads and drops what the client still sends after the response (up to 1 MB for 2 s) before closing, because closing a Windows socket with unread data resets the connection under the response (the 431 case).
+  - **Windows paths:** besides `..`, NUL and `\` (also `%5c`/`%5C`, and `%2f` decoded before the split), a segment is refused with 403 if it holds `:` (drive letters, alternate data streams), another character Windows forbids in names or a control character, ends in a dot or a space (Windows strips them, so `..%20` would be `..`), or is a reserved device name with or without an extension (`CON`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`, the superscript ones, `CONIN$`, `CONOUT$`). A lone `.` is allowed, as on the Mac. Malformed escapes or bytes that aren't UTF-8 get 400, as `removingPercentEncoding` would.
+  - **Links:** `RealPath` resolves a path through a handle (CreateFileW follows every symbolic link and junction; GetFinalPathNameByHandleW names the result, long names, real case). The file must be inside its folder's resolved path, compared without regard to case. It's checked during resolution and again on the handle of the file actually opened, so a link swapped in between is caught. In the recording folders a real name starting with a dot is refused too (404), so an 8.3 short name (`HIDDEN~1.JPG`) can't reach a dot file. The orphan sweep uses the same `RealPath`.
+  - Tests: every WebServerTests.swift case in its order, then the Windows path cases over HTTP and as a pure rule, malformed escapes, junctions out of the folder and out of root (a junction staying inside is served), 8.3 names, letter case, and the listener's address (`LocalEndPoint`, the system's TCP listener table, and no `::1`).
 
 ### Task 6: Session and the window
 
