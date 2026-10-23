@@ -318,6 +318,7 @@ fn write_restricted(path: &Path, bytes: &[u8]) -> Result<(), SignError> {
         path: path.to_path_buf(),
         reason: e.to_string(),
     })?;
+    // On Windows this is skipped and the file inherits its folder's ACL: the app's working copy, %LOCALAPPDATA%\Midgard, is private to the user (the W2 shell checks it).
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -12,6 +12,7 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), StoreError> 
     {
         let mut opts = OpenOptions::new();
         opts.create(true).write(true).truncate(true);
+        // On Windows the file inherits its folder's ACL: the app's working copy, %LOCALAPPDATA%\Midgard, is private to the user (the W2 shell checks it).
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
