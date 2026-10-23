@@ -76,7 +76,7 @@ public sealed record SuitePorts(ushort GatewayHttp, ushort GatewayMesh, ushort M
         [GatewayHttp, GatewayMesh, MimirMesh, MimirObserver, MimirHealth, HeimdallMesh, HeimdallHealth, Llama, Analytics];
 }
 
-/// <summary>An executable and its arguments (the model server's, from ModelServer in Task 4).</summary>
+/// <summary>An executable and its arguments (the model server's, from <see cref="ModelServer.Make"/>).</summary>
 public sealed record Command(string Executable, IReadOnlyList<string> Arguments);
 
 /// <summary>

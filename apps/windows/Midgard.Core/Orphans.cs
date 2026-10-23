@@ -126,20 +126,5 @@ public static class Orphans
         }
     }
 
-    static unsafe string? FinalPath(string path)
-    {
-        using var handle = Kernel32.CreateFile(path, 0, Kernel32.FILE_SHARE_READ | Kernel32.FILE_SHARE_WRITE | Kernel32.FILE_SHARE_DELETE,
-                                               null, Kernel32.OPEN_EXISTING, Kernel32.FILE_FLAG_BACKUP_SEMANTICS, 0);
-        if (handle.IsInvalid) return null;
-        var buffer = new char[32768];
-        fixed (char* result = buffer)
-        {
-            var length = Kernel32.GetFinalPathNameByHandle(handle, result, (uint)buffer.Length, 0);
-            if (length == 0 || length >= buffer.Length) return null;
-            var final = new string(result, 0, (int)length);
-            // \\?\C:\… → C:\…, \\?\UNC\server\… → \\server\…
-            if (final.StartsWith(@"\\?\UNC\", StringComparison.Ordinal)) return @"\\" + final[8..];
-            return final.StartsWith(@"\\?\", StringComparison.Ordinal) ? final[4..] : final;
-        }
-    }
+    static string? FinalPath(string path) => RealPath.Windows(path);
 }

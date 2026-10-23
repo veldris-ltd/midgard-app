@@ -16,7 +16,10 @@ sealed class Win32Handle : SafeHandleZeroOrMinusOneIsInvalid
     protected override bool ReleaseHandle() => Kernel32.CloseHandle(handle);
 }
 
-/// <summary>The few kernel32 functions the supervisor needs: Job Objects, CreateProcessW and process queries.</summary>
+/// <summary>
+/// The few kernel32 functions the shell needs: Job Objects, CreateProcessW and process
+/// queries (the supervisor), final paths (the web server) and the processor layout (the model server).
+/// </summary>
 [SupportedOSPlatform("windows")]
 static unsafe partial class Kernel32
 {
@@ -176,11 +179,24 @@ static unsafe partial class Kernel32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool QueryFullProcessImageName(Win32Handle process, uint flags, char* name, uint* size);
 
+    // Takes the raw handle so any SafeHandle's may be passed (RealPath.OfHandle).
     [LibraryImport(Dll, EntryPoint = "GetFinalPathNameByHandleW", SetLastError = true)]
-    public static partial uint GetFinalPathNameByHandle(Win32Handle file, char* path, uint length, uint flags);
+    public static partial uint GetFinalPathNameByHandle(nint file, char* path, uint length, uint flags);
 
     [LibraryImport(Dll, EntryPoint = "GetLongPathNameW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     public static partial uint GetLongPathName(string shortPath, char* longPath, uint length);
+
+    // The tests ask for a file's 8.3 name (WebServerTests).
+    [LibraryImport(Dll, EntryPoint = "GetShortPathNameW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    public static partial uint GetShortPathName(string longPath, [Out] char[] shortPath, uint length);
+
+    /// <summary>GetLogicalProcessorInformationEx's relationship for one record per physical core.</summary>
+    public const int RelationProcessorCore = 0;
+
+    // The model server's thread count (ModelServer.PhysicalCores).
+    [LibraryImport(Dll, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetLogicalProcessorInformationEx(int relationship, byte* buffer, uint* length);
 
     public static Win32Exception LastError(string what) =>
         new(Marshal.GetLastPInvokeError(), $"{what}: {new Win32Exception(Marshal.GetLastPInvokeError()).Message}");
