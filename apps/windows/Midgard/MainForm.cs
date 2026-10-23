@@ -69,9 +69,11 @@ sealed class MainForm : Form, IShellView
     /// Tests only (<see cref="HeadlessCheck"/>): no Start-menu offer or other dialog, and
     /// <see cref="Observe"/> is told of every request and navigation with the offline rules' decision.
     /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal bool Headless { get; init; }
 
     /// <summary>Tests only: (kind, URL, allowed) for each request, navigation and new window, on the window's thread.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal Action<string, string, bool>? Observe { get; set; }
 
     public MainForm(Paths paths, ShellLog log)
