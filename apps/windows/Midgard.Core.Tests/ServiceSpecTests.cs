@@ -220,7 +220,7 @@ public sealed class ServiceSpecTests
             Value("heimdall", "--health-bind"), $"127.0.0.1:{llamaHealth.Port}",
         };
         Assert.Equal(binds.Length, binds.Distinct().Count());
-        Assert.All(binds, b => Assert.StartsFull("127.0.0.1:", b));
+        Assert.All(binds, b => Assert.StartsWith("127.0.0.1:", b));
         // Without the analytics, their port is the only one not used.
         Assert.Equal(new[] { Ports.Analytics },
                      Ports.All.Where(p => !binds.Contains($"127.0.0.1:{p}")).ToArray());

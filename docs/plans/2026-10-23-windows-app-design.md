@@ -25,6 +25,7 @@ Agreed with the user on 23 Oct 2026. The Windows counterpart of the Mac presenta
   - the Rust services built for Windows: http-gateway, heimdall-feed, heimdall-source, mimir-server, forge-worker, midgard-replay;
   - the official llama.cpp Windows x64 CPU build, pinned by SHA-256;
   - the analytics runtime: python-build-standalone for Windows, with onnxruntime and numpy wheels, pinned;
+    - *As built in W3:* `helpers\analytics\`: CPython 3.13.16 (20261009), numpy 2.5.4 and onnxruntime 1.23.2 win_amd64, the Mac's versions, from `tools/win-app/analytics.lock` by `fetch-analytics.sh`. It is 112.7 MB (38.6 MB deflated) plus the 35.9 MB model, with compiled .pyc and the CPU provider. `analytics.py` needed three small Windows changes: no `resource`, a priority class for `--nice`, and a plain `heimdall.jsonl`.
   - `midgard-frames.exe`.
 - **`resources\`:** the same content as the Mac bundle. That's the consoles (offline build), home, starting state, the Granite and YOLOX models, the recorded hour with media, radar, traffic and tiles, licences and credits.
 
@@ -60,6 +61,7 @@ Mac and Linux behaviour must not change. The existing Linux CI and the Mac tests
 - **Ports and Supervisor:**
   - **Ports:** free ports are picked on 127.0.0.1.
   - **Start order:** llama, mimir, gateway, heimdall, forge, replay, with analytics last and optional.
+    - *As built in W3:* the Mac's arguments, on the CPU with up to 4 threads, below-normal priority. The token file is created before the gateway, with a DACL private to the user. On CI, Analyse through the gateway takes 7.8 s (194 ms a frame, 2 threads). Detections from midgard-frames.exe and from ffmpeg agree at 98 % and 82 % per frame on a synthetic clip, with identical tracks. Details in `2026-10-24-windows-app-w3-analytics.md`, Tasks 2–4.
   - **Readiness and retry:** each service has a readiness check and a timeout, and is retried once.
   - **Shutdown and leftovers:** the Job Object ends every service when the app exits. Leftovers from a previous crash are swept by path.
   - **Logs:** they go to `%LOCALAPPDATA%\Midgard\Logs`, beside the working copy and the WebView2 profile (`%LOCALAPPDATA%\Midgard\WebView`), so Reset demo wipes `Home` alone.

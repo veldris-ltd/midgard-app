@@ -50,6 +50,35 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §1, §3. For reference, t
   - Check onnxruntime 1.23.2 (the Mac's pin) has cp313 win_amd64. If not, use the newest that does and record why.
 - **`tools/win-app/fetch-analytics.sh`:** modelled on `tools/mac-app/fetch-analytics.sh`. It downloads into `~/Library/Caches/midgard-build/win/analytics/`, verifies hashes, extracts safely (checking names), and unzips the wheels into the runtime's `Lib\site-packages`. It prunes pip, ensurepip, tests and `__pycache__`, then compiles .pyc for Windows paths, or ships .py only (justify). It copies licences (CPython, numpy and its OpenBLAS notice, onnxruntime plus ThirdPartyNotices, and the YOLOX licence) and writes a manifest.
 - **CI check (Windows):** a `windows-analytics` run.sh job (mirrored in GitLab). It builds the runtime on Linux or Windows CI with the same script, or fetches with the same lock, then runs `python.exe -I -c "import numpy, onnxruntime; print(...)"` and runs `analytics.py` once on the fixture clip with `midgard-frames.exe` and the YOLOX model. The model is fetched by its pinned URL and SHA-256 in CI, as `fetch-analytics.sh` does. It must produce a `land-camera-ai` observation.
+- *As built:*
+  - **Lock:** `tools/win-app/analytics.lock` pins the Mac's versions. That is python-build-standalone 20261009's CPython 3.13.16 `x86_64-pc-windows-msvc-install_only`, numpy 2.5.4 and onnxruntime 1.23.2 `cp313-win_amd64`, the YOLOX-s model and its licence, each by SHA-256. onnxruntime 1.23.2 has a cp313 win_amd64 wheel, so nothing newer was needed. numpy's wheel carries OpenBLAS (scipy-openblas) and an msvcp140 in `numpy.libs`.
+  - **`tools/win-app/fetch-analytics.sh`:** runs on a Mac or in Windows Git Bash (curl, tar, unzip, sha256sum or shasum). Before extracting, it checks every member's name (relative, under the expected top folder, no `..`, backslash, drive letter or control character) and type (files and folders only; the Mac build tool's same-folder links alone are allowed). Each archive goes into its own empty folder. The wheels are unzipped as pip installs them: neither has a `.data` folder or a link, which is checked. Pruned: headers, import libraries, `.pdb`, Tcl/Tk, the `_test*` modules, pythonw, `Scripts`, pip, ensurepip, venv, idlelib, pydoc_data, numpy.f2py, onnxruntime's training and quantisation tools, every `tests` folder and the shipped `__pycache__`.
+  - **.pyc:** compiled, not .py only. They are `unchecked-hash` .pyc, valid whatever the file times, which a ZIP keeps to 2 s only. The compiler is a CPython 3.13 that runs on the build machine, so the bytecode magic is the same. On a Mac that is the Mac lock's 3.13.16 for that Mac; on Windows it is the runtime itself. The shell runs `-I -B`, so nothing is written into the package at run time, and imports don't recompile 690 modules at each start.
+  - **Licences and manifest:** licences for CPython, numpy (its `LICENSE.txt` carries OpenBLAS's and the GCC runtime's notices, which is checked), onnxruntime with ThirdPartyNotices, and YOLOX. There is also a python-build-standalone note, with OpenSSL, SQLite, libffi and others, and the VC++ runtime. `manifest.txt` lists the pins, then every file with its SHA-256 and size.
+  - **Output:** `$MIDGARD_BUILD_DIR/win/analytics/{runtime,models,licenses,manifest.txt}`. Re-runs do nothing while the stamp matches. On the Mac it takes 9 s with the downloads present.
+  - **Sizes**, from CI run 40046709287: the runtime is **112.7 MB**, 38.6 MB deflated in a ZIP. site-packages is 72 MB of that: onnxruntime 34 MB, numpy 17 MB, numpy.libs 20 MB. The model is 35.9 MB (33.4 MB deflated), the licences 0.4 MB, 1691 files in all. The e2e package grew to 298 MB.
+  - **analytics.py on Windows:** the plan expected no Windows branch beyond the helper path. Three were needed (commit b89ba14):
+    - there is no `resource` module, so CPU times count the process only;
+    - `--nice` sets the below-normal priority class (`SetPriorityClass`) where `os.nice` is missing;
+    - a recording's plain `heimdall.jsonl` is read when there is no `.gz` (Windows recordings are uncompressed), as UTF-8 (the Windows code page otherwise).
+  - **Fixture:** `tools/win-app/make-camera-clip.py` draws a 10 s, 25 fps, 352×288 road scene with numpy: cartoon cars in two lanes and one parked. The tests' ffmpeg encodes it with libx264 (yuv420p), about 110 KB, made in CI, with nothing in git. `make-fixture.py --camera-clip/--camera-still` adds it as camera `JamCams_00000.00001`'s stored clip; analytics.py takes clips only from `JamCams_` ids. `working_copy.py` issues the `camera-analytics` feed identity. YOLOX-s sees the cars mostly as trucks, with some "airplane" boxes: vehicles, not a realistic scene, but enough to check detection, tracking and agreement.
+  - **CI, `windows-analytics`** (run.sh, GitLab, `windows.yml` job `analytics`, about 4 min): it publishes midgard-frames.exe, fetches ffmpeg and runs `fetch-analytics.sh`. Then `python.exe -I` imports numpy 2.5.4 and onnxruntime 1.23.2, with providers `['AzureExecutionProvider', 'CPUExecutionProvider']` (Azure is unused). After that it records the sizes and runs `tools/win-app/check-analytics.py`:
+    - `analytics.py --once --dry` as a program, with the shell's layout arguments and `--nice 10`: 9.6 s including start and model load;
+    - one analysis as a module: `land-camera-ai` `AI-JamCams_00000.00001`, 40 frames, truck:4, airplane:3, 4 moving, in **8.5 s** (213 ms a frame, 4 threads on the 2-core runner);
+    - midgard-frames.exe against ffmpeg on the same clip.
+
+    onnxruntime warns "Unsupported Windows version (2025server)" on the runner; that is harmless, and Windows 11 is supported.
+  - **Detections, helper against ffmpeg** (the comparison deferred from Task 1; run 40046709287, YOLOX-s, CPU, conf 0.35):
+
+    | | midgard-frames.exe | ffmpeg 9.0.2 |
+    |---|---|---|
+    | frames | 40, 640×523 from 352×288, in 1.23 s | 40, in 0.19 s |
+    | mean \|pixel difference\| | 1.42 (worst frame 1.48, largest 87) | |
+    | per-frame detections | 56 | 67 |
+    | share matched by the other (same class, IoU ≥ 0.5) | 98.2 % | 82.1 % |
+    | tracks (`ai_counts`, moving) | truck:4, airplane:3; 4 moving | the same |
+
+    Nearly everything the helper detects, ffmpeg's frames detect too. ffmpeg's frames give 11 more low-margin boxes, around the 0.35 threshold, so the confirmed tracks and counts are identical. On the Mac, the Mac's AVFoundation helper on the same clip scored 85–87 % both ways, with the same tracks. The real TfL comparison (96 %) is in `heimdall/analytics/README.md`.
 
 ### Task 3: the shell runs analytics
 
@@ -63,7 +92,31 @@ Design: `docs/plans/2026-10-23-windows-app-design.md` §1, §3. For reference, t
 - **Sweep:** the orphan sweep covers `helpers\analytics\` (python.exe).
 - **Unit tests:** spec order, arguments, an optional failure not blocking start, the token.
 - **Headless check:** extend the W2 Task 7 `--headless-check` and the e2e CI job to include analytics. Analyse the fixture camera through the gateway and assert a `land-camera-ai` entity and a trend point. Record the timing on the CI CPU.
+- *As built* (commit 2ba5a5f):
+  - **Spec:** `CameraAnalytics` (ServiceSpec.cs) with `Locate`. It needs `helpers\analytics\python.exe`, `resources\analytics\{analytics.py,config.json}`, `resources\models\yolox\yolox_s.onnx`, `helpers\{midgard-frames,heimdall-source}.exe` and a recording; without them it is logged and left out. `SuiteSpecs.Make` adds `analytics` last and `Optional`, ready on `SERVE pid=`.
+  - **Arguments:** the Mac's: `-I -B analytics.py --serve --port --token-file --state-dir Home\heimdall-poc\analytics --log - --config --model-dir`, `--provider cpu --threads N`, `--frames-helper --recording --source-bin --source-identity-dir --source-addr`, and `--nice 10`. N is min(4, physical cores), as on an Intel Mac.
+  - **Gateway:** given `--analytics-addr`/`--analytics-token-file` only with the analytics.
+  - **Token:** `AnalyticsToken.Ensure`, before the services start. A new token is created with `FileMode.CreateNew` and a protected DACL: inheritance off, one entry, this user with full control (0600). An existing token is kept and its DACL made private. An empty file is replaced; a symbolic link or junction is removed, never followed. A folder is refused. If the token can't be written, the analytics are left out (logged); the token itself is never logged.
+  - **Sweep:** `helpers\analytics\` is inside the helpers, so the orphan sweep and the headless check's last look already cover it (tested).
+  - **Tests:**
+    - spec order, the optional flag and the arguments;
+    - the gateway's flags only with the analytics;
+    - the ports and paths wired between gateway, analytics, Heimdall and replay;
+    - `Locate` with each part missing;
+    - the thread cap;
+    - five token cases (Windows);
+    - an optional service whose python.exe is missing not blocking the start;
+    - the sweep ending a python.exe in `helpers\analytics\`.
+  - **Headless check and `windows-shell-e2e`:**
+    - The package gains the runtime as `helpers\analytics`, `midgard-frames.exe`, `resources\analytics` and `resources\models\yolox`, and the fixture gains the clip camera.
+    - After the picture check, the check waits for the analytics to be ready, signs in, and runs `POST /api/v1/heimdall/cameras/JamCams_00000.00001/analyse`. It needs 40 frames, a vehicle, and `sent accepted=1`.
+    - It then polls the picture for `AI-JamCams_00000.00001` of kind `land-camera-ai`, and reads `…/trend` for a point by the analyst.
+    - Run 40046709287 passed 36 steps. The analytics were ready about 6 s after the suite (0.5 s after launch), and the entity came from source `camera-analytics`.
+  - **Analyse timing on the CI CPU:** **7.8 s through the gateway**, 194 ms a frame for 40 frames, with 2 threads (the runner reports 2 physical cores). The Mac takes about 1.3 s with CoreML and about 10 s under Rosetta. The gateway's 30 s timeout leaves room on a 4-core laptop.
 
 ### Task 4: record results
 
 Results go in this plan and the design doc: sizes, the detection agreement with ffmpeg, Analyse timing on CI, and anything learnt about Windows N.
+- *As built:* sizes, agreement and timing are under Tasks 2 and 3 above, and summarised in the design doc §1 and §3.
+  - **Windows N:** nothing new could be tested, because no runner is an N edition. On one, midgard-frames.exe exits with the Media Feature Pack message (Task 1). analytics.py turns that into a failed analysis: the service log gets the message and the gateway answers 502 "analysis failed: RuntimeError". The console doesn't yet say why, so W4's instruction sheet must cover N editions (Media Feature Pack, or Analyse unavailable).
+  - **Still to check on a real Windows 11 laptop:** onnxruntime's start without the Server warning, Analyse time on a laptop CPU, and antivirus first-scan time over the 690 .pyc and 34 MB of onnxruntime DLLs.
