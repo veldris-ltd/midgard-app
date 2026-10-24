@@ -86,6 +86,7 @@ Mac and Linux behaviour must not change. The existing Linux CI and the Mac tests
   2. `tools/win-app/build-zip.sh` adds the shared resources and the pinned Windows llama.cpp and Python runtimes. It unpacks the recording's `heimdall.jsonl.gz`, since recordings ship uncompressed on Windows.
   3. It writes `~/Desktop/Midgard-1.0-Windows.zip` (ZIP64) and checks every file and its size.
   4. It refuses mismatched commits, as `build-dmg.sh` does.
+  - *As built in W4:* the resource steps are shared with the Mac build (`tools/mac-app/resources.sh`), and the Windows layout is `tools/win-app/layout.sh`. `windows-shell-e2e` builds its fixture package with the same layout, so CI tests the folder presenters get. The first ZIP (f7b096e) is 2.09 GiB, 13 885 files, 2.4 GB unpacked; check-imports and check-package pass; longest path 124 characters. Details and what is still untested on real hardware are in `2026-10-24-windows-app-w4-package.md`, Tasks 2 and 4.
 - **Instruction sheet:** `Install Midgard on Windows.pdf`, one A4 page. It covers:
   - Extract All, and the "Windows protected your PC" box;
   - the Start-menu shortcut offer, Reset demo and Quit;
