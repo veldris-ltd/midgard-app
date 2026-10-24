@@ -64,7 +64,7 @@ The cryptography, layer by layer. In transit, every hop is a hybrid handshake: c
 
 ## 16 · Measured, not promised
 
-These are measurements, each with its run. The 72 acceptance criteria each map to a test, and the tree holds 873 test functions. The gate has not been run at this commit; the run that is recorded comes before the tag. Every one of the 18 binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)
+These are measurements, each with its run. The gate was run at commit 5534b1f40dbb, in the pinned toolchain container with networking disabled: 72 / 72 acceptance criteria passed, and 879 tests passed on both crypto backends. The record and its logs are in the repository. Every one of the 18 binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)
 
 ## 17 · Five services run and are tested. Release candidate prepared. GA gated on named blockers.
 
