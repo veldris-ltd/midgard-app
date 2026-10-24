@@ -84,7 +84,7 @@ AC-G-1..20 covering: linear+branched projection with cited assumptions; mandator
 
 ## 8. Integration & delivery
 
-Heimdall (read-only copy; no execution path added) · Mimir advisory + SAD_02b model supply · SAD_06 client shells · SAD_07 dual-control governance incl. abstraction-layer changes · A.G-1..3 + AC-G-1..20 join SAD_05 (**consolidated ACs 124 → 144**).
+Heimdall (read-only copy; no execution path added) · Mimir advisory + SAD_02b model supply · SAD_06 client shells · SAD_07 dual-control governance incl. abstraction-layer changes · A.G-1..3 + AC-G-1..20 join SAD_05 (**consolidated ACs 92 → 112**).
 
 **Delivery sequence:** sandbox + world-model copy (safety foundation) → projection engine → multi-asset models → oversight console → abstraction-layer review gate + full Eval/acceptance suite. Each capability lands with its safety control.
 

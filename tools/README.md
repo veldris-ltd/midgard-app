@@ -66,4 +66,4 @@ with an owner and a tracking item; it must be empty at GA.
 > still a placeholder — it belongs between `sbom` and `sign` so a failing scan
 > cannot reach a signature (RF-SC-4), and the release matrix is still
 > hand-maintained (RF-SC-5). See
-> [`docs/dev/fixes/remedial-fixes.md`](../docs/dev/fixes/remedial-fixes.md).
+> [`docs/dev/markdown/SAD_09_Completion_Plan.md`](../docs/dev/markdown/SAD_09_Completion_Plan.md).

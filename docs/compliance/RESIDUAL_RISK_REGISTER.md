@@ -1,21 +1,18 @@
 # Residual-risk register (SAD §11/§15/§16 closure)
 
-The remedial campaign (**RT-01 … RT-59**) has been worked through, and its backlog
-was retired on 2026-10-13 into
-[`remedial-fixes.md` Appendix 6](../dev/fixes/remedial-fixes.md#appendix-6-retired-backlog-rt-to-rf-crosswalk),
+The task register (**RT-01 … RT-59**) is resolved in
+[`SAD_09_Completion_Plan.md` Appendix 5](../dev/markdown/SAD_09_Completion_Plan.md#appendix-5--task-identifiers-rt-nn-and-rc-nn),
 which records each task as closed or carried by an `RF-*` item. This register tracks
-the retired backlog's **§6, SAD-declared residual risks**: the design authors' own
+the **SAD-declared residual risks**: the design authors' own
 admissions of known gaps, technical debt, and roadmap items. Each has a status so a
 GA reviewer sees, at a glance, what is controlled, what is partly controlled, what is
 a deliberately accepted residual, and what remains open.
 
-**Re-graded 2026-10-13.** Every row was re-graded against the per-item Status notes
-of [`remedial-fixes.md`](../dev/fixes/remedial-fixes.md) (audit of 2026-10-12) and
-Appendix 6. The earlier edition graded 20 rows MITIGATED; 15 of those are now
-**PARTIAL**, because the control they cite exists only as a tested library that no
-running service uses, runs against a stand-in, or has a known defect. Nine of the ten
-High-severity rows are PARTIAL. The re-grade was done by reading; nothing was built
-or run for it.
+**Grading.** Every row is graded against the RF item that carries it in the
+[completion plan](../dev/markdown/SAD_09_Completion_Plan.md). A row is **PARTIAL**
+when the control it cites exists only as a tested library that no running service
+uses, runs against a stand-in, or has a known defect. Nine of the ten High-severity
+rows are PARTIAL.
 
 ## Status legend
 
@@ -134,18 +131,17 @@ exercised by tests, and the Admin console renders fixtures (RF-AD-1).
 | 2 | **Deployment-tier assurance** for the **†** controls (real HSM, GPU, multi-node cluster) | Deployment activity | **Yes**: gated by RT-40's acceptance suite + RT-49 shell audits, which fail closed until run on real infrastructure |
 | 3 | **The 15 PARTIAL rows**, nine of them High severity | In-repo work, carried by the `RF-*` items each row names | **Yes** for the High-severity rows; the others before GA unless explicitly accepted with a rationale here |
 
-The earlier edition of this register stated that only items 1 and 2 were unresolved.
-That was not correct. Most of the controls it cited are real and tested, but only as
-libraries that no deployed service runs yet.
+Most of the controls cited are real and tested, but only as libraries that no
+deployed service runs yet.
 
-## GA gate (from the retired remedial-tasks §7, restated)
+## GA gate
 
 > The release go/no-go decision that consumes this register is recorded in
 > [`GA_READINESS.md`](GA_READINESS.md).
 
-Do not GA until: the R0–R4 remediation phases close, the operate-&-govern controls
+Do not GA until: the R0–R4 phases of the completion plan close, the operate-&-govern controls
 RT-33/34/35/38/40 close, and the two external GA blockers above (**FIPS KAT
 certification** and **deployment-tier assurance on real infrastructure**)
-complete. As of 2026-10-13 the first two conditions are **not** met: Appendix 6
+complete. The first two conditions are **not** met: Appendix 5 of the completion plan
 lists RT-20, RT-21, RT-33, RT-34, RT-35, RT-38 and RT-40, among others, as carried
 by open `RF-*` items. RT-40 fails a release closed until the deployment tier runs.

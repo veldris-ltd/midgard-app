@@ -36,7 +36,7 @@ STATUSES='spec reference operable production external'
 TEXT_KEYS='id area claim status limit milestone fallback'
 LIST_KEYS='criteria evidence tests service_tests stated_in overstated_in'
 # Where an acceptance criterion id has to be known.
-CRITERIA_ROOTS='deploy/acceptance docs/dev/markdown docs/dev/fixes BUILD_PLAYBOOK.md'
+CRITERIA_ROOTS='deploy/acceptance docs/dev/markdown BUILD_PLAYBOOK.md'
 # Where the name of an external tool may not occur: everything that builds, ships or
 # deploys. Documents may name it; that is how the boundary gets stated.
 CODE_ROOTS='Cargo.toml Cargo.lock package.json pnpm-lock.yaml pnpm-workspace.yaml justfile

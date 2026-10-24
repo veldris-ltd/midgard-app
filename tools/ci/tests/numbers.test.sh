@@ -28,7 +28,7 @@ numbers() { NUMBERS_ROOT="$repo" bash "$script" "$@"; }
 
 new_repo() {
     repo="$work/$1"
-    mkdir -p "$repo/tools/ci" "$repo/docs/dev/markdown" "$repo/docs/dev/diagrams" "$repo/docs/dev/fixes" \
+    mkdir -p "$repo/tools/ci" "$repo/docs/dev/markdown" "$repo/docs/dev/diagrams" \
         "$repo/docs/compliance" "$repo/docs/releases" "$repo/docs/launch/pipeline" "$repo/a/src" "$repo/b/src" "$repo/vendor/x/src"
     git init -q "$repo"
     git -C "$repo" config core.autocrlf false
@@ -48,7 +48,7 @@ new_repo() {
     printf '# GA\n\n<!-- gate-record:begin -->\n<!-- gate-record:end -->\n' > "$repo/docs/compliance/GA_READINESS.md"
     printf '# rc\n' > "$repo/docs/releases/v9.md"
     printf '// deck\n' > "$repo/docs/launch/pipeline/build-deck.js"
-    printf '# Plan\n## 0. Intro\n## 1. Executive summary\nA 2-crate tree.\n## 1a. Later\nThe old tree had 56 crates.\n' > "$repo/docs/dev/fixes/remedial-fixes.md"
+    printf '# Plan\n## 0. Intro\n## 1. Summary\nA 2-crate tree.\n## 2. Later\nThe old tree had 56 crates.\n' > "$repo/docs/dev/markdown/SAD_09_Completion_Plan.md"
     g add -A
     g commit -q -m base
 }
@@ -111,9 +111,9 @@ check_line "a tests-passed figure with no recorded run fails" GETTING_STARTED.md
 check_line "a historical figure that names its commit passes" CHANGELOG.md 'At `60091a9`: 72 / 72 pass and 248 tests passed, on 56 crates.' pass
 check_line "a figure of a tree with no public commit passes with the marker" CHANGELOG.md "The first audit saw 56 crates. <!-- numbers:historical -->" pass
 check_line "the launch deck source is swept" docs/launch/pipeline/build-deck.js "// 44 crates" fail
-check_line "the remedial plan is swept in its executive summary" docs/dev/fixes/remedial-fixes.md "## 1. Again
+check_line "the completion plan is swept in its summary" docs/dev/markdown/SAD_09_Completion_Plan.md "## 1. Again
 Now 9 crates." fail
-grep -q '56 crates' "$repo/docs/dev/fixes/remedial-fixes.md" && numbers --check >/dev/null 2>&1 \
+grep -q '56 crates' "$repo/docs/dev/markdown/SAD_09_Completion_Plan.md" && numbers --check >/dev/null 2>&1 \
     && pass "and not in the items after it" || fail "and not in the items after it"
 printf '<!-- gate-record:begin -->\n| Tests | 870 tests passed |\n<!-- gate-record:end -->\n' >> "$repo/README.md"
 numbers --check >/dev/null 2>&1 && pass "a gate-record block is left to gate-record.sh" || fail "a gate-record block is left to gate-record.sh"

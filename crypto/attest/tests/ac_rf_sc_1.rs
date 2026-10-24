@@ -3,7 +3,7 @@
 //! Before this, `mg-sign` printed a stub message and returned success, so an
 //! artefact that was never signed passed the release gate. These tests are the
 //! contract that says it cannot any more. Each maps to one criterion in
-//! `docs/dev/fixes/remedial-fixes.md`.
+//! `docs/dev/markdown/SAD_09_Completion_Plan.md`.
 //!
 //! Everything here runs offline with no network. `[NFR-PRV-1]`
 //!
@@ -509,7 +509,7 @@ fn ac_rf_sc_1f_attestation_is_byte_identical_across_runs() {
     // signature differs between runs. That is the safer construction and it costs
     // nothing — reproducibility is established by mg-repro over the binary, and
     // verification checks that the signature *verifies*, never that it is
-    // byte-equal. See preimage.rs and remedial-fixes.md RF-SC-1.
+    // byte-equal. See preimage.rs and SAD_09_Completion_Plan.md RF-SC-1.
     assert_ne!(
         first_sig, second_sig,
         "hedged ML-DSA signatures are expected to differ between runs"

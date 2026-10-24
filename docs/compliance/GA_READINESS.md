@@ -5,10 +5,9 @@ artifact a release approver signs. It does not restate the evidence — it point
 at the authoritative sources, states what has been verified and by what means,
 and names precisely what still blocks General Availability.
 
-- **Branch / commit at assessment:** `dev` @ `9f4b49f`
-- **Assessment date:** 2026-09-10
-- **Verdict:** **CODE-COMPLETE — GA CONDITIONAL.** The in-repo remediation and its
-  test evidence are complete and green. GA remains blocked on two external
+- **Commit at assessment:** the commit named by the gate record in §2
+- **Verdict:** **CODE-COMPLETE — GA CONDITIONAL.** The in-repo work and its
+  test evidence are green at the gated commit. GA remains blocked on two external
   activities and on running the acceptance + release-gate suites on release
   infrastructure (see §4). This is a *not-yet-GA* record, not an approval.
 
@@ -18,7 +17,7 @@ and names precisely what still blocks General Availability.
 
 | Dimension | Covered |
 |-----------|---------|
-| Remedial campaign | **RT-01 … RT-59**, all worked. That backlog was retired on 2026-10-13 into [`remedial-fixes.md` Appendix 6](../dev/fixes/remedial-fixes.md#appendix-6-retired-backlog-rt-to-rf-crosswalk), which gives each task's state: 9 closed, 50 carried by `RF-*` items (among them RT-20, RT-21, RT-40, RT-49 and RT-58) |
+| Task register | **RT-01 … RT-59**, resolved in [`SAD_09_Completion_Plan.md` Appendix 5](../dev/markdown/SAD_09_Completion_Plan.md#appendix-5--task-identifiers-rt-nn-and-rc-nn), which gives each task's state: 9 closed, 50 carried by `RF-*` items (among them RT-20, RT-21, RT-40, RT-49 and RT-58) |
 | Residual risks | `docs/compliance/RESIDUAL_RISK_REGISTER.md` — SAD §6 closure |
 | Compliance mapping | `docs/compliance/COMPLIANCE_MATRIX.md`, `DATA_RESIDENCY.md` |
 | Build/verification posture | `docs/dev/BUILD_ENV.md`, `justfile` |
@@ -57,9 +56,9 @@ The gate was last recorded at commit [`cee5f5f25d96`](../../docs/compliance/gate
 ## 3. Verified previously (in-repo, standing controls)
 
 Each maps to implemented, tested controls; see the register for the risk it addresses.
-The register was re-graded on 2026-10-13: the autonomy-safety, admin self-governance
-and air-gap controls below are tested as libraries or in rehearsal, and their risk
-rows are now **PARTIAL**, not MITIGATED, until they run in the deployed services.
+The autonomy-safety, admin self-governance and air-gap controls below are tested as
+libraries or in rehearsal, and their risk rows are **PARTIAL**, not MITIGATED, until
+they run in the deployed services.
 
 - **Post-quantum crypto core** — pure-Rust FIPS 203/204/205 + X25519; ACVP KATs
   pass in-repo (`fips_backend`, `aead_kat`, `agility_fips`).
@@ -87,9 +86,9 @@ they must be run and shown green (or the two external items completed) before GA
 
 | # | Gate | Where | Blocking? |
 |---|------|-------|-----------|
-| 0 | The register's 15 **PARTIAL** rows, nine of them High severity | `RESIDUAL_RISK_REGISTER.md`, carried by `RF-*` items | **Yes** for the High-severity rows (added 2026-10-13) |
+| 0 | The register's 15 **PARTIAL** rows, nine of them High severity | `RESIDUAL_RISK_REGISTER.md`, carried by `RF-*` items | **Yes** for the High-severity rows |
 | A | Acceptance suites (`verify-core`, `verify-mimir`, `verify-forge`, `verify-bifrost`, `verify-heimdall`, `verify-admin`, `verify-clients`) under `--network none` | `deploy/acceptance/verify-*.sh` | **Yes** — Definition-of-Done matrices AC-M/MI/F/B/H/AD/C |
-| B | Shell audits + accessibility (`verify-shell-audits`, `verify-shells-accessibility`) | `deploy/acceptance/` | **Yes** (RT-49) — fails closed until run on device. Waived for the pre-release `0.1.0-rc.1` only, by the owner on 2026-10-22 (`clients/shells/audit-waivers.txt`); a final release cannot be waived |
+| B | Shell audits + accessibility (`verify-shell-audits`, `verify-shells-accessibility`) | `deploy/acceptance/` | **Yes** (RT-49) — fails closed until run on device. Waived for the pre-release `0.1.0-rc.1` only, by the owner (`clients/shells/audit-waivers.txt`); a final release cannot be waived |
 | C | Per-artefact release gate `just gate <pkg>` for each deployable | `justfile` | **Yes** — nothing ships unsigned/unverified |
 | D | **FIPS 140-3 module certification** | External CMVP lab | **Yes** — SAD_00's explicit bar; in-repo KATs pass, formal cert is external |
 | E | **Deployment-tier assurance** for the register's **†** controls (real HSM custody, GPU inference, multi-node cluster) | Deployment activity, gated by RT-40 | **Yes** — RT-40 fails a release closed until run on real infrastructure |
@@ -100,7 +99,7 @@ activities outside this repo by nature. The step-by-step procedure for A–C is
 
 ---
 
-## 4a. Release-candidate rehearsal — v0.1.0-rc.1 (2026-09-15)
+## 4a. Release-candidate rehearsal — v0.1.0-rc.1
 
 The release mechanics were run end to end on a developer machine. The keys were
 throwaway **drill keys**, generated for the run and never committed or published: an
@@ -110,7 +109,7 @@ not a release. Nothing was signed with a ceremony key, and nothing was published
 | Stage | Result |
 |-------|--------|
 | Coverage (RC-07) | `supply-chain/release-artefacts.txt` names all 18 binaries the workspace builds; the check passes |
-| Gate | `just gate forge-worker forge-egress` passes. All 18 binaries were proven bit-reproducible (`mg-repro`), SBOM'd, scanned (0 blocking findings), signed and verified. Every attestation records source revision `cbf26da`, a commit of the private working history that is not in this repository |
+| Gate | `just gate forge-worker forge-egress` passes. All 18 binaries were proven bit-reproducible (`mg-repro`), SBOM'd, scanned (0 blocking findings), signed and verified. Every attestation records its source revision |
 | Images | 6 verify-before-run images. Every binary they carry (7) is verified and started through the image's own entrypoint. The image list is signed and verified |
 | Bundle | 54 artefacts (18 binaries, each with its `.sig` and `.att`), 28 MB, signed with the admission key |
 | Install | `deploy/air-gap-bundle/install.sh` verified all 54 artefacts offline, rebuilt the images, loaded them into a three-node kind cluster and deployed 0.1.0-rc.1. Every service logged `verify-before-run: OK` and came up ready |
@@ -138,10 +137,9 @@ not a release. Nothing was signed with a ceremony key, and nothing was published
 ## 5. Decision
 
 **NO-GO for GA at this commit.** The test sweep is green, and every RT task was
-worked, but as assessed on 2026-09-10 this record overstated that as "complete":
-the 2026-10-13 crosswalk
-([`remedial-fixes.md` Appendix 6](../dev/fixes/remedial-fixes.md#appendix-6-retired-backlog-rt-to-rf-crosswalk))
-finds 50 of the 59 tasks with work still carried by `RF-*` items. Beyond that,
+worked, but the task register
+([`SAD_09_Completion_Plan.md` Appendix 5](../dev/markdown/SAD_09_Completion_Plan.md#appendix-5--task-identifiers-rt-nn-and-rc-nn))
+shows 50 of the 59 tasks with work still carried by `RF-*` items. Beyond that,
 GA is blocked because the release-gate and acceptance runs (§4 A–C) have not been executed on
 release infrastructure and the two external activities (§4 D–E) are incomplete.
 
@@ -160,7 +158,6 @@ satisfied, this record is updated to **GO** and signed below.
 | Compliance | | | |
 | Accountable executive | | | |
 
-> This document records the code-side assessment made at `9f4b49f`, a commit of the private working
-> history that is not in this repository, as amended above. Its test results are superseded by the
+> This document records the code-side assessment at the gated commit. Its test results are the
 > gate record in §2. Approvers sign only once
 > §4 is satisfied; an unsigned record is a NO-GO by default.
