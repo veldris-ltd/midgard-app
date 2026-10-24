@@ -220,6 +220,59 @@ Rules: commits signed (`git commit -S`), **no Claude attribution** (organisation
   - slot install and swap, journal recovery (crash at each step), refusing an unverified download, and adoption digest mismatch;
   - an end-to-end test with fake services: a tiny test program that becomes ready or not on cue, started by a test runner, never the real suite.
 
+**As built (24 Oct 2026)** (commit 06a15e3).
+- **Where:** `bifrost/fleet-server/src/suite.rs` (slots, journal, recovery, pruning, adoption check, the loop) and `--suite` in `src/bin/bifrost-agent.rs`.
+- **Command:** `bifrost-agent --suite --identity-dir DIR --addr HOST:PORT --service NAME --suite-root DIR --runner CMD [--install-id ID] [--channel stable] [--initial-version V] [--adopt-from dist/mac/bin] [--trust-dir <suite-root>/trust] [--services the six] [--interval 10]`.
+  - The server lets an agent check in only for the installation its certificate names, so the identity must be called `mac-suite` for `--install-id mac-suite`.
+  - The simple mode is unchanged; the suite options are refused without `--suite` and vice versa.
+  - It refuses to start with no anchored release signer.
+- **Slots:** `releases/<artefact version>/<service>`, plus `releases/<v>/.<service>.sha256` (the signed digest, so a kept slot is checked before it is reused), `active/<service>` → `../releases/<v>/<service>`, `settled/<service>`, `staging/`, `swap.journal`.
+  - The slot key is the artefact version the reply desires for that service, which is also what the agent reports, so a release mixing artefact versions works.
+  - Versions and service names from the wire are checked as safe path components (`[A-Za-z0-9._+-]`, no leading dot).
+- **A swap**, one service at a time, in the order the reply lists the changed services:
+  1. A kept slot whose digest matches its record is reused (a rollback needs no download). Otherwise `download_verified` against `--trust-dir`, then `Slots::install`: id and version must match the request, `bifrost_artefact::verify` again with the agent's anchors, write to `staging/` (fsync), read back and compare with the signed `payloadSha256`, chmod 755, record the digest, rename into the slot, fsync the folders.
+  2. `swap.journal` `step=intent` (service, from, to, slot digest), written temp + fsync + rename + dir fsync.
+  3. `active/<service>` repointed (a new symlink renamed over it, dir fsync); journal `step=linked`.
+  4. `<runner> restart <service>`; then the journal is removed.
+  - Swaps run on a worker thread so check-ins continue during a restart (run-native waits up to 180 s). A service being swapped reports unhealthy until its restart returns: the link is moved under the same lock the reporter reads it with, so a moved link is never reported healthy on the old process's readiness.
+  - A refused install (unverifiable, untrusted signer, registry refusal) changes nothing and is retried after 60 s. A failed restart is just reported (unhealthy); the orchestrator decides.
+- **Crash recovery** (`Slots::recover`, before anything else): staging files are removed. With a journal: if the slot still has the journalled digest, the swap is finished (link, restart); otherwise it is reverted (the bad slot removed, the link back on `from`, a restart only if the link had moved). The journal is then removed. A journal that does not parse stops the start.
+- **Health:** `<runner> status <service>` prints `ready`, `unready` or `stopped`; healthy means `ready`.
+- **Control plane unreachable or refusing:** nothing is changed; check-ins back off 1, 2, 4… intervals up to 12 (10 s → 120 s). "control plane reachable again" is logged when it returns. The log (JSON lines) records a check-in only when the reply changes.
+- **Keeping slots:** the CheckIn reply has no channel `previous`, so the agent tracks it: when the reply has no run and every service runs its desired version and is healthy, those versions are settled (`settled/<service>`, newest two). Each service then keeps its active slot and its last two settled versions; any other slot (a rolled-back release) is pruned. So the previous release stays until the next one has fully passed, and nothing is pruned during a run.
+- **Adoption:** with no `active/` link for some services, `--initial-version` is required. Each such service's `<service>@<version>` is downloaded and verified against the agent's anchors, and its `payloadSha256` compared with the SHA-256 of `--adopt-from/<service>`. Any mismatch, missing file, or artefact not in the registry is refused, listing every one, and the agent exits 1 with nothing adopted. Otherwise the verified bytes (identical) are installed, linked and settled. Adoption does not restart anything; transport failures are retried with backoff.
+- **`run-native.sh`:**
+  - With `MIDGARD_SUITE_ROOT` set, `BIN` is `$MIDGARD_SUITE_ROOT/active` (it must exist); otherwise `dist/mac/bin` as before. Each service's launch command moved into `launch_one`, called by `start` in the same order with the same arguments.
+  - `restart <service>`: the Docker check and binary check as in `start`, then stop just that service (`stop_one`, the same as `stop`, leaving its lock if it does not exit), the container-lock clean-up for it, `mimir-model.sh start` for mimir, and `launch_one`, which waits for the same readiness line. Exits 1 if it exits or is not ready in 180 s.
+  - `status <service>`: `stopped`, or `ready` if its log since this start has the line `start` waits for, else `unready`. The log line, not `/readyz`, was chosen because it is what run-native already trusts for all five services, and it does not flap when a dependency restarts in a later ring (a flap after "ready" would fail the ring).
+  - Names: short (`gateway`, `mimir`, `heimdall`, `forge`, `replay`) or binary names.
+  - **heimdall-source** has no process: midgard-replay runs the `heimdall-source` beside its own path for each batch (`current_exe()` keeps the `active/` symlink path on macOS, checked), so `restart heimdall-source` only checks the binary is there, and its status is `ready` when it is executable. A broken heimdall-source would not fail its ring's gate; replay's own readiness does not cover it either.
+  - `restart replay` uses `MIDGARD_REPLAY` or the recording it was last started with (`native-run/replay.recording`, written by `launch_one`); with neither it fails.
+- **`run-local.sh`:** `agent start [--initial-version V] | stop | status`. Suite mode as `mac-suite` on `stable`, suite root `$BIFROST_SUITE_ROOT` (default `~/Desktop/Midgard/bifrost-local/suite`), runner this checkout's `tools/mac-app/run-native.sh` with `MIDGARD_SUITE_ROOT` exported, anchors `fleet-state/trust/release-signers`, adopt-from this checkout's `dist/mac/bin`. Pid `agent.pid`, log `agent.log`. Both setups now also issue `mac-suite` (fleet-agent). **For Task 4:** the live install has no `mac-suite` yet, so `setup --real-enclosure` must be run once with the suite stopped (it issues from the real enclosure, with its backup).
+- **Tests (TDD):**
+  - `suite.rs` unit tests (7):
+    - install and swap: the slot's digest and mode, the relative link, the restart, the kept previous slot, a swap back, and an altered kept slot not reused;
+    - refusals: a tampered payload, another signer's key, an unanchored signer id, a misnamed download, an unsafe version; nothing staged, slotted or linked;
+    - recovery at each crash point: during staging; slot in, no journal; intent before the link; link moved before the journal said so; linked before or after the restart (and recovery again is a no-op); a slot altered after the intent (reverted, no restart); a slot gone after the link moved (reverted and restarted); a garbled journal stops the start;
+    - a second swap refused while one is journalled;
+    - pruning keeps active and the last two settled, and keeps a folder another service still uses;
+    - adoption lists every mismatch (digest, missing file, not in the registry);
+    - journal round trip and safe names.
+  - `tests/suite_agent.rs`, end to end against a throwaway bifrost-server (fixed port, so it can be restarted where the agent looks), fast rings (1 s soak, 8 s timeout), `--interval 1`. The fake services are shell scripts registered as the artefacts: each records which build it is and prints `ready` (forge-worker 0.3.0 never does). The fake runner starts `active/<service>` and implements `status`/`restart`. In order:
+    - no `--initial-version` on a first run: exit 1;
+    - adoption with forge-worker and mimir-server rebuilt: exit 1 naming both and not the others, nothing linked; then adopted;
+    - 0.2.0 through every ring to completed: every link and every running process on 0.2.0, restarts in ring order (forge-worker first, mimir-server fifth, http-gateway last), the 0.1.0 slots kept;
+    - 0.3.0 (never-ready canary): rolled back by the orchestrator ("ring canary: not ready within 8 s"), the agent swaps forge-worker back to 0.2.0 from its kept slot, and the 0.3.0 slot is then pruned while 0.1.0 and 0.2.0 stay;
+    - 0.4.0 (forge-worker signed by a signer the server trusts and the agent does not): refused ("is not one this caller trusts"), nothing installed or linked, the run times out and rolls back;
+    - the server killed: the agent logs the failed check-in, keeps running and changes nothing; the server restarted: "control plane reachable again"; no journal left.
+  - The real suite is never touched: the test's runner, services and paths are all in a temp folder.
+  - `run-native.sh restart/status/start` with `MIDGARD_SUITE_ROOT` were checked by hand against a scratch `MIDGARD_HOME` with stand-in binaries (one small program copied under each name that prints that service's readiness line): ready/unready/stopped, restart by either name, replay with and without a recording, `start` and `stop` of all five, a missing `active/`. `run-local.sh agent` was checked only for its refusals (no identity, bad subcommand) and `status`; it is first run for real in Task 4.
+  - **Results:** `cargo test -p bifrost-fleet-server`: 25 unit and 4 integration tests, all passing (suite_agent ~47 s). clippy `-D warnings` and `fmt --check` clean. `bash -n` on both scripts. `verify-bifrost.sh`: 5/5.
+- **Not done / to watch in Task 4:**
+  - A failed restart is not retried; if the orchestrator does not roll back (for example, a run with no deadline left), the service stays down until the next desired change.
+  - The agent restarts a service it swaps but never starts one that is merely stopped; health then reports it unhealthy.
+  - `--runner` is split on whitespace, so a checkout path with spaces would need a wrapper.
+
 ### Task 4: End to end on this Mac
 
 1. Agent adoption:
