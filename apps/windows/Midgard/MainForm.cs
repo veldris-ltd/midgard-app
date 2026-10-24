@@ -568,23 +568,19 @@ sealed class MainForm : Form, IShellView
     {
         var done = new TaskCompletionSource<(bool, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
         CoreWebView2? core = null;
-        // This navigation's id: the outcome of one that was already loading (the shell's own
-        // load of the home page, which this one supersedes) is not this one's.
-        ulong? mine = null;
-        void Starting(object? sender, CoreWebView2NavigationStartingEventArgs e)
-        {
-            if (mine is null && e.Uri.StartsWith(url, StringComparison.Ordinal)) mine = e.NavigationId;
-        }
+        // Only the latest navigation's outcome counts (PageLoads): one that was already loading
+        // (the shell's own load of the home page) and that this one supersedes, or one that
+        // supersedes this one, never decides it; the page that ends up shown does.
         void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e)
         {
-            if (mine is null || e.NavigationId != mine) return;
+            if (e.NavigationId != latestNavigation) return;
             var source = core!.Source;
+            if (e.IsSuccess && !source.StartsWith(url, StringComparison.Ordinal)) return;
             done.TrySetResult(e.IsSuccess ? (true, $"loaded {source}") : (false, $"{e.WebErrorStatus} for {source}"));
         }
         await OnUiAsync(() =>
         {
             core = web.CoreWebView2 ?? throw new InvalidOperationException("the web view was not created");
-            core.NavigationStarting += Starting;
             core.NavigationCompleted += Completed;
             core.Navigate(url);
             return Task.CompletedTask;
@@ -598,8 +594,7 @@ sealed class MainForm : Form, IShellView
         {
             Post(() =>
             {
-                core!.NavigationStarting -= Starting;
-                core.NavigationCompleted -= Completed;
+                core!.NavigationCompleted -= Completed;
             });
         }
     }
