@@ -131,7 +131,7 @@ export function AgentStudioScreen() {
       mainStyle={{ padding: 0, gap: 0, flexDirection: 'row', flexWrap: 'wrap' }}
       toolbar={
         <>
-          <Select size="sm" options={[{ value: 'mistral', label: 'Mistral Small 3.2' }, { value: 'nemotron', label: 'Nemotron' }, { value: 'gemma', label: 'Gemma' }]} value="mistral" onChange={() => {}} />
+          <Select size="sm" options={[{ value: 'mistral', label: 'Mistral Small 3.2' }, { value: 'nemotron', label: 'Nemotron' }, { value: 'gemma', label: 'Gemma' }, { value: 'granite', label: 'Granite' }]} value="mistral" onChange={() => {}} />
           <IconButton label="Settings"><Icon name="settings" size={17} /></IconButton>
         </>
       }
