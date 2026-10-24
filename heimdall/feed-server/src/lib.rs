@@ -67,6 +67,7 @@ use service_runtime::json::Json;
 use telemetry::MetricsRegistry;
 
 pub mod alerts;
+pub mod ask_terms;
 pub mod fabric_out;
 pub mod rules_file;
 pub mod ttl_file;
@@ -1631,6 +1632,12 @@ pub fn parse_ask_request(body: &[u8]) -> Result<AskRequest, String> {
 }
 
 /// The evidence for a question: the area's most relevant entities and its summary.
+///
+/// Everyday kind words count as kind matches ("aircraft" is an `air-track`, see
+/// [`ask_terms::KIND_SYNONYMS`]). A question naming known places
+/// ([`ask_terms::PLACES`]) is about those places: their circles replace the
+/// console's boxes and focus, for the evidence and the summary's counts alike, and
+/// the summary says which places it covers.
 fn ask_evidence(
     full: &Picture,
     alerts: &AlertBook,
@@ -1648,6 +1655,8 @@ fn ask_evidence(
         .filter(|w| w.len() >= 3 && !STOP.contains(w))
         .map(|w| w.trim_end_matches('s').to_string())
         .collect();
+    let synonyms = ask_terms::synonym_kinds(&r.question);
+    let places = ask_terms::places_named(&r.question);
     let pos = |e: &TrackedEntity| -> Option<(f64, f64)> {
         let n = |k: &str| match e.latest_attrs.get(k) {
             Some(Attr::Float(f)) if f.is_finite() => Some(*f),
@@ -1658,6 +1667,11 @@ fn ask_evidence(
     };
     let in_area = |e: &TrackedEntity| -> bool {
         let Some((la, lo)) = pos(e) else { return false };
+        if !places.is_empty() {
+            return places
+                .iter()
+                .any(|p| alerts::distance_km(p.lat, p.lon, la, lo) <= p.radius_km);
+        }
         if let Some((fl, fo, km)) = r.focus {
             return alerts::distance_km(fl, fo, la, lo) <= km;
         }
@@ -1718,6 +1732,11 @@ fn ask_evidence(
                 score += 1.0;
             }
         }
+        for k in &synonyms {
+            if e.kind == *k {
+                score += 3.0;
+            }
+        }
         if alerted.is_some() {
             score += if score > 0.0 { 4.0 } else { 1.0 };
         }
@@ -1738,8 +1757,20 @@ fn ask_evidence(
     k.sort_by(|a, b| b.1.cmp(&a.1));
     let mut l: Vec<(String, usize)> = labels.into_iter().collect();
     l.sort_by(|a, b| b.1.cmp(&a.1));
+    let area = if places.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "area: {}; ",
+            places
+                .iter()
+                .map(|p| format!("{} ({} km)", p.name, p.radius_km))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let summary = format!(
-        "entities in the area by kind: {}; open alerts in the area by label: {}",
+        "{area}entities in the area by kind: {}; open alerts in the area by label: {}",
         if k.is_empty() {
             "none".to_string()
         } else {
@@ -2152,6 +2183,128 @@ mod tests {
                 String::from_utf8_lossy(bad)
             );
         }
+    }
+
+    fn entity(id: &str, kind: &str, lat: f64, lon: f64, name: &str) -> TrackedEntity {
+        let mut attrs = BTreeMap::new();
+        attrs.insert("lat".to_string(), Attr::Float(lat));
+        attrs.insert("lon".to_string(), Attr::Float(lon));
+        if !name.is_empty() {
+            attrs.insert("name".to_string(), Attr::Text(name.into()));
+        }
+        TrackedEntity {
+            id: EntityId(id.into()),
+            entity_key: id.into(),
+            kind: kind.into(),
+            layer: heimdall_picture::LayerId(kind.split('-').next().unwrap().into()),
+            sources: BTreeSet::new(),
+            track: heimdall_picture::Track::opened_at(1),
+            classification: None,
+            latest_attrs: attrs,
+        }
+    }
+
+    /// Aircraft in and around London, London-named ground things, ships in the
+    /// Gulf and the Channel.
+    fn uk_and_gulf() -> Picture {
+        let mut p = Picture::new();
+        for e in [
+            entity("AC-LHR", "air-track", 51.47, -0.45, "BAW1"),
+            entity("AC-CITY", "air-track", 51.51, -0.10, "EZY2"),
+            entity("AC-EAST", "air-track", 51.60, 0.20, "RYR3"),
+            entity("AC-MAN", "air-track", 53.48, -2.24, "BAW4"),
+            entity("AC-EDI", "air-track", 55.95, -3.19, "LOG5"),
+            entity(
+                "RD-1",
+                "land-road-disruption",
+                51.50,
+                -0.12,
+                "London Bridge closed",
+            ),
+            entity("CAM-1", "land-camera", 51.52, -0.13, "London Euston"),
+            entity("AP-1", "land-airport", 51.47, -0.46, "London Heathrow"),
+            entity("SHIP-THAMES", "sea-vessel", 51.49, 0.05, "THAMES BARGE"),
+            entity("SHIP-HORMUZ", "sea-vessel", 26.55, 56.30, "GULF STAR"),
+            entity("SHIP-HORMUZ2", "sea-track", 26.40, 56.10, "MV OMAN"),
+            entity("SHIP-DOVER", "sea-vessel", 51.00, 1.45, "CHANNEL"),
+            entity("SAT-1", "space-satellite", 26.50, 56.20, "SAT"),
+        ] {
+            p.upsert_entity(e);
+        }
+        p
+    }
+
+    fn ask(question: &str, boxes: Vec<[f64; 4]>) -> (Vec<String>, String) {
+        let book = alerts::AlertBook::in_memory(alerts::AlertConfig::default());
+        let r = AskRequest {
+            question: question.into(),
+            by: "analyst".into(),
+            boxes,
+            focus: Some((54.0, -2.0, 800.0)),
+        };
+        let (ev, summary) = ask_evidence(&uk_and_gulf(), &book, &r);
+        (ev.into_iter().map(|e| e.id.0).collect(), summary)
+    }
+
+    #[test]
+    fn aircraft_over_london_are_the_aircraft_within_its_circle() {
+        let (ids, summary) = ask(
+            "How many aircraft are over London right now?",
+            vec![[-12.0, 48.0, 4.0, 62.0]],
+        );
+        for inside in ["AC-LHR", "AC-CITY", "AC-EAST"] {
+            assert!(ids.contains(&inside.to_string()), "{inside}: {ids:?}");
+        }
+        for outside in ["AC-MAN", "AC-EDI", "SHIP-DOVER", "SHIP-HORMUZ"] {
+            assert!(!ids.contains(&outside.to_string()), "{outside}: {ids:?}");
+        }
+        // The aircraft come first: the question is about them.
+        assert!(ids[..3].iter().all(|i| i.starts_with("AC-")), "{ids:?}");
+        assert!(summary.starts_with("area: London (35 km); "), "{summary}");
+        assert!(summary.contains("air-track 3"), "{summary}");
+        assert!(summary.contains("sea-vessel 1"), "{summary}");
+        assert!(!summary.contains("space-satellite"), "{summary}");
+    }
+
+    #[test]
+    fn ships_in_the_strait_of_hormuz_are_the_vessels_there() {
+        let (ids, summary) = ask("Any ships in the Strait of Hormuz?", vec![]);
+        assert_eq!(&ids[..2], ["SHIP-HORMUZ", "SHIP-HORMUZ2"], "{ids:?}");
+        assert!(!ids.contains(&"SHIP-DOVER".to_string()), "{ids:?}");
+        assert!(!ids.contains(&"SAT-1".to_string()), "{ids:?}");
+        assert!(summary.starts_with("area: the Strait of Hormuz (60 km); "));
+        assert!(
+            summary.contains("sea-vessel 1, sea-track 1")
+                || summary.contains("sea-track 1, sea-vessel 1")
+        );
+    }
+
+    #[test]
+    fn several_places_are_the_union_of_their_circles() {
+        let (ids, summary) = ask("Aircraft over Manchester or Edinburgh?", vec![]);
+        assert_eq!(ids.len(), 2, "{ids:?}");
+        assert!(ids.contains(&"AC-MAN".to_string()) && ids.contains(&"AC-EDI".to_string()));
+        assert!(summary.starts_with("area: Manchester (20 km), Edinburgh (20 km); "));
+        assert!(summary.contains("air-track 2"), "{summary}");
+    }
+
+    #[test]
+    fn a_question_naming_no_place_keeps_the_console_area() {
+        let (ids, summary) = ask("How many aircraft are there?", vec![]);
+        // The 800 km focus around the UK: every UK aircraft, no Gulf ship.
+        assert_eq!(
+            ids.iter().filter(|i| i.starts_with("AC-")).count(),
+            5,
+            "{ids:?}"
+        );
+        assert!(!ids.contains(&"SHIP-HORMUZ".to_string()));
+        assert!(
+            summary.starts_with("entities in the area by kind: "),
+            "{summary}"
+        );
+        assert!(summary.contains("air-track 5"), "{summary}");
+        let (_, any) = ask("Anything near Londonderry?", vec![]);
+        assert!(any.starts_with("area: Derry (15 km); "), "{any}");
     }
 
     #[test]
