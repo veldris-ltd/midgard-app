@@ -16,7 +16,10 @@ requirement, [STD:*] standard. Design specs, not evidence of an implemented syst
                                                    agent-flow architecture + ALL acceptance criteria
                                                    (72 across the suite) + build-capabilities register
 - SAD_06_Client_Platforms.docx                   — native mobile/desktop + web (browser+extension)
-- SAD_07_Admin_Control_Panel.docx                — NEW: unified, self-governing admin console
+- SAD_07_Admin_Control_Panel.docx                — unified, self-governing admin console
+- SAD_08_Gungnir.docx                            — consequence-projection module (forward-looking)
+- SAD_08b_Forseti.docx                           — Gungnir assurance addendum (forward-looking)
+- SAD_09_Completion_Plan.docx                    — completion plan: RF work items and AC-RF-* criteria
 
 ## The Admin Control Panel SAD (SAD_07) covers
 - One unified console over IAM, Governance, KMS, Fabric, Mimir, Bifrost, and Observability —

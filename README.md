@@ -931,7 +931,7 @@ These UI kits are **reference designs**. The console UIs live under `ui/` and `p
 | `SAD_06_Client_Platforms` | Native mobile / desktop + web (browser + extension) |
 | `SAD_07_Admin_Control_Panel` | Unified, self-governing admin console |
 
-The directory also carries two **forward-looking** module specifications — `SAD_08_Gungnir` and `SAD_08b_Forseti` — which have no implementation in this workspace, no acceptance coverage, and no place in the build playbook.
+The directory also carries two **forward-looking** module specifications — `SAD_08_Gungnir` and `SAD_08b_Forseti` — which have no implementation in this workspace, no acceptance coverage, and no place in the build playbook. `SAD_09_Completion_Plan` is the engineering backlog from reference implementation to operable product: every item a prompt, `AC-RF-*` acceptance criteria and a definition of done.
 
 The same documents ship as branded `.docx` in `docs/dev/documents/`; the 73 diagrams are rendered three ways each — Mermaid (`.mmd`), editable draw.io (`.drawio`), and PNG — in `docs/dev/diagrams/`.
 
