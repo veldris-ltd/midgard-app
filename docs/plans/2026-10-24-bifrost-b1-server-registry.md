@@ -48,6 +48,54 @@ Design: `docs/plans/2026-10-24-bifrost-live-design.md`. Spec: `docs/dev/markdown
 - **Binary name:** add `bifrost-server` as a binary that serves the same as `bifrost-fleet`, plus the registry. Keep `bifrost-fleet` working as an alias for compatibility (`deploy/compose`, `verify-bifrost`).
 - **Tests:** register good, bad signature, bad SBOM, unknown signer and tampered bytes; list; get re-verifies; restart durability; policy refusal for a role without RegisterArtefact.
 
+**As built (24 Oct 2026).**
+- **Binaries:** `bifrost-server` is new; `bifrost-fleet` is kept as an alias. Both are two-line wrappers around `bifrost_fleet_server::server::main`, so they serve exactly the same. `--service` defaults to the program's name. The ledger, journal and registry ids do not depend on that name, so an existing `bifrost-fleet` state directory opens under `bifrost-server` unchanged. `build-services.sh` now also copies `bifrost-server`.
+- **Registry module:** `bifrost/fleet-server/src/registry.rs`, backed by the `bifrost-artefact` gate (`bifrost_artefact::verify`, the same check as "admit only gate-verified artefacts"). What is signed is the Bifrost `ArtefactManifest` (id, version, component, payload SHA-256, SBOM SHA-256), in the `BIFROST_ARTEFACT` domain, with ML-DSA-65.
+- **Trust anchor:** `<state>/trust/release-signers/*.pub`, in `<alg> <key-id> <hex>` lines (what `mg-sign keygen --export-verifying-key` writes).
+  - An upload names its signer by key id. A key id that is not anchored is refused as `unknown-signer`.
+  - A non-ML-DSA-65 anchor stops the start with the reason, rather than making every upload fail.
+  - With no directory, the server starts and refuses every upload. compose and verify-bifrost need no change.
+  - The serving log line lists `release_signers`, `artefacts` and `rejected`.
+- **Chunking:** the transport frame is 1 MiB (`pq-mtls` `MAX_FRAME`, which applies to sealed records too), so a ~6 MB universal binary does not fit in one call. An upload is three mesh methods over one PQ-mTLS session, each authorised and audited as the policy action `RegisterArtefact`:
+  1. `RegisterArtefact` `{manifest{id,version,component,payloadSha256,sbomSha256}, sbom, signature(hex), signer, size}` returns `{uploadId, chunkBytes}`. An unknown signer is refused here, before any bytes are sent. An id@version that is already registered is a conflict.
+  2. `PutArtefactChunk` `{uploadId, offset, data(base64)}`, in order, at most 512 KiB of bytes (about 683 KiB as base64), returns `{received}`.
+  3. `CommitArtefact` `{uploadId}`: the gate runs on the whole artefact. It is admitted (audited "RegisterArtefact verified", then sealed and stored), or refused, recorded and audited "RegisterArtefact refused: <reason>".
+
+  Uploads are held in memory, owned by the identity that began them, bounded (128 MiB each, 8 in flight, 256 MiB in all) and dropped after 15 minutes idle. Requests and replies are JSON, so the B3 bridge can pass them through.
+- **Reads** (action `ReadArtefacts`):
+  - `ListArtefacts` `{}` returns `{signers, artefacts[]}`. Each item has a status of `verified`, `unverifiable` (held, but it no longer verifies, e.g. its signer was removed; never served) or `rejected` with `reason` (`bad-signature`, `sbom-mismatch`, `sbom-invalid`, `unknown-signer`, `digest-mismatch`) and `detail`.
+  - `GetArtefact` `{id, version, offset?, length?}` returns the manifest, signer, alg, signature, size and one slice of up to 512 KiB of bytes. The SBOM comes with the first slice, which is shortened by the SBOM's size to stay inside the frame. Offset 0 re-reads the sealed copy and re-verifies it; later slices come from the copy that check verified.
+  - `VerifyArtefact` `{id, version}` re-verifies the copy at rest now.
+  - New outcome codes: 4 not found, 5 rejected, 6 conflict.
+- **At rest** (`<state>/registry/`):
+  - `artefacts/<hex(id\0version)>.sealed` holds one file per verified artefact. Each is sealed with the service's data sealer (the `DurableFleet` sealer: AES-256-GCM under an ML-KEM-1024-wrapped key), its AAD bound to the id and version, and written atomically.
+  - `rejected.journal` is a sealed, sequence-bound, append-only journal of refusals: metadata and reason only, never bytes.
+  - On start, every artefact is unsealed and re-verified. A file that does not unseal fails the start closed.
+- **Client:** `bifrost_fleet_server::client` (`register`, `list`, `download`, `verify`) is what the tests use. It is meant for Task 3's uploader and B2's agent.
+- **Policy:** `deploy/compose/fleet-policy.json` adds:
+  - `ReadArtefacts` for `fleet-agent`, `fleet-operator` and `release-manager`;
+  - `RegisterArtefact` and `ReadFleet` for `release-manager`.
+
+  `run-local.sh setup` issues a `release-manager` identity and makes `fleet-state/trust/release-signers/`. It replaces an older policy.json that lacks the registry actions, keeping the old one as `policy.json.pre-registry`. `start` runs `bifrost-server --service bifrost-fleet` with the existing identity. This was checked in a throwaway `BIFROST_HOME` on ports 17750/19750 (setup, start, demo, a read by release-manager, stop). The running `~/Desktop/Midgard/bifrost-local` instance was left alone.
+- **Tests:**
+  - Unit (`registry.rs`, `b64.rs`): admit and reopen, bytes not in the clear; each refusal reason recorded and surviving a reopen; a flipped byte at rest fails the open; a removed signer is listed but never served; upload order, ownership, size bounds, idle expiry and conflict; `.pub` loading and the ML-DSA-65-only rule; base64 RFC 4648 vectors and strictness.
+  - End to end (`tests/registry.rs`, the real `bifrost-server` process):
+    - a 3 MB build in 7 chunks is admitted;
+    - bad signature, SBOM mismatch, unknown signer and tampered bytes are each refused with their reason, and a duplicate is a conflict;
+    - the listing shows 1 verified and 4 rejected;
+    - an operator, who lacks `RegisterArtefact`, is DENIED;
+    - a download reassembles and verifies against the anchor, VerifyArtefact passes, and an unknown version is not found;
+    - after a hard kill, the same listing and download come back;
+    - nothing is stored in the clear, and a flipped byte stops the start.
+  - The existing `serve.rs` still runs the `bifrost-fleet` alias.
+- **Checks:**
+  - `cargo test -p bifrost-fleet-server`: 8 unit, 2 integration, all passing.
+  - clippy `-D warnings` and `fmt --check` are clean for the crate. Workspace-wide `fmt --check` has existing drift in `mimir/`, which was not touched.
+  - `verify-bifrost` passes natively (`just` is not installed here, so the script ran directly with `bash`; no Docker needed): 5/5.
+- **For Task 3:**
+  - The registry verifies the Bifrost manifest signature, not `mg-sign`'s `.sig`/`.att` release envelope (`RELEASE_ARTEFACT` domain, ML-DSA-87 by default). release.sh should therefore make an ML-DSA-65 release keystore (`mg-sign keygen --alg ML-DSA-65 --export-verifying-key …`), install the `.pub` in `trust/release-signers/`, and sign each manifest through the custodian (`build_with_signer` with the keystore's signing root, as `mg-register` does), uploading with `client::register`.
+  - `mg-sign`'s envelope can still be made and shipped as `attestation` artefacts, as `mg-register` does, if wanted.
+
 ### Task 3: release.sh
 
 `tools/bifrost/release.sh <commit> --version X.Y.Z [--bad-build]`:
