@@ -17,7 +17,7 @@ BUILD="${MIDGARD_BUILD_DIR:-$HOME/Library/Caches/midgard-build}"
 OUT=dist/mac/bin
 TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 PACKAGES=(-p http-gateway -p heimdall-feed-server -p mimir-server -p forge-worker -p midgard-replay -p bifrost-fleet-server)
-BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay bifrost-fleet bifrost-agent)
+BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay bifrost-server bifrost-fleet bifrost-agent)
 
 for t in "${TARGETS[@]}"; do
   echo "== building for $t"

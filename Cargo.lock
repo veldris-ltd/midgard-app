@@ -192,6 +192,7 @@ version = "0.1.0-rc.1"
 dependencies = [
  "attest",
  "audit-writer",
+ "bifrost-artefact",
  "bifrost-fleet",
  "bifrost-rollout",
  "gateway",

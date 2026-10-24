@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The Bifrost fleet manager as a running service: agents check in over PQ-mTLS, every request is authorised and audited, fleet state is durable, and operators read drift and node liveness; plus bifrost-agent, the on-host client. [FR-B-3] [RC-12] [RC-17] [NFR-SEC-1]"
+description = "bifrost-server (alias bifrost-fleet): the Bifrost fleet manager and artefact registry as a running service. Agents check in over PQ-mTLS, signed SBOM-attested builds are uploaded, gate-verified and sealed at rest, every request is authorised and audited, and operators read drift, liveness and the registry; plus bifrost-agent, the on-host client. [FR-B-1] [FR-B-3] [FR-B-4] [RC-12] [RC-17] [NFR-SEC-1]"
 
 [features]
 default = ["backend-fips"]
@@ -15,12 +15,18 @@ backend-fips = [
     "governance/backend-fips",
     "audit-writer/backend-fips",
     "service-runtime/backend-fips",
+    "bifrost-artefact/backend-fips",
+    "attest/backend-fips",
 ]
 
 [dependencies]
 # Declarative channels, installations, check-ins and drift, durably journalled.
 bifrost-fleet = { path = "../fleet" }
 bifrost-rollout = { path = "../rollout" }
+# The artefact registry: the manifest, the SBOM and the verify gate; and the release
+# signers' anchor format. Verification needs no key custody.
+bifrost-artefact = { path = "../artefact" }
+attest = { path = "../../crypto/attest", default-features = false }
 audit-writer = { path = "../../crypto/audit-writer" }
 pqc-agility = { path = "../../crypto/pqc-agility" }
 pq-mtls = { path = "../../crypto/pq-mtls" }
@@ -37,6 +43,11 @@ service-runtime = { path = "../../services/runtime" }
 iam = { path = "../../services/iam" }
 attest = { path = "../../crypto/attest" }
 
+[[bin]]
+name = "bifrost-server"
+path = "src/bin/bifrost-server.rs"
+
+# The earlier name, kept so deploy/compose and verify-bifrost keep working.
 [[bin]]
 name = "bifrost-fleet"
 path = "src/main.rs"

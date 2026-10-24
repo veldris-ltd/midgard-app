@@ -5,9 +5,21 @@
       "resource": "*", "effect": "permit" },
     { "id": "agent-check-in", "role": "fleet-agent", "action": "CheckIn",
       "resource": "*", "effect": "permit" },
+    { "id": "agent-artefacts", "role": "fleet-agent", "action": "ReadArtefacts",
+      "resource": "*", "effect": "permit" },
     { "id": "operator-channel", "role": "fleet-operator", "action": "OpenChannel",
       "resource": "*", "effect": "permit" },
     { "id": "operator-read", "role": "fleet-operator", "action": "ReadFleet",
+      "resource": "*", "effect": "permit" },
+    { "id": "operator-artefacts", "role": "fleet-operator", "action": "ReadArtefacts",
+      "resource": "*", "effect": "permit" },
+    { "id": "release-channel", "role": "release-manager", "action": "OpenChannel",
+      "resource": "*", "effect": "permit" },
+    { "id": "release-register", "role": "release-manager", "action": "RegisterArtefact",
+      "resource": "*", "effect": "permit" },
+    { "id": "release-artefacts", "role": "release-manager", "action": "ReadArtefacts",
+      "resource": "*", "effect": "permit" },
+    { "id": "release-fleet", "role": "release-manager", "action": "ReadFleet",
       "resource": "*", "effect": "permit" }
   ]
 }
