@@ -66,11 +66,14 @@ impl DelimitedConnector {
                 .map(DataValue::Int)
                 .map_err(|_| ())
                 .ok(),
-            ColumnType::Float => field
-                .parse::<f64>()
-                .map(DataValue::Float)
-                .map_err(|_| ())
-                .ok(),
+            // "nan" and "inf" parse as f64 but are not values: NaN has no JSON form and
+            // would reach the fabric as null. No value where the column allows none,
+            // else refused like any bad number.
+            ColumnType::Float => match field.parse::<f64>() {
+                Ok(x) if x.is_finite() => Some(DataValue::Float(x)),
+                Ok(_) if nullable => return Ok(DataValue::Null),
+                _ => None,
+            },
             ColumnType::Bool => match field.to_ascii_lowercase().as_str() {
                 "true" | "1" | "yes" => Some(DataValue::Bool(true)),
                 "false" | "0" | "no" => Some(DataValue::Bool(false)),

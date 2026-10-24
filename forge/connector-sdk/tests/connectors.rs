@@ -129,6 +129,37 @@ fn malformed_source_fails_closed_at_ingest() {
     assert!(conn.sync(&ctx).is_err());
 }
 
+#[test]
+fn a_non_finite_number_is_no_value_in_a_nullable_column_and_refused_otherwise() {
+    // A sensor reporting humidity as "nan": NaN has no JSON form, so it once reached
+    // the fabric as null and the whole sync was refused. In a nullable column it is
+    // no value; in a non-nullable one it is refused like any bad number.
+    let schema = Schema::new(vec![
+        Column::new("key", ColumnType::Text),
+        Column::new("temperature_c", ColumnType::Float),
+        Column::nullable("humidity_pct", ColumnType::Float),
+    ]);
+    let sandbox = SandboxPolicy::air_gapped();
+    let ctx = SyncContext::new(&NoCredentials, &sandbox);
+    let ok = "key,temperature_c,humidity_pct\nA,11.8,nan\nB,9.5,-inf\nC,7.0,Infinity\nD,6.5,81.2\n";
+    let ds = DelimitedConnector::csv("air.csv", schema.clone(), ok)
+        .sync(&ctx)
+        .unwrap();
+    assert_eq!(ds.rows()[0][2], DataValue::Null);
+    assert_eq!(ds.rows()[1][2], DataValue::Null);
+    assert_eq!(ds.rows()[2][2], DataValue::Null);
+    assert_eq!(ds.rows()[3][2], DataValue::Float(81.2));
+    for bad in ["NaN", "inf", "-infinity"] {
+        let body = format!("key,temperature_c,humidity_pct\nA,{bad},50\n");
+        assert!(
+            DelimitedConnector::csv("air.csv", schema.clone(), body)
+                .sync(&ctx)
+                .is_err(),
+            "{bad} in a non-nullable column must be refused"
+        );
+    }
+}
+
 /// A fetcher that returns fixed bytes — the network transfer never actually runs
 /// in these tests; the sandbox gate decides whether the connector is allowed to.
 struct FixtureFetcher(&'static str);

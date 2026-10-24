@@ -765,15 +765,19 @@ pub fn records(collected: &Collector) -> String {
         let properties = o
             .properties
             .iter()
-            .map(|(name, value)| {
+            .filter_map(|(name, value)| {
                 let value = match value {
                     Value::Text(t) => Json::Str(t.clone()),
                     Value::Int(i) => Json::Int(*i),
+                    // A non-finite number (a transform's 0/0, say) has no JSON form and
+                    // would be written as null, which the enclosure refuses for the whole
+                    // sync: left out, as an absent value is.
+                    Value::Float(f) if !f.is_finite() => return None,
                     Value::Float(f) => Json::Num(*f),
                     Value::Bool(b) => Json::Bool(*b),
                     Value::Timestamp(t) => Json::Int(i64::try_from(*t).unwrap_or(i64::MAX)),
                 };
-                (name.clone(), value)
+                Some((name.clone(), value))
             })
             .collect();
         let mut fields = vec![
@@ -1089,6 +1093,31 @@ mod tests {
                 *b = (i as u8).wrapping_mul(31).wrapping_add(7);
             }
         }
+    }
+
+    #[test]
+    fn a_non_finite_number_is_left_out_of_the_record() {
+        let jobs = parse_jobs(JOBS, Path::new("/data")).unwrap();
+        let mapping = &jobs[0].objects;
+        let collected = Collector {
+            objects: vec![ObjectInstance {
+                id: "AC-1".into(),
+                type_id: "aircraft".into(),
+                properties: [
+                    ("tail".to_string(), Value::Text("AC-1".into())),
+                    ("ratio".to_string(), Value::Float(f64::NAN)),
+                    ("rate".to_string(), Value::Float(f64::INFINITY)),
+                ]
+                .into_iter()
+                .collect(),
+                marking: mapping.marking.clone(),
+                allowed_purposes: mapping.allowed_purposes.clone(),
+            }],
+            links: vec![],
+        };
+        let out = records(&collected);
+        assert!(out.contains("\"properties\":{\"tail\":\"AC-1\"}"), "{out}");
+        assert!(!out.contains("null"), "{out}");
     }
 
     #[test]
