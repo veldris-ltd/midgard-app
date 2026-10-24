@@ -220,7 +220,7 @@ Rules: commits signed (`git commit -S`), **no Claude attribution** (organisation
   - slot install and swap, journal recovery (crash at each step), refusing an unverified download, and adoption digest mismatch;
   - an end-to-end test with fake services: a tiny test program that becomes ready or not on cue, started by a test runner, never the real suite.
 
-**As built (24 Oct 2026)** (commit 06a15e3).
+**As built (24 Oct 2026)** (commit 06a15e3; review fixes in b8faae8, below; where they differ, the fixes win).
 - **Where:** `bifrost/fleet-server/src/suite.rs` (slots, journal, recovery, pruning, adoption check, the loop) and `--suite` in `src/bin/bifrost-agent.rs`.
 - **Command:** `bifrost-agent --suite --identity-dir DIR --addr HOST:PORT --service NAME --suite-root DIR --runner CMD [--install-id ID] [--channel stable] [--initial-version V] [--adopt-from dist/mac/bin] [--trust-dir <suite-root>/trust] [--services the six] [--interval 10]`.
   - The server lets an agent check in only for the installation its certificate names, so the identity must be called `mac-suite` for `--install-id mac-suite`.
@@ -268,10 +268,77 @@ Rules: commits signed (`git commit -S`), **no Claude attribution** (organisation
   - The real suite is never touched: the test's runner, services and paths are all in a temp folder.
   - `run-native.sh restart/status/start` with `MIDGARD_SUITE_ROOT` were checked by hand against a scratch `MIDGARD_HOME` with stand-in binaries (one small program copied under each name that prints that service's readiness line): ready/unready/stopped, restart by either name, replay with and without a recording, `start` and `stop` of all five, a missing `active/`. `run-local.sh agent` was checked only for its refusals (no identity, bad subcommand) and `status`; it is first run for real in Task 4.
   - **Results:** `cargo test -p bifrost-fleet-server`: 25 unit and 4 integration tests, all passing (suite_agent ~47 s). clippy `-D warnings` and `fmt --check` clean. `bash -n` on both scripts. `verify-bifrost.sh`: 5/5.
-- **Not done / to watch in Task 4:**
-  - A failed restart is not retried; if the orchestrator does not roll back (for example, a run with no deadline left), the service stays down until the next desired change.
-  - The agent restarts a service it swaps but never starts one that is merely stopped; health then reports it unhealthy.
-  - `--runner` is split on whitespace, so a checkout path with spaces would need a wrapper.
+- **Review fixes (commit b8faae8).** A review of 06a15e3 found it not safe for the real suite yet. What changed:
+  - **A failed restart reverts (was critical).** Before, the link stayed on the new version while the old process kept running and was reported ready as the new version, so rings could pass with nothing deployed. Now:
+    - On a restart error, the journal moves to a new step, `reverting`, and the link goes back to `from` under the swap lock. That only happens after `from`'s slot verifies again with the anchors.
+    - `from` is restarted, and only then is the journal removed. Crash recovery finishes an interrupted `reverting`, and also reverts when finishing a swap and its restart fails.
+    - If `from` is missing or no longer verifies, nothing more is changed: the swap is reported as stuck, the service stays on whatever runs, and the status says so.
+    - A reverted or stuck (service, version) is not tried again while it stays desired (refused installs still retry after 60 s). So with control plane down or not, a service is never left stopped by a failed swap while a good previous slot exists.
+  - **Version-true health.**
+    - `run-native.sh` resolves the `active` link when it launches. It runs that slot's path (managed) and writes `native-run/<s>.version`.
+    - `status <s>` prints `ready <v>` only if the running pid was launched from the version now linked and its log has the readiness line. Otherwise it prints `unready <v>`, `stopped` or `paused`.
+    - The agent reports the running version, not the linked one, and healthy only when ready on the linked version and not mid-swap. Status is sampled inside the swap lock (`suite::sample`).
+  - **`run-native.sh` locking and read-only status.**
+    - `status` no longer removes stale pid files.
+    - A per-service lock, `native-run/<s>.busy`, is a folder holding its owner's pid. It is re-entrant within one script run, and removed if its owner has exited, or if it has had no owner for 30 s. start, stop and restart take it; status reports `unready` while another holds it.
+  - **The user's stop wins.**
+    - `run-native.sh stop` writes `native-run/agent-paused`; `start` removes it. While it is there, `status` says `paused` and `restart` starts nothing (exit 3, "left stopped").
+    - The agent, seeing `paused`, reports every service unhealthy and changes nothing.
+    - A single service that is not running is relinked but not started (journal `restart=no`).
+  - **Adoption reflects what runs.** After adoption, each adopted service that is running is restarted once from its slot; one that is stopped is left stopped. `run-local.sh agent start` returns only when the agent writes `suite/agent.ready`, after recovery and adoption.
+    - Plain `run-native.sh start` (or `restart`) without `MIDGARD_SUITE_ROOT` refuses while `native-run/suite-root` names a managed suite, saying how to run it managed or to remove the marker.
+    - I chose refusing over warning: an unmanaged start would run dist/mac/bin builds the agent cannot see under a suite it reports on.
+  - **Replay and heimdall-source.**
+    - `run-local.sh agent start` exports `MIDGARD_REPLAY` from `BIFROST_REPLAY` (default `~/Library/Application Support/Midgard-dev/recordings/hour-1`; `none` to run without), so the runner can restart the replay.
+    - Managed, the replay is given `--source-bin <suite>/active/heimdall-source`, so each batch runs the linked one.
+    - heimdall-source's restart and status run the binary with an unknown option and require exit 2 and its `usage: heimdall-source` line.
+  - **Stopping.**
+    - SIGTERM and SIGINT set a flag (libc handler). The worker stops between services, the main loop joins it after the current swap (finished or reverted), removes `agent.ready` and exits 0.
+    - The runner runs in its own process group, so a terminal Ctrl-C does not kill it halfway.
+    - `run-local.sh agent stop` waits up to 10 minutes and warns if any runner process is left.
+  - **Docker.** `run-local.sh agent start` exports `MIDGARD_DOCKER_STOPPED=1` when Docker's daemon cannot be reached, then runs `run-native.sh check-docker` (new), refusing with its message if it fails.
+  - **Minor.**
+    - Each slot keeps `.<service>.artefact` (the signed manifest, SBOM, signature and signer), replacing the `.sha256` file. A kept slot is verified again with the anchors before it is reused or reverted to.
+    - `prune` looks only at real folders with safe names and removes only regular files.
+    - `agent.lock` is held with flock, one agent per suite root.
+    - Adoption retries only transport failures (connect, send, closed channel, handshake); every other error is a refusal.
+    - Launches keep the previous log as `<s>.log.1`. `MIDGARD_READY_TIMEOUT` (default 180) is how long a launch waits.
+    - The runner protocol is documented in `suite::CommandRunner`.
+  - **Tests:**
+    - `suite.rs` unit tests (14):
+      - a failed restart reverted and `from` restarted;
+      - stuck when `from` does not verify;
+      - a stopped service or a paused suite relinked, not started;
+      - recovery at every step, including an interrupted revert, a finish whose restart fails, and both slots bad;
+      - kept slots verified again (an altered slot, an altered record, another anchor set);
+      - reports carry the running version;
+      - the command runner's status lines and exit codes;
+      - transport errors told apart from verdicts;
+      - the root lock;
+      - pruning around a symlinked folder and an oddly named one;
+      - plus the earlier ones.
+    - `tests/suite_agent.rs` (about 90 s) adds:
+      - the running unmanaged services restarted from their slots by adoption (heimdall-source not running, left stopped);
+      - a second agent on the same root refused;
+      - the never-ready canary reverted locally at once ("reverted, back on 0.2.0 (ready)"), tried once only, then rolled back by the orchestrator;
+      - a paused suite: nothing restarted, rolled back;
+      - a stopped service relinked and back without being started;
+      - SIGTERM mid-swap: the swap finishes, exit 0, no journal, no ready marker, then a new agent completes the run.
+    - `tools/mac-app/test-run-native.sh` (new, about 25 s; needs `cc`): run-native's managed mode against a scratch `MIDGARD_HOME` with stand-in binaries. It checks, all passing:
+      - launch from the resolved slot, and `--source-bin`;
+      - version-true and read-only status;
+      - a never-ready build;
+      - the lock, and a dead owner's stale lock;
+      - heimdall-source checks;
+      - unmanaged start and restart refused;
+      - stop, pause, exit 3, and start unpausing;
+      - log rotation.
+    - **Results:** `cargo test -p bifrost-fleet-server`: 32 unit and 4 integration tests passing. clippy `-D warnings`, `fmt --check` and `bash -n` all clean. `verify-bifrost.sh`: 5/5.
+    - `run-local.sh agent` was checked for its refusals, `status`, and the Docker preflight (Docker's daemon is not running on this Mac: it exported `MIDGARD_DOCKER_STOPPED=1` and the check passed). A full `agent start` is for Task 4.
+- **Still to watch in Task 4:**
+  - The live install has no `mac-suite` identity yet (`setup --real-enclosure` with the suite stopped).
+  - The agent never starts a service the user stopped. A rollout then waits for its timeout and rolls back, which is the intended outcome.
+  - `--runner` is split on whitespace.
 
 ### Task 4: End to end on this Mac
 
