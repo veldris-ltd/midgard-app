@@ -731,7 +731,8 @@ windows_vcruntime() {
 }
 # The licences of what Midgard.exe and midgard-frames.exe carry inside them, into $1 for the
 # package's resources\licenses: the self-contained .NET runtime packs the publish used (the
-# *.Runtime.win-x64 download dependencies in Midgard's obj/project.assets.json: .NET's and
+# *.Runtime.win-x64 download dependencies in Midgard's obj/project.assets.json of the shared
+# frameworks it references: .NET's and
 # Windows Desktop's LICENSE.TXT and THIRD-PARTY-NOTICES.TXT) and the WebView2 SDK's LICENSE.txt
 # (its version from Midgard's packages.lock.json), from the NuGet global packages folder (or
 # the SDK's packs folder), with VERSIONS.txt naming each. Run after a restore.
@@ -773,9 +774,13 @@ import json, sys
 assets = json.load(open(sys.argv[1], encoding="utf-8-sig"))
 seen = set()
 for fw in assets["project"]["frameworks"].values():
+    # Only the shared frameworks the app references (the restore also lists packs it never
+    # uses, such as ASP.NET Core's, without downloading them). Microsoft.NETCore.App is implicit.
+    used = {"Microsoft.NETCore.App"} | set(fw.get("frameworkReferences", {}))
     for dep in fw.get("downloadDependencies", []):
         name, ver = dep["name"], dep["version"].strip("[]").split(",")[0].strip()
-        if name.endswith(".Runtime.win-x64") and name not in seen:
+        if (name.endswith(".Runtime.win-x64") and name[:-len(".Runtime.win-x64")] in used
+                and name not in seen):
             seen.add(name)
             print(name, ver)
 lock = json.load(open(sys.argv[2], encoding="utf-8-sig"))

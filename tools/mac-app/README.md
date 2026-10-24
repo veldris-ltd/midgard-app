@@ -14,6 +14,7 @@ Silicon) and run from a folder, without Docker.
 | `capture-tiles.py [--plan] [RECORDING]` | Stores the globe's close-up terrain and satellite imagery tiles over the UK and Ireland in `RECORDING/tiles/` (see [Recording and replay](#recording-and-replay)) |
 | `smoke.py [--base URL]` | Signs in through the gateway and checks the fabric, Heimdall's picture, Mimir's model plane and Forge's overview; exit 0 only if all pass |
 | `build-app.sh` | Builds `Midgard.app`, the presentation app (see [The app](#the-app)) |
+| `resources.sh` | Sourced, not run: the resource steps `build-app.sh` and the Windows package (`tools/win-app/layout.sh`, `build-zip.sh`) share: consoles, home, credits, starting state, model, recording |
 | `fetch-llama.sh` | Downloads and lays out the pinned llama.cpp model server for the app (see [Model server](#model-server)) |
 | `fetch-analytics.sh` | Downloads and lays out the pinned Python runtime, numpy, onnxruntime and model of the camera analytics for the app (see [Camera analytics](#camera-analytics)) |
 
