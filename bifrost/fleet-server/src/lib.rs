@@ -31,6 +31,7 @@ pub mod server;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::LedgerStore;
+use bifrost_artefact::SignedArtefact;
 use bifrost_artefact::{ArtefactManifest, BIFROST_SIG_ALG};
 use bifrost_fleet::{AgentReport, DurableFleet, NodeStatus};
 use bifrost_rollout::VersionId;
@@ -39,7 +40,10 @@ use governance::{GovContext, Governance};
 use policy::{ClassificationLevel, Clearance, Purpose, Resource};
 use pq_mtls::WorkloadIdentity;
 use pqc_agility::Signature;
-use registry::{NewUpload, Record, Refusal, Registry, Rejection, StoreError, CHUNK_BYTES};
+use registry::{
+    Listed, NewUpload, Record, Refusal, Registry, Rejection, StoreError, CHUNK_BYTES, LIST_PAGE,
+    MAX_LIST_PAGE,
+};
 use service_runtime::json::{parse, Json};
 use service_runtime::strict_json::{no_repeated_keys, object, only_keys, text};
 use telemetry::MetricsRegistry;
@@ -54,19 +58,21 @@ pub const ACTION_CHECK_IN: &str = "CheckIn";
 pub const ACTION_READ_FLEET: &str = "ReadFleet";
 
 /// Begin an artefact upload: `{"manifest": {"id", "version", "component",
-/// "payloadSha256", "sbomSha256"}, "sbom", "signature" (hex), "signer" (key id),
-/// "size"}`. Answers `{"uploadId", "chunkBytes"}`.
+/// "payloadSha256", "sbomSha256"}, "sbom" (base64, at most 512 KiB), "signature" (hex),
+/// "signer" (key id), "size"}`. Answers `{"uploadId", "chunkBytes"}`.
 pub const REGISTER_ARTEFACT: &str = "RegisterArtefact";
 /// Send the next slice of an upload: `{"uploadId", "offset", "data" (base64)}`.
 /// Answers `{"received"}`.
 pub const PUT_ARTEFACT_CHUNK: &str = "PutArtefactChunk";
 /// Finish an upload: `{"uploadId"}`. The gate runs here; answers the artefact as listed.
 pub const COMMIT_ARTEFACT: &str = "CommitArtefact";
-/// List verified, unverifiable and rejected artefacts: `{}`.
+/// List verified, unverifiable and rejected artefacts, a page at a time:
+/// `{"cursor"?, "limit"?}`. Answers `{"signers", "artefacts", "next"}`; `next` is the
+/// cursor of the following page, or null.
 pub const LIST_ARTEFACTS: &str = "ListArtefacts";
-/// Read a verified artefact, re-verified: `{"id", "version", "offset"?, "length"?}`.
-/// Answers the manifest, signer, signature, size and one slice of bytes; the SBOM too
-/// when `offset` is 0.
+/// Read a verified artefact, re-verified: `{"id", "version", "part"?, "offset"?,
+/// "length"?}`, where `part` is `"payload"` (the default) or `"sbom"`. Answers the
+/// manifest, signer, signature, the part's size and one slice of it, as base64.
 pub const GET_ARTEFACT: &str = "GetArtefact";
 /// Re-verify an artefact at rest now: `{"id", "version"}`.
 pub const VERIFY_ARTEFACT: &str = "VerifyArtefact";
@@ -450,7 +456,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             Err(e) => return (outcome::MALFORMED, e),
         };
         let mut registry = lock(&self.registry);
-        let upload = match registry.take(&peer.id.0, &upload_id) {
+        let upload = match registry.take(&peer.id.0, &upload_id, now) {
             Ok(upload) => upload,
             Err(e) => return store_error(e),
         };
@@ -458,21 +464,15 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             drop(registry);
             return self.refuse(peer, &upload, reason, now);
         }
-        let name = format!(
-            "artefact:{}@{}",
-            upload.manifest.id, upload.manifest.version
+        let (id, version) = (
+            upload.manifest().id.clone(),
+            upload.manifest().version.clone(),
         );
-        if lock(&self.governance)
-            .record_event(&peer.id.0, "RegisterArtefact verified", &name, now)
-            .is_err()
-        {
-            return (
-                outcome::FAILED,
-                "the registration could not be audited; nothing was stored".into(),
-            );
-        }
-        match registry.admit(upload, &peer.id.0, now) {
-            Ok(record) => (outcome::ACCEPTED, record_json(&record).encode()),
+        let name = format!("artefact:{id}@{version}");
+        // Stored first, then audited: the ledger never says "verified" for something
+        // that is not held, and what is held is withdrawn if the ledger cannot say so.
+        let record = match registry.admit(upload, &peer.id.0, now) {
+            Ok(record) => record,
             Err(e) => {
                 let _ = lock(&self.governance).record_event(
                     &peer.id.0,
@@ -480,9 +480,25 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                     &name,
                     now,
                 );
-                store_error(e)
+                return store_error(e);
             }
+        };
+        if lock(&self.governance)
+            .record_event(&peer.id.0, "RegisterArtefact verified", &name, now)
+            .is_err()
+        {
+            let withdrawn = registry.withdraw(&id, &version);
+            return (
+                outcome::FAILED,
+                match withdrawn {
+                    Ok(()) => "the registration could not be audited; nothing was stored".into(),
+                    Err(e) => format!(
+                        "the registration could not be audited, and withdrawing it failed: {e}"
+                    ),
+                },
+            );
         }
+        (outcome::ACCEPTED, record_json(&record).encode())
     }
 
     /// Record a refusal in the registry and the audit ledger, and answer it.
@@ -499,13 +515,16 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             &format!("RegisterArtefact refused: {}", reason.code()),
             &format!(
                 "artefact:{}@{}",
-                upload.manifest.id, upload.manifest.version
+                upload.manifest().id,
+                upload.manifest().version
             ),
             now,
         );
         let mut message = StoreError::Refused(reason).to_string();
-        if recorded.is_err() {
-            message.push_str(" (the refusal could not be recorded)");
+        match recorded {
+            Ok(true) => {}
+            Ok(false) => message.push_str(" (not listed: too many refusals)"),
+            Err(_) => message.push_str(" (the refusal could not be recorded)"),
         }
         if audited.is_err() {
             message.push_str(" (not audited)");
@@ -514,32 +533,54 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
     }
 
     fn list_artefacts(&self, _: &WorkloadIdentity, req: &Json, _: u64) -> (u8, String) {
-        if let Err(e) = only_keys(
-            object(req, "the request").unwrap_or(&[]),
-            "the request",
-            &[],
-        ) {
-            return (outcome::MALFORMED, e);
-        }
+        let parsed = (|| -> Result<(Option<String>, usize), String> {
+            only_keys(
+                object(req, "the request")?,
+                "the request",
+                &["cursor", "limit"],
+            )?;
+            let cursor = match req.get("cursor") {
+                None | Some(Json::Null) => None,
+                Some(_) => Some(text(req, "the request", "cursor")?.to_string()),
+            };
+            let limit = match req.get("limit") {
+                None => LIST_PAGE,
+                Some(_) => {
+                    usize::try_from(count(req, "the request", "limit")?).unwrap_or(MAX_LIST_PAGE)
+                }
+            };
+            Ok((cursor, limit))
+        })();
+        let (cursor, limit) = match parsed {
+            Ok(p) => p,
+            Err(e) => return (outcome::MALFORMED, e),
+        };
         let registry = lock(&self.registry);
-        let mut items: Vec<Json> = registry.records().map(record_json).collect();
-        items.extend(registry.rejections().iter().map(|r| {
-            Json::obj(vec![
-                ("id", Json::s(&r.id)),
-                ("version", Json::s(&r.version)),
-                ("component", Json::s(&r.component)),
-                ("status", Json::s("rejected")),
-                ("reason", Json::s(r.reason.code())),
-                ("detail", Json::s(r.reason.detail())),
-                ("signer", Json::s(&r.signer)),
-                ("payloadSha256", Json::s(&r.payload_sha256)),
-                ("submittedBy", Json::s(&r.by)),
-                (
-                    "submittedAt",
-                    Json::Int(i64::try_from(r.at).unwrap_or(i64::MAX)),
-                ),
-            ])
-        }));
+        let (page, next) = match registry.page(cursor.as_deref(), limit) {
+            Ok(p) => p,
+            Err(e) => return store_error(e),
+        };
+        let items = page
+            .into_iter()
+            .map(|item| match item {
+                Listed::Held(r) => record_json(r),
+                Listed::Rejected(r) => Json::obj(vec![
+                    ("id", Json::s(&r.id)),
+                    ("version", Json::s(&r.version)),
+                    ("component", Json::s(&r.component)),
+                    ("status", Json::s("rejected")),
+                    ("reason", Json::s(r.reason.code())),
+                    ("detail", Json::s(r.reason.detail())),
+                    ("signer", Json::s(&r.signer)),
+                    ("payloadSha256", Json::s(&r.payload_sha256)),
+                    ("submittedBy", Json::s(&r.by)),
+                    (
+                        "submittedAt",
+                        Json::Int(i64::try_from(r.at).unwrap_or(i64::MAX)),
+                    ),
+                ]),
+            })
+            .collect();
         let signers = registry.signer_ids();
         let body = Json::obj(vec![
             (
@@ -547,17 +588,24 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                 Json::Arr(signers.iter().map(|s| Json::s(s)).collect()),
             ),
             ("artefacts", Json::Arr(items)),
+            ("next", next.map_or(Json::Null, |c| Json::s(&c))),
         ]);
         (outcome::ACCEPTED, body.encode())
     }
 
-    fn get_artefact(&self, _: &WorkloadIdentity, req: &Json, _: u64) -> (u8, String) {
-        let parsed = (|| -> Result<(String, String, u64, u64), String> {
+    fn get_artefact(&self, peer: &WorkloadIdentity, req: &Json, now: u64) -> (u8, String) {
+        let parsed = (|| -> Result<(String, String, bool, u64, u64), String> {
             only_keys(
                 object(req, "the request")?,
                 "the request",
-                &["id", "version", "offset", "length"],
+                &["id", "version", "part", "offset", "length"],
             )?;
+            let sbom = match req.get("part") {
+                None => false,
+                Some(Json::Str(p)) if p == "payload" => false,
+                Some(Json::Str(p)) if p == "sbom" => true,
+                Some(_) => return Err("the request: \"part\" is \"payload\" or \"sbom\"".into()),
+            };
             let offset = match req.get("offset") {
                 None => 0,
                 Some(_) => count(req, "the request", "offset")?,
@@ -569,37 +617,38 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             Ok((
                 text(req, "the request", "id")?.to_string(),
                 text(req, "the request", "version")?.to_string(),
+                sbom,
                 offset,
                 length.min(CHUNK_BYTES as u64),
             ))
         })();
-        let (id, version, offset, length) = match parsed {
+        let (id, version, sbom, offset, length) = match parsed {
             Ok(p) => p,
             Err(e) => return (outcome::MALFORMED, e),
         };
-        // Every download starts by re-verifying the sealed copy; its later slices come
+        // Every part's first slice re-verifies the sealed copy; its later slices come
         // from the copy that check passed.
-        let fetched = lock(&self.registry).fetch(&id, &version, offset == 0);
-        let (record, artefact) = match fetched {
+        let (record, artefact) = match self.fetch_verified(peer, &id, &version, offset == 0, now) {
             Ok(f) => f,
-            Err(e) => return store_error(e),
+            Err(answer) => return answer,
         };
-        let size = artefact.payload.len() as u64;
+        let bytes: &[u8] = if sbom {
+            artefact.sbom.as_bytes()
+        } else {
+            &artefact.payload
+        };
+        let size = bytes.len() as u64;
         if offset > size {
             return (
                 outcome::MALFORMED,
                 format!("offset {offset} is past the end ({size} bytes)"),
             );
         }
-        // The first slice carries the SBOM too; keep the reply inside one frame.
-        let budget = if offset == 0 {
-            (CHUNK_BYTES as u64).saturating_sub(artefact.sbom.len() as u64)
-        } else {
-            CHUNK_BYTES as u64
-        };
-        let end = (offset + length.min(budget)).min(size);
-        let slice = &artefact.payload[offset as usize..end as usize];
-        let mut fields = vec![
+        // At most CHUNK_BYTES as base64, beside identifiers and hex: inside one frame
+        // (see the registry's frame budget).
+        let end = (offset + length).min(size);
+        let slice = &bytes[offset as usize..end as usize];
+        let fields = vec![
             ("manifest", manifest_json(&record.manifest)),
             ("signer", Json::s(&record.signer)),
             ("alg", Json::s(artefact.signature.alg().as_str())),
@@ -607,17 +656,15 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                 "signature",
                 Json::s(&attest::hex::hex(artefact.signature.as_bytes())),
             ),
+            ("part", Json::s(if sbom { "sbom" } else { "payload" })),
             ("size", Json::Int(size as i64)),
             ("offset", Json::Int(offset as i64)),
             ("data", Json::s(&b64::encode(slice))),
         ];
-        if offset == 0 {
-            fields.push(("sbom", Json::s(&artefact.sbom)));
-        }
         (outcome::ACCEPTED, Json::obj(fields).encode())
     }
 
-    fn verify_artefact(&self, _: &WorkloadIdentity, req: &Json, _: u64) -> (u8, String) {
+    fn verify_artefact(&self, peer: &WorkloadIdentity, req: &Json, now: u64) -> (u8, String) {
         let parsed = only_keys(
             object(req, "the request").unwrap_or(&[]),
             "the request",
@@ -633,10 +680,39 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             Ok(p) => p,
             Err(e) => return (outcome::MALFORMED, e),
         };
-        let fetched = lock(&self.registry).fetch(&id, &version, true);
-        match fetched {
+        match self.fetch_verified(peer, &id, &version, true, now) {
             Ok((record, _)) => (outcome::ACCEPTED, record_json(&record).encode()),
-            Err(e) => store_error(e),
+            Err(answer) => answer,
+        }
+    }
+
+    /// Fetch and verify an artefact for `peer`. A verification that fails now marks the
+    /// artefact unverifiable for good and is audited, with the reason.
+    fn fetch_verified(
+        &self,
+        peer: &WorkloadIdentity,
+        id: &str,
+        version: &str,
+        fresh: bool,
+        now: u64,
+    ) -> Result<(Record, Arc<SignedArtefact>), (u8, String)> {
+        let fetched = lock(&self.registry).fetch(id, version, fresh);
+        match fetched {
+            Ok(f) => Ok(f),
+            Err(StoreError::VerifyFailed(reason)) => {
+                let audited = lock(&self.governance).record_event(
+                    &peer.id.0,
+                    &format!("ReadArtefacts verify failed: {reason}"),
+                    &format!("artefact:{id}@{version}"),
+                    now,
+                );
+                let mut message = format!("{reason}; it will not be served");
+                if audited.is_err() {
+                    message.push_str(" (not audited)");
+                }
+                Err((outcome::REJECTED, message))
+            }
+            Err(e) => Err(store_error(e)),
         }
     }
 
@@ -686,7 +762,9 @@ fn store_error(e: StoreError) -> (u8, String) {
         StoreError::Malformed(_) => outcome::MALFORMED,
         StoreError::NotFound(_) => outcome::NOT_FOUND,
         StoreError::Conflict(_) => outcome::CONFLICT,
-        StoreError::Refused(_) | StoreError::Unverifiable(_) => outcome::REJECTED,
+        StoreError::Refused(_) | StoreError::Unverifiable(_) | StoreError::VerifyFailed(_) => {
+            outcome::REJECTED
+        }
         StoreError::Busy(_) | StoreError::Io(_) => outcome::FAILED,
     };
     (code, e.to_string())
@@ -731,9 +809,13 @@ fn parse_new_upload(req: &Json) -> Result<NewUpload, String> {
         payload_sha256: sha256_field(m, mat, "payloadSha256")?,
         sbom_sha256: sha256_field(m, mat, "sbomSha256")?,
     };
+    // Base64, so the SBOM's size on the wire does not depend on how JSON escapes it.
     let sbom = match req.get("sbom") {
-        Some(Json::Str(s)) => s.clone(),
-        _ => return Err(format!("{at}: \"sbom\" must be a string")),
+        Some(Json::Str(s)) => b64::decode(s)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+            .ok_or_else(|| format!("{at}: \"sbom\" must be base64 of UTF-8"))?,
+        _ => return Err(format!("{at}: \"sbom\" must be a base64 string")),
     };
     let signature = attest::hex::unhex(text(req, at, "signature")?)
         .ok_or_else(|| format!("{at}: \"signature\" must be hex"))?;

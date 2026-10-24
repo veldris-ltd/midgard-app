@@ -144,12 +144,20 @@ fn write_escaped(s: &str, out: &mut String) {
 
 // --- parsing (request bodies) ---
 
+/// How deeply arrays and objects may nest. The parser recurses once per level, so an
+/// unbounded depth would let a body of `[[[[…` exhaust the handler thread's stack and
+/// abort the whole service; no request or deployment file needs more than a few levels.
+pub const MAX_DEPTH: usize = 64;
+
 /// Parse a JSON document. Permissive enough for the small request bodies the
 /// console UIs send (objects of strings/numbers/bools/arrays/nested objects).
+/// Nesting deeper than [`MAX_DEPTH`] is refused, and `\u` escapes must be exactly four
+/// hex digits, with UTF-16 surrogates only in valid pairs.
 pub fn parse(input: &str) -> Result<Json, String> {
     let mut p = Parser {
         b: input.as_bytes(),
         i: 0,
+        depth: 0,
     };
     p.ws();
     let v = p.value()?;
@@ -163,6 +171,7 @@ pub fn parse(input: &str) -> Result<Json, String> {
 struct Parser<'a> {
     b: &'a [u8],
     i: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -183,8 +192,19 @@ impl<'a> Parser<'a> {
     fn value(&mut self) -> Result<Json, String> {
         self.ws();
         match self.peek() {
-            Some(b'{') => self.object(),
-            Some(b'[') => self.array(),
+            Some(b'{') | Some(b'[') => {
+                if self.depth >= MAX_DEPTH {
+                    return Err(format!("JSON nests deeper than {MAX_DEPTH} levels"));
+                }
+                self.depth += 1;
+                let v = if self.peek() == Some(b'{') {
+                    self.object()
+                } else {
+                    self.array()
+                };
+                self.depth -= 1;
+                v
+            }
             Some(b'"') => Ok(Json::Str(self.string()?)),
             Some(b't') | Some(b'f') => self.boolean(),
             Some(b'n') => self.null(),
@@ -275,16 +295,26 @@ impl<'a> Parser<'a> {
                         b'b' => s.push('\u{08}'),
                         b'f' => s.push('\u{0c}'),
                         b'u' => {
-                            let hex: String = (0..4)
-                                .map(|_| {
-                                    let c = self.peek().unwrap_or(b'0') as char;
-                                    self.i += 1;
-                                    c
-                                })
-                                .collect();
-                            let code =
-                                u32::from_str_radix(&hex, 16).map_err(|_| "bad \\u escape")?;
-                            s.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+                            let first = self.hex4()?;
+                            let code = match first {
+                                0xD800..=0xDBFF => {
+                                    // A high surrogate must be followed by `\u` + a low one.
+                                    if self.b.get(self.i..self.i + 2) != Some(b"\\u") {
+                                        return Err("lone surrogate in \\u escape".into());
+                                    }
+                                    self.i += 2;
+                                    let low = self.hex4()?;
+                                    if !(0xDC00..=0xDFFF).contains(&low) {
+                                        return Err("lone surrogate in \\u escape".into());
+                                    }
+                                    0x10000 + ((first - 0xD800) << 10) + (low - 0xDC00)
+                                }
+                                0xDC00..=0xDFFF => {
+                                    return Err("lone surrogate in \\u escape".into())
+                                }
+                                c => c,
+                            };
+                            s.push(char::from_u32(code).ok_or("bad \\u escape")?);
                         }
                         _ => return Err("bad escape".into()),
                     }
@@ -306,6 +336,18 @@ impl<'a> Parser<'a> {
             }
         }
         Err("unterminated string".into())
+    }
+
+    /// Exactly four hex digits.
+    fn hex4(&mut self) -> Result<u32, String> {
+        let digits = self
+            .b
+            .get(self.i..self.i + 4)
+            .filter(|d| d.iter().all(u8::is_ascii_hexdigit))
+            .ok_or("\\u must be followed by four hex digits")?;
+        self.i += 4;
+        let text = std::str::from_utf8(digits).map_err(|_| "bad \\u escape")?;
+        u32::from_str_radix(text, 16).map_err(|_| "bad \\u escape".to_string())
     }
 
     fn number(&mut self) -> Result<Json, String> {
@@ -402,5 +444,33 @@ mod tests {
     fn parses_utf8_and_escapes() {
         let v = parse(r#"{"s":"ML-DSA ✓ · ok"}"#).unwrap();
         assert_eq!(v.str_field("s"), Some("ML-DSA ✓ · ok"));
+    }
+
+    #[test]
+    fn deep_nesting_is_refused_not_a_stack_overflow() {
+        let ok = format!("{}{}", "[".repeat(MAX_DEPTH), "]".repeat(MAX_DEPTH));
+        assert!(parse(&ok).is_ok());
+        let deep = format!("{}{}", "[".repeat(MAX_DEPTH + 1), "]".repeat(MAX_DEPTH + 1));
+        assert!(parse(&deep).unwrap_err().contains("deeper than"));
+        // Far past any stack: still an error, not an abort.
+        let hostile = "[{\"a\":".repeat(200_000);
+        assert!(parse(&hostile).unwrap_err().contains("deeper than"));
+    }
+
+    #[test]
+    fn unicode_escapes_are_exact_and_surrogates_paired() {
+        let v = parse(r#""é😀A""#).unwrap();
+        assert_eq!(v.as_str(), Some("é😀A"));
+        for bad in [
+            r#""\ud83d""#,
+            r#""\ud83dx""#,
+            r#""\ud83dA""#,
+            r#""\ude00""#,
+            r#""\u12""#,
+            r#""\u+123""#,
+            r#""\u12g4""#,
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
     }
 }

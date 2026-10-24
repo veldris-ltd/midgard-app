@@ -85,7 +85,7 @@ pub fn register(
                 ("sbomSha256", Json::s(&attest::hex::hex(&m.sbom_sha256))),
             ]),
         ),
-        ("sbom", Json::s(&artefact.sbom)),
+        ("sbom", Json::s(&b64::encode(artefact.sbom.as_bytes()))),
         (
             "signature",
             Json::s(&attest::hex::hex(artefact.signature.as_bytes())),
@@ -122,9 +122,33 @@ pub fn register(
     )
 }
 
-/// The registry's listing: `{"signers", "artefacts"}`.
+/// The whole registry listing, every page: `{"signers", "artefacts"}`.
 pub fn list(session: &mut Session) -> Result<Json, CallError> {
-    call(session, LIST_ARTEFACTS, &Json::obj(vec![]))
+    let mut items = Vec::new();
+    let mut signers = Json::Arr(Vec::new());
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut request = vec![("limit", Json::Int(crate::registry::MAX_LIST_PAGE as i64))];
+        if let Some(c) = &cursor {
+            request.push(("cursor", Json::s(c)));
+        }
+        let page = call(session, LIST_ARTEFACTS, &Json::obj(request))?;
+        if let Some(s) = page.get("signers") {
+            signers = s.clone();
+        }
+        match page.get("artefacts") {
+            Some(Json::Arr(more)) => items.extend(more.iter().cloned()),
+            _ => return Err(broken("no artefacts in the reply")),
+        }
+        match page.str_field("next") {
+            Some(next) => cursor = Some(next.to_string()),
+            None => break,
+        }
+    }
+    Ok(Json::obj(vec![
+        ("signers", signers),
+        ("artefacts", Json::Arr(items)),
+    ]))
 }
 
 /// Ask the registry to re-verify `id`@`version` at rest now.
@@ -137,7 +161,6 @@ pub fn verify(session: &mut Session, id: &str, version: &str) -> Result<Json, Ca
 }
 
 /// A downloaded artefact and the key id of the signer the registry verified it under.
-/// The caller verifies it again against its own anchor before using it.
 #[derive(Debug, Clone)]
 pub struct Downloaded {
     /// The artefact, as the registry holds it.
@@ -146,10 +169,63 @@ pub struct Downloaded {
     pub signer: String,
 }
 
-/// Download `id`@`version` slice by slice.
+/// Download `id`@`version` — its SBOM, then its bytes, slice by slice — as the registry
+/// serves it. Prefer [`download_verified`], which also checks it against the caller's
+/// own anchors before handing it over.
 pub fn download(session: &mut Session, id: &str, version: &str) -> Result<Downloaded, CallError> {
-    let mut payload = Vec::new();
-    let mut first: Option<(ArtefactManifest, String, Signature, String, usize)> = None;
+    let (header, sbom) = fetch_part(session, id, version, "sbom")?;
+    let (again, payload) = fetch_part(session, id, version, "payload")?;
+    if again.manifest != header.manifest || again.signer != header.signer {
+        return Err(broken("the artefact changed during the download"));
+    }
+    let sbom = String::from_utf8(sbom).map_err(|_| broken("the SBOM is not UTF-8"))?;
+    Ok(Downloaded {
+        artefact: SignedArtefact {
+            manifest: header.manifest,
+            sbom,
+            payload,
+            signature: header.signature,
+        },
+        signer: header.signer,
+    })
+}
+
+/// Download `id`@`version` and verify it against `anchors` — the caller's own trust in
+/// release signers, not the registry's — before returning it. A signer the caller does
+/// not anchor, or an artefact that does not verify, is an error. [FR-B-4]
+pub fn download_verified(
+    session: &mut Session,
+    id: &str,
+    version: &str,
+    anchors: &attest::TrustAnchors,
+) -> Result<Downloaded, CallError> {
+    let got = download(session, id, version)?;
+    let key = anchors.get(&got.signer).ok_or_else(|| {
+        broken(format!(
+            "signer {:?} is not one this caller trusts",
+            got.signer
+        ))
+    })?;
+    bifrost_artefact::verify(key, &got.artefact)
+        .map_err(|e| broken(format!("{id}@{version} does not verify here: {e}")))?;
+    Ok(got)
+}
+
+struct Header {
+    manifest: ArtefactManifest,
+    signer: String,
+    signature: Signature,
+}
+
+/// Read one part (`sbom` or `payload`) slice by slice.
+fn fetch_part(
+    session: &mut Session,
+    id: &str,
+    version: &str,
+    part: &str,
+) -> Result<(Header, Vec<u8>), CallError> {
+    let mut bytes = Vec::new();
+    let mut header: Option<(Header, usize)> = None;
     loop {
         let reply = call(
             session,
@@ -157,45 +233,34 @@ pub fn download(session: &mut Session, id: &str, version: &str) -> Result<Downlo
             &Json::obj(vec![
                 ("id", Json::s(id)),
                 ("version", Json::s(version)),
-                ("offset", Json::Int(payload.len() as i64)),
+                ("part", Json::s(part)),
+                ("offset", Json::Int(bytes.len() as i64)),
             ]),
         )?;
         let data = reply
             .str_field("data")
             .ok_or_else(|| broken("no data in the reply"))
             .and_then(|d| b64::decode(d).map_err(broken))?;
-        if first.is_none() {
-            first = Some(parse_header(&reply)?);
+        if header.is_none() {
+            header = Some(parse_header(&reply)?);
         }
-        let size = first.as_ref().map_or(0, |f| f.4);
-        if data.is_empty() && payload.len() < size {
+        let size = header.as_ref().map_or(0, |h| h.1);
+        if data.is_empty() && bytes.len() < size {
             return Err(broken("the registry sent an empty slice before the end"));
         }
-        payload.extend_from_slice(&data);
-        if payload.len() >= size {
+        bytes.extend_from_slice(&data);
+        if bytes.len() >= size {
             break;
         }
     }
-    let (manifest, sbom, signature, signer, size) = first.expect("one reply was read");
-    if payload.len() != size {
-        return Err(broken(
-            "the registry sent more bytes than the artefact holds",
-        ));
+    let (header, size) = header.expect("one reply was read");
+    if bytes.len() != size {
+        return Err(broken("the registry sent more bytes than the part holds"));
     }
-    Ok(Downloaded {
-        artefact: SignedArtefact {
-            manifest,
-            sbom,
-            payload,
-            signature,
-        },
-        signer,
-    })
+    Ok((header, bytes))
 }
 
-type Header = (ArtefactManifest, String, Signature, String, usize);
-
-fn parse_header(reply: &Json) -> Result<Header, CallError> {
+fn parse_header(reply: &Json) -> Result<(Header, usize), CallError> {
     let field = |j: &Json, k: &str| {
         j.str_field(k)
             .map(str::to_string)
@@ -229,10 +294,11 @@ fn parse_header(reply: &Json) -> Result<Header, CallError> {
         .and_then(|n| usize::try_from(n).ok())
         .ok_or_else(|| broken("no size in the reply"))?;
     Ok((
-        manifest,
-        field(reply, "sbom")?,
-        Signature::new(alg, signature),
-        field(reply, "signer")?,
+        Header {
+            manifest,
+            signer: field(reply, "signer")?,
+            signature: Signature::new(alg, signature),
+        },
         size,
     ))
 }

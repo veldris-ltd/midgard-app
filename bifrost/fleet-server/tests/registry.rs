@@ -19,6 +19,7 @@ use iam::{Idp, IDP_SIG_ALG};
 use policy::Role;
 use pq_mtls::{encode_anchor, encode_cert, ServiceId, WorkloadIdentity};
 use pqc_agility::backend::fips::FipsSig;
+use pqc_agility::hash::sha256;
 use pqc_agility::{OsRng, SignatureScheme, SigningKey, VerifyingKey};
 use service_runtime::client::Session;
 use service_runtime::json::Json;
@@ -324,18 +325,112 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
     assert_eq!(field(&server.serving, "rejected").as_deref(), Some("4"));
     let mut ops = session(&clients, "ops-console", &server.mesh);
     assert_eq!(artefacts(&client::list(&mut ops).unwrap()), expected);
-    let again = client::download(&mut ops, "forge-worker", "0.1.0").unwrap();
+    let mut anchors = attest::TrustAnchors::new();
+    anchors.insert("release-1", vk.clone());
+    let again = client::download_verified(&mut ops, "forge-worker", "0.1.0", &anchors).unwrap();
     assert_eq!(again.artefact.payload, good.payload);
-    drop(ops);
+    // The caller's own anchors decide: a caller that does not trust release-1 refuses.
+    assert!(client::download_verified(
+        &mut ops,
+        "forge-worker",
+        "0.1.0",
+        &attest::TrustAnchors::new()
+    )
+    .unwrap_err()
+    .message
+    .contains("not one this caller trusts"));
+
+    // The listing comes a page at a time, with a cursor.
+    let page = client::call(
+        &mut ops,
+        bifrost_fleet_server::LIST_ARTEFACTS,
+        &Json::obj(vec![("limit", Json::Int(2))]),
+    )
+    .unwrap();
+    match page.get("artefacts") {
+        Some(Json::Arr(items)) => assert_eq!(items.len(), 2),
+        other => panic!("{other:?}"),
+    }
+    assert!(page.str_field("next").is_some(), "{}", page.encode());
+
+    // An SBOM near the 512 KiB cap, full of characters JSON escapes, goes up and comes
+    // back: it travels as base64, in its own slices.
+    let mut ci = session(&clients, "release-ci", &server.mesh);
+    let components: Vec<SbomComponent> = (0..2600)
+        .map(|i| SbomComponent::new(format!("crate-\"quoted\"-{i:05}"), "1.0.0"))
+        .collect();
+    let big_sbom = generate_sbom("big-sbom", "1.0.0", "service", components);
+    assert!(
+        big_sbom.len() > 400 * 1024 && big_sbom.len() <= 512 * 1024,
+        "{}",
+        big_sbom.len()
+    );
+    let big = build_and_sign(
+        "big-sbom",
+        "1.0.0",
+        "service",
+        binary(5000, 7),
+        big_sbom,
+        &sk,
+    );
+    client::register(&mut ci, &big, "release-1").expect("a large SBOM registers");
+    let got = client::download_verified(&mut ops, "big-sbom", "1.0.0", &anchors).unwrap();
+    assert_eq!(got.artefact.sbom, big.sbom);
+
+    // A copy that goes bad while the server runs is refused, audited, and marked: it
+    // is never served again, even once restored.
+    let big_file = state.join("registry/artefacts").join(format!(
+        "{}.sealed",
+        attest::hex::hex(&sha256(b"big-sbom\x001.0.0"))
+    ));
+    let original = std::fs::read(&big_file).unwrap();
+    let mut spoiled = original.clone();
+    spoiled[100] ^= 1;
+    std::fs::write(&big_file, &spoiled).unwrap();
+    match client::verify(&mut ops, "big-sbom", "1.0.0") {
+        Err(CallError {
+            code: Some(outcome::REJECTED),
+            message,
+        }) => {
+            assert!(message.contains("will not be served"), "{message}");
+            assert!(
+                !message.contains("not audited"),
+                "the failure is audited: {message}"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    std::fs::write(&big_file, &original).unwrap();
+    assert_eq!(
+        client::download(&mut ops, "big-sbom", "1.0.0")
+            .unwrap_err()
+            .code,
+        Some(outcome::REJECTED)
+    );
+    let listing = client::list(&mut ops).unwrap();
+    let big_listed = match listing.get("artefacts") {
+        Some(Json::Arr(items)) => items
+            .iter()
+            .find(|i| i.str_field("id") == Some("big-sbom"))
+            .cloned()
+            .unwrap(),
+        _ => panic!(),
+    };
+    assert_eq!(big_listed.str_field("status"), Some("unverifiable"));
+    drop((ci, ops));
     drop(server);
 
     // Nothing at rest is in the clear, and a flipped byte stops the start.
+    let good_file = state.join("registry/artefacts").join(format!(
+        "{}.sealed",
+        attest::hex::hex(&sha256(b"forge-worker\x000.1.0"))
+    ));
     let sealed: Vec<PathBuf> = std::fs::read_dir(state.join("registry/artefacts"))
         .unwrap()
         .map(|e| e.unwrap().path())
         .collect();
-    assert_eq!(sealed.len(), 1, "rejected builds leave no bytes behind");
-    let mut bytes = std::fs::read(&sealed[0]).unwrap();
+    assert_eq!(sealed.len(), 2, "rejected builds leave no bytes behind");
+    let mut bytes = std::fs::read(&good_file).unwrap();
     assert!(!bytes
         .windows(64)
         .any(|w| w == &good.payload[1_000_000..1_000_064]));
@@ -343,7 +438,7 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
     assert!(!journal.windows(13).any(|w| w == b"bad-signature"));
     let mid = bytes.len() / 2;
     bytes[mid] ^= 1;
-    std::fs::write(&sealed[0], bytes).unwrap();
+    std::fs::write(&good_file, bytes).unwrap();
     let err = try_start(&server_identity, &state)
         .err()
         .expect("a tampered registry does not start");

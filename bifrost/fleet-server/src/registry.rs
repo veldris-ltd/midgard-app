@@ -18,27 +18,45 @@
 //! [`CHUNK_BYTES`], in order; then the commit, where the whole artefact goes through the
 //! gate ([`Registry::gate`]) and is stored ([`Registry::admit`]) or refused and recorded
 //! ([`Registry::reject`]). An upload belongs to the identity that began it, lives in
-//! memory only, and is dropped after [`UPLOAD_IDLE_SECS`] without a chunk.
+//! memory only (its bytes are reserved once, on the first chunk, and become the stored
+//! artefact without a copy), and is dropped after [`UPLOAD_IDLE_SECS`] without a chunk.
+//! An identity may have [`MAX_UPLOADS_PER_OWNER`] in flight.
+//!
+//! ## Frame budget
+//! The transport frame is 1 MiB (1,048,576 bytes). Every message that carries bytes —
+//! an upload's SBOM and chunks, a download's slices of the SBOM or the payload — carries
+//! at most [`CHUNK_BYTES`] (512 KiB) of them, as base64: 699,052 bytes. The rest of such
+//! a message is the manifest (ids, versions and kinds are at most 128 characters from a
+//! set JSON never escapes, digests are hex), a signer id of the same kind, and the
+//! signature in hex (6,618 bytes for ML-DSA-65): under 10 KB. No free text travels with
+//! the bytes, so JSON escaping cannot inflate a message past the frame.
 //!
 //! ## At rest
 //! Under `<state>/registry/`:
-//! - `artefacts/<hex(id\0version)>.sealed` — one file per verified artefact (manifest,
-//!   SBOM, signature, bytes, signer, who registered it and when), sealed with the
-//!   service's data sealer (AES-256-GCM under an ML-KEM-1024-wrapped key, the sealer
-//!   `DurableFleet` uses) and bound by its AAD to its id and version, so a file renamed
-//!   onto another artefact does not open. Written atomically (temp, fsync, rename).
+//! - `artefacts/<hex(sha256(id\0version))>.sealed` — one file per verified artefact
+//!   (manifest, SBOM, signature, bytes, signer, who registered it and when), sealed with
+//!   the service's data sealer (AES-256-GCM under an ML-KEM-1024-wrapped key, the sealer
+//!   `DurableFleet` uses) and bound by its AAD to that name, so a file renamed onto
+//!   another artefact does not open; the unsealed id and version must hash to it too.
+//!   Written atomically (temp, fsync, rename). The name is a fixed 64 characters
+//!   whatever the id and version.
 //! - `rejected.journal` — refusals, a sealed append-only journal framed and
 //!   sequence-bound like the fleet journal. Rejected uploads keep their metadata and
-//!   reason; their bytes are never written.
+//!   reason; their bytes are never written. At most [`MAX_REJECTIONS`] are kept, and an
+//!   identity's unknown-signer refusals — the one refusal that needs no upload — are
+//!   kept at most [`UNKNOWN_SIGNER_LIMIT`] per [`UNKNOWN_SIGNER_WINDOW_SECS`]; beyond
+//!   either the upload is still refused, just not journalled.
 //!
 //! On open every artefact is unsealed and re-verified. A file that does not unseal or
 //! decode fails the start closed. One that unseals but no longer verifies — its
 //! signer's anchor has been removed — stays listed, as `unverifiable`, and is never
-//! served.
+//! served. One that fails verification while running is marked so too, and the caller
+//! audits it.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,23 +65,38 @@ use audit_writer::Sealer;
 use bifrost_artefact::{
     ArtefactManifest, ArtefactRef, SignedArtefact, VerifyError, BIFROST_SIG_ALG,
 };
+use pqc_agility::hash::sha256;
 use pqc_agility::{SigId, Signature};
 
-/// The largest slice of artefact bytes one upload chunk or one download reply carries.
-/// Base64 makes it about 683 KiB, under the transport's 1 MiB frame.
+/// The most bytes one message carries: an upload chunk, the SBOM in an upload's first
+/// request, or one slice of a download. Base64 makes it 699,052 bytes, under the
+/// transport's 1 MiB frame (see the module's frame budget).
 pub const CHUNK_BYTES: usize = 512 * 1024;
 /// The largest artefact the registry accepts.
 pub const MAX_ARTEFACT_BYTES: u64 = 128 * 1024 * 1024;
-/// The largest SBOM the registry accepts; it travels whole in the first request.
-pub const MAX_SBOM_BYTES: usize = 640 * 1024;
-/// Uploads in flight at once, and the bytes they may declare between them.
+/// The largest SBOM the registry accepts: it travels whole, as base64, in the upload's
+/// first request, so it has a chunk's budget.
+pub const MAX_SBOM_BYTES: usize = CHUNK_BYTES;
+/// Uploads in flight at once.
 pub const MAX_UPLOADS: usize = 8;
+/// Uploads one identity may have in flight at once.
+pub const MAX_UPLOADS_PER_OWNER: usize = 2;
 /// The bytes all uploads in flight may declare between them.
 pub const MAX_PENDING_BYTES: u64 = 256 * 1024 * 1024;
 /// An upload with no chunk for this long is dropped.
 pub const UPLOAD_IDLE_SECS: u64 = 900;
+/// The most refusals the journal keeps.
+pub const MAX_REJECTIONS: usize = 10_000;
+/// The unknown-signer refusals one identity may have journalled per window.
+pub const UNKNOWN_SIGNER_LIMIT: usize = 10;
+/// The window [`UNKNOWN_SIGNER_LIMIT`] counts over.
+pub const UNKNOWN_SIGNER_WINDOW_SECS: u64 = 3600;
+/// The listing page size when none is asked for, and the largest one served.
+pub const LIST_PAGE: usize = 100;
+/// The largest listing page served.
+pub const MAX_LIST_PAGE: usize = 500;
 
-const ARTEFACT_DS: &[u8] = b"midgard-bifrost-registry-artefact-v1";
+const ARTEFACT_DS: &[u8] = b"midgard-bifrost-registry-artefact-v2";
 const REJECTED_DS: &[u8] = b"midgard-bifrost-registry-rejected-v1";
 const RECORD_FORMAT: u8 = 1;
 const SEALED_EXT: &str = "sealed";
@@ -142,9 +175,12 @@ pub enum StoreError {
     Conflict(String),
     /// The gate refused it, for this reason.
     Refused(Refusal),
-    /// The artefact is held but does not verify now, so it is not served.
+    /// The artefact is held but was already found not to verify, so it is not served.
     Unverifiable(String),
-    /// Too many uploads in flight.
+    /// The artefact failed verification just now; it is marked unverifiable and will
+    /// not be served again. The caller audits this.
+    VerifyFailed(String),
+    /// Too many uploads in flight, or no memory for one.
     Busy(String),
     /// Reading or writing the store failed; nothing changed.
     Io(String),
@@ -157,6 +193,7 @@ impl std::fmt::Display for StoreError {
             | StoreError::NotFound(m)
             | StoreError::Conflict(m)
             | StoreError::Unverifiable(m)
+            | StoreError::VerifyFailed(m)
             | StoreError::Busy(m)
             | StoreError::Io(m) => write!(f, "{m}"),
             StoreError::Refused(r) => write!(f, "refused ({}): {}", r.code(), r.detail()),
@@ -177,7 +214,8 @@ pub struct Record {
     pub registered_by: String,
     /// When, in Unix seconds.
     pub registered_at: u64,
-    /// `Err(reason)` when it failed re-verification at start: listed, never served.
+    /// `Err(reason)` once it has failed re-verification, at start or since: listed,
+    /// never served.
     pub state: Result<(), String>,
 }
 
@@ -205,17 +243,27 @@ pub struct Rejection {
 impl Rejection {
     /// The rejection of `upload`, by `by` at `at`.
     pub fn of(upload: &Upload, reason: Refusal, by: &str, at: u64) -> Self {
+        let m = upload.manifest();
         Self {
-            id: upload.manifest.id.clone(),
-            version: upload.manifest.version.clone(),
-            component: upload.manifest.component.clone(),
+            id: m.id.clone(),
+            version: m.version.clone(),
+            component: m.component.clone(),
             signer: upload.signer.clone(),
-            payload_sha256: attest::hex::hex(&upload.manifest.payload_sha256),
+            payload_sha256: attest::hex::hex(&m.payload_sha256),
             reason,
             by: by.to_string(),
             at,
         }
     }
+}
+
+/// One entry of a listing page.
+#[derive(Debug, Clone, Copy)]
+pub enum Listed<'a> {
+    /// A held artefact, verified or unverifiable.
+    Held(&'a Record),
+    /// A refusal.
+    Rejected(&'a Rejection),
 }
 
 /// What a client declares when it begins an upload.
@@ -233,30 +281,21 @@ pub struct NewUpload {
     pub size: u64,
 }
 
-/// An upload in flight.
+/// An upload in flight. Its bytes accumulate in the artefact it will become.
 #[derive(Debug)]
 pub struct Upload {
     owner: String,
-    /// The signed manifest.
-    pub manifest: ArtefactManifest,
-    sbom: String,
-    signature: Signature,
+    artefact: SignedArtefact,
     /// The signing key's id.
     pub signer: String,
     size: u64,
-    bytes: Vec<u8>,
     touched: u64,
 }
 
 impl Upload {
-    /// The artefact this upload carries, once every byte has arrived.
-    pub fn artefact(&self) -> SignedArtefact {
-        SignedArtefact {
-            manifest: self.manifest.clone(),
-            sbom: self.sbom.clone(),
-            payload: self.bytes.clone(),
-            signature: self.signature.clone(),
-        }
+    /// The signed manifest.
+    pub fn manifest(&self) -> &ArtefactManifest {
+        &self.artefact.manifest
     }
 }
 
@@ -269,8 +308,8 @@ pub struct Registry {
     rejected: Vec<Rejection>,
     journal: File,
     uploads: BTreeMap<String, Upload>,
-    /// The artefact most recently verified for a download, so a download's later
-    /// chunks come from the copy its first chunk verified.
+    /// The artefact most recently verified, so a download's later slices come from the
+    /// copy its first slice verified.
     cache: Option<(ArtefactRef, Arc<SignedArtefact>)>,
 }
 
@@ -397,6 +436,60 @@ impl Registry {
         self.records.get(&ArtefactRef::new(id, version))
     }
 
+    /// One page of the listing: held artefacts by id then version, then refusals oldest
+    /// first, starting after `cursor` (from a previous page's `next`), at most `limit`
+    /// (capped at [`MAX_LIST_PAGE`]). Returns the page and the cursor of the next one,
+    /// if there is more. Refusals are append-only, so a cursor stays valid as the
+    /// registry grows.
+    pub fn page(
+        &self,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<Listed<'_>>, Option<String>), StoreError> {
+        let limit = limit.clamp(1, MAX_LIST_PAGE);
+        let bad = || StoreError::Malformed("the cursor is not one this registry gave".into());
+        let (after, rejected_from) = match cursor {
+            None => (Bound::Unbounded, 0),
+            Some(c) => match c.split_at(c.len().min(1)) {
+                ("h", rest) => {
+                    let raw = attest::hex::unhex(rest).ok_or_else(bad)?;
+                    let split = raw.iter().position(|&b| b == 0).ok_or_else(bad)?;
+                    let id = String::from_utf8(raw[..split].to_vec()).map_err(|_| bad())?;
+                    let version =
+                        String::from_utf8(raw[split + 1..].to_vec()).map_err(|_| bad())?;
+                    (Bound::Excluded(ArtefactRef::new(id, version)), 0)
+                }
+                ("r", rest) => (
+                    // Past every held artefact.
+                    Bound::Excluded(ArtefactRef::new(
+                        char::MAX.to_string(),
+                        char::MAX.to_string(),
+                    )),
+                    rest.parse::<usize>().map_err(|_| bad())?,
+                ),
+                _ => return Err(bad()),
+            },
+        };
+        let held = self
+            .records
+            .range((after, Bound::Unbounded))
+            .map(|(key, r)| (format!("h{}", cursor_key(key)), Listed::Held(r)));
+        let refused = self
+            .rejected
+            .iter()
+            .enumerate()
+            .skip(rejected_from)
+            .map(|(i, r)| (format!("r{}", i + 1), Listed::Rejected(r)));
+        let mut items: Vec<(String, Listed<'_>)> = held.chain(refused).take(limit + 1).collect();
+        let next = if items.len() > limit {
+            items.truncate(limit);
+            items.last().map(|(c, _)| c.clone())
+        } else {
+            None
+        };
+        Ok((items.into_iter().map(|(_, l)| l).collect(), next))
+    }
+
     /// Begin an upload for `owner` under `upload_id`. An unknown signer is refused here,
     /// before any bytes are sent; the caller records the refusal with [`Self::reject`].
     pub fn begin(
@@ -406,15 +499,12 @@ impl Registry {
         new: NewUpload,
         now: u64,
     ) -> Result<(), (StoreError, Option<Box<Upload>>)> {
-        self.uploads
-            .retain(|_, u| now.saturating_sub(u.touched) < UPLOAD_IDLE_SECS);
+        self.expire(now);
         let malformed = |m: String| (StoreError::Malformed(m), None);
         check_name(&new.manifest.id, "id").map_err(malformed)?;
         check_name(&new.manifest.version, "version").map_err(malformed)?;
         check_name(&new.manifest.component, "component").map_err(malformed)?;
-        if new.signer.is_empty() || new.signer.len() > 128 {
-            return Err(malformed("signer must be a key id".into()));
-        }
+        check_name(&new.signer, "signer").map_err(malformed)?;
         if new.size > MAX_ARTEFACT_BYTES {
             return Err(malformed(format!(
                 "an artefact may be at most {MAX_ARTEFACT_BYTES} bytes"
@@ -434,12 +524,14 @@ impl Registry {
         }
         let upload = Upload {
             owner: owner.to_string(),
-            manifest: new.manifest,
-            sbom: new.sbom,
-            signature: new.signature,
+            artefact: SignedArtefact {
+                manifest: new.manifest,
+                sbom: new.sbom,
+                payload: Vec::new(),
+                signature: new.signature,
+            },
             signer: new.signer,
             size: new.size,
-            bytes: Vec::new(),
             touched: now,
         };
         if self.signers.get(&upload.signer).is_none() {
@@ -448,12 +540,13 @@ impl Registry {
                 Some(Box::new(upload)),
             ));
         }
+        let busy = |m: &str| Err((StoreError::Busy(m.to_string()), None));
+        if self.uploads.values().filter(|u| u.owner == owner).count() >= MAX_UPLOADS_PER_OWNER {
+            return busy("this identity already has its uploads in flight; finish one first");
+        }
         let pending: u64 = self.uploads.values().map(|u| u.size).sum();
         if self.uploads.len() >= MAX_UPLOADS || pending + upload.size > MAX_PENDING_BYTES {
-            return Err((
-                StoreError::Busy("too many uploads in flight; try again later".into()),
-                None,
-            ));
+            return busy("too many uploads in flight; try again later");
         }
         self.uploads.insert(upload_id, upload);
         Ok(())
@@ -469,13 +562,15 @@ impl Registry {
         data: &[u8],
         now: u64,
     ) -> Result<u64, StoreError> {
+        self.expire(now);
         let upload = self.upload_mut(owner, upload_id)?;
         if data.len() > CHUNK_BYTES {
             return Err(StoreError::Malformed(format!(
                 "a chunk may carry at most {CHUNK_BYTES} bytes"
             )));
         }
-        let have = upload.bytes.len() as u64;
+        let payload = &mut upload.artefact.payload;
+        let have = payload.len() as u64;
         if offset != have {
             return Err(StoreError::Malformed(format!(
                 "expected the chunk at offset {have}, not {offset}"
@@ -487,18 +582,25 @@ impl Registry {
                 upload.size
             )));
         }
-        upload.bytes.extend_from_slice(data);
+        if payload.capacity() == 0 && upload.size > 0 {
+            // The whole artefact, once: it is never copied while it grows.
+            payload
+                .try_reserve_exact(upload.size as usize)
+                .map_err(|_| StoreError::Busy("no memory for this upload".into()))?;
+        }
+        payload.extend_from_slice(data);
         upload.touched = now;
-        Ok(upload.bytes.len() as u64)
+        Ok(payload.len() as u64)
     }
 
     /// Take `owner`'s complete upload out for the commit. An incomplete one stays.
-    pub fn take(&mut self, owner: &str, upload_id: &str) -> Result<Upload, StoreError> {
+    pub fn take(&mut self, owner: &str, upload_id: &str, now: u64) -> Result<Upload, StoreError> {
+        self.expire(now);
         let upload = self.upload_mut(owner, upload_id)?;
-        if upload.bytes.len() as u64 != upload.size {
+        let have = upload.artefact.payload.len() as u64;
+        if have != upload.size {
             return Err(StoreError::Malformed(format!(
-                "{} of {} bytes have arrived",
-                upload.bytes.len(),
+                "{have} of {} bytes have arrived",
                 upload.size
             )));
         }
@@ -507,11 +609,28 @@ impl Registry {
 
     /// The gate: verify `upload` against its named signer's anchored key.
     pub fn gate(&self, upload: &Upload) -> Result<(), Refusal> {
-        gate(&self.signers, &upload.signer, &upload.artefact())
+        gate(&self.signers, &upload.signer, &upload.artefact)
     }
 
-    /// Record a refusal durably. Its bytes are never written.
-    pub fn reject(&mut self, rejection: Rejection) -> Result<(), StoreError> {
+    /// Record a refusal durably; its bytes are never written. Returns whether it was
+    /// journalled: past [`MAX_REJECTIONS`], or past an identity's
+    /// [`UNKNOWN_SIGNER_LIMIT`], it is not (the upload is refused all the same).
+    pub fn reject(&mut self, rejection: Rejection) -> Result<bool, StoreError> {
+        if self.rejected.len() >= MAX_REJECTIONS {
+            return Ok(false);
+        }
+        if rejection.reason == Refusal::UnknownSigner {
+            let recent = self
+                .rejected
+                .iter()
+                .rev()
+                .take_while(|r| rejection.at.saturating_sub(r.at) < UNKNOWN_SIGNER_WINDOW_SECS)
+                .filter(|r| r.reason == Refusal::UnknownSigner && r.by == rejection.by)
+                .count();
+            if recent >= UNKNOWN_SIGNER_LIMIT {
+                return Ok(false);
+            }
+        }
         let seq = self.rejected.len() as u64;
         let sealed = self
             .sealer
@@ -525,12 +644,15 @@ impl Registry {
             .and_then(|_| self.journal.sync_all())
             .map_err(|e| StoreError::Io(format!("cannot record the refusal: {e}")))?;
         self.rejected.push(rejection);
-        Ok(())
+        Ok(true)
     }
 
     /// Store a gate-verified upload, sealed. Call only after [`Self::gate`] passed.
     pub fn admit(&mut self, upload: Upload, by: &str, now: u64) -> Result<Record, StoreError> {
-        let key = ArtefactRef::new(upload.manifest.id.clone(), upload.manifest.version.clone());
+        let key = ArtefactRef::new(
+            upload.artefact.manifest.id.clone(),
+            upload.artefact.manifest.version.clone(),
+        );
         if self.records.contains_key(&key) {
             return Err(StoreError::Conflict(format!(
                 "{}@{} is already registered",
@@ -538,33 +660,53 @@ impl Registry {
             )));
         }
         let stored = Stored {
-            signer: upload.signer.clone(),
+            signer: upload.signer,
             by: by.to_string(),
             at: now,
-            artefact: upload.artefact(),
+            artefact: upload.artefact,
         };
+        let name = name_hash(&key);
         let sealed = self
             .sealer
-            .seal(&artefact_aad(&key), &encode_stored(&stored))
+            .seal(&artefact_aad(&name), &encode_stored(&stored))
             .map_err(|e| StoreError::Io(format!("cannot seal the artefact: {e}")))?;
         atomic_write(&self.artefact_path(&key), &sealed)
             .map_err(|e| StoreError::Io(format!("cannot store the artefact: {e}")))?;
         let record = Record {
-            manifest: upload.manifest,
-            signer: upload.signer,
+            manifest: stored.artefact.manifest.clone(),
+            signer: stored.signer,
             size: upload.size,
-            registered_by: by.to_string(),
+            registered_by: stored.by,
             registered_at: now,
             state: Ok(()),
         };
-        self.records.insert(key, record.clone());
+        self.records.insert(key.clone(), record.clone());
+        self.cache = Some((key, Arc::new(stored.artefact)));
         Ok(record)
+    }
+
+    /// Undo [`Self::admit`] — for a registration that could not then be audited, so
+    /// nothing is held that the ledger does not record.
+    pub fn withdraw(&mut self, id: &str, version: &str) -> Result<(), StoreError> {
+        let key = ArtefactRef::new(id, version);
+        if self.cache.as_ref().is_some_and(|(k, _)| *k == key) {
+            self.cache = None;
+        }
+        self.records.remove(&key);
+        match fs::remove_file(self.artefact_path(&key)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(StoreError::Io(format!(
+                "cannot withdraw {id}@{version}: {e}"
+            ))),
+        }
     }
 
     /// Fetch `id`@`version` and verify it before handing it out. `fresh` reads and
     /// re-verifies the sealed copy on disk (every download starts so); otherwise the
-    /// copy the last fresh read verified may be used, so a download's chunks all come
-    /// from one verified artefact.
+    /// copy the last fresh read verified may be used, so a download's slices all come
+    /// from one verified artefact. A copy that fails is marked unverifiable for good
+    /// ([`StoreError::VerifyFailed`]), so it is never served again.
     pub fn fetch(
         &mut self,
         id: &str,
@@ -589,23 +731,39 @@ impl Registry {
                 }
             }
         }
-        let (_, stored) = read_artefact(self.sealer.as_ref(), &self.artefact_path(&key))
-            .map_err(StoreError::Unverifiable)?;
-        if stored.artefact.manifest != record.manifest || stored.signer != record.signer {
-            return Err(StoreError::Unverifiable(format!(
-                "{id}@{version} at rest is not the artefact that was registered"
-            )));
+        let checked = read_artefact(self.sealer.as_ref(), &self.artefact_path(&key)).and_then(
+            |(_, stored)| {
+                if stored.artefact.manifest != record.manifest || stored.signer != record.signer {
+                    return Err("the copy at rest is not the artefact that was registered".into());
+                }
+                gate(&self.signers, &stored.signer, &stored.artefact)
+                    .map_err(|r| format!("{} ({})", r.detail(), r.code()))?;
+                Ok(stored.artefact)
+            },
+        );
+        match checked {
+            Ok(artefact) => {
+                let artefact = Arc::new(artefact);
+                self.cache = Some((key, artefact.clone()));
+                Ok((record, artefact))
+            }
+            Err(reason) => {
+                if self.cache.as_ref().is_some_and(|(k, _)| *k == key) {
+                    self.cache = None;
+                }
+                if let Some(r) = self.records.get_mut(&key) {
+                    r.state = Err(reason.clone());
+                }
+                Err(StoreError::VerifyFailed(format!(
+                    "{id}@{version} does not verify: {reason}"
+                )))
+            }
         }
-        gate(&self.signers, &stored.signer, &stored.artefact).map_err(|r| {
-            StoreError::Unverifiable(format!(
-                "{id}@{version} does not verify: {} ({})",
-                r.detail(),
-                r.code()
-            ))
-        })?;
-        let artefact = Arc::new(stored.artefact);
-        self.cache = Some((key, artefact.clone()));
-        Ok((record, artefact))
+    }
+
+    fn expire(&mut self, now: u64) {
+        self.uploads
+            .retain(|_, u| now.saturating_sub(u.touched) < UPLOAD_IDLE_SECS);
     }
 
     fn upload_mut(&mut self, owner: &str, upload_id: &str) -> Result<&mut Upload, StoreError> {
@@ -618,12 +776,10 @@ impl Registry {
     }
 
     fn artefact_path(&self, key: &ArtefactRef) -> PathBuf {
-        let mut raw = key.id.clone().into_bytes();
-        raw.push(0);
-        raw.extend_from_slice(key.version.as_bytes());
-        self.dir
-            .join("artefacts")
-            .join(format!("{}.{SEALED_EXT}", attest::hex::hex(&raw)))
+        self.dir.join("artefacts").join(format!(
+            "{}.{SEALED_EXT}",
+            attest::hex::hex(&name_hash(key))
+        ))
     }
 }
 
@@ -632,7 +788,23 @@ fn gate(signers: &TrustAnchors, signer: &str, artefact: &SignedArtefact) -> Resu
     bifrost_artefact::verify(key, artefact).map_err(Refusal::from)
 }
 
-/// Ids, versions and component kinds: 1 to 128 of letters, digits, `.`, `_`, `-`, `+`.
+/// The fixed-length name an artefact is stored under: SHA-256 of `id\0version`.
+fn name_hash(key: &ArtefactRef) -> [u8; 32] {
+    let mut raw = key.id.clone().into_bytes();
+    raw.push(0);
+    raw.extend_from_slice(key.version.as_bytes());
+    sha256(&raw)
+}
+
+fn cursor_key(key: &ArtefactRef) -> String {
+    let mut raw = key.id.clone().into_bytes();
+    raw.push(0);
+    raw.extend_from_slice(key.version.as_bytes());
+    attest::hex::hex(&raw)
+}
+
+/// Ids, versions, component kinds and signer ids: 1 to 128 of letters, digits, `.`,
+/// `_`, `-`, `+` — characters JSON never escapes (see the frame budget).
 fn check_name(value: &str, what: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 128
@@ -682,10 +854,9 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-fn artefact_aad(key: &ArtefactRef) -> Vec<u8> {
+fn artefact_aad(name: &[u8; 32]) -> Vec<u8> {
     let mut a = ARTEFACT_DS.to_vec();
-    put_bytes(&mut a, key.id.as_bytes());
-    put_bytes(&mut a, key.version.as_bytes());
+    a.extend_from_slice(name);
     a
 }
 
@@ -793,28 +964,22 @@ impl<'a> Reader<'a> {
 
 fn read_artefact(sealer: &dyn Sealer, path: &Path) -> Result<(ArtefactRef, Stored), String> {
     let what = path.display();
-    let raw = path
+    let name: [u8; 32] = path
         .file_stem()
         .and_then(|s| s.to_str())
         .and_then(attest::hex::unhex)
+        .and_then(|b| b.try_into().ok())
         .ok_or_else(|| format!("{what}: not an artefact file name"))?;
-    let split = raw
-        .iter()
-        .position(|&b| b == 0)
-        .ok_or_else(|| format!("{what}: not an artefact file name"))?;
-    let key = match (
-        String::from_utf8(raw[..split].to_vec()),
-        String::from_utf8(raw[split + 1..].to_vec()),
-    ) {
-        (Ok(id), Ok(version)) => ArtefactRef::new(id, version),
-        _ => return Err(format!("{what}: not an artefact file name")),
-    };
     let sealed = fs::read(path).map_err(|e| format!("cannot read {what}: {e}"))?;
     let plain = sealer
-        .unseal(&artefact_aad(&key), &sealed)
+        .unseal(&artefact_aad(&name), &sealed)
         .map_err(|e| format!("{what} does not unseal (tampered, or another artefact's): {e}"))?;
     let stored = decode_stored(&plain).map_err(|e| format!("{what}: {e}"))?;
-    if stored.artefact.manifest.id != key.id || stored.artefact.manifest.version != key.version {
+    let key = ArtefactRef::new(
+        stored.artefact.manifest.id.clone(),
+        stored.artefact.manifest.version.clone(),
+    );
+    if name_hash(&key) != name {
         return Err(format!("{what} holds another artefact"));
     }
     Ok((key, stored))
@@ -917,7 +1082,6 @@ mod tests {
     use audit_writer::AuditError;
     use bifrost_artefact::{build_and_sign, generate_sbom, SbomComponent};
     use pqc_agility::backend::fips::FipsSig;
-    use pqc_agility::hash::sha256;
     use pqc_agility::{OsRng, SignatureScheme, SigningKey, VerifyingKey};
 
     /// An authenticating test sealer: a tag over the AAD and the plaintext, and the
@@ -962,30 +1126,44 @@ mod tests {
         a
     }
 
-    fn signed(sk: &SigningKey, payload: Vec<u8>) -> SignedArtefact {
+    fn signed_as(sk: &SigningKey, id: &str, version: &str, payload: Vec<u8>) -> SignedArtefact {
         let sbom = generate_sbom(
-            "forge-worker",
-            "0.1.0",
+            id,
+            version,
             "service",
             vec![SbomComponent::new("pqc-agility", "0.0.0")],
         );
-        build_and_sign("forge-worker", "0.1.0", "service", payload, sbom, sk)
+        build_and_sign(id, version, "service", payload, sbom, sk)
     }
 
-    fn upload(reg: &mut Registry, a: &SignedArtefact, signer: &str) -> Result<Upload, StoreError> {
-        let new = NewUpload {
+    fn signed(sk: &SigningKey, payload: Vec<u8>) -> SignedArtefact {
+        signed_as(sk, "forge-worker", "0.1.0", payload)
+    }
+
+    fn new_upload(a: &SignedArtefact, signer: &str) -> NewUpload {
+        NewUpload {
             manifest: a.manifest.clone(),
             sbom: a.sbom.clone(),
             signature: a.signature.clone(),
             signer: signer.into(),
             size: a.payload.len() as u64,
-        };
-        reg.begin("ci", "u1".into(), new, 10).map_err(|(e, _)| e)?;
+        }
+    }
+
+    fn upload(reg: &mut Registry, a: &SignedArtefact, signer: &str) -> Result<Upload, StoreError> {
+        reg.begin("ci", "u1".into(), new_upload(a, signer), 10)
+            .map_err(|(e, _)| e)?;
         let mut offset = 0u64;
         for piece in a.payload.chunks(CHUNK_BYTES) {
             offset = reg.chunk("ci", "u1", offset, piece, 11)?;
         }
-        reg.take("ci", "u1")
+        reg.take("ci", "u1", 12)
+    }
+
+    fn admit(reg: &mut Registry, a: &SignedArtefact) {
+        let up = upload(reg, a, "release-1").unwrap();
+        assert_eq!(reg.gate(&up), Ok(()));
+        reg.admit(up, "ci", 12).unwrap();
     }
 
     #[test]
@@ -997,9 +1175,7 @@ mod tests {
             .collect();
         let a = signed(&sk, payload);
         let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
-        let up = upload(&mut reg, &a, "release-1").unwrap();
-        assert_eq!(reg.gate(&up), Ok(()));
-        reg.admit(up, "ci", 12).unwrap();
+        admit(&mut reg, &a);
 
         let files: Vec<_> = fs::read_dir(dir.join("artefacts")).unwrap().collect();
         assert_eq!(files.len(), 1);
@@ -1014,6 +1190,51 @@ mod tests {
         let (record, got) = reg.fetch("forge-worker", "0.1.0", true).unwrap();
         assert_eq!(record.registered_by, "ci");
         assert_eq!(got.payload, a.payload);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_longest_names_store_under_a_fixed_length_file_name() {
+        let dir = scratch("long-names");
+        let (vk, sk) = keys();
+        let (id, version) = ("i".repeat(128), "v".repeat(128));
+        let a = signed_as(&sk, &id, &version, vec![9u8; 100]);
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        admit(&mut reg, &a);
+        let name = fs::read_dir(dir.join("artefacts"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .file_name();
+        assert_eq!(name.len(), 64 + 1 + SEALED_EXT.len());
+        drop(reg);
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        assert!(reg.fetch(&id, &version, true).is_ok());
+
+        let mut long = new_upload(&a, "release-1");
+        long.manifest.version = "v".repeat(129);
+        assert!(matches!(
+            reg.begin("ci", "x".into(), long, 0),
+            Err((StoreError::Malformed(_), None))
+        ));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_withdrawn_admission_leaves_nothing_behind() {
+        let dir = scratch("withdraw");
+        let (vk, sk) = keys();
+        let a = signed(&sk, vec![4u8; 100]);
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        admit(&mut reg, &a);
+        reg.withdraw("forge-worker", "0.1.0").unwrap();
+        assert!(reg.record("forge-worker", "0.1.0").is_none());
+        assert_eq!(fs::read_dir(dir.join("artefacts")).unwrap().count(), 0);
+        assert!(matches!(
+            reg.fetch("forge-worker", "0.1.0", false),
+            Err(StoreError::NotFound(_))
+        ));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1036,7 +1257,7 @@ mod tests {
         ] {
             let up = upload(&mut reg, &a, "release-1").unwrap();
             assert_eq!(reg.gate(&up), Err(want));
-            reg.reject(Rejection::of(&up, want, "ci", 20)).unwrap();
+            assert!(reg.reject(Rejection::of(&up, want, "ci", 20)).unwrap());
         }
         let good = signed(&sk, vec![1u8; 100]);
         match upload(&mut reg, &good, "nobody") {
@@ -1060,13 +1281,93 @@ mod tests {
     }
 
     #[test]
+    fn unknown_signer_refusals_are_journalled_only_up_to_a_rate() {
+        let dir = scratch("rate");
+        let (vk, sk) = keys();
+        let a = signed(&sk, vec![1u8; 10]);
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        let refusal = |by: &str, at: u64| {
+            let (_, up) = reg_begin_unknown(&a);
+            Rejection::of(&up, Refusal::UnknownSigner, by, at)
+        };
+        for i in 0..UNKNOWN_SIGNER_LIMIT as u64 {
+            assert!(reg.reject(refusal("spammer", 100 + i)).unwrap());
+        }
+        assert!(!reg.reject(refusal("spammer", 200)).unwrap());
+        assert!(reg.reject(refusal("someone-else", 200)).unwrap());
+        assert!(reg
+            .reject(refusal("spammer", 100 + UNKNOWN_SIGNER_WINDOW_SECS + 10))
+            .unwrap());
+        assert_eq!(reg.rejections().len(), UNKNOWN_SIGNER_LIMIT + 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn reg_begin_unknown(a: &SignedArtefact) -> ((), Upload) {
+        let dir = scratch("unknown-helper");
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), TrustAnchors::new()).unwrap();
+        let up = match reg.begin("x", "u".into(), new_upload(a, "nobody"), 0) {
+            Err((StoreError::Refused(Refusal::UnknownSigner), Some(up))) => *up,
+            other => panic!("{other:?}"),
+        };
+        let _ = fs::remove_dir_all(&dir);
+        ((), up)
+    }
+
+    #[test]
+    fn the_listing_pages_with_a_cursor_across_held_and_refused() {
+        let dir = scratch("pages");
+        let (vk, sk) = keys();
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        for v in ["0.1.0", "0.2.0", "0.3.0"] {
+            admit(&mut reg, &signed_as(&sk, "svc", v, vec![1u8; 10]));
+        }
+        let bad = signed_as(&sk, "svc", "0.9.0", vec![1u8; 10]);
+        for _ in 0..2 {
+            let (_, up) = reg_begin_unknown(&bad);
+            reg.reject(Rejection::of(&up, Refusal::UnknownSigner, "ci", 1))
+                .unwrap();
+        }
+        let mut seen = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let (page, next) = reg.page(cursor.as_deref(), 2).unwrap();
+            assert!(page.len() <= 2);
+            for item in page {
+                seen.push(match item {
+                    Listed::Held(r) => format!("held {}", r.manifest.version),
+                    Listed::Rejected(r) => format!("refused {}", r.version),
+                });
+            }
+            match next {
+                Some(c) => cursor = Some(c),
+                None => break,
+            }
+        }
+        assert_eq!(
+            seen,
+            [
+                "held 0.1.0",
+                "held 0.2.0",
+                "held 0.3.0",
+                "refused 0.9.0",
+                "refused 0.9.0"
+            ]
+        );
+        assert_eq!(reg.page(None, 10).unwrap().0.len(), 5);
+        assert!(reg.page(None, 10).unwrap().1.is_none());
+        for bad in ["x1", "hzz", "r-1", "h41", ""] {
+            assert!(reg.page(Some(bad), 2).is_err(), "{bad}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_tampered_store_fails_the_open_and_a_removed_signer_is_never_served() {
         let dir = scratch("at-rest");
         let (vk, sk) = keys();
         let a = signed(&sk, vec![3u8; 1000]);
         let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
-        let up = upload(&mut reg, &a, "release-1").unwrap();
-        reg.admit(up, "ci", 1).unwrap();
+        admit(&mut reg, &a);
         drop(reg);
 
         // The signer's anchor is withdrawn: listed, not served.
@@ -1094,19 +1395,52 @@ mod tests {
     }
 
     #[test]
+    fn a_copy_that_fails_while_running_is_marked_and_never_served_again() {
+        let dir = scratch("runtime-fail");
+        let (vk, sk) = keys();
+        let a = signed(&sk, vec![3u8; 1000]);
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        admit(&mut reg, &a);
+        let path = fs::read_dir(dir.join("artefacts"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let mut bytes = fs::read(&path).unwrap();
+        bytes[40] ^= 1;
+        fs::write(&path, &bytes).unwrap();
+        assert!(matches!(
+            reg.fetch("forge-worker", "0.1.0", true),
+            Err(StoreError::VerifyFailed(_))
+        ));
+        assert!(reg.record("forge-worker", "0.1.0").unwrap().state.is_err());
+        bytes[40] ^= 1;
+        fs::write(&path, &bytes).unwrap();
+        // Even restored, and even from the cache, it is not served until a restart
+        // re-verifies it.
+        for fresh in [true, false] {
+            assert!(matches!(
+                reg.fetch("forge-worker", "0.1.0", fresh),
+                Err(StoreError::Unverifiable(_))
+            ));
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn uploads_are_ordered_owned_bounded_and_unique() {
         let dir = scratch("uploads");
         let (vk, sk) = keys();
         let a = signed(&sk, vec![5u8; 10]);
         let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
-        let new = || NewUpload {
-            manifest: a.manifest.clone(),
-            sbom: a.sbom.clone(),
-            signature: a.signature.clone(),
-            signer: "release-1".into(),
-            size: 10,
+        let new = |version: &str| {
+            let mut n = new_upload(&a, "release-1");
+            n.manifest.version = version.into();
+            n
         };
-        reg.begin("ci", "u".into(), new(), 0).unwrap();
+        reg.begin("ci", "u".into(), new_upload(&a, "release-1"), 0)
+            .unwrap();
         assert!(matches!(
             reg.chunk("ci", "u", 4, &[5; 2], 0),
             Err(StoreError::Malformed(_))
@@ -1116,39 +1450,49 @@ mod tests {
             Err(StoreError::NotFound(_))
         ));
         reg.chunk("ci", "u", 0, &[5; 4], 0).unwrap();
-        assert!(matches!(reg.take("ci", "u"), Err(StoreError::Malformed(_))));
+        assert!(matches!(
+            reg.take("ci", "u", 0),
+            Err(StoreError::Malformed(_))
+        ));
         assert!(matches!(
             reg.chunk("ci", "u", 4, &[5; 7], 0),
             Err(StoreError::Malformed(_))
         ));
         reg.chunk("ci", "u", 4, &[5; 6], 0).unwrap();
-        let up = reg.take("ci", "u").unwrap();
+        let up = reg.take("ci", "u", 0).unwrap();
         reg.admit(up, "ci", 0).unwrap();
         assert!(matches!(
-            reg.begin("ci", "v".into(), new(), 0),
+            reg.begin("ci", "v".into(), new_upload(&a, "release-1"), 0),
             Err((StoreError::Conflict(_), None))
         ));
 
-        let mut big = new();
-        big.manifest.version = "0.2.0".into();
+        let mut big = new("0.2.0");
         big.size = MAX_ARTEFACT_BYTES + 1;
         assert!(matches!(
             reg.begin("ci", "w".into(), big, 0),
             Err((StoreError::Malformed(_), None))
         ));
 
-        // An idle upload is dropped.
-        let mut later = new();
-        later.manifest.version = "0.3.0".into();
-        reg.begin("ci", "x".into(), later, 100).unwrap();
-        let mut other = new();
-        other.manifest.version = "0.4.0".into();
-        reg.begin("ci", "y".into(), other, 100 + UPLOAD_IDLE_SECS)
-            .unwrap();
+        // Two in flight per identity.
+        reg.begin("ci", "x".into(), new("0.3.0"), 100).unwrap();
+        reg.begin("ci", "y".into(), new("0.4.0"), 100).unwrap();
+        assert!(matches!(
+            reg.begin("ci", "z".into(), new("0.5.0"), 100),
+            Err((StoreError::Busy(_), None))
+        ));
+        reg.begin("other", "o".into(), new("0.6.0"), 100).unwrap();
+
+        // An idle upload is dropped, whichever call notices first.
         assert!(matches!(
             reg.chunk("ci", "x", 0, &[5; 1], 100 + UPLOAD_IDLE_SECS),
             Err(StoreError::NotFound(_))
         ));
+        assert!(matches!(
+            reg.take("ci", "y", 100 + UPLOAD_IDLE_SECS),
+            Err(StoreError::NotFound(_))
+        ));
+        reg.begin("ci", "z".into(), new("0.5.0"), 100 + UPLOAD_IDLE_SECS)
+            .unwrap();
         let _ = fs::remove_dir_all(&dir);
     }
 
