@@ -93,8 +93,11 @@ echo "commit: $HEAD_SHA (binaries from $BIN_SHA)"
 
 # --- inputs that must be there already ---------------------------------------------------
 command -v zip >/dev/null && command -v unzip >/dev/null || die "zip and unzip are needed"
-zip -v | grep -q ZIP64_SUPPORT || die "this zip has no Zip64 support"
-unzip -v | grep -q ZIP64_SUPPORT || die "this unzip has no Zip64 support"
+# (Read whole first: grep -q stopping early would fail the pipe under pipefail.)
+features="$(zip -v 2>&1 || true)"
+case "$features" in *ZIP64_SUPPORT*) ;; *) die "this zip has no Zip64 support" ;; esac
+features="$(unzip -v 2>&1 || true)"
+case "$features" in *ZIP64_SUPPORT*) ;; *) die "this unzip has no Zip64 support" ;; esac
 [ -f "$STATE/VERSION" ] || die "no starting state in $STATE: stop the suite, then run
   bash tools/mac-app/make-starting-state.sh"
 for f in granite/model.manifest trust/model-signing.pub; do
@@ -117,7 +120,7 @@ MIDGARD_BUILD_DIR="$BUILD" bash tools/win-app/fetch-analytics.sh
 if [ "$SKIP_CONSOLES" = 1 ]; then
   for p in midgard heimdall mimir forge; do [ -f "$CONSOLES/$p/index.html" ] || die "--skip-consoles: $CONSOLES/$p is missing"; done
   newer=$(find ui sdk products \( -name node_modules -o -name dist -o -name target \) -prune -o -type f \
-    -newer "$CONSOLES/midgard/index.html" -print 2>/dev/null | head -3)
+    -newer "$CONSOLES/midgard/index.html" -print 2>/dev/null | head -3 || true)
   [ -z "$newer" ] || echo "WARNING: $CONSOLES: sources changed since the last build (e.g. ${newer//$'\n'/, })" >&2
   step "consoles: reusing $CONSOLES"
 else
