@@ -220,7 +220,7 @@ Rules: commits signed (`git commit -S`), **no Claude attribution** (organisation
   - slot install and swap, journal recovery (crash at each step), refusing an unverified download, and adoption digest mismatch;
   - an end-to-end test with fake services: a tiny test program that becomes ready or not on cue, started by a test runner, never the real suite.
 
-**As built (24 Oct 2026)** (commit 06a15e3; review fixes in b8faae8, below; where they differ, the fixes win).
+**As built (24 Oct 2026)** (commit 06a15e3; review fixes in b8faae8 and e39a5ea, below; where they differ, the fixes win).
 - **Where:** `bifrost/fleet-server/src/suite.rs` (slots, journal, recovery, pruning, adoption check, the loop) and `--suite` in `src/bin/bifrost-agent.rs`.
 - **Command:** `bifrost-agent --suite --identity-dir DIR --addr HOST:PORT --service NAME --suite-root DIR --runner CMD [--install-id ID] [--channel stable] [--initial-version V] [--adopt-from dist/mac/bin] [--trust-dir <suite-root>/trust] [--services the six] [--interval 10]`.
   - The server lets an agent check in only for the installation its certificate names, so the identity must be called `mac-suite` for `--install-id mac-suite`.
@@ -335,6 +335,38 @@ Rules: commits signed (`git commit -S`), **no Claude attribution** (organisation
       - log rotation.
     - **Results:** `cargo test -p bifrost-fleet-server`: 32 unit and 4 integration tests passing. clippy `-D warnings`, `fmt --check` and `bash -n` all clean. `verify-bifrost.sh`: 5/5.
     - `run-local.sh agent` was checked for its refusals, `status`, and the Docker preflight (Docker's daemon is not running on this Mac: it exported `MIDGARD_DOCKER_STOPPED=1` and the check passed). A full `agent start` is for Task 4.
+- **Second review round (commit e39a5ea).** A re-review of b8faae8 judged it safe, with these conditions:
+  - **I1, versions bound to the pid.** `launch` writes `native-run/<s>.version` as `<pid> <version>` after the pid file. `status` trusts it only when that pid is the live one in the pid file; managed, anything else is `unready -`. A managed `start` that finds a service already running from another launcher says its version is unknown, and that it stays unready until restarted.
+  - **I2:** `restart` checks `agent-paused` again after taking the service lock, and exits 3.
+  - **I3:** crash recovery restarts a service only if the runner says it runs now. A crash between run-native's stop and launch would then leave it stopped. That needs the runner itself to die (it runs in its own process group, so an agent crash does not stop it), and its status then reports it honestly.
+  - **M1:** `MIDGARD_DOCKER_STOPPED=auto` (new in run-native) skips the Docker check only while the daemon cannot be reached, deciding on each call. run-local exports `auto` for the agent unless the variable is already set, in place of a lifetime `1`.
+  - **M2:** an unknown running version is reported as `unknown`, not as the linked one.
+  - **M3, stale service locks.** A lock is stale only when its owner is dead, or is a live process that is not a `run-native.sh` (`ps` command check), or it has had no owner for 30 s. It is broken by an atomic rename aside, then checked to still be the stale owner's; if a live contender took it in between, it is put back.
+    - The one race left needs three contenders within milliseconds.
+  - **M4:** `start`'s container-lock clean-up uses the read-only `alive` check.
+  - **M5, signals and realigning.** A SIGINT that was ignored when inherited stays ignored. After recovery and adoption, `suite::realign` restarts every running service whose running version is not its linked one. That covers adoption, which no longer restarts services itself, and an interrupted restart. A paused suite and stopped services are left alone.
+  - **M6, "could not attempt".** `restart` exits 4 when it cannot try: the Docker or managed-suite check fails, the lock is held past `MIDGARD_LOCK_TIMEOUT` (600 s), or the old process will not stop. The agent then puts the link back on `from` without a restart, as `SwapOutcome::Deferred`, and retries after 60 s without marking the version failed.
+  - **Which script to use.** While the suite is managed, use only md_bifrost's `tools/mac-app/run-native.sh` with `MIDGARD_SUITE_ROOT`.
+    - The script prints this from `start` and `stop`, and still refuses an unmanaged start or restart.
+    - run-local's usage says the same.
+    - midgard-app's older copy does not know about the marker. That checkout was not changed.
+  - **Tests:**
+    - `suite.rs` unit tests (now 17), new:
+      - a not-attempted restart deferred, with the link back;
+      - recovery not restarting a service that is stopped now;
+      - realign restarting only running services off their linked version, and nothing while paused;
+      - `unknown` reported for an unknown running version;
+      - exit 4 parsed.
+    - `test-run-native.sh`, new checks:
+      - the pid-bound version, and a forged record not trusted;
+      - a service launched elsewhere: warned, `unready -` until restarted;
+      - a lock owner that is not run-native broken;
+      - a lock held past `MIDGARD_LOCK_TIMEOUT`: exit 4, nothing changed;
+      - paused while waiting for the lock: exit 3, the service untouched;
+      - Docker down: exit 4 without an override, and `auto` passing;
+      - the note naming the script.
+    - `suite_agent.rs` adds: after adoption, the services started elsewhere are realigned ("mimir-server runs unknown, linked 0.1.0: restarted, ready"), and the stopped heimdall-source is not touched; a mimir-server started elsewhere while the agent was stopped is realigned by the next agent.
+    - **Results:** `cargo test -p bifrost-fleet-server`: 35 unit and 4 integration tests passing. clippy `-D warnings`, `fmt --check` and `bash -n` all clean. `test-run-native.sh` all passed. `verify-bifrost.sh`: 5/5.
 - **Still to watch in Task 4:**
   - The live install has no `mac-suite` identity yet (`setup --real-enclosure` with the suite stopped).
   - The agent never starts a service the user stopped. A rollout then waits for its timeout and rolls back, which is the intended outcome.
