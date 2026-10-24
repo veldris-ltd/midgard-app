@@ -1,0 +1,28 @@
+# Camera analytics runtime bundled in the Windows app (read by fetch-analytics.sh; key=value,
+# no quotes). SHA-256s: python-build-standalone's SHA256SUMS for the release (which GitHub's
+# asset digests match), PyPI's digests for the wheels, MODEL.md's for the model.
+#
+# The same CPython (3.13.16, release 20261009), numpy (2.5.4) and onnxruntime (1.23.2) as
+# tools/mac-app/analytics.lock, so the Mac and Windows apps run the analytics on the same
+# versions: onnxruntime 1.23.2 publishes a cp313 win_amd64 wheel (uploaded 2025-10-22), so no
+# newer one is needed. numpy's win_amd64 wheel carries OpenBLAS (scipy-openblas, in
+# numpy.libs). onnxruntime is installed without its declared dependencies (coloredlogs,
+# flatbuffers, packaging, protobuf, sympy): inference does not import them. The CPU execution
+# provider only (DirectML is a separate package, out of scope).
+#
+# On a Mac, fetch-analytics.sh compiles the standard library and site-packages with the Mac
+# lock's CPython 3.13.16 for this Mac (the same version, so the same bytecode magic): its
+# arm64_python or x64_python entry in tools/mac-app/analytics.lock. On Windows the runtime itself.
+date=2026-10-24
+python_version=3.13.16
+python_release=20261009
+python_url=https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-x86_64-pc-windows-msvc-install_only.tar.gz
+python_sha256=286285f159bc711e4f0d89bd3d01993d3a321b84bd6593bd66dc816c23609388
+numpy_url=https://files.pythonhosted.org/packages/90/8c/140a40398a66b4471211be1affdb6ed24c486d581bd28d07b7f2fcb69540/numpy-2.5.4-cp313-cp313-win_amd64.whl
+numpy_sha256=8b4d2fd2d34e5f8c9235ee787de5631a37a28402b15cb80814df973d2be54129
+onnxruntime_url=https://files.pythonhosted.org/packages/4a/93/aba75358133b3a941d736816dd392f687e7eab77215a6e429879080b76b6/onnxruntime-1.23.2-cp313-cp313-win_amd64.whl
+onnxruntime_sha256=1f9cc0a55349c584f083c1c076e611a7c35d5b867d5d6e6d6c823bf821978088
+model_url=https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_s.onnx
+model_sha256=c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063
+yolox_license_url=https://raw.githubusercontent.com/Megvii-BaseDetection/YOLOX/0.1.1rc0/LICENSE
+yolox_license_sha256=577c03d505ec80f667ebf96ebd0cc4f6825c817ca1088ee348c48aaabd51bd92

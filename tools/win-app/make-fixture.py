@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write a tiny synthetic recording for the suite's end-to-end smoke test (run-suite.py).
 
-    python tools/win-app/make-fixture.py OUT_DIR
+    python tools/win-app/make-fixture.py [--camera-clip CLIP.mp4 [--camera-still STILL.jpg]] OUT_DIR
 
 OUT_DIR must not exist or be empty. It gets what midgard-replay reads (format version 1,
 tools/replay/src/recording.rs), as tools/mac-app/record.py packs it, except that the
@@ -13,10 +13,14 @@ batches are plain heimdall.jsonl: replay decompresses heimdall.jsonl.gz with
                        and utilities layers, among them one land-camera
   media/CAM-TEST.jpg   the camera's still (an 8x8 grey JPEG made here), which its
                        image_url names as /media/CAM-TEST.jpg
+  media/JamCams_00000.00001.mp4 (and .jpg)   with --camera-clip (and --camera-still): a
+                       second camera, JamCams_00000.00001, whose stored clip is that file
+                       (make-camera-clip.py's synthetic one), for the camera analytics,
+                       which analyse clips of JamCams_ cameras (heimdall/analytics)
   forge/manifest.json  one version of the Forge source file sites.csv
   forge/000000-sites.csv
 
-Everything is made up here: no recorded or third-party data. The same input gives the
+Everything is made up here (or by make-camera-clip.py): no recorded or third-party data. The same input gives the
 same bytes. Python standard library only.
 """
 import json
@@ -38,6 +42,8 @@ FEEDS = {
 }
 CAMERA_ENTITY = "CAM-TEST"
 CAMERA_IMAGE = f"/media/{CAMERA_ENTITY}.jpg"
+# The camera with a clip (--camera-clip): a JamCams_ id, as analytics.py takes clips from those.
+CLIP_CAMERA = "JamCams_00000.00001"
 FORGE_FILE = "sites.csv"
 # The Forge job run-suite.py configures reads these columns (updated_at is a time,
 # which replay moves to the loop like the observations' times).
@@ -53,9 +59,10 @@ def observation(entity, kind, offset, **attrs):
     return {"entity": entity, "kind": kind, "observedAt": RECORDED_FROM + offset, "attrs": attrs}
 
 
-def batches():
+def batches(clip=False, still=False):
     """(offset, feed, observations): every feed's first batch at offset 0, so the whole
-    picture is there as soon as replay primes it, and a second at offset 60."""
+    picture is there as soon as replay primes it, and a second at offset 60. With `clip`
+    (and `still`), the clip camera too."""
     out = []
     for offset in (0, 60):
         step = offset // 60
@@ -89,6 +96,12 @@ def batches():
         observation(CAMERA_ENTITY, "land-camera", 0, lat=51.5, lon=-0.12, alt_m=0.0,
                     name="Fixture camera", view="North", image_url=CAMERA_IMAGE,
                     camera_type="traffic", source="fixture")]))
+    if clip:
+        attrs = dict(name="Fixture camera with a clip", view="East", video_url=f"/media/{CLIP_CAMERA}.mp4",
+                     camera_type="traffic", source="fixture")
+        if still:
+            attrs["image_url"] = f"/media/{CLIP_CAMERA}.jpg"
+        out[-1][2].append(observation(CLIP_CAMERA, "land-camera", 0, lat=51.51, lon=-0.13, alt_m=0.0, **attrs))
     out.sort(key=lambda b: b[0])
     return out
 
@@ -116,18 +129,30 @@ def write(path, data):
 
 
 def main(argv):
-    if len(argv) != 1:
+    clip = still = None
+    args = list(argv)
+    while len(args) > 1 and args[0] in ("--camera-clip", "--camera-still"):
+        flag, value = args.pop(0), args.pop(0)
+        if flag == "--camera-clip":
+            clip = value
+        else:
+            still = value
+    if len(args) != 1 or args[0].startswith("--") or (still and not clip):
         sys.exit(__doc__.split("\n\n")[1])
-    out = argv[0]
+    out = args[0]
     if os.path.exists(out) and os.listdir(out):
         sys.exit(f"{out} is not empty")
     for d in (out, os.path.join(out, "media"), os.path.join(out, "forge")):
         os.makedirs(d, exist_ok=True)
     lines = [json.dumps({"offset": o, "feed": f, "observations": obs}, separators=(",", ":"),
                         allow_nan=False, ensure_ascii=False)
-             for o, f, obs in batches()]
+             for o, f, obs in batches(bool(clip), bool(still))]
     write(os.path.join(out, "heimdall.jsonl"), "\n".join(lines) + "\n")
     write(os.path.join(out, "media", f"{CAMERA_ENTITY}.jpg"), grey_jpeg())
+    for src, ext in ((clip, "mp4"), (still, "jpg")):
+        if src:
+            with open(src, "rb") as f:
+                write(os.path.join(out, "media", f"{CLIP_CAMERA}.{ext}"), f.read())
     rel = f"forge/{0:06d}-{FORGE_FILE}"
     write(os.path.join(out, *rel.split("/")), FORGE_CSV)
     write(os.path.join(out, "forge", "manifest.json"),
@@ -135,9 +160,9 @@ def main(argv):
     write(os.path.join(out, "meta.json"),
           json.dumps({"version": 1, "recordedFrom": RECORDED_FROM, "duration": DURATION,
                       "feeds": sorted(FEEDS), "forgeFiles": [FORGE_FILE]}, indent=1) + "\n")
-    count = sum(len(obs) for _, _, obs in batches())
+    count = sum(len(obs) for _, _, obs in batches(bool(clip), bool(still)))
     print(f"fixture: {out}: {count} observations in {len(lines)} batches from {len(FEEDS)} feeds, "
-          f"1 camera still, 1 Forge file")
+          f"1 camera still, {'1 camera clip (' + CLIP_CAMERA + '), ' if clip else ''}1 Forge file")
 
 
 if __name__ == "__main__":

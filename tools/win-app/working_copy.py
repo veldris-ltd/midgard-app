@@ -2,8 +2,8 @@
 way an enclosure is first made (deploy/compose/init.sh), since CI has no live enclosure
 home to copy as tools/mac-app/make-starting-state.sh does: `mg-admin init`, the gateway's
 policy and an ontology for the fixture, one enrolled analyst (a random password, never
-printed), a mesh identity per service and per recorded feed (`mg-admin mesh issue`, the
-roles the Mac home's identities carry), Heimdall's and Mimir's policies, one Forge job on
+printed), a mesh identity per service, per recorded feed and for the camera analytics
+(`mg-admin mesh issue`, the roles the Mac home's identities carry), Heimdall's and Mimir's policies, one Forge job on
 the fixture's CSV (its first version copied in, as the starting state carries the current
 CSVs), and a model directory signed with a fresh key (`mg-model`): tiny GGUF-headed
 weights, since the model is the stub (stub_llm.py).
@@ -167,7 +167,10 @@ def make_state(w, tools, fixture, models=None, keys=None, starting_state=False):
         f.write(text)
     del password, text
 
-    for d, service, roles in IDENTITIES + [("feeds", f, "feed-source") for f in feeds]:
+    # The feeds' identities, and the camera analytics' (they send as camera-analytics with
+    # heimdall-source from the same folder, as on the Mac).
+    sources = feeds + [f for f in ("camera-analytics",) if f not in feeds]
+    for d, service, roles in IDENTITIES + [("feeds", f, "feed-source") for f in sources]:
         run_tool([admin, "mesh", "issue", "--state-dir", airports, "--service", service,
                   "--roles", roles, "--out", w / "airports-mesh" / d])
 
