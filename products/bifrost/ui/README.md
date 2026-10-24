@@ -9,7 +9,7 @@ shared `ConsoleShell`. Accent: bridge-violet (`theme-bifrost`).
 
 ```bash
 pnpm install                                   # from the repo root (once)
-pnpm --filter @midgard/console-bifrost dev     # http://localhost:5174
+pnpm --filter @midgard/console-bifrost dev     # http://localhost:5177
 pnpm --filter @midgard/console-bifrost build   # typecheck + production bundle
 pnpm --filter @midgard/console-bifrost preview # serve the built bundle
 ```
