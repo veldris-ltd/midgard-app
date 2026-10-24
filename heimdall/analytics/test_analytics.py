@@ -118,11 +118,31 @@ class RecordedCameras(Layout):
         self.assertIsNone(cams["BCCAM-7"]["video"])
         self.assertEqual(cams["BCCAM-7"]["view"], "W")
 
+    def test_a_plain_heimdall_jsonl_as_windows_recordings_have(self):
+        with gzip.open(os.path.join(self.dir, "heimdall.jsonl.gz"), "rt") as f:
+            text = f.read()
+        os.remove(os.path.join(self.dir, "heimdall.jsonl.gz"))
+        with open(os.path.join(self.dir, "heimdall.jsonl"), "w", encoding="utf-8") as f:
+            f.write(text.replace('"view": "West"', '"view": "West \u00b7 Caf\u00e9"'))
+        cams = {c["id"]: c for c in A.recorded_cams()}
+        self.assertEqual(sorted(cams), ["BCCAM-7", "JamCams_00001.1"])
+        self.assertEqual(cams["JamCams_00001.1"]["view"], "West \u00b7 Caf\u00e9")
+
     def test_pick_uses_the_recording(self):
         cfg = A.config()
         self.assertEqual([c["id"] for c in A.pick(cfg, ["JamCams_00001.1"])], ["JamCams_00001.1"])
         self.assertEqual([c["id"] for c in A.pick(cfg, ["BCCAM-7"])], ["BCCAM-7"])
         self.assertEqual(A.pick(cfg, ["SGCAM-1"]), [])  # no internet lookup
+
+
+class WithoutResource(unittest.TestCase):
+    def test_cpu_seconds_without_getrusage(self):
+        saved = A.resource
+        try:
+            A.resource = None  # as on Windows
+            self.assertGreaterEqual(A.cpu_seconds(), 0.0)
+        finally:
+            A.resource = saved
 
 
 class HelperAndSource(Layout):

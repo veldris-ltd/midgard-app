@@ -36,8 +36,11 @@ Movement and heading are APPROXIMATE and UNCALIBRATED: they are measured in the 
 ground-plane homography. No speed in real-world units is claimed anywhere. "towards"/"away" just
 mean down/up the image, which is only a proxy for towards/away from the camera.
 
-Dependencies: numpy and onnxruntime (pinned in .venv; in Midgard.app, the bundled runtime's),
-ffmpeg/ffprobe from Homebrew unless --frames-helper is given. Stdlib otherwise.
+Dependencies: numpy and onnxruntime (pinned in .venv; in Midgard.app and the Windows app, the
+bundled runtime's), ffmpeg/ffprobe from Homebrew unless --frames-helper is given. Stdlib
+otherwise. On Windows (the Windows app: midgard-frames.exe as --frames-helper) there is no
+`resource` (CPU times count this process only) and no nice (--nice sets the below-normal
+priority class), and a recording's batches may be plain heimdall.jsonl.
 """
 
 import argparse
@@ -46,7 +49,6 @@ import json
 import math
 import os
 import re
-import resource
 import shutil
 import signal
 import subprocess
@@ -59,6 +61,11 @@ from collections import Counter
 from datetime import datetime, timezone
 
 import numpy as np
+
+try:
+    import resource  # not on Windows
+except ImportError:
+    resource = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 POC = os.path.dirname(HERE)
@@ -144,7 +151,10 @@ def config():
 
 
 def cpu_seconds():
-    """CPU time of this process plus its finished children (ffmpeg, ffprobe, hsource)."""
+    """CPU time of this process plus its finished children (ffmpeg, ffprobe, hsource); on
+    Windows (no getrusage) this process's only."""
+    if resource is None:
+        return time.process_time()
     s = resource.getrusage(resource.RUSAGE_SELF)
     ch = resource.getrusage(resource.RUSAGE_CHILDREN)
     return s.ru_utime + s.ru_stime + ch.ru_utime + ch.ru_stime
@@ -733,11 +743,17 @@ _RECORDED = None
 
 def recorded_cams():
     """The cameras of RECORDING: each land-camera entity's last observation in its
-    heimdall.jsonl.gz, with media only (read once)."""
+    heimdall.jsonl.gz (or heimdall.jsonl: recordings for Windows are shipped uncompressed,
+    tools/win-app/make-fixture.py), with media only (read once)."""
     global _RECORDED
     if _RECORDED is None:
         last = {}
-        with gzip.open(os.path.join(RECORDING, "heimdall.jsonl.gz"), "rt") as f:
+        packed = os.path.join(RECORDING, "heimdall.jsonl.gz")
+        if os.path.exists(packed):
+            f = gzip.open(packed, "rt", encoding="utf-8")
+        else:
+            f = open(os.path.join(RECORDING, "heimdall.jsonl"), encoding="utf-8")
+        with f:
             for line in f:
                 if '"land-camera"' not in line:
                     continue
@@ -919,6 +935,19 @@ def layout(a):
         SOURCE = (os.path.abspath(a.source_bin), os.path.abspath(a.source_identity_dir), a.source_addr)
 
 
+def lower_priority(n):
+    """nice(n); on Windows (no nice) the below-normal priority class, whatever n."""
+    if hasattr(os, "nice"):
+        os.nice(n)
+        return
+    import ctypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.GetCurrentProcess.restype = ctypes.c_void_p
+    k.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    if not k.SetPriorityClass(k.GetCurrentProcess(), 0x00004000):  # BELOW_NORMAL_PRIORITY_CLASS
+        log_line(f"cannot lower the priority (error {ctypes.get_last_error()})")
+
+
 def main():
     global STOP
     ap = argparse.ArgumentParser()
@@ -953,7 +982,7 @@ def main():
     if a.threads:
         cfg["threads"] = max(1, a.threads)
     if a.nice:
-        os.nice(a.nice)
+        lower_priority(a.nice)
     if a.bench:
         return bench(cfg, a.ids)
     try:
