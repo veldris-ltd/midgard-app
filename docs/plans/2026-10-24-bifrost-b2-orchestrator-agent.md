@@ -112,6 +112,93 @@ Rules: commits signed (`git commit -S`), **no Claude attribution** (organisation
   7. After a restart, a run in progress resumes from its persisted state.
 - **Tests:** a pure state-machine test (fake time, fake reports) for the pass, fail and rollback paths, manual rollback and restart-resume, plus route tests.
 
+**As built (24 Oct 2026).**
+- **Where the logic lives:**
+  - `bifrost-rollout` gains `runs` (`bifrost/rollout/src/runs.rs`): the ring planner, health gate and rollback controller as a clock-free state machine. `Rollouts` holds releases, channels and runs; the server steps it with `tick(now, reports)`. No I/O, no clock, so the tests drive it with fake time and fake reports.
+  - `bifrost-fleet-server` gains `releases.rs` (the sealed store, `rings.json`, the JSON) and the routes in `lib.rs`. `server.rs` steps active runs every second on an `orchestrator` thread.
+- **Model:**
+  - **Release:** a version and, for each of the six ring services, an artefact version (the artefact id is the service name). It must cover exactly the ring services and is immutable (a second create is CONFLICT). By default every service ships the release's own version; `artefacts` may mix versions.
+  - **Channel:** current release and previous one. `channels.json` only seeds a channel the orchestrator does not know yet; after that the sealed state decides. The fleet's channel desire (FleetStatus drift) follows the current release.
+  - **Rings:** `<state>/rings.json` (shipped as `deploy/compose/fleet-rings.json`, copied by run-local's `state`), default canary forge-worker → ring-2 midgard-replay + heimdall-feed + heimdall-source → ring-3 mimir-server → last http-gateway, soak 60 s, readiness timeout 180 s, report window 30 s. Without the file the same defaults apply. A run copies the rings it starts with.
+  - **RolloutRun:** `run-<n>`, kind (promote, or a manual rollback with no run in progress), channel, from, release, rings with phase (pending, waiting, soaking, passed, failed, rolled-back) and times (started, deadline, soak since, ended), state (running, completed, rolled-back), who started and ended it, and the reason. The last 200 finished runs are kept.
+- **Gate:**
+  - **Desired:** a service whose ring has started is desired at the target's artefact version; every other service at the current release's.
+  - **Participants:** installations that sent a per-service check-in on the channel within the report window.
+  - **Ready:** at least one participant, and every one reports every ring service at the target version and healthy. The ring then soaks; after `soakSecs` of readiness it passes and the next ring starts. The last ring passing completes the run, and the target becomes current.
+  - **Fails:** not ready by the deadline (the reason lists what is not ready, e.g. "ring canary: not ready within 180 s (forge-worker on mac-suite unhealthy)"). Also fails if a service that reported ready on the target then reports unhealthy or another version.
+  - **Rollback:** a failure rolls the run back. The current release is unchanged, so every service the run changed is desired back at once. `endedBy` is `bifrost-orchestrator`.
+  - **Silence is not failure:** a ring that loses readiness only because a participant went quiet stops soaking and waits again, with a fresh readiness window. After a restart this is what happens: the run and its rings are restored, the reports are not, so a soaking ring soaks again from the next check-ins.
+  - **Manual rollback:** `Rollback` with a reason (stored as "manual: …"). With a run in progress it rolls the run back. With none, it moves the channel to `to` or to its previous release, recorded as a run of kind rollback.
+  - **One run per channel:** a second Promote is CONFLICT. So is promoting the current release.
+- **Routes** (all JSON, through the same authorise-and-audit spine as the registry; the spine is renamed `json_call`):
+  - `CreateRelease` `{"version", "artefacts"?}` (release-manager). Every artefact must be held and verified, and passes the whole gate again (`Recheck::Full`). Otherwise it is refused and audited ("CreateRelease refused: artefacts not verified"): REJECTED if any is unverifiable or was rejected (naming the reason, e.g. digest-mismatch), NOT_FOUND if they are only missing. A wrong shape is MALFORMED.
+  - `ListReleases` `{}` (operator, release-manager): releases newest first, channels with current, previous, active run, target and per-service desired versions, and the rings.
+  - `Promote` `{"channel", "release"}` (release-manager): refused if any of the release's artefacts no longer verifies. Answers the run.
+  - `Rollback` `{"channel", "reason", "to"?}` (release-manager): answers the run.
+  - `ListRollouts` `{"channel"?, "limit"?}` and `GetRollout` `{"id"}` (operator, release-manager).
+  - Every orchestrator event (run started, ring started, ready, passed, failed, completed, rolled back) is recorded in the signed audit ledger, as the caller for Promote and Rollback, and as `bifrost-orchestrator` for the timer's own steps.
+- **CheckIn compatibility: a new route, `CheckInServices`, beside the old one.**
+  - **Why a new route:** the old `CheckIn` body is the binary `AgentReport` (length-prefixed fields). A JSON body cannot be told apart from it reliably (a `{` is also a valid first length byte), and changing the codec would break `bifrost-agent`'s simple mode, the compose smoke and `verify-bifrost.sh`. So `CheckIn` is unchanged.
+  - **`CheckInServices`:** JSON, so the agent and a future bridge share it. Request `{"installId", "channel", "services": {name: {"version", "healthy"}}}`; answer `{"installId", "channel", "release", "run", "target", "desired": {name: version}}`.
+  - **Policy:** it is authorised as the same action, `CheckIn`, so agents need no new rule. An agent may report only for its own installation (DENIED and audited otherwise).
+  - **Fleet view:** it also records an ordinary fleet check-in, with the services' common version (or "mixed") and all-healthy, so FleetStatus keeps working.
+- **Persistence: one sealed snapshot, not a journal.**
+  - **What:** `<state>/releases.sealed` holds the whole state as JSON, sealed with the service's data sealer (AES-256-GCM under ML-KEM-1024, as `DurableFleet` and the registry), under a fixed AAD.
+  - **How:** every change is sealed and written first (temp file 0600, fsync, rename, directory fsync) and takes effect in memory only after. A crash leaves the old or the new snapshot. One that does not unseal or decode stops the start.
+  - **Why a snapshot:** the state is small, and a snapshot needs one codec instead of one op per transition.
+  - **Known limit:** like a truncated journal, an older snapshot sealed by the same service would still open. The seal proves origin and integrity, not freshness. Needs write access to the state directory.
+  - The server's `serving` log line now has `releases` and `active_rollouts`.
+- **Client** (`client.rs`): `create_release`, `list_releases`, `promote`, `rollback`, `list_rollouts`, `get_rollout`, and `check_in_services`, which returns `DesiredState`, for the B2 agent and the B3 bridge.
+- **CLI:** `bifrost-release release create|list|promote|rollback|rollouts` (`--service` defaults to release-manager), and `run-local.sh release …` runs it as release-manager against the dev instance.
+- **Policy** (`deploy/compose/fleet-policy.json`): release-manager gets `CreateRelease`, `ListReleases`, `Promote`, `Rollback`, `ListRollouts` and `GetRollout`. fleet-operator gets `ListReleases`, `ListRollouts` and `GetRollout`. Agents keep `CheckIn` and `DownloadArtefact` only. run-local's `state` moves a policy without `CreateRelease` to `policy.json.pre-b2t2` (date-suffixed if one exists) and copies `rings.json` when absent. The private-enclosure move also takes `releases.sealed`.
+- **Tests (TDD):**
+  - `bifrost/rollout/tests/runs.rs`, 12 tests, fake clock and fake reports:
+    - the default rings;
+    - a release covering exactly the ring services, and immutable;
+    - all four rings passing in order after their soak, with the channel moving;
+    - soak measured from readiness (59 s does not pass, 60 s does);
+    - the readiness timeout failing ring 2, with every changed service, the passed canary included, desired back;
+    - no reporting installation timing out;
+    - unhealthy after ready, and another version after ready, failing at once;
+    - a quiet agent pausing the soak without failing it;
+    - a manual rollback mid-run;
+    - a manual rollback with no run, and then forward again;
+    - one run per channel and the promote refusals;
+    - restart-resume mid-ring.
+  - `releases.rs` unit tests (2):
+    - a run mid-ring survives a reopen exactly, and a flipped byte stops the open;
+    - `rings.json` is read strictly, and the shipped file equals the defaults.
+  - `bifrost/fleet-server/tests/releases.rs`, end to end with real processes and the shipped policy, a fast rings file (1 s soak, 4 s timeout), and six artefacts at 0.1.0 and 0.2.0:
+    - **Policy refusals:** the operator's CreateRelease, Promote and Rollback; the agent's ListReleases, ListRollouts and GetRollout; the release manager's CheckInServices.
+    - **CreateRelease refusals:** only partly registered (NOT_FOUND, naming what is missing); a rejected tampered artefact (REJECTED, digest-mismatch); a missing service (MALFORMED); a duplicate (CONFLICT).
+    - **CheckInServices:** an agent checking in for another installation is DENIED.
+    - **A full rollout,** with a server kill and restart while ring 2 soaks: the run resumes, completes, and FleetStatus converges on 0.2.0.
+    - **A canary that never becomes healthy:** rolled back after 4 s with the reason, everything desired back on 0.2.0.
+    - **Manual rollbacks:** one mid-run, then one of the channel with no run in progress.
+    - **The rest:** a concurrent Promote is CONFLICT; ListRollouts is newest first; an unknown run is NOT_FOUND; the old binary `CheckIn` still succeeds.
+  - **Results:** `cargo test -p bifrost-rollout` 16 tests and `-p bifrost-fleet-server` 18 unit and 3 integration tests, all passing. clippy `-D warnings` and `fmt --check` are clean for both crates. `verify-bifrost.sh`: 5/5.
+  - **A failure that is not from this task:** `bifrost-fleet`'s `agents_pqmtls` test fails ("agent handshake: Transport(Io(failed to fill whole buffer))"). It fails the same way on a clean checkout of 6d4ae65, before this task. That crate is untouched.
+- **Live** (127.0.0.1:7750, state `~/Desktop/Midgard/bifrost-local`):
+  1. `run-local.sh setup --real-enclosure` rebuilt the binaries. The enclosure was not touched (all identities exist). The old policy was moved to `policy.json.pre-b2t2`, and `rings.json` was added.
+  2. `stop` and `start`: `readyz` 200; the serving line shows `releases 0`.
+  3. `run-local.sh release create --version 0.1.0` and `--version 0.1.1` both created releases from the six verified artefacts each.
+     - Creating 0.1.1 again: CONFLICT.
+     - `0.1.0-tampered`: REJECTED ("forge-worker@0.1.0-tampered was rejected (digest-mismatch); heimdall-feed@0.1.0-tampered is not in the registry; …").
+  4. `release list`:
+     ```
+     channel stable current=0.1.0 previous=-
+       desired: forge-worker=0.1.0 heimdall-feed=0.1.0 heimdall-source=0.1.0 http-gateway=0.1.0 midgard-replay=0.1.0 mimir-server=0.1.0
+     release 0.1.1 by release-manager: forge-worker@0.1.1 heimdall-feed@0.1.1 heimdall-source@0.1.1 http-gateway@0.1.1 midgard-replay@0.1.1 mimir-server@0.1.1
+     release 0.1.0 by release-manager: forge-worker@0.1.0 heimdall-feed@0.1.0 heimdall-source@0.1.0 http-gateway@0.1.0 midgard-replay@0.1.0 mimir-server@0.1.0
+     rings: canary[forge-worker] -> ring-2[midgard-replay+heimdall-feed+heimdall-source] -> ring-3[mimir-server] -> last[http-gateway]
+     ```
+  5. **Policy, live:** fleet-operator lists releases but its Promote is denied. fleet-agent-1's ListReleases is denied.
+  6. **A promote, rolled back by hand** (no agent exists until Task 3):
+     - `release promote --channel stable --release 0.1.1` started run-1 with the canary waiting (deadline 180 s).
+     - A second promote was refused ("run-1 is already rolling stable out to 0.1.1; one run per channel at a time").
+     - `release rollback --reason "B2 Task 2 live check: no suite agent until Task 3"` rolled run-1 back after 3 s. The channel stayed on 0.1.0; every desired version is 0.1.0.
+  7. **After another stop and start:** the serving line shows `releases 2`, `release rollouts` still lists run-1 as rolled back with its reason, and `status` still answers (converged on 0.1.0).
+
 ### Task 3: The suite agent
 
 - **Mode:** `bifrost-agent --suite --identity-dir … --addr … --install-id <id> --suite-root <dir> --runner <cmd>`.
