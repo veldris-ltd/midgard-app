@@ -769,7 +769,7 @@ windows_shell_notices() {
         [ "$got" = 1 ] || { ls -la "$dir"; ci_error "notices: $name $ver has no LICENSE file in $dir"; return 1; }
         echo "$name $ver $dir" >>"$out/VERSIONS.txt"
         n=$((n + 1))
-    done < <("$py" -I - "$WINDOWS_SHELL/Midgard/obj/project.assets.json" "$WINDOWS_SHELL/Midgard/packages.lock.json" <<'PY2'
+    done < <("$py" -I - "$WINDOWS_SHELL/Midgard/obj/project.assets.json" "$WINDOWS_SHELL/Midgard/packages.lock.json" <<'PY2' | tr -d '\r'
 import json, sys
 assets = json.load(open(sys.argv[1], encoding="utf-8-sig"))
 seen = set()
