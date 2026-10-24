@@ -6,6 +6,22 @@
 # held by one process only.
 #
 #   bash tools/mac-app/run-native.sh start | stop | status
+#   bash tools/mac-app/run-native.sh restart <service> | status <service>
+#
+# With MIDGARD_SUITE_ROOT set (Bifrost's suite agent sets it), each service is started
+# from $MIDGARD_SUITE_ROOT/active/<binary>, the agent's link to the slot of the version it
+# runs, instead of dist/mac/bin. Unset, nothing changes.
+#
+# `restart <service>` stops that one service and starts it again exactly as `start` does,
+# waiting for its readiness line (exit 0 once ready, 1 if it exits or is not ready within
+# 180 s). `status <service>` prints one word: ready (running, and its log since this start
+# has the readiness line `start` waits for), unready (running, not yet) or stopped.
+# <service> is a short name (gateway, mimir, heimdall, forge, replay) or a binary name
+# (http-gateway, mimir-server, heimdall-feed, forge-worker, midgard-replay,
+# heimdall-source). heimdall-source has no process of its own: midgard-replay runs the
+# heimdall-source beside its own binary for each batch, so its restart only checks the
+# binary is there (the replay's next batch uses it) and its status is ready when it is.
+# Restarting the replay reuses the recording it was started with (or MIDGARD_REPLAY).
 #
 # With MIDGARD_REPLAY set to a recording directory (made by record.py), `start` also runs
 # midgard-replay, which plays the recording into Heimdall and Forge's data folder in place
@@ -23,6 +39,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BIN="$PWD/dist/mac/bin"
+if [ -n "${MIDGARD_SUITE_ROOT:-}" ]; then
+  [ -d "$MIDGARD_SUITE_ROOT/active" ] || {
+    echo "MIDGARD_SUITE_ROOT=$MIDGARD_SUITE_ROOT has no active/ folder (bifrost-agent --suite makes it)"; exit 1; }
+  BIN="$(cd "$MIDGARD_SUITE_ROOT/active" && pwd)"
+fi
 H="${MIDGARD_HOME:-$HOME/Desktop/Midgard}"
 RUN="$H/native-run"
 
@@ -46,6 +67,26 @@ binary() {
   esac
 }
 
+# A service's short name, from either form; heimdall-source is "source".
+short() {
+  case $1 in
+    gateway | http-gateway) echo gateway ;; mimir | mimir-server) echo mimir ;;
+    heimdall | heimdall-feed) echo heimdall ;; forge | forge-worker) echo forge ;;
+    replay | midgard-replay) echo replay ;; heimdall-source) echo source ;;
+    *) echo "unknown service $1" >&2; exit 2 ;;
+  esac
+}
+# The log line `launch` waits for: the service is ready.
+ready_pattern() {
+  case $1 in
+    mimir | heimdall) echo '"serving"' ;; gateway) echo 'listening on' ;;
+    # The first successful job run; "job run failed" lines do not count, so a worker
+    # whose every job fails is reported not ready.
+    forge) echo '"message":"job run"' ;; replay) echo '"replay started"' ;;
+    *) echo "unknown service $1" >&2; exit 1 ;;
+  esac
+}
+
 # Whether the pid file names a live process running this service's binary; a pid file
 # naming anything else is stale and is removed (the lock is left alone).
 running() {
@@ -59,7 +100,7 @@ running() {
   esac
   rm -f "$RUN/$1.pid"; return 1
 }
-launch() {  # name, ready-pattern, command...
+launch() {  # name, ready-pattern, command...  (exits 1 unless it becomes ready)
   local name=$1 ready=$2; shift 2
   if running "$name"; then echo "$name already running"; return; fi
   local pid
@@ -163,42 +204,63 @@ start() {
       rm -f "$lock"; echo "removed stale lock $lock (left by a stopped container)"
     fi
   done
-  local analytics=()
-  if [ -f "$H/heimdall-poc/analytics/secret" ]; then
-    analytics=(--analytics-addr 127.0.0.1:7740 --analytics-token-file "$H/heimdall-poc/analytics/secret")
-  fi
   bash "$H/mimir-model.sh" start
-  launch mimir '"serving"' "$BIN/mimir-server" \
-    --identity-dir "$H/airports-mesh/mimir" --state-dir "$H/mimir-state" --purposes investigation \
-    --bind 127.0.0.1:7720 --health-bind 127.0.0.1:9720 --observe-bind 127.0.0.1:7721 \
-    --engine llama-cpp --model-dir "$H/mimir-models/granite" \
-    --model-trust "$H/mimir-models/trust/model-signing.pub" --sidecar 127.0.0.1:8080
-  launch gateway 'listening on' "$BIN/http-gateway" \
-    --state-dir "$H/airports" --bind 127.0.0.1:7710 \
-    --allow-origin http://localhost:5173 --allow-origin http://localhost:5174 \
-    --allow-origin http://localhost:5175 --allow-origin http://localhost:5176 \
-    --mesh-bind 127.0.0.1:7711 --mesh-identity-dir "$H/airports-mesh/gateway" \
-    --heimdall-addr 127.0.0.1:7730 --heimdall-identity-dir "$H/airports-mesh/feeds" \
-    ${analytics[@]+"${analytics[@]}"} \
-    --mimir-observe-addr 127.0.0.1:7721 --mimir-identity-dir "$H/airports-mesh/mimir-observer" \
-    --forge-jobs "$H/live-feeds/data/jobs.json" \
-    --forge-status "$H/live-feeds/worker-state/status.json" \
-    --heimdall-feeds-status "$H/heimdall-poc/feeds/state/status.json"
-  launch heimdall '"serving"' "$BIN/heimdall-feed" \
-    --identity-dir "$H/airports-mesh/heimdall" --state-dir "$H/heimdall-poc/state" \
-    --bind 127.0.0.1:7730 --health-bind 127.0.0.1:9730 --track-ttl 300 \
-    --mimir-addr 127.0.0.1:7720 --mimir-identity-dir "$H/airports-mesh/heimdall-advisor" \
-    --fabric-addr 127.0.0.1:7711 --fabric-identity-dir "$H/airports-mesh/heimdall-fabric"
-  # Ready on the first successful job run; "job run failed" lines do not count, so a
-  # worker whose every job fails is reported not ready.
-  launch forge '"message":"job run"' "$BIN/forge-worker" \
-    --identity-dir "$H/airports-mesh/forge" --state-dir "$H/live-feeds/worker-state" \
-    --jobs "$H/live-feeds/data/jobs.json" --gateway 127.0.0.1:7711
+  launch_one mimir
+  launch_one gateway
+  launch_one heimdall
+  launch_one forge
   if [ -n "${MIDGARD_REPLAY:-}" ]; then
-    launch replay '"replay started"' "$BIN/midgard-replay" \
-      --recording "$MIDGARD_REPLAY" --identity-dir "$H/airports-mesh/feeds" \
-      --forge-dir "$H/live-feeds/data"
+    launch_one replay
   fi
+}
+
+# Start one service (short name) the way `start` does, and wait for it to be ready.
+launch_one() {
+  case $1 in
+    mimir)
+      launch mimir "$(ready_pattern mimir)" "$BIN/mimir-server" \
+        --identity-dir "$H/airports-mesh/mimir" --state-dir "$H/mimir-state" --purposes investigation \
+        --bind 127.0.0.1:7720 --health-bind 127.0.0.1:9720 --observe-bind 127.0.0.1:7721 \
+        --engine llama-cpp --model-dir "$H/mimir-models/granite" \
+        --model-trust "$H/mimir-models/trust/model-signing.pub" --sidecar 127.0.0.1:8080 ;;
+    gateway)
+      local analytics=()
+      if [ -f "$H/heimdall-poc/analytics/secret" ]; then
+        analytics=(--analytics-addr 127.0.0.1:7740 --analytics-token-file "$H/heimdall-poc/analytics/secret")
+      fi
+      launch gateway "$(ready_pattern gateway)" "$BIN/http-gateway" \
+        --state-dir "$H/airports" --bind 127.0.0.1:7710 \
+        --allow-origin http://localhost:5173 --allow-origin http://localhost:5174 \
+        --allow-origin http://localhost:5175 --allow-origin http://localhost:5176 \
+        --mesh-bind 127.0.0.1:7711 --mesh-identity-dir "$H/airports-mesh/gateway" \
+        --heimdall-addr 127.0.0.1:7730 --heimdall-identity-dir "$H/airports-mesh/feeds" \
+        ${analytics[@]+"${analytics[@]}"} \
+        --mimir-observe-addr 127.0.0.1:7721 --mimir-identity-dir "$H/airports-mesh/mimir-observer" \
+        --forge-jobs "$H/live-feeds/data/jobs.json" \
+        --forge-status "$H/live-feeds/worker-state/status.json" \
+        --heimdall-feeds-status "$H/heimdall-poc/feeds/state/status.json" ;;
+    heimdall)
+      launch heimdall "$(ready_pattern heimdall)" "$BIN/heimdall-feed" \
+        --identity-dir "$H/airports-mesh/heimdall" --state-dir "$H/heimdall-poc/state" \
+        --bind 127.0.0.1:7730 --health-bind 127.0.0.1:9730 --track-ttl 300 \
+        --mimir-addr 127.0.0.1:7720 --mimir-identity-dir "$H/airports-mesh/heimdall-advisor" \
+        --fabric-addr 127.0.0.1:7711 --fabric-identity-dir "$H/airports-mesh/heimdall-fabric" ;;
+    forge)
+      launch forge "$(ready_pattern forge)" "$BIN/forge-worker" \
+        --identity-dir "$H/airports-mesh/forge" --state-dir "$H/live-feeds/worker-state" \
+        --jobs "$H/live-feeds/data/jobs.json" --gateway 127.0.0.1:7711 ;;
+    replay)
+      # The recording: MIDGARD_REPLAY, or the one the replay was last started with.
+      local rec="${MIDGARD_REPLAY:-}"
+      [ -n "$rec" ] || rec=$(cat "$RUN/replay.recording" 2>/dev/null) || rec=
+      [ -n "$rec" ] || { echo "no recording for midgard-replay: set MIDGARD_REPLAY"; exit 1; }
+      [ -f "$rec/meta.json" ] || { echo "$rec has no meta.json; not a recording"; exit 1; }
+      echo "$rec" > "$RUN/replay.recording"
+      launch replay "$(ready_pattern replay)" "$BIN/midgard-replay" \
+        --recording "$rec" --identity-dir "$H/airports-mesh/feeds" \
+        --forge-dir "$H/live-feeds/data" ;;
+    *) echo "unknown service $1"; exit 2 ;;
+  esac
 }
 
 # Stop the replay's heimdall-source runs with it: pause it so it cannot start another,
@@ -217,22 +279,64 @@ kill_replay() {  # pid
   return 0
 }
 
-stop() {
-  local s pid lock
-  for s in replay forge heimdall gateway mimir; do
+# Stop one service (short name); fails if it did not exit (its lock is then left).
+stop_one() {
+  local s=$1 pid lock
+  if running "$s"; then
+    pid=$(cat "$RUN/$s.pid"); lock=$(lock_path "$s")
+    if [ "$s" = replay ]; then kill_replay "$pid"; else kill "$pid" 2>/dev/null || true; fi
+    for _ in $(seq 1 15); do running "$s" || break; sleep 1; done
     if running "$s"; then
-      pid=$(cat "$RUN/$s.pid"); lock=$(lock_path "$s")
-      if [ "$s" = replay ]; then kill_replay "$pid"; else kill "$pid" 2>/dev/null || true; fi
-      for _ in $(seq 1 15); do running "$s" || break; sleep 1; done
-      if running "$s"; then
-        echo "$s did not exit within 15 s (pid $pid); its lock is left in place"
-        continue
-      fi
-      if [ -n "$lock" ] && [ -f "$lock" ] && grep -qx "pid=$pid" "$lock"; then rm -f "$lock"; fi
-      echo "$s stopped"
+      echo "$s did not exit within 15 s (pid $pid); its lock is left in place"
+      return 1
     fi
-    rm -f "$RUN/$s.pid"
+    if [ -n "$lock" ] && [ -f "$lock" ] && grep -qx "pid=$pid" "$lock"; then rm -f "$lock"; fi
+    echo "$s stopped"
+  fi
+  rm -f "$RUN/$s.pid"
+}
+
+stop() {
+  local s
+  for s in replay forge heimdall gateway mimir; do
+    stop_one "$s" || true
   done
+}
+
+# Stop one service and start it again as `start` does; exit 0 once it is ready.
+restart() {
+  local s lock
+  s=$(short "$1")
+  if [ "$s" = source ]; then
+    [ -x "$BIN/heimdall-source" ] || { echo "$BIN/heimdall-source is missing"; exit 1; }
+    echo "heimdall-source has no process of its own; midgard-replay runs $BIN/heimdall-source for each batch"
+    return
+  fi
+  [ -d "$H" ] || { echo "enclosure home $H not found"; exit 1; }
+  check_docker
+  [ -x "$BIN/$(binary "$s")" ] || { echo "$BIN/$(binary "$s") is missing"; exit 1; }
+  mkdir -p "$RUN"
+  stop_one "$s" || { echo "not restarting $s"; exit 1; }
+  # As in start: a lock no native process of ours holds, not written on macOS, was left
+  # by a stopped container.
+  lock=$(lock_path "$s")
+  if [ -n "$lock" ] && [ -e "$lock" ] && [ -r "$lock" ] && ! grep -qx 'os=macos' "$lock"; then
+    rm -f "$lock"; echo "removed stale lock $lock (left by a stopped container)"
+  fi
+  if [ "$s" = mimir ]; then bash "$H/mimir-model.sh" start; fi
+  launch_one "$s"
+}
+
+# One word for one service: ready, unready or stopped.
+status_one() {
+  local s
+  s=$(short "$1")
+  if [ "$s" = source ]; then
+    if [ -x "$BIN/heimdall-source" ]; then echo ready; else echo stopped; fi
+  elif ! running "$s"; then echo stopped
+  elif grep -qs "$(ready_pattern "$s")" "$RUN/$s.log"; then echo ready
+  else echo unready
+  fi
 }
 
 status() {
@@ -242,4 +346,10 @@ status() {
   done
 }
 
-case "${1:-status}" in start) start ;; stop) stop ;; status) status ;; *) echo "start|stop|status"; exit 2 ;; esac
+case "${1:-status}" in
+  start) start ;;
+  stop) stop ;;
+  status) if [ -n "${2:-}" ]; then status_one "$2"; else status; fi ;;
+  restart) [ -n "${2:-}" ] || { echo "restart <service>"; exit 2; }; restart "$2" ;;
+  *) echo "start|stop|status [<service>]|restart <service>"; exit 2 ;;
+esac

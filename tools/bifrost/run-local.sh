@@ -11,7 +11,18 @@
 #   bash tools/bifrost/run-local.sh status   # the fleet as the operator sees it (JSON)
 #   bash tools/bifrost/run-local.sh release list|create|promote|rollback|rollouts [...]
 #                                            # bifrost-release release ..., as release-manager
+#   bash tools/bifrost/run-local.sh agent start [--initial-version V] | agent stop | agent status
+#                                            # the suite agent (bifrost-agent --suite, mac-suite)
 #   bash tools/bifrost/run-local.sh stop
+#
+# `agent start` runs bifrost-agent in suite mode as installation mac-suite on channel
+# stable, in the background (pid $BIFROST_HOME/agent.pid, log $BIFROST_HOME/agent.log):
+# its suite root is $BIFROST_SUITE_ROOT (default $BIFROST_HOME/suite), its runner this
+# checkout's tools/mac-app/run-native.sh with MIDGARD_SUITE_ROOT exported (so services
+# restart from the suite root's active/ links), its release-signer anchors
+# fleet-state/trust/release-signers, and it adopts this checkout's dist/mac/bin as
+# --initial-version on its first run (only if their digests match that release in the
+# registry). MIDGARD_REPLAY and MIDGARD_DOCKER_STOPPED pass through to the runner.
 #
 # Everything lives in $BIFROST_HOME (default ~/Desktop/Midgard/bifrost-local). Ports avoid
 # 7740, which the camera analytics use. The console (products/bifrost/ui) still shows demo
@@ -19,7 +30,8 @@
 #
 # Plain `setup` makes Bifrost its own private enclosure ($BIFROST_HOME/enclosure: issuer
 # keys and audit), so the suite's real enclosure is never touched and the gateway needs no
-# stop. It issues bifrost-fleet (fleet-manager), three fleet agents, fleet-operator and
+# stop. It issues bifrost-fleet (fleet-manager), three fleet agents, the suite agent
+# mac-suite (fleet-agent), fleet-operator and
 # release-manager (RegisterArtefact, ReadArtefacts, VerifyArtefact). Agents may only
 # DownloadArtefact from the registry; operators ReadArtefacts (list) and VerifyArtefact.
 #
@@ -60,6 +72,8 @@ BIN="$TARGET/release"
 MESH="${BIFROST_MESH:-127.0.0.1:7750}"
 HEALTH="${BIFROST_HEALTH:-127.0.0.1:9750}"
 AGENTS=(fleet-agent-1 fleet-agent-2 fleet-agent-3)
+SUITE_AGENT=mac-suite
+SUITE="${BIFROST_SUITE_ROOT:-$H/suite}"
 ENCLOSURE="${MIDGARD_ENCLOSURE:-$HOME/Desktop/Midgard/airports}"
 MESH_OUT="${BIFROST_MESH_OUT:-$HOME/Desktop/Midgard/airports-mesh/bifrost}"
 BACKUPS="${MIDGARD_BACKUP_DIR:-$HOME/Library/Caches/midgard-build}"
@@ -129,7 +143,7 @@ setup() {
     fi
     echo "mesh identities:"
     issue "$H/enclosure" bifrost-fleet fleet-manager "$H/fleet-identity"
-    for a in "${AGENTS[@]}"; do issue "$H/enclosure" "$a" fleet-agent "$H/fleet-clients"; done
+    for a in "${AGENTS[@]}" "$SUITE_AGENT"; do issue "$H/enclosure" "$a" fleet-agent "$H/fleet-clients"; done
     issue "$H/enclosure" fleet-operator fleet-operator "$H/fleet-clients"
     issue "$H/enclosure" release-manager release-manager "$H/fleet-clients"
     state
@@ -190,7 +204,7 @@ setup_real() {
     mkdir -p "$H"
     local srv="$MESH_OUT/server" cli="$MESH_OUT/clients" missing=0 s
     has_identity bifrost-server "$srv" || missing=1
-    for s in "${AGENTS[@]}" fleet-operator release-manager; do has_identity "$s" "$cli" || missing=1; done
+    for s in "${AGENTS[@]}" "$SUITE_AGENT" fleet-operator release-manager; do has_identity "$s" "$cli" || missing=1; done
     if [ "$missing" = 1 ]; then
         suite_stopped
         backup
@@ -198,7 +212,7 @@ setup_real() {
         chmod 700 "$MESH_OUT" "$srv" "$cli"
         echo "mesh identities from $ENCLOSURE:"
         issue "$ENCLOSURE" bifrost-server fleet-manager "$srv"
-        for s in "${AGENTS[@]}"; do issue "$ENCLOSURE" "$s" fleet-agent "$cli"; done
+        for s in "${AGENTS[@]}" "$SUITE_AGENT"; do issue "$ENCLOSURE" "$s" fleet-agent "$cli"; done
         issue "$ENCLOSURE" fleet-operator fleet-operator "$cli"
         issue "$ENCLOSURE" release-manager release-manager "$cli"
     else
@@ -274,6 +288,57 @@ demo() {
 
 status() { running || die "start it first"; agent --service fleet-operator --status; }
 
+# The suite agent.
+agent_pid() { cat "$H/agent.pid" 2>/dev/null || true; }
+agent_running() { local p; p="$(agent_pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+
+agent_start() {
+    local initial=()
+    case "${1:-}" in
+        "") ;;
+        --initial-version) [ -n "${2:-}" ] || die "--initial-version needs a version"; initial=(--initial-version "$2") ;;
+        *) die "agent start takes only --initial-version V" ;;
+    esac
+    [ -x "$BIN/bifrost-agent" ] || die "no $BIN/bifrost-agent; run setup first"
+    has_identity "$SUITE_AGENT" "$CLIENTS" || die "no $SUITE_AGENT identity in $CLIENTS; run setup (it issues one)"
+    if agent_running; then echo "bifrost-agent already running (pid $(agent_pid))"; return; fi
+    mkdir -p "$SUITE"
+    MIDGARD_SUITE_ROOT="$SUITE" nohup "$BIN/bifrost-agent" --suite \
+        --identity-dir "$CLIENTS" --addr "$MESH" --service "$SUITE_AGENT" --install-id "$SUITE_AGENT" \
+        --channel stable --suite-root "$SUITE" --runner "$ROOT/tools/mac-app/run-native.sh" \
+        --trust-dir "$H/fleet-state/trust/release-signers" --adopt-from "$ROOT/dist/mac/bin" \
+        ${initial[@]+"${initial[@]}"} >> "$H/agent.log" 2>&1 < /dev/null &
+    echo $! > "$H/agent.pid"
+    sleep 3
+    agent_running || { rm -f "$H/agent.pid"; die "bifrost-agent exited: $(tail -3 "$H/agent.log")"; }
+    echo "bifrost-agent (suite, $SUITE_AGENT) running (pid $(agent_pid)); suite root $SUITE; log $H/agent.log"
+}
+
+agent_stop() {
+    local p
+    p="$(agent_pid)"
+    if agent_running; then
+        kill -TERM "$p"
+        for _ in $(seq 1 50); do agent_running || break; sleep 0.2; done
+        if agent_running; then echo "bifrost-agent (pid $p) has not exited yet"; return; fi
+        echo "bifrost-agent stopped (a swap it was making is finished or reverted on its next start)"
+    else
+        echo "bifrost-agent not running"
+    fi
+    rm -f "$H/agent.pid"
+}
+
+agent_status() {
+    local s v
+    if agent_running; then echo "bifrost-agent running (pid $(agent_pid)), suite root $SUITE"; else echo "bifrost-agent not running"; fi
+    for s in forge-worker midgard-replay heimdall-feed heimdall-source mimir-server http-gateway; do
+        v="$(readlink "$SUITE/active/$s" 2>/dev/null || true)"
+        echo "  $s: ${v:-not adopted}"
+    done
+    [ ! -f "$SUITE/swap.journal" ] || echo "  a swap is journalled: $(tr '\n' ' ' < "$SUITE/swap.journal")"
+    [ ! -f "$H/agent.log" ] || { echo "--- $H/agent.log (last 5)"; tail -5 "$H/agent.log"; }
+}
+
 release() {
     running || die "start it first"
     "$BIN/bifrost-release" release "$1" --identity-dir "$CLIENTS" --addr "$MESH" \
@@ -291,6 +356,13 @@ case "${1:-}" in
     stop) stop ;;
     demo) demo ;;
     status) status ;;
+    agent)
+        case "${2:-}" in
+            start) agent_start "${@:3}" ;;
+            stop) agent_stop ;;
+            status) agent_status ;;
+            *) die "agent needs start, stop or status" ;;
+        esac ;;
     release) [ -n "${2:-}" ] || die "release needs list, create, promote, rollback or rollouts"; release "${@:2}" ;;
-    *) sed -n '2,15p' "$0"; exit 2 ;;
+    *) sed -n '2,17p' "$0"; exit 2 ;;
 esac

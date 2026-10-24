@@ -40,6 +40,7 @@ pub mod client;
 pub mod registry;
 pub mod releases;
 pub mod server;
+pub mod suite;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
