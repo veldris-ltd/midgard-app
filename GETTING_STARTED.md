@@ -280,7 +280,7 @@ Global conventions apply to every prompt (Part A.0):
 - **Fail visible, not silent** — return a structured refusal with a reason code, never a fabricated result.
 - **No secrets, no PII echo** — never emit data above the caller's clearance.
 
-Prompts are written to be **model-portable** across three model families (Mistral / Nemotron / Gemma / Granite), which is tested against a deterministic engine and not yet against those models; family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author (`SAD_02b` covers model supply & resolution). When you implement an AI feature, implement its prompt *and* its Evals together — the Evals are your regression suite for behaviour.
+Prompts are written to be **model-portable** across four model families (Mistral / Nemotron / Gemma / Granite), which is tested against a deterministic engine and not yet against those models; family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author (`SAD_02b` covers model supply & resolution). When you implement an AI feature, implement its prompt *and* its Evals together — the Evals are your regression suite for behaviour.
 
 ---
 

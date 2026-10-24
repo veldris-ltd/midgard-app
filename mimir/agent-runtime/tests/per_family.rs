@@ -37,6 +37,6 @@ fn a3_a4_a5_evals_pass_for_every_model_family() {
             }
         }
     }
-    // 3 suites × 3 families × 4 evals = 36 certifications.
-    assert_eq!(certified, 36);
+    // 3 suites × 4 families × 4 evals = 48 certifications.
+    assert_eq!(certified, 48);
 }

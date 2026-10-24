@@ -1,8 +1,8 @@
 //! Model Abstraction Layer acceptance (SAD_02b §5, Prompt 3.c). Per-family
-//! adapters + the router serve three families behind the UNCHANGED inference
+//! adapters + the router serve four families behind the UNCHANGED inference
 //! contract.
 //!
-//!   AC-MS-4  three families registered → a consumer calling the unchanged API
+//!   AC-MS-4  four families registered → a consumer calling the unchanged API
 //!            gets an eligible, policy-permitted artefact; no consumer code change.
 //!   AC-MS-8  with no outbound connectivity, inference runs from locally-registered,
 //!            verified artefacts (no hosted dependency).
@@ -74,13 +74,14 @@ fn gpu_node(gpus: u32, vram: u32) -> NodeProfile {
 
 /// A registry with one eligible small variant of each family, plus a large
 /// multi-GPU Mistral variant (to exercise degradation/eligibility).
-fn three_family_registry() -> ModelRegistry {
+fn family_registry() -> ModelRegistry {
     let (vk, sk) = veldris_keys();
     let mut reg = ModelRegistry::new(vk, LicencePolicy::default());
     for (id, fam) in [
         ("mistral-small", "Mistral"),
         ("nemotron-small", "Nemotron"),
         ("gemma-small", "Gemma"),
+        ("granite-small", "Granite"),
     ] {
         reg.register(
             sign_manifest(manifest(id, fam, HwProfile::single_gpu(24)), &sk),
@@ -117,8 +118,8 @@ fn request(workload: WorkloadClass) -> InferenceRequest {
 
 #[test]
 fn ac_ms_4_workload_routes_to_the_right_family_no_consumer_change() {
-    let mut reg = three_family_registry();
-    let mut router = Router::new(RoutingPolicy::permit_all_three());
+    let mut reg = family_registry();
+    let mut router = Router::new(RoutingPolicy::permit_all());
     let engine = LocalReference::new();
     let node = gpu_node(1, 80); // single 80GB GPU
 
@@ -147,14 +148,14 @@ fn ac_ms_4_workload_routes_to_the_right_family_no_consumer_change() {
 #[test]
 fn ac_ms_4_family_templating_lives_in_the_adapter_not_the_prompt() {
     // The neutral prompt carries NO family chat markers …
-    for marker in ["<|assistant|>", "<start_of_turn>", "<extra_id_1>"] {
+    for marker in ["[/INST]", "<start_of_turn>", "<extra_id_1>"] {
         assert!(!NEUTRAL_PROMPT.contains(marker));
     }
     // … the adapters add them, differently per family, from the same neutral text.
     let mistral = MistralAdapter.render(NEUTRAL_PROMPT);
     let gemma = GemmaAdapter.render(NEUTRAL_PROMPT);
     let nemo = NemotronAdapter.render(NEUTRAL_PROMPT);
-    assert!(mistral.contains("<|assistant|>"));
+    assert!(mistral.starts_with("<s>[INST] ") && mistral.ends_with(" [/INST]"));
     assert!(gemma.contains("<start_of_turn>model"));
     assert!(nemo.contains("<extra_id_1>Assistant"));
     // All three wrap the identical neutral content.
@@ -169,12 +170,15 @@ fn ac_ms_4_family_templating_lives_in_the_adapter_not_the_prompt() {
         GemmaAdapter.postprocess("hello<end_of_turn>ignored"),
         "hello"
     );
+    assert_eq!(MistralAdapter.stop_tokens(), &["</s>", "[INST]"]);
+    assert_eq!(MistralAdapter.postprocess(" hello </s>ignored"), "hello");
+    assert_eq!(MistralAdapter.postprocess("hello[INST] next turn"), "hello");
 }
 
 #[test]
 fn ac_ms_4_explicit_override_is_honoured_and_fails_closed_when_ineligible() {
-    let mut reg = three_family_registry();
-    let mut router = Router::new(RoutingPolicy::permit_all_three());
+    let mut reg = family_registry();
+    let mut router = Router::new(RoutingPolicy::permit_all());
     let engine = LocalReference::new();
     let node = gpu_node(1, 80);
 
@@ -198,8 +202,8 @@ fn ac_ms_4_explicit_override_is_honoured_and_fails_closed_when_ineligible() {
 
 #[test]
 fn ac_ms_8_inference_runs_locally_from_verified_registry_no_hosted_dependency() {
-    let mut reg = three_family_registry();
-    let mut router = Router::new(RoutingPolicy::permit_all_three());
+    let mut reg = family_registry();
+    let mut router = Router::new(RoutingPolicy::permit_all());
     let engine = LocalReference::new(); // deterministic, offline; touches no network
     let node = gpu_node(1, 80);
 
@@ -226,8 +230,8 @@ fn ac_ms_8_inference_runs_locally_from_verified_registry_no_hosted_dependency() 
 
 #[test]
 fn ac_ms_9_cross_family_swap_is_hot_swappable_without_contract_change() {
-    let mut reg = three_family_registry();
-    let mut router = Router::new(RoutingPolicy::permit_all_three());
+    let mut reg = family_registry();
+    let mut router = Router::new(RoutingPolicy::permit_all());
     let engine = LocalReference::new();
     let node = gpu_node(1, 80);
 
@@ -242,11 +246,11 @@ fn ac_ms_9_cross_family_swap_is_hot_swappable_without_contract_change() {
     reg.revoke("mistral-large");
 
     // The IDENTICAL request now degrades to another permitted family, still Ok,
-    // still the same request/response types. (Nemotron/Gemma sort before nothing;
-    // deterministic candidate order picks Gemma < Nemotron alphabetically.)
+    // still the same request/response types. The deterministic candidate order is
+    // alphabetical, so Gemma is picked ahead of Granite and Nemotron.
     let after = router.serve(&req, &mut reg, &node, &engine).unwrap();
     assert_ne!(after.family, "Mistral");
-    assert!(["Gemma", "Nemotron"].contains(&after.family.as_str()));
+    assert!(["Gemma", "Granite", "Nemotron"].contains(&after.family.as_str()));
     assert_eq!(after.locality, Locality::InEnclosure);
 
     // Swapping a new family in is equally transparent: re-approving Mistral restores it.
@@ -257,7 +261,7 @@ fn ac_ms_9_cross_family_swap_is_hot_swappable_without_contract_change() {
 
 #[test]
 fn ac_ms_9_no_permitted_family_eligible_fails_closed() {
-    let mut reg = three_family_registry();
+    let mut reg = family_registry();
     // Policy permits only a family that has no eligible artefact on a CPU node.
     let mut router = Router::new(RoutingPolicy::new(["Mistral".to_string()], "Mistral"));
     let engine = LocalReference::new();

@@ -97,7 +97,7 @@ To define Mimir's target architecture as both the local-AI product and the share
 
 | ID | Requirement |
 | --- | --- |
-| FR-MI-1 | Serve models locally with batching, KV-cache, and quantisation; expose a typed inference API. Supported families: Mistral, NVIDIA Nemotron, Google Gemma and IBM Granite (see the Model-Supply Resolution DCR). |
+| FR-MI-1 | Serve models locally with batching, KV-cache, and quantisation; expose a typed inference API. Supported families: Mistral, NVIDIA Nemotron, Google Gemma, IBM Granite (see the Model-Supply Resolution DCR). |
 | FR-MI-2 | Ground generation in the object fabric (OAG): retrieve objects/logic/actions with citations. |
 | FR-MI-3 | Provide an agent runtime with tools, memory, planning, and per-agent Evals. |
 | FR-MI-4 | Provide no-code (Logic) and pro-code builders for AI functions and agents. |
@@ -326,7 +326,7 @@ Inference runs on a GPU node pool; agent, guardrail, and eval services are horiz
 | AC-MI-4 | Given governed feedback, when applied, then retrieval/policy updates occur and are logged with provenance (self-learning). | `[FR-MI-5]` |
 | AC-MI-5 | Given degraded inference or a failed tool, when detected, then the runtime reroutes/retries/rolls back automatically (self-healing). | `[FR-MI-6]` |
 | AC-MI-6 | Given a prompt-injection attempt, when received, then it is detected and blocked before any tool executes (self-defending). | `[FR-MI-7]` |
-| AC-MI-7 | Given model weights of any supported family (Mistral / Nemotron / Gemma / Granite), when loaded, then the Veldris ML-DSA signature, licence policy, and hardware eligibility are verified and loading fails closed on any mismatch. (Superseded/expanded by AC-MS-2 in the Model-Supply Resolution.) | `[NFR-PQ-3]` |
+| AC-MI-7 | Given model weights of any supported family (Mistral/Nemotron/Gemma/Granite), when loaded, then the Veldris ML-DSA signature, licence policy, and hardware eligibility are verified and loading fails closed on any mismatch. (Superseded/expanded by AC-MS-2 in the Model-Supply Resolution.) | `[NFR-PQ-3]` |
 | AC-MI-8 | Given a consuming product (Forge/Bifrost/Heimdall), when it calls inference, then the call is over internal PQ-mTLS and audited. | `[FR-MI-8]` `[NFR-SEC-1]` |
 
 

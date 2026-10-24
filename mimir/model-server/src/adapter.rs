@@ -7,7 +7,7 @@
 //! consumer hands the plane one already-assembled, family-neutral prompt; the
 //! adapter for the routed family wraps it in that family's turn delimiters and
 //! generation prefix on the way in, and trims the family's stop tokens on the way
-//! out. This is what lets one unchanged inference contract serve three
+//! out. This is what lets one unchanged inference contract serve four
 //! heterogeneous families. [DD-6]
 //!
 //! The templates here are structural (turn delimiters + generation prefix) and
@@ -41,19 +41,19 @@ pub trait FamilyAdapter: Send + Sync {
     }
 }
 
-/// Mistral chat template (`<|system|>/<|user|>/<|assistant|>` turns). Reasoning-strong
-/// default. [FR-MS-7]
+/// Mistral chat template (`[INST] … [/INST]` turns), Mistral AI's Apache-2.0 family.
+/// Reasoning-strong default. [FR-MS-7]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MistralAdapter;
 
-const MISTRAL_STOPS: &[&str] = &["<|user|>", "<|observation|>", "<|endoftext|>"];
+const MISTRAL_STOPS: &[&str] = &["</s>", "[INST]"];
 
 impl FamilyAdapter for MistralAdapter {
     fn family(&self) -> &'static str {
         "Mistral"
     }
     fn render(&self, neutral_prompt: &str) -> String {
-        format!("[gMASK]<sop><|user|>\n{neutral_prompt}<|assistant|>\n")
+        format!("<s>[INST] {neutral_prompt} [/INST]")
     }
     fn stop_tokens(&self) -> &[&'static str] {
         MISTRAL_STOPS
@@ -128,18 +128,19 @@ pub struct AdapterSet {
 
 impl Default for AdapterSet {
     fn default() -> Self {
-        Self::default_three()
+        Self::default_families()
     }
 }
 
 impl AdapterSet {
-    /// The three supported families: Mistral, Nemotron, Gemma, Granite.
-    pub fn default_three() -> Self {
+    /// The four supported families: Mistral, Nemotron, Gemma, Granite.
+    pub fn default_families() -> Self {
         Self {
             adapters: vec![
                 Box::new(MistralAdapter),
                 Box::new(NemotronAdapter),
                 Box::new(GemmaAdapter),
+                Box::new(GraniteAdapter),
             ],
         }
     }

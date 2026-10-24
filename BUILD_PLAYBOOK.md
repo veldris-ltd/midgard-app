@@ -237,7 +237,7 @@ All of AC-M-1..9 pass with real evidence; the audit spine, KMS, and policy inter
 
 | FR | Requirement |
 |---|---|
-| FR-MI-1 | Serve models locally with batching, KV-cache, and quantisation; expose a typed inference API. Families: Mistral, NVIDIA Nemotron, Google Gemma and IBM Granite (see Phase 3). |
+| FR-MI-1 | Serve models locally with batching, KV-cache, and quantisation; expose a typed inference API. Families: Mistral, NVIDIA Nemotron, Google Gemma, IBM Granite (see Phase 3). |
 | FR-MI-2 | Ground generation in the object fabric (OAG): retrieve objects/logic/actions with citations. |
 | FR-MI-3 | Provide an agent runtime with tools, memory, planning, and per-agent Evals. |
 | FR-MI-4 | Provide no-code (Logic) and pro-code builders for AI functions and agents. |
@@ -468,7 +468,7 @@ would degrade a passing Eval. Flag pii_present=true to force redaction before us
 | **AC-MI-4** | Given governed feedback, when applied, then retrieval/policy updates occur and are logged with provenance (self-learning). | `[FR-MI-5]` |
 | **AC-MI-5** | Given degraded inference or a failed tool, when detected, then the runtime reroutes/retries/rolls back automatically (self-healing). | `[FR-MI-6]` |
 | **AC-MI-6** | Given a prompt-injection attempt, when received, then it is detected and blocked before any tool executes (self-defending). | `[FR-MI-7]` |
-| **AC-MI-7** | Given model weights of any supported family (Mistral / Nemotron / Gemma / Granite), when loaded, then the Veldris ML-DSA signature, licence policy, and hardware eligibility are verified and loading fails closed on any mismatch. *(Superseded/expanded by AC-MS-2 in Phase 3.)* | `[NFR-PQ-3]` |
+| **AC-MI-7** | Given model weights of any supported family (Mistral/Nemotron/Gemma/Granite), when loaded, then the Veldris ML-DSA signature, licence policy, and hardware eligibility are verified and loading fails closed on any mismatch. *(Superseded/expanded by AC-MS-2 in Phase 3.)* | `[NFR-PQ-3]` |
 | **AC-MI-8** | Given a consuming product (Forge/Bifrost/Heimdall), when it calls inference, then the call is over internal PQ-mTLS and audited. | `[FR-MI-8]` `[NFR-SEC-1]` |
 
 ### 2.5 Definition of done
@@ -478,7 +478,7 @@ AC-MI-1..8 pass; the A.1–A.5 prompts are wired with their Evals passing per mo
 
 # Phase 3 — Model Supply Resolution
 
-**Goal:** make model weights sovereign — fetch, verify, register, licence-gate, and hardware-gate every artefact across three families behind one unchanged inference contract.
+**Goal:** make model weights sovereign — fetch, verify, register, licence-gate, and hardware-gate every artefact across four families behind one unchanged inference contract.
 **Source:** [`SAD_02b_Mimir_Model_Supply_Resolution.md`](docs/dev/markdown/SAD_02b_Mimir_Model_Supply_Resolution.md).
 **Depends on:** Phase 2. **Forward link:** AC-MS-3 (air-gap bundle transit) completes when Bifrost lands in Phase 5.
 
@@ -520,7 +520,7 @@ fail closed on any revoked artefact regardless of signature validity (AC-MS-7).
 
 **Prompt 3.c — Multi-family adapters + routing**
 ```
-Implement per-family adapters (Mistral / Nemotron / Gemma / Granite) behind the UNCHANGED inference
+Implement per-family adapters (Mistral/Nemotron/Gemma/Granite) behind the UNCHANGED inference
 contract [FR-MS-7]; family-specific chat templating/stop-tokens live in the Model
 Abstraction Layer, never in prompts. Implement the router: select an eligible,
 policy-permitted artefact per request by workload class, hardware eligibility, and
@@ -561,7 +561,7 @@ Mark fields "unknown" rather than guessing when the card is silent.
 | **AC-MS-1** | Given an upstream model, when staged, then native provenance is verified where available, a CycloneDX SBOM is generated, the licence is captured, and the bundle is re-signed under the Veldris ML-DSA key. | `[FR-MS-1]` `[FR-MS-2]` `[NFR-PQ-3]` |
 | **AC-MS-2** | Given any model artefact of any supported family, when loaded, then its ML-DSA signature is verified and loading fails closed on mismatch (supersedes AC-MI-7). | `[FR-MS-4]` |
 | **AC-MS-3** | Given a signed bundle, when imported to an air-gapped enclosure, then it transits only via Bifrost's signed-bundle workflow and is rejected if the Veldris signature fails. | `[FR-B-4]` `[FR-B-5]` |
-| **AC-MS-4** | Given three families registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
+| **AC-MS-4** | Given four families registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
 | **AC-MS-5** | Given a node that cannot satisfy a variant's HwProfile, when that variant is requested, then it is not loaded and the largest eligible variant is offered instead. | `[FR-MS-5]` |
 | **AC-MS-6** | Given a model whose licence policy is unmet for the deployment, when a load is attempted, then it is refused exactly as a revoked artefact is. | `[FR-MS-6]` |
 | **AC-MS-7** | Given an artefact set to revoked (licence/CVE/eval regression), when any load is attempted, then it fails closed regardless of signature validity. | `[FR-MS-4]` `[NFR-AI-1]` |
@@ -1267,7 +1267,7 @@ Prompt-level Evals (Appendix C) are **additional** and gate the AI behaviours sp
 
 # Appendix C — Prompt-level Evals index
 
-Each library prompt ships Evals that gate its behaviour; these run **per model family** (Mistral / Nemotron / Gemma / Granite) so a prompt is certified against every model it may be routed to. `[FR-MS-7]`
+Each library prompt ships Evals that gate its behaviour; these run **per model family** (Mistral/Nemotron/Gemma/Granite) so a prompt is certified against every model it may be routed to. `[FR-MS-7]`
 
 | Prompt | Eval set | Gates |
 |---|---|---|
@@ -1314,7 +1314,7 @@ The engineering competencies and tooling required, mapped to who uses them. `[DD
 | Distributed systems | Kubernetes, service mesh, zero-downtime rolling upgrade, autoscaling | Midgard, Bifrost |
 | Object/graph data | Columnar + inverted-index stores, incremental indexing, semantic-layer design | Midgard object fabric, Forge |
 | LLM serving | GPU inference runtimes, continuous batching, KV-cache, quantisation (int4/int8/awq/gguf) | Mimir |
-| Multi-model integration | Per-family adapters (Mistral / Nemotron / Gemma / Granite), tokenizer/template handling, routing | Mimir Model Abstraction Layer |
+| Multi-model integration | Per-family adapters (Mistral/Nemotron/Gemma/Granite), tokenizer/template handling, routing | Mimir Model Abstraction Layer |
 | Agentic AI | Plan-act-observe runtimes, tool orchestration, Evals frameworks, guardrails | Mimir, all AI features |
 | Data engineering | Batch + stream pipelines (Spark/Flink-class), content-addressed versioning, lineage | Forge |
 | Supply chain security | Reproducible builds, CycloneDX SBOM, artefact signing, air-gap bundle workflows | Bifrost, model supply |

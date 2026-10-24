@@ -46,9 +46,12 @@ impl RoutingPolicy {
         }
     }
 
-    /// Permit all three supported families with Mistral as the balanced default.
-    pub fn permit_all_three() -> Self {
-        Self::new(["Mistral", "Nemotron", "Gemma"].map(String::from), "Mistral")
+    /// Permit all four supported families with Mistral as the balanced default.
+    pub fn permit_all() -> Self {
+        Self::new(
+            ["Mistral", "Nemotron", "Gemma", "Granite"].map(String::from),
+            "Mistral",
+        )
     }
 
     /// Whether `family` is permitted.
@@ -160,7 +163,7 @@ pub struct Router {
 impl Router {
     /// A router with the default Mistral / Nemotron / Gemma / Granite adapters under `policy`.
     pub fn new(policy: RoutingPolicy) -> Self {
-        Self::with_adapters(policy, AdapterSet::default_three())
+        Self::with_adapters(policy, AdapterSet::default_families())
     }
 
     /// A router with an explicit adapter set.

@@ -9,7 +9,7 @@ requirement, [STD:*] standard. Design specs, not evidence of an implemented syst
 - SAD_00_Midgard_Core.docx                       — sovereign core platform / enclosure
 - SAD_01_Forge.docx                              — data operations
 - SAD_02_Mimir.docx                              — local agentic AI
-- SAD_02b_Mimir_Model_Supply_Resolution.docx     — DCR: multi-model provenance (Mistral / Nemotron / Gemma / Granite)
+- SAD_02b_Mimir_Model_Supply_Resolution.docx     — DCR: multi-model provenance (Mistral/Nemotron/Gemma/Granite)
 - SAD_03_Bifrost.docx                            — continuous delivery
 - SAD_04_Heimdall.docx                           — operational fusion
 - SAD_05_Master_Prompt_and_Acceptance_Spec.docx  — CONSOLIDATING MASTER: prompt library +

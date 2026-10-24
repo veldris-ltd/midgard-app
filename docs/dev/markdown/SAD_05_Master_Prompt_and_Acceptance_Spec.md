@@ -20,7 +20,7 @@ It is a **forward-looking design specification**. Provenance tags trace every de
 
 ## PART A — Prompt Library & Agent Instructions
 
-This part contains complete, deployable prompt text for every AI touchpoint in the suite. Each prompt is production-oriented: it defines a role, a hard output contract, guardrails, and its governance envelope. Prompts are written to be model-portable across the three supported families (Mistral, Nemotron, Gemma, Granite); family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author. `[DD-4]` `[FR-MS-7]`
+This part contains complete, deployable prompt text for every AI touchpoint in the suite. Each prompt is production-oriented: it defines a role, a hard output contract, guardrails, and its governance envelope. Prompts are written to be model-portable across the four supported families (Mistral, Nemotron, Gemma, Granite); family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author. `[DD-4]` `[FR-MS-7]`
 
 > **How to read this library.** Each entry gives: (1) the identifier and where it runs; (2) the system prompt verbatim; (3) required context variables the assembly pipeline injects; (4) the output contract; (5) a starter Evals set. Text in `{{double_braces}}` is a runtime-injected variable, never authored inline. Prompts assume the assembly order in Part B §B.2. `[NFR-AI-1]`
 
@@ -530,7 +530,7 @@ Every acceptance criterion across the suite, gathered into one traceable table. 
 | Mimir | AC-MI-4 | Given governed feedback, when applied, then retrieval/policy updates occur and are logged with provenance (self-learning). | `[FR-MI-5]` |
 | Mimir | AC-MI-5 | Given degraded inference or a failed tool, when detected, then the runtime reroutes/retries/rolls back automatically (self-healing). | `[FR-MI-6]` |
 | Mimir | AC-MI-6 | Given a prompt-injection attempt, when received, then it is detected and blocked before any tool executes (self-defending). | `[FR-MI-7]` |
-| Mimir | AC-MI-7 | Given model weights of any supported family (Mistral / Nemotron / Gemma / Granite), when loaded, then the Veldris ML-DSA signature, licence policy, and hardware eligibility are verified and loading fails closed on any mismatch. (Superseded/expanded by AC-MS-2 in the Model-Supply Resolution.) | `[NFR-PQ-3]` |
+| Mimir | AC-MI-7 | Given model weights of any supported family (Mistral/Nemotron/Gemma/Granite), when loaded, then the Veldris ML-DSA signature, licence policy, and hardware eligibility are verified and loading fails closed on any mismatch. (Superseded/expanded by AC-MS-2 in the Model-Supply Resolution.) | `[NFR-PQ-3]` |
 | Mimir | AC-MI-8 | Given a consuming product (Forge/Bifrost/Heimdall), when it calls inference, then the call is over internal PQ-mTLS and audited. | `[FR-MI-8]` `[NFR-SEC-1]` |
 | Bifrost | AC-B-1 | Given an unsigned or tampered artefact, when a deploy is attempted, then it is rejected (fail closed). | `[FR-B-4]` `[NFR-PQ-3]` |
 | Bifrost | AC-B-2 | Given a rollout, when a ring's health gate fails, then rollback occurs automatically with no downtime. | `[FR-B-2]` `[NFR-AVA-1]` |
@@ -548,7 +548,7 @@ Every acceptance criterion across the suite, gathered into one traceable table. 
 | Model-Supply DCR | AC-MS-1 | Given an upstream model, when staged, then native provenance is verified where available, a CycloneDX SBOM is generated, the licence is captured, and the bundle is re-signed under the Veldris ML-DSA key. | `[FR-MS-1]` `[FR-MS-2]` `[NFR-PQ-3]` |
 | Model-Supply DCR | AC-MS-2 | Given any model artefact of any supported family, when loaded, then its ML-DSA signature is verified and loading fails closed on mismatch (supersedes AC-MI-7). | `[FR-MS-4]` |
 | Model-Supply DCR | AC-MS-3 | Given a signed bundle, when imported to an air-gapped enclosure, then it transits only via Bifrost's signed-bundle workflow and is rejected if the Veldris signature fails. | `[FR-B-4]` `[FR-B-5]` |
-| Model-Supply DCR | AC-MS-4 | Given three families are registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
+| Model-Supply DCR | AC-MS-4 | Given four families are registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
 | Model-Supply DCR | AC-MS-5 | Given a node that cannot satisfy a variant's HwProfile, when that variant is requested, then it is not loaded and the largest eligible variant is offered instead. | `[FR-MS-5]` |
 | Model-Supply DCR | AC-MS-6 | Given a model whose licence policy is unmet for the deployment, when a load is attempted, then it is refused exactly as a revoked artefact is. | `[FR-MS-6]` |
 | Model-Supply DCR | AC-MS-7 | Given an artefact set to revoked (licence/CVE/eval regression), when any load is attempted, then it fails closed regardless of signature validity. | `[FR-MS-4]` `[NFR-AI-1]` |
@@ -584,7 +584,7 @@ Every acceptance criterion across the suite, gathered into one traceable table. 
 
 ### C.2 Prompt-level Evals (from Part A)
 
-Each library prompt ships with Evals that gate its behaviour. These run per model family (Mistral / Nemotron / Gemma / Granite) so a prompt is certified against every model it may be routed to. `[FR-MS-7]`
+Each library prompt ships with Evals that gate its behaviour. These run per model family (Mistral/Nemotron/Gemma/Granite) so a prompt is certified against every model it may be routed to. `[FR-MS-7]`
 
 | Prompt | Eval set | Gates |
 | --- | --- | --- |
@@ -631,7 +631,7 @@ The engineering capabilities and tooling required to build the suite, so resourc
 | Distributed systems | Kubernetes, service mesh, zero-downtime rolling upgrade, autoscaling | Midgard, Bifrost |
 | Object/graph data | Columnar + inverted-index stores, incremental indexing, semantic layer design | Midgard object fabric, Forge |
 | LLM serving | GPU inference runtimes, continuous batching, KV-cache, quantisation (int4/int8/awq/gguf) | Mimir |
-| Multi-model integration | Per-family adapters (Mistral / Nemotron / Gemma / Granite), tokenizer/template handling, routing | Mimir Model Abstraction Layer |
+| Multi-model integration | Per-family adapters (Mistral/Nemotron/Gemma/Granite), tokenizer/template handling, routing | Mimir Model Abstraction Layer |
 | Agentic AI | Plan-act-observe runtimes, tool orchestration, Evals frameworks, guardrails | Mimir, all AI features |
 | Data engineering | Batch + stream pipelines (Spark/Flink-class), content-addressed versioning, lineage | Forge |
 | Supply chain security | Reproducible builds, CycloneDX SBOM, artefact signing, air-gap bundle workflows | Bifrost, model supply |

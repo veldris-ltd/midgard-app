@@ -111,7 +111,7 @@ pub struct WeightsFile {
 pub struct ModelManifest {
     /// Stable artefact id.
     pub id: String,
-    /// Family (Mistral / Nemotron / Gemma / Granite / Granite).
+    /// Family (Mistral / Nemotron / Gemma / Granite).
     pub family: String,
     /// Version label.
     pub version: String,
@@ -272,8 +272,8 @@ pub struct ModelLoader {
 #[cfg(feature = "backend-fips")]
 impl ModelLoader {
     /// Build a loader trusting `trust_key` (the Veldris signing root). Supported
-    /// families default to Mistral / Nemotron / Gemma / Granite, and Granite, the Apache-2.0 family
-    /// of the default CPU model.
+    /// families default to Mistral / Nemotron / Gemma / Granite; Granite, the Apache-2.0
+    /// family of the default CPU model, is among them.
     pub fn new(trust_key: pqc_agility::VerifyingKey, policy: LicencePolicy) -> Self {
         Self {
             trust_key,

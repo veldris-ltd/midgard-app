@@ -455,7 +455,7 @@ Input guardrails against prompt injection: a deterministic filter with de-obfusc
 
 An evaluation suite for the AI touchpoints, recorded per evaluation and per model family.
 
-**Until it is operable, say:** "The evaluation suites are implemented and run as tests against deterministic stand-ins for three model families. No evaluation has been run against a real model."
+**Until it is operable, say:** "The evaluation suites are implemented and run as tests against deterministic stand-ins for four model families. No evaluation has been run against a real model."
 
 **Milestone.** An evaluation runner drives the suites through mimir-server against a real model (RF-MI-6).
 

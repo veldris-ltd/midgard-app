@@ -310,7 +310,7 @@ claim = "An evaluation suite for the AI touchpoints, recorded per evaluation and
 status = "reference"
 evidence = ["mimir/agent-runtime/src/evals.rs:511"]
 tests = ["mimir/agent-runtime/tests/eval_matrix.rs::eval_matrix_scores_each_family_distinctly_and_reports_per_eval_family"]
-fallback = "The evaluation suites are implemented and run as tests against deterministic stand-ins for three model families. No evaluation has been run against a real model."
+fallback = "The evaluation suites are implemented and run as tests against deterministic stand-ins for four model families. No evaluation has been run against a real model."
 milestone = "An evaluation runner drives the suites through mimir-server against a real model (RF-MI-6)."
 
 # ---- Forge -----------------------------------------------------------------------------

@@ -474,10 +474,10 @@ pub fn run_ev_a5(d: &FeedbackDistiller) -> Vec<EvalResult> {
 /// The supported model families a prompt is certified against. Prompt-level evals
 /// run per family so a prompt is certified against every model it may be routed
 /// to (FR-MS-7).
-pub const MODEL_FAMILIES: [&str; 3] = ["Mistral", "Nemotron", "Gemma"];
+pub const MODEL_FAMILIES: [&str; 4] = ["Mistral", "Nemotron", "Gemma", "Granite"];
 
 /// Run a suite **once per model family, passing the family to the runner** so it
-/// exercises that family's own served model — not one stand-in relabelled three
+/// exercises that family's own served model — not one stand-in relabelled four
 /// times. A model-independent (reference) suite may ignore the argument; a
 /// model-backed suite dispatches on it. Results are tagged with the family. [RC-23]
 pub fn per_family<F>(run: F) -> Vec<(&'static str, Vec<EvalResult>)>

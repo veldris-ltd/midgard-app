@@ -1,6 +1,6 @@
 # Mimir — Model-Supply Gap Resolution
 
-*Design-change record: sovereign multi-model provenance for Mistral, Nemotron & Gemma*
+*Design-change record: sovereign multi-model provenance for Mistral, Nemotron, Gemma & Granite*
 
 **Author:** Veldris Ltd (company no. 17366869)  
 **Version:** 1.0 · **Date:** 2026-07-02 · **Classification:** PUBLIC, published with the Midgard repository  
@@ -11,7 +11,7 @@
 
 ## 1. Purpose & Change Summary
 
-This is a design-change record (DCR) against the Mimir Solutions Architecture Document (SAD_02). It resolves the open design gap recorded in Mimir SAD §11.3 / §15 and Midgard core SAD §11.12 — *local model-weight provenance* — and simultaneously implements an approved capability expansion: users may run the most advanced locally-runnable variants of **three model families — Mistral, NVIDIA Nemotron, Google Gemma and IBM Granite** — inside the enclosure, selectable per workflow. `[DD-4]` `[DD-5]` `[DD-7]`
+This is a design-change record (DCR) against the Mimir Solutions Architecture Document (SAD_02). It resolves the open design gap recorded in Mimir SAD §11.3 / §15 and Midgard core SAD §11.12 — *local model-weight provenance* — and simultaneously implements an approved capability expansion: users may run the most advanced locally-runnable variants of **four model families — Mistral, NVIDIA Nemotron, Google Gemma and IBM Granite** — inside the enclosure, selectable per workflow. `[DD-4]` `[DD-5]` `[DD-7]`
 
 As with the SADs, this is a **forward-looking design specification**. Every decision carries a provenance tag (`[DD-n]`, `[FR-n]`, `[NFR-n]`, `[STD:...]`); it describes intended design, not verified implementation.
 
@@ -45,7 +45,7 @@ The original finding bundled three distinct problems. A complete resolution must
 | G2 — Provenance & integrity | How does the enclosure prove a weight file is authentic, unmodified, and licence-clean before load? | Staging-side verification + Veldris re-signing + verify-on-load (§3, §4) |
 | G3 — Lifecycle & agility | How are models versioned, rotated, and hot-swapped across families without breaking consumers? | Model Registry + Model Abstraction Layer (§4, §5) |
 
-> **Why the multi-model decision changes G3 specifically.** Supporting one model is a provenance problem; supporting three families — each with different formats, tokenizers, chat templates, quantisation schemes, and licences — is a *catalogue-and-abstraction* problem. This is why the resolution introduces the Model Abstraction Layer, which did not exist in the original Mimir SAD. `[DD-4]`
+> **Why the multi-model decision changes G3 specifically.** Supporting one model is a provenance problem; supporting four families — each with different formats, tokenizers, chat templates, quantisation schemes, and licences — is a *catalogue-and-abstraction* problem. This is why the resolution introduces the Model Abstraction Layer, which did not exist in the original Mimir SAD. `[DD-4]`
 
 
 ## 3. Air-Gap Model Supply Chain
@@ -88,7 +88,7 @@ The Model Registry is the in-enclosure system of record for every model the plat
 
 | Entity | Purpose | Key attributes |
 | --- | --- | --- |
-| ModelFamily | One of the supported families | id, name (Mistral\|Nemotron\|Gemma), steward |
+| ModelFamily | One of the supported families | id, name (Mistral\|Nemotron\|Gemma\|Granite), steward |
 | ModelVariant | A specific variant within a family | id, family_id, label, modality |
 | ModelArtefact | A packaged, signed, loadable build | id, version, quantisation, tokenizer_ref, sha256, mldsa_signature, sbom_ref, status |
 | Provenance | How the artefact was obtained/verified | upstream_source, native_sig, staged_by, staged_at |
@@ -122,9 +122,10 @@ The Model Abstraction Layer preserves Mimir's unchanged inference contract while
 
 | Adapter | Handles | Notes |
 | --- | --- | --- |
-| Mistral adapter | Mistral chat template, tokenizer, serving quirks | Reasoning-strong default `[FR-MS-7]` |
+| Mistral adapter | Mistral `[INST]` chat template, tokenizer, serving quirks | Reasoning-strong default `[FR-MS-7]` |
 | Nemotron adapter | Nemotron template/tokenizer, NVIDIA formats | Strong code/agentic tasks `[FR-MS-7]` |
 | Gemma adapter | Gemma template/tokenizer, GGUF/quantised formats | Efficient small-footprint option `[FR-MS-7]` |
+| Granite adapter | Granite role template/tokenizer, GGUF/quantised formats | Small default model for CPU-only enclosures `[FR-MS-7]` |
 
 
 ### 5.2 The router
@@ -148,13 +149,14 @@ These are illustrative defaults, not hard bindings; the actual mapping is policy
 
 ## 6. Licence Governance (a first-class concern)
 
-The three families carry materially different licences. This is not a footnote: the suite's open-source-first driver (`[DD-2]`) requires that non-OSI-licensed models are never folded into the OSS core. They are handled as separately-licensed, user-fetched artefacts with terms surfaced and accepted at install time.
+The four families carry materially different licences. This is not a footnote: the suite's open-source-first driver (`[DD-2]`) requires that non-OSI-licensed models are never folded into the OSS core. They are handled as separately-licensed, user-fetched artefacts with terms surfaced and accepted at install time.
 
 | Family | Licence character (design-time assumption) | Handling |
 | --- | --- | --- |
-| Mistral | Varies by variant; some open, some restricted | Per-variant licence field; gate on redistribution_ok `[FR-MS-6]` |
+| Mistral | Apache-2.0 for the open-weight variants; the largest variants are under separate commercial terms | Per-variant licence field; gate on redistribution_ok `[FR-MS-6]` |
 | Nemotron | NVIDIA community/open model licences; conditions vary by model | Capture exact terms; surface use restrictions at install |
 | Gemma | Google Gemma Terms of Use — custom, not OSI-approved, use restrictions apply | Never bundled into OSS core; user fetches + accepts terms |
+| Granite | Apache-2.0 (IBM) | OSI-licensed; eligible as the bundled default CPU model |
 
 > **Design rule.** The Mimir OSS core ships the *registry, adapters, router, and supply-chain tooling* — all Veldris-authored and OSI-licensed — but ships **no third-party model weights**. Weights are fetched by the operator into staging, where their licence is recorded and enforced. This keeps the open-source boundary clean while letting users run models they are entitled to use. `[DD-2]` `[FR-MS-6]`
 
@@ -177,14 +179,14 @@ Licence status is enforced at load, not merely displayed: an artefact whose lice
 
 ## 8. Updated & New Acceptance Criteria
 
-The original Mimir acceptance criterion **AC-MI-7** (single-model signature verification) is superseded by **AC-MS-2** below, generalised across three families. The remaining criteria are new and must all pass for the gap to be certified closed.
+The original Mimir acceptance criterion **AC-MI-7** (single-model signature verification) is superseded by **AC-MS-2** below, generalised across four families. The remaining criteria are new and must all pass for the gap to be certified closed.
 
 | ID | Given / When / Then | Provenance |
 | --- | --- | --- |
 | AC-MS-1 | Given an upstream model, when staged, then native provenance is verified where available, a CycloneDX SBOM is generated, the licence is captured, and the bundle is re-signed under the Veldris ML-DSA key. | `[FR-MS-1]` `[FR-MS-2]` `[NFR-PQ-3]` |
 | AC-MS-2 | Given any model artefact of any supported family, when loaded, then its ML-DSA signature is verified and loading fails closed on mismatch (supersedes AC-MI-7). | `[FR-MS-4]` |
 | AC-MS-3 | Given a signed bundle, when imported to an air-gapped enclosure, then it transits only via Bifrost's signed-bundle workflow and is rejected if the Veldris signature fails. | `[FR-B-4]` `[FR-B-5]` |
-| AC-MS-4 | Given three families are registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
+| AC-MS-4 | Given four families are registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
 | AC-MS-5 | Given a node that cannot satisfy a variant's HwProfile, when that variant is requested, then it is not loaded and the largest eligible variant is offered instead. | `[FR-MS-5]` |
 | AC-MS-6 | Given a model whose licence policy is unmet for the deployment, when a load is attempted, then it is refused exactly as a revoked artefact is. | `[FR-MS-6]` |
 | AC-MS-7 | Given an artefact set to revoked (licence/CVE/eval regression), when any load is attempted, then it fails closed regardless of signature validity. | `[FR-MS-4]` `[NFR-AI-1]` |
