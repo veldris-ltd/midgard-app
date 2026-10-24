@@ -67,7 +67,7 @@ fetch shell "midgard-shell-windows-x64-$sha" "${SHELL_EXES[@]}"
 for d in "${VCRUNTIME_DLLS[@]}"; do
     [ -f "$stage/shell/vcruntime/$d.dll" ] || die "the shell artefact has no vcruntime/$d.dll"
 done
-for f in VERSIONS.txt dotnet-runtime-LICENSE.txt WebView2-LICENSE.txt; do
+for f in VERSIONS.txt dotnet-runtime-LICENSE.txt windowsdesktop-runtime-LICENSE.txt WebView2-LICENSE.txt; do
     [ -f "$stage/shell/notices/$f" ] || die "the shell artefact has no notices/$f"
 done
 

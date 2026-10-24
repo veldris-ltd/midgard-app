@@ -776,10 +776,13 @@ seen = set()
 for fw in assets["project"]["frameworks"].values():
     # Only the shared frameworks the app references (the restore also lists packs it never
     # uses, such as ASP.NET Core's, without downloading them). Microsoft.NETCore.App is implicit.
-    used = {"Microsoft.NETCore.App"} | set(fw.get("frameworkReferences", {}))
+    # WinForms is referenced as Microsoft.WindowsDesktop.App.WindowsForms, a profile of
+    # Microsoft.WindowsDesktop.App.
+    refs = {"Microsoft.NETCore.App"} | set(fw.get("frameworkReferences", {}))
     for dep in fw.get("downloadDependencies", []):
         name, ver = dep["name"], dep["version"].strip("[]").split(",")[0].strip()
-        if (name.endswith(".Runtime.win-x64") and name[:-len(".Runtime.win-x64")] in used
+        base = name[:-len(".Runtime.win-x64")]
+        if (name.endswith(".Runtime.win-x64") and any(r == base or r.startswith(base + ".") for r in refs)
                 and name not in seen):
             seen.add(name)
             print(name, ver)
@@ -793,6 +796,8 @@ PY2
 )
     grep -q '^Microsoft.NETCore.App.Runtime.win-x64 ' "$out/VERSIONS.txt" \
         || { ci_error "notices: the .NET runtime pack was not found in obj/project.assets.json"; return 1; }
+    grep -q '^Microsoft.WindowsDesktop.App.Runtime.win-x64 ' "$out/VERSIONS.txt" \
+        || { ci_error "notices: the Windows Desktop (WinForms) runtime pack was not found in obj/project.assets.json"; return 1; }
     grep -q '^Microsoft.Web.WebView2 ' "$out/VERSIONS.txt" \
         || { ci_error "notices: WebView2's version was not found in packages.lock.json"; return 1; }
     cat "$out/VERSIONS.txt"
