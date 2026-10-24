@@ -198,6 +198,7 @@ dependencies = [
  "gateway",
  "governance",
  "iam",
+ "libc",
  "policy",
  "pq-mtls",
  "pqc-agility",

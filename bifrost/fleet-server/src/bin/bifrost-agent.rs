@@ -80,6 +80,7 @@ fn main() {
         run(&args)
     };
     match result {
+        Ok(report) if report.is_empty() => {}
         Ok(report) => println!("{report}"),
         Err(e) => {
             if args.flag("suite") {

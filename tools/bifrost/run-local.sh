@@ -22,7 +22,13 @@
 # restart from the suite root's active/ links), its release-signer anchors
 # fleet-state/trust/release-signers, and it adopts this checkout's dist/mac/bin as
 # --initial-version on its first run (only if their digests match that release in the
-# registry). MIDGARD_REPLAY and MIDGARD_DOCKER_STOPPED pass through to the runner.
+# registry), restarting the running services from their slots once. It returns when the
+# agent has recovered and adopted (it writes suite/agent.ready). The runner gets
+# MIDGARD_REPLAY=$BIFROST_REPLAY (default the hour-1 recording in ~/Library/Application
+# Support/Midgard-dev/recordings; BIFROST_REPLAY=none for no replay). If Docker's daemon
+# cannot be reached, MIDGARD_DOCKER_STOPPED=1 is exported for the runner; run-native's
+# Docker check must pass before the agent starts. `agent stop` sends SIGTERM and waits
+# (up to 10 minutes) while the agent finishes the swap in progress.
 #
 # Everything lives in $BIFROST_HOME (default ~/Desktop/Midgard/bifrost-local). Ports avoid
 # 7740, which the camera analytics use. The console (products/bifrost/ui) still shows demo
@@ -74,6 +80,7 @@ HEALTH="${BIFROST_HEALTH:-127.0.0.1:9750}"
 AGENTS=(fleet-agent-1 fleet-agent-2 fleet-agent-3)
 SUITE_AGENT=mac-suite
 SUITE="${BIFROST_SUITE_ROOT:-$H/suite}"
+REPLAY="${BIFROST_REPLAY:-$HOME/Library/Application Support/Midgard-dev/recordings/hour-1}"
 ENCLOSURE="${MIDGARD_ENCLOSURE:-$HOME/Desktop/Midgard/airports}"
 MESH_OUT="${BIFROST_MESH_OUT:-$HOME/Desktop/Midgard/airports-mesh/bifrost}"
 BACKUPS="${MIDGARD_BACKUP_DIR:-$HOME/Library/Caches/midgard-build}"
@@ -292,8 +299,26 @@ status() { running || die "start it first"; agent --service fleet-operator --sta
 agent_pid() { cat "$H/agent.pid" 2>/dev/null || true; }
 agent_running() { local p; p="$(agent_pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 
+# Docker for the runner's check: when the daemon cannot be reached (Docker Desktop quit),
+# no container can run, so MIDGARD_DOCKER_STOPPED=1 is exported; then run-native's own
+# check must pass, or the agent is not started.
+agent_docker() {
+    local err
+    if [ "${MIDGARD_DOCKER_STOPPED:-}" != 1 ] && command -v docker >/dev/null; then
+        if ! err="$(docker ps -q 2>&1 >/dev/null)"; then
+            case "$err" in
+                *"Cannot connect to the Docker daemon"* | *"docker daemon running"* | *"daemon is not running"*)
+                    echo "Docker's daemon is not running: no container can hold the suite (MIDGARD_DOCKER_STOPPED=1)"
+                    export MIDGARD_DOCKER_STOPPED=1 ;;
+            esac
+        fi
+    fi
+    MIDGARD_SUITE_ROOT="$SUITE" "$ROOT/tools/mac-app/run-native.sh" check-docker \
+        || die "the runner's Docker check failed (above); the agent was not started"
+}
+
 agent_start() {
-    local initial=()
+    local initial=() p
     case "${1:-}" in
         "") ;;
         --initial-version) [ -n "${2:-}" ] || die "--initial-version needs a version"; initial=(--initial-version "$2") ;;
@@ -302,26 +327,52 @@ agent_start() {
     [ -x "$BIN/bifrost-agent" ] || die "no $BIN/bifrost-agent; run setup first"
     has_identity "$SUITE_AGENT" "$CLIENTS" || die "no $SUITE_AGENT identity in $CLIENTS; run setup (it issues one)"
     if agent_running; then echo "bifrost-agent already running (pid $(agent_pid))"; return; fi
-    mkdir -p "$SUITE"
+    # The replay stays in the suite: the runner restarts it with this recording.
+    if [ "$REPLAY" = none ]; then
+        unset MIDGARD_REPLAY
+    else
+        [ -f "$REPLAY/meta.json" ] || die "no recording at $REPLAY (BIFROST_REPLAY; set BIFROST_REPLAY=none to run without the replay)"
+        export MIDGARD_REPLAY="$REPLAY"
+    fi
+    mkdir -p "$SUITE/active"
+    agent_docker
     MIDGARD_SUITE_ROOT="$SUITE" nohup "$BIN/bifrost-agent" --suite \
         --identity-dir "$CLIENTS" --addr "$MESH" --service "$SUITE_AGENT" --install-id "$SUITE_AGENT" \
         --channel stable --suite-root "$SUITE" --runner "$ROOT/tools/mac-app/run-native.sh" \
         --trust-dir "$H/fleet-state/trust/release-signers" --adopt-from "$ROOT/dist/mac/bin" \
         ${initial[@]+"${initial[@]}"} >> "$H/agent.log" 2>&1 < /dev/null &
-    echo $! > "$H/agent.pid"
-    sleep 3
-    agent_running || { rm -f "$H/agent.pid"; die "bifrost-agent exited: $(tail -3 "$H/agent.log")"; }
-    echo "bifrost-agent (suite, $SUITE_AGENT) running (pid $(agent_pid)); suite root $SUITE; log $H/agent.log"
+    p=$!
+    echo "$p" > "$H/agent.pid"
+    # Running means recovered and adopted (adoption restarts the suite from its slots, so
+    # this can take minutes): the agent writes its pid to agent.ready then.
+    echo "bifrost-agent (pid $p) starting; waiting for recovery and adoption (log $H/agent.log)"
+    for i in $(seq 1 1200); do
+        [ "$(cat "$SUITE/agent.ready" 2>/dev/null)" = "$p" ] && break
+        agent_running || { rm -f "$H/agent.pid"; die "bifrost-agent exited: $(tail -3 "$H/agent.log")"; }
+        [ $((i % 30)) != 0 ] || echo "  still starting after $i s: $(tail -1 "$H/agent.log" | cut -c1-160)"
+        sleep 1
+    done
+    [ "$(cat "$SUITE/agent.ready" 2>/dev/null)" = "$p" ] || die "bifrost-agent (pid $p) is not ready after 20 minutes; see $H/agent.log"
+    echo "bifrost-agent (suite, $SUITE_AGENT) running (pid $p); suite root $SUITE; replay ${MIDGARD_REPLAY:-none}"
 }
 
+# SIGTERM: the agent finishes (or reverts) the swap in progress, waits for its runner,
+# and exits. A restart can take minutes, so this waits up to 10 minutes.
 agent_stop() {
-    local p
+    local p left
     p="$(agent_pid)"
     if agent_running; then
         kill -TERM "$p"
-        for _ in $(seq 1 50); do agent_running || break; sleep 0.2; done
-        if agent_running; then echo "bifrost-agent (pid $p) has not exited yet"; return; fi
-        echo "bifrost-agent stopped (a swap it was making is finished or reverted on its next start)"
+        echo "bifrost-agent (pid $p) stopping: finishing any swap in progress"
+        for i in $(seq 1 600); do
+            agent_running || break
+            [ $((i % 30)) != 0 ] || echo "  still finishing after $i s"
+            sleep 1
+        done
+        if agent_running; then echo "bifrost-agent (pid $p) has not exited after 10 minutes; see $H/agent.log"; return 1; fi
+        left="$(pgrep -f "$ROOT/tools/mac-app/run-native.sh (restart|status)" || true)"
+        [ -z "$left" ] || echo "warning: runner processes still running: $(echo $left)"
+        echo "bifrost-agent stopped"
     else
         echo "bifrost-agent not running"
     fi
@@ -336,6 +387,7 @@ agent_status() {
         echo "  $s: ${v:-not adopted}"
     done
     [ ! -f "$SUITE/swap.journal" ] || echo "  a swap is journalled: $(tr '\n' ' ' < "$SUITE/swap.journal")"
+    [ ! -f "${MIDGARD_HOME:-$HOME/Desktop/Midgard}/native-run/agent-paused" ] || echo "  the suite is paused (run-native.sh stop): the agent changes nothing"
     [ ! -f "$H/agent.log" ] || { echo "--- $H/agent.log (last 5)"; tail -5 "$H/agent.log"; }
 }
 

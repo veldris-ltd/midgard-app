@@ -39,6 +39,8 @@ gateway = { path = "../../services/gateway" }
 governance = { path = "../../services/governance" }
 telemetry = { path = "../../services/telemetry" }
 service-runtime = { path = "../../services/runtime" }
+# The suite agent: flock on its suite root, and SIGTERM handling.
+libc = "0.2"
 
 [dev-dependencies]
 # Tests issue real mesh identities with an in-enclosure issuer.

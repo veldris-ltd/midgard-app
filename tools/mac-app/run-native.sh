@@ -6,26 +6,43 @@
 # held by one process only.
 #
 #   bash tools/mac-app/run-native.sh start | stop | status
-#   bash tools/mac-app/run-native.sh restart <service> | status <service>
-#
-# With MIDGARD_SUITE_ROOT set (Bifrost's suite agent sets it), each service is started
-# from $MIDGARD_SUITE_ROOT/active/<binary>, the agent's link to the slot of the version it
-# runs, instead of dist/mac/bin. Unset, nothing changes.
-#
-# `restart <service>` stops that one service and starts it again exactly as `start` does,
-# waiting for its readiness line (exit 0 once ready, 1 if it exits or is not ready within
-# 180 s). `status <service>` prints one word: ready (running, and its log since this start
-# has the readiness line `start` waits for), unready (running, not yet) or stopped.
-# <service> is a short name (gateway, mimir, heimdall, forge, replay) or a binary name
-# (http-gateway, mimir-server, heimdall-feed, forge-worker, midgard-replay,
-# heimdall-source). heimdall-source has no process of its own: midgard-replay runs the
-# heimdall-source beside its own binary for each batch, so its restart only checks the
-# binary is there (the replay's next batch uses it) and its status is ready when it is.
-# Restarting the replay reuses the recording it was started with (or MIDGARD_REPLAY).
+#   bash tools/mac-app/run-native.sh restart <service> | status <service> | check-docker
 #
 # With MIDGARD_REPLAY set to a recording directory (made by record.py), `start` also runs
 # midgard-replay, which plays the recording into Heimdall and Forge's data folder in place
 # of the live feeds; `stop` stops it (and its heimdall-source runs) first.
+#
+# Managed by Bifrost's suite agent (MIDGARD_SUITE_ROOT set): each service is launched from
+# the slot its $MIDGARD_SUITE_ROOT/active/<binary> link names, resolved at launch, and the
+# version launched is written to native-run/<service>.version. midgard-replay is given
+# --source-bin active/heimdall-source, so each batch runs the linked heimdall-source.
+# native-run/suite-root records the suite root; while it names one, `start` and `restart`
+# without MIDGARD_SUITE_ROOT refuse (running dist/mac/bin under a managed suite would put
+# builds the agent does not know about in place; remove native-run/suite-root to run
+# unmanaged again). Unmanaged, nothing else changes.
+#
+# `stop` also writes native-run/agent-paused, which `start` removes: while it is there the
+# agent changes nothing and `restart` starts nothing (exit 3, "left stopped").
+#
+# `restart <service>` stops that one service and launches it again exactly as `start`
+# does, waiting for its readiness line: exit 0 once ready, 3 if the suite is paused, 1 if
+# it exits or is not ready within 180 s. `status <service>` is read-only and prints one
+# line: `ready <version>` (running, its log since this launch has the readiness line, and
+# it was launched from the version now linked), `unready <version>`, `stopped` or `paused`.
+# <version> is the version it was launched from (`-` unmanaged). <service> is a short name
+# (gateway, mimir, heimdall, forge, replay) or a binary name (http-gateway, mimir-server,
+# heimdall-feed, forge-worker, midgard-replay, heimdall-source).
+#
+# heimdall-source has no process of its own (midgard-replay runs it per batch). Its
+# restart and status run the linked binary with an unknown option and expect its usage
+# line and exit code 2: proof that it executes and is heimdall-source.
+#
+# Each service has a lock, native-run/<service>.busy (a folder holding its owner's pid),
+# taken by start, stop and restart for that service; status reports `unready` while it is
+# held. A lock whose owner has exited is removed. Restarting the replay reuses the
+# recording it was started with (or MIDGARD_REPLAY). A launch keeps the previous log as
+# <service>.log.1. MIDGARD_READY_TIMEOUT (default 180 s) is how long a launch waits for
+# readiness.
 #
 # WARNING: the Docker containers' current Linux binaries (built before commit c7d8054) do
 # not honour macOS lock files. Do not `docker start` any midgard container (including via
@@ -33,19 +50,39 @@
 # The gateway ledger size cap (rotate-gateway-ledger.sh) works only for the container.
 # `stop` leaves llama-server running: it is shared, and started by mimir-model.sh.
 #
-# `start` refuses while any container mounts the enclosure home, and fails closed if
-# Docker is installed but cannot be queried. If Docker Desktop is quit (so no container
-# can be running), set MIDGARD_DOCKER_STOPPED=1 to skip the Docker check.
+# `start` and `restart` refuse while any container mounts the enclosure home, and fail
+# closed if Docker is installed but cannot be queried. If Docker Desktop is quit (so no
+# container can be running), set MIDGARD_DOCKER_STOPPED=1 to skip the Docker check.
+# `check-docker` runs only that check.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BIN="$PWD/dist/mac/bin"
+MANAGED=""
 if [ -n "${MIDGARD_SUITE_ROOT:-}" ]; then
   [ -d "$MIDGARD_SUITE_ROOT/active" ] || {
     echo "MIDGARD_SUITE_ROOT=$MIDGARD_SUITE_ROOT has no active/ folder (bifrost-agent --suite makes it)"; exit 1; }
-  BIN="$(cd "$MIDGARD_SUITE_ROOT/active" && pwd)"
+  MANAGED="$(cd "$MIDGARD_SUITE_ROOT" && pwd)"
+  BIN="$MANAGED/active"
 fi
 H="${MIDGARD_HOME:-$HOME/Desktop/Midgard}"
 RUN="$H/native-run"
+TMPF=""
+HELD=()
+
+# A service lock folder holds only its owner's pid file.
+drop_lock_dir() {
+  rm -f "${1:?}/pid"
+  rmdir "${1:?}" 2>/dev/null || true
+}
+cleanup() {
+  [ -z "$TMPF" ] || rm -f "$TMPF"
+  local s
+  for s in ${HELD[@]+"${HELD[@]}"}; do
+    if [ "$(cat "$RUN/$s.busy/pid" 2>/dev/null)" = "$$" ]; then drop_lock_dir "$RUN/$s.busy"; fi
+  done
+  return 0
+}
+trap cleanup EXIT
 
 # Each service's directory lock (services/runtime/src/lock.rs). A service stopped with
 # SIGTERM, or a container, leaves its lock file behind.
@@ -63,6 +100,7 @@ binary() {
   case $1 in
     gateway) echo http-gateway ;; mimir) echo mimir-server ;;
     heimdall) echo heimdall-feed ;; forge) echo forge-worker ;; replay) echo midgard-replay ;;
+    source) echo heimdall-source ;;
     *) echo "unknown service $1" >&2; exit 1 ;;
   esac
 }
@@ -72,7 +110,7 @@ short() {
   case $1 in
     gateway | http-gateway) echo gateway ;; mimir | mimir-server) echo mimir ;;
     heimdall | heimdall-feed) echo heimdall ;; forge | forge-worker) echo forge ;;
-    replay | midgard-replay) echo replay ;; heimdall-source) echo source ;;
+    replay | midgard-replay) echo replay ;; source | heimdall-source) echo source ;;
     *) echo "unknown service $1" >&2; exit 2 ;;
   esac
 }
@@ -87,28 +125,98 @@ ready_pattern() {
   esac
 }
 
-# Whether the pid file names a live process running this service's binary; a pid file
-# naming anything else is stale and is removed (the lock is left alone).
-running() {
+# The version the service's active link names now ("-" unmanaged, or not a slot link).
+linked_version() {
+  local bin target v
+  [ -n "$MANAGED" ] || { echo -; return; }
+  bin=$(binary "$1")
+  target=$(readlink "$BIN/$bin" 2>/dev/null) || { echo -; return; }
+  case $target in
+    ../releases/*/"$bin") v=${target#../releases/}; echo "${v%/"$bin"}" ;;
+    *) echo - ;;
+  esac
+}
+# What to execute for a service at version $2: its slot when managed, else dist/mac/bin.
+exe_for() {
+  local bin
+  bin=$(binary "$1")
+  if [ -n "$MANAGED" ] && [ "$2" != - ]; then echo "$MANAGED/releases/$2/$bin"; else echo "$BIN/$bin"; fi
+}
+
+# Whether the pid file names a live process running this service's binary. Read-only.
+alive() {
   [ -f "$RUN/$1.pid" ] || return 1
   local pid comm bin
   pid=$(cat "$RUN/$1.pid"); bin=$(binary "$1")
-  [ -n "$bin" ] || return 1
   comm=$(ps -p "$pid" -o comm= 2>/dev/null) || comm=
   case $comm in
     "$bin" | */"$bin") return 0 ;;
   esac
+  return 1
+}
+# As alive; a pid file naming anything else is stale and is removed (the lock is left
+# alone). For start, stop and restart, which hold the service's lock.
+running() {
+  alive "$1" && return 0
   rm -f "$RUN/$1.pid"; return 1
 }
-launch() {  # name, ready-pattern, command...  (exits 1 unless it becomes ready)
-  local name=$1 ready=$2; shift 2
+
+# The service's lock: a folder holding the owner's pid. Re-entrant for this script; a
+# lock whose owner has exited (or that never got an owner within 30 s) is removed; waits
+# up to 600 s for a live owner.
+lock_service() {
+  local d="$RUN/$1.busy" owner=""
+  mkdir -p "$RUN"
+  for _ in $(seq 1 600); do
+    if mkdir "$d" 2>/dev/null; then
+      echo "$$" > "$d/pid"; HELD+=("$1"); return 0
+    fi
+    owner=$(cat "$d/pid" 2>/dev/null) || owner=
+    [ "$owner" = "$$" ] && return 0
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+      drop_lock_dir "$d"; echo "removed the stale lock $d (pid $owner has exited)"; continue
+    fi
+    if [ -z "$owner" ] && [ $(( $(date +%s) - $(stat -f %m "$d" 2>/dev/null || date +%s) )) -gt 30 ]; then
+      drop_lock_dir "$d"; echo "removed the stale lock $d (no owner)"; continue
+    fi
+    sleep 1
+  done
+  echo "$1 is busy (lock $d held by pid ${owner:-?}); giving up"; exit 1
+}
+unlock_service() {
+  if [ "$(cat "$RUN/$1.busy/pid" 2>/dev/null)" = "$$" ]; then drop_lock_dir "$RUN/$1.busy"; fi
+  return 0
+}
+held_by_other() {
+  local owner
+  [ -d "$RUN/$1.busy" ] || return 1
+  owner=$(cat "$RUN/$1.busy/pid" 2>/dev/null) || owner=
+  [ -z "$owner" ] || kill -0 "$owner" 2>/dev/null
+}
+
+# A managed suite must be run managed.
+check_managed() {
+  local root
+  if [ -n "$MANAGED" ]; then mkdir -p "$RUN"; echo "$MANAGED" > "$RUN/suite-root"; return 0; fi
+  root=$(cat "$RUN/suite-root" 2>/dev/null) || root=
+  if [ -n "$root" ] && [ -d "$root/active" ]; then
+    echo "the suite is managed by Bifrost's agent (suite root $root):"
+    echo "  run with MIDGARD_SUITE_ROOT=$root, or remove $RUN/suite-root to run dist/mac/bin unmanaged"
+    exit 1
+  fi
+}
+
+launch() {  # name, ready-pattern, version, command...  (exits 1 unless it becomes ready)
+  local name=$1 ready=$2 version=$3; shift 3
   if running "$name"; then echo "$name already running"; return; fi
   local pid
+  if [ -f "$RUN/$name.log" ]; then mv -f "$RUN/$name.log" "$RUN/$name.log.1"; fi
+  echo "$version" > "$RUN/$name.version"
   nohup "$@" > "$RUN/$name.log" 2>&1 &
   pid=$!
   echo "$pid" > "$RUN/$name.pid"
   # The fresh child may still show as nohup just after launch, so test its pid only.
-  for _ in $(seq 1 180); do
+  for _ in $(seq 1 "${MIDGARD_READY_TIMEOUT:-180}"); do
     grep -qs "$ready" "$RUN/$name.log" && { echo "$name ready"; return; }
     kill -0 "$pid" 2>/dev/null || {
       echo "$name exited; see $RUN/$name.log"; tail -5 "$RUN/$name.log"
@@ -116,8 +224,17 @@ launch() {  # name, ready-pattern, command...  (exits 1 unless it becomes ready)
     }
     sleep 1
   done
-  echo "$name not ready after 180 s; see $RUN/$name.log"
+  echo "$name not ready after ${MIDGARD_READY_TIMEOUT:-180} s; see $RUN/$name.log"
   echo "run tools/mac-app/run-native.sh stop to clean up"; exit 1
+}
+
+# heimdall-source executes and is heimdall-source: an unknown option gets its usage line
+# and exit code 2.
+check_source() {
+  local out rc=0
+  [ -x "$BIN/heimdall-source" ] || return 1
+  out=$("$BIN/heimdall-source" --bifrost-check 2>&1) || rc=$?
+  [ "$rc" = 2 ] && printf '%s\n' "$out" | grep -q 'usage: heimdall-source'
 }
 
 # Refuse while any container can hold the enclosure's directories. Fails closed: if the
@@ -172,7 +289,7 @@ check_docker() {
   if printf '%s\n' "$names" | grep -qE '^midgard-(gateway|heimdall|mimir|forge)$'; then
     echo "stop the Midgard Docker containers first"; exit 1
   fi
-  TMPF=$(mktemp); trap 'rm -f "$TMPF"' EXIT
+  TMPF=$(mktemp)  # removed by cleanup, on exit
   names=$(docker_conflicts) || names=$(docker_conflicts) || docker_refuse
   if [ -n "$names" ]; then
     echo "these containers mount $H or a directory containing it; stop these containers first:"
@@ -182,6 +299,7 @@ check_docker() {
 
 start() {
   [ -d "$H" ] || { echo "enclosure home $H not found"; exit 1; }
+  check_managed
   check_docker
   local b s lock
   for b in http-gateway heimdall-feed mimir-server forge-worker; do
@@ -194,6 +312,7 @@ start() {
     [ -x "$BIN/midgard-replay" ] || { echo "$BIN/midgard-replay is missing; run tools/mac-app/build-services.sh first"; exit 1; }
   fi
   mkdir -p "$RUN"
+  rm -f "$RUN/agent-paused"
   # No container can hold these directories, so a lock that no native process of ours
   # holds and that was not written on macOS was left by a stopped container.
   for s in mimir gateway heimdall forge; do
@@ -205,20 +324,22 @@ start() {
     fi
   done
   bash "$H/mimir-model.sh" start
-  launch_one mimir
-  launch_one gateway
-  launch_one heimdall
-  launch_one forge
+  for s in mimir gateway heimdall forge; do
+    lock_service "$s"; launch_one "$s"; unlock_service "$s"
+  done
   if [ -n "${MIDGARD_REPLAY:-}" ]; then
-    launch_one replay
+    lock_service replay; launch_one replay; unlock_service replay
   fi
 }
 
-# Start one service (short name) the way `start` does, and wait for it to be ready.
+# Launch one service (short name) the way `start` does, and wait for it to be ready.
 launch_one() {
+  local v exe
+  v=$(linked_version "$1")
+  exe=$(exe_for "$1" "$v")
   case $1 in
     mimir)
-      launch mimir "$(ready_pattern mimir)" "$BIN/mimir-server" \
+      launch mimir "$(ready_pattern mimir)" "$v" "$exe" \
         --identity-dir "$H/airports-mesh/mimir" --state-dir "$H/mimir-state" --purposes investigation \
         --bind 127.0.0.1:7720 --health-bind 127.0.0.1:9720 --observe-bind 127.0.0.1:7721 \
         --engine llama-cpp --model-dir "$H/mimir-models/granite" \
@@ -228,7 +349,7 @@ launch_one() {
       if [ -f "$H/heimdall-poc/analytics/secret" ]; then
         analytics=(--analytics-addr 127.0.0.1:7740 --analytics-token-file "$H/heimdall-poc/analytics/secret")
       fi
-      launch gateway "$(ready_pattern gateway)" "$BIN/http-gateway" \
+      launch gateway "$(ready_pattern gateway)" "$v" "$exe" \
         --state-dir "$H/airports" --bind 127.0.0.1:7710 \
         --allow-origin http://localhost:5173 --allow-origin http://localhost:5174 \
         --allow-origin http://localhost:5175 --allow-origin http://localhost:5176 \
@@ -240,25 +361,27 @@ launch_one() {
         --forge-status "$H/live-feeds/worker-state/status.json" \
         --heimdall-feeds-status "$H/heimdall-poc/feeds/state/status.json" ;;
     heimdall)
-      launch heimdall "$(ready_pattern heimdall)" "$BIN/heimdall-feed" \
+      launch heimdall "$(ready_pattern heimdall)" "$v" "$exe" \
         --identity-dir "$H/airports-mesh/heimdall" --state-dir "$H/heimdall-poc/state" \
         --bind 127.0.0.1:7730 --health-bind 127.0.0.1:9730 --track-ttl 300 \
         --mimir-addr 127.0.0.1:7720 --mimir-identity-dir "$H/airports-mesh/heimdall-advisor" \
         --fabric-addr 127.0.0.1:7711 --fabric-identity-dir "$H/airports-mesh/heimdall-fabric" ;;
     forge)
-      launch forge "$(ready_pattern forge)" "$BIN/forge-worker" \
+      launch forge "$(ready_pattern forge)" "$v" "$exe" \
         --identity-dir "$H/airports-mesh/forge" --state-dir "$H/live-feeds/worker-state" \
         --jobs "$H/live-feeds/data/jobs.json" --gateway 127.0.0.1:7711 ;;
     replay)
       # The recording: MIDGARD_REPLAY, or the one the replay was last started with.
-      local rec="${MIDGARD_REPLAY:-}"
+      local rec="${MIDGARD_REPLAY:-}" source=()
       [ -n "$rec" ] || rec=$(cat "$RUN/replay.recording" 2>/dev/null) || rec=
       [ -n "$rec" ] || { echo "no recording for midgard-replay: set MIDGARD_REPLAY"; exit 1; }
       [ -f "$rec/meta.json" ] || { echo "$rec has no meta.json; not a recording"; exit 1; }
       echo "$rec" > "$RUN/replay.recording"
-      launch replay "$(ready_pattern replay)" "$BIN/midgard-replay" \
+      # Managed, each batch runs the heimdall-source linked at the time.
+      [ -z "$MANAGED" ] || source=(--source-bin "$BIN/heimdall-source")
+      launch replay "$(ready_pattern replay)" "$v" "$exe" \
         --recording "$rec" --identity-dir "$H/airports-mesh/feeds" \
-        --forge-dir "$H/live-feeds/data" ;;
+        --forge-dir "$H/live-feeds/data" ${source[@]+"${source[@]}"} ;;
     *) echo "unknown service $1"; exit 2 ;;
   esac
 }
@@ -279,9 +402,11 @@ kill_replay() {  # pid
   return 0
 }
 
-# Stop one service (short name); fails if it did not exit (its lock is then left).
+# Stop one service (short name) under its lock; fails if it did not exit (its lock file
+# is then left).
 stop_one() {
   local s=$1 pid lock
+  lock_service "$s"
   if running "$s"; then
     pid=$(cat "$RUN/$s.pid"); lock=$(lock_path "$s")
     if [ "$s" = replay ]; then kill_replay "$pid"; else kill "$pid" 2>/dev/null || true; fi
@@ -298,24 +423,36 @@ stop_one() {
 
 stop() {
   local s
+  mkdir -p "$RUN"
+  # The user stopped the suite: Bifrost's agent changes nothing until `start`.
+  echo "stopped by run-native.sh stop at $(date '+%Y-%m-%d %H:%M:%S')" > "$RUN/agent-paused"
   for s in replay forge heimdall gateway mimir; do
     stop_one "$s" || true
+    unlock_service "$s"
   done
 }
 
-# Stop one service and start it again as `start` does; exit 0 once it is ready.
+# Stop one service and launch it again as `start` does: 0 once ready, 3 if the suite is
+# paused (nothing is started), 1 otherwise.
 restart() {
   local s lock
   s=$(short "$1")
+  if [ -f "$RUN/agent-paused" ]; then
+    echo "the suite is paused (run-native.sh stop); $s left stopped"; exit 3
+  fi
   if [ "$s" = source ]; then
-    [ -x "$BIN/heimdall-source" ] || { echo "$BIN/heimdall-source is missing"; exit 1; }
-    echo "heimdall-source has no process of its own; midgard-replay runs $BIN/heimdall-source for each batch"
+    lock_service source
+    check_source || { echo "$BIN/heimdall-source does not run as heimdall-source"; exit 1; }
+    linked_version source > "$RUN/source.version"
+    echo "heimdall-source ready (midgard-replay runs $BIN/heimdall-source for each batch)"
     return
   fi
   [ -d "$H" ] || { echo "enclosure home $H not found"; exit 1; }
+  check_managed
   check_docker
   [ -x "$BIN/$(binary "$s")" ] || { echo "$BIN/$(binary "$s") is missing"; exit 1; }
   mkdir -p "$RUN"
+  lock_service "$s"
   stop_one "$s" || { echo "not restarting $s"; exit 1; }
   # As in start: a lock no native process of ours holds, not written on macOS, was left
   # by a stopped container.
@@ -327,22 +464,35 @@ restart() {
   launch_one "$s"
 }
 
-# One word for one service: ready, unready or stopped.
+# One line for one service: ready <version>, unready <version>, stopped or paused.
+# Read-only.
 status_one() {
-  local s
+  local s v lv
   s=$(short "$1")
+  if [ -f "$RUN/agent-paused" ]; then echo paused; return; fi
+  lv=$(linked_version "$s")
   if [ "$s" = source ]; then
-    if [ -x "$BIN/heimdall-source" ]; then echo ready; else echo stopped; fi
-  elif ! running "$s"; then echo stopped
-  elif grep -qs "$(ready_pattern "$s")" "$RUN/$s.log"; then echo ready
-  else echo unready
+    v=$(cat "$RUN/source.version" 2>/dev/null) || v=-
+    if ! [ -x "$BIN/heimdall-source" ]; then echo stopped
+    elif held_by_other source; then echo "unready $v"
+    elif check_source && { [ -z "$MANAGED" ] || [ "$v" = "$lv" ]; }; then echo "ready $v"
+    else echo "unready $v"
+    fi
+    return
+  fi
+  if ! alive "$s"; then echo stopped; return; fi
+  v=$(cat "$RUN/$s.version" 2>/dev/null) || v=-
+  if held_by_other "$s"; then echo "unready $v"
+  elif grep -qs "$(ready_pattern "$s")" "$RUN/$s.log" && { [ -z "$MANAGED" ] || [ "$v" = "$lv" ]; }; then
+    echo "ready $v"
+  else echo "unready $v"
   fi
 }
 
 status() {
   local s
   for s in mimir gateway heimdall forge replay; do
-    if running "$s"; then echo "$s running (pid $(cat "$RUN/$s.pid"))"; else echo "$s stopped"; fi
+    if alive "$s"; then echo "$s running (pid $(cat "$RUN/$s.pid"))"; else echo "$s stopped"; fi
   done
 }
 
@@ -351,5 +501,6 @@ case "${1:-status}" in
   stop) stop ;;
   status) if [ -n "${2:-}" ]; then status_one "$2"; else status; fi ;;
   restart) [ -n "${2:-}" ] || { echo "restart <service>"; exit 2; }; restart "$2" ;;
-  *) echo "start|stop|status [<service>]|restart <service>"; exit 2 ;;
+  check-docker) check_docker; echo "Docker check passed" ;;
+  *) echo "start|stop|status [<service>]|restart <service>|check-docker"; exit 2 ;;
 esac
