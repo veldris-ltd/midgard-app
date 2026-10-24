@@ -96,6 +96,36 @@ Design: `docs/plans/2026-10-24-bifrost-live-design.md`. Spec: `docs/dev/markdown
   - The registry verifies the Bifrost manifest signature, not `mg-sign`'s `.sig`/`.att` release envelope (`RELEASE_ARTEFACT` domain, ML-DSA-87 by default). release.sh should therefore make an ML-DSA-65 release keystore (`mg-sign keygen --alg ML-DSA-65 --export-verifying-key …`), install the `.pub` in `trust/release-signers/`, and sign each manifest through the custodian (`build_with_signer` with the keystore's signing root, as `mg-register` does), uploading with `client::register`.
   - `mg-sign`'s envelope can still be made and shipped as `attestation` artefacts, as `mg-register` does, if wanted.
 
+**Review fixes (after b95056f).** Where these change a point above, they replace it.
+- **I-1 SBOM size vs frame:**
+  - The SBOM no longer rides in the first payload slice. `GetArtefact` takes `part`: `"payload"` (the default) or `"sbom"`, each sliced and base64-encoded the same way.
+  - `RegisterArtefact` takes the SBOM as base64, and `MAX_SBOM_BYTES` is now 512 KiB (one chunk's budget).
+  - Every message carrying bytes is at most 512 KiB as base64 (699,052 bytes), plus identifiers and hex, so it stays under 10 KB over that. JSON escaping cannot inflate it, because no free text travels with the bytes; signer ids are now limited to the identifier character set too. The budget is written down in `registry.rs`.
+  - Test: a 400–512 KiB SBOM full of escaped quotes registers and downloads.
+- **I-2 long names:**
+  - Files are named `hex(sha256(id\0version)).sealed`: 64 characters, whatever the name. The AAD binds the sealed file to that hash, and the unsealed id and version must hash to it.
+  - A commit is now stored first and audited second. If the audit fails, the stored artefact is withdrawn (file and record), so the ledger never says "verified" for something not held, and nothing held is unaudited.
+  - Tests: 128-character id and version; withdraw.
+- **I-3 JSON parser** (`services/runtime/src/json.rs`):
+  - Nesting deeper than 64 levels is refused with "JSON nests deeper than 64 levels". 200,000 levels gives the error, not a stack overflow.
+  - M-1: `\u` needs exactly four hex digits; surrogate pairs decode; a lone surrogate is refused.
+  - Tests: service-runtime. The JSON users http-gateway, heimdall-feed-server, mimir-server, forge-worker, midgard-replay and gateway all pass (194 tests).
+- **I-4 runtime verification failure:**
+  - A `GetArtefact` or `VerifyArtefact` whose re-verification fails now audits "ReadArtefacts verify failed: <reason>" on `artefact:id@ver` and marks the record unverifiable.
+  - From then on it is never served, from disk or from the cache, until a restart re-verifies it. The mark is in memory only; a restart re-checks everything.
+  - Tests: unit test, and end to end (spoil the file while the server runs, restore it, still refused, listed as unverifiable).
+- **I-6 memory:**
+  - An upload's bytes live in the `SignedArtefact` they will become: reserved once with `try_reserve_exact` on the first chunk, then verified by reference and moved into the store, with no clones.
+  - The admitted copy becomes the read cache.
+- **M-3 uploads:** idle expiry also runs on chunk and take, and an identity may have at most 2 uploads in flight. Tested.
+- **M-4 listing and refusals:**
+  - `ListArtefacts` is paged. It takes `{cursor?, limit?}` (default 100, at most 500) and returns `next` (null at the end). The cursor is stable because refusals are append-only. `client::list` walks every page.
+  - The refusal journal keeps at most 10,000 entries, and at most 10 unknown-signer refusals per identity per hour. Beyond either, the upload is still refused and audited, just not listed; the reply says so. Tested.
+- **M-8:** `client::download_verified(session, id, version, anchors)` verifies against the caller's own anchors before returning; a signer the caller doesn't anchor is an error. Tested.
+- **Left for B2:**
+  - I-5: read cost. Each download's first slice per part unseals and re-verifies the whole artefact under the registry lock, and reads are one `ReadArtefacts` action. Consider splitting list from download, and holding the lock less.
+  - M-9: the reproducible-build digest check from the design (§2.2) is not done yet.
+
 ### Task 3: release.sh
 
 `tools/bifrost/release.sh <commit> --version X.Y.Z [--bad-build]`:
