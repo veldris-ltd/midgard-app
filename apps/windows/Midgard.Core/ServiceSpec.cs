@@ -80,11 +80,67 @@ public sealed record SuitePorts(ushort GatewayHttp, ushort GatewayMesh, ushort M
 public sealed record Command(string Executable, IReadOnlyList<string> Arguments);
 
 /// <summary>
+/// The camera analytics as the package carries them (heimdall/analytics/README.md): the
+/// Python runtime in <c>helpers\analytics\</c> (tools/win-app/fetch-analytics.sh), the code in
+/// <c>resources\analytics\</c>, the model in <c>resources\models\yolox\</c>, the cameras and their
+/// stored media from the recording. The port of <c>CameraAnalytics</c> in ServiceSpec.swift.
+/// </summary>
+/// <param name="Python">helpers\analytics\python.exe.</param>
+/// <param name="Code">The folder with analytics.py and config.json.</param>
+/// <param name="Models">The folder with yolox_s.onnx.</param>
+/// <param name="Recording">The recording the replay plays: its land-camera observations are the cameras.</param>
+/// <param name="Threads">onnxruntime's CPU threads (<see cref="ThreadsFor"/>).</param>
+public sealed record CameraAnalytics(string Python, string Code, string Models, string Recording, int Threads)
+{
+    /// <summary>The runtime's folder in the helpers (the orphan sweep covers it, as all of helpers\).</summary>
+    public static string Runtime(string helpers) => Path.Join(helpers, "analytics");
+
+    /// <summary>The helpers the service runs: the decoder and the Heimdall client.</summary>
+    public static readonly IReadOnlyList<string> HelperNames = ["midgard-frames.exe", "heimdall-source.exe"];
+
+    /// <summary>
+    /// Up to 4 CPU threads (the model server has the cores when it answers; the analytics
+    /// run only when asked), as on an Intel Mac.
+    /// </summary>
+    public static int ThreadsFor(int physicalCores) => Math.Clamp(physicalCores, 1, 4);
+
+    /// <summary>
+    /// The packaged analytics if everything is there (runtime, code, config, model, and
+    /// <see cref="HelperNames"/> in <paramref name="helpers"/>) and there is a recording; null otherwise.
+    /// </summary>
+    public static CameraAnalytics? Locate(string resources, string helpers, string? recording, int threads,
+                                          Func<string, bool> fileExists)
+    {
+        if (recording is null) return null;
+        var python = Path.Join(Runtime(helpers), "python.exe");
+        var code = Path.Join(resources, "analytics");
+        var models = Path.Join(resources, "models", "yolox");
+        var needed = new[]
+        {
+            python, Path.Join(code, "analytics.py"), Path.Join(code, "config.json"), Path.Join(models, "yolox_s.onnx"),
+        }.Concat(HelperNames.Select(n => Path.Join(helpers, n)));
+        return needed.All(fileExists) ? new CameraAnalytics(python, code, models, recording, threads) : null;
+    }
+
+    /// <summary>What <see cref="Locate"/> looks for, for the log when something is missing.</summary>
+    public static string Expected(string resources, string helpers) =>
+        $"{Path.Join(Runtime(helpers), "python.exe")}, {Path.Join(resources, "analytics")}\\{{analytics.py,config.json}}, "
+        + $"{Path.Join(resources, "models", "yolox", "yolox_s.onnx")}, helpers {string.Join(", ", HelperNames)}";
+
+    /// <summary>
+    /// The gateway's bearer token for the service, in the working copy (where run-native.sh
+    /// keeps the development setup's); written by <see cref="AnalyticsToken.Ensure"/>.
+    /// </summary>
+    public static string TokenFile(string home) => Path.Join(home, "heimdall-poc", "analytics", "secret");
+}
+
+/// <summary>
 /// The suite's services as tools/mac-app/run-native.sh and tools/win-app/run-suite.py run
 /// them, with the shell's ports. The port of <c>SuiteSpecs</c> in ServiceSpec.swift:
 /// llama-server is one of them, the model files come from <c>models</c> rather than the
 /// home, and the gateway allows only the shell's web origin and issues 12-hour tokens.
-/// The camera analytics (last and optional) are added in W3.
+/// The camera analytics, when packaged, run last and optional on the recording's stored
+/// media, and the gateway is given their address and token file.
 /// </summary>
 public static class SuiteSpecs
 {
@@ -99,13 +155,15 @@ public static class SuiteSpecs
     };
 
     /// <summary>
-    /// In start order: llama, mimir, gateway, heimdall, forge, then replay if
-    /// <paramref name="recording"/>. <paramref name="llama"/> is the model server's command
-    /// (ModelServer); the rest run from <paramref name="helpers"/>.
+    /// In start order: llama, mimir, gateway, heimdall, forge, replay if
+    /// <paramref name="recording"/>, then analytics if <paramref name="analytics"/> (optional:
+    /// the suite does not wait for it, and starts without it if it fails).
+    /// <paramref name="llama"/> is the model server's command (ModelServer); the rest run
+    /// from <paramref name="helpers"/>.
     /// </summary>
     public static IReadOnlyList<ServiceSpec> Make(string helpers, string models, string home, string logs,
                                                   SuitePorts ports, string webOrigin, string? recording,
-                                                  Command llama)
+                                                  Command llama, CameraAnalytics? analytics = null)
     {
         static string Under(string root, string[] parts) => parts.Aggregate(root, (a, p) => Path.Join(a, p));
         string H(params string[] parts) => Under(home, parts);
@@ -128,7 +186,6 @@ public static class SuiteSpecs
                 "--engine", "llama-cpp", "--model-dir", M("granite"),
                 "--model-trust", M("trust", "model-signing.pub"), "--sidecar", Local(ports.Llama),
             ]),
-            // W3 adds --analytics-addr and --analytics-token-file when the analytics are bundled.
             Helper("gateway", new Readiness.LogLine("listening on"), [
                 "--state-dir", H("airports"), "--bind", Local(ports.GatewayHttp),
                 "--allow-origin", webOrigin, "--token-ttl", "43200",
@@ -139,6 +196,10 @@ public static class SuiteSpecs
                 "--forge-jobs", H("live-feeds", "data", "jobs.json"),
                 "--forge-status", H("live-feeds", "worker-state", "status.json"),
                 "--heimdall-feeds-status", H("heimdall-poc", "feeds", "state", "status.json"),
+                .. (analytics is null ? Array.Empty<string>() : new[]
+                {
+                    "--analytics-addr", Local(ports.Analytics), "--analytics-token-file", CameraAnalytics.TokenFile(home),
+                }),
             ]),
             Helper("heimdall", new Readiness.LogLine("\"serving\""), [
                 "--identity-dir", H("airports-mesh", "heimdall"), "--state-dir", H("heimdall-poc", "state"),
@@ -162,6 +223,28 @@ public static class SuiteSpecs
                 // Heimdall's mesh port: replay's default (7730) is run-native.sh's fixed port.
                 "--addr", Local(ports.HeimdallMesh),
             ]));
+        }
+        // Last and optional: the camera analytics never hold up or stop the start.
+        if (analytics is not null)
+        {
+            string A(string file) => Path.Join(analytics.Code, file);
+            specs.Add(Spec("analytics", analytics.Python, new Readiness.LogLine("SERVE pid="), [
+                // Isolated (no PYTHON* variables, no user site) and never writing .pyc
+                // into the package.
+                "-I", "-B", A("analytics.py"), "--serve",
+                "--port", ports.Analytics.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "--token-file", CameraAnalytics.TokenFile(home),
+                "--state-dir", H("heimdall-poc", "analytics"), "--log", "-", "--config", A("config.json"),
+                "--model-dir", analytics.Models,
+                // The CPU (no CoreML on Windows; DirectML is not bundled).
+                "--provider", "cpu", "--threads", analytics.Threads.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "--frames-helper", Path.Join(helpers, "midgard-frames.exe"),
+                "--recording", analytics.Recording,
+                "--source-bin", Path.Join(helpers, "heimdall-source.exe"),
+                "--source-identity-dir", H("airports-mesh", "feeds"), "--source-addr", Local(ports.HeimdallMesh),
+                // The below-normal priority class on Windows (analytics.py's lower_priority).
+                "--nice", "10",
+            ]) with { Optional = true });
         }
         return specs;
     }

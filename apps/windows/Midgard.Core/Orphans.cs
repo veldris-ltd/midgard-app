@@ -63,7 +63,7 @@ public static class Orphans
     /// <summary>
     /// Ends every process in this session, running as this user, whose executable is inside
     /// <paramref name="helpers"/> or one of <paramref name="alsoUnder"/> (the camera
-    /// analytics' Python runtime in W3): replay first, so it starts no more heimdall-source
+    /// analytics' python.exe is in helpers\analytics\, so the helpers cover it): replay first, so it starts no more heimdall-source
     /// runs, which are in helpers\ too. Each is ended at once (TerminateProcess; no service has
     /// a gentler stop on Windows), then waited for up to <paramref name="grace"/> in all. A
     /// process is reported reaped only if TerminateProcess succeeded and it exited; one that

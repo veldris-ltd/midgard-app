@@ -258,6 +258,7 @@ static class HeadlessCheck
             await Fetch("fetch /", origin + "/");
             await Fetch("fetch /heimdall/", origin + "/heimdall/");
             await Picture(gateway);
+            await Analyse(gateway);
 
             if (form is not null)
             {
@@ -391,6 +392,146 @@ static class HeadlessCheck
                 detail = $"{e.GetType().Name}: {e.Message}";
             }
             report.Step("gateway picture has the fixture's layers", false, watch.Elapsed, detail);
+        }
+
+        /// <summary>The fixture's camera with a stored clip (tools/win-app/make-fixture.py --camera-clip).</summary>
+        const string ClipCamera = "JamCams_00000.00001";
+
+        /// <summary>
+        /// The camera analytics through the gateway, as the console's Analyse button asks for
+        /// them: the service ready (optional, so the start did not wait for it), then
+        /// <c>POST /api/v1/heimdall/cameras/{id}/analyse</c> on the fixture's clip camera, timed,
+        /// with 40 frames analysed and the result sent to Heimdall; the picture then holds the
+        /// <c>AI-{id}</c> land-camera-ai entity, and <c>GET …/trend</c> a point by the analyst.
+        /// </summary>
+        async Task Analyse(string gateway)
+        {
+            var watch = Stopwatch.StartNew();
+            var spec = report.Specs?.FirstOrDefault(s => s.Name == "analytics");
+            if (spec is null)
+            {
+                report.Step("camera analytics: in the suite", false, TimeSpan.Zero,
+                            "no analytics service: the package lacks them or the token could not be written (shell.log)");
+                return;
+            }
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(180);
+            var status = wiring.Supervisor.StatusOf("analytics");
+            while (status is not (ServiceStatus.Ready or ServiceStatus.Failed) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(500);
+                status = wiring.Supervisor.StatusOf("analytics");
+            }
+            report.Step("camera analytics: ready", status is ServiceStatus.Ready, watch.Elapsed,
+                        $"{ServiceNames.StatusLabel(status)} {(status as ServiceStatus.Failed)?.Reason}".Trim());
+            if (status is not ServiceStatus.Ready) return;
+            if (wiring.Supervisor.PidOf("analytics") is { } pid)
+                pids.Add(("analytics", pid, spec.Executable));
+
+            var api = gateway + "/api/v1/heimdall/cameras/" + ClipCamera;
+            string detail;
+            SessionInfo session;
+            try
+            {
+                var user = DemoUsers.Load(Path.Join(paths.Home, "demo-users.json"))[0];
+                session = await Session.LoginAsync(new Uri(gateway + "/api/v1"), user, Session.PatientLoopback);
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or SessionException
+                                          or JsonException or IOException or InvalidDataException)
+            {
+                report.Step("camera analytics: Analyse through the gateway", false, TimeSpan.Zero, $"sign-in: {e.Message}");
+                return;
+            }
+
+            watch.Restart();
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, api + "/analyse")
+                {
+                    Content = new StringContent("", System.Text.Encoding.UTF8, "application/json"),
+                };
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
+                using var response = await Http.SendAsync(request);
+                var body = await response.Content.ReadAsStringAsync();
+                var took = watch.Elapsed;
+                var ok = response.StatusCode == System.Net.HttpStatusCode.OK;
+                detail = $"HTTP {(int)response.StatusCode} in {took.TotalSeconds:0.00} s";
+                if (ok)
+                {
+                    var attrs = JsonNode.Parse(body)?["attrs"];
+                    var frames = attrs?["ai_frames"]?.GetValue<int>() ?? 0;
+                    var vehicles = attrs?["ai_vehicles"]?.GetValue<int>() ?? 0;
+                    var sent = JsonNode.Parse(body)?["sent"]?.GetValue<string>() ?? "";
+                    detail += $": {frames} frames ({took.TotalMilliseconds / Math.Max(1, frames):0} ms a frame), counts "
+                              + $"{attrs?["ai_counts"]}, vehicles {vehicles}, moving {attrs?["ai_moving"]}, model {attrs?["ai_model"]}; sent {sent}";
+                    ok = attrs?["camera_id"]?.GetValue<string>() == ClipCamera && frames == 40 && vehicles >= 1
+                         && sent.StartsWith("accepted=1 ", StringComparison.Ordinal);
+                    report.Facts["analyse"] = new JsonObject
+                    {
+                        ["camera"] = ClipCamera, ["took_s"] = Math.Round(took.TotalSeconds, 2), ["frames"] = frames,
+                        ["ms_per_frame"] = Math.Round(took.TotalMilliseconds / Math.Max(1, frames)),
+                        ["counts"] = attrs?["ai_counts"]?.ToString(), ["vehicles"] = vehicles, ["sent"] = sent,
+                        ["threads"] = spec.Arguments.SkipWhile(a => a != "--threads").Skip(1).FirstOrDefault(),
+                    };
+                }
+                else
+                {
+                    detail += $": {body[..Math.Min(body.Length, 300)]}";
+                }
+                report.Step("camera analytics: Analyse through the gateway", ok, took, detail);
+                if (!ok) return;
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException
+                                          or InvalidOperationException or FormatException)
+            {
+                report.Step("camera analytics: Analyse through the gateway", false, watch.Elapsed, $"{e.GetType().Name}: {e.Message}");
+                return;
+            }
+
+            // The result in the picture: Heimdall has the AI- entity.
+            watch.Restart();
+            detail = "";
+            var found = false;
+            var until = DateTime.UtcNow + TimeSpan.FromSeconds(60);
+            try
+            {
+                while (!found)
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, gateway + "/api/v1/heimdall/picture");
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
+                    using var response = await Http.SendAsync(request);
+                    var entities = JsonNode.Parse(await response.Content.ReadAsStringAsync())?["entities"]?.AsArray();
+                    var entity = entities?.FirstOrDefault(e => e?["id"]?.GetValue<string>() == "AI-" + ClipCamera);
+                    detail = entity is null ? $"HTTP {(int)response.StatusCode}, {entities?.Count ?? 0} entities, no AI-{ClipCamera}"
+                        : $"AI-{ClipCamera}: {entity["kind"]}, layer {entity["layer"]}, sources {entity["sources"]?.ToJsonString()}";
+                    found = entity?["kind"]?.GetValue<string>() == "land-camera-ai";
+                    if (found || DateTime.UtcNow >= until) break;
+                    await Task.Delay(1000);
+                }
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+            {
+                detail = $"{e.GetType().Name}: {e.Message}";
+            }
+            report.Step("camera analytics: the land-camera-ai entity in the picture", found, watch.Elapsed, detail);
+
+            // The trend: the analysis is one point, by the analyst.
+            watch.Restart();
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, api + "/trend");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
+                using var response = await Http.SendAsync(request);
+                var body = await response.Content.ReadAsStringAsync();
+                var points = response.IsSuccessStatusCode ? JsonNode.Parse(body)?["points"]?.AsArray() : null;
+                var by = points?.Select(p => p?["by"]?.GetValue<string>()).ToList() ?? [];
+                report.Step("camera analytics: a trend point", points is { Count: >= 1 } && by.Contains(session.Subject), watch.Elapsed,
+                            $"HTTP {(int)response.StatusCode}, {points?.Count ?? 0} points by {string.Join(",", by)}"
+                            + (points is { Count: >= 1 } ? $"; last {points[^1]?.ToJsonString()}" : $"; {body[..Math.Min(body.Length, 200)]}"));
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+            {
+                report.Step("camera analytics: a trend point", false, watch.Elapsed, $"{e.GetType().Name}: {e.Message}");
+            }
         }
 
         /// <summary>Loads <paramref name="url"/> in the window, lets it draw, records what it shows and captures it to &lt;name&gt;.png.</summary>

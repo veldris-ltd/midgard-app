@@ -117,6 +117,18 @@ public sealed class OrphansTests : IDisposable
         Assert.True(await Processes.Gone(python.Id));
     }
 
+    /// <summary>The camera analytics' runtime is in helpers\analytics\: the helpers' sweep ends it.</summary>
+    [Fact]
+    public async Task ReapsTheAnalyticsRuntimeInTheHelpers()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var python = Launch(Install(CameraAnalytics.Runtime(Helpers), "python.exe"), "wait");
+        await Task.Delay(200);
+        var outcome = await Orphans.ReapAsync(Helpers, grace: TimeSpan.FromSeconds(5));
+        Assert.Equal(python.Id, Assert.Single(outcome.Reaped).Pid);
+        Assert.True(await Processes.Gone(python.Id));
+    }
+
     /// <summary>The folder spelt another way (8.3 names, a trailing separator, other case) still matches.</summary>
     [Fact]
     public async Task MatchesTheFolderHoweverItIsSpelt()

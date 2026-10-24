@@ -20,8 +20,13 @@ public sealed class ServiceSpecTests
     static string H(params string[] parts) => parts.Aggregate(Home, (a, p) => Path.Join(a, p));
     static string M(params string[] parts) => parts.Aggregate(Models, (a, p) => Path.Join(a, p));
 
-    static IReadOnlyList<ServiceSpec> Specs(string? recording = null) =>
-        SuiteSpecs.Make(Helpers, Models, Home, Logs, Ports, Origin, recording, Llama);
+    static readonly string Resources = Path.Join(Root, "resources");
+    static readonly CameraAnalytics Analytics = new(Path.Join(Helpers, "analytics", "python.exe"),
+                                                    Path.Join(Resources, "analytics"), Path.Join(Models, "yolox"),
+                                                    Recording, 3);
+
+    static IReadOnlyList<ServiceSpec> Specs(string? recording = null, CameraAnalytics? analytics = null) =>
+        SuiteSpecs.Make(Helpers, Models, Home, Logs, Ports, Origin, recording, Llama, analytics);
 
     static ServiceSpec Spec(string name, IReadOnlyList<ServiceSpec>? all = null) =>
         Assert.Single(all ?? Specs(Recording), s => s.Name == name);
@@ -43,6 +48,73 @@ public sealed class ServiceSpecTests
         }, replay.Arguments);
         Assert.Equal(new Readiness.LogLine("\"replay started\""), replay.Readiness);
         Assert.Equal(Path.Join(Logs, "replay.log"), replay.LogFile);
+    }
+
+    [Fact]
+    public void AnalyticsLastAndOptional()
+    {
+        var all = Specs(Recording, Analytics);
+        Assert.Equal(new[] { "llama", "mimir", "gateway", "heimdall", "forge", "replay", "analytics" }, all.Select(s => s.Name));
+        Assert.Equal(new[] { "analytics" }, all.Where(s => s.Optional).Select(s => s.Name));
+        Assert.Equal(TimeSpan.FromSeconds(180), all[^1].ReadyTimeout);
+        Assert.Null(all[^1].Environment);
+    }
+
+    /// <summary>The Mac's app-mode arguments (ServiceSpec.swift), on the CPU, with Windows' helpers.</summary>
+    [Fact]
+    public void AnalyticsArguments()
+    {
+        var analytics = Spec("analytics", Specs(Recording, Analytics));
+        Assert.Equal(Path.Join(Helpers, "analytics", "python.exe"), analytics.Executable);
+        Assert.Equal(new[] {
+            "-I", "-B", Path.Join(Resources, "analytics", "analytics.py"), "--serve",
+            "--port", "1009", "--token-file", H("heimdall-poc", "analytics", "secret"),
+            "--state-dir", H("heimdall-poc", "analytics"), "--log", "-",
+            "--config", Path.Join(Resources, "analytics", "config.json"), "--model-dir", M("yolox"),
+            "--provider", "cpu", "--threads", "3",
+            "--frames-helper", Path.Join(Helpers, "midgard-frames.exe"), "--recording", Recording,
+            "--source-bin", Path.Join(Helpers, "heimdall-source.exe"),
+            "--source-identity-dir", H("airports-mesh", "feeds"), "--source-addr", "127.0.0.1:1006",
+            "--nice", "10",
+        }, analytics.Arguments);
+        Assert.Equal(new Readiness.LogLine("SERVE pid="), analytics.Readiness);
+        Assert.Equal(Path.Join(Logs, "analytics.log"), analytics.LogFile);
+    }
+
+    [Fact]
+    public void GatewayGetsTheAnalyticsAddressAndTokenOnlyWithThem()
+    {
+        var full = Spec("gateway", Specs(Recording, Analytics)).Arguments;
+        Assert.Equal(new[] { "--analytics-addr", "127.0.0.1:1009", "--analytics-token-file", H("heimdall-poc", "analytics", "secret") },
+                     full.TakeLast(4));
+        Assert.Equal(Spec("gateway").Arguments, full.SkipLast(4));
+        Assert.DoesNotContain("--analytics-addr", Spec("gateway").Arguments);
+        Assert.Equal(CameraAnalytics.TokenFile(Home), full[^1]);
+    }
+
+    [Fact]
+    public void AnalyticsAreLocatedOnlyWhenEverythingIsThere()
+    {
+        var needed = new[]
+        {
+            Path.Join(Helpers, "analytics", "python.exe"), Path.Join(Resources, "analytics", "analytics.py"),
+            Path.Join(Resources, "analytics", "config.json"), Path.Join(Models, "yolox", "yolox_s.onnx"),
+            Path.Join(Helpers, "midgard-frames.exe"), Path.Join(Helpers, "heimdall-source.exe"),
+        };
+        Assert.Equal(Analytics, CameraAnalytics.Locate(Resources, Helpers, Recording, 3, needed.Contains));
+        Assert.Null(CameraAnalytics.Locate(Resources, Helpers, null, 3, needed.Contains));
+        foreach (var missing in needed)
+            Assert.Null(CameraAnalytics.Locate(Resources, Helpers, Recording, 3, f => f != missing && needed.Contains(f)));
+        Assert.Equal(Path.Join(Helpers, "analytics"), CameraAnalytics.Runtime(Helpers));
+    }
+
+    [Fact]
+    public void AnalyticsUseUpToFourThreads()
+    {
+        Assert.Equal(1, CameraAnalytics.ThreadsFor(0));
+        Assert.Equal(2, CameraAnalytics.ThreadsFor(2));
+        Assert.Equal(4, CameraAnalytics.ThreadsFor(4));
+        Assert.Equal(4, CameraAnalytics.ThreadsFor(16));
     }
 
     [Fact]
@@ -148,10 +220,23 @@ public sealed class ServiceSpecTests
             Value("heimdall", "--health-bind"), $"127.0.0.1:{llamaHealth.Port}",
         };
         Assert.Equal(binds.Length, binds.Distinct().Count());
-        Assert.All(binds, b => Assert.StartsWith("127.0.0.1:", b));
-        // The analytics' port (W3) is the only one not used yet.
+        Assert.All(binds, b => Assert.StartsFull("127.0.0.1:", b));
+        // Without the analytics, their port is the only one not used.
         Assert.Equal(new[] { Ports.Analytics },
                      Ports.All.Where(p => !binds.Contains($"127.0.0.1:{p}")).ToArray());
+
+        // With them: the gateway forwards to the port they listen on, and they send to Heimdall.
+        var full = Specs(Recording, Analytics);
+        string Full(string service, string flag)
+        {
+            var arguments = Spec(service, full).Arguments.ToList();
+            return arguments[arguments.IndexOf(flag) + 1];
+        }
+        Assert.Equal($"127.0.0.1:{Full("analytics", "--port")}", Full("gateway", "--analytics-addr"));
+        Assert.Equal(Full("analytics", "--token-file"), Full("gateway", "--analytics-token-file"));
+        Assert.Equal(Full("heimdall", "--bind"), Full("analytics", "--source-addr"));
+        Assert.Equal(Full("replay", "--identity-dir"), Full("analytics", "--source-identity-dir"));
+        Assert.Equal(Full("replay", "--recording"), Full("analytics", "--recording"));
     }
 
     [Fact]

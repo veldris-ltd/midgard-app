@@ -327,6 +327,23 @@ public sealed class SupervisorTests : IAsyncLifetime
         Assert.Equal(new[] { "starting", "stopped" }, Rec.Labels("analytics"));
     }
 
+    /// <summary>
+    /// The analytics' runtime missing (helpers\analytics\python.exe not there): the optional
+    /// service is failed, the start goes on, and the required service after it starts.
+    /// </summary>
+    [Fact]
+    public async Task OptionalServiceThatCannotLaunchDoesNotBlockTheStart()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var opt = OptionalFake("analytics", []) with { Executable = Path.Join(dir, "analytics", "python.exe") };
+        var a = Fake("a", ["say:listening on", "wait"]);
+        await Sup.StartAsync([opt, a]);
+        Assert.IsType<ServiceStatus.Ready>(Sup.StatusOf("a"));
+        Assert.True(await Rec.Wait("analytics", IsFailed), string.Join(", ", Rec.Labels("analytics")));
+        Assert.Null(Sup.PidOf("analytics"));
+        Assert.IsType<ServiceStatus.Ready>(Sup.StatusOf("a"));
+    }
+
     // Exits before ready: one retry
 
     /// <summary>A required service that exits before it is ready is launched once more; then the start fails.</summary>

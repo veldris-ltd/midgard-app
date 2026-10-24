@@ -47,6 +47,28 @@ replaced) and checked here with `hmac.compare_digest`. A camera whose stored cli
 is analysed from its stored still. The service is left out (logged) unless the runtime, code,
 model and `Helpers/{midgard-frames,heimdall-source}` are all there.
 
+## In the Windows app (offline)
+
+The same `analytics.py`, model and versions (CPython 3.13.16, numpy 2.5.4, onnxruntime 1.23.2)
+as the Mac app. `tools/win-app/fetch-analytics.sh` (on a Mac or on Windows) downloads, checks
+(`tools/win-app/analytics.lock`) and lays out python-build-standalone's x86_64-pc-windows-msvc
+runtime with the numpy and onnxruntime win_amd64 wheels unzipped into its `Lib\site-packages`,
+pruned and compiled, plus the model and the licences. The package holds:
+
+* `helpers\analytics\` the runtime (`python.exe`, `python313.dll`, `DLLs\`, `Lib\`)
+* `helpers\midgard-frames.exe` the clip and image decoder (Media Foundation and WIC,
+  `apps/windows/MidgardFrames`), and `helpers\heimdall-source.exe`
+* `resources\analytics\analytics.py`, `config.json`
+* `resources\models\yolox\yolox_s.onnx`
+
+The shell (`apps/windows`, `SuiteSpecs`) runs it last and optional as on the Mac, with the same
+arguments, on the CPU (`--provider cpu`, up to 4 threads), at the below-normal priority class
+(`--nice` on Windows). The token (`Home\heimdall-poc\analytics\secret`) is created before the
+gateway starts with a protected DACL (this user only), exclusively, a link replaced. On Windows
+`analytics.py` has no `resource` module (CPU times are its own only) and reads a recording's
+plain `heimdall.jsonl` (recordings for Windows are uncompressed). CI: the `windows-analytics`
+job (`tools/win-app/check-analytics.py`) and `windows-shell-e2e` (Analyse through the gateway).
+
 ### midgard-frames against ffmpeg
 
 `midgard-frames decode` writes the same stream analytics.py reads from ffmpeg (raw BGR,

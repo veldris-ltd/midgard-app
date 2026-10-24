@@ -106,3 +106,23 @@ jobs:
           path: target/windows-shell-e2e/report/
           if-no-files-found: warn
           retention-days: 14
+
+  # The camera analytics on the pinned Windows runtime (tools/win-app/analytics.lock): its
+  # python.exe, one analysis of a synthetic clip with midgard-frames.exe and YOLOX-s, and the
+  # comparison with ffmpeg. No Rust.
+  analytics:
+    name: the camera analytics on the Windows runtime (win-x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: analytics
+        run: bash tools/ci/run.sh windows-analytics
+      # The check's report, the synthetic clip, the sizes and the runtime's manifest, pass or fail.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-analytics
+          path: target/windows-analytics/report/
+          if-no-files-found: warn
+          retention-days: 14

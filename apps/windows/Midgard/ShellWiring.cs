@@ -145,11 +145,40 @@ sealed class ShellWiring(Paths paths, ShellLog log, Func<ushort, Command>? testM
         return File.Exists(Path.Join(dir, "meta.json")) ? dir : null;
     }
 
+    /// <summary>
+    /// The packaged camera analytics, with their token written (the gateway reads it when it
+    /// starts); null, logged, when they are not packaged, there is no recording, or the token
+    /// cannot be written. Then the suite runs without them.
+    /// </summary>
+    CameraAnalytics? Analytics(string? recording)
+    {
+        var threads = CameraAnalytics.ThreadsFor(ModelServer.PhysicalCores() ?? Environment.ProcessorCount);
+        var found = CameraAnalytics.Locate(paths.Resources, paths.Helpers, recording, threads, File.Exists);
+        if (found is null)
+        {
+            log.Write(recording is null ? "camera analytics: none (no recording)"
+                : $"camera analytics: not packaged or incomplete ({CameraAnalytics.Expected(paths.Resources, paths.Helpers)}); not started");
+            return null;
+        }
+        try
+        {
+            AnalyticsToken.Ensure(CameraAnalytics.TokenFile(paths.Home));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or AnalyticsTokenException)
+        {
+            log.Write($"camera analytics left out: cannot write the token ({e.Message})");
+            return null;
+        }
+        log.Write($"camera analytics: {found.Python}, {found.Threads} CPU threads");
+        return found;
+    }
+
     IReadOnlyList<ServiceSpec>? Specs(SuitePorts ports, string origin)
     {
+        var recording = Recording();
         if (testModel is not null)
-            return SuiteSpecs.Make(paths.Helpers, Models, paths.Home, paths.Logs, ports, origin, Recording(),
-                                   testModel(ports.Llama));
+            return SuiteSpecs.Make(paths.Helpers, Models, paths.Home, paths.Logs, ports, origin, recording,
+                                   testModel(ports.Llama), Analytics(recording));
         var env = ModelEnvironment();
         var llama = ModelServer.Locate(paths.Helpers, paths.DevLayout, env, File.Exists);
         if (llama is null)
@@ -158,7 +187,8 @@ sealed class ShellWiring(Paths paths, ShellLog log, Func<ushort, Command>? testM
             return null;
         }
         var command = ModelServer.Make(llama, Models, ports.Llama, ModelServer.ThreadsForThisPc(env));
-        return SuiteSpecs.Make(paths.Helpers, Models, paths.Home, paths.Logs, ports, origin, Recording(), command);
+        return SuiteSpecs.Make(paths.Helpers, Models, paths.Home, paths.Logs, ports, origin, recording, command,
+                               Analytics(recording));
     }
 
     static string Describe(string what, SweepOutcome outcome)

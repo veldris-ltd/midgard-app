@@ -67,7 +67,8 @@ windows-test|host|clippy and tests of the whole Rust workspace on a Windows x64 
 windows-smoke|host|the services end to end on a fixture recording on a Windows x64 runner, after windows-build
 windows-shell-build|host|locked restore, release build and win-x64 single-file publish of the C# shell and midgard-frames.exe (apps/windows; .NET 10 SDK)
 windows-shell-test|host|locked restore and the xUnit tests of the C# shell and of midgard-frames.exe against a pinned ffmpeg (apps/windows; .NET 10 SDK)
-windows-shell-e2e|host|the C# shell end to end on a Windows x64 runner: Midgard.exe --headless-check on a package of the services, consoles and a fixture
+windows-shell-e2e|host|the C# shell end to end on a Windows x64 runner: Midgard.exe --headless-check on a package of the services, consoles, camera analytics and a fixture
+windows-analytics|host|the camera analytics on the pinned Windows runtime (tools/win-app/analytics.lock): imports, one analysis of a synthetic clip with midgard-frames.exe, compared with ffmpeg
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -675,6 +676,18 @@ windows_ffmpeg() {
     echo "$dir/$name/bin/ffmpeg.exe"
 }
 
+# The camera analytics' Python runtime, numpy, onnxruntime and model for the Windows app
+# (W3 Task 2), laid out by tools/win-app/fetch-analytics.sh from tools/win-app/analytics.lock
+# into $CACHE_DIR/build/win/analytics (downloads checked by SHA-256). Prints that folder.
+windows_analytics_runtime() {
+    ci_group "the analytics runtime (tools/win-app/fetch-analytics.sh)" >&2
+    MIDGARD_BUILD_DIR="$PWD/$CACHE_DIR/build" bash tools/win-app/fetch-analytics.sh >&2
+    ci_endgroup >&2
+    echo "$CACHE_DIR/build/win/analytics"
+}
+# The fixture camera with a clip (tools/win-app/make-fixture.py --camera-clip).
+ANALYTICS_CLIP_CAMERA=JamCams_00000.00001
+
 job_windows_shell_test() {
     windows_dotnet windows-shell-test
     windows_shell_restore windows-shell-test
@@ -702,6 +715,53 @@ job_windows_shell_test() {
     return "$status"
 }
 
+# The camera analytics on Windows (docs/plans/2026-10-24-windows-app-w3-analytics.md, Task 2):
+# the runtime fetch-analytics.sh lays out, its python.exe importing numpy and onnxruntime,
+# then tools/win-app/check-analytics.py on a synthetic clip (make-camera-clip.py, drawn and
+# encoded here with the tests' ffmpeg; no footage in git) in a fixture recording:
+# analytics.py --once as a program, one analysis as a module (a land-camera-ai observation),
+# and midgard-frames.exe against ffmpeg (frames, detections, tracks). Its report, the clip
+# and the sizes go to $WINDOWS_ANALYTICS_OUT/report.
+WINDOWS_ANALYTICS_OUT=target/windows-analytics
+job_windows_analytics() {
+    local out="$WINDOWS_ANALYTICS_OUT" root rt ffmpeg
+    windows_dotnet windows-analytics
+    windows_shell_restore windows-analytics
+    rm -rf "$out"
+    mkdir -p "$out/report"
+    dotnet publish "$WINDOWS_SHELL/MidgardFrames/MidgardFrames.csproj" -c Release -r win-x64 --self-contained \
+        -p:PublishSingleFile=true --no-restore -o "$out/frames"
+    ffmpeg="$(windows_ffmpeg windows-analytics)"
+    root="$(windows_analytics_runtime)"
+    rt="$root/runtime"
+    # Relative paths: a native Windows python is handed no POSIX path to translate.
+    "$rt/python.exe" -I -c "import numpy, onnxruntime; print(numpy.__version__, onnxruntime.__version__, onnxruntime.get_available_providers())"
+    "$rt/python.exe" -I - "$rt" "$root/models/yolox_s.onnx" "$root/licenses" <<'PY' | tee "$out/report/sizes.txt"
+import os, sys, tempfile, zipfile
+def size(p):
+    return os.path.getsize(p) if os.path.isfile(p) else sum(
+        os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(p) for f in fs)
+for label, p in zip(("runtime (helpers\\analytics)", "model (resources\\models\\yolox)", "licences"), sys.argv[1:]):
+    with tempfile.TemporaryFile() as t:
+        with zipfile.ZipFile(t, "w", zipfile.ZIP_DEFLATED) as z:
+            if os.path.isfile(p):
+                z.write(p, os.path.basename(p))
+            for d, _, fs in os.walk(p):
+                for f in fs:
+                    z.write(os.path.join(d, f), os.path.relpath(os.path.join(d, f), p))
+        zipped = t.tell()
+    print(f"{label}: {size(p) / 1e6:.1f} MB, {zipped / 1e6:.1f} MB deflated in a ZIP")
+PY
+    cp "$root/manifest.txt" "$out/report/analytics-manifest.txt"
+    "$rt/python.exe" -I tools/win-app/make-camera-clip.py --ffmpeg "$ffmpeg" --still "$out/report/clip.jpg" "$out/report/clip.mp4"
+    "$rt/python.exe" -I tools/win-app/make-fixture.py --camera-clip "$out/report/clip.mp4" \
+        --camera-still "$out/report/clip.jpg" "$out/recording"
+    "$rt/python.exe" -I -B tools/win-app/check-analytics.py --recording "$out/recording" \
+        --camera "$ANALYTICS_CLIP_CAMERA" --frames-helper "$out/frames/midgard-frames.exe" \
+        --model-dir "$root/models" --ffmpeg "$ffmpeg" --ffprobe "$(dirname "$ffmpeg")/ffprobe.exe" \
+        --report "$out/report/analytics-check.txt"
+}
+
 # The real shell end to end on Windows (docs/plans/2026-10-23-windows-app-w2-shell.md,
 # Task 7). It builds what a package holds and lays it out as the ZIP will:
 #   Midgard\Midgard.exe                 the published single-file shell
@@ -709,6 +769,10 @@ job_windows_shell_test() {
 #   Midgard\resources\home, consoles    the home page and the four offline consoles
 #   Midgard\resources\recording         the fixture (tools/win-app/make-fixture.py)
 #   Midgard\resources\starting-state, models   tools/win-app/make-starting-state.py's
+#   Midgard\helpers\analytics, midgard-frames.exe   the camera analytics' runtime
+#                                       (fetch-analytics.sh) and clip decoder
+#   Midgard\resources\analytics, models\yolox   analytics.py, config.json, YOLOX-s
+# with the fixture's camera clip drawn by make-camera-clip.py (the tests' ffmpeg),
 # then runs `Midgard.exe --headless-check` (Midgard/HeadlessCheck.cs) with the working
 # copy and logs in %LOCALAPPDATA%\MidgardE2E and tools/win-app/stub_llm.py, run by this
 # python.exe, as the model server. Its report, home.png, heimdall.png and the logs go to
@@ -726,6 +790,11 @@ job_windows_shell_e2e() {
     mkdir -p "$out/report/logs"
     dotnet publish "$WINDOWS_SHELL/Midgard/Midgard.csproj" -c Release -r win-x64 --self-contained \
         -p:PublishSingleFile=true --no-restore -o "$out/publish"
+    dotnet publish "$WINDOWS_SHELL/MidgardFrames/MidgardFrames.csproj" -c Release -r win-x64 --self-contained \
+        -p:PublishSingleFile=true --no-restore -o "$out/publish"
+    local ffmpeg analytics
+    ffmpeg="$(windows_ffmpeg windows-shell-e2e)"
+    analytics="$(windows_analytics_runtime)"
     need node "windows-shell-e2e: node is not on PATH (the consoles are built with it)"
     node --version
     if ! command -v pnpm >/dev/null 2>&1; then
@@ -748,6 +817,10 @@ job_windows_shell_e2e() {
     for b in "${WINDOWS_BINARIES[@]}"; do
         cp "$dir/$b.exe" "$pkg/helpers/"
     done
+    cp "$out/publish/midgard-frames.exe" "$pkg/helpers/"
+    cp -R "$analytics/runtime" "$pkg/helpers/analytics"
+    mkdir -p "$pkg/resources/analytics"
+    cp heimdall/analytics/analytics.py heimdall/analytics/config.json "$pkg/resources/analytics/"
     # home/fonts is a symbolic link in the repo (to the design system's fonts), which a
     # Windows checkout does not make: the files go in as build-app.sh's `cp -RL` puts them.
     mkdir -p "$pkg/resources/home"
@@ -755,9 +828,14 @@ job_windows_shell_e2e() {
     cp -R ui/design-system/src/fonts "$pkg/resources/home/fonts"
     cp -R dist/mac/consoles "$pkg/resources/consoles"
     # Relative paths: a native Windows python is handed no POSIX path to translate.
-    "$py" tools/win-app/make-fixture.py "$pkg/resources/recording"
+    "$pkg/helpers/analytics/python.exe" -I tools/win-app/make-camera-clip.py --ffmpeg "$ffmpeg" \
+        --still "$out/clip.jpg" "$out/clip.mp4"
+    "$py" tools/win-app/make-fixture.py --camera-clip "$out/clip.mp4" --camera-still "$out/clip.jpg" \
+        "$pkg/resources/recording"
     "$py" tools/win-app/make-starting-state.py --tools "$dir" --fixture "$pkg/resources/recording" \
         --out "$pkg/resources/starting-state" --models "$pkg/resources/models"
+    mkdir -p "$pkg/resources/models/yolox"
+    cp "$analytics/models/yolox_s.onnx" "$pkg/resources/models/yolox/"
     echo "package: $(du -sk "$pkg" | cut -f1) KB"
     ls -l "$pkg" "$pkg/helpers" "$pkg/resources"
 
@@ -801,6 +879,7 @@ for s in r["steps"]:
     print(f"{'ok  ' if s['ok'] else 'FAIL'} {s['step']} ({s['took_s']} s) {s.get('detail') or ''}"[:400])
 print(f"window: {r['facts'].get('window')}; screenshots: {', '.join(r['screenshots']) or 'none'}; "
       f"requests {len(r['requests'])}, blocked {len(r['blockedRequests'])}")
+print(f"camera analytics: {json.dumps(r['facts'].get('analyse'))}")
 print(f"{r['result']}: {r['passed']} passed, {r['failed']} failed in {r['took_s']} s")
 PY
     if [ "$status" != 0 ]; then

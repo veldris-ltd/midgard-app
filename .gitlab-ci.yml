@@ -301,6 +301,19 @@ windows-shell-e2e:
       - target/windows-shell-e2e/report/
     expire_in: 14 days
 
+# The camera analytics on the pinned Windows runtime (tools/win-app/analytics.lock): no Rust.
+# The check's report, the synthetic clip and the sizes are kept pass or fail.
+windows-analytics:
+  extends: .windows
+  cache: []
+  script:
+    - bash tools/ci/run.sh windows-analytics
+  artifacts:
+    when: always
+    paths:
+      - target/windows-analytics/report/
+    expire_in: 14 days
+
 # --- client shell audits -----------------------------------------------------------------
 # A shell with no buildable project FAILS its audit — a record is never written for a UI
 # that did not run — so these are red until all six shells exist. That is the gate
