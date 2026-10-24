@@ -72,6 +72,7 @@ Mac and Linux behaviour must not change. The existing Linux CI and the Mac tests
   - **Starting screen:** "Starting Midgard…" with each service's status.
   - **First run:** offers a Start-menu shortcut.
 - **Frames helper:** `midgard-frames.exe` writes the same raw BGR frames `analytics.py` reads, in the same probe and decode shape as the Mac helper.
+  - *As built in W3:* Media Foundation source reader (RGB32, video processing) and WIC, 12.8 MB trimmed. ffmpeg's frame selection exactly; mean pixel difference from ffmpeg 2.0 on a 352×288 pattern clip, 1.5 on a JPEG. An N edition gets "This Windows edition lacks the Media Feature Pack; camera clips can't be decoded". Details in `2026-10-24-windows-app-w3-analytics.md`, Task 1.
 - **Tests:**
   - **xUnit:** for paths, ports, the web server's rules, the session script, and supervisor order and retry.
   - **Headless end-to-end on Windows CI:** the shell starts the suite, signs in and quits with nothing left running, without opening a window.
