@@ -38,7 +38,8 @@
 # the server answers and trusts the key.
 #
 # Defaults: BIFROST_HOME=~/Desktop/Midgard/bifrost-local, --server $BIFROST_MESH or
-# 127.0.0.1:7750, --identity $BIFROST_HOME/fleet-clients, --service release-manager.
+# 127.0.0.1:7750, --identity the clients= folder in $BIFROST_HOME/mesh.conf (run-local.sh
+# setup --real-enclosure) or else $BIFROST_HOME/fleet-clients, --service release-manager.
 # --out keeps the binaries, SBOMs and signed manifests (default: a temporary folder,
 # removed). Build output: $MIDGARD_BUILD_DIR (default ~/Library/Caches/midgard-build/
 # bifrost-release/target); the tools are built in $CARGO_TARGET_DIR (default
@@ -62,7 +63,10 @@ usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 COMMIT="" VERSION="" BAD=0 INIT_KEY=0 OUT=""
 SERVER="${BIFROST_MESH:-127.0.0.1:7750}"
-IDENTITY="$H/fleet-clients"
+# The clients' identities: where run-local.sh setup --real-enclosure recorded them, or the
+# private enclosure's.
+IDENTITY="$(sed -n 's/^clients=//p' "$H/mesh.conf" 2>/dev/null | head -1 || true)"
+IDENTITY="${IDENTITY:-$H/fleet-clients}"
 SERVICE=release-manager
 KEY="$H/release-key"
 TRUST=""

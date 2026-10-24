@@ -5,21 +5,41 @@
 # playing installations that check in and an operator that reads the fleet.
 #
 #   bash tools/bifrost/run-local.sh setup    # once: build, a private enclosure, identities, state
+#   bash tools/bifrost/run-local.sh setup --real-enclosure   # identities from the suite's enclosure
 #   bash tools/bifrost/run-local.sh start    # start bifrost-server (mesh 127.0.0.1:7750, health :9750)
 #   bash tools/bifrost/run-local.sh demo     # three installations check in; one is behind
 #   bash tools/bifrost/run-local.sh status   # the fleet as the operator sees it (JSON)
 #   bash tools/bifrost/run-local.sh stop
 #
-# Everything lives in $BIFROST_HOME (default ~/Desktop/Midgard/bifrost-local), including its
-# own enclosure (issuer keys and audit), so the suite's real enclosure (~/Desktop/Midgard/
-# airports) is never touched and the gateway needs no stop. Ports avoid 7740, which the
-# camera analytics use. The console (products/bifrost/ui) still shows demo data: it has no
-# client for this service yet.
+# Everything lives in $BIFROST_HOME (default ~/Desktop/Midgard/bifrost-local). Ports avoid
+# 7740, which the camera analytics use. The console (products/bifrost/ui) still shows demo
+# data: it has no client for this service yet.
 #
-# setup also issues `release-manager` (role release-manager: RegisterArtefact and
-# ReadArtefacts) and makes fleet-state/trust/release-signers/, where the registry's
-# release-signer public keys go (`<alg> <key-id> <hex>` .pub files, ML-DSA-65). With none
-# there, every upload is refused as an unknown signer. An older policy.json without the
+# Plain `setup` makes Bifrost its own private enclosure ($BIFROST_HOME/enclosure: issuer
+# keys and audit), so the suite's real enclosure is never touched and the gateway needs no
+# stop. It issues bifrost-fleet (fleet-manager), three fleet agents, fleet-operator and
+# release-manager (RegisterArtefact, ReadArtefacts).
+#
+# `setup --real-enclosure` issues the same identities from the suite's real enclosure
+# ($MIDGARD_ENCLOSURE, default ~/Desktop/Midgard/airports) instead, the server's as
+# bifrost-server, into $BIFROST_MESH_OUT (default ~/Desktop/Midgard/airports-mesh/
+# bifrost)/{server,clients}; an identity already there is kept. `mg-admin mesh issue`
+# appends to the enclosure's governance ledger, so it refuses unless the suite is
+# stopped: no suite binary running (http-gateway, heimdall-*, mimir-server, forge-worker,
+# midgard-replay, mg-admin, or anything from a dist/mac/bin), no lock file in the
+# enclosure (any holder, live or not: a stale one is for an operator to remove), and no
+# Docker container running (set MIDGARD_DOCKER_STOPPED=1 when Docker Desktop is quit).
+# Before issuing, it backs the enclosure up to ~/Library/Caches/midgard-build/
+# airports-backup-<date>.tar.gz and then removes the previous such backup (one is kept).
+# The choice is recorded in $BIFROST_HOME/mesh.conf, which start, demo, status and
+# release.sh read. The first switch moves the private enclosure, its identities and the
+# server's sealed state (fleet.journal, fleet.ledger, registry/: sealed under the old
+# identity, so the new one cannot open them) to $BIFROST_HOME/private-enclosure/.
+#
+# Both setups make fleet-state/ (policy.json, channels.json) and fleet-state/trust/
+# release-signers/, where the registry's release-signer public keys go (`<alg> <key-id>
+# <hex>` .pub files, ML-DSA-65; release.sh --init-key puts one there). With none there,
+# every upload is refused as an unknown signer. An older policy.json without the
 # registry's actions is replaced (the old one is kept as policy.json.pre-registry).
 set -euo pipefail
 
@@ -30,38 +50,43 @@ BIN="$TARGET/release"
 MESH="${BIFROST_MESH:-127.0.0.1:7750}"
 HEALTH="${BIFROST_HEALTH:-127.0.0.1:9750}"
 AGENTS=(fleet-agent-1 fleet-agent-2 fleet-agent-3)
+ENCLOSURE="${MIDGARD_ENCLOSURE:-$HOME/Desktop/Midgard/airports}"
+MESH_OUT="${BIFROST_MESH_OUT:-$HOME/Desktop/Midgard/airports-mesh/bifrost}"
+BACKUPS="${MIDGARD_BACKUP_DIR:-$HOME/Library/Caches/midgard-build}"
+SUITE_BINARIES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay mg-admin)
+CONF="$H/mesh.conf"
 
 die() { echo "run-local: $*" >&2; exit 1; }
 
+# Where the server's identity and the clients' are: mesh.conf (setup --real-enclosure) or
+# the private enclosure's defaults.
+conf() { [ -f "$CONF" ] && sed -n "s/^$1=//p" "$CONF" | head -1 || true; }
+SERVER_ID="$(conf server_identity)"; SERVER_ID="${SERVER_ID:-$H/fleet-identity}"
+SERVICE="$(conf service)"; SERVICE="${SERVICE:-bifrost-fleet}"
+CLIENTS="$(conf clients)"; CLIENTS="${CLIENTS:-$H/fleet-clients}"
+
 build() {
-    if [ ! -x "$BIN/bifrost-server" ] || [ ! -x "$BIN/bifrost-agent" ] || [ ! -x "$BIN/mg-admin" ]; then
-        command -v cargo >/dev/null || PATH="/opt/homebrew/opt/rustup/bin:$PATH"
-        (cd "$ROOT" && CARGO_TARGET_DIR="$TARGET" cargo build --offline --locked --release \
-            -p bifrost-fleet-server -p mg-admin)
-    fi
+    command -v cargo >/dev/null || PATH="/opt/homebrew/opt/rustup/bin:$PATH"
+    (cd "$ROOT" && CARGO_TARGET_DIR="$TARGET" cargo build --offline --locked --release -q \
+        -p bifrost-fleet-server -p mg-admin)
 }
 
-issue() { # issue <service> <roles> <out>
-    if [ -f "$3/$1.identity" ] || ls "$3" 2>/dev/null | grep -q "^$1"; then
-        echo "  $1: already has an identity"
+has_identity() { [ -f "$2/$1.keystore" ] || [ -f "$2/$1.cert" ]; }
+
+issue() { # issue <enclosure> <service> <roles> <out>
+    if has_identity "$2" "$4"; then
+        echo "  $2: already has an identity"
     else
-        "$BIN/mg-admin" mesh issue --state-dir "$H/enclosure" --service "$1" --roles "$2" --out "$3" >/dev/null
-        echo "  $1 ($2)"
+        "$BIN/mg-admin" mesh issue --state-dir "$1" --service "$2" --roles "$3" --out "$4" >/dev/null
+        echo "  $2 ($3)"
     fi
 }
 
-setup() {
-    build
-    mkdir -p "$H"
-    if [ ! -d "$H/enclosure" ]; then
-        "$BIN/mg-admin" init --state-dir "$H/enclosure" >/dev/null
-        echo "a private enclosure for Bifrost: $H/enclosure"
-    fi
-    echo "mesh identities:"
-    issue bifrost-fleet fleet-manager "$H/fleet-identity"
-    for a in "${AGENTS[@]}"; do issue "$a" fleet-agent "$H/fleet-clients"; done
-    issue fleet-operator fleet-operator "$H/fleet-clients"
-    issue release-manager release-manager "$H/fleet-clients"
+pid() { cat "$H/fleet.pid" 2>/dev/null || true; }
+running() { local p; p="$(pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+
+# fleet-state: policy, channels and the release-signer trust directory.
+state() {
     mkdir -p "$H/fleet-state/trust/release-signers"
     if [ -f "$H/fleet-state/policy.json" ] && ! grep -q RegisterArtefact "$H/fleet-state/policy.json"; then
         mv "$H/fleet-state/policy.json" "$H/fleet-state/policy.json.pre-registry"
@@ -73,15 +98,119 @@ setup() {
     echo "release signers: $H/fleet-state/trust/release-signers ($(ls "$H/fleet-state/trust/release-signers" | grep -c '\.pub$' || true) .pub files)"
 }
 
-pid() { cat "$H/fleet.pid" 2>/dev/null || true; }
-running() { local p; p="$(pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+setup() {
+    [ ! -f "$CONF" ] || die "$H uses the real enclosure ($CONF); run setup --real-enclosure"
+    build
+    mkdir -p "$H"
+    if [ ! -d "$H/enclosure" ]; then
+        "$BIN/mg-admin" init --state-dir "$H/enclosure" >/dev/null
+        echo "a private enclosure for Bifrost: $H/enclosure"
+    fi
+    echo "mesh identities:"
+    issue "$H/enclosure" bifrost-fleet fleet-manager "$H/fleet-identity"
+    for a in "${AGENTS[@]}"; do issue "$H/enclosure" "$a" fleet-agent "$H/fleet-clients"; done
+    issue "$H/enclosure" fleet-operator fleet-operator "$H/fleet-clients"
+    issue "$H/enclosure" release-manager release-manager "$H/fleet-clients"
+    state
+}
+
+# Refuse unless nothing of the suite can be writing to $ENCLOSURE. Fails closed.
+suite_stopped() {
+    local n p busy="" locks
+    for n in "${SUITE_BINARIES[@]}"; do
+        p="$(pgrep -x "$n" || true)"
+        [ -z "$p" ] || busy="$busy $n (pid $(echo $p))"
+    done
+    p="$(pgrep -f '/dist/mac/bin/' || true)"
+    [ -z "$p" ] || busy="$busy dist/mac/bin process(es) (pid $(echo $p))"
+    [ -z "$busy" ] || die "the suite is running:$busy. Stop it first (tools/mac-app/run-native.sh stop); mg-admin must not write the enclosure while a service does."
+    locks="$(find "$ENCLOSURE" -maxdepth 1 -name '*.lock' 2>/dev/null)" || die "cannot list $ENCLOSURE"
+    [ -z "$locks" ] || die "$ENCLOSURE is locked ($(echo $locks)): a service holds it, or one was killed and left its lock. Stop the suite; if nothing is running, remove the lock and re-run."
+    if [ "${MIDGARD_DOCKER_STOPPED:-}" = 1 ]; then
+        echo "the suite is stopped (Docker check skipped: MIDGARD_DOCKER_STOPPED=1)"
+    elif command -v docker >/dev/null; then
+        local ids
+        ids="$(docker ps -q 2>/dev/null)" || die "cannot query Docker. If Docker Desktop is quit (no container can run), re-run with MIDGARD_DOCKER_STOPPED=1"
+        [ -z "$ids" ] || die "Docker containers are running ($(docker ps --format '{{.Names}}' | tr '\n' ' ')); stop them first: one may hold $ENCLOSURE"
+        echo "the suite is stopped (no suite process, no enclosure lock, no container)"
+    else
+        echo "the suite is stopped (no suite process, no enclosure lock)"
+    fi
+}
+
+# One backup of the enclosure: write the new one, check it, then drop the previous ones.
+backup() {
+    local need_kb free_kb tmp out old
+    need_kb=$(( $(du -sk "$ENCLOSURE" | cut -f1) + 5 * 1024 * 1024 ))
+    free_kb="$(df -k "$HOME" | awk 'NR==2 {print $4}')"
+    [ "$free_kb" -ge "$need_kb" ] || die "only $((free_kb / 1024)) MB free; the backup needs the enclosure's size plus 5 GB"
+    mkdir -p "$BACKUPS"
+    out="$BACKUPS/airports-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    tmp="$out.partial"
+    tar -czf "$tmp" -C "$(dirname "$ENCLOSURE")" "$(basename "$ENCLOSURE")"
+    local want got
+    want="$(find "$ENCLOSURE" -type f | wc -l | tr -d ' ')"
+    got="$(tar -tzf "$tmp" | grep -vc '/$' || true)"
+    [ "$want" = "$got" ] && tar -tzf "$tmp" | grep -q "/keys/idp.keystore$" \
+        || { rm -f "$tmp"; die "the backup lists $got files, the enclosure has $want; nothing was issued"; }
+    mv "$tmp" "$out"
+    for old in "$BACKUPS"/airports-backup-*.tar.gz; do
+        [ "$old" = "$out" ] || [ ! -f "$old" ] || { rm -f "$old"; echo "  removed the previous backup $old"; }
+    done
+    echo "backup of $ENCLOSURE: $out ($(du -h "$out" | cut -f1)); restore with: tar -xzf $out -C $(dirname "$ENCLOSURE")"
+}
+
+setup_real() {
+    [ -d "$ENCLOSURE" ] && [ -f "$ENCLOSURE/keys/idp.keystore" ] || die "$ENCLOSURE is not an enclosure (no keys/idp.keystore)"
+    if [ ! -f "$CONF" ] && running; then
+        die "bifrost-server is running on the private identity, whose sealed state this moves aside; run-local.sh stop first"
+    fi
+    build
+    mkdir -p "$H"
+    local srv="$MESH_OUT/server" cli="$MESH_OUT/clients" missing=0 s
+    has_identity bifrost-server "$srv" || missing=1
+    for s in "${AGENTS[@]}" fleet-operator release-manager; do has_identity "$s" "$cli" || missing=1; done
+    if [ "$missing" = 1 ]; then
+        suite_stopped
+        backup
+        mkdir -p "$srv" "$cli"
+        chmod 700 "$MESH_OUT" "$srv" "$cli"
+        echo "mesh identities from $ENCLOSURE:"
+        issue "$ENCLOSURE" bifrost-server fleet-manager "$srv"
+        for s in "${AGENTS[@]}"; do issue "$ENCLOSURE" "$s" fleet-agent "$cli"; done
+        issue "$ENCLOSURE" fleet-operator fleet-operator "$cli"
+        issue "$ENCLOSURE" release-manager release-manager "$cli"
+    else
+        echo "mesh identities: all already issued in $MESH_OUT (the enclosure is not touched)"
+    fi
+
+    if [ ! -f "$CONF" ]; then
+        # The server's sealed state belongs to the private identity; keep it, apart.
+        local a="$H/private-enclosure" f moved=""
+        for f in enclosure fleet-identity fleet-clients fleet-state/fleet.journal fleet-state/fleet.ledger fleet-state/registry; do
+            [ -e "$H/$f" ] || continue
+            mkdir -p "$a/fleet-state"
+            [ ! -e "$a/$f" ] || die "$a/$f already exists; move it away first"
+            mv "$H/$f" "$a/$f"; moved="$moved $f"
+        done
+        [ -z "$moved" ] || echo "the private enclosure and its sealed state moved to $a:$moved"
+        cat > "$CONF" <<EOF
+# written by run-local.sh setup --real-enclosure; read by start, demo, status and release.sh
+enclosure=$ENCLOSURE
+server_identity=$srv
+service=bifrost-server
+clients=$cli
+EOF
+        echo "recorded in $CONF"
+    fi
+    state
+}
 
 start() {
-    [ -d "$H/fleet-identity" ] || die "run setup first"
+    [ -d "$SERVER_ID" ] || die "run setup first"
     if running; then echo "bifrost-server already running (pid $(pid))"; return; fi
     : > "$H/fleet.log"
-    # The identity issued here is still named bifrost-fleet; bifrost-server serves it as is.
-    "$BIN/bifrost-server" --service bifrost-fleet --identity-dir "$H/fleet-identity" \
+    "$BIN/bifrost-server" --service "$SERVICE" --identity-dir "$SERVER_ID" \
         --state-dir "$H/fleet-state" --bind "$MESH" --health-bind "$HEALTH" >> "$H/fleet.log" 2>&1 &
     echo $! > "$H/fleet.pid"
     for _ in $(seq 1 50); do
@@ -90,15 +219,27 @@ start() {
         sleep 0.2
     done
     grep -q '"serving"' "$H/fleet.log" || die "bifrost-server did not start: $(tail -3 "$H/fleet.log")"
-    echo "bifrost-server running (pid $(pid)) on $MESH, health http://$HEALTH/readyz; log $H/fleet.log"
+    echo "bifrost-server running as $SERVICE (pid $(pid)) on $MESH, health http://$HEALTH/readyz; log $H/fleet.log"
 }
 
 stop() {
-    if running; then kill -TERM "$(pid)"; echo "bifrost-server stopped"; else echo "bifrost-server not running"; fi
+    local p lock="$H/fleet-state/fleet.lock"
+    p="$(pid)"
+    if running; then
+        kill -TERM "$p"
+        for _ in $(seq 1 50); do running || break; sleep 0.2; done
+        if running; then echo "bifrost-server (pid $p) has not exited yet"; return; fi
+        echo "bifrost-server stopped"
+        # SIGTERM skips the lock's release; drop it when it names the process just stopped
+        # (older builds wrote no os= line, which a new start would refuse as foreign).
+        if [ -f "$lock" ] && grep -qx "pid=$p" "$lock"; then rm -f "$lock"; fi
+    else
+        echo "bifrost-server not running"
+    fi
     rm -f "$H/fleet.pid"
 }
 
-agent() { "$BIN/bifrost-agent" --identity-dir "$H/fleet-clients" --addr "$MESH" "$@"; }
+agent() { "$BIN/bifrost-agent" --identity-dir "$CLIENTS" --addr "$MESH" "$@"; }
 
 demo() {
     running || die "start it first"
@@ -113,10 +254,15 @@ demo() {
 status() { running || die "start it first"; agent --service fleet-operator --status; }
 
 case "${1:-}" in
-    setup) setup ;;
+    setup)
+        case "${2:-}" in
+            "") setup ;;
+            --real-enclosure) setup_real ;;
+            *) die "setup takes no option but --real-enclosure" ;;
+        esac ;;
     start) start ;;
     stop) stop ;;
     demo) demo ;;
     status) status ;;
-    *) sed -n '2,16p' "$0"; exit 2 ;;
+    *) sed -n '2,13p' "$0"; exit 2 ;;
 esac
