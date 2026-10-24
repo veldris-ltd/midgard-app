@@ -186,3 +186,50 @@ Design: `docs/plans/2026-10-24-bifrost-live-design.md`. Spec: `docs/dev/markdown
 - **Setup:** `tools/bifrost/run-local.sh` gains `setup --real-enclosure`. It issues the bifrost-server and agent identities in `~/Desktop/Midgard/airports`, which needs the gateway stopped (check that it is; refuse otherwise). This adds the roles `release-manager` and `fleet-agent`/`fleet-manager`, and the policy rules.
 - **Run:** `start` runs `bifrost-server`. Then run `release.sh` for the current HEAD as 0.1.0 and for a bad build, and show the registry listing: verified, then rejected for a tampered copy.
 - **Record** results in this plan.
+
+**Result (24 Oct 2026, done).**
+- **`run-local.sh setup --real-enclosure`** (eb56fb4):
+  - **Service name:** the server's new identity is `bifrost-server` (the program's default `--service`). The old `bifrost-fleet` name stays only for a private-enclosure home, whose identity was issued under it. Clients do not pin the server's name, and the state ids do not depend on it (Task 2).
+  - **Identities,** issued with `mg-admin mesh issue` from `~/Desktop/Midgard/airports` into `~/Desktop/Midgard/airports-mesh/bifrost/` (mode 700):
+    - `server/`: `bifrost-server` (fleet-manager);
+    - `clients/`: `fleet-agent-1..3` (fleet-agent), `fleet-operator` (fleet-operator) and `release-manager` (release-manager).
+    - An identity already there is kept, and mg-admin refuses to overwrite one anyway. When all of them exist, the enclosure is not touched at all (no checks, no backup).
+  - **Precondition, fail-closed.** It refuses if any of these hold:
+    - a suite binary runs: `pgrep -x` for http-gateway, heimdall-feed, heimdall-source, mimir-server, forge-worker, midgard-replay or mg-admin, wherever they were started from;
+    - any process runs from a `dist/mac/bin/`;
+    - the enclosure holds any `*.lock` file. `mg-admin` and the gateway share `airports/midgard.lock` (`StateLock`, `services/runtime/src/lock.rs`). The script refuses any lock, live or stale, from any OS. A stale one is for an operator to remove after checking. mg-admin then takes the same lock itself, so a gateway that starts in between fails to lock rather than interleaving;
+    - Docker cannot be queried or runs any container. `MIDGARD_DOCKER_STOPPED=1` skips this when Docker Desktop is quit, as run-native does.
+  - **Backup:** before issuing, the enclosure is tarred to `~/Library/Caches/midgard-build/airports-backup-<YYYYMMDD-HHMMSS>.tar.gz`. The file count is checked, and only then are the previous `airports-backup-*` removed, so one is kept.
+  - **`mesh.conf`:** the choice is recorded in `$BIFROST_HOME/mesh.conf` (enclosure, server identity, service, clients). `start`, `demo`, `status` and `release.sh` (default `--identity`) read it.
+  - **Private state moved aside:** the server's state is sealed under its identity's audit keystore (`ServiceIdentity::data_sealer`), so the new identity cannot open the old `fleet.journal`/`fleet.ledger`. The first switch therefore moves the private enclosure, its identities and that sealed state to `$BIFROST_HOME/private-enclosure/`, and refuses while the server runs. Plain `setup` then refuses for that home.
+  - **Also changed:**
+    - `stop` waits for the exit and removes the lock of the process it stopped. The old `bifrost-fleet` build had written a lock with no `os=` line, which the new start refused as foreign. It was removed once, by hand, after checking that pid 48480 was gone.
+    - setup always runs cargo (a no-op when fresh), so a stale binary is never started.
+  - **Tests:** checked in a throwaway home and enclosure: refusal while the server runs, with Docker unqueryable, with a lock present, and with a process named `http-gateway`; the issue, backup rotation and archive; a second run that touches nothing; plain setup refused; start and demo on the new identity.
+- **Run:**
+  1. `run-local.sh stop` ended the old `bifrost-fleet` (pid 48480, 7750/9750).
+  2. `MIDGARD_DOCKER_STOPPED=1 run-local.sh setup --real-enclosure` (Docker Desktop was quit) issued the six identities. Backup: `~/Library/Caches/midgard-build/airports-backup-20261024-214043.tar.gz` (242 MB; there was no earlier one). The enclosure's governance ledger grew by six ISSUE entries (31 KB), and no lock was left.
+  3. The old `policy.json` (without registry actions) was replaced and kept as `policy.json.pre-registry`.
+  4. `release.sh --init-key` made `bifrost-local/release-key/` (bifrost-release-1, ML-DSA-65) and installed its `.pub`, and the server was started (and restarted) on it. It logs `release_signers: bifrost-release-1`.
+- **Releases** (HEAD eb56fb4), as release-manager against 127.0.0.1:7750:
+  - 0.1.0: six verified, 32 s (build 28 s).
+  - 0.1.1 `--bad-build`: six verified. forge-worker is the 762 KB stand-in; the other five have the same digests as 0.1.0.
+  - A forge-worker signed as `0.1.0-tampered` and changed by one byte was refused: `digest-mismatch: the bytes do not match the digest in the signed manifest`.
+  - The listing shows 12 verified (6 at 0.1.0 and 6 at 0.1.1) and 1 rejected (`forge-worker 0.1.0-tampered`).
+- **The enclosure is unharmed:**
+  - `run-native.sh start` with the hour-1 replay brought mimir, gateway, heimdall, forge and replay to ready. These were the `dist/mac/bin` binaries from Task 1, not rebuilt.
+  - `smoke.py` passed: sign in; 22 fabric object types; Heimdall picture, 29,106 entities; Mimir granite-3.3-2b-instruct-q4km; Forge, 11 jobs.
+  - `run-native.sh stop` stopped them all, and no lock was left in `airports`.
+- **Left running:** bifrost-server, the user's dev instance (127.0.0.1:7750, health :9750/readyz 200). Stop it with `bash tools/bifrost/run-local.sh stop`.
+- **Storage:** `bifrost-local` is 45 MB (the registry holds 12 sealed artefacts). The suite folder measured 4.6 GB, over the 3.5 GB budget. That is mostly older items: `midgard-app.pre-rewrite` 724 MB, `midgard-console.pre-rewrite` 268 MB, and this worktree 307 MB. They were not touched here.
+
+### B1 summary
+
+- **Done:** bifrost-server runs as the suite's dev instance on the real enclosure's mesh identities. It has a durable, sealed artefact registry that admits only builds signed by an anchored ML-DSA-65 release key with a matching SBOM, and lists everything else as rejected with its reason.
+- **Release:** `release.sh` builds a commit's six services universal, SBOMs, signs and registers them (about 30 s), with a `--bad-build` canary for B2.
+- **Native tools:** the suite runs natively on this branch (build-services, run-native, smoke).
+- **Open for B2:**
+  - I-5, read cost and lock hold in GetArtefact;
+  - M-9, the reproducible-build digest check;
+  - agent installs from the registry;
+  - the canary gate and rollback with 0.1.1.
