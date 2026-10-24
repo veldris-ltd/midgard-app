@@ -9,7 +9,25 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0-rc.1] — release candidate, not yet tagged
+
+The first release candidate: from verified libraries to a platform that can be
+deployed and used. **A release candidate is not a supported release.** It exercises
+the whole release pipeline. GA remains blocked on:
+
+- the deployment tier passing on real infrastructure: HSM signing and GPU inference
+  have not run;
+- FIPS 140-3 module certification;
+- shell audits on real devices.
+
+See `docs/compliance/GA_READINESS.md`.
+
 ### Added
+- **Mistral model family.** `MistralAdapter` serves Mistral AI's Apache-2.0 open-weight
+  models. The adapter set, the router policy, the model loader and the eval matrix
+  cover four families: Mistral, Nemotron, Gemma and Granite. [FR-MS-7]
 - **Sample datasets.** `samples/` holds real data recorded from live public sources on
   22 October 2026: the configuration it was recorded with, Forge datasets, Heimdall feed
   snapshots and Heimdall observations. Only files whose sources state an open licence
@@ -57,34 +75,6 @@ CONTRIBUTING.md for the version policy.
   authenticator-code field, and the SDK's `login` sends the code when one is entered.
   Before this, a principal enrolled with `--totp` could sign in over the API but not
   in the console. [RC-37] [RC-29]
-
-### Fixed
-- **Heimdall keeps words that Rust reads as non-finite numbers as text.** `parse_attrs`
-  turned `nan`, `inf` and `infinity`, in any case, into float attributes, which the
-  picture then showed as `null`: the airport code `NAN` (Nadi, Fiji) in the sample
-  feeds lost its value. Only finite numbers are numbers now. [FR-H-3]
-- **The sample datasets are strict JSON.** The full set's `air_quality.json` held one
-  `NaN`, which made the gateway refuse the dataset; it is `null` in the corrected
-  archive, which records the change in `CORRECTIONS.md`.
-- **Quieter install logs.** The compose image creates its service account
-  without `useradd`'s system-range warning, and the container health check reads the
-  whole response before closing, so the gateway no longer logs a reset connection on
-  every check. [RC-33]
-
-## [0.1.0-rc.1] — release candidate, not yet tagged
-
-The first release candidate: from verified libraries to a platform that can be
-deployed and used. **A release candidate is not a supported release.** It exercises
-the whole release pipeline. GA remains blocked on:
-
-- the deployment tier passing on real infrastructure: HSM signing and GPU inference
-  have not run;
-- FIPS 140-3 module certification;
-- shell audits on real devices.
-
-See `docs/compliance/GA_READINESS.md`.
-
-### Added
 - **The edge on the real enclosure.** `http-gateway` serves the object-fabric routes
   from `fabric::Fabric` and its single governance spine, so edge admission and every
   fabric call go to one PQ-signed ledger.
@@ -173,6 +163,17 @@ See `docs/compliance/GA_READINESS.md`.
   cannot be waived. [RC-49]
 
 ### Fixed
+- **Heimdall keeps words that Rust reads as non-finite numbers as text.** `parse_attrs`
+  turned `nan`, `inf` and `infinity`, in any case, into float attributes, which the
+  picture then showed as `null`: the airport code `NAN` (Nadi, Fiji) in the sample
+  feeds lost its value. Only finite numbers are numbers now. [FR-H-3]
+- **The sample datasets are strict JSON.** The full set's `air_quality.json` held one
+  `NaN`, which made the gateway refuse the dataset; it is `null` in the corrected
+  archive, which records the change in `CORRECTIONS.md`.
+- **Quieter install logs.** The compose image creates its service account
+  without `useradd`'s system-range warning, and the container health check reads the
+  whole response before closing, so the gateway no longer logs a reset connection on
+  every check. [RC-33]
 - Release signing and verification (`mg-sign`, `mg-verify`, `attest`) parse the SBOM
   strictly, require a purl on every component, and refuse to sign under an algorithm
   no verifier accepts. [RF-SC-1] [RF-SC-2]
@@ -247,7 +248,6 @@ posture. Highlights:
 - The GitHub actions are pinned by SHA to their first Node 24 releases.
 - Contract surface reconciled with reality: protos govern the client SDK edge;
   internal service-to-service uses the lean `pq-mtls` binary codec (Rust-typed).
-- Rebranded to Veldris Ltd. across the design system and marketing site.
 
 ### Security
 - Fail-closed everywhere on the critical paths (signature/verification, policy

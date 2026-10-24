@@ -473,7 +473,7 @@ status = "operable"
 criteria = ["AC-M-5"]
 evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/vendor-check.sh"]
 service_tests = ["tools/ci/run.sh:208"]
-limit = "The recorded gate run is of commit 3c8b1614bb1d (docs/compliance/gate-runs). Later commits are not covered until the gate is recorded again."
+limit = "The recorded gate run covers the one commit named in docs/compliance/gate-runs/CURRENT. Later commits are not covered until the gate is recorded again."
 stated_in = ["README.md:130", "docs/launch/pipeline/build-deck.js:508"]
 
 [[claim]]
@@ -494,7 +494,7 @@ claim = "Each of the 72 acceptance criteria maps to a test, and one script runs 
 status = "operable"
 evidence = ["deploy/acceptance/run-airgapped.sh:10"]
 service_tests = ["tools/ci/run.sh:208"]
-limit = "Recorded at commit 3c8b1614bb1d (docs/compliance/gate-runs): every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again."
+limit = "Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again."
 stated_in = ["GETTING_STARTED.md:5"]
 
 # ---- Deployment and operations ---------------------------------------------------------
