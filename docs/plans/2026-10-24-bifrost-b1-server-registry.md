@@ -21,6 +21,22 @@ Design: `docs/plans/2026-10-24-bifrost-live-design.md`. Spec: `docs/dev/markdown
 - **Add `bifrost-fleet-server`:** add it to `build-services.sh`'s package list (bifrost-fleet, bifrost-agent).
 - **Check:** `build-services.sh` builds, and `run-native.sh start` / `stop` work on this branch with the hour-1 replay (`MIDGARD_REPLAY=…/recordings/hour-1 MIDGARD_DOCKER_STOPPED=1`). Then stop it again.
 
+**Result (24 Oct 2026, done).**
+- **Cherry-picked cleanly:** the three lock fixes (c4b42b3, 6ed0dd6, 2596976) and the five tool commits for build-services, run-native and smoke (17660fb, 1e7b21b, 829aebf, 7ff9909, fb2729b).
+- **Without its README change:** "run the replay with the native suite" (7ace501). The Mac app README is not on this branch.
+- **`midgard-replay`, copied:** `tools/replay` was copied as it stands on md_mac-installer (f560909), not cherry-picked, because its 17 commits also touch the Mac app and console. It is brought because build-services builds it and the check uses the replay. run-native skips the replay cleanly when `MIDGARD_REPLAY` is unset.
+- **bifrost-fleet-server:** added to build-services (f9dd7f6).
+- **Rebase:** the branch was first cut from dev_mac, whose services lack run-native's options (`--heimdall-addr`, `--fabric-addr`, …). It was re-based onto md_mixedfeeds_3d (f13fa05). On that base, the services differ from md_mac-installer only by the gateway's `--token-ttl` option, with no state-format change.
+- **Build:** `MIDGARD_BUILD_DIR=~/Library/Caches/midgard-build/bifrost-target bash tools/mac-app/build-services.sh` builds all 8 binaries as x86_64 + arm64 into `dist/mac/bin`, which is gitignored.
+- **Run:** `run-native.sh start` with the hour-1 replay brought mimir, gateway, heimdall, forge and replay to ready. No errors in the logs.
+- **Smoke:** `smoke.py` passed:
+  - sign in;
+  - 22 fabric object types;
+  - Heimdall picture, 27,635 entities;
+  - Mimir granite-3.3-2b-instruct-q4km;
+  - Forge, 11 jobs.
+- **Stop:** `stop` ended every service and removed the four locks. Afterwards only analytics (7740), bifrost-fleet (7750/9750) and llama-server (8080) were still listening.
+
 ### Task 2: The registry module in bifrost-server
 
 - **Read first:** `bifrost/artefact` (manifest, SBOM, registry, verify gate; commit "admit only gate-verified artefacts") and `bifrost/fleet-server` (routes, authorise-and-audit spine, `CheckIn`/`FleetStatus`).
