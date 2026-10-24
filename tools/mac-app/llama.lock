@@ -1,4 +1,7 @@
-# llama.cpp model server bundled in Midgard.app (read by fetch-llama.sh; key=value, no quotes).
+# llama.cpp model server bundled in Midgard.app and the Windows app (read by
+# tools/mac-app/fetch-llama.sh and tools/win-app/fetch-llama.sh; key=value, no quotes). One
+# build for both platforms: `build` is the one source of the build number, and every URL must
+# name it (tools/win-app/fetch-llama.sh checks that all of them do).
 # b11669 is the Homebrew build the suite has run with (`llama-server --version` → 11669);
 # its GitHub release has both macOS assets, so it is pinned as is. The SHA-256s were
 # computed from the downloads and match the digests GitHub publishes for the assets.
@@ -10,3 +13,12 @@ arm64_url=https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b
 arm64_sha256=dbed55493d72bc1ba2babc8770d669c2289b5bc4ee9fb2a4dfc158d45b7d13fd
 x64_url=https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-macos-x64.tar.gz
 x64_sha256=cab28238d78158109b48deb27b05d50e0dcef56275d2e76da9ca8281526c7532
+# Windows (docs/plans/2026-10-24-windows-app-w4-package.md, Task 1): b11669's release also has
+# the Windows CPU x64 build, so the same build is pinned. Its SHA-256 was computed from the
+# download and matches GitHub's asset digest. The ZIP carries no llama.cpp licence (only
+# LICENSE-LLVM-OpenMP, for libomp.dll), so the tag's LICENSE is pinned too: it is the same
+# file as the macOS archives' LICENSE (same SHA-256).
+win_x64_url=https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-win-cpu-x64.zip
+win_x64_sha256=37b3efcf962847ca869745fd4ccf7f5e7e8dacfeff9fa3523b4ca8cdc66d632b
+license_url=https://raw.githubusercontent.com/ggml-org/llama.cpp/b11669/LICENSE
+license_sha256=94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d

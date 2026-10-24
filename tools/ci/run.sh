@@ -69,6 +69,7 @@ windows-shell-build|host|locked restore, release build and win-x64 single-file p
 windows-shell-test|host|locked restore and the xUnit tests of the C# shell and of midgard-frames.exe against a pinned ffmpeg (apps/windows; .NET 10 SDK)
 windows-shell-e2e|host|the C# shell end to end on a Windows x64 runner: Midgard.exe --headless-check on a package of the services, consoles, camera analytics and a fixture
 windows-analytics|host|the camera analytics on the pinned Windows runtime (tools/win-app/analytics.lock): imports, one analysis of a synthetic clip with midgard-frames.exe, compared with ffmpeg
+windows-llama|host|the pinned Windows llama.cpp (tools/mac-app/llama.lock) laid out by tools/win-app/fetch-llama.sh: --version, then a tiny test model loaded and answering, as the shell runs it
 '
 
 in_toolchain() { bash tools/ci/in-toolchain.sh "$@"; }
@@ -646,6 +647,25 @@ job_windows_shell_build() {
     rm -f "$WINDOWS_SHELL_OUT/frames-usage.txt"
     echo "Midgard.exe: $(wc -c < "$exe" | tr -d ' ') bytes; midgard-frames.exe: $(wc -c < "$frames" | tr -d ' ') bytes;" \
         "the publish folder: $(du -sk "$WINDOWS_SHELL_OUT" | cut -f1) KB"
+    windows_shell_artifact "$exe" "$frames"
+}
+
+# The artefact the pipeline keeps (midgard-shell-windows-x64-<sha>, 30 days) and
+# tools/win-app/fetch-artifacts.sh downloads: Midgard.exe, midgard-frames.exe and a BUILD.txt
+# naming the commit, runtime, SDK and date, in target/windows-shell-artifact.
+WINDOWS_SHELL_ARTIFACT_DIR=target/windows-shell-artifact
+windows_shell_artifact() {
+    local out="$WINDOWS_SHELL_ARTIFACT_DIR"
+    rm -rf "$out"
+    mkdir -p "$out"
+    cp "$1" "$2" "$out/"
+    {
+        echo "commit: $(ci_sha)"
+        echo "runtime: win-x64 (self-contained, single file)"
+        echo "sdk: $(cd "$WINDOWS_SHELL" && dotnet --version)"
+        echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } >"$out/BUILD.txt"
+    cat "$out/BUILD.txt"
 }
 
 # ffmpeg for the frames helper's tests only (making the synthetic clips, and the decode
@@ -760,6 +780,47 @@ PY
         --camera "$ANALYTICS_CLIP_CAMERA" --frames-helper "$out/frames/midgard-frames.exe" \
         --model-dir "$root/models" --ffmpeg "$ffmpeg" --ffprobe "$(dirname "$ffmpeg")/ffprobe.exe" \
         --report "$out/report/analytics-check.txt"
+}
+
+# The Windows llama.cpp (docs/plans/2026-10-24-windows-app-w4-package.md, Task 1): the folder
+# tools/win-app/fetch-llama.sh lays out from tools/mac-app/llama.lock (downloads checked by
+# SHA-256; it runs `llama-server.exe --version` itself), then tools/win-app/check-llama.py
+# starts that llama-server.exe as the shell does on llama.cpp's own tiny test model
+# (stories260K, 1.2 MB, from ggml-org/models at a pinned revision, checked by SHA-256; never
+# shipped): ready, /props, a streamed completion, the CPU backend it loaded. The report and
+# the server's log go to $WINDOWS_LLAMA_OUT/report.
+WINDOWS_LLAMA_OUT=target/windows-llama
+LLAMA_TEST_MODEL_URL=https://huggingface.co/ggml-org/models/resolve/499bc8821c6b12b4e53c5bffcb21ec206f212d81/tinyllamas/stories260K.gguf
+LLAMA_TEST_MODEL_SHA256=270cba1bd5109f42d03350f60406024560464db173c0e387d91f0426d3bd256d
+job_windows_llama() {
+    local out="$WINDOWS_LLAMA_OUT" root="$CACHE_DIR/build/win/llama" model="$CACHE_DIR/llama-test/stories260K.gguf" got py build
+    py="$(command -v python || command -v python3)" || {
+        ci_error "windows-llama: python is not on PATH"
+        exit 1
+    }
+    "$py" --version
+    rm -rf "$out"
+    mkdir -p "$out/report"
+    ci_group "the model server (tools/win-app/fetch-llama.sh)"
+    MIDGARD_BUILD_DIR="$PWD/$CACHE_DIR/build" bash tools/win-app/fetch-llama.sh
+    ci_endgroup
+    cp "$root/manifest.txt" "$out/report/llama-manifest.txt"
+    if [ ! -f "$model" ] || [ "$( (sha256sum "$model" 2>/dev/null || shasum -a 256 "$model") | awk '{print $1}')" != "$LLAMA_TEST_MODEL_SHA256" ]; then
+        need curl "windows-llama: curl is needed to fetch the test model"
+        mkdir -p "$(dirname "$model")"
+        curl --proto '=https' --proto-redir '=https' -fsSL --retry 3 -o "$model.part" "$LLAMA_TEST_MODEL_URL"
+        got="$( (sha256sum "$model.part" 2>/dev/null || shasum -a 256 "$model.part") | awk '{print $1}')"
+        if [ "$got" != "$LLAMA_TEST_MODEL_SHA256" ]; then
+            rm -f "$model.part"
+            ci_error "windows-llama: the test model does not match its pinned checksum (got $got)"
+            exit 1
+        fi
+        mv -f "$model.part" "$model"
+    fi
+    build="$(sed -n 's/^build=//p' tools/mac-app/llama.lock | tr -d '\r')"
+    # Relative paths: a native Windows python is handed no POSIX path to translate.
+    "$py" -I tools/win-app/check-llama.py --server "$root/server/llama-server.exe" --build "$build" \
+        --model "$model" --report "$out/report/llama-check.txt" --log "$out/report/llama-server.log"
 }
 
 # The real shell end to end on Windows (docs/plans/2026-10-23-windows-app-w2-shell.md,

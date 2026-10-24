@@ -276,12 +276,18 @@ windows-smoke:
     paths:
       - target/windows-smoke/logs/
 
-# The Windows app's C# shell (apps/windows): no Rust, so no target/ cache.
+# The Windows app's C# shell (apps/windows): no Rust, so no target/ cache. Keeps
+# Midgard.exe, midgard-frames.exe and BUILD.txt, for tools/win-app/fetch-artifacts.sh.
 windows-shell-build:
   extends: .windows
   cache: []
   script:
     - bash tools/ci/run.sh windows-shell-build
+  artifacts:
+    name: midgard-shell-windows-x64-$CI_COMMIT_SHA
+    paths:
+      - target/windows-shell-artifact/
+    expire_in: 30 days
 
 windows-shell-test:
   extends: .windows
@@ -312,6 +318,19 @@ windows-analytics:
     when: always
     paths:
       - target/windows-analytics/report/
+    expire_in: 14 days
+
+# The pinned Windows llama.cpp (tools/mac-app/llama.lock) started on a tiny test model: no
+# Rust. The check's report, the server's log and the manifest are kept pass or fail.
+windows-llama:
+  extends: .windows
+  cache: []
+  script:
+    - bash tools/ci/run.sh windows-llama
+  artifacts:
+    when: always
+    paths:
+      - target/windows-llama/report/
     expire_in: 14 days
 
 # --- client shell audits -----------------------------------------------------------------
