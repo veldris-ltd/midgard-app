@@ -11,7 +11,7 @@
 
 ## 1. Executive Summary
 
-Bifrost is the continuous-delivery product of the Midgard suite. It is the bridge across the enclosure boundary: it orchestrates zero-downtime deployment, release management, and fleet upgrades for every product in the suite. Bifrost goes beyond established platforms with native post-quantum artefact signing, air-gap-native release bundles, and AI-assisted release intelligence served by the local Mimir layer rather than a hosted model. `[DD-1]` `[DD-3]` `[DD-4]` `[DD-7]`
+Bifrost is the continuous-delivery product of the Midgard suite. It is the bridge across the enclosure boundary: it orchestrates zero-downtime deployment, release management, and fleet upgrades for every product in the suite. Bifrost goes beyond established delivery platforms with native post-quantum artefact signing, air-gap-native release bundles, and AI-assisted release intelligence served by the local Mimir layer rather than a hosted model. `[DD-1]` `[DD-3]` `[DD-4]` `[DD-7]`
 
 This document is a **forward-looking design specification**; every decision carries a provenance tag rather than a repository citation.
 

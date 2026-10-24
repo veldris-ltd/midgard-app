@@ -502,7 +502,7 @@ AC-MI-1..8 pass; the A.1–A.5 prompts are wired with their Evals passing per mo
 Read SAD_02b. Implement the staging-enclave intake pipeline: fetch variants
 upstream in staging ONLY [FR-MS-1], verify native provenance where present and
 record verifiability [FR-MS-2], generate a CycloneDX SBOM, capture licence terms
-[FR-MS-6], and re-sign the bundle under the Veldris ML-DSA key. Use the A.9 model
+[FR-MS-6], and re-sign the bundle under the Veldris ML-DSA release key. Use the A.9 model
 intake prompt to assist the human licence/risk reviewer (advisory — it never
 approves). Prove AC-MS-1. Wire EV-A9-*.
 ```
@@ -558,7 +558,7 @@ Mark fields "unknown" rather than guessing when the card is silent.
 
 | ID | Given / When / Then | Verifies |
 |---|---|---|
-| **AC-MS-1** | Given an upstream model, when staged, then native provenance is verified where available, a CycloneDX SBOM is generated, the licence is captured, and the bundle is re-signed under the Veldris ML-DSA key. | `[FR-MS-1]` `[FR-MS-2]` `[NFR-PQ-3]` |
+| **AC-MS-1** | Given an upstream model, when staged, then native provenance is verified where available, a CycloneDX SBOM is generated, the licence is captured, and the bundle is re-signed under the Veldris ML-DSA release key. | `[FR-MS-1]` `[FR-MS-2]` `[NFR-PQ-3]` |
 | **AC-MS-2** | Given any model artefact of any supported family, when loaded, then its ML-DSA signature is verified and loading fails closed on mismatch (supersedes AC-MI-7). | `[FR-MS-4]` |
 | **AC-MS-3** | Given a signed bundle, when imported to an air-gapped enclosure, then it transits only via Bifrost's signed-bundle workflow and is rejected if the Veldris signature fails. | `[FR-B-4]` `[FR-B-5]` |
 | **AC-MS-4** | Given four families registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
@@ -1325,4 +1325,4 @@ The engineering competencies and tooling required, mapped to who uses them. `[DD
 
 ---
 
-*Compiled from the Midgard Suite Solutions Architecture Documents (Veldris Ltd, v1.0, 2026-07-02). Source of truth: [`docs/dev/markdown/`](docs/dev/markdown/), chiefly [`SAD_05`](docs/dev/markdown/SAD_05_Master_Prompt_and_Acceptance_Spec.md). For anything user-facing, build under the design system — see [GETTING_STARTED.md](GETTING_STARTED.md) §6 and [`docs/design/readme.md`](docs/design/readme.md).*
+*Compiled from the Midgard Suite Solutions Architecture Documents (Veldris Ltd, v1.0). Source of truth: [`docs/dev/markdown/`](docs/dev/markdown/), chiefly [`SAD_05`](docs/dev/markdown/SAD_05_Master_Prompt_and_Acceptance_Spec.md). For anything user-facing, build under the design system — see [GETTING_STARTED.md](GETTING_STARTED.md) §6 and [`docs/design/readme.md`](docs/design/readme.md).*

@@ -46,7 +46,7 @@ pub mod select;
 pub mod serve;
 
 pub use adapter::{
-    AdapterSet, FamilyAdapter, GemmaAdapter, MistralAdapter, GraniteAdapter, NemotronAdapter,
+    AdapterSet, FamilyAdapter, GemmaAdapter, GraniteAdapter, MistralAdapter, NemotronAdapter,
 };
 pub use api::{Completion, InferenceRequest, InferenceResponse, Malformed, WorkloadClass};
 pub use artifact::{

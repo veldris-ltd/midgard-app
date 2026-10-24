@@ -13,8 +13,8 @@
 use model_server::api::InferenceRequest;
 use model_server::backends::LocalReference;
 use model_server::{
-    sign_manifest, FamilyAdapter, GemmaAdapter, MistralAdapter, HwProfile, Licence, LicencePolicy,
-    Locality, ModelManifest, ModelRegistry, NemotronAdapter, NodeProfile, RouteError, Router,
+    sign_manifest, FamilyAdapter, GemmaAdapter, HwProfile, Licence, LicencePolicy, Locality,
+    MistralAdapter, ModelManifest, ModelRegistry, NemotronAdapter, NodeProfile, RouteError, Router,
     RoutingPolicy, WorkloadClass,
 };
 use pqc_agility::backend::fips::FipsSig;

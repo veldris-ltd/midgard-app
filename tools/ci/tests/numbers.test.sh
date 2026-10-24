@@ -56,7 +56,7 @@ new_repo() {
 # --- counting and reproduction (AC-RF-CA-2a) -----------------------------------------------
 new_repo count
 numbers --figures > "$work/figs" 2>&1
-want="$(printf 'version=9.9.9\ncrates=2\nrust_files=2\nrust_lines=10\nrust_code_lines=7\ntest_functions=2\ntest_functions_ignored=1\ncriteria_defined=2\nbinaries=3\nservices=2\nimages=2\nconsoles=1\nnpm_packages=1\nsad_documents=3\ndiagrams=3\ngate_recorded=no')"
+want="$(printf 'version=9.9.9\ncrates=2\nrust_files=2\nrust_lines=10\nrust_code_lines=7\ntest_functions=2\ntest_functions_ignored=1\ncriteria_defined=2\nbinaries=3\nservices=2\nimages=2\nconsoles=1\nnpm_packages=1\nsad_documents=4\ndiagrams=3\ngate_recorded=no')"
 if [ "$(head -n 16 "$work/figs")" = "$want" ]; then
     pass "each figure is counted by its rule, vendor/ aside"
 else

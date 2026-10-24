@@ -5,7 +5,7 @@ data and decision platform. Imhotep methodology (arc42 + TOGAF + C4; security al
 to NIST SP 800-53 / OWASP ASVS / ISO 27001). Provenance tags: [DD-*] driver, [FR-*]/[NFR-*]
 requirement, [STD:*] standard. Design specs, not evidence of an implemented system.
 
-## documents/  (branded Veldris Ltd DOCX)
+## documents/  (Veldris Ltd DOCX)
 - SAD_00_Midgard_Core.docx                       — sovereign core platform / enclosure
 - SAD_01_Forge.docx                              — data operations
 - SAD_02_Mimir.docx                              — local agentic AI

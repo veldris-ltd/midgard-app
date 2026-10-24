@@ -11,7 +11,7 @@
 
 ## 1. Executive Summary
 
-Heimdall is the operational-fusion product of the Midgard suite. It is the warden of the enclosure boundary: it fuses many data feeds into a single, live operational picture, and drives AI-assisted decision workflows on top of it. Heimdall goes beyond established platforms with native post-quantum encryption across all feeds and the common picture, and with decision intelligence served by the local Mimir layer (Mistral Small 3.2) instead of a hosted model — enabling operation in disconnected and air-gapped environments. `[DD-1]` `[DD-3]` `[DD-4]` `[DD-7]`
+Heimdall is the operational-fusion product of the Midgard suite. It is the warden of the enclosure boundary: it fuses many data feeds into a single, live operational picture, and drives AI-assisted decision workflows on top of it. Heimdall goes beyond established fusion platforms with native post-quantum encryption across all feeds and the common picture, and with decision intelligence served by the local Mimir layer (Mistral Small 3.2) instead of a hosted model — enabling operation in disconnected and air-gapped environments. `[DD-1]` `[DD-3]` `[DD-4]` `[DD-7]`
 
 This document is a **forward-looking design specification**; every decision carries a provenance tag rather than a repository citation.
 

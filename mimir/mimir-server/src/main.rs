@@ -38,8 +38,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use gateway::{Gateway, RequestHandler};
 use governance::Governance;
 use model_server::{
-    parse_trust_key, probe, reference_registry, Clock, FamilyAdapter, GemmaAdapter, MistralAdapter,
-    GraniteAdapter, InferenceHandler, LicencePolicy, ModelBackend, ModelLoader, NemotronAdapter,
+    parse_trust_key, probe, reference_registry, Clock, FamilyAdapter, GemmaAdapter, GraniteAdapter,
+    InferenceHandler, LicencePolicy, MistralAdapter, ModelBackend, ModelLoader, NemotronAdapter,
     Server, SidecarBackend,
 };
 use policy::{

@@ -15,7 +15,7 @@ This is a design-change record (DCR) against the Mimir Solutions Architecture Do
 
 As with the SADs, this is a **forward-looking design specification**. Every decision carries a provenance tag (`[DD-n]`, `[FR-n]`, `[NFR-n]`, `[STD:...]`); it describes intended design, not verified implementation.
 
-> **Resolution in one sentence.** The gap is closed by making model supply a *cryptographic custody-transfer problem solved with the machinery the suite already has*: models are fetched and verified in a network-connected staging enclave, re-signed under the Veldris post-quantum ML-DSA key, delivered across the air gap as signed Bifrost bundles, recorded in a new Model Registry, and verified-on-load by the inference runtime — which fails closed on any signature, licence, or hardware-eligibility mismatch. `[NFR-PQ-3]` `[FR-B-4]`
+> **Resolution in one sentence.** The gap is closed by making model supply a *cryptographic custody-transfer problem solved with the machinery the suite already has*: models are fetched and verified in a network-connected staging enclave, re-signed under the Veldris post-quantum ML-DSA release key, delivered across the air gap as signed Bifrost bundles, recorded in a new Model Registry, and verified-on-load by the inference runtime — which fails closed on any signature, licence, or hardware-eligibility mismatch. `[NFR-PQ-3]` `[FR-B-4]`
 
 
 ### 1.1 Change classification
@@ -63,7 +63,7 @@ The core mechanism is a two-stage supply chain with cryptographic custody transf
 3. **Capture licence** and run the licence-policy check (see §6); block artefacts whose terms are incompatible with the intended deployment. `[FR-MS-6]`
 4. **Generate a model SBOM** (CycloneDX) describing weights, tokenizer, config, and declared lineage. `[NFR-OSS-1]`
 5. **Run baseline Evals** and record a **hardware fingerprint** (min VRAM, GPU count, multi-node flag). `[FR-MS-5]`
-6. **Re-sign** the assembled bundle under the Veldris ML-DSA (FIPS 204) signing key — the custody-transfer step. `[NFR-PQ-3]`
+6. **Re-sign** the assembled bundle under the Veldris ML-DSA (FIPS 204) release key — the custody-transfer step. `[NFR-PQ-3]`
 
 
 ### 3.2 Stage 2 — Enclosure import (air-gapped)
@@ -183,7 +183,7 @@ The original Mimir acceptance criterion **AC-MI-7** (single-model signature veri
 
 | ID | Given / When / Then | Provenance |
 | --- | --- | --- |
-| AC-MS-1 | Given an upstream model, when staged, then native provenance is verified where available, a CycloneDX SBOM is generated, the licence is captured, and the bundle is re-signed under the Veldris ML-DSA key. | `[FR-MS-1]` `[FR-MS-2]` `[NFR-PQ-3]` |
+| AC-MS-1 | Given an upstream model, when staged, then native provenance is verified where available, a CycloneDX SBOM is generated, the licence is captured, and the bundle is re-signed under the Veldris ML-DSA release key. | `[FR-MS-1]` `[FR-MS-2]` `[NFR-PQ-3]` |
 | AC-MS-2 | Given any model artefact of any supported family, when loaded, then its ML-DSA signature is verified and loading fails closed on mismatch (supersedes AC-MI-7). | `[FR-MS-4]` |
 | AC-MS-3 | Given a signed bundle, when imported to an air-gapped enclosure, then it transits only via Bifrost's signed-bundle workflow and is rejected if the Veldris signature fails. | `[FR-B-4]` `[FR-B-5]` |
 | AC-MS-4 | Given four families are registered (Mistral, Nemotron, Gemma, Granite), when a consumer calls the unchanged inference API, then the router selects an eligible, policy-permitted artefact and the consumer requires no code change. | `[FR-MS-7]` `[FR-MS-8]` `[DD-6]` |
@@ -216,7 +216,7 @@ The original Mimir acceptance criterion **AC-MI-7** (single-model signature veri
 | Upstream weight tampering before fetch | Medium | Verify native signatures/hashes; re-sign only after verification; record unverifiable status for risk acceptance. `[FR-MS-2]` |
 | Licence drift (upstream re-licences a model) | Low | Licence captured at stage time is immutable in the registry; re-evaluation on any refresh. `[FR-MS-6]` |
 | Model-level safety regressions across families | Medium | Per-family baseline + ongoing Evals; revoke on regression. `[NFR-AI-1]` |
-| Signing-key compromise (custody root) | High | HSM-sealed Veldris signing key, rotation, threshold signing (shared with Bifrost). `[NFR-PQ-2]` |
+| Signing-key compromise (custody root) | High | HSM-sealed Veldris release signing key, rotation, threshold signing (shared with Bifrost). `[NFR-PQ-2]` |
 
 > **Net effect.** The original *medium-severity, open* gap (“local model-weight provenance”) is **closed**. Its residuals are lower-order and are managed by controls the suite already specifies (HSM-sealed keys, Bifrost signing, Evals, zero-trust isolation). `[NFR-PQ-2]` `[NFR-PQ-3]`
 
@@ -240,7 +240,7 @@ Because the resolution lives behind Mimir's unchanged inference contract, the co
 | Model Registry | The in-enclosure system of record for all loadable model artefacts and their provenance, licence, evals, and hardware eligibility. |
 | Model Abstraction Layer | The adapter+router layer that serves Mistral, Nemotron, Gemma and Granite behind Mimir's unchanged inference contract. |
 | Verify-on-load invariant | The rule that no model loads unless signature, licence, revocation status, and hardware eligibility all pass. |
-| Custody transfer | Re-signing an externally-sourced artefact under the Veldris key so the enclosure trusts only the Veldris root, not the upstream. |
+| Custody transfer | Re-signing an externally-sourced artefact under the Veldris release key so the enclosure trusts only the Veldris root, not the upstream. |
 | Mimir | Reasoning/AI product. Local, agentic, self-* generative AI on Mistral Small 3.2. Also the shared inference layer for the other products. |
 | Mistral Small 3.2 | A large language model served locally by Mimir. As of the model-supply resolution, Mimir supports the most advanced locally-runnable variants of four families — Mistral, NVIDIA Nemotron, Google Gemma and IBM Granite — selectable per workflow. |
 | ML-DSA | Module-Lattice Digital Signature Algorithm (Dilithium), NIST FIPS 204. |

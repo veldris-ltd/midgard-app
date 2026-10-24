@@ -62,7 +62,7 @@ The authoritative go/no-go record is **[docs/compliance/GA_READINESS.md](docs/co
 
 ## The suite
 
-Midgard is the core platform — *the enclosure*: identity, the object/ontology fabric, storage, compute, governance, and post-quantum cryptography applied by default. Atop it sit four independently useful, composable products, each independently useful.
+Midgard is the core platform — *the enclosure*: identity, the object/ontology fabric, storage, compute, governance, and post-quantum cryptography applied by default. Atop it sit four independently useful, composable products.
 
 | Product | Domain | Accent |
 |---|---|---|
@@ -941,7 +941,7 @@ The same documents ship as branded `.docx` in `docs/dev/documents/`; the 73 diag
 
 - **Model weights are not vendored.** Mimir serves a real model only through a signed manifest whose weights stream to the signed digest, behind an OpenAI-compatible engine on loopback: llama.cpp on CPU, vLLM on GPU. The operator fetches the weights (see [Serve a real model](#serve-a-real-model)). The acceptance suites still run against the deterministic backend.
 - **The TypeScript tier is not gated.** `just build-ts` tolerates failure and `just test` runs no TypeScript, so the consoles are not covered by CI. They typecheck clean today (`pnpm -r typecheck`), but nothing enforces that.
-- **No logos exist.** Midgard is built by Veldris Ltd; the SADs were authored by Veldris Ltd No marks were provided or invented — wherever a logo would sit, the product name is set in plain type (`ProductMark`). Supply real marks and they can be wired in.
+- **No logos exist.** Midgard and its SADs are Veldris Ltd property. No marks were provided or invented — wherever a logo would sit, the product name is set in plain type (`ProductMark`). Supply real marks and they can be wired in.
 
 ---
 
@@ -969,4 +969,4 @@ Midgard loads an ontology from a documented file format, [`contracts/schema/onto
 
 ---
 
-*Midgard is a Veldris Ltd project. Solutions Architecture by Veldris Ltd · Classification of source SADs: PUBLIC, published with the Midgard repository.*
+*Midgard is a Veldris Ltd project. Solutions Architecture by Veldris Ltd (company no. 17366869). · Classification of source SADs: PUBLIC, published with the Midgard repository.*
