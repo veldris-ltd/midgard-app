@@ -27,6 +27,68 @@ Rules: commits signed (`git commit -S`), **no Claude attribution** (organisation
 - **M-9:** check the reproducible-build digest if `bifrost-artefact` supports it. If not, record why and what it would take.
 - Tests for both.
 
+**As built (24 Oct 2026).**
+- **I-5, actions** (commit 133d5c6). Each read route now has its own policy action:
+  - `ListArtefacts` needs `ReadArtefacts`;
+  - `GetArtefact` needs `DownloadArtefact`;
+  - `VerifyArtefact` needs `VerifyArtefact`.
+- **Policy** (`deploy/compose/fleet-policy.json`):
+  - `fleet-agent`: `DownloadArtefact` only. It no longer lists or re-verifies.
+  - `fleet-operator` and `release-manager`: `ReadArtefacts` and `VerifyArtefact`, and no download.
+  - A runtime verification failure is now audited under the action that found it: "DownloadArtefact verify failed: …" or "VerifyArtefact verify failed: …", where it used to be "ReadArtefacts …".
+- **run-local.sh `state`** (run by both setups): a policy.json without `DownloadArtefact` is moved to `policy.json.pre-b2` and replaced with the compose file. An existing `.pre-b2` is not overwritten; the new copy gets a date suffix. bifrost-server reads its policy only at start, so the script says to restart.
+- **I-5, read cost** (`registry.rs`, "Reads" in the module docs):
+  - Each record keeps the SHA-256 of the exact sealed bytes that the full gate last passed. That is set at the commit, at the open, and by any later full check. A failure clears it.
+  - **`Recheck::Seal`** is a download's first slice of each part. The sealed file is read and unsealed every time (the AEAD check). If its digest is the verified one, that is enough. Any other bytes go through the whole gate again, including a different but valid seal of the same artefact, and pass only if the gate passes.
+  - **`Recheck::Cached`** is a download's later slices. They come from a verified copy of exactly those sealed bytes. The copies are held in an LRU keyed by id@version and that digest, with 4 entries and 256 MiB between them (twice the largest artefact, so one always fits). A copy over the byte bound is not kept. On a miss, the slice is served as `Seal`.
+  - **`Recheck::Full`** is `VerifyArtefact`, which always runs the whole gate.
+  - Nothing is served without a seal check on this read, or on the read whose copy it is. An artefact marked unverifiable is not served from the cache either.
+  - **Lock:** the file is read, unsealed and checked outside the registry lock. `begin_fetch` (under the lock) produces a `ReadCheck`, `run` happens unlocked, and `finish_fetch` (under the lock) records the result. If the record is marked, withdrawn or replaced in between, the read is discarded.
+  - `full_verifications()` counts gate runs, for the tests.
+- **Client:** the method names are unchanged. `client.rs` documents which action each call needs, and a missing one comes back as DENIED naming the action.
+- **Tests (TDD):**
+  - Unit tests (16, all passing):
+    - after a commit or a restart, a download does no full verification; `Full` always does one;
+    - a resealed (valid, different) file is verified in full once, then not again;
+    - a flipped byte is refused by the seal check while a verified copy is cached, and the artefact is never served again;
+    - a later slice of an artefact pushed out of the LRU re-checks the seal, not the gate;
+    - the LRU is bounded by entries and by bytes, its eviction order is right, it serves only a copy with the matching digest, and it does not keep a copy that is too large.
+  - The end-to-end test (`tests/registry.rs`) now also checks the split with an agent identity:
+    - an operator's download is DENIED (`DownloadArtefact`);
+    - an agent's list (`ReadArtefacts`) and verify (`VerifyArtefact`) are DENIED;
+    - the agent downloads, twice, and after the restart with `download_verified`;
+    - after a copy at rest is spoiled and restored, the agent's download is still refused.
+  - `cargo test -p bifrost-fleet-server`: 16 unit and 2 integration tests, all passing. clippy `-D warnings` and `fmt --check` are clean for the crate. `verify-bifrost.sh`: 5/5.
+- **M-9, the reproducible-build digest: not enforced, because `bifrost-artefact` does not model one.**
+  - **What the crate has:**
+    - `ArtefactManifest` holds `id`, `version`, `component`, `payload_sha256` and `sbom_sha256`.
+    - `verify` checks the payload digest, the SBOM digest, the ML-DSA-65 signature in the `BIFROST_ARTEFACT` domain, and the SBOM's structure.
+    - The only reproducibility in the crate is the SBOM's own: it is sorted and timestamp-free.
+  - **Why nothing is compared:** design §2 step 2 says the registry checks a reproducible-build digest, but nothing produces a second one.
+    - release.sh builds each commit once, on this Mac, and the release key signs that build's digest.
+    - A "rebuild digest" from the same builder and key would equal `payload_sha256` by construction and prove nothing.
+    - In B1, 0.1.0 and 0.1.1 had the same five digests only because the build cache was reused, not because two builds were made independently.
+  - **What it would take:**
+    1. **Reproducible builds first.** Build one commit twice from clean target dirs at different paths and compare. Fix what differs:
+       - `--remap-path-prefix` for `$HOME`, the cargo registry and the worktree;
+       - a pinned toolchain (`rust-toolchain.toml`);
+       - `SOURCE_DATE_EPOCH`, if anything embeds a time;
+       - whether `lipo` and ld64's ad-hoc code signature are deterministic for identical inputs.
+
+       release.sh's fixed worktree path already removes one source of difference.
+    2. **A rebuilder.** An independent second build, on another machine or at least a clean build under a separate identity. Its own ML-DSA-65 key would be anchored in `trust/rebuilders/` and must differ from the release signer. It would sign `{id, version, source commit, payload_sha256}` in a new domain such as `BIFROST_REBUILD`.
+    3. **A separate attestation.** Carry it as an attestation uploaded with the artefact (one more field in `RegisterArtefact`, stored in the sealed record), not as a manifest field. Changing `ArtefactManifest::encode` would invalidate every existing signature, including the 12 live ones, and would need a versioned encoding.
+    4. **The gate at commit.** Require at least one anchored rebuilder attestation whose `payload_sha256` equals the manifest's, from a signer that is not the release signer. Add refusals `rebuild-missing` and `rebuild-mismatch`.
+    5. **Rollout.** Start in record-only mode, listing artefacts as "not reproduced", so existing releases stay valid. Enforce once release.sh produces attestations.
+  - **A cheaper related check, not done:** the mg-sbom SBOM carries the binary's self-hash. Nothing yet checks that it equals `payload_sha256`. It is a consistency check, not a reproducibility check.
+- **Live** (the dev instance on 127.0.0.1:7750, state `~/Desktop/Midgard/bifrost-local`):
+  1. `run-local.sh setup --real-enclosure` rebuilt the binaries. All identities already existed, so the enclosure was not touched. It replaced `fleet-state/policy.json` and kept the old one as `policy.json.pre-b2`.
+  2. `run-local.sh stop` stopped pid 97297 and removed its `fleet.lock`; the lock handling worked.
+  3. `run-local.sh start` started pid 7686, with a new lock (`os=macos`) and `/readyz` 200. It logged `artefacts 12, rejected 1, release_signers bifrost-release-1`.
+  4. `bifrost-release list` as `release-manager` (from mesh.conf's clients) showed the same listing as before the change: six services at 0.1.0 and six at 0.1.1, all verified, and `forge-worker 0.1.0-tampered` rejected (digest-mismatch).
+  5. `fleet-operator` lists 12 verified. `fleet-agent-1`'s list is denied: "policy does not permit this identity to ReadArtefacts". `run-local.sh status` still answers.
+  6. A download on the live server was not exercised, because there is no CLI for it yet. The end-to-end test covers it.
+
 ### Task 2: Releases, channels and the orchestrator in bifrost-server
 
 - **Model:**
