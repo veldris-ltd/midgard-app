@@ -100,7 +100,7 @@ fn picture_recovers_intact_and_is_ciphertext_at_rest() {
             .unwrap();
         store.ensure_layer(Layer::new("air", "Air")).unwrap();
         store
-            .upsert_entity(entity("v1", "maritime", "radar", "HOSTILE", 105))
+            .upsert_entity(entity("VESSEL-0001", "maritime", "radar", "HOSTILE", 105))
             .unwrap();
         store
             .upsert_entity(entity("a7", "air", "adsb", "FRIENDLY", 110))
@@ -114,8 +114,10 @@ fn picture_recovers_intact_and_is_ciphertext_at_rest() {
     }
 
     // At rest: no plaintext entity/label/layer identifiers.
+    // Identifiers long enough that random ciphertext can't contain them by chance
+    // (a 2-byte id like "v1" turns up in a few KB of ciphertext every so often).
     let on_disk = std::fs::read(&path).unwrap();
-    for needle in [b"maritime".as_slice(), b"HOSTILE", b"radar", b"v1"] {
+    for needle in [b"maritime".as_slice(), b"HOSTILE", b"radar", b"VESSEL-0001"] {
         assert!(
             !on_disk.windows(needle.len()).any(|w| w == needle),
             "plaintext {:?} must not be on disk",
@@ -129,7 +131,7 @@ fn picture_recovers_intact_and_is_ciphertext_at_rest() {
     assert_eq!(p.entity_count(), 2, "entities recovered");
     assert_eq!(p.layer_count(), 2, "layers recovered");
     assert_eq!(
-        p.entity(&EntityId("v1".into()))
+        p.entity(&EntityId("VESSEL-0001".into()))
             .unwrap()
             .classification
             .as_ref()
