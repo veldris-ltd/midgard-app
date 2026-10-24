@@ -2,7 +2,9 @@
 # Fetch the Windows binaries a successful Windows CI run built for one commit, on the dev
 # Mac, for packaging (docs/plans/2026-10-23-windows-app-design.md §4):
 #   $MIDGARD_BUILD_DIR/win/<sha>/services/  the six services (.exe) and BUILD.txt
-#   $MIDGARD_BUILD_DIR/win/<sha>/shell/     Midgard.exe, midgard-frames.exe and BUILD.txt
+#   $MIDGARD_BUILD_DIR/win/<sha>/shell/     Midgard.exe, midgard-frames.exe, BUILD.txt and
+#                                           vcruntime/ (the app-local Visual C++ runtime DLLs
+#                                           and VERSIONS.txt)
 # (MIDGARD_BUILD_DIR defaults to ~/Library/Caches/midgard-build, outside the suite folder.)
 #
 # The run is the latest successful run of .github/workflows/windows.yml for that commit (a
@@ -21,6 +23,8 @@ REPO=veldris-ltd/midgard-app
 WORKFLOW=windows.yml
 SERVICES=(http-gateway heimdall-feed heimdall-source mimir-server forge-worker midgard-replay)
 SHELL_EXES=(Midgard midgard-frames)
+# The app-local Visual C++ runtime in the shell artefact (tools/ci/run.sh VCRUNTIME_DLLS).
+VCRUNTIME_DLLS=(vcruntime140 vcruntime140_1 msvcp140 msvcp140_1)
 BUILD_ROOT="${MIDGARD_BUILD_DIR:-$HOME/Library/Caches/midgard-build}"
 
 die() { echo "fetch-artifacts: $*" >&2; exit 1; }
@@ -58,6 +62,10 @@ fetch() {  # part artefact-name exe...
 }
 fetch services "midgard-services-windows-x64-$sha" "${SERVICES[@]}"
 fetch shell "midgard-shell-windows-x64-$sha" "${SHELL_EXES[@]}"
+[ -f "$stage/shell/vcruntime/VERSIONS.txt" ] || die "the shell artefact has no vcruntime/VERSIONS.txt"
+for d in "${VCRUNTIME_DLLS[@]}"; do
+    [ -f "$stage/shell/vcruntime/$d.dll" ] || die "the shell artefact has no vcruntime/$d.dll"
+done
 
 rm -rf "$dest"
 mv "$stage" "$dest"
@@ -77,3 +85,9 @@ list() {  # part exe...
 }
 list services "${SERVICES[@]}"
 list shell "${SHELL_EXES[@]}"
+echo "== shell/vcruntime"
+sed 's/^/   /' "$dest/shell/vcruntime/VERSIONS.txt"
+for d in "${VCRUNTIME_DLLS[@]}"; do
+    f="$dest/shell/vcruntime/$d.dll"
+    printf '%10s  %s: %s\n' "$(wc -c <"$f" | tr -d ' ')" "$d.dll" "$(file -b "$f")"
+done

@@ -18,7 +18,8 @@
 # Everything else in the release is left out: the other tools (llama-cli, llama-bench, ...,
 # ggml-rpc-server.exe) and ggml-rpc.dll (the network backend, which ggml would otherwise load
 # from the folder). The Visual C++ runtime the DLLs import (MSVCP140, VCRUNTIME140,
-# VCRUNTIME140_1) is not in the release and is reported, not shipped, here.
+# VCRUNTIME140_1) is not in the release and is reported, not shipped, here: the package gets
+# it app-local from the shell artefact's vcruntime/ (tools/ci/run.sh windows_vcruntime).
 #
 # Downloads are untrusted until checked: a file already present is kept only if its SHA-256
 # matches the lock; a new one is fetched over HTTPS only and checked before it takes its final

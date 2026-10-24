@@ -651,21 +651,107 @@ job_windows_shell_build() {
 }
 
 # The artefact the pipeline keeps (midgard-shell-windows-x64-<sha>, 30 days) and
-# tools/win-app/fetch-artifacts.sh downloads: Midgard.exe, midgard-frames.exe and a BUILD.txt
-# naming the commit, runtime, SDK and date, in target/windows-shell-artifact.
+# tools/win-app/fetch-artifacts.sh downloads: Midgard.exe, midgard-frames.exe, vcruntime/ (the
+# Visual C++ runtime the package ships, windows_vcruntime) and a BUILD.txt naming the commit,
+# runtime, SDK, the runtime's toolset and date, in target/windows-shell-artifact.
 WINDOWS_SHELL_ARTIFACT_DIR=target/windows-shell-artifact
 windows_shell_artifact() {
     local out="$WINDOWS_SHELL_ARTIFACT_DIR"
     rm -rf "$out"
     mkdir -p "$out"
     cp "$1" "$2" "$out/"
+    ci_group "the Visual C++ runtime (vcruntime/)"
+    windows_vcruntime "$out/vcruntime"
+    ci_endgroup
     {
         echo "commit: $(ci_sha)"
         echo "runtime: win-x64 (self-contained, single file)"
         echo "sdk: $(cd "$WINDOWS_SHELL" && dotnet --version)"
         echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "vcruntime: $(sed -n 's/^toolset: //p' "$out/vcruntime/VERSIONS.txt" 2>/dev/null)"
     } >"$out/BUILD.txt"
     cat "$out/BUILD.txt"
+}
+
+# The Visual C++ runtime, shipped app-local (the Visual C++ Redistributable's app-local
+# deployment: the DLLs beside the programs that import them), since a clean Windows 11 does
+# not have it. The set is what the package's binaries import that Windows lacks, found with
+# tools/win-app/pe-deps.py / check-imports.py (W4 Task 1): the services import VCRUNTIME140;
+# llama.cpp's DLLs MSVCP140, VCRUNTIME140 and VCRUNTIME140_1; onnxruntime MSVCP140 and
+# MSVCP140_1 (the analytics runtime brings only vcruntime140 and vcruntime140_1, and numpy its
+# own renamed msvcp140). check-imports.py on the package layout (windows-shell-e2e) fails if a
+# binary comes to need another.
+VCRUNTIME_DLLS=(vcruntime140.dll vcruntime140_1.dll msvcp140.dll msvcp140_1.dll)
+# The package folders that get a copy: the services', llama.cpp's and the analytics' python.exe's.
+VCRUNTIME_FOLDERS=(helpers helpers/llama helpers/analytics)
+# Copies the x64 Microsoft.VC14x.CRT DLLs of the runner's Visual Studio (its default redist
+# version) into $1, with VERSIONS.txt: the toolset, the source, each file's version and
+# SHA-256, and the licence notice.
+windows_vcruntime() {
+    local out=$1 vswhere vs ver crt f py
+    vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+    [ -f "$vswhere" ] || { ci_error "vcruntime: vswhere.exe is not on this runner"; return 1; }
+    vs="$("$vswhere" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+        -property installationPath | tr -d '\r')"
+    [ -n "$vs" ] || { ci_error "vcruntime: no Visual Studio with the C++ tools on this runner"; return 1; }
+    vs="$(cygpath -u "$vs")"
+    ver="$(tr -d '\r\n ' < "$vs/VC/Auxiliary/Build/Microsoft.VCRedistVersion.default.txt")"
+    crt="$(ls -d "$vs/VC/Redist/MSVC/$ver/x64/"Microsoft.VC14*.CRT 2>/dev/null | head -n 1 || true)"
+    [ -n "$crt" ] && [ -d "$crt" ] || { ci_error "vcruntime: no x64 CRT redist folder for $ver under $vs"; return 1; }
+    py="$(command -v python || command -v python3)"
+    rm -rf "$out"
+    mkdir -p "$out"
+    for f in "${VCRUNTIME_DLLS[@]}"; do
+        [ -f "$crt/$f" ] || { ci_error "vcruntime: $crt has no $f"; return 1; }
+        cp "$crt/$f" "$out/"
+    done
+    {
+        echo "toolset: $ver"
+        echo "visual studio: $("$vswhere" -latest -products '*' -property catalog_productDisplayVersion | tr -d '\r')"
+        echo "source: $(basename "$(dirname "$(dirname "$crt")")")/x64/$(basename "$crt")"
+        echo "# file, FileVersion, SHA-256"
+        for f in "${VCRUNTIME_DLLS[@]}"; do
+            echo "$("$py" -I tools/win-app/pe-deps.py --versions "$out/$f" | tr -d '\r') $( (sha256sum "$out/$f" 2>/dev/null || shasum -a 256 "$out/$f") | awk '{print $1}')"
+        done
+        echo "# Microsoft Visual C++ runtime files, (c) Microsoft Corporation. Redistributed, unmodified"
+        echo "# and app-local, as the Visual Studio licence terms' Distributable Code allows for the files"
+        echo "# Visual Studio's Redist list names (the VC\\Redist\\MSVC folder):"
+        echo "# https://visualstudio.microsoft.com/license-terms/ (Distributable Code) and"
+        echo "# https://learn.microsoft.com/visualstudio/releases/2022/redistribution (the Redist list);"
+        echo "# deployment: https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files"
+    } >"$out/VERSIONS.txt"
+    cat "$out/VERSIONS.txt"
+    # What licence files the installation carries, for the record (W4 Task 1).
+    ls "$vs/Licenses" 2>/dev/null | head -20 || true
+    find "$vs/VC/Redist/MSVC/$ver" -maxdepth 1 -type f | head -20 || true
+}
+# Puts the runtime in $1 (windows_vcruntime's folder) into each of VCRUNTIME_FOLDERS of the
+# package $2 that exists, replacing older copies (the analytics' python-build-standalone ones).
+windows_place_vcruntime() {
+    local d f
+    for d in "${VCRUNTIME_FOLDERS[@]}"; do
+        [ -d "$2/$d" ] || continue
+        for f in "${VCRUNTIME_DLLS[@]}"; do cp -f "$1/$f" "$2/$d/$f"; done
+    done
+}
+# tools/win-app/check-imports.py on package $2 (report to $3-before/after.txt) before and after
+# the runtime in $1 goes in: before, it must fail on Visual C++ runtime DLLs only; after, pass.
+windows_check_imports() {
+    local rt=$1 pkg=$2 rep=$3 py other
+    py="$(command -v python || command -v python3)"
+    if "$py" -I tools/win-app/check-imports.py "$pkg" --report "$rep-before.txt" >/dev/null; then
+        ci_error "check-imports: $pkg passed without the Visual C++ runtime; is the check reading the imports?"
+        return 1
+    fi
+    other="$(tr -d '\r' < "$rep-before.txt" | grep '^MISSING' | grep -viE ' imports (vcruntime140|vcruntime140_1|msvcp140|msvcp140_1)\.dll$' || true)"
+    if [ -n "$other" ]; then
+        printf '%s\n' "$other"
+        ci_error "check-imports: $pkg imports DLLs a clean Windows 11 lacks besides the Visual C++ runtime"
+        return 1
+    fi
+    echo "check-imports, before the runtime: $(tail -n 1 "$rep-before.txt")"
+    windows_place_vcruntime "$rt" "$pkg"
+    "$py" -I tools/win-app/check-imports.py "$pkg" --report "$rep-after.txt"
 }
 
 # ffmpeg for the frames helper's tests only (making the synthetic clips, and the decode
@@ -818,8 +904,15 @@ job_windows_llama() {
         mv -f "$model.part" "$model"
     fi
     build="$(sed -n 's/^build=//p' tools/mac-app/llama.lock | tr -d '\r')"
+    # The server as the package holds it (helpers\llama\), with the app-local Visual C++
+    # runtime: check-imports.py fails without it and passes with it, and the check runs on it.
+    rm -rf "$out/package"
+    mkdir -p "$out/package/helpers"
+    cp -R "$root/server" "$out/package/helpers/llama"
+    windows_vcruntime "$out/vcruntime"
+    windows_check_imports "$out/vcruntime" "$out/package" "$out/report/imports"
     # Relative paths: a native Windows python is handed no POSIX path to translate.
-    "$py" -I tools/win-app/check-llama.py --server "$root/server/llama-server.exe" --build "$build" \
+    "$py" -I tools/win-app/check-llama.py --server "$out/package/helpers/llama/llama-server.exe" --build "$build" \
         --model "$model" --report "$out/report/llama-check.txt" --log "$out/report/llama-server.log"
 }
 
@@ -897,6 +990,12 @@ job_windows_shell_e2e() {
         --out "$pkg/resources/starting-state" --models "$pkg/resources/models"
     mkdir -p "$pkg/resources/models/yolox"
     cp "$analytics/models/yolox_s.onnx" "$pkg/resources/models/yolox/"
+    # Every import resolvable on a clean Windows 11: not before the Visual C++ runtime is in,
+    # and then yes (tools/win-app/check-imports.py, as build-zip.sh runs it).
+    ci_group "check-imports"
+    windows_vcruntime "$out/vcruntime"
+    windows_check_imports "$out/vcruntime" "$pkg" "$out/report/imports"
+    ci_endgroup
     echo "package: $(du -sk "$pkg" | cut -f1) KB"
     ls -l "$pkg" "$pkg/helpers" "$pkg/resources"
 

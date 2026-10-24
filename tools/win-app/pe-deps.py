@@ -2,6 +2,7 @@
 """The DLLs a Windows program needs from its own folder (stdlib only; runs on a Mac or Windows).
 
     python3 -I tools/win-app/pe-deps.py DIR ROOT [EXTRA_GLOB ...]
+    python3 -I tools/win-app/pe-deps.py --versions FILE ...   (each file's FileVersion)
 
 Reads the import tables of DIR/ROOT and, recursively, of every DLL it imports that is in DIR,
 plus the files matching each EXTRA_GLOB (DLLs loaded at run time rather than imported, such
@@ -13,7 +14,8 @@ be a PE32+ image for x86-64. Imports are classed as:
     Windows does not itself guarantee it (the package has to account for it);
   - anything else: an error (exit 1), since the folder would not start.
 Prints, one per line: `keep NAME` (the file's own name in DIR), then `system NAME`, then
-`vcruntime NAME`. Nothing is run or written.
+`vcruntime NAME`. Nothing is run or written. tools/win-app/check-imports.py loads this file
+for its PE reader (imports, file_version).
 """
 import fnmatch
 import os
@@ -40,6 +42,11 @@ def die(msg):
 
 def imports(path):
     """The DLL names in a PE32+ x86-64 image's import table (and delay-load table)."""
+    return [n for n, _ in imports_delayed(path)]
+
+
+def imports_delayed(path):
+    """(DLL name, delay-loaded?) for each import of a PE32+ x86-64 image."""
     with open(path, "rb") as f:
         data = f.read()
     name = os.path.basename(path)
@@ -83,12 +90,28 @@ def imports(path):
             if len(entry) < size or entry == b"\0" * size:
                 break
             name_rva = struct.unpack_from("<I", entry, 12 if index == 1 else 4)[0]
-            out.append(cstr(name_rva))
+            out.append((cstr(name_rva), index == 13))
             o += size
     return out
 
 
+def file_version(path):
+    """The FileVersion of a PE's version resource (VS_FIXEDFILEINFO), as a.b.c.d, or None."""
+    with open(path, "rb") as f:
+        data = f.read()
+    o = data.find(struct.pack("<I", 0xFEEF04BD))
+    if o < 0:
+        return None
+    ms, ls = struct.unpack_from("<II", data, o + 8)
+    return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
+
+
 def main(argv):
+    if argv[:1] == ["--versions"]:
+        for p in argv[1:]:
+            imports(p)  # a PE32+ x86-64 image, or exit 1
+            print(f"{os.path.basename(p)} {file_version(p) or 'no-version'}")
+        return
     if len(argv) < 2:
         die("usage: pe-deps.py DIR ROOT [EXTRA_GLOB ...]")
     folder, root, globs = argv[0], argv[1], argv[2:]
