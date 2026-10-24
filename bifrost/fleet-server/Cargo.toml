@@ -24,9 +24,11 @@ backend-fips = [
 bifrost-fleet = { path = "../fleet" }
 bifrost-rollout = { path = "../rollout" }
 # The artefact registry: the manifest, the SBOM and the verify gate; and the release
-# signers' anchor format. Verification needs no key custody.
+# signers' anchor format. Verification needs no key custody; `custody` is for
+# bifrost-release, which signs manifests with the sealed release keystore (it is in the
+# graph already through service-runtime).
 bifrost-artefact = { path = "../artefact" }
-attest = { path = "../../crypto/attest", default-features = false }
+attest = { path = "../../crypto/attest", default-features = false, features = ["custody"] }
 audit-writer = { path = "../../crypto/audit-writer" }
 pqc-agility = { path = "../../crypto/pqc-agility" }
 pq-mtls = { path = "../../crypto/pq-mtls" }
@@ -55,6 +57,11 @@ path = "src/main.rs"
 [[bin]]
 name = "bifrost-agent"
 path = "src/bin/bifrost-agent.rs"
+
+# The release tooling's registry client (tools/bifrost/release.sh): sign, upload, list.
+[[bin]]
+name = "bifrost-release"
+path = "src/bin/bifrost-release.rs"
 
 [lib]
 path = "src/lib.rs"

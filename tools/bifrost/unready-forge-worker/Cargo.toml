@@ -1,0 +1,20 @@
+# The "bad build" of forge-worker for Bifrost's rollback demo (tools/bifrost/release.sh
+# --bad-build): a stand-in that starts, stays alive and is never ready. It is release
+# tooling only, its own workspace with no dependencies, and is never part of the suite's
+# services or their code paths.
+[package]
+name = "unready-forge-worker"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "forge-worker"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
+
+# Not a member of the repository's workspace.
+[workspace]
