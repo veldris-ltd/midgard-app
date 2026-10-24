@@ -2,7 +2,9 @@
 //! sockets: a release manager uploads a multi-MB signed build in chunks and the gate
 //! admits it; a forged signature, a mismatched SBOM, an unknown signer and tampered bytes
 //! are refused, recorded with their reason and listed as rejected; a download is
-//! re-verified; an identity without `RegisterArtefact` is refused; and after a hard kill
+//! re-verified; an identity without `RegisterArtefact` is refused; reads are split, so an
+//! agent may download but not list or re-verify, and an operator the reverse; and after a
+//! hard kill
 //! the registry comes back, sealed — a flipped byte at rest stops the start.
 //! [FR-B-1] [FR-B-4] [NFR-PQ-3] [RC-12] [NFR-SEC-1]
 #![cfg(feature = "backend-fips")]
@@ -34,11 +36,19 @@ const POLICY: &str = r#"{
       "resource": "*", "effect": "permit" },
     { "id": "release-read", "role": "release-manager", "action": "ReadArtefacts",
       "resource": "*", "effect": "permit" },
+    { "id": "release-verify", "role": "release-manager", "action": "VerifyArtefact",
+      "resource": "*", "effect": "permit" },
+    { "id": "agent-channel", "role": "fleet-agent", "action": "OpenChannel",
+      "resource": "*", "effect": "permit" },
+    { "id": "agent-download", "role": "fleet-agent", "action": "DownloadArtefact",
+      "resource": "*", "effect": "permit" },
     { "id": "operator-channel", "role": "fleet-operator", "action": "OpenChannel",
       "resource": "*", "effect": "permit" },
     { "id": "operator-read", "role": "fleet-operator", "action": "ReadFleet",
       "resource": "*", "effect": "permit" },
     { "id": "operator-artefacts", "role": "fleet-operator", "action": "ReadArtefacts",
+      "resource": "*", "effect": "permit" },
+    { "id": "operator-verify", "role": "fleet-operator", "action": "VerifyArtefact",
       "resource": "*", "effect": "permit" }
   ]
 }"#;
@@ -193,6 +203,16 @@ fn refused(result: Result<Json, CallError>, reason: &str) {
     }
 }
 
+fn denied<T: std::fmt::Debug>(result: Result<T, CallError>, action: &str) {
+    match result {
+        Err(CallError {
+            code: Some(outcome::DENIED),
+            message,
+        }) => assert!(message.contains(action), "{message}"),
+        other => panic!("expected {action} to be denied, got {other:?}"),
+    }
+}
+
 fn artefacts(listing: &Json) -> Vec<(String, String, String)> {
     match listing.get("artefacts") {
         Some(Json::Arr(items)) => items
@@ -219,6 +239,7 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
     issue(&idp, &server_identity, "bifrost-server", &["fleet-manager"]);
     issue(&idp, &clients, "release-ci", &["release-manager"]);
     issue(&idp, &clients, "ops-console", &["fleet-operator"]);
+    issue(&idp, &clients, "fleet-agent-1", &["fleet-agent"]);
     std::fs::create_dir_all(state.join("trust/release-signers")).unwrap();
     std::fs::write(state.join("policy.json"), POLICY).unwrap();
     std::fs::write(state.join("channels.json"), CHANNELS).unwrap();
@@ -298,7 +319,19 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
         }) => assert!(message.contains("RegisterArtefact"), "{message}"),
         other => panic!("an operator registered: {other:?}"),
     }
-    let downloaded = client::download(&mut ops, "forge-worker", "0.1.0").unwrap();
+    // Reads are split: an operator lists and re-verifies, but does not download; an agent
+    // downloads, but does not list or re-verify.
+    denied(
+        client::download(&mut ops, "forge-worker", "0.1.0"),
+        "DownloadArtefact",
+    );
+    let mut agent = session(&clients, "fleet-agent-1", &server.mesh);
+    denied(client::list(&mut agent), "ReadArtefacts");
+    denied(
+        client::verify(&mut agent, "forge-worker", "0.1.0"),
+        "VerifyArtefact",
+    );
+    let downloaded = client::download(&mut agent, "forge-worker", "0.1.0").unwrap();
     assert_eq!(downloaded.signer, "release-1");
     assert_eq!(downloaded.artefact.payload, good.payload);
     assert_eq!(downloaded.artefact.sbom, good.sbom);
@@ -309,14 +342,17 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
             .str_field("status"),
         Some("verified")
     );
-    match client::download(&mut ops, "forge-worker", "9.9.9") {
+    // A second download is served from the same verified copy, as the first was.
+    let twice = client::download(&mut agent, "forge-worker", "0.1.0").unwrap();
+    assert_eq!(twice.artefact.payload, good.payload);
+    match client::download(&mut agent, "forge-worker", "9.9.9") {
         Err(CallError {
             code: Some(outcome::NOT_FOUND),
             ..
         }) => {}
         other => panic!("{other:?}"),
     }
-    drop((ci, ops));
+    drop((ci, ops, agent));
 
     // A hard kill: verified artefacts and refusals come back, still sealed.
     drop(server);
@@ -327,11 +363,12 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
     assert_eq!(artefacts(&client::list(&mut ops).unwrap()), expected);
     let mut anchors = attest::TrustAnchors::new();
     anchors.insert("release-1", vk.clone());
-    let again = client::download_verified(&mut ops, "forge-worker", "0.1.0", &anchors).unwrap();
+    let mut agent = session(&clients, "fleet-agent-1", &server.mesh);
+    let again = client::download_verified(&mut agent, "forge-worker", "0.1.0", &anchors).unwrap();
     assert_eq!(again.artefact.payload, good.payload);
     // The caller's own anchors decide: a caller that does not trust release-1 refuses.
     assert!(client::download_verified(
-        &mut ops,
+        &mut agent,
         "forge-worker",
         "0.1.0",
         &attest::TrustAnchors::new()
@@ -374,7 +411,7 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
         &sk,
     );
     client::register(&mut ci, &big, "release-1").expect("a large SBOM registers");
-    let got = client::download_verified(&mut ops, "big-sbom", "1.0.0", &anchors).unwrap();
+    let got = client::download_verified(&mut agent, "big-sbom", "1.0.0", &anchors).unwrap();
     assert_eq!(got.artefact.sbom, big.sbom);
 
     // A copy that goes bad while the server runs is refused, audited, and marked: it
@@ -402,7 +439,7 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
     }
     std::fs::write(&big_file, &original).unwrap();
     assert_eq!(
-        client::download(&mut ops, "big-sbom", "1.0.0")
+        client::download(&mut agent, "big-sbom", "1.0.0")
             .unwrap_err()
             .code,
         Some(outcome::REJECTED)
@@ -417,7 +454,7 @@ fn the_registry_admits_only_verified_builds_and_keeps_them_sealed_across_a_resta
         _ => panic!(),
     };
     assert_eq!(big_listed.str_field("status"), Some("unverifiable"));
-    drop((ci, ops));
+    drop((ci, ops, agent));
     drop(server);
 
     // Nothing at rest is in the clear, and a flipped byte stops the start.

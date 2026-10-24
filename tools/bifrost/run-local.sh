@@ -18,7 +18,8 @@
 # Plain `setup` makes Bifrost its own private enclosure ($BIFROST_HOME/enclosure: issuer
 # keys and audit), so the suite's real enclosure is never touched and the gateway needs no
 # stop. It issues bifrost-fleet (fleet-manager), three fleet agents, fleet-operator and
-# release-manager (RegisterArtefact, ReadArtefacts).
+# release-manager (RegisterArtefact, ReadArtefacts, VerifyArtefact). Agents may only
+# DownloadArtefact from the registry; operators ReadArtefacts (list) and VerifyArtefact.
 #
 # `setup --real-enclosure` issues the same identities from the suite's real enclosure
 # ($MIDGARD_ENCLOSURE, default ~/Desktop/Midgard/airports) instead, the server's as
@@ -40,7 +41,9 @@
 # release-signers/, where the registry's release-signer public keys go (`<alg> <key-id>
 # <hex>` .pub files, ML-DSA-65; release.sh --init-key puts one there). With none there,
 # every upload is refused as an unknown signer. An older policy.json without the
-# registry's actions is replaced (the old one is kept as policy.json.pre-registry).
+# registry's actions is replaced (the old one is kept as policy.json.pre-registry), and
+# one from before the read split (no DownloadArtefact) likewise (kept as
+# policy.json.pre-b2). bifrost-server reads its policy at start: restart it after.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -91,6 +94,11 @@ state() {
     if [ -f "$H/fleet-state/policy.json" ] && ! grep -q RegisterArtefact "$H/fleet-state/policy.json"; then
         mv "$H/fleet-state/policy.json" "$H/fleet-state/policy.json.pre-registry"
         echo "  policy.json had no registry actions: replaced (old copy policy.json.pre-registry)"
+    elif [ -f "$H/fleet-state/policy.json" ] && ! grep -q DownloadArtefact "$H/fleet-state/policy.json"; then
+        local keep="$H/fleet-state/policy.json.pre-b2"
+        [ ! -e "$keep" ] || keep="$keep.$(date +%Y%m%d-%H%M%S)"
+        mv "$H/fleet-state/policy.json" "$keep"
+        echo "  policy.json predates the split read actions (DownloadArtefact, VerifyArtefact): replaced (old copy $(basename "$keep")); restart bifrost-server to apply it"
     fi
     [ -f "$H/fleet-state/policy.json" ] || cp "$ROOT/deploy/compose/fleet-policy.json" "$H/fleet-state/policy.json"
     [ -f "$H/fleet-state/channels.json" ] || cp "$ROOT/deploy/compose/fleet-channels.json" "$H/fleet-state/channels.json"

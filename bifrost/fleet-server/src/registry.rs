@@ -52,8 +52,25 @@
 //! signer's anchor has been removed — stays listed, as `unverifiable`, and is never
 //! served. One that fails verification while running is marked so too, and the caller
 //! audits it.
+//!
+//! ## Reads
+//! A sealed record is immutable, so the full gate need not run on every read of it.
+//! Each record remembers the SHA-256 of the exact sealed bytes the gate last passed on
+//! (at the commit, at the open, or since). How hard a read checks is a [`Recheck`]:
+//! - [`Recheck::Seal`], a download's first slice of a part: the sealed file is read and
+//!   unsealed (the AEAD check) every time. If its bytes are the ones verified, that is
+//!   enough; any other bytes, even a valid seal, go through the whole gate again.
+//! - [`Recheck::Cached`], a download's later slices: served from a verified copy of
+//!   exactly those sealed bytes, from a small LRU ([`CACHE_ENTRIES`] copies, at most
+//!   [`CACHE_BYTES`] between them), keyed by id@version; on a miss, as `Seal`.
+//! - [`Recheck::Full`], `VerifyArtefact`: the whole gate, always.
+//!
+//! Nothing is served that has not passed the seal check on this read, or on the read
+//! whose verified copy a later slice comes from. The file is read and checked outside
+//! the registry's lock ([`Registry::begin_fetch`], [`ReadCheck::run`],
+//! [`Registry::finish_fetch`]), so one download does not hold up the others.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::ops::Bound;
@@ -95,6 +112,11 @@ pub const UNKNOWN_SIGNER_WINDOW_SECS: u64 = 3600;
 pub const LIST_PAGE: usize = 100;
 /// The largest listing page served.
 pub const MAX_LIST_PAGE: usize = 500;
+/// Verified copies kept for downloads' later slices.
+pub const CACHE_ENTRIES: usize = 4;
+/// The bytes (payloads and SBOMs) those copies may hold between them. It is twice
+/// [`MAX_ARTEFACT_BYTES`], so the largest artefact always fits.
+pub const CACHE_BYTES: u64 = 2 * MAX_ARTEFACT_BYTES;
 
 const ARTEFACT_DS: &[u8] = b"midgard-bifrost-registry-artefact-v2";
 const REJECTED_DS: &[u8] = b"midgard-bifrost-registry-rejected-v1";
@@ -217,6 +239,151 @@ pub struct Record {
     /// `Err(reason)` once it has failed re-verification, at start or since: listed,
     /// never served.
     pub state: Result<(), String>,
+    /// SHA-256 of the exact sealed bytes the full gate last passed on.
+    verified_seal: Option<[u8; 32]>,
+}
+
+/// How hard a read checks the artefact it serves (see the module's reads).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recheck {
+    /// A verified copy of the sealed bytes last verified, if one is cached; else `Seal`.
+    Cached,
+    /// Read and unseal the sealed copy now; the whole gate only if its bytes are not the
+    /// ones last verified.
+    Seal,
+    /// Read and unseal the sealed copy now and run the whole gate.
+    Full,
+}
+
+/// A small LRU of verified copies, keyed by id@version and the digest of the sealed
+/// bytes they were verified from, bounded in entries and in bytes.
+pub(crate) struct VerifiedCache {
+    /// Most recently used first.
+    entries: VecDeque<(ArtefactRef, [u8; 32], Arc<SignedArtefact>)>,
+    max_entries: usize,
+    max_bytes: u64,
+    bytes: u64,
+}
+
+impl VerifiedCache {
+    pub(crate) fn new(max_entries: usize, max_bytes: u64) -> Self {
+        Self {
+            entries: VecDeque::new(),
+            max_entries,
+            max_bytes,
+            bytes: 0,
+        }
+    }
+
+    /// What a copy counts against the byte bound: its payload and SBOM.
+    pub(crate) fn weight(a: &SignedArtefact) -> u64 {
+        (a.payload.len() + a.sbom.len()) as u64
+    }
+
+    /// The copy of `key` verified from sealed bytes hashing to `sealed`, now most
+    /// recently used.
+    pub(crate) fn get(
+        &mut self,
+        key: &ArtefactRef,
+        sealed: &[u8; 32],
+    ) -> Option<Arc<SignedArtefact>> {
+        let at = self
+            .entries
+            .iter()
+            .position(|(k, s, _)| k == key && s == sealed)?;
+        let entry = self.entries.remove(at)?;
+        let copy = entry.2.clone();
+        self.entries.push_front(entry);
+        Some(copy)
+    }
+
+    /// Keep `copy` as `key`'s, replacing any other, and drop the least recently used
+    /// past either bound. A copy larger than the byte bound is not kept.
+    pub(crate) fn insert(&mut self, key: ArtefactRef, sealed: [u8; 32], copy: Arc<SignedArtefact>) {
+        self.remove(&key);
+        let weight = Self::weight(&copy);
+        if weight > self.max_bytes || self.max_entries == 0 {
+            return;
+        }
+        self.bytes += weight;
+        self.entries.push_front((key, sealed, copy));
+        while self.entries.len() > self.max_entries || self.bytes > self.max_bytes {
+            match self.entries.pop_back() {
+                Some((_, _, old)) => self.bytes -= Self::weight(&old),
+                None => break,
+            }
+        }
+    }
+
+    pub(crate) fn remove(&mut self, key: &ArtefactRef) {
+        if let Some(at) = self.entries.iter().position(|(k, _, _)| k == key) {
+            if let Some((_, _, old)) = self.entries.remove(at) {
+                self.bytes -= Self::weight(&old);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn keys(&self) -> Vec<ArtefactRef> {
+        self.entries.iter().map(|(k, _, _)| k.clone()).collect()
+    }
+}
+
+/// A read of a sealed artefact, made outside the registry's lock: from
+/// [`Registry::begin_fetch`], [`run`](Self::run), then handed to
+/// [`Registry::finish_fetch`].
+pub struct ReadCheck {
+    key: ArtefactRef,
+    record: Record,
+    path: PathBuf,
+    full: bool,
+    sealer: Arc<dyn Sealer>,
+    signers: Arc<TrustAnchors>,
+}
+
+/// What [`ReadCheck::run`] found.
+pub struct ReadOutcome(Result<ReadPassed, String>);
+
+struct ReadPassed {
+    artefact: SignedArtefact,
+    sealed: [u8; 32],
+    gated: bool,
+}
+
+impl ReadCheck {
+    /// Read and unseal the sealed copy, check it is the registered artefact, and run the
+    /// gate unless these are the exact sealed bytes it last passed on (and the read did
+    /// not ask for the full check).
+    pub fn run(&self) -> ReadOutcome {
+        ReadOutcome((|| {
+            let (_, stored, sealed) = read_artefact(self.sealer.as_ref(), &self.path)?;
+            if stored.artefact.manifest != self.record.manifest
+                || stored.signer != self.record.signer
+            {
+                return Err("the copy at rest is not the artefact that was registered".into());
+            }
+            let gated = self.full || self.record.verified_seal != Some(sealed);
+            if gated {
+                gate(&self.signers, &stored.signer, &stored.artefact)
+                    .map_err(|r| format!("{} ({})", r.detail(), r.code()))?;
+            }
+            Ok(ReadPassed {
+                artefact: stored.artefact,
+                sealed,
+                gated,
+            })
+        })())
+    }
+}
+
+/// A fetch's first step: served already, or a read to run. Both variants are a few
+/// hundred bytes, made and consumed once per call.
+#[allow(clippy::large_enum_variant)]
+pub enum Fetch {
+    /// A verified copy of the last verified sealed bytes.
+    Ready(Record, Arc<SignedArtefact>),
+    /// The sealed copy must be read and checked.
+    Read(ReadCheck),
 }
 
 /// A refused upload: its claimed identity and the reason, never its bytes.
@@ -302,15 +469,17 @@ impl Upload {
 /// The registry: verified records, refusals, uploads in flight, and the sealed store.
 pub struct Registry {
     dir: PathBuf,
-    sealer: Box<dyn Sealer>,
-    signers: TrustAnchors,
+    sealer: Arc<dyn Sealer>,
+    signers: Arc<TrustAnchors>,
     records: BTreeMap<ArtefactRef, Record>,
     rejected: Vec<Rejection>,
     journal: File,
     uploads: BTreeMap<String, Upload>,
-    /// The artefact most recently verified, so a download's later slices come from the
-    /// copy its first slice verified.
-    cache: Option<(ArtefactRef, Arc<SignedArtefact>)>,
+    /// Verified copies, so a download's later slices come from the copy its first slice
+    /// checked.
+    cache: VerifiedCache,
+    /// How many times the whole gate has run on a stored artefact (open and reads).
+    full_verifications: u64,
 }
 
 /// Read the anchored release signers from every `*.pub` file in `dir`. A missing
@@ -360,6 +529,7 @@ impl Registry {
         create_private_dir(&artefacts)?;
 
         let mut records = BTreeMap::new();
+        let mut full_verifications = 0u64;
         let mut names: Vec<PathBuf> = fs::read_dir(&artefacts)
             .map_err(|e| format!("cannot read {}: {e}", artefacts.display()))?
             .filter_map(|e| e.ok().map(|e| e.path()))
@@ -375,9 +545,11 @@ impl Registry {
                 }
                 _ => continue,
             }
-            let (key, stored) = read_artefact(sealer.as_ref(), &path)?;
+            let (key, stored, sealed) = read_artefact(sealer.as_ref(), &path)?;
             let state = gate(&signers, &stored.signer, &stored.artefact)
                 .map_err(|r| format!("{} ({})", r.detail(), r.code()));
+            full_verifications += 1;
+            let verified_seal = state.is_ok().then_some(sealed);
             records.insert(
                 key,
                 Record {
@@ -387,6 +559,7 @@ impl Registry {
                     registered_by: stored.by,
                     registered_at: stored.at,
                     state,
+                    verified_seal,
                 },
             );
         }
@@ -406,14 +579,27 @@ impl Registry {
 
         Ok(Self {
             dir,
-            sealer,
-            signers,
+            sealer: Arc::from(sealer),
+            signers: Arc::new(signers),
             records,
             rejected,
             journal,
             uploads: BTreeMap::new(),
-            cache: None,
+            cache: VerifiedCache::new(CACHE_ENTRIES, CACHE_BYTES),
+            full_verifications,
         })
+    }
+
+    /// How many times the whole gate has run on a stored artefact, at the open and on
+    /// reads since.
+    pub fn full_verifications(&self) -> u64 {
+        self.full_verifications
+    }
+
+    /// The artefacts with a verified copy cached, most recently used first.
+    #[cfg(test)]
+    fn cached(&self) -> Vec<ArtefactRef> {
+        self.cache.keys()
     }
 
     /// The anchored signers' key ids.
@@ -672,6 +858,8 @@ impl Registry {
             .map_err(|e| StoreError::Io(format!("cannot seal the artefact: {e}")))?;
         atomic_write(&self.artefact_path(&key), &sealed)
             .map_err(|e| StoreError::Io(format!("cannot store the artefact: {e}")))?;
+        // The gate passed on exactly what was sealed.
+        let sealed = sha256(&sealed);
         let record = Record {
             manifest: stored.artefact.manifest.clone(),
             signer: stored.signer,
@@ -679,9 +867,10 @@ impl Registry {
             registered_by: stored.by,
             registered_at: now,
             state: Ok(()),
+            verified_seal: Some(sealed),
         };
         self.records.insert(key.clone(), record.clone());
-        self.cache = Some((key, Arc::new(stored.artefact)));
+        self.cache.insert(key, sealed, Arc::new(stored.artefact));
         Ok(record)
     }
 
@@ -689,9 +878,7 @@ impl Registry {
     /// nothing is held that the ledger does not record.
     pub fn withdraw(&mut self, id: &str, version: &str) -> Result<(), StoreError> {
         let key = ArtefactRef::new(id, version);
-        if self.cache.as_ref().is_some_and(|(k, _)| *k == key) {
-            self.cache = None;
-        }
+        self.cache.remove(&key);
         self.records.remove(&key);
         match fs::remove_file(self.artefact_path(&key)) {
             Ok(()) => Ok(()),
@@ -702,63 +889,107 @@ impl Registry {
         }
     }
 
-    /// Fetch `id`@`version` and verify it before handing it out. `fresh` reads and
-    /// re-verifies the sealed copy on disk (every download starts so); otherwise the
-    /// copy the last fresh read verified may be used, so a download's slices all come
-    /// from one verified artefact. A copy that fails is marked unverifiable for good
+    /// Fetch `id`@`version`, checked as `recheck` asks, under the lock throughout. For a
+    /// service, prefer [`Self::begin_fetch`], [`ReadCheck::run`] outside the lock, and
+    /// [`Self::finish_fetch`]. A copy that fails is marked unverifiable for good
     /// ([`StoreError::VerifyFailed`]), so it is never served again.
     pub fn fetch(
         &mut self,
         id: &str,
         version: &str,
-        fresh: bool,
+        recheck: Recheck,
     ) -> Result<(Record, Arc<SignedArtefact>), StoreError> {
+        match self.begin_fetch(id, version, recheck)? {
+            Fetch::Ready(record, artefact) => Ok((record, artefact)),
+            Fetch::Read(read) => {
+                let outcome = read.run();
+                self.finish_fetch(read, outcome)
+            }
+        }
+    }
+
+    /// The first step of a fetch: refuse what is unknown or unverifiable, serve a cached
+    /// verified copy when `recheck` is [`Recheck::Cached`], or hand back the read to run.
+    pub fn begin_fetch(
+        &mut self,
+        id: &str,
+        version: &str,
+        recheck: Recheck,
+    ) -> Result<Fetch, StoreError> {
         let key = ArtefactRef::new(id, version);
-        let record = self
-            .records
-            .get(&key)
-            .cloned()
-            .ok_or_else(|| StoreError::NotFound(format!("no artefact {id}@{version}")))?;
-        if let Err(reason) = &record.state {
-            return Err(StoreError::Unverifiable(format!(
-                "{id}@{version} does not verify: {reason}"
+        let record = self.held(&key)?.clone();
+        if recheck == Recheck::Cached {
+            if let Some(sealed) = &record.verified_seal {
+                if let Some(copy) = self.cache.get(&key, sealed) {
+                    return Ok(Fetch::Ready(record, copy));
+                }
+            }
+        }
+        Ok(Fetch::Read(ReadCheck {
+            path: self.artefact_path(&key),
+            key,
+            record,
+            full: recheck == Recheck::Full,
+            sealer: self.sealer.clone(),
+            signers: self.signers.clone(),
+        }))
+    }
+
+    /// The last step of a fetch: record what the read found. A pass remembers the sealed
+    /// bytes it verified and caches the copy; a failure marks the artefact unverifiable.
+    /// If the artefact was marked, withdrawn or replaced meanwhile, the read counts for
+    /// nothing.
+    pub fn finish_fetch(
+        &mut self,
+        read: ReadCheck,
+        outcome: ReadOutcome,
+    ) -> Result<(Record, Arc<SignedArtefact>), StoreError> {
+        let key = read.key;
+        let (id, version) = (&key.id, &key.version);
+        let current = self.held(&key)?;
+        if current.manifest != read.record.manifest || current.signer != read.record.signer {
+            return Err(StoreError::Io(format!(
+                "{id}@{version} changed while it was read; try again"
             )));
         }
-        if !fresh {
-            if let Some((cached, artefact)) = &self.cache {
-                if *cached == key {
-                    return Ok((record, artefact.clone()));
+        match outcome.0 {
+            Ok(passed) => {
+                if passed.gated {
+                    self.full_verifications += 1;
                 }
-            }
-        }
-        let checked = read_artefact(self.sealer.as_ref(), &self.artefact_path(&key)).and_then(
-            |(_, stored)| {
-                if stored.artefact.manifest != record.manifest || stored.signer != record.signer {
-                    return Err("the copy at rest is not the artefact that was registered".into());
-                }
-                gate(&self.signers, &stored.signer, &stored.artefact)
-                    .map_err(|r| format!("{} ({})", r.detail(), r.code()))?;
-                Ok(stored.artefact)
-            },
-        );
-        match checked {
-            Ok(artefact) => {
-                let artefact = Arc::new(artefact);
-                self.cache = Some((key, artefact.clone()));
-                Ok((record, artefact))
+                let record = self.records.get_mut(&key).expect("held, just checked");
+                record.verified_seal = Some(passed.sealed);
+                let record = record.clone();
+                let copy = Arc::new(passed.artefact);
+                self.cache.insert(key, passed.sealed, copy.clone());
+                Ok((record, copy))
             }
             Err(reason) => {
-                if self.cache.as_ref().is_some_and(|(k, _)| *k == key) {
-                    self.cache = None;
-                }
+                self.cache.remove(&key);
                 if let Some(r) = self.records.get_mut(&key) {
                     r.state = Err(reason.clone());
+                    r.verified_seal = None;
                 }
                 Err(StoreError::VerifyFailed(format!(
                     "{id}@{version} does not verify: {reason}"
                 )))
             }
         }
+    }
+
+    /// The record for `key`, if it is held and not marked unverifiable.
+    fn held(&self, key: &ArtefactRef) -> Result<&Record, StoreError> {
+        let (id, version) = (&key.id, &key.version);
+        let record = self
+            .records
+            .get(key)
+            .ok_or_else(|| StoreError::NotFound(format!("no artefact {id}@{version}")))?;
+        if let Err(reason) = &record.state {
+            return Err(StoreError::Unverifiable(format!(
+                "{id}@{version} does not verify: {reason}"
+            )));
+        }
+        Ok(record)
     }
 
     fn expire(&mut self, now: u64) {
@@ -962,7 +1193,12 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn read_artefact(sealer: &dyn Sealer, path: &Path) -> Result<(ArtefactRef, Stored), String> {
+/// Read, unseal and decode one sealed artefact file. Also returns the SHA-256 of the
+/// sealed bytes as read.
+fn read_artefact(
+    sealer: &dyn Sealer,
+    path: &Path,
+) -> Result<(ArtefactRef, Stored, [u8; 32]), String> {
     let what = path.display();
     let name: [u8; 32] = path
         .file_stem()
@@ -982,7 +1218,7 @@ fn read_artefact(sealer: &dyn Sealer, path: &Path) -> Result<(ArtefactRef, Store
     if name_hash(&key) != name {
         return Err(format!("{what} holds another artefact"));
     }
-    Ok((key, stored))
+    Ok((key, stored, sha256(&sealed)))
 }
 
 fn decode_stored(b: &[u8]) -> Result<Stored, String> {
@@ -1187,7 +1423,7 @@ mod tests {
 
         drop(reg);
         let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
-        let (record, got) = reg.fetch("forge-worker", "0.1.0", true).unwrap();
+        let (record, got) = reg.fetch("forge-worker", "0.1.0", Recheck::Seal).unwrap();
         assert_eq!(record.registered_by, "ci");
         assert_eq!(got.payload, a.payload);
         let _ = fs::remove_dir_all(&dir);
@@ -1210,7 +1446,7 @@ mod tests {
         assert_eq!(name.len(), 64 + 1 + SEALED_EXT.len());
         drop(reg);
         let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
-        assert!(reg.fetch(&id, &version, true).is_ok());
+        assert!(reg.fetch(&id, &version, Recheck::Seal).is_ok());
 
         let mut long = new_upload(&a, "release-1");
         long.manifest.version = "v".repeat(129);
@@ -1232,7 +1468,7 @@ mod tests {
         assert!(reg.record("forge-worker", "0.1.0").is_none());
         assert_eq!(fs::read_dir(dir.join("artefacts")).unwrap().count(), 0);
         assert!(matches!(
-            reg.fetch("forge-worker", "0.1.0", false),
+            reg.fetch("forge-worker", "0.1.0", Recheck::Cached),
             Err(StoreError::NotFound(_))
         ));
         let _ = fs::remove_dir_all(&dir);
@@ -1374,7 +1610,7 @@ mod tests {
         let mut reg = Registry::open(&dir, Box::new(TestSealer), TrustAnchors::new()).unwrap();
         assert!(reg.record("forge-worker", "0.1.0").unwrap().state.is_err());
         assert!(matches!(
-            reg.fetch("forge-worker", "0.1.0", true),
+            reg.fetch("forge-worker", "0.1.0", Recheck::Seal),
             Err(StoreError::Unverifiable(_))
         ));
         drop(reg);
@@ -1411,7 +1647,7 @@ mod tests {
         bytes[40] ^= 1;
         fs::write(&path, &bytes).unwrap();
         assert!(matches!(
-            reg.fetch("forge-worker", "0.1.0", true),
+            reg.fetch("forge-worker", "0.1.0", Recheck::Seal),
             Err(StoreError::VerifyFailed(_))
         ));
         assert!(reg.record("forge-worker", "0.1.0").unwrap().state.is_err());
@@ -1419,13 +1655,134 @@ mod tests {
         fs::write(&path, &bytes).unwrap();
         // Even restored, and even from the cache, it is not served until a restart
         // re-verifies it.
-        for fresh in [true, false] {
+        for check in [Recheck::Full, Recheck::Seal, Recheck::Cached] {
             assert!(matches!(
-                reg.fetch("forge-worker", "0.1.0", fresh),
+                reg.fetch("forge-worker", "0.1.0", check),
                 Err(StoreError::Unverifiable(_))
             ));
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn only_file(dir: &Path) -> PathBuf {
+        fs::read_dir(dir.join("artefacts"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path()
+    }
+
+    #[test]
+    fn a_download_rechecks_the_seal_and_verifies_in_full_only_bytes_not_yet_verified() {
+        let dir = scratch("recheck");
+        let (vk, sk) = keys();
+        let a = signed(&sk, vec![6u8; 3000]);
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        admit(&mut reg, &a);
+        let n = reg.full_verifications();
+
+        // The admitted copy passed the gate: a download unseals it, and that is all.
+        let (_, got) = reg.fetch("forge-worker", "0.1.0", Recheck::Seal).unwrap();
+        assert_eq!(got.payload, a.payload);
+        reg.fetch("forge-worker", "0.1.0", Recheck::Cached).unwrap();
+        assert_eq!(reg.full_verifications(), n);
+        // VerifyArtefact always runs the whole gate.
+        reg.fetch("forge-worker", "0.1.0", Recheck::Full).unwrap();
+        assert_eq!(reg.full_verifications(), n + 1);
+
+        // Different sealed bytes — still a valid seal over the same artefact — are not
+        // the bytes that were verified: the next download verifies in full, once.
+        let path = only_file(&dir);
+        let (key, mut stored, _) = read_artefact(&TestSealer, &path).unwrap();
+        stored.at += 1;
+        let resealed = TestSealer
+            .seal(&artefact_aad(&name_hash(&key)), &encode_stored(&stored))
+            .unwrap();
+        fs::write(&path, &resealed).unwrap();
+        reg.fetch("forge-worker", "0.1.0", Recheck::Seal).unwrap();
+        assert_eq!(reg.full_verifications(), n + 2);
+        reg.fetch("forge-worker", "0.1.0", Recheck::Seal).unwrap();
+        assert_eq!(reg.full_verifications(), n + 2);
+
+        // The open verifies every file, so after a restart a download needs only the seal.
+        drop(reg);
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        let n = reg.full_verifications();
+        assert_eq!(n, 1, "the open verified the one artefact");
+        reg.fetch("forge-worker", "0.1.0", Recheck::Seal).unwrap();
+        assert_eq!(reg.full_verifications(), n);
+
+        // The seal is checked whatever is cached: a flipped byte is refused, and from
+        // then on the artefact is not served at all.
+        let mut bytes = fs::read(&path).unwrap();
+        bytes[40] ^= 1;
+        fs::write(&path, &bytes).unwrap();
+        assert!(matches!(
+            reg.fetch("forge-worker", "0.1.0", Recheck::Seal),
+            Err(StoreError::VerifyFailed(_))
+        ));
+        assert!(matches!(
+            reg.fetch("forge-worker", "0.1.0", Recheck::Cached),
+            Err(StoreError::Unverifiable(_))
+        ));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_later_slice_of_an_artefact_no_longer_cached_rechecks_the_seal_not_the_gate() {
+        let dir = scratch("lru-registry");
+        let (vk, sk) = keys();
+        let mut reg = Registry::open(&dir, Box::new(TestSealer), anchors(&vk)).unwrap();
+        let versions = ["0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0"];
+        for v in versions {
+            admit(&mut reg, &signed_as(&sk, "svc", v, vec![2u8; 100]));
+        }
+        for v in versions {
+            reg.fetch("svc", v, Recheck::Seal).unwrap();
+        }
+        assert_eq!(
+            reg.cached(),
+            ["0.5.0", "0.4.0", "0.3.0", "0.2.0"]
+                .map(|v| ArtefactRef::new("svc", v))
+                .to_vec()
+        );
+        let n = reg.full_verifications();
+        // 0.1.0 fell out: its later slice reads the sealed copy again, seal only.
+        reg.fetch("svc", "0.1.0", Recheck::Cached).unwrap();
+        assert_eq!(reg.full_verifications(), n);
+        assert_eq!(reg.cached()[0], ArtefactRef::new("svc", "0.1.0"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_verified_copies_are_an_lru_bounded_in_entries_and_bytes() {
+        let (_, sk) = keys();
+        let art = |v: &str, n: usize| Arc::new(signed_as(&sk, "svc", v, vec![1u8; n]));
+        let (a, b, c) = (art("a", 100), art("b", 100), art("c", 100));
+        let unit = VerifiedCache::weight(&a);
+        let key = |v: &str| ArtefactRef::new("svc", v);
+        let mut cache = VerifiedCache::new(2, unit * 3);
+        cache.insert(key("a"), [1; 32], a.clone());
+        cache.insert(key("b"), [2; 32], b);
+        // Only the copy of exactly the verified sealed bytes is served.
+        assert!(cache.get(&key("a"), &[9; 32]).is_none());
+        assert!(cache.get(&key("a"), &[1; 32]).is_some());
+        // a was used last, so b goes first.
+        cache.insert(key("c"), [3; 32], c);
+        assert_eq!(cache.keys(), [key("c"), key("a")]);
+        // Bounded by bytes too: a big copy pushes the others out.
+        // Just under the bound (its SBOM names "big", a little longer than "a").
+        let big = art("big", 90 + 2 * unit as usize);
+        cache.insert(key("big"), [4; 32], big);
+        assert_eq!(cache.keys(), [key("big")]);
+        // One past the byte bound is not cached at all.
+        let huge = art("huge", 4 * unit as usize);
+        cache.insert(key("huge"), [5; 32], huge);
+        assert_eq!(cache.keys(), [key("big")]);
+        cache.remove(&key("big"));
+        assert!(cache.keys().is_empty());
+        assert_eq!(cache.bytes, 0);
     }
 
     #[test]

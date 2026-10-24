@@ -14,9 +14,12 @@
 //! It also holds the artefact registry ([`registry`]): signed, SBOM-attested service
 //! builds, uploaded in chunks ([`REGISTER_ARTEFACT`], [`PUT_ARTEFACT_CHUNK`],
 //! [`COMMIT_ARTEFACT`], authorised as `RegisterArtefact`), verified by the
-//! `bifrost-artefact` gate at the commit and again whenever they are read
-//! ([`LIST_ARTEFACTS`], [`GET_ARTEFACT`], [`VERIFY_ARTEFACT`], authorised as
-//! `ReadArtefacts`), and sealed at rest. A refusal is recorded with its reason, audited,
+//! `bifrost-artefact` gate at the commit, re-checked whenever they are read, and sealed
+//! at rest. Reads are three actions: listing ([`LIST_ARTEFACTS`], `ReadArtefacts`),
+//! downloading ([`GET_ARTEFACT`], `DownloadArtefact`, for agents) and re-verifying
+//! ([`VERIFY_ARTEFACT`], `VerifyArtefact`). A download re-checks the seal of the stored
+//! copy and runs the whole gate only on sealed bytes it has not passed before;
+//! `VerifyArtefact` always runs the whole gate (see [`registry`]'s reads). A refusal is recorded with its reason, audited,
 //! and listed as rejected. [FR-B-1] [FR-B-4] [NFR-PQ-3]
 //!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
@@ -41,8 +44,8 @@ use policy::{ClassificationLevel, Clearance, Purpose, Resource};
 use pq_mtls::WorkloadIdentity;
 use pqc_agility::Signature;
 use registry::{
-    Listed, NewUpload, Record, Refusal, Registry, Rejection, StoreError, CHUNK_BYTES, LIST_PAGE,
-    MAX_LIST_PAGE,
+    Fetch, Listed, NewUpload, Recheck, Record, Refusal, Registry, Rejection, StoreError,
+    CHUNK_BYTES, LIST_PAGE, MAX_LIST_PAGE,
 };
 use service_runtime::json::{parse, Json};
 use service_runtime::strict_json::{no_repeated_keys, object, only_keys, text};
@@ -78,8 +81,12 @@ pub const GET_ARTEFACT: &str = "GetArtefact";
 pub const VERIFY_ARTEFACT: &str = "VerifyArtefact";
 /// The policy action every step of an upload is authorised as.
 pub const ACTION_REGISTER_ARTEFACT: &str = "RegisterArtefact";
-/// The policy action registry reads are authorised as.
+/// The policy action listing the registry is authorised as.
 pub const ACTION_READ_ARTEFACTS: &str = "ReadArtefacts";
+/// The policy action downloading an artefact ([`GET_ARTEFACT`]) is authorised as.
+pub const ACTION_DOWNLOAD_ARTEFACT: &str = "DownloadArtefact";
+/// The policy action re-verifying an artefact ([`VERIFY_ARTEFACT`]) is authorised as.
+pub const ACTION_VERIFY_ARTEFACT: &str = "VerifyArtefact";
 
 /// The first byte of every fleet response.
 pub mod outcome {
@@ -173,10 +180,10 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                 Self::commit_artefact,
             ),
             (LIST_ARTEFACTS, ACTION_READ_ARTEFACTS, Self::list_artefacts),
-            (GET_ARTEFACT, ACTION_READ_ARTEFACTS, Self::get_artefact),
+            (GET_ARTEFACT, ACTION_DOWNLOAD_ARTEFACT, Self::get_artefact),
             (
                 VERIFY_ARTEFACT,
-                ACTION_READ_ARTEFACTS,
+                ACTION_VERIFY_ARTEFACT,
                 Self::verify_artefact,
             ),
         ];
@@ -626,9 +633,16 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             Ok(p) => p,
             Err(e) => return (outcome::MALFORMED, e),
         };
-        // Every part's first slice re-verifies the sealed copy; its later slices come
-        // from the copy that check passed.
-        let (record, artefact) = match self.fetch_verified(peer, &id, &version, offset == 0, now) {
+        // Every part's first slice re-checks the sealed copy; its later slices come from
+        // the copy that check passed.
+        let recheck = if offset == 0 {
+            Recheck::Seal
+        } else {
+            Recheck::Cached
+        };
+        let fetched =
+            self.fetch_verified(peer, ACTION_DOWNLOAD_ARTEFACT, &id, &version, recheck, now);
+        let (record, artefact) = match fetched {
             Ok(f) => f,
             Err(answer) => return answer,
         };
@@ -680,29 +694,46 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             Ok(p) => p,
             Err(e) => return (outcome::MALFORMED, e),
         };
-        match self.fetch_verified(peer, &id, &version, true, now) {
+        match self.fetch_verified(
+            peer,
+            ACTION_VERIFY_ARTEFACT,
+            &id,
+            &version,
+            Recheck::Full,
+            now,
+        ) {
             Ok((record, _)) => (outcome::ACCEPTED, record_json(&record).encode()),
             Err(answer) => answer,
         }
     }
 
-    /// Fetch and verify an artefact for `peer`. A verification that fails now marks the
-    /// artefact unverifiable for good and is audited, with the reason.
+    /// Fetch and check an artefact for `peer`, as `recheck` asks. The sealed copy is
+    /// read and checked outside the registry's lock. A verification that fails now
+    /// marks the artefact unverifiable for good and is audited under `action`, with the
+    /// reason.
     fn fetch_verified(
         &self,
         peer: &WorkloadIdentity,
+        action: &str,
         id: &str,
         version: &str,
-        fresh: bool,
+        recheck: Recheck,
         now: u64,
     ) -> Result<(Record, Arc<SignedArtefact>), (u8, String)> {
-        let fetched = lock(&self.registry).fetch(id, version, fresh);
+        let begun = lock(&self.registry).begin_fetch(id, version, recheck);
+        let fetched = begun.and_then(|step| match step {
+            Fetch::Ready(record, artefact) => Ok((record, artefact)),
+            Fetch::Read(read) => {
+                let outcome = read.run();
+                lock(&self.registry).finish_fetch(read, outcome)
+            }
+        });
         match fetched {
             Ok(f) => Ok(f),
             Err(StoreError::VerifyFailed(reason)) => {
                 let audited = lock(&self.governance).record_event(
                     &peer.id.0,
-                    &format!("ReadArtefacts verify failed: {reason}"),
+                    &format!("{action} verify failed: {reason}"),
                     &format!("artefact:{id}@{version}"),
                     now,
                 );

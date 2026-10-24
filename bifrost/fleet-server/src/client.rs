@@ -1,6 +1,11 @@
 //! The client side of the registry routes, over one PQ-mTLS [`Session`]: upload a signed
 //! artefact in chunks, list the registry, download an artefact and re-verify it. Used by
 //! the tests, and meant for the release tooling and the agent. [FR-B-1] [FR-B-4]
+//!
+//! Each call needs its own policy action: [`register`] `RegisterArtefact`; [`list`]
+//! `ReadArtefacts`; [`download`] and [`download_verified`] `DownloadArtefact` (agents);
+//! [`verify`] `VerifyArtefact`. A call the identity's roles lack is
+//! [`outcome::DENIED`](crate::outcome::DENIED), naming the action.
 
 use bifrost_artefact::{ArtefactManifest, SignedArtefact};
 use pqc_agility::{SigId, Signature};
@@ -122,7 +127,8 @@ pub fn register(
     )
 }
 
-/// The whole registry listing, every page: `{"signers", "artefacts"}`.
+/// The whole registry listing, every page: `{"signers", "artefacts"}`. Needs
+/// `ReadArtefacts`.
 pub fn list(session: &mut Session) -> Result<Json, CallError> {
     let mut items = Vec::new();
     let mut signers = Json::Arr(Vec::new());
@@ -151,7 +157,8 @@ pub fn list(session: &mut Session) -> Result<Json, CallError> {
     ]))
 }
 
-/// Ask the registry to re-verify `id`@`version` at rest now.
+/// Ask the registry to re-verify `id`@`version` at rest now, running the whole gate.
+/// Needs `VerifyArtefact`.
 pub fn verify(session: &mut Session, id: &str, version: &str) -> Result<Json, CallError> {
     call(
         session,
@@ -170,8 +177,8 @@ pub struct Downloaded {
 }
 
 /// Download `id`@`version` — its SBOM, then its bytes, slice by slice — as the registry
-/// serves it. Prefer [`download_verified`], which also checks it against the caller's
-/// own anchors before handing it over.
+/// serves it. Needs `DownloadArtefact`. Prefer [`download_verified`], which also checks
+/// it against the caller's own anchors before handing it over.
 pub fn download(session: &mut Session, id: &str, version: &str) -> Result<Downloaded, CallError> {
     let (header, sbom) = fetch_part(session, id, version, "sbom")?;
     let (again, payload) = fetch_part(session, id, version, "payload")?;
