@@ -198,6 +198,9 @@ fn agents_check_in_over_pqmtls_and_staleness_is_detected() {
             }
             match listener.accept() {
                 Ok((stream, _)) => {
+                    // On macOS and Windows an accepted socket inherits the listener's
+                    // non-blocking mode (on Linux it does not); the handshake blocks.
+                    stream.set_nonblocking(false).unwrap();
                     let mut ch = pq_mtls::TcpChannel::new(stream);
                     let mut rng = OsRng;
                     let resp = Responder::new(
