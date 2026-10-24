@@ -105,6 +105,52 @@ Design: `docs/plans/2026-10-24-bifrost-live-design.md`. Spec: `docs/dev/markdown
 4. `--bad-build` builds a variant whose readiness never comes, for the demo rollback in B2. Use an environment or argument the service honours, or a wrapper. Choose the least invasive; it must not touch production code paths.
 5. Print what was registered.
 
+**As built (24 Oct 2026).**
+- **Command:** `tools/bifrost/release.sh <commit> --version X.Y.Z [--bad-build] [--server HOST:PORT] [--identity DIR] [--service NAME] [--key DIR] [--trust-dir DIR] [--out DIR]`, and `release.sh --init-key` to make and install the key only.
+  - Defaults come from `BIFROST_HOME` (`~/Desktop/Midgard/bifrost-local`), so they match `run-local.sh`: server `$BIFROST_MESH` or `127.0.0.1:7750`, identity `$BIFROST_HOME/fleet-clients` as `release-manager`, key `$BIFROST_HOME/release-key`, trust dir `$BIFROST_HOME/fleet-state/trust/release-signers`.
+  - `--out` keeps the binaries, SBOMs and signed manifests. Otherwise they go in a temporary folder that is removed.
+- **Order:**
+  1. It builds its tools from this checkout: `bifrost-release`, `mg-sign` and `mg-sbom`, in `CARGO_TARGET_DIR` (default `bifrost-target`).
+  2. If there is no key, it makes one (see below).
+  3. **Preflight:** `bifrost-release preflight` checks that the server answers, that the identity may read the registry, and that the key's id is one of the registry's signers. This happens before anything is built. A key the server does not trust stops the release, with the instruction to install the `.pub` and restart.
+  4. It checks that at least 5 GB is free.
+- **Build:**
+  - A `mkdir` lock allows one release at a time.
+  - The commit is checked out with `git worktree add --detach` at a fixed path, `~/Library/Caches/midgard-build/bifrost-release/worktree`, and removed on exit, including on failure (trap). The path is fixed, so rebuilding a commit is incremental and the binaries do not depend on where they were built.
+  - The build is build-services.sh's loop, in the script itself so it works for any commit with these packages: `cargo build --offline --locked --release --target {aarch64,x86_64}-apple-darwin` for http-gateway, heimdall-feed-server, mimir-server, forge-worker and midgard-replay, then `lipo` into `dist/mac/bin` inside the worktree.
+  - Build output goes to `MIDGARD_BUILD_DIR` (default `~/Library/Caches/midgard-build/bifrost-release/target`), apart from the other builds.
+  - Bifrost itself is not part of a release.
+- **SBOM:** `mg-sbom --out … dist/mac/bin/<name>`, run in the worktree, so each SBOM comes from that commit's Cargo.lock and carries the binary's self-hash.
+  - mg-sbom lists the whole workspace lockfile, not one binary's closure. Each SBOM therefore names the same components; only its subject and hash differ.
+- **Release key:**
+  - A dedicated ML-DSA-65 keystore: `mg-sign keygen --alg ML-DSA-65 --key-id bifrost-release-1 --keystore <key>/release.keystore --export-verifying-key <key>/release.pub`. The directory is mode 700 and lives outside the repository.
+  - The `.pub` is copied to `<trust-dir>/bifrost-release-1.pub` if it differs. bifrost-server reads its signers only at start, so it must then be restarted, and the script says so.
+  - `mg-sign`'s own `.sig`/`.att` envelope is not made. It is ML-DSA-87 in the `RELEASE_ARTEFACT` domain, which the registry does not check, so it would add a second key for nothing at this stage.
+- **`bifrost-release`** (new bin in `bifrost/fleet-server/src/bin/bifrost-release.rs`; the server code is untouched). Its subcommands are `sign`, `upload`, `list [--version V] [--json]` and `preflight`.
+  - **`sign`** needs only the keystore. It unseals the key inside the custodian (`attest::Keystore` → `KmsSigner`), refuses any algorithm but ML-DSA-65, and signs the manifest with `build_with_signer`, as mg-register does. It writes `<name>.bifrost.json` with `{manifest, signer, alg, signature}`.
+  - **`upload`** sends that signed manifest with the payload and SBOM files as they are now, using `client::register` (RegisterArtefact, PutArtefactChunk, CommitArtefact). It does not re-check them; the registry's gate does.
+  - **Why separate steps:** signing works offline, and a test can sign a build and change it afterwards.
+  - **Why a new binary** rather than bifrost-agent: the agent is the on-host installation client, while this holds release-manager concerns (the release keystore). Keeping it apart means the agent never links a signer.
+  - **Cargo.toml:** the crate's `attest` dependency adds the `custody` feature. It was already on through service-runtime, so `Cargo.lock` is unchanged.
+- **Bad build** (`--bad-build`):
+  - forge-worker, the canary, is replaced by `tools/bifrost/unready-forge-worker`. This is a std-only stand-in in the release tooling: its own one-package workspace (not a member of the repository's), built from the checkout release.sh runs from, for both architectures, and joined with lipo (762 KB).
+  - It accepts forge-worker's command line and ignores it, except `--health-bind`, on which `/healthz` answers 200 and `/readyz` 503. It never logs `"message":"job run"` (what run-native.sh waits for), logs "not ready" every 30 s, and runs until signalled.
+  - It is SBOM'd (mg-sbom in a staging copy of its Cargo.toml and Cargo.lock, so its SBOM names `unready-forge-worker`), signed and registered as `forge-worker@X.Y.Z` like the rest. The other five services are the real builds.
+  - **Why a stand-in:** forge-worker has no option or environment that keeps it unready. Its `/readyz` toggle is always on, and a dead `--gateway` gives failing job runs, not missing readiness. A wrapper script would need the real binary's path inside the agent's slot, which B2 has not defined. The stand-in is one self-contained file, and the services' code is not touched. It is alive but unready, so the gate's 3-minute readiness timeout is what fails, not a crash.
+- **Test:** `tools/bifrost/test-release.sh [<commit>]`, a script-level end-to-end test.
+  - **Setup:** a temporary `BIFROST_HOME` with `run-local.sh setup` (a private enclosure, identities and state), and bifrost-server on 127.0.0.1:17760, health 19760.
+  - **Checks:**
+    1. A release whose key the server does not yet trust is stopped by the preflight.
+    2. After `--init-key` and a restart, HEAD released as 0.1.0 lists six universal (`x86_64 arm64`) services, all verified.
+    3. forge-worker signed as `0.1.0-tampered` and then changed by one byte is refused as `digest-mismatch` and listed as rejected.
+    4. `--bad-build` as 0.1.1 lists six verified; its forge-worker differs, its SBOM names the stand-in, and when run it answers 200 on `/healthz` and 503 on `/readyz` and logs no job run.
+    5. The build worktree is gone, and git no longer lists it.
+  - **Result:** all 5 checks passed (HEAD 3d473ef).
+  - **Times:** each release took about 34 s, of which the build was about 30 s (15 s per architecture). The build cache is 169 MB.
+  - **Sizes (universal):** http-gateway 6.4 MB, heimdall-feed 5.4 MB, heimdall-source 3.1 MB, mimir-server 4.1 MB, forge-worker 4.2 MB, midgard-replay 1.4 MB. The second release of the same commit reused the build, so the five real services have the same digests in 0.1.0 and 0.1.1.
+- **Checks:** clippy `-D warnings` and fmt are clean for the bins (run against HEAD plus these files, while registry.rs was being changed by review in parallel), and clippy is clean for the stand-in.
+- **Not done here:** the running `bifrost-local` instance (port 7750) still runs the old `bifrost-fleet` binary without the registry, so nothing was released to it. That is Task 4.
+
 ### Task 4: Run it
 
 - **Setup:** `tools/bifrost/run-local.sh` gains `setup --real-enclosure`. It issues the bifrost-server and agent identities in `~/Desktop/Midgard/airports`, which needs the gateway stopped (check that it is; refuse otherwise). This adds the roles `release-manager` and `fleet-agent`/`fleet-manager`, and the policy rules.
