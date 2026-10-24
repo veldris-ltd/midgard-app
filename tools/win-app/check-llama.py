@@ -13,8 +13,9 @@ folder tools/win-app/fetch-llama.sh lays out (helpers\\llama\\ in the package):
   3. /props reports the alias and one slot;
   4. a streamed /v1/completions, the call mimir-server's sidecar client makes, returns text
      pieces, the first one opening a JSON object (the grammar applied), then `[DONE]`;
-  5. the server log names the CPU backend ggml loaded (ggml-cpu-<variant>.dll), so a missing
-     DLL or one this CPU cannot run shows here.
+  5. for information, the CPU backend ggml loaded (ggml-cpu-<variant>.dll) if the log names it
+     (b11669 does not at its default verbosity). A completion needs a CPU backend, so 4 passing
+     already shows that one of the ggml-cpu-*.dll loaded and ran on this CPU.
 The model is a test model only (never shipped). The server is stopped at the end, pass or
 fail; its output goes to --log. Prints the report and writes it to --report; exit 1 on failure.
 """
@@ -132,7 +133,9 @@ def main():
     if a.log:
         text = open(a.log, encoding="utf-8", errors="replace").read()
         m = re.findall(r"loaded CPU backend from ([^\r\n]+)", text)
-        note(bool(m), f"CPU backend: {m[-1] if m else 'none named in the log'}")
+        line = f"CPU backend: {m[-1]}" if m else "CPU backend: not named in the log at this verbosity"
+        lines.append(f"info {line}")
+        print(lines[-1], flush=True)
 
     result = "FAIL" if failed else "PASS"
     lines.append(f"{result}: llama-server {a.build} on Windows")
