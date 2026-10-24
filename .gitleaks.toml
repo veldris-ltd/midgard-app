@@ -40,4 +40,20 @@ stopwords = [
   "GGUF/quantised",
   # SAD_02b — "…behind the existing inference API, Forge/Bifrost/Heimdall are unchanged…"
   "Forge/Bifrost/Heimdall",
+  # Fixture tokens in tests on branch md_mixedfeeds_3d, which CI scans with every
+  # branch: tools/mac-app/test_prepare_answers.py and, asserting that a session never
+  # prints its token, apps/mac/Tests/MidgardShellCoreTests/SessionTests.swift.
+  "tok-abcdef-123456",
+  "tok-SECRET-123",
 ]
+
+[[allowlists]]
+description = """
+samples/2-forge-datasets/weather.json keys each METAR report as WX-<ICAO>-<unix
+time>, under the JSON key "key", which the keyword-proximity `generic-api-key` rule
+reads as a credential. They are object keys of public NOAA weather reports. The
+pattern and the file must both match, so any other value in the file still fails.
+"""
+condition = "AND"
+paths = ['''^samples/2-forge-datasets/weather\.json$''']
+regexes = ['''WX-[A-Z0-9]{4}-[0-9]{10}''']

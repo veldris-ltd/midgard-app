@@ -114,7 +114,7 @@ fn ac_ms_3_and_c_7_model_and_client_bundles_transit_the_same_workflow() {
         "supply-2026.07",
         "models+clients",
         vec![
-            artefact("mistral-small-3.2-q4", "5.2.0", "model-bundle", &sk),
+            artefact("mistral-small-3.2-q4", "3.2.0", "model-bundle", &sk),
             artefact("client-linux-x64", "3.1.0", "client", &sk),
         ],
         &sk,

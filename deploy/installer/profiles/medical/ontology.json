@@ -1,0 +1,327 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "organisation",
+      "title": "NHS organisation",
+      "properties": [
+        {
+          "name": "ods_code",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "care_unit",
+      "title": "Care unit",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "treatment_function",
+          "type": "text"
+        },
+        {
+          "name": "treatment_function_code",
+          "type": "text"
+        },
+        {
+          "name": "ods_site",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "patient",
+      "title": "Patient (pseudonymised)",
+      "properties": [
+        {
+          "name": "pseudonym",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "birth_year",
+          "type": "int"
+        },
+        {
+          "name": "pathway",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "encounter",
+      "title": "Encounter",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "occurred",
+          "type": "text"
+        },
+        {
+          "name": "snomed_code",
+          "type": "text"
+        },
+        {
+          "name": "snomed_term",
+          "type": "text"
+        },
+        {
+          "name": "review",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "referral",
+      "title": "Referral",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "priority",
+          "type": "text"
+        },
+        {
+          "name": "received",
+          "type": "text"
+        },
+        {
+          "name": "rtt_clock",
+          "type": "text"
+        },
+        {
+          "name": "breach_date",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "safety_hazard",
+      "title": "Clinical safety hazard (DCB0129 / DCB0160)",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "severity",
+          "type": "text"
+        },
+        {
+          "name": "likelihood",
+          "type": "text"
+        },
+        {
+          "name": "risk",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "caldicott_review",
+      "title": "Caldicott review",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "purpose",
+          "type": "text"
+        },
+        {
+          "name": "legal_basis",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "id": "unit_organisation",
+      "name": "part of",
+      "from": "care_unit",
+      "to": "organisation",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "encounter_patient",
+      "name": "for patient",
+      "from": "encounter",
+      "to": "patient",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "encounter_unit",
+      "name": "at unit",
+      "from": "encounter",
+      "to": "care_unit",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "referral_patient",
+      "name": "for patient",
+      "from": "referral",
+      "to": "patient",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "referral_unit",
+      "name": "to unit",
+      "from": "referral",
+      "to": "care_unit",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "hazard_unit",
+      "name": "raised by",
+      "from": "safety_hazard",
+      "to": "care_unit",
+      "cardinality": "many-to-many"
+    }
+  ],
+  "actions": [
+    {
+      "id": "request_review",
+      "name": "requestClinicalReview",
+      "title": "Request clinical review",
+      "objectType": "encounter",
+      "humanGated": true,
+      "marking": "confidential",
+      "purposes": [
+        "operations",
+        "direct-care"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "review",
+        "value": "requested"
+      }
+    },
+    {
+      "id": "prioritise_referral",
+      "name": "prioritiseReferral",
+      "title": "Change referral priority",
+      "objectType": "referral",
+      "humanGated": true,
+      "marking": "confidential",
+      "purposes": [
+        "operations",
+        "direct-care"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "priority",
+        "values": [
+          "routine",
+          "urgent",
+          "urgent-suspected-cancer"
+        ]
+      }
+    },
+    {
+      "id": "stop_clock",
+      "name": "stopRttClock",
+      "title": "Stop the RTT clock",
+      "objectType": "referral",
+      "humanGated": true,
+      "marking": "confidential",
+      "purposes": [
+        "operations",
+        "direct-care"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "rtt_clock",
+        "value": "stopped"
+      }
+    },
+    {
+      "id": "mitigate_hazard",
+      "name": "recordHazardMitigation",
+      "title": "Record hazard mitigation",
+      "objectType": "safety_hazard",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "direct-care"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "open",
+          "mitigated",
+          "closed"
+        ]
+      }
+    },
+    {
+      "id": "caldicott_decision",
+      "name": "caldicottDecision",
+      "title": "Record Caldicott Guardian decision",
+      "objectType": "caldicott_review",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "direct-care"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "submitted",
+          "approved",
+          "declined"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "operator-read",
+      "role": "operator",
+      "action": "Read",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-apply",
+      "role": "operator",
+      "action": "Apply",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-requestClinicalReview",
+      "role": "operator",
+      "action": "requestClinicalReview",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-prioritiseReferral",
+      "role": "operator",
+      "action": "prioritiseReferral",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-stopRttClock",
+      "role": "operator",
+      "action": "stopRttClock",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-recordHazardMitigation",
+      "role": "operator",
+      "action": "recordHazardMitigation",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "operator-caldicottDecision",
+      "role": "operator",
+      "action": "caldicottDecision",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "viewer-read",
+      "role": "viewer",
+      "action": "Read",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "worker-channel",
+      "role": "forge-worker",
+      "action": "OpenChannel",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "worker-sync",
+      "role": "forge-worker",
+      "action": "SyncRecords",
+      "resource": "*",
+      "effect": "permit"
+    }
+  ]
+}

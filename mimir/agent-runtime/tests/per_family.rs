@@ -1,5 +1,5 @@
 //! The self-* prompt-level Evals run **per model family** (Mistral / Nemotron / Gemma / Granite),
-//! so each prompt is certified against every model it may be routed to (FR-MS-7).
+//! so each prompt is certified against every model it may be routed to. [FR-MS-7]
 //! The reference classifiers are family-invariant stand-ins; the real per-family
 //! models plug in behind the same seams.
 
@@ -37,6 +37,6 @@ fn a3_a4_a5_evals_pass_for_every_model_family() {
             }
         }
     }
-    // 3 suites × 3 families × 4 evals = 36 certifications.
-    assert_eq!(certified, 36);
+    // 3 suites × 4 families × 4 evals = 48 certifications.
+    assert_eq!(certified, 48);
 }

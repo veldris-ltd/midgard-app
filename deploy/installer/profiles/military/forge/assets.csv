@@ -1,0 +1,4 @@
+serial,kind,status,hours,unit
+AS-0101,utility vehicle,serviceable,1820,U-1
+AS-0102,generator,serviceable,5410,U-1
+AS-0201,utility vehicle,maintenance,2960,U-2

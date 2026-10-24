@@ -32,7 +32,7 @@ SHEET="docs/compliance/NUMBERS.md"
 SPEC="docs/dev/markdown/SAD_05_Master_Prompt_and_Acceptance_Spec.md"
 tools="$(cd "$(dirname "$0")" && pwd)"
 # path, or path|FROM|TO to sweep only from the first line matching FROM up to the first
-# after it matching TO. The remedial plan is swept for its executive summary only: its
+# after it matching TO. The completion plan is swept for its summary only: its
 # items quote superseded figures as the evidence for each fix.
 SWEPT=(
     "README.md"
@@ -41,7 +41,7 @@ SWEPT=(
     "docs/compliance/GA_READINESS.md"
     "docs/releases/*.md"
     "docs/launch/pipeline/build-deck.js"
-    "docs/dev/fixes/remedial-fixes.md|^## 1[.] |^## 1a[.] "
+    "docs/dev/markdown/SAD_09_Completion_Plan.md|^## 1[.] |^## 2[.] "
 )
 
 work="$(mktemp -d)"

@@ -389,8 +389,10 @@ fn entity_json(entity: &TrackedEntity) -> Json {
 }
 
 /// Parse `key=value,key=value` observation attributes: `true`/`false` are booleans, a
-/// whole number an integer, another number a float, anything else text. A pair with
-/// no `=` or an empty key is refused.
+/// whole number an integer, another finite number a float, anything else text. Rust
+/// reads `nan`, `inf` and `infinity` as floats, but no JSON can carry them, so they stay
+/// text: the airport code `NAN` (Nadi) must not become a missing number. A pair with no
+/// `=` or an empty key is refused. [FR-H-3]
 pub fn parse_attrs(text: &str) -> Result<Vec<(String, Attr)>, String> {
     text.split(',')
         .filter(|pair| !pair.trim().is_empty())
@@ -408,7 +410,7 @@ pub fn parse_attrs(text: &str) -> Result<Vec<(String, Attr)>, String> {
                 "false" => Attr::Bool(false),
                 _ => match (value.parse::<i64>(), value.parse::<f64>()) {
                     (Ok(i), _) => Attr::Int(i),
-                    (_, Ok(f)) => Attr::Float(f),
+                    (_, Ok(f)) if f.is_finite() => Attr::Float(f),
                     _ => Attr::Text(value.to_string()),
                 },
             };
@@ -435,5 +437,19 @@ mod tests {
         assert!(parse_attrs("").unwrap().is_empty());
         assert!(parse_attrs("speed").is_err());
         assert!(parse_attrs("=420").is_err());
+    }
+
+    #[test]
+    fn words_rust_reads_as_non_finite_floats_stay_text() {
+        assert_eq!(
+            parse_attrs("iata=NAN, a=inf, b=-Infinity, c=nan, d=1e3").unwrap(),
+            [
+                ("iata".to_string(), Attr::Text("NAN".into())),
+                ("a".to_string(), Attr::Text("inf".into())),
+                ("b".to_string(), Attr::Text("-Infinity".into())),
+                ("c".to_string(), Attr::Text("nan".into())),
+                ("d".to_string(), Attr::Float(1000.0)),
+            ]
+        );
     }
 }

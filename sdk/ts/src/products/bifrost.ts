@@ -197,7 +197,7 @@ const RELEASES: BifrostRelease[] = [
 
 const ARTEFACTS: BifrostArtefact[] = [
   { id: 'ART-1', name: 'midgard-suite', version: '2.5.0', kind: 'platform bundle', size: '4.1 GB', reproducible: '2/2', criticalCves: 0, signature: 'ML-DSA ✓', sbom: 'CycloneDX', state: 'secure', stateLabel: 'Verified' },
-  { id: 'ART-2', name: 'mimir-weights-mistral', version: '5.2.1', kind: 'model weights', size: '38 GB', reproducible: 'n/a · digest', criticalCves: 0, signature: 'ML-DSA ✓', sbom: 'CycloneDX', state: 'secure', stateLabel: 'Verified' },
+  { id: 'ART-2', name: 'mimir-weights-mistral', version: '3.2.1', kind: 'model weights', size: '38 GB', reproducible: 'n/a · digest', criticalCves: 0, signature: 'ML-DSA ✓', sbom: 'CycloneDX', state: 'secure', stateLabel: 'Verified' },
   { id: 'ART-3', name: 'forge-connectors', version: '1.9.2', kind: 'plugin set', size: '212 MB', reproducible: '2/2', criticalCves: 1, signature: 'ML-DSA ✓', sbom: 'CycloneDX', state: 'warn', stateLabel: 'CVE review' },
   { id: 'ART-4', name: 'heimdall-fusion', version: '3.0.0-rc2', kind: 'service image', size: '890 MB', reproducible: '1/2 ⚠', criticalCves: 0, signature: 'ML-DSA ✓', sbom: 'CycloneDX', state: 'danger', stateLabel: 'Not reproducible' },
 ];

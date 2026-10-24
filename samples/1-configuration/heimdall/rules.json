@@ -1,0 +1,1355 @@
+{
+ "version": 1,
+ "rules": [
+  {
+   "label": "emergency",
+   "rationale": "squawk 7700 (general emergency)",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "squawk",
+      "equals": "7700"
+     }
+    ]
+   }
+  },
+  {
+   "label": "radio-failure",
+   "rationale": "squawk 7600 (lost communications)",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "squawk",
+      "equals": "7600"
+     }
+    ]
+   }
+  },
+  {
+   "label": "unlawful-interference",
+   "rationale": "squawk 7500 (code only; handle per security procedure)",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "squawk",
+      "equals": "7500"
+     }
+    ]
+   }
+  },
+  {
+   "label": "gnss-degraded",
+   "rationale": "airborne aircraft reporting lost GPS or NIC 0 (possible GNSS jamming or spoofing, or poor avionics)",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "not": {
+       "attr": "on_ground",
+       "equals": true
+      }
+     },
+     {
+      "any": [
+       {
+        "has": "gps_lost"
+       },
+       {
+        "attr": "nic",
+        "equals": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "surface",
+   "rationale": "reported on the ground",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "on_ground",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "rotorcraft",
+   "rationale": "ADS-B emitter category A7",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "category",
+      "equals": "A7"
+     }
+    ]
+   }
+  },
+  {
+   "label": "arrival-departure",
+   "rationale": "below 3,000 ft within 15 km of an airport",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "alt_ft",
+      "lt": 3000
+     },
+     {
+      "attr": "near_km",
+      "lt": 15
+     }
+    ]
+   }
+  },
+  {
+   "label": "fast-mover",
+   "rationale": "ground speed over 400 kt",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "speed",
+      "gt": 400
+     }
+    ]
+   }
+  },
+  {
+   "label": "balloon-descending",
+   "rationale": "radiosonde falling faster than 3 m/s (burst, on descent)",
+   "when": {
+    "all": [
+     {
+      "kind": "air-balloon"
+     },
+     {
+      "attr": "vel_v",
+      "lt": -3
+     }
+    ]
+   }
+  },
+  {
+   "label": "balloon-ascending",
+   "rationale": "radiosonde climbing faster than 3 m/s",
+   "when": {
+    "all": [
+     {
+      "kind": "air-balloon"
+     },
+     {
+      "attr": "vel_v",
+      "gt": 3
+     }
+    ]
+   }
+  },
+  {
+   "label": "space-station",
+   "rationale": "crewed space station core module",
+   "when": {
+    "all": [
+     {
+      "kind": "space-satellite"
+     },
+     {
+      "any": [
+       {
+        "attr": "name",
+        "equals": "ISS (ZARYA)"
+       },
+       {
+        "attr": "name",
+        "equals": "ISS (NAUKA)"
+       },
+       {
+        "attr": "name",
+        "equals": "CSS (TIANHE)"
+       },
+       {
+        "attr": "name",
+        "equals": "CSS (WENTIAN)"
+       },
+       {
+        "attr": "name",
+        "equals": "CSS (MENGTIAN)"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "gnss-satellite",
+   "rationale": "navigation satellite (CelesTrak gnss group)",
+   "when": {
+    "all": [
+     {
+      "kind": "space-satellite"
+     },
+     {
+      "attr": "group",
+      "equals": "gnss"
+     }
+    ]
+   }
+  },
+  {
+   "label": "weather-satellite",
+   "rationale": "weather satellite (CelesTrak weather group)",
+   "when": {
+    "all": [
+     {
+      "kind": "space-satellite"
+     },
+     {
+      "attr": "group",
+      "equals": "weather"
+     }
+    ]
+   }
+  },
+  {
+   "label": "earthquake-tsunami",
+   "rationale": "USGS tsunami flag set",
+   "when": {
+    "all": [
+     {
+      "kind": "event-earthquake"
+     },
+     {
+      "attr": "tsunami",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "earthquake-significant",
+   "rationale": "magnitude above 5",
+   "when": {
+    "all": [
+     {
+      "kind": "event-earthquake"
+     },
+     {
+      "attr": "mag",
+      "gt": 5
+     }
+    ]
+   }
+  },
+  {
+   "label": "earthquake-notable",
+   "rationale": "magnitude above 4",
+   "when": {
+    "all": [
+     {
+      "kind": "event-earthquake"
+     },
+     {
+      "attr": "mag",
+      "gt": 4
+     }
+    ]
+   }
+  },
+  {
+   "label": "flood-severe-warning",
+   "rationale": "EA severe flood warning (danger to life)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-flood"
+     },
+     {
+      "attr": "severity_level",
+      "equals": 1
+     }
+    ]
+   }
+  },
+  {
+   "label": "flood-warning",
+   "rationale": "EA flood warning (flooding expected)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-flood"
+     },
+     {
+      "attr": "severity_level",
+      "equals": 2
+     }
+    ]
+   }
+  },
+  {
+   "label": "flood-alert",
+   "rationale": "EA flood alert (flooding possible)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-flood"
+     },
+     {
+      "attr": "severity_level",
+      "equals": 3
+     }
+    ]
+   }
+  },
+  {
+   "label": "airport-lifr",
+   "rationale": "METAR flight category LIFR (ceiling under 500 ft or visibility under 1 mile)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-airport"
+     },
+     {
+      "attr": "flight_category",
+      "equals": "LIFR"
+     }
+    ]
+   }
+  },
+  {
+   "label": "airport-ifr",
+   "rationale": "METAR flight category IFR (ceiling 500-999 ft or visibility 1-3 miles)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-airport"
+     },
+     {
+      "attr": "flight_category",
+      "equals": "IFR"
+     }
+    ]
+   }
+  },
+  {
+   "label": "airport-strong-wind",
+   "rationale": "METAR gusts over 35 kt",
+   "when": {
+    "all": [
+     {
+      "kind": "land-airport"
+     },
+     {
+      "attr": "gust_kt",
+      "gt": 35
+     }
+    ]
+   }
+  },
+  {
+   "label": "airport-taf-lifr",
+   "rationale": "TAF forecasts LIFR within 12 h (ceiling under 500 ft or visibility under 1 mile)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-airport"
+     },
+     {
+      "attr": "taf_worst_category_12h",
+      "equals": "LIFR"
+     }
+    ]
+   }
+  },
+  {
+   "label": "airport-taf-ifr",
+   "rationale": "TAF forecasts IFR within 12 h (ceiling under 1,000 ft or visibility under 3 miles)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-airport"
+     },
+     {
+      "attr": "taf_worst_category_12h",
+      "equals": "IFR"
+     }
+    ]
+   }
+  },
+  {
+   "label": "airport-mvfr",
+   "rationale": "METAR flight category MVFR (ceiling 1,000-3,000 ft or visibility 3-5 miles)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-airport"
+     },
+     {
+      "attr": "flight_category",
+      "equals": "MVFR"
+     }
+    ]
+   }
+  },
+  {
+   "label": "sigmet-volcanic-ash",
+   "rationale": "SIGMET for volcanic ash",
+   "when": {
+    "all": [
+     {
+      "kind": "event-sigmet"
+     },
+     {
+      "attr": "hazard",
+      "equals": "VA"
+     }
+    ]
+   }
+  },
+  {
+   "label": "sigmet-tropical-cyclone",
+   "rationale": "SIGMET for a tropical cyclone",
+   "when": {
+    "all": [
+     {
+      "kind": "event-sigmet"
+     },
+     {
+      "attr": "hazard",
+      "equals": "TC"
+     }
+    ]
+   }
+  },
+  {
+   "label": "sigmet-severe-turbulence",
+   "rationale": "SIGMET for severe turbulence",
+   "when": {
+    "all": [
+     {
+      "kind": "event-sigmet"
+     },
+     {
+      "attr": "hazard",
+      "equals": "TURB"
+     }
+    ]
+   }
+  },
+  {
+   "label": "sigmet-severe-icing",
+   "rationale": "SIGMET for severe icing",
+   "when": {
+    "all": [
+     {
+      "kind": "event-sigmet"
+     },
+     {
+      "attr": "hazard",
+      "equals": "ICE"
+     }
+    ]
+   }
+  },
+  {
+   "label": "sigmet-mountain-wave",
+   "rationale": "SIGMET for severe mountain wave",
+   "when": {
+    "all": [
+     {
+      "kind": "event-sigmet"
+     },
+     {
+      "attr": "hazard",
+      "equals": "MTW"
+     }
+    ]
+   }
+  },
+  {
+   "label": "sigmet-thunderstorm",
+   "rationale": "SIGMET for thunderstorms (embedded, obscured, frequent or squall line)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-sigmet"
+     },
+     {
+      "attr": "hazard",
+      "equals": "TS"
+     }
+    ]
+   }
+  },
+  {
+   "label": "sigmet-other",
+   "rationale": "SIGMET for another hazard",
+   "when": {
+    "all": [
+     {
+      "kind": "event-sigmet"
+     },
+     {
+      "has": "hazard"
+     }
+    ]
+   }
+  },
+  {
+   "label": "weather-warning-red",
+   "rationale": "red warning (dangerous weather, take action)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-weather-warning"
+     },
+     {
+      "attr": "level",
+      "equals": "red"
+     }
+    ]
+   }
+  },
+  {
+   "label": "weather-warning-amber",
+   "rationale": "amber warning (increased likelihood of impacts)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-weather-warning"
+     },
+     {
+      "attr": "level",
+      "equals": "amber"
+     }
+    ]
+   }
+  },
+  {
+   "label": "weather-warning-yellow",
+   "rationale": "yellow warning (impacts possible)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-weather-warning"
+     },
+     {
+      "attr": "level",
+      "equals": "yellow"
+     }
+    ]
+   }
+  },
+  {
+   "label": "geomagnetic-storm-severe",
+   "rationale": "NOAA G4-G5 geomagnetic storm",
+   "when": {
+    "all": [
+     {
+      "kind": "space-weather"
+     },
+     {
+      "attr": "g_scale",
+      "gt": 3
+     }
+    ]
+   }
+  },
+  {
+   "label": "radio-blackout-strong",
+   "rationale": "NOAA R3+ radio blackout (HF loss on the sunlit side)",
+   "when": {
+    "all": [
+     {
+      "kind": "space-weather"
+     },
+     {
+      "attr": "r_scale",
+      "gt": 2
+     }
+    ]
+   }
+  },
+  {
+   "label": "solar-radiation-storm",
+   "rationale": "NOAA S1+ solar radiation storm",
+   "when": {
+    "all": [
+     {
+      "kind": "space-weather"
+     },
+     {
+      "attr": "s_scale",
+      "gt": 0
+     }
+    ]
+   }
+  },
+  {
+   "label": "geomagnetic-storm",
+   "rationale": "NOAA G1-G3 geomagnetic storm",
+   "when": {
+    "all": [
+     {
+      "kind": "space-weather"
+     },
+     {
+      "attr": "g_scale",
+      "gt": 0
+     }
+    ]
+   }
+  },
+  {
+   "label": "radio-blackout",
+   "rationale": "NOAA R1-R2 radio blackout",
+   "when": {
+    "all": [
+     {
+      "kind": "space-weather"
+     },
+     {
+      "attr": "r_scale",
+      "gt": 0
+     }
+    ]
+   }
+  },
+  {
+   "label": "road-severe",
+   "rationale": "TfL severe road disruption",
+   "when": {
+    "all": [
+     {
+      "kind": "land-road-disruption"
+     },
+     {
+      "attr": "severity",
+      "equals": "Severe"
+     }
+    ]
+   }
+  },
+  {
+   "label": "road-closure",
+   "rationale": "TfL serious disruption with closures",
+   "when": {
+    "all": [
+     {
+      "kind": "land-road-disruption"
+     },
+     {
+      "attr": "has_closures",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "road-serious",
+   "rationale": "TfL serious road disruption",
+   "when": {
+    "all": [
+     {
+      "kind": "land-road-disruption"
+     },
+     {
+      "attr": "severity",
+      "equals": "Serious"
+     }
+    ]
+   }
+  },
+  {
+   "label": "windfarm-operational",
+   "rationale": "offshore wind farm in operation",
+   "when": {
+    "all": [
+     {
+      "kind": "sea-windfarm"
+     },
+     {
+      "attr": "status",
+      "equals": "operational"
+     }
+    ]
+   }
+  },
+  {
+   "label": "windfarm-under-construction",
+   "rationale": "offshore wind farm under construction",
+   "when": {
+    "all": [
+     {
+      "kind": "sea-windfarm"
+     },
+     {
+      "attr": "status",
+      "equals": "under construction"
+     }
+    ]
+   }
+  },
+  {
+   "label": "windfarm-planned",
+   "rationale": "offshore wind farm consented, in planning or earlier",
+   "when": {
+    "all": [
+     {
+      "kind": "sea-windfarm"
+     },
+     {
+      "has": "status"
+     }
+    ]
+   }
+  },
+  {
+   "label": "installation-floating",
+   "rationale": "floating production or storage unit (FPSO/FSO)",
+   "when": {
+    "all": [
+     {
+      "kind": "sea-platform"
+     },
+     {
+      "any": [
+       {
+        "attr": "type",
+        "equals": "fpso"
+       },
+       {
+        "attr": "type",
+        "equals": "fso"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "installation-disused",
+   "rationale": "offshore installation not in use or abandoned",
+   "when": {
+    "all": [
+     {
+      "kind": "sea-platform"
+     },
+     {
+      "any": [
+       {
+        "attr": "status",
+        "equals": "not in use"
+       },
+       {
+        "attr": "status",
+        "equals": "abandoned"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "installation-active",
+   "rationale": "active offshore surface installation",
+   "when": {
+    "all": [
+     {
+      "kind": "sea-platform"
+     },
+     {
+      "attr": "status",
+      "equals": "active"
+     }
+    ]
+   }
+  },
+  {
+   "label": "fire-intense",
+   "rationale": "fire radiative power over 50 MW",
+   "when": {
+    "all": [
+     {
+      "kind": "event-fire"
+     },
+     {
+      "attr": "frp",
+      "gt": 50
+     }
+    ]
+   }
+  },
+  {
+   "label": "fire-high-confidence",
+   "rationale": "satellite fire hotspot, high confidence",
+   "when": {
+    "all": [
+     {
+      "kind": "event-fire"
+     },
+     {
+      "attr": "confidence",
+      "equals": "high"
+     }
+    ]
+   }
+  },
+  {
+   "label": "disaster-red",
+   "rationale": "GDACS red alert (high humanitarian impact likely)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-disaster"
+     },
+     {
+      "attr": "alert_level",
+      "equals": "red"
+     }
+    ]
+   }
+  },
+  {
+   "label": "disaster-orange",
+   "rationale": "GDACS orange alert (moderate impact possible)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-disaster"
+     },
+     {
+      "attr": "alert_level",
+      "equals": "orange"
+     }
+    ]
+   }
+  },
+  {
+   "label": "gnss-interference-high",
+   "rationale": "50% or more of the aircraft in a 1 degree cell report degraded GNSS (NIC 0, NACp 0 or lost GPS)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-gnss-interference"
+     },
+     {
+      "attr": "level",
+      "equals": "high"
+     }
+    ]
+   }
+  },
+  {
+   "label": "gnss-interference-medium",
+   "rationale": "25% or more of the aircraft in a 1 degree cell report degraded GNSS (NIC 0, NACp 0 or lost GPS)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-gnss-interference"
+     },
+     {
+      "attr": "level",
+      "equals": "medium"
+     }
+    ]
+   }
+  },
+  {
+   "label": "camera-wrong-way",
+   "rationale": "camera analytics: a vehicle moving along the same lane as two or more vehicles going the opposite way (approximate, uncalibrated)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-camera-ai"
+     },
+     {
+      "attr": "ai_wrong_way",
+      "gt": 0
+     }
+    ]
+   }
+  },
+  {
+   "label": "camera-stopped-vehicle",
+   "rationale": "camera analytics: a vehicle stationary through the whole clip on road other vehicles drove over (approximate, uncalibrated)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-camera-ai"
+     },
+     {
+      "attr": "ai_blocking",
+      "gt": 0
+     }
+    ]
+   }
+  },
+  {
+   "label": "camera-person-on-road",
+   "rationale": "camera analytics: a person standing or walking on road vehicles drove over, including at crossings (approximate; people are counted, never identified)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-camera-ai"
+     },
+     {
+      "attr": "ai_person_road",
+      "gt": 0
+     }
+    ]
+   }
+  },
+  {
+   "label": "camera-queue",
+   "rationale": "camera analytics: 8 or more vehicles in view and at least 75% of them stationary through the clip (approximate, uncalibrated)",
+   "when": {
+    "all": [
+     {
+      "kind": "land-camera-ai"
+     },
+     {
+      "attr": "ai_queue",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "grid-frequency-critical",
+   "rationale": "GB system frequency outside 49.5-50.5 Hz (statutory limits)",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-power-grid"
+     },
+     {
+      "any": [
+       {
+        "attr": "frequency_hz",
+        "lt": 49.5
+       },
+       {
+        "attr": "frequency_hz",
+        "gt": 50.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "grid-frequency-excursion",
+   "rationale": "GB system frequency outside the 49.8-50.2 Hz operational band",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-power-grid"
+     },
+     {
+      "any": [
+       {
+        "attr": "frequency_hz",
+        "lt": 49.8
+       },
+       {
+        "attr": "frequency_hz",
+        "gt": 50.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "power-cut-severe",
+   "rationale": "unplanned power cut affecting more than 10,000 customers",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-power-outage"
+     },
+     {
+      "attr": "planned",
+      "equals": false
+     },
+     {
+      "attr": "customers",
+      "gt": 10000
+     }
+    ]
+   }
+  },
+  {
+   "label": "power-cut-major",
+   "rationale": "unplanned power cut affecting more than 1,000 customers",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-power-outage"
+     },
+     {
+      "attr": "planned",
+      "equals": false
+     },
+     {
+      "attr": "customers",
+      "gt": 1000
+     }
+    ]
+   }
+  },
+  {
+   "label": "power-cut",
+   "rationale": "unplanned power cut reported by the distribution network operator",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-power-outage"
+     },
+     {
+      "attr": "planned",
+      "equals": false
+     }
+    ]
+   }
+  },
+  {
+   "label": "internet-shutdown",
+   "rationale": "internet outage attributed to a government-directed shutdown (Cloudflare Radar)",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-telecom-outage"
+     },
+     {
+      "attr": "cause",
+      "equals": "GOVERNMENT_DIRECTED"
+     },
+     {
+      "attr": "ongoing",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "internet-outage-military",
+   "rationale": "internet outage attributed to military action (Cloudflare Radar)",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-telecom-outage"
+     },
+     {
+      "attr": "cause",
+      "equals": "MILITARY_ACTION"
+     },
+     {
+      "attr": "ongoing",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "internet-outage",
+   "rationale": "ongoing internet outage (Cloudflare Radar) or disruption seen by two or more IODA signals",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-telecom-outage"
+     },
+     {
+      "any": [
+       {
+        "attr": "ongoing",
+        "equals": true
+       },
+       {
+        "has": "signals"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "faa-restriction-new",
+   "rationale": "the US FAA published a new flight prohibition or advisory for this airspace in the last 7 days",
+   "when": {
+    "all": [
+     {
+      "kind": "airspace-advisory"
+     },
+     {
+      "attr": "issuer",
+      "equals": "FAA"
+     },
+     {
+      "attr": "new_doc_7d",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "faa-flight-prohibition",
+   "rationale": "US FAA prohibits flights by US operators in (parts of) this airspace",
+   "when": {
+    "all": [
+     {
+      "kind": "airspace-advisory"
+     },
+     {
+      "attr": "issuer",
+      "equals": "FAA"
+     },
+     {
+      "attr": "prohibition",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "faa-flight-advisory",
+   "rationale": "US FAA advises US operators of hazards in this airspace",
+   "when": {
+    "all": [
+     {
+      "kind": "airspace-advisory"
+     },
+     {
+      "attr": "issuer",
+      "equals": "FAA"
+     }
+    ]
+   }
+  },
+  {
+   "label": "conflict-zone-bulletin-new",
+   "rationale": "EASA issued a new conflict-zone bulletin for this airspace in the last 7 days",
+   "when": {
+    "all": [
+     {
+      "kind": "airspace-advisory"
+     },
+     {
+      "attr": "new_7d",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "conflict-zone-bulletin-revised",
+   "rationale": "EASA revised its conflict-zone bulletin for this airspace in the last 7 days",
+   "when": {
+    "all": [
+     {
+      "kind": "airspace-advisory"
+     },
+     {
+      "attr": "revised_7d",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "conflict-zone-bulletin",
+   "rationale": "active EASA conflict-zone bulletin for this airspace",
+   "when": {
+    "all": [
+     {
+      "kind": "airspace-advisory"
+     }
+    ]
+   }
+  },
+  {
+   "label": "censorship-rising",
+   "rationale": "OONI tests show internet interference well above this country's previous 7 days",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-telecom-censorship"
+     },
+     {
+      "attr": "rising",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "censorship-high",
+   "rationale": "10% or more of OONI web tests in this country were anomalous or confirmed blocked",
+   "when": {
+    "all": [
+     {
+      "kind": "utility-telecom-censorship"
+     }
+    ]
+   }
+  },
+  {
+   "label": "tsunami-warning",
+   "rationale": "a US tsunami warning centre has issued a tsunami warning",
+   "when": {
+    "all": [
+     {
+      "kind": "event-tsunami"
+     },
+     {
+      "attr": "category",
+      "equals": "Warning"
+     }
+    ]
+   }
+  },
+  {
+   "label": "tsunami-advisory",
+   "rationale": "a US tsunami warning centre has issued a tsunami advisory, watch or threat message",
+   "when": {
+    "all": [
+     {
+      "kind": "event-tsunami"
+     },
+     {
+      "any": [
+       {
+        "attr": "category",
+        "equals": "Advisory"
+       },
+       {
+        "attr": "category",
+        "equals": "Watch"
+       },
+       {
+        "attr": "category",
+        "equals": "Threat"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "label": "tsunami-information",
+   "rationale": "tsunami information statement (no threat expected)",
+   "when": {
+    "all": [
+     {
+      "kind": "event-tsunami"
+     }
+    ]
+   }
+  },
+  {
+   "label": "news-surge",
+   "rationale": "news coverage of this topic in the last hour is at least 3 times its 24-hour hourly median",
+   "when": {
+    "all": [
+     {
+      "kind": "event-news"
+     },
+     {
+      "attr": "surge",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "military-aircraft",
+   "rationale": "adsb.fi flags this aircraft's registration or address block as military",
+   "when": {
+    "all": [
+     {
+      "kind": "air-track"
+     },
+     {
+      "attr": "military",
+      "equals": true
+     }
+    ]
+   }
+  },
+  {
+   "label": "gulf-fire-at-sea",
+   "rationale": "satellite fire at sea where none was seen since July and no offshore platform is mapped: possibly a burning ship",
+   "when": {
+    "all": [
+     {
+      "kind": "event-fire-at-sea"
+     }
+    ]
+   }
+  },
+  {
+   "label": "gulf-watch-summary",
+   "rationale": "Gulf watch summary of all indicators",
+   "when": {
+    "all": [
+     {
+      "kind": "event-indicator"
+     },
+     {
+      "attr": "indicator",
+      "equals": "Summary"
+     }
+    ]
+   }
+  },
+  {
+   "label": "gulf-watch-elevated",
+   "rationale": "this Gulf watch indicator is well away from its normal level",
+   "when": {
+    "all": [
+     {
+      "kind": "event-indicator"
+     },
+     {
+      "attr": "status",
+      "equals": "elevated"
+     }
+    ]
+   }
+  },
+  {
+   "label": "gulf-watch",
+   "rationale": "Gulf watch indicator within its normal level, or still learning it",
+   "when": {
+    "all": [
+     {
+      "kind": "event-indicator"
+     }
+    ]
+   }
+  }
+ ]
+}

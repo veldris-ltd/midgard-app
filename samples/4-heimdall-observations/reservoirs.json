@@ -1,0 +1,413 @@
+{
+ "feed": "reservoirs",
+ "total_in_recording": 27,
+ "sample": [
+  {
+   "entity": "RES-720101",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.9787,
+    "lon": -2.6771,
+    "network": "water",
+    "name": "Abbeystead Reservoir",
+    "level_m": 0.146,
+    "reading_at": 1792681200,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-768010",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 54.6683,
+    "lon": -2.76746,
+    "network": "water",
+    "name": "Thacka Beck Reservoir",
+    "level_m": -0.008,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-750604",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 54.56166,
+    "lon": -3.0688,
+    "network": "water",
+    "name": "Thirlmere Reservoir",
+    "level_m": 10.77,
+    "spillway_m": 16.55,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-E4823",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.52925,
+    "lon": -0.75877,
+    "network": "water",
+    "name": "Great Easton Flood Storage Reservoir",
+    "level_m": 0.258,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-E1782",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.47049,
+    "lon": -0.90911,
+    "network": "water",
+    "name": "Litte Bowden Flood Storage Reservoir",
+    "level_m": 0.253,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-761102",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 54.53468,
+    "lon": -2.76977,
+    "network": "water",
+    "name": "Haweswater Reservoir",
+    "level_m": 17.823,
+    "spillway_m": 31.39,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-E1310",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.49389,
+    "lon": -0.64929,
+    "network": "water",
+    "name": "Weldon Flood Storage Reservoir",
+    "level_m": 0.072,
+    "reading_at": 1792688400,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-E4828",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.54618,
+    "lon": -0.83203,
+    "network": "water",
+    "name": "Medbourne Flood Storage Reservoir",
+    "level_m": 0.283,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-4092",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.36571,
+    "lon": -1.69955,
+    "network": "water",
+    "name": "Ladybower Reservoir Level",
+    "level_m": 12.946,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-692100",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.48268,
+    "lon": -1.91735,
+    "network": "water",
+    "name": "Torside Reservoir",
+    "level_m": -1.164,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-692117",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.47093,
+    "lon": -1.96568,
+    "network": "water",
+    "name": "Bottoms Reservoir",
+    "level_m": -1.544,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-711007",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.98644,
+    "lon": -2.42948,
+    "network": "water",
+    "name": "Stocks Reservoir Level",
+    "level_m": -4.9,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-023055",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 55.1777,
+    "lon": -2.46127,
+    "network": "water",
+    "name": "Kielder Reservoir",
+    "level_m": -4.295,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-023060",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 54.85456,
+    "lon": -1.96467,
+    "network": "water",
+    "name": "Derwent Reservoir",
+    "level_m": -6.054,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-700401",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.62622,
+    "lon": -2.5755,
+    "network": "water",
+    "name": "Upper Rivington Reservoir",
+    "level_m": -1.707,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-700399",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.60688,
+    "lon": -2.55982,
+    "network": "water",
+    "name": "Lower Rivington Reservoir",
+    "level_m": -2.0,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-531187",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 51.5351,
+    "lon": -1.88511,
+    "network": "water",
+    "name": "Hancocks Water Reservoir",
+    "level_m": 4.343,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-L1538A",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.96623,
+    "lon": -1.98744,
+    "network": "water",
+    "name": "Skipton Waller Hill Reservoir",
+    "level_m": 0.318,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-F2108A",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 54.11029,
+    "lon": -1.78562,
+    "network": "water",
+    "name": "Gouthwaite Reservoir",
+    "level_m": 8.601,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-5042",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.53384,
+    "lon": -1.94428,
+    "network": "water",
+    "name": "Forge Mill Reservoir",
+    "level_m": 98.8,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-4765",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.8694,
+    "lon": -1.71952,
+    "network": "water",
+    "name": "Foston Reservoir",
+    "level_m": 0.501,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-4090",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.40522,
+    "lon": -1.74026,
+    "network": "water",
+    "name": "Derwent Reservoir LVL",
+    "level_m": 5.671,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-4089",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.42905,
+    "lon": -1.74704,
+    "network": "water",
+    "name": "Howden Reservoir LVL",
+    "level_m": 10.708,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-4106",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 53.13491,
+    "lon": -1.43525,
+    "network": "water",
+    "name": "Ogston Reservoir LVL",
+    "level_m": 3.24,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-4846",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.72853,
+    "lon": -1.17601,
+    "network": "water",
+    "name": "Quorn Swithland Reservoir",
+    "level_m": 3.85,
+    "reading_at": 1792689300,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-2853",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.40829,
+    "lon": -2.33754,
+    "network": "water",
+    "name": "Trimpley Reservoir LVL",
+    "level_m": 29.67,
+    "reading_at": 1792688400,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  },
+  {
+   "entity": "RES-2820",
+   "kind": "utility-water-reservoir",
+   "observedAt": 1792691100,
+   "attrs": {
+    "lat": 52.4837,
+    "lon": -2.38767,
+    "network": "water",
+    "name": "Chelmarsh Reservoir LVL",
+    "level_m": 243.0,
+    "reading_at": 1792688400,
+    "operator": "Environment Agency",
+    "source": "environment-agency"
+   }
+  }
+ ]
+}

@@ -1,0 +1,68 @@
+{
+ "version": 1,
+ "rules": [
+  {
+   "id": "source-channel",
+   "role": "feed-source",
+   "action": "OpenChannel",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "source-ingest",
+   "role": "feed-source",
+   "action": "Ingest",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "analyst-channel",
+   "role": "picture-reader",
+   "action": "OpenChannel",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "analyst-read",
+   "role": "picture-reader",
+   "action": "ReadPicture",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "analyst-history",
+   "role": "picture-reader",
+   "action": "ReadHistory",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "analyst-alerts",
+   "role": "picture-reader",
+   "action": "ReadAlerts",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "analyst-acknowledge",
+   "role": "picture-reader",
+   "action": "AcknowledgeAlert",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "analyst-advise",
+   "role": "picture-reader",
+   "action": "AdviseOptions",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "analyst-ask",
+   "role": "picture-reader",
+   "action": "AskPicture",
+   "resource": "*",
+   "effect": "permit"
+  }
+ ]
+}

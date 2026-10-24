@@ -11,7 +11,7 @@
 
 ## 1. Executive Summary
 
-Forge is the data-operations product of the Midgard suite. It ingests data from any source, transforms it through low-code and pro-code pipelines, versions every dataset like source control, and projects the result into the Midgard object fabric. Forge goes beyond established platforms in three deliberate ways: native post-quantum encryption of all data at rest and in transit; local AI assistance for pipeline authoring served by the Mimir layer (Mistral Small 3.2) rather than a hosted model; and a sovereignty-first design that runs fully air-gapped. `[DD-1]` `[DD-3]` `[DD-4]` `[DD-7]`
+Forge is the data-operations product of the Midgard suite. It ingests data from any source, transforms it through low-code and pro-code pipelines, versions every dataset like source control, and projects the result into the Midgard object fabric. Forge goes beyond established data platforms in three deliberate ways: native post-quantum encryption of all data at rest and in transit; local AI assistance for pipeline authoring served by the Mimir layer (Mistral Small 3.2) rather than a hosted model; and a sovereignty-first design that runs fully air-gapped. `[DD-1]` `[DD-3]` `[DD-4]` `[DD-7]`
 
 This is a **forward-looking design specification** for a greenfield system; every decision carries a provenance tag (`[DD-n]`, `[FR-n]`, `[NFR-n]`, `[STD:...]`) rather than a repository citation.
 

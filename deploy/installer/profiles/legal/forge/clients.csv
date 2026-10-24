@@ -1,0 +1,4 @@
+key,name,client_type,country,kyc_status,risk_rating,onboarded
+C-001,Exempel Logistik GmbH (fictional),legal-entity,DE,verified,standard,2025-03-12
+C-002,Société Fictive SAS (fictional),legal-entity,FR,verified,high,2025-11-04
+C-003,A. N. Other (fictional),natural-person,IE,pending,standard,2026-09-30

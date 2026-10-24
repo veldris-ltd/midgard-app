@@ -9,28 +9,7 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
-### Added
-- **Model bundles that stream.**
-  - `bifrost-bundle` format version 2 writes each payload in chunks, each with its own
-    SHA-256.
-  - `pack_streaming` and `import_streaming` pack and verify a bundle a chunk at a time,
-    so a model's weights cross the air gap without being held in memory.
-  - Authenticity is unchanged: the signed payload digests decide it, and the unsigned
-    chunk digests locate damage.
-  - An import stages its output and moves it into place only once everything has
-    verified.
-  - `mg-bundle` packs and imports this way; version 1 bundles still import.
-  - `mg-model pack` bundles a model directory that passes the load gate.
-  - `mg-model unpack` verifies the bundle offline and runs the load gate on what it
-    wrote, removing the directory if the model does not verify. [AC-MS-3]
-
-### Changed
-- **CI no longer uses Nix.** `ci.yml` builds the digest-pinned toolchain image and runs
-  formatting, lints, the build, the tests, the reproducibility check and the advisory
-  scan in it, with no network (`tools/ci/in-toolchain.sh`). These are the same
-  toolchain and posture as developers and the release runners. The Nix steps ran on a
-  flake with no lock file, which BUILD_ENV already said no automated path should depend
-  on. [RT-47]
+Nothing yet.
 
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 
@@ -46,6 +25,56 @@ the whole release pipeline. GA remains blocked on:
 See `docs/compliance/GA_READINESS.md`.
 
 ### Added
+- **Mistral model family.** `MistralAdapter` serves Mistral AI's Apache-2.0 open-weight
+  models. The adapter set, the router policy, the model loader and the eval matrix
+  cover four families: Mistral, Nemotron, Gemma and Granite. [FR-MS-7]
+- **Sample datasets.** `samples/` holds real data recorded from live public sources on
+  22 October 2026: the configuration it was recorded with, Forge datasets, Heimdall feed
+  snapshots and Heimdall observations. Only files whose sources state an open licence
+  that allows redistribution are included; `catalogue.json` and `NOTICE.md` give every
+  file's source, licence and required credit, and which ones are only in the full
+  `midgard-sample-datasets.zip`. [FR-F-1] [FR-H-3]
+  - `samples/convert.py` turns them into an import file for `mg-admin import`, CSV files
+    and jobs for the Forge worker, and observation lines for `heimdall-source`, and
+    writes a build-compatible ontology, naming what it leaves out (`retention`, and one
+    action on a boolean property).
+  - Ingested by both routes on this build: 418 objects and 28 links by `mg-admin
+    import`, and every job through Forge in the installer runs.
+- **Sample data and Heimdall feeds in the installer.** [RC-33]
+  - A screen chooses the sample data, from the repository or the full zip, and the
+    Heimdall feed families to replay. Each feed gets its own mesh identity; the replay
+    keeps the picture under the 1 MiB frame Heimdall returns it in, and the picture is
+    read back.
+  - The install now fails, naming the job, if any Forge job does not sync; it needs
+    Python 3.8+, and offers to install it.
+  - The install report lists the data and feeds loaded and the credits their licences
+    require.
+- **A guided installer for one server.** `deploy/installer/mg-install` installs the
+  suite, whole or in part, on a Linux server, and manages it afterwards. [RC-33]
+  [NFR-SEC-1]
+  - A server check: architecture, distribution, sizing tier, disk, Docker, ports, Plesk
+    and network; it can install Docker from Docker's own repository.
+  - Four use-case profiles: legal practice (EU), healthcare (NHS aligned), military
+    (British and EU aligned) and utilities (water, electricity, transport,
+    communications). Each sets the products, model, second factor and dual control, and
+    brings a starter schema, a policy with `operator` and `viewer` roles, Forge jobs over
+    fictional records, and sector guidance. Each was checked by installing it, syncing
+    every Forge job and signing in.
+  - The first user and, where the profile calls for it, two IAM administrators are
+    enrolled before anything starts. Passwords are never stored or logged; the
+    authenticator key is shown once.
+  - An optional web console image (`console.Dockerfile`), served read-only on
+    `127.0.0.1:5173` with a strict content security policy.
+  - Checks after start: the gateway answers, Forge syncs, the first user signs in
+    (with a computed authenticator code) and reads the synced data, Mimir answers over
+    PQ-mTLS, Bifrost and Heimdall answer reads, the console is served.
+  - `status`, `start`, `stop`, `logs`, `add-user`, `backup`, `handed-over` and
+    `uninstall [--purge]`; unattended installs from an answers file; every step safe
+    to repeat, so a failed install resumes.
+- **The console signs in principals with a second factor.** `AuthGate` has an
+  authenticator-code field, and the SDK's `login` sends the code when one is entered.
+  Before this, a principal enrolled with `--totp` could sign in over the API but not
+  in the console. [RC-37] [RC-29]
 - **The edge on the real enclosure.** `http-gateway` serves the object-fabric routes
   from `fabric::Fabric` and its single governance spine, so edge admission and every
   fabric call go to one PQ-signed ledger.
@@ -84,7 +113,77 @@ See `docs/compliance/GA_READINESS.md`.
   - The verified set travels as one signed air-gap bundle.
   - A GitHub pre-release is published only on a manual run that names the tag.
 
+- **Model bundles that stream.**
+  - `bifrost-bundle` format version 2 writes each payload in chunks, each with its own
+    SHA-256.
+  - `pack_streaming` and `import_streaming` pack and verify a bundle a chunk at a time,
+    so a model's weights cross the air gap without being held in memory.
+  - Authenticity is unchanged: the signed payload digests decide it, and the unsigned
+    chunk digests locate damage.
+  - An import stages its output and moves it into place only once everything has
+    verified.
+  - `mg-bundle` packs and imports this way; version 1 bundles still import.
+  - `mg-model pack` bundles a model directory that passes the load gate.
+  - `mg-model unpack` verifies the bundle offline and runs the load gate on what it
+    wrote, removing the directory if the model does not verify. [AC-MS-3]
+- **Release readiness: every published claim checks against the tree.**
+  - A claims ledger (`docs/compliance/claims.toml`, rendered to `CLAIMS.md`) gives each
+    capability a status and its evidence; `tools/ci/claims.sh` holds every row to the
+    files, lines, tests and criteria it cites. [RF-CA-1]
+  - `tools/ci/numbers.sh` generates `docs/compliance/NUMBERS.md` from the tree and the
+    gate record, and fails when a swept document quotes a figure that differs. [RF-CA-2]
+  - `tools/ci/gate-run.sh` and `tools/ci/gate-record.sh` keep the acceptance and test
+    logs and turn a run into a record under `docs/compliance/gate-runs/`; the README
+    and GA_READINESS status tables are generated from it. [RF-CA-5]
+  - `tools/ci/tag-release.sh` cuts the signed tag only once the gate record, numbers
+    sheet and claims ledger cover the commit, and `tools/ci/verify-tag.sh` verifies the
+    tag against `deploy/trust/allowed_signers` before a release builds. [RF-CA-6]
+  - `deploy/trust/ceremony.sh` does the key ceremony's mechanical part: it generates
+    the release and Bifrost admission keys into sealed keystores outside the checkout
+    and writes the public trust anchors. It commits nothing.
+- **CI on GitHub and GitLab.** `.github/workflows/` and `.gitlab-ci.yml` hold no build
+  logic: every step calls `tools/ci/run.sh`, and `tools/ci/pipelines.sh` fails if the
+  two call different jobs. `tools/ci/release.sh` runs the whole release, or a dry run
+  with throwaway keys. `tools/ci/gitlab-rules.sh` applies the repository rules to a
+  GitLab mirror. [RF-CA-4]
+- **Offline build from a fresh clone.** `.cargo/config.toml` resolves every crate from
+  `vendor/`, and `tools/ci/vendor-check.sh` requires `vendor/` to be exactly the crates
+  `Cargo.lock` names. [RF-CA-3]
+- **npm artefacts are gated like binaries.** `mg-sbom` reads the production closure
+  of a pnpm importer, and `mg-scan` matches each component against its own
+  ecosystem's vendored advisories: RustSec for cargo, an OSV snapshot for npm.
+- **Contract schemas** for the ontology and import files
+  (`contracts/schema/*.v1.schema.json`), with fixtures and a test that holds the
+  parsers to them. [RF-CA-13]
+- `.github/CODEOWNERS`, and `docs/guides/IMPORT_YOUR_OWN_DATA.md`.
+- **A recorded waiver for the client shell audits, for this pre-release only.** No
+  shell has a buildable project yet, so no on-device audit can run. The gate honours a
+  line in `clients/shells/audit-waivers.txt` naming the exact pre-release version, its
+  approver and the reason, and still lists every missing record. A final release
+  cannot be waived. [RC-49]
+
 ### Fixed
+- **Heimdall keeps words that Rust reads as non-finite numbers as text.** `parse_attrs`
+  turned `nan`, `inf` and `infinity`, in any case, into float attributes, which the
+  picture then showed as `null`: the airport code `NAN` (Nadi, Fiji) in the sample
+  feeds lost its value. Only finite numbers are numbers now. [FR-H-3]
+- **The sample datasets are strict JSON.** The full set's `air_quality.json` held one
+  `NaN`, which made the gateway refuse the dataset; it is `null` in the corrected
+  archive, which records the change in `CORRECTIONS.md`.
+- **Quieter install logs.** The compose image creates its service account
+  without `useradd`'s system-range warning, and the container health check reads the
+  whole response before closing, so the gateway no longer logs a reset connection on
+  every check. [RC-33]
+- Release signing and verification (`mg-sign`, `mg-verify`, `attest`) parse the SBOM
+  strictly, require a purl on every component, and refuse to sign under an algorithm
+  no verifier accepts. [RF-SC-1] [RF-SC-2]
+- `mg-repro` compares exactly the artefacts Cargo reports for the build, so stale
+  files no longer count. [RF-SC-3]
+- `mg-scan` reads a compound version requirement as one range, so it no longer clears
+  the vulnerable versions below it, and judges staleness by the system clock. [RF-SC-4]
+- `mg-register` admits to the Bifrost registry only artefacts that verify against the
+  pinned release anchor.
+- The gate run keeps the test log when a build step left `target/` owned by root.
 - RT-21: model provenance checks no longer report `Verified` without comparing bytes.
   A present vendor signature is recorded as unchecked, and a commit is verified only
   against a pinned file listing.
@@ -137,9 +236,18 @@ posture. Highlights:
   a threat model, and a compliance/data-residency matrix.
 
 ### Changed
+- **CI no longer uses Nix.** `ci.yml` builds the digest-pinned toolchain image and runs
+  formatting, lints, the build, the tests, the reproducibility check and the advisory
+  scan in it, with no network (`tools/ci/in-toolchain.sh`). These are the same
+  toolchain and posture as developers and the release runners. The Nix steps ran on a
+  flake with no lock file, which BUILD_ENV already said no automated path should depend
+  on. [RT-47]
+- The marketing site no longer states commercial tiers, prices, support SLAs or
+  placeholder company details; the pricing page is a licence page. The README, guides
+  and site pages are worded to the claims ledger.
+- The GitHub actions are pinned by SHA to their first Node 24 releases.
 - Contract surface reconciled with reality: protos govern the client SDK edge;
   internal service-to-service uses the lean `pq-mtls` binary codec (Rust-typed).
-- Rebranded to Veldris Ltd. across the design system and marketing site.
 
 ### Security
 - Fail-closed everywhere on the critical paths (signature/verification, policy

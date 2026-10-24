@@ -39,7 +39,9 @@ FROM ${RUNTIME}
 
 # A dedicated non-root, no-login service account, and the mount points its volumes
 # are created from (a new named volume takes this ownership).
-RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin midgard \
+# -K lets this system account take uid 10001 without useradd warning that it is above
+# the distribution's system range.
+RUN useradd --system -K SYS_UID_MAX=10001 --uid 10001 --no-create-home --shell /usr/sbin/nologin midgard \
     && mkdir -p /state /identity /vol/core-state /vol/mimir-identity /vol/mimir-state \
                 /vol/probe-identity /vol/fleet-identity /vol/fleet-state /vol/fleet-clients \
                 /vol/heimdall-identity /vol/heimdall-state /vol/heimdall-clients \

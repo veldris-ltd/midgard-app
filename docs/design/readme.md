@@ -2,7 +2,7 @@
 
 > **The sovereign enclosure.** The design system for Midgard, Veldris Ltd's sovereign, open-source, post-quantum platform suite, and its four child products: **Forge**, **Mimir**, **Bifrost**, and **Heimdall**.
 
-Midgard is the core platform ("the enclosure"): identity, the object/ontology fabric, storage, compute, governance, and post-quantum cryptography by default. Atop it sit four independently useful, composable products, each independently useful:
+Midgard is the core platform ("the enclosure"): identity, the object/ontology fabric, storage, compute, governance, and post-quantum cryptography by default. Atop it sit four independently useful, composable products:
 
 | Product | Domain | Accent |
 |---|---|---|
@@ -18,10 +18,10 @@ The visual language extends the **Veldris** house style; the suite shares Veldri
 
 ## Sources
 
-- **Seven Solutions Architecture Documents** (Veldris Ltd, v1.0, 2026-07-02, greenfield design specs, published with this repository; the Word originals are in `../dev/documents/`): `SAD_00_Midgard_Core.docx`, `SAD_01_Forge.docx`, `SAD_02_Mimir.docx`, `SAD_03_Bifrost.docx`, `SAD_04_Heimdall.docx`, `SAD_06_Client_Platforms.docx` (native mobile / desktop / web client layer), `SAD_07_Admin_Control_Panel.docx` (unified admin console: dual-control, break-glass, config-as-code, advisory copilot). Plain-text extractions live in `extracted/`.
+- **Seven Solutions Architecture Documents** (Veldris Ltd, v1.0, greenfield design specs, published with this repository; the Word originals are in `../dev/documents/`): `SAD_00_Midgard_Core.docx`, `SAD_01_Forge.docx`, `SAD_02_Mimir.docx`, `SAD_03_Bifrost.docx`, `SAD_04_Heimdall.docx`, `SAD_06_Client_Platforms.docx` (native mobile / desktop / web client layer), `SAD_07_Admin_Control_Panel.docx` (unified admin console: dual-control, break-glass, config-as-code, advisory copilot). Plain-text extractions live in `extracted/`.
 - **Veldris Design System** (bound to this project): the visual-style parent. Ink ramp, house red, Oxanium / Space Grotesk / JetBrains Mono, terminal + label devices.
 - No product UI exists yet (greenfield): the UI kits here are **proposed designs** derived from the SADs' functional requirements, not recreations.
-- **No logos were provided** for Midgard or any child product (Midgard is built by Veldris Ltd; the SAD documents were authored by Veldris Ltd). No marks were invented: wherever a logo would sit, the product name is set in plain type (see `ProductMark`, a purely typographic tile). Supply real marks and we'll wire them in.
+- **No logos were provided** for Midgard or any child product (Midgard and its SAD documents are Veldris Ltd property). No marks were invented: wherever a logo would sit, the product name is set in plain type (see `ProductMark`, a purely typographic tile). Supply real marks and we'll wire them in.
 
 ---
 
@@ -98,7 +98,7 @@ The visual language extends the **Veldris** house style; the suite shares Veldri
 
 ## Index / manifest
 
-**Root**: `styles.css` (global entry; consumers link this), `readme.md` (this guide), `SKILL.md` (Agent-Skills entry point), `ds-loader.js` (component namespace loader for cards/kits/docs).
+**Root**: `styles.css` (global entry; consumers link this), `readme.md` (this guide), `DESIGN_GUIDE.md` (instructions for coding agents), `ds-loader.js` (component namespace loader for cards/kits/docs).
 
 **`docs/`**: the multi-page documentation experience for designers & engineers, with a light/dark/system mode toggle. `index.html` (overview & principles), `foundations.html` (colour incl. both mode ramps, type, spacing, shape, motion, full icon grid, voice), `components.html` (all 28 components: live variants, states, props), `patterns.html` (console anatomy, theming, governance chrome, density, terminal/empty states), `screens.html` (the five consoles embedded), `flows.html` (twenty-eight governed user flows with gate markers). `mode.js` is the mode bootstrap; `shell.jsx` the shared docs chrome.
 

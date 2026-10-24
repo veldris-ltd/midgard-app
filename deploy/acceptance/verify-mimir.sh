@@ -23,7 +23,7 @@
 #   AC-MS-5  hardware eligibility: offer largest eligible variant       (Prompt 3.b)
 #   AC-MS-6  licence-policy-unmet refused exactly as revoked            (Prompt 3.b)
 #   AC-MS-7  revoked fails closed regardless of signature validity      (Prompt 3.b)
-#   AC-MS-4  3 families behind the unchanged API; router picks eligible  (Prompt 3.c)
+#   AC-MS-4  4 families behind the unchanged API; router picks eligible  (Prompt 3.c)
 #   AC-MS-8  no outbound connectivity: served locally from the registry  (Prompt 3.c)
 #   AC-MS-9  cross-family swap hot-swappable, no contract/data change    (Prompt 3.c)
 #
@@ -134,7 +134,7 @@ run_ac "AC-MS-2/5/6/7" "Model Registry: every load verifies ML-DSA sig+licence+h
 # --- AC-MS-4/8/9: Model Abstraction Layer — adapters + router, unchanged API --
 # Runs offline; under `docker --network none` this also demonstrates AC-MS-8's
 # no-outbound-dependency claim concretely (served from the local registry).
-run_ac "AC-MS-4/8/9" "3 families behind the unchanged contract; router selects by workload+hardware+policy; local-only serving; cross-family hot-swap (Prompt 3.c)" \
+run_ac "AC-MS-4/8/9" "4 families behind the unchanged contract; router selects by workload+hardware+policy; local-only serving; cross-family hot-swap (Prompt 3.c)" \
     cargo test --offline -p model-server $FIPS --test router
 
 # --- EV-A1..A5: prompt-level Evals, reported per id ---

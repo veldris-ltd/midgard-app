@@ -1,0 +1,403 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "organisations",
+      "every": 600,
+      "source": {
+        "file": "organisations.csv",
+        "columns": [
+          {
+            "name": "ods_code",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "organisation",
+        "key": "ods_code",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "direct-care"
+        ],
+        "properties": {
+          "ods_code": "ods_code",
+          "name": "name",
+          "kind": "kind"
+        }
+      }
+    },
+    {
+      "id": "care_units",
+      "every": 600,
+      "source": {
+        "file": "care_units.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "treatment_function",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "treatment_function_code",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "ods_site",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "organisation",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "care_unit",
+        "key": "key",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "direct-care"
+        ],
+        "properties": {
+          "name": "name",
+          "treatment_function": "treatment_function",
+          "treatment_function_code": "treatment_function_code",
+          "ods_site": "ods_site"
+        }
+      },
+      "links": [
+        {
+          "type": "unit_organisation",
+          "from": "key",
+          "to": "organisation"
+        }
+      ]
+    },
+    {
+      "id": "patients",
+      "every": 300,
+      "source": {
+        "file": "patients.csv",
+        "columns": [
+          {
+            "name": "pseudonym",
+            "type": "text"
+          },
+          {
+            "name": "birth_year",
+            "type": "int",
+            "nullable": true
+          },
+          {
+            "name": "pathway",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "patient",
+        "key": "pseudonym",
+        "marking": "confidential",
+        "purposes": [
+          "operations",
+          "direct-care"
+        ],
+        "properties": {
+          "pseudonym": "pseudonym",
+          "birth_year": "birth_year",
+          "pathway": "pathway"
+        }
+      }
+    },
+    {
+      "id": "encounters",
+      "every": 120,
+      "source": {
+        "file": "encounters.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "occurred",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "snomed_code",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "snomed_term",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "review",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "patient",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "unit",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "encounter",
+        "key": "reference",
+        "marking": "confidential",
+        "purposes": [
+          "operations",
+          "direct-care"
+        ],
+        "properties": {
+          "reference": "reference",
+          "kind": "kind",
+          "occurred": "occurred",
+          "snomed_code": "snomed_code",
+          "snomed_term": "snomed_term",
+          "review": "review"
+        }
+      },
+      "links": [
+        {
+          "type": "encounter_patient",
+          "from": "reference",
+          "to": "patient"
+        },
+        {
+          "type": "encounter_unit",
+          "from": "reference",
+          "to": "unit"
+        }
+      ]
+    },
+    {
+      "id": "referrals",
+      "every": 120,
+      "source": {
+        "file": "referrals.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "priority",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "received",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "rtt_clock",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "breach_date",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "patient",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "unit",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "referral",
+        "key": "reference",
+        "marking": "confidential",
+        "purposes": [
+          "operations",
+          "direct-care"
+        ],
+        "properties": {
+          "reference": "reference",
+          "priority": "priority",
+          "received": "received",
+          "rtt_clock": "rtt_clock",
+          "breach_date": "breach_date",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "referral_patient",
+          "from": "reference",
+          "to": "patient"
+        },
+        {
+          "type": "referral_unit",
+          "from": "reference",
+          "to": "unit"
+        }
+      ]
+    },
+    {
+      "id": "safety_hazards",
+      "every": 600,
+      "source": {
+        "file": "safety_hazards.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "description",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "severity",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "likelihood",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "risk",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "unit",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "safety_hazard",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "direct-care"
+        ],
+        "properties": {
+          "reference": "reference",
+          "description": "description",
+          "severity": "severity",
+          "likelihood": "likelihood",
+          "risk": "risk",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "hazard_unit",
+          "from": "reference",
+          "to": "unit"
+        }
+      ]
+    },
+    {
+      "id": "caldicott_reviews",
+      "every": 600,
+      "source": {
+        "file": "caldicott_reviews.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "purpose",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "legal_basis",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "caldicott_review",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations",
+          "direct-care"
+        ],
+        "properties": {
+          "reference": "reference",
+          "purpose": "purpose",
+          "legal_basis": "legal_basis",
+          "status": "status"
+        }
+      }
+    }
+  ]
+}

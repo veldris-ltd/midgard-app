@@ -23,7 +23,7 @@
 //! catching that would depend on parsing attacker-controlled JSON correctly —
 //! trading a cryptographic guarantee for a parser. With it, every tamper across
 //! all three files is one signature failure, and `verify` needs no JSON parser at
-//! all. `docs/dev/fixes/remedial-fixes.md` records this deviation.
+//! all. `docs/dev/markdown/SAD_09_Completion_Plan.md` (RF-SC-1) records this deviation.
 
 use pqc_agility::hash::sha256;
 

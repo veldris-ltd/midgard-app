@@ -1,0 +1,969 @@
+{
+ "version": 1,
+ "jobs": [
+  {
+   "id": "aircraft",
+   "every": 15,
+   "source": {
+    "file": "aircraft.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "callsign",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "registration",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "aircraft_type",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "latitude",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "longitude",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "altitude_ft",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "on_ground",
+      "type": "bool",
+      "nullable": true
+     },
+     {
+      "name": "ground_speed_kt",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "track_deg",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "vertical_rate_fpm",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "squawk",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "emergency",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "category",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "observed_at",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "nearest_airport",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "nearest_airport_km",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "batch",
+      "type": "text",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "aircraft_live",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "callsign": "callsign",
+     "registration": "registration",
+     "aircraft_type": "aircraft_type",
+     "latitude": "latitude",
+     "longitude": "longitude",
+     "altitude_ft": "altitude_ft",
+     "on_ground": "on_ground",
+     "ground_speed_kt": "ground_speed_kt",
+     "track_deg": "track_deg",
+     "vertical_rate_fpm": "vertical_rate_fpm",
+     "squawk": "squawk",
+     "emergency": "emergency",
+     "category": "category",
+     "observed_at": "observed_at",
+     "nearest_airport": "nearest_airport",
+     "nearest_airport_km": "nearest_airport_km",
+     "batch": "batch"
+    }
+   }
+  },
+  {
+   "id": "grid_frequency",
+   "every": 60,
+   "source": {
+    "file": "grid_frequency.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "frequency_hz",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "min_hz_15m",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "max_hz_15m",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "mean_hz_15m",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "measured_at",
+      "type": "int",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "grid_frequency",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "frequency_hz": "frequency_hz",
+     "min_hz_15m": "min_hz_15m",
+     "max_hz_15m": "max_hz_15m",
+     "mean_hz_15m": "mean_hz_15m",
+     "measured_at": "measured_at"
+    }
+   }
+  },
+  {
+   "id": "tfl",
+   "every": 120,
+   "source": {
+    "file": "tfl.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "mode",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "status",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "severity",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "reason",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "updated_at",
+      "type": "int",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "tfl_line",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "mode": "mode",
+     "status": "status",
+     "severity": "severity",
+     "reason": "reason",
+     "updated_at": "updated_at"
+    }
+   }
+  },
+  {
+   "id": "grid_fuel",
+   "every": 300,
+   "source": {
+    "file": "grid_fuel.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "fuel_type",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "current_mw",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "current_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "half_hour_mw",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "day_mwh",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "observed_at",
+      "type": "int",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "grid_fuel",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "fuel_type": "fuel_type",
+     "current_mw": "current_mw",
+     "current_pct": "current_pct",
+     "half_hour_mw": "half_hour_mw",
+     "day_mwh": "day_mwh",
+     "observed_at": "observed_at"
+    }
+   }
+  },
+  {
+   "id": "weather",
+   "every": 600,
+   "source": {
+    "file": "weather.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "airport",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "observed_at",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "temperature_c",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "dewpoint_c",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "wind_dir_deg",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "wind_variable",
+      "type": "bool",
+      "nullable": true
+     },
+     {
+      "name": "wind_speed_kt",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "wind_gust_kt",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "visibility",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "pressure_hpa",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "flight_category",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "clouds",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "raw_report",
+      "type": "text",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "weather_report",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "observed_at": "observed_at",
+     "temperature_c": "temperature_c",
+     "dewpoint_c": "dewpoint_c",
+     "wind_dir_deg": "wind_dir_deg",
+     "wind_variable": "wind_variable",
+     "wind_speed_kt": "wind_speed_kt",
+     "wind_gust_kt": "wind_gust_kt",
+     "visibility": "visibility",
+     "pressure_hpa": "pressure_hpa",
+     "flight_category": "flight_category",
+     "clouds": "clouds",
+     "raw_report": "raw_report"
+    }
+   },
+   "links": [
+    {
+     "type": "weather_at",
+     "from": "key",
+     "to": "airport"
+    }
+   ]
+  },
+  {
+   "id": "floods",
+   "every": 600,
+   "source": {
+    "file": "floods.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "region",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "severity",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "severity_level",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "active",
+      "type": "bool",
+      "nullable": true
+     },
+     {
+      "name": "county",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "river_or_sea",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "is_tidal",
+      "type": "bool",
+      "nullable": true
+     },
+     {
+      "name": "message",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "time_raised",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "time_changed",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "ea_area",
+      "type": "text",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "flood_warning",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "severity": "severity",
+     "severity_level": "severity_level",
+     "active": "active",
+     "county": "county",
+     "river_or_sea": "river_or_sea",
+     "is_tidal": "is_tidal",
+     "message": "message",
+     "time_raised": "time_raised",
+     "time_changed": "time_changed",
+     "ea_area": "ea_area"
+    }
+   },
+   "links": [
+    {
+     "type": "flood_in",
+     "from": "key",
+     "to": "region"
+    }
+   ]
+  },
+  {
+   "id": "earthquakes",
+   "every": 600,
+   "source": {
+    "file": "earthquakes.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "magnitude",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "place",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "occurred_at",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "depth_km",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "latitude",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "longitude",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "tsunami",
+      "type": "bool",
+      "nullable": true
+     },
+     {
+      "name": "status",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "url",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "day",
+      "type": "text",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "earthquake",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "magnitude": "magnitude",
+     "place": "place",
+     "occurred_at": "occurred_at",
+     "depth_km": "depth_km",
+     "latitude": "latitude",
+     "longitude": "longitude",
+     "tsunami": "tsunami",
+     "status": "status",
+     "url": "url",
+     "day": "day"
+    }
+   }
+  },
+  {
+   "id": "air_quality",
+   "every": 600,
+   "source": {
+    "file": "air_quality.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "latitude",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "longitude",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "pm10_ugm3",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "pm2_5_ugm3",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "temperature_c",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "humidity_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "sensor_types",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "observed_at",
+      "type": "int",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "air_quality_sensor",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "latitude": "latitude",
+     "longitude": "longitude",
+     "pm10_ugm3": "pm10_ugm3",
+     "pm2_5_ugm3": "pm2_5_ugm3",
+     "temperature_c": "temperature_c",
+     "humidity_pct": "humidity_pct",
+     "sensor_types": "sensor_types",
+     "observed_at": "observed_at"
+    }
+   }
+  },
+  {
+   "id": "grid_intensity_linked",
+   "every": 900,
+   "source": {
+    "file": "grid_intensity_linked.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "region",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "dno_region",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "intensity_gco2",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "intensity_index",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "period_start",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "wind_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "solar_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "gas_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "nuclear_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "imports_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "biomass_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "hydro_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "coal_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "other_pct",
+      "type": "float",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "grid_region",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "dno_region": "dno_region",
+     "intensity_gco2": "intensity_gco2",
+     "intensity_index": "intensity_index",
+     "period_start": "period_start",
+     "wind_pct": "wind_pct",
+     "solar_pct": "solar_pct",
+     "gas_pct": "gas_pct",
+     "nuclear_pct": "nuclear_pct",
+     "imports_pct": "imports_pct",
+     "biomass_pct": "biomass_pct",
+     "hydro_pct": "hydro_pct",
+     "coal_pct": "coal_pct",
+     "other_pct": "other_pct"
+    }
+   },
+   "links": [
+    {
+     "type": "grid_region_in",
+     "from": "key",
+     "to": "region"
+    }
+   ]
+  },
+  {
+   "id": "grid_intensity_other",
+   "every": 900,
+   "source": {
+    "file": "grid_intensity_other.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "dno_region",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "intensity_gco2",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "intensity_index",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "period_start",
+      "type": "int",
+      "nullable": true
+     },
+     {
+      "name": "wind_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "solar_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "gas_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "nuclear_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "imports_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "biomass_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "hydro_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "coal_pct",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "other_pct",
+      "type": "float",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "grid_region",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "dno_region": "dno_region",
+     "intensity_gco2": "intensity_gco2",
+     "intensity_index": "intensity_index",
+     "period_start": "period_start",
+     "wind_pct": "wind_pct",
+     "solar_pct": "solar_pct",
+     "gas_pct": "gas_pct",
+     "nuclear_pct": "nuclear_pct",
+     "imports_pct": "imports_pct",
+     "biomass_pct": "biomass_pct",
+     "hydro_pct": "hydro_pct",
+     "coal_pct": "coal_pct",
+     "other_pct": "other_pct"
+    }
+   }
+  },
+  {
+   "id": "space_weather",
+   "every": 1800,
+   "source": {
+    "file": "space_weather.csv",
+    "header": true,
+    "columns": [
+     {
+      "name": "key",
+      "type": "text"
+     },
+     {
+      "name": "name",
+      "type": "text"
+     },
+     {
+      "name": "kp_index",
+      "type": "float",
+      "nullable": true
+     },
+     {
+      "name": "level",
+      "type": "text",
+      "nullable": true
+     },
+     {
+      "name": "period_start",
+      "type": "int",
+      "nullable": true
+     }
+    ]
+   },
+   "objects": {
+    "type": "space_weather",
+    "key": "key",
+    "marking": "internal",
+    "purposes": [
+     "operations"
+    ],
+    "properties": {
+     "name": "name",
+     "kp_index": "kp_index",
+     "level": "level",
+     "period_start": "period_start"
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,20 @@
+{
+ "items": {
+  "GDELT-hormuz": {
+   "lat": 26.6,
+   "lon": 56.3,
+   "name": "News: Strait of Hormuz and Gulf shipping",
+   "topic": "Strait of Hormuz and Gulf shipping",
+   "query": "(\"strait of hormuz\" OR \"gulf of oman\" OR \"persian gulf\") (tanker OR ship OR vessel OR navy)",
+   "articles_1h": 0,
+   "hourly_median_24h": 10,
+   "surge": false,
+   "headlines": "The Hindu Evening wrap on October 22 , 2026 (thehindu.com) | الاتفاقية التركية الليبية في المتوسط | كتاب عمون | وكالة عمون الاخبارية (ammonnews.net)",
+   "url": "https://api.gdeltproject.org/api/v2/doc/doc?query=%28%22strait%20of%20hormuz%22%20OR%20%22gulf%20of%20oman%22%20OR%20%22persian%20gulf%22%29%20%28tanker%20OR%20ship%20OR%20vessel%20OR%20navy%29&mode=artlist&timespan=1h",
+   "source": "GDELT Project"
+  }
+ },
+ "fetched": {
+  "hormuz": 1792691056.111819
+ }
+}

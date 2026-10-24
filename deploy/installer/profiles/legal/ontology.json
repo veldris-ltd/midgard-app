@@ -1,0 +1,492 @@
+{
+  "version": 1,
+  "objectTypes": [
+    {
+      "id": "client",
+      "title": "Client",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "client_type",
+          "type": "text"
+        },
+        {
+          "name": "country",
+          "type": "text"
+        },
+        {
+          "name": "kyc_status",
+          "type": "text"
+        },
+        {
+          "name": "risk_rating",
+          "type": "text"
+        },
+        {
+          "name": "onboarded",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "matter",
+      "title": "Matter",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "practice_area",
+          "type": "text"
+        },
+        {
+          "name": "jurisdiction",
+          "type": "text"
+        },
+        {
+          "name": "forum",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "hold",
+          "type": "text"
+        },
+        {
+          "name": "opened",
+          "type": "text"
+        },
+        {
+          "name": "retention_until",
+          "type": "text"
+        },
+        {
+          "name": "fee_basis",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "party",
+      "title": "Party",
+      "properties": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "capacity",
+          "type": "text"
+        },
+        {
+          "name": "counsel",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "conflict_check",
+      "title": "Conflict check",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "result",
+          "type": "text"
+        },
+        {
+          "name": "checked_on",
+          "type": "text"
+        },
+        {
+          "name": "note",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "document",
+      "title": "Document",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "text"
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "language",
+          "type": "text"
+        },
+        {
+          "name": "pages",
+          "type": "int"
+        },
+        {
+          "name": "privileged",
+          "type": "bool"
+        },
+        {
+          "name": "review",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "deadline",
+      "title": "Deadline",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "due",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "basis",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "time_entry",
+      "title": "Time entry",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "fee_earner",
+          "type": "text"
+        },
+        {
+          "name": "worked_on",
+          "type": "text"
+        },
+        {
+          "name": "hours",
+          "type": "float"
+        },
+        {
+          "name": "activity",
+          "type": "text"
+        },
+        {
+          "name": "billable",
+          "type": "bool"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "aml_check",
+      "title": "AML check",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "completed_on",
+          "type": "text"
+        },
+        {
+          "name": "risk",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "data_request",
+      "title": "Data subject request",
+      "properties": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "data_right",
+          "type": "text"
+        },
+        {
+          "name": "received",
+          "type": "text"
+        },
+        {
+          "name": "due",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "id": "matter_client",
+      "name": "for client",
+      "from": "matter",
+      "to": "client",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "party_matter",
+      "name": "party to",
+      "from": "party",
+      "to": "matter",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "document_matter",
+      "name": "filed under",
+      "from": "document",
+      "to": "matter",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "deadline_matter",
+      "name": "falls in",
+      "from": "deadline",
+      "to": "matter",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "conflict_matter",
+      "name": "clears",
+      "from": "conflict_check",
+      "to": "matter",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "time_matter",
+      "name": "recorded on",
+      "from": "time_entry",
+      "to": "matter",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "aml_client",
+      "name": "checks",
+      "from": "aml_check",
+      "to": "client",
+      "cardinality": "many-to-many"
+    },
+    {
+      "id": "request_client",
+      "name": "made by",
+      "from": "data_request",
+      "to": "client",
+      "cardinality": "many-to-many"
+    }
+  ],
+  "actions": [
+    {
+      "id": "place_hold",
+      "name": "placeLegalHold",
+      "title": "Place or lift a legal hold",
+      "objectType": "matter",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "case-work"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "hold",
+        "values": [
+          "none",
+          "active"
+        ]
+      }
+    },
+    {
+      "id": "close_matter",
+      "name": "closeMatter",
+      "title": "Close matter",
+      "objectType": "matter",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "case-work"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "closed"
+      }
+    },
+    {
+      "id": "privilege_review",
+      "name": "privilegeReview",
+      "title": "Privilege review",
+      "objectType": "document",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "case-work"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "review",
+        "values": [
+          "unreviewed",
+          "privileged",
+          "disclosable",
+          "redact-and-disclose"
+        ]
+      }
+    },
+    {
+      "id": "record_conflict",
+      "name": "recordConflictResult",
+      "title": "Record conflict result",
+      "objectType": "conflict_check",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "case-work"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "result",
+        "values": [
+          "pending",
+          "clear",
+          "consent-required",
+          "conflict"
+        ]
+      }
+    },
+    {
+      "id": "deadline_met",
+      "name": "markDeadlineMet",
+      "title": "Mark deadline met",
+      "objectType": "deadline",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "case-work"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "met"
+      }
+    },
+    {
+      "id": "approve_time",
+      "name": "approveTimeEntry",
+      "title": "Approve time entry",
+      "objectType": "time_entry",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "case-work"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "approved"
+      }
+    },
+    {
+      "id": "escalate_aml",
+      "name": "escalateAmlCheck",
+      "title": "Escalate to the AML officer",
+      "objectType": "aml_check",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "compliance"
+      ],
+      "effect": {
+        "kind": "set-property",
+        "property": "status",
+        "value": "escalated"
+      }
+    },
+    {
+      "id": "advance_request",
+      "name": "advanceDataRequest",
+      "title": "Advance data subject request",
+      "objectType": "data_request",
+      "humanGated": true,
+      "marking": "restricted",
+      "purposes": [
+        "operations",
+        "compliance"
+      ],
+      "effect": {
+        "kind": "cycle-property",
+        "property": "status",
+        "values": [
+          "received",
+          "identity-verified",
+          "in-progress",
+          "responded"
+        ]
+      }
+    }
+  ]
+}

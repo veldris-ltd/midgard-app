@@ -220,6 +220,8 @@ async function launch(exe) {
     `--user-data-dir=${profile}`, '--remote-debugging-port=0',
     `--window-size=${VIEW.width},${VIEW.height}`,
     '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1',
+    // Chromium refuses to start as root with its sandbox on (a container's usual user).
+    ...(process.getuid?.() === 0 ? ['--no-sandbox'] : []),
     'about:blank',
   ], { stdio: 'ignore' });
   const exited = new Promise((r) => proc.once('exit', r));

@@ -55,7 +55,9 @@ impl GpuDockerBackend {
         rank: u8,
     ) -> Self {
         let id = id.into();
-        let families = ["Mistral", "Nemotron", "Gemma"].map(String::from).to_vec();
+        let families = ["Mistral", "Nemotron", "Gemma", "Granite"]
+            .map(String::from)
+            .to_vec();
         Self {
             sidecar: SidecarBackend::vllm(id.clone(), loopback(8_000), id, families, hw, rank)
                 .expect("a loopback sidecar address is always accepted"),

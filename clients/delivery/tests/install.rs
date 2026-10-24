@@ -82,13 +82,13 @@ fn a_non_client_artefact_is_refused() {
     // A model bundle, not a client app — the client must not install it.
     let sbom = generate_sbom(
         "mistral-int4",
-        "5.2",
+        "3.2",
         "model-bundle",
-        vec![SbomComponent::new("mistral-int4", "5.2")],
+        vec![SbomComponent::new("mistral-int4", "3.2")],
     );
     let art = build_and_sign(
         "mistral-int4",
-        "5.2",
+        "3.2",
         "model-bundle",
         b"weights".to_vec(),
         sbom,

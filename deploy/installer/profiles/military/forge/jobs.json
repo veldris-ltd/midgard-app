@@ -1,0 +1,338 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "formations",
+      "every": 600,
+      "source": {
+        "file": "formations.csv",
+        "columns": [
+          {
+            "name": "designation",
+            "type": "text"
+          },
+          {
+            "name": "nation",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "level",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "command",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "formation",
+        "key": "designation",
+        "marking": "restricted",
+        "purposes": [
+          "operations"
+        ],
+        "properties": {
+          "designation": "designation",
+          "nation": "nation",
+          "level": "level",
+          "command": "command"
+        }
+      }
+    },
+    {
+      "id": "sites",
+      "every": 600,
+      "source": {
+        "file": "sites.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "latitude",
+            "type": "float",
+            "nullable": true
+          },
+          {
+            "name": "longitude",
+            "type": "float",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "site",
+        "key": "key",
+        "marking": "restricted",
+        "purposes": [
+          "operations"
+        ],
+        "properties": {
+          "name": "name",
+          "kind": "kind",
+          "latitude": "latitude",
+          "longitude": "longitude"
+        }
+      }
+    },
+    {
+      "id": "units",
+      "every": 120,
+      "source": {
+        "file": "units.csv",
+        "columns": [
+          {
+            "name": "designation",
+            "type": "text"
+          },
+          {
+            "name": "echelon",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "nation",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "readiness",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "formation",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "site",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "unit",
+        "key": "designation",
+        "marking": "restricted",
+        "purposes": [
+          "operations"
+        ],
+        "properties": {
+          "designation": "designation",
+          "echelon": "echelon",
+          "nation": "nation",
+          "readiness": "readiness"
+        }
+      },
+      "links": [
+        {
+          "type": "unit_formation",
+          "from": "designation",
+          "to": "formation"
+        },
+        {
+          "type": "unit_site",
+          "from": "designation",
+          "to": "site"
+        }
+      ]
+    },
+    {
+      "id": "assets",
+      "every": 60,
+      "source": {
+        "file": "assets.csv",
+        "columns": [
+          {
+            "name": "serial",
+            "type": "text"
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "hours",
+            "type": "int",
+            "nullable": true
+          },
+          {
+            "name": "unit",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "asset",
+        "key": "serial",
+        "marking": "restricted",
+        "purposes": [
+          "operations"
+        ],
+        "properties": {
+          "serial": "serial",
+          "kind": "kind",
+          "status": "status",
+          "hours": "hours"
+        }
+      },
+      "links": [
+        {
+          "type": "asset_unit",
+          "from": "serial",
+          "to": "unit"
+        }
+      ]
+    },
+    {
+      "id": "taskings",
+      "every": 60,
+      "source": {
+        "file": "taskings.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "title",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "priority",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "due",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "unit",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "tasking",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations"
+        ],
+        "properties": {
+          "reference": "reference",
+          "title": "title",
+          "priority": "priority",
+          "status": "status",
+          "due": "due"
+        }
+      },
+      "links": [
+        {
+          "type": "tasking_unit",
+          "from": "reference",
+          "to": "unit"
+        }
+      ]
+    },
+    {
+      "id": "incidents",
+      "every": 60,
+      "source": {
+        "file": "incidents.csv",
+        "columns": [
+          {
+            "name": "reference",
+            "type": "text"
+          },
+          {
+            "name": "category",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "reported",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "latitude",
+            "type": "float",
+            "nullable": true
+          },
+          {
+            "name": "longitude",
+            "type": "float",
+            "nullable": true
+          },
+          {
+            "name": "site",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "incident",
+        "key": "reference",
+        "marking": "restricted",
+        "purposes": [
+          "operations"
+        ],
+        "properties": {
+          "reference": "reference",
+          "category": "category",
+          "reported": "reported",
+          "status": "status",
+          "latitude": "latitude",
+          "longitude": "longitude"
+        }
+      },
+      "links": [
+        {
+          "type": "incident_site",
+          "from": "reference",
+          "to": "site"
+        }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,7 @@ and demo video it uses, and the pipeline that produced them.
 |---|---|
 | `Midgard-Launch.pptx` | 18 slides, 16:9, dark. Speaker notes on every slide with a timing. The demo video is embedded on slide 14. |
 | `SPEAKER_NOTES.md` | The same speaker notes as a run-sheet, one section per slide. |
-| `midgard-launch-demo.mp4` | The demo video: 4 min 09 s, 1920×1080, H.264, silent, captioned. |
+| `midgard-launch-demo.mp4` | The demo video: 3 min 35 s, 1920×1080, H.264, silent, captioned. |
 | `screenshots/` | 23 stills at 1920×1080 taken during the recording, numbered in the order they appear. |
 | `site/` | The static website for https://demo.midgard.dev: both decks and both videos behind one dark/light switch. |
 | `pipeline/` | Everything that produced the above. See below. |
@@ -23,7 +23,7 @@ Every deliverable exists in both of the platform's colour modes. The light set c
 
 Both palettes come from `ui/design-system/src/tokens/colors.css`: dark is the `:root` default, light is the `.mode-light` re-pointing, where accent text steps darker on paper. Pick the set that suits the room: light reads better on a washed-out projector, dark on a good display.
 
-The light video runs 3 min 10 s against the dark one's 4 min 09 s. The beats, captions and clicks are the same; the light take was served from a local mirror, so its pages settled faster.
+The light video runs 3 min 43 s against the dark one's 3 min 35 s. The beats, captions and clicks are the same; the two takes differ only in how long each page took to settle.
 
 ## What the demo shows, and what is real
 
@@ -136,6 +136,14 @@ python extract-notes.py out/Midgard-Launch.pptx out/SPEAKER_NOTES.md
 powershell -File export-slides.ps1 -Deck "$PWD/out/Midgard-Launch.pptx" -OutDir "$PWD/out/png"   # optional QA renders
 ```
 
+Without Edge or PowerPoint: `CHROME_PATH=/path/to/chromium node record.js` records with any
+Chromium build, and LibreOffice exports the slide PNGs:
+
+```bash
+soffice --headless --convert-to pdf --outdir out/pdf out/Midgard-Launch.pptx
+pdftoppm -png -scale-to-x 1920 -scale-to-y 1080 out/pdf/Midgard-Launch.pdf out/png/p   # then rename p-N.png to SlideN.PNG
+```
+
 For the light set, run the same steps with `MG_MODE=light`. The recorder then sets
 `mg-mode` to `light` before any page script runs, the cards and caption bar switch
 palette, and output goes to `out-light/`:
@@ -143,7 +151,7 @@ palette, and output goes to `out-light/`:
 ```bash
 MG_MODE=light node record.js
 ffmpeg -i out-light/raw/*.webm -c:v libx264 -crf 20 -pix_fmt yuv420p -r 30 -movflags +faststart out-light/midgard-launch-demo-light.mp4
-MG_MODE=light DEMO_LEN="3 MIN 10 S" node build-deck.js     # -> out-light/Midgard-Launch-light.pptx
+MG_MODE=light DEMO_LEN="3 MIN 43 S" node build-deck.js     # -> out-light/Midgard-Launch-light.pptx
 ```
 
 `prep-images.py` also fills `img-light/` from `docs/demo/screenshots/light`.

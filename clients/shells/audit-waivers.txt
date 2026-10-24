@@ -1,0 +1,13 @@
+# Pre-releases allowed to ship without a passing on-device audit of every shell.
+#
+# deploy/acceptance/verify-shell-audits.sh honours a line here only for the exact
+# version it names, and only when that version is a pre-release (it has a `-` suffix,
+# e.g. 0.1.0-rc.1). A final release can never be waived: the gate stays fail closed for
+# it. A waived run still lists every missing or failing record. [RC-49] [AC-C-11]
+#
+# Each line is a decision, not a default: one version, who approved it, when, and why.
+# A new release candidate needs its own line. THIS LIST MUST BE EMPTY AT GA.
+#
+# Format: <version>  approved-by: <name>  date: <YYYY-MM-DD>  reason: <text>
+
+0.1.0-rc.1  approved-by: JB Webb-Benjamin (owner)  date: 2026-10-22  reason: none of the six shells has a buildable project yet (RF-CL-2..7), so no audit can run; rc.1 ships no client shell, and its notes and GA_READINESS record the shells and their audits as GA blockers

@@ -334,6 +334,7 @@ const MODELS: MimirModel[] = [
   { name: 'Mistral Small 3.2', role: 'primary · reasoning + tools', quant: 'FP8', ctx: '128k', gpu: '4× pool', tps: '84 t/s', status: 'healthy', statusLabel: 'Serving' },
   { name: 'Nemotron', role: 'fallback · long context', quant: 'FP8', ctx: '256k', gpu: '2× pool', tps: '61 t/s', status: 'healthy', statusLabel: 'Serving' },
   { name: 'Gemma', role: 'edge · low-footprint sites', quant: 'INT4', ctx: '32k', gpu: 'CPU-only OK', tps: '22 t/s', status: 'online', statusLabel: 'Standby' },
+  { name: 'Granite', role: 'default · CPU-only enclosures', quant: 'Q4', ctx: '128k', gpu: 'CPU-only OK', tps: '18 t/s', status: 'online', statusLabel: 'Standby' },
 ];
 
 const LOGIC: MimirLogicFn = {

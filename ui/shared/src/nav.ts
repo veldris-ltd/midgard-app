@@ -87,7 +87,7 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
         { id: 'feedback', label: 'Governed feedback', icon: 'refresh-cw', href: '/feedback' },
       ] },
       { title: 'SERVE', items: [
-        { id: 'models', label: 'Model plane', icon: 'cpu', href: '/models', badge: '3' },
+        { id: 'models', label: 'Model plane', icon: 'cpu', href: '/models', badge: '4' },
       ] },
     ],
   },

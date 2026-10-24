@@ -1,0 +1,173 @@
+{
+ "version": 1,
+ "rules": [
+  {
+   "id": "operator-read",
+   "role": "operator",
+   "action": "Read",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-apply",
+   "role": "operator",
+   "action": "Apply",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-toggle-airport",
+   "role": "operator",
+   "action": "toggleAirportStatus",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "worker-channel",
+   "role": "forge-worker",
+   "action": "OpenChannel",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "worker-sync",
+   "role": "forge-worker",
+   "action": "SyncRecords",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "heimdall-channel",
+   "role": "heimdall-sync",
+   "action": "OpenChannel",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "heimdall-sync",
+   "role": "heimdall-sync",
+   "action": "SyncRecords",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-setAirportAlertLevel",
+   "role": "operator",
+   "action": "setAirportAlertLevel",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-toggleRunwayStatus",
+   "role": "operator",
+   "action": "toggleRunwayStatus",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-reviewWeatherReport",
+   "role": "operator",
+   "action": "reviewWeatherReport",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-reviewFloodWarning",
+   "role": "operator",
+   "action": "reviewFloodWarning",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-escalateFloodWarning",
+   "role": "operator",
+   "action": "escalateFloodWarning",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-flagSensorMaintenance",
+   "role": "operator",
+   "action": "flagSensorMaintenance",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-watchAircraft",
+   "role": "operator",
+   "action": "watchAircraft",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-triageHeimdallAlert",
+   "role": "operator",
+   "action": "triageHeimdallAlert",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-markAircraftInterest",
+   "role": "operator",
+   "action": "markAircraftInterest",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-requestAircraftIdentification",
+   "role": "operator",
+   "action": "requestAircraftIdentification",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-escalateAircraftSecurity",
+   "role": "operator",
+   "action": "escalateAircraftSecurity",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-issueAirportAdvisory",
+   "role": "operator",
+   "action": "issueAirportAdvisory",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-divertInboundTraffic",
+   "role": "operator",
+   "action": "divertInboundTraffic",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-reviewAirlineCompliance",
+   "role": "operator",
+   "action": "reviewAirlineCompliance",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-assessEarthquakeImpact",
+   "role": "operator",
+   "action": "assessEarthquakeImpact",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-raiseGridSupplyConcern",
+   "role": "operator",
+   "action": "raiseGridSupplyConcern",
+   "resource": "*",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-notifyTflDisruption",
+   "role": "operator",
+   "action": "notifyTflDisruption",
+   "resource": "*",
+   "effect": "permit"
+  }
+ ]
+}

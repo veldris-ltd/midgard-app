@@ -1,9 +1,9 @@
 //! RC-23: the Eval suite runs against each model family as a DISTINCT model — not
-//! one stand-in relabelled three times — and every (eval, family) result is recorded
+//! one stand-in relabelled four times — and every (eval, family) result is recorded
 //! individually. A family whose model misses an attack fails that eval for that
 //! family alone; the report shows it. This is the AI acceptance gate. [RC-23]
 //!
-//! (The real Mistral / Nemotron / Gemma / Granite models are GPU-gated — RT-20/RT-40. Here three
+//! (The real Mistral / Nemotron / Gemma / Granite models are GPU-gated — RT-20/RT-40. Here four
 //! DISTINCT mock family models stand in to prove per_family + the report genuinely
 //! exercise and score each family separately, unlike the old relabelled single run.)
 
@@ -83,7 +83,7 @@ fn eval_matrix_scores_each_family_distinctly_and_reports_per_eval_family() {
     let mut report = FamilyEvalReport::new();
     report.record("A.3", per_family(ev_a3_paraphrase_for));
 
-    // Every (eval, family) cell recorded: 3 families × 2 evals.
+    // Every (eval, family) cell recorded: 4 families × 2 evals.
     assert_eq!(report.len(), MODEL_FAMILIES.len() * 2);
 
     // The families are NOT identical — the weak family fails the paraphrase eval,
@@ -97,8 +97,9 @@ fn eval_matrix_scores_each_family_distinctly_and_reports_per_eval_family() {
     assert_eq!(fails[0].family, "Nemotron");
     assert_eq!(fails[0].eval_id, "EV-A3-paraphrase");
 
-    // Mistral and Gemma pass the paraphrase eval; Nemotron fails only it (still passes fp).
-    for fam in ["Mistral", "Gemma"] {
+    // Mistral, Gemma and Granite pass the paraphrase eval; Nemotron fails only it (still
+    // passes fp).
+    for fam in ["Mistral", "Gemma", "Granite"] {
         assert!(
             report.for_family(fam).iter().all(|c| c.passed),
             "{fam} should pass every eval"

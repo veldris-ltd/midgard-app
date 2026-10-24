@@ -83,7 +83,7 @@ export function ModelPlaneScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Model serving</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="3" label="FAMILIES" size="sm" />
+        <StatBlock value={String(rows.length)} label="FAMILIES" size="sm" />
         <StatBlock value="8×" label="GPU POOL" size="sm" />
         <StatBlock value="0" label="EXTERNAL CALLS" size="sm" accent />
       </div>

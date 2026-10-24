@@ -1,0 +1,1699 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2001  # sed reads more plainly than parameter expansion here
+# mg-install: install the Midgard Suite, whole or in part, on one Linux server, step by
+# step, and manage it afterwards. [RC-33] [NFR-SEC-1] [NFR-PRV-1] [NFR-AVA-1]
+#
+#   sudo deploy/installer/mg-install                  the guided installer
+#   sudo deploy/installer/mg-install --answers FILE   the same, unattended
+#   deploy/installer/mg-install check                 check this server, change nothing
+#   sudo mg-install status | start | stop | restart | logs [SERVICE]
+#   sudo mg-install add-user | backup [DIR] | uninstall [--purge]
+#
+# It drives the deployment the repository already runs and tests, docker compose
+# (deploy/compose), and adds only what a server needs around it: a use-case profile
+# with a starter schema, the choice of products, the first users enrolled before
+# anything starts, an optional web console, and checks that each chosen service
+# answers. Nothing it starts listens on anything but the server's loopback address.
+#
+# The images are built on the server from this checkout. They are not signed release
+# images: no release has been tagged yet (docs/compliance/GA_READINESS.md).
+set -Eeuo pipefail
+
+MG_INSTALL_VERSION=0.1.0
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+DEFAULT_DIR=/opt/midgard
+TOOLCHAIN_IMAGE=midgard-acceptance:1.82.0
+DEV_IMAGE=midgard/dev:local
+CONSOLE_IMAGE=midgard/console:local
+GRANITE_GGUF=granite-3.3-2b-instruct-Q4_K_M.gguf
+GRANITE_URL="https://huggingface.co/ibm-granite/granite-3.3-2b-instruct-GGUF/resolve/7cdf86ccd1f1bb3491c9b7017b033f2e51367397/$GRANITE_GGUF"
+PROFILES=(legal medical military utilities)
+FEED_FAMILIES=(aviation maritime energy water transport communications hazards information)
+PICTURE_BUDGET_KB=1100
+COMPONENTS_ALL=(forge mimir bifrost heimdall)
+
+# ---- theme -----------------------------------------------------------------------------
+# The suite's palette (ui/design-system/src/tokens/colors.css): one accent per product,
+# status colours for state only. Truecolor where the terminal says it has it, the
+# nearest 256-colour index otherwise, and nothing when NO_COLOR is set or output is not
+# a terminal.
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+    if [ "${COLORTERM:-}" = truecolor ] || [ "${COLORTERM:-}" = 24bit ]; then
+        rgb() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+    else
+        rgb() { printf '\033[38;5;%dm' "$4"; }
+    fi
+    C_MIDGARD="$(rgb 202 29 37 160)"   C_FORGE="$(rgb 217 110 30 166)"
+    C_MIMIR="$(rgb 35 168 182 37)"     C_BIFROST="$(rgb 125 92 230 98)"
+    C_HEIMDALL="$(rgb 201 154 34 178)" C_SECURE="$(rgb 33 192 122 35)"
+    C_WARN="$(rgb 240 168 36 214)"     C_DANGER="$(rgb 202 29 37 160)"
+    C_INFO="$(rgb 61 139 255 33)"      C_BODY="$(rgb 233 235 238 255)"
+    C_MUTED="$(rgb 145 153 163 246)"   C_FAINT="$(rgb 74 79 86 240)"
+    B=$'\033[1m' R=$'\033[0m'
+    INTERACTIVE_TERM=1
+else
+    C_MIDGARD="" C_FORGE="" C_MIMIR="" C_BIFROST="" C_HEIMDALL="" C_SECURE=""
+    C_WARN="" C_DANGER="" C_INFO="" C_BODY="" C_MUTED="" C_FAINT="" B="" R=""
+    INTERACTIVE_TERM=0
+fi
+
+accent_of() {
+    case "$1" in
+        core) printf '%s' "$C_MIDGARD" ;; forge) printf '%s' "$C_FORGE" ;;
+        mimir) printf '%s' "$C_MIMIR" ;; bifrost) printf '%s' "$C_BIFROST" ;;
+        heimdall) printf '%s' "$C_HEIMDALL" ;; console) printf '%s' "$C_INFO" ;;
+    esac
+}
+
+cols() { local c; c="$(tput cols 2>/dev/null || echo 80)"; [ "$c" -gt 100 ] && c=100; echo "$c"; }
+rule() { printf '%s' "$C_FAINT"; printf '%*s' "$(cols)" '' | sed 's/ /─/g'; printf '%s\n' "$R"; }
+
+banner() {
+    [ "$INTERACTIVE_TERM" = 1 ] && [ "${1:-}" != keep ] && printf '\033[2J\033[H'
+    echo
+    if [ "$(cols)" -ge 60 ]; then
+        printf '%s%s' "$C_MIDGARD" "$B"
+        cat <<'EOF'
+  ███╗   ███╗██╗██████╗  ██████╗  █████╗ ██████╗ ██████╗
+  ████╗ ████║██║██╔══██╗██╔════╝ ██╔══██╗██╔══██╗██╔══██╗
+  ██╔████╔██║██║██║  ██║██║  ███╗███████║██████╔╝██║  ██║
+  ██║╚██╔╝██║██║██║  ██║██║   ██║██╔══██║██╔══██╗██║  ██║
+  ██║ ╚═╝ ██║██║██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝
+  ╚═╝     ╚═╝╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝
+EOF
+        printf '%s' "$R"
+    else
+        printf '  %s%sMIDGARD%s\n' "$C_MIDGARD" "$B" "$R"
+    fi
+    printf '  %s██████%s██████%s██████%s██████%s██████%s\n' \
+        "$C_MIDGARD" "$C_FORGE" "$C_MIMIR" "$C_BIFROST" "$C_HEIMDALL" "$R"
+    printf '  %sTHE SOVEREIGN ENCLOSURE  ·  SERVER INSTALLER %s%s\n\n' "$C_MUTED" "$MG_INSTALL_VERSION" "$R"
+}
+
+STEP_TOTAL=9
+step() {
+    local n="$1" title="$2" bar="" i
+    for ((i = 1; i <= STEP_TOTAL; i++)); do
+        if [ "$i" -le "$n" ]; then bar+="${C_MIDGARD}▰"; else bar+="${C_FAINT}▱"; fi
+    done
+    banner
+    printf '  %s%s  %sSTEP %d OF %d  ·  %s%s\n' "$bar" "$R" "$C_MUTED" "$n" "$STEP_TOTAL" "$title" "$R"
+    rule
+    echo
+}
+
+say()  { printf '  %s%s%s\n' "$C_BODY" "$*" "$R"; }
+note() { printf '  %s%s%s\n' "$C_MUTED" "$*" "$R"; }
+ok()   { printf '  %s✓%s %s\n' "$C_SECURE" "$R" "$*"; }
+warn() { printf '  %s!%s %s\n' "$C_WARN" "$R" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$C_DANGER" "$R" "$*"; }
+die()  { echo; bad "$*"; echo; exit 1; }
+label() { printf '  %s%s%-22s%s' "$C_MUTED" "$B" "$1" "$R"; }
+wrap() { fold -s -w "$(( $(cols) - 6 ))" | sed 's/^/    /'; }
+
+# ---- prompts ---------------------------------------------------------------------------
+# Unattended runs take every answer from the answers file; a missing answer stops the
+# run rather than guessing.
+
+UNATTENDED=0
+declare -A ANSWER=()
+
+pause() {
+    [ "$UNATTENDED" = 1 ] && return 0
+    echo
+    printf '  %sPress Enter to continue, or Ctrl+C to stop.%s ' "$C_MUTED" "$R"
+    read -r _
+}
+
+# ask KEY "Question" DEFAULT -> REPLY
+ask() {
+    local key="$1" q="$2" def="${3:-}"
+    if [ "$UNATTENDED" = 1 ]; then
+        REPLY="${ANSWER[$key]:-$def}"
+        [ -n "$REPLY" ] || die "the answers file has no $key"
+        return 0
+    fi
+    if [ -n "$def" ]; then
+        printf '  %s%s%s %s[%s]%s ' "$C_BODY" "$q" "$R" "$C_MUTED" "$def" "$R"
+    else
+        printf '  %s%s%s ' "$C_BODY" "$q" "$R"
+    fi
+    read -r REPLY
+    REPLY="${REPLY:-$def}"
+}
+
+# yes_no KEY "Question" yes|no
+yes_no() {
+    local key="$1" q="$2" def="$3" hint
+    if [ "$UNATTENDED" = 1 ]; then
+        REPLY="${ANSWER[$key]:-$def}"
+    else
+        [ "$def" = yes ] && hint="Y/n" || hint="y/N"
+        while :; do
+            printf '  %s%s%s %s[%s]%s ' "$C_BODY" "$q" "$R" "$C_MUTED" "$hint" "$R"
+            read -r REPLY
+            case "${REPLY,,}" in
+                "") REPLY="$def"; break ;;
+                y | yes) REPLY=yes; break ;;
+                n | no) REPLY=no; break ;;
+            esac
+        done
+    fi
+    [ "$REPLY" = yes ]
+}
+
+# choose KEY DEFAULT_INDEX option... -> REPLY (the chosen option)
+choose() {
+    local key="$1" def="$2"; shift 2
+    local options=("$@") n
+    if [ "$UNATTENDED" = 1 ]; then
+        REPLY="${ANSWER[$key]:-${options[$((def - 1))]}}"
+        printf '%s\n' "${options[@]}" | grep -qx -- "$REPLY" || die "$key must be one of: ${options[*]}"
+        return 0
+    fi
+    while :; do
+        printf '  %sChoose 1-%d%s %s[%d]%s ' "$C_BODY" "${#options[@]}" "$R" "$C_MUTED" "$def" "$R"
+        read -r n
+        n="${n:-$def}"
+        if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#options[@]}" ]; then
+            REPLY="${options[$((n - 1))]}"
+            return 0
+        fi
+        warn "Type a number from 1 to ${#options[@]}."
+    done
+}
+
+# secret "Prompt" -> REPLY, read twice without echo, at least 12 characters
+secret() {
+    local first second
+    while :; do
+        printf '  %s%s%s ' "$C_BODY" "$1" "$R"; read -rs first; echo
+        if [ "${#first}" -lt 12 ]; then warn "Use at least 12 characters."; continue; fi
+        printf '  %sType it again:%s ' "$C_BODY" "$R"; read -rs second; echo
+        if [ "$first" != "$second" ]; then warn "The two entries differ. Try again."; continue; fi
+        REPLY="$first"
+        return 0
+    done
+}
+
+valid_name() { [[ "$1" =~ ^[a-z][a-z0-9._-]{1,31}$ ]]; }
+
+# Answers files are read as KEY=VALUE lines, never executed.
+ANSWER_KEYS="INSTALL_PYTHON FRESH SAMPLES_ZIP FEEDS INSTALL_DIR PROFILE COMPONENTS MODEL MODEL_FILE CONSOLE OPERATOR
+  OPERATOR_PASSWORD_FILE OPERATOR_TOTP ADMIN_1 ADMIN_2 INSTALL_DOCKER CONFIRM"
+read_answers() {
+    local line key value
+    [ -r "$1" ] || die "cannot read the answers file $1"
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<<"$line")"
+        [ -n "$line" ] || continue
+        [[ "$line" == *=* ]] || die "answers: not KEY=VALUE: $line"
+        key="${line%%=*}"; value="${line#*=}"
+        value="${value#\"}"; value="${value%\"}"
+        [[ " ${ANSWER_KEYS//$'\n'/ } " == *" $key "* ]] || die "answers: unknown key $key"
+        ANSWER[$key]="$value"
+    done <"$1"
+    UNATTENDED=1
+}
+
+# ---- server facts ----------------------------------------------------------------------
+
+OS_ID="" OS_NAME="" OS_CODENAME="" ARCH="" CPUS=0 RAM_MB=0
+CPU_MODEL="" GPU="" GPU_MEM="" DISK_FREE_GB=0 DOCKER_VERSION="" COMPOSE_VERSION=""
+PLESK="" TIER="" GEX131=0 PYTHON_VERSION=""
+
+facts() {
+    if [ -r /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        OS_ID="$(. /etc/os-release; echo "${ID:-}")"
+        OS_NAME="$(. /etc/os-release; echo "${PRETTY_NAME:-$ID}")"
+        OS_CODENAME="$(. /etc/os-release; echo "${VERSION_CODENAME:-}")"
+    fi
+    ARCH="$(uname -m)"
+    CPUS="$(nproc 2>/dev/null || echo 1)"
+    RAM_MB="$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || echo 0)"
+    CPU_MODEL="$(awk -F': ' '/^model name/ { print $2; exit }' /proc/cpuinfo 2>/dev/null || true)"
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)"
+        GPU_MEM="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1 || true)"
+    fi
+    if [ -z "$GPU" ] && command -v lspci >/dev/null 2>&1; then
+        GPU="$(lspci 2>/dev/null | grep -iE 'vga|3d controller' | grep -i nvidia | head -1 | sed 's/^.*: //' || true)"
+    fi
+    PYTHON_VERSION=""
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null; then
+        PYTHON_VERSION="$(python3 -c 'import platform; print(platform.python_version())')"
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        DOCKER_VERSION="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
+        COMPOSE_VERSION="$(docker compose version --short 2>/dev/null || true)"
+    fi
+    local where=/var/lib
+    [ -n "$DOCKER_VERSION" ] && where="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib)"
+    while [ ! -d "$where" ]; do where="$(dirname "$where")"; done
+    DISK_FREE_GB="$(df -Pk "$where" | awk 'NR == 2 { print int($4 / 1048576) }')"
+    if [ -d /usr/local/psa ] || command -v plesk >/dev/null 2>&1; then
+        PLESK="$(cat /usr/local/psa/version 2>/dev/null | head -1 || echo detected)"
+    fi
+    if [[ "$CPU_MODEL" == *"Gold 5412U"* ]] && [[ "$GPU" == *"RTX PRO 6000"* ]]; then GEX131=1; fi
+    if [ -n "$GPU" ] && [ "$CPUS" -ge 16 ] && [ "$RAM_MB" -ge 120000 ]; then TIER=G
+    elif [ "$CPUS" -ge 8 ] && [ "$RAM_MB" -ge 30000 ]; then TIER=M
+    elif [ "$CPUS" -ge 4 ] && [ "$RAM_MB" -ge 7500 ]; then TIER=S
+    else TIER=below; fi
+}
+
+tier_name() {
+    case "$1" in
+        S) echo "S, evaluation (4+ cores, 8+ GB memory)" ;;
+        M) echo "M, team server (8+ cores, 32+ GB memory)" ;;
+        G) echo "G, GPU server (16+ cores, 128+ GB memory, NVIDIA GPU)" ;;
+        *) echo "below the evaluation minimum" ;;
+    esac
+}
+tier_rank() { case "$1" in S) echo 1 ;; M) echo 2 ;; G) echo 3 ;; *) echo 0 ;; esac; }
+
+reachable() { curl -s -o /dev/null --max-time 8 "$1"; }
+
+# preflight: print the server check. Returns 1 if the install cannot go ahead.
+preflight() {
+    local blocking=0 major
+    facts
+    label "Operating system"; echo "$OS_NAME ($ARCH)"
+    label "Processor"; echo "$CPUS logical cores${CPU_MODEL:+, $CPU_MODEL}"
+    label "Memory"; echo "$((RAM_MB / 1024)) GB"
+    label "Free disk for images"; echo "$DISK_FREE_GB GB"
+    label "GPU"; echo "${GPU:-none found}${GPU_MEM:+, $GPU_MEM}"
+    label "Docker"; echo "${DOCKER_VERSION:-not installed}${COMPOSE_VERSION:+, compose $COMPOSE_VERSION}"
+    label "Python"; echo "${PYTHON_VERSION:-not installed}"
+    label "Sizing tier"; tier_name "$TIER"
+    echo
+    case "$ARCH" in
+        x86_64 | aarch64) ok "Processor architecture is supported." ;;
+        *) bad "Midgard builds for x86_64 and aarch64 only, not $ARCH."; blocking=1 ;;
+    esac
+    case "$OS_ID" in
+        ubuntu | debian | rhel | rocky | almalinux | centos | fedora) ok "$OS_NAME is a supported distribution." ;;
+        *) warn "$OS_NAME is not tested. The install may still work if Docker runs on it." ;;
+    esac
+    if [ "$TIER" = below ]; then
+        bad "This server has fewer than 4 cores or 8 GB of memory. Midgard needs at least that to build and run."
+        blocking=1
+    else
+        ok "Sizing tier $(tier_name "$TIER")."
+    fi
+    if [ "$DISK_FREE_GB" -lt 20 ]; then
+        bad "Only $DISK_FREE_GB GB free where Docker keeps images. Free at least 20 GB (100 GB recommended)."
+        blocking=1
+    elif [ "$DISK_FREE_GB" -lt 100 ]; then
+        warn "$DISK_FREE_GB GB free. Enough to install; 100 GB leaves room for data, backups and models."
+    else
+        ok "$DISK_FREE_GB GB free disk."
+    fi
+    if [ -n "$PYTHON_VERSION" ]; then
+        ok "Python $PYTHON_VERSION, for preparing the sample data and feeds."
+    else
+        warn "Python 3.8 or later is not installed. The installer needs it to prepare data, and can install it."
+    fi
+    if [ -n "$DOCKER_VERSION" ]; then
+        major="${DOCKER_VERSION%%.*}"
+        if [ "$major" -lt 24 ]; then bad "Docker $DOCKER_VERSION is too old. Midgard needs Docker 24 or later."; blocking=1
+        elif [ -z "$COMPOSE_VERSION" ]; then bad "The Docker Compose plugin is missing (docker compose version fails)."; blocking=1
+        else ok "Docker $DOCKER_VERSION with Compose $COMPOSE_VERSION."; fi
+    else
+        warn "Docker is not installed. The installer can install it from Docker's own package repository."
+    fi
+    if command -v ss >/dev/null 2>&1; then
+        local port
+        for port in 7710 5173; do
+            if ss -Hltn "sport = :$port" 2>/dev/null | grep -q .; then
+                if docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -q "^midgard-.*:$port->"; then
+                    ok "Port $port is held by an existing Midgard install."
+                else
+                    bad "Port $port is already in use by another program. Midgard needs it on 127.0.0.1."
+                    blocking=1
+                fi
+            fi
+        done
+    fi
+    if [ -n "$PLESK" ]; then
+        warn "Plesk is installed ($PLESK). Midgard listens on 127.0.0.1 only and does not touch Plesk's web server or ports 80 and 443."
+        note "    If you later publish Midgard, do it through a Plesk domain's proxy settings with TLS, never by hand-editing Apache."
+    fi
+    if [ "$GEX131" = 1 ]; then
+        ok "This looks like a Hetzner GEX131 (Xeon Gold 5412U with an RTX PRO 6000 Blackwell)."
+    fi
+    if [ -n "$GPU" ]; then
+        note "    GPU found. Today the installer serves the AI model on the CPU: Midgard's GPU serving path is wired in"
+        note "    its Kubernetes chart but has not yet been run end to end, so it is not offered here. The GPU is left untouched."
+    fi
+    if reachable https://registry-1.docker.io/v2/ && reachable https://static.rust-lang.org/; then
+        ok "The internet is reachable for the build (Docker Hub and the Rust toolchain)."
+    else
+        bad "Cannot reach Docker Hub or static.rust-lang.org. The build needs them once, during installation."
+        blocking=1
+    fi
+    return "$blocking"
+}
+
+# ---- install state ---------------------------------------------------------------------
+# install.env records the choices (never a secret), so a second run resumes, and the
+# management commands know what is installed.
+
+INSTALL_DIR="" SRC="" SITE="" LOG="" STATE_FILE=""
+PROFILE="" COMPONENTS="" MODEL=reference CONSOLE=yes SAMPLES_ZIP="" FEEDS="" OPERATOR="" OPERATOR_TOTP=yes
+ADMIN_1="" ADMIN_2="" STATUS="" SOURCE_COMMIT="" INSTALLED_AT=""
+STATE_KEYS="INSTALL_DIR PROFILE COMPONENTS MODEL CONSOLE SAMPLES_ZIP FEEDS OPERATOR OPERATOR_TOTP ADMIN_1 ADMIN_2 STATUS SOURCE_COMMIT INSTALLED_AT"
+
+set_dirs() {
+    INSTALL_DIR="$1"
+    SRC="$INSTALL_DIR/src"
+    SITE="$INSTALL_DIR/site"
+    LOG="$INSTALL_DIR/install.log"
+    STATE_FILE="$INSTALL_DIR/install.env"
+}
+
+save_state() {
+    local k tmp
+    tmp="$(mktemp "$INSTALL_DIR/.install.env.XXXX")"
+    {
+        echo "# Written by mg-install $MG_INSTALL_VERSION. Choices only: no secrets."
+        for k in $STATE_KEYS; do printf '%s="%s"\n' "$k" "${!k}"; done
+    } >"$tmp"
+    chmod 0640 "$tmp"
+    mv "$tmp" "$STATE_FILE"
+}
+
+load_state() {
+    local line key value
+    [ -r "$STATE_FILE" ] || return 1
+    while IFS= read -r line; do
+        [[ "$line" =~ ^([A-Z_0-9]+)=\"(.*)\"$ ]] || continue
+        key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[2]}"
+        [[ " $STATE_KEYS " == *" $key "* ]] || continue
+        [ "$key" = INSTALL_DIR ] && continue
+        printf -v "$key" '%s' "$value"
+    done <"$STATE_FILE"
+}
+
+find_install() {
+    local dir="${MG_INSTALL_DIR:-$DEFAULT_DIR}"
+    set_dirs "$dir"
+    load_state || die "No Midgard install found in $dir. Run the installer first, or set MG_INSTALL_DIR."
+}
+
+has() { [[ " $COMPONENTS " == *" $1 "* ]]; }
+
+services_of() {
+    local s="gateway"
+    has forge && s+=" forge-worker"
+    has mimir && s+=" mimir-server"
+    has mimir && [ "$MODEL" = granite ] && s+=" mimir-llamacpp"
+    has bifrost && s+=" bifrost-fleet"
+    has heimdall && s+=" heimdall-feed"
+    [ "$CONSOLE" = yes ] && s+=" console"
+    echo "$s"
+}
+
+dc() {
+    local files=(-f "$SRC/deploy/compose/compose.yaml")
+    has mimir && [ "$MODEL" = granite ] && files+=(-f "$SRC/deploy/compose/compose.granite.yaml")
+    files+=(-f "$SITE/compose.site.yaml")
+    docker compose "${files[@]}" "$@"
+}
+
+need_root() {
+    [ "$(id -u)" = 0 ] || die "This needs administrator rights. Run it again with sudo: sudo $0 ${*:-}"
+}
+
+# ---- running steps ---------------------------------------------------------------------
+# Each step's output goes to the log; the screen shows one line per step. On a failure
+# the end of the log is shown, and running the installer again resumes: every step is
+# safe to repeat.
+
+run() {
+    local title="$1"; shift
+    local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0 pid rc start
+    start="$(date +%s)"
+    printf '\n==== %s  %s\n' "$(date -u +%FT%TZ)" "$title" >>"$LOG"
+    if [ "$INTERACTIVE_TERM" = 1 ]; then
+        (set -e; "$@") >>"$LOG" 2>&1 &
+        pid=$!
+        while kill -0 "$pid" 2>/dev/null; do
+            printf '\r  %s%s%s %s %s(%ss)%s ' "$C_MIDGARD" "${frames:i++%10:1}" "$R" "$title" \
+                "$C_FAINT" "$(($(date +%s) - start))" "$R"
+            sleep 0.2
+        done
+        set +e; wait "$pid"; rc=$?; set -e
+        printf '\r\033[K'
+    else
+        printf '  ... %s\n' "$title"
+        set +e; (set -e; "$@") >>"$LOG" 2>&1; rc=$?; set -e
+    fi
+    if [ "$rc" -ne 0 ]; then
+        bad "$title failed. The last lines of $LOG:"
+        echo
+        tail -n 25 "$LOG" | sed 's/^/      /'
+        echo
+        note "  Fix the cause above, then run the installer again: finished steps are skipped."
+        exit 1
+    fi
+    ok "$title $C_FAINT($(($(date +%s) - start))s)$R"
+}
+
+# ---- docker ----------------------------------------------------------------------------
+
+install_docker() {
+    local family="$OS_ID"
+    [ "$family" = linuxmint ] && family=ubuntu
+    case "$family" in
+        ubuntu | debian)
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y ca-certificates curl
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL "https://download.docker.com/linux/$family/gpg" -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$family $OS_CODENAME stable" \
+                >/etc/apt/sources.list.d/docker.list
+            apt-get update
+            apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            ;;
+        rhel | rocky | almalinux | centos | fedora)
+            local repo=centos
+            [ "$family" = fedora ] && repo=fedora
+            [ "$family" = rhel ] && repo=rhel
+            dnf -y install dnf-plugins-core
+            dnf config-manager --add-repo "https://download.docker.com/linux/$repo/docker-ce.repo" ||
+                dnf config-manager addrepo --from-repofile="https://download.docker.com/linux/$repo/docker-ce.repo"
+            dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            ;;
+        *)
+            echo "no automatic Docker install for $OS_ID" >&2
+            return 1
+            ;;
+    esac
+    systemctl enable --now docker
+    docker version
+}
+
+install_python() {
+    case "$OS_ID" in
+        ubuntu | debian | linuxmint) DEBIAN_FRONTEND=noninteractive apt-get install -y python3 ;;
+        rhel | rocky | almalinux | centos | fedora) dnf -y install python3 ;;
+        *) echo "no automatic Python install for $OS_ID" >&2; return 1 ;;
+    esac
+    python3 --version
+}
+
+# ---- the wizard ------------------------------------------------------------------------
+
+step_welcome() {
+    step 1 "WELCOME"
+    say "This installer puts the Midgard Suite on this server, step by step."
+    echo
+    say "It will:"
+    note "  1. check this server can run Midgard;"
+    note "  2. ask what you will use it for, and suggest the right products and settings;"
+    note "  3. ask who the first user is (and, for regulated work, two administrators);"
+    note "  4. build and start everything, then check each part answers."
+    echo
+    say "Nothing is changed until you confirm the summary at step 7."
+    say "Midgard listens only on this server's own loopback address. You reach it from your"
+    say "computer through an SSH tunnel, so nothing is opened to the internet."
+    echo
+    printf '  %s%sBEFORE YOU START%s\n' "$C_WARN" "$B" "$R"
+    note "  Midgard has not had a tagged release yet. The installer builds it from this source"
+    note "  checkout. That is right for evaluation and pilots; production use waits on the"
+    note "  release and the readiness record in docs/compliance/GA_READINESS.md."
+    note "  Allow 20 to 60 minutes. The first build downloads 2 to 4 GB and uses about 10 GB of disk."
+    pause
+}
+
+step_server() {
+    step 2 "SERVER CHECK"
+    preflight || die "This server cannot run Midgard until the items marked ✗ are fixed."
+    echo
+    if [ -z "$PYTHON_VERSION" ]; then
+        if yes_no INSTALL_PYTHON "Install Python 3 from this server's own packages now?" yes; then
+            touch "$LOG"
+            run "Installing Python 3" install_python
+            facts
+        else
+            die "Install Python 3.8 or later, then run the installer again."
+        fi
+    fi
+    if [ -z "$DOCKER_VERSION" ]; then
+        say "Docker is needed. The installer can add Docker's own package repository and install"
+        say "Docker Engine with the Compose plugin."
+        [ -n "$PLESK" ] && warn "On a Plesk server you may prefer to install Docker through Plesk (Extensions, Docker)."
+        echo
+        if yes_no INSTALL_DOCKER "Install Docker now?" "$([ -n "$PLESK" ] && echo no || echo yes)"; then
+            touch "$LOG"
+            run "Installing Docker" install_docker
+            facts
+        else
+            die "Install Docker 24 or later with the Compose plugin, then run the installer again."
+        fi
+    fi
+    pause
+}
+
+profile_field() { (
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$1/profile.env"
+    printf '%s' "${!2}"
+); }
+
+step_profile() {
+    step 3 "WHAT WILL YOU USE IT FOR?"
+    say "Pick the closest match. Each one sets the products, the AI model, the security"
+    say "settings and a starter schema with sample (fictional) data. You can change the"
+    say "products and model on the next screens."
+    echo
+    local i=1 p def=1
+    for p in "${PROFILES[@]}"; do
+        [ "$p" = "${PROFILE:-}" ] && def=$i
+        printf '  %s%s%d%s  %s%s%s\n' "$C_MIDGARD" "$B" "$i" "$R" "$B" "$(profile_field "$p" PROFILE_TITLE)" "$R"
+        { profile_field "$p" PROFILE_SUMMARY; echo; } | wrap
+        printf '    %sRecommended server: tier %s%s\n\n' "$C_FAINT" "$(profile_field "$p" PROFILE_TIER)" "$R"
+        i=$((i + 1))
+    done
+    choose PROFILE "$def" "${PROFILES[@]}"
+    PROFILE="$REPLY"
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    confirm_profile_change
+    COMPONENTS="${ANSWER[COMPONENTS]-$PROFILE_COMPONENTS}"
+    FEEDS="${ANSWER[FEEDS]-$PROFILE_FEEDS}"
+    MODEL="${ANSWER[MODEL]:-$PROFILE_MODEL}"
+    OPERATOR_TOTP="${ANSWER[OPERATOR_TOTP]:-yes}"
+    step 3 "WHAT WILL YOU USE IT FOR?"
+    printf '  %s%s%s\n\n' "$B" "$PROFILE_TITLE" "$R"
+    printf '  %s%sGUIDANCE FOR THIS USE%s\n' "$C_MUTED" "$B" "$R"
+    local n
+    for n in "${PROFILE_NOTES[@]}"; do printf '%s\n' "- $n" | wrap; done
+    echo
+    if [ "$(tier_rank "$TIER")" -lt "$(tier_rank "$PROFILE_TIER")" ]; then
+        warn "This use is sized for tier $(tier_name "$PROFILE_TIER")."
+        note "    This server is tier $(tier_name "$TIER"). It will run, with less headroom."
+    else
+        ok "This server meets the recommended size for this use."
+    fi
+    pause
+}
+
+component_line() {
+    local c="$1" mark="$2" title desc
+    case "$c" in
+        forge) title="Forge"; desc="Data operations: syncs files, databases and object stores into Midgard on a schedule." ;;
+        mimir) title="Mimir"; desc="Local AI: answers questions on this server. No data leaves it." ;;
+        bifrost) title="Bifrost"; desc="Delivery: records which version each installation runs, and drift from its channel." ;;
+        heimdall) title="Heimdall"; desc="Operational picture: fuses signed observations from feeds into one picture." ;;
+    esac
+    printf '  %s %s%s%-9s%s %s\n' "$mark" "$(accent_of "$c")" "$B" "$title" "$R" "$desc"
+}
+
+# An enclosure keeps the schema it was created with, so moving an install to another
+# profile needs a fresh enclosure: the new profile's Forge jobs would not fit the old
+# schema. Ask, plainly, before that deletes anything.
+FRESH_ENCLOSURE=0 INSTALLED_PROFILE=""
+confirm_profile_change() {
+    [ -n "${INSTALLED_PROFILE:-}" ] && [ "$PROFILE" != "$INSTALLED_PROFILE" ] || return 0
+    echo
+    warn "This server's enclosure was created for '$INSTALLED_PROFILE', with that profile's schema."
+    say "Switching to '$PROFILE' needs a fresh enclosure. That deletes the current users, keys,"
+    say "ledgers and data. Take a backup first (sudo mg-install backup) if you may need them."
+    echo
+    if [ "$UNATTENDED" = 1 ]; then
+        REPLY="${ANSWER[FRESH]:-}"
+    else
+        ask FRESH "Type DELETE to start a fresh enclosure, or press Enter to keep '$INSTALLED_PROFILE':" ""
+    fi
+    if [ "$REPLY" = DELETE ]; then
+        FRESH_ENCLOSURE=1
+        OPERATOR="" ADMIN_1="" ADMIN_2=""
+    else
+        PROFILE="$INSTALLED_PROFILE"
+        # shellcheck disable=SC1090
+        . "$HERE/profiles/$PROFILE/profile.env"
+        ok "Keeping the '$PROFILE' profile."
+    fi
+}
+
+step_components() {
+    step 4 "PRODUCTS"
+    say "Midgard, the core, is always installed: identity, the object fabric, policy and the"
+    say "signed audit ledger. Add the products you need."
+    echo
+    if [ "$UNATTENDED" = 1 ]; then
+        local c
+        for c in $COMPONENTS; do printf '%s\n' "${COMPONENTS_ALL[@]}" | grep -qx "$c" || die "unknown product $c"; done
+        return 0
+    fi
+    while :; do
+        step 4 "PRODUCTS"
+        say "Midgard, the core, is always installed: identity, the object fabric, policy and the"
+        say "signed audit ledger. Type a number to add or remove a product, then Enter on its own."
+        echo
+        printf '      %s[x]%s %s%s%-9s%s The enclosure: identity, fabric, policy, audit. Always installed.\n' \
+            "$C_SECURE" "$R" "$C_MIDGARD" "$B" "Midgard" "$R"
+        local i=1 c mark
+        for c in "${COMPONENTS_ALL[@]}"; do
+            if has "$c"; then mark="${C_SECURE}[x]${R}"; else mark="${C_FAINT}[ ]${R}"; fi
+            printf '  %s%d%s ' "$C_MUTED" "$i" "$R"
+            component_line "$c" "$mark"
+            i=$((i + 1))
+        done
+        echo
+        printf '  %sToggle 1-4, or Enter to continue:%s ' "$C_BODY" "$R"
+        read -r REPLY
+        [ -z "$REPLY" ] && break
+        if [[ "$REPLY" =~ ^[1-4]$ ]]; then
+            c="${COMPONENTS_ALL[$((REPLY - 1))]}"
+            if has "$c"; then
+                COMPONENTS="$(tr ' ' '\n' <<<"$COMPONENTS" | grep -vx "$c" | xargs || true)"
+            else
+                COMPONENTS="$COMPONENTS $c"
+            fi
+        fi
+    done
+    COMPONENTS="$(for c in "${COMPONENTS_ALL[@]}"; do has "$c" && printf '%s ' "$c"; done | xargs || true)"
+}
+
+step_model() {
+    step 5 "AI MODEL AND ACCESS"
+    if has mimir; then
+        printf '  %s%sMIMIR MODEL%s\n' "$C_MIMIR" "$B" "$R"
+        say "  1  Granite 3.3 2B Instruct (IBM, Apache-2.0). A real model, run on this server's CPU."
+        note "     Downloads 1.5 GB once. Mimir checks its signature and SHA-256 before every start."
+        say "  2  Reference engine. Fixed answers, no model: for testing the plumbing only."
+        echo
+        local def=1
+        [ "$MODEL" = reference ] && def=2
+        choose MODEL "$def" granite reference
+        MODEL="$REPLY"
+        if [ "$MODEL" = granite ] && [ -z "${ANSWER[MODEL_FILE]:-}" ] && ! reachable https://huggingface.co/; then
+            warn "huggingface.co cannot be reached from this server, so the model cannot be downloaded."
+            ask MODEL_FILE "Path to $GRANITE_GGUF copied onto this server:" ""
+            [ -f "$REPLY" ] || die "No such file: $REPLY"
+            ANSWER[MODEL_FILE]="$REPLY"
+        fi
+        if [ "$MODEL" = granite ] && [ "$RAM_MB" -lt 12000 ]; then
+            warn "Granite needs about 4 GB of memory on top of Midgard. This server has $((RAM_MB / 1024)) GB."
+        fi
+        echo
+    else
+        MODEL=reference
+    fi
+    printf '  %s%sWEB CONSOLE%s\n' "$C_INFO" "$B" "$R"
+    say "The Midgard console runs in your browser. The installer builds it and serves it on this"
+    say "server's loopback address, next to the gateway. You open it through an SSH tunnel."
+    note "  Building it downloads the console's JavaScript packages from the npm registry once."
+    echo
+    if yes_no CONSOLE "Install the web console?" "${CONSOLE:-yes}"; then CONSOLE=yes; else CONSOLE=no; fi
+    pause
+}
+
+# feed_families [ZIP]: one line per family: name, feeds available, feeds known, and
+# the available feeds' names, from the repository's samples or from the zip.
+feed_families() {
+    python3 -I - "$REPO/samples/catalogue.json" "$REPO/samples" "${1:-}" <<'EOF'
+import json, os, sys, zipfile
+catalogue, repo, archive = sys.argv[1], sys.argv[2], sys.argv[3]
+feeds = json.load(open(catalogue))["observations"]
+if archive:
+    have = {os.path.basename(n)[:-5] for n in zipfile.ZipFile(archive).namelist()
+            if "/4-heimdall-observations/" in n and n.endswith(".json") and "__MACOSX" not in n}
+else:
+    have = {f[:-5] for f in os.listdir(os.path.join(repo, "4-heimdall-observations"))}
+families = {}
+for feed, entry in feeds.items():
+    families.setdefault(entry["family"], []).append(feed)
+for family, members in families.items():
+    present = [f for f in members if f in have]
+    print(family, len(present), len(members), ",".join(present) or "-")
+EOF
+}
+
+valid_samples_zip() {
+    python3 -I -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); sys.exit(not any("/1-configuration/" in n for n in z.namelist()))' "$1" 2>/dev/null
+}
+
+step_data() {
+    step 6 "DATA AND FEEDS"
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    printf '  %s%sSAMPLE DATA%s\n' "$C_FORGE" "$B" "$R"
+    if has forge; then
+        say "Forge loads fictional $PROFILE records, so the first sign-in shows real structure."
+        if [ -n "$PROFILE_SAMPLES" ]; then
+            say "It also loads recorded datasets from the Midgard sample datasets:"
+            printf '%s\n' "${PROFILE_SAMPLES//,/, }." | wrap
+        fi
+    else
+        note "  Forge is not selected, so no sample data is loaded."
+    fi
+    echo
+    say "This repository holds the openly licensed datasets and feeds. The full set, from"
+    say "midgard-sample-datasets.zip, adds those not cleared for redistribution, such as"
+    say "aircraft positions, air quality, power cuts and storm overflows."
+    echo
+    if [ "$UNATTENDED" = 1 ]; then
+        SAMPLES_ZIP="${ANSWER[SAMPLES_ZIP]:-}"
+    else
+        while :; do
+            printf '  %sPath to midgard-sample-datasets.zip, or Enter for the repository set:%s ' "$C_BODY" "$R"
+            [ -n "$SAMPLES_ZIP" ] && printf '%s[%s]%s ' "$C_MUTED" "$SAMPLES_ZIP" "$R"
+            read -r REPLY
+            REPLY="${REPLY:-$SAMPLES_ZIP}"
+            [ "$REPLY" = none ] && REPLY=""
+            [ -z "$REPLY" ] && break
+            if [ -f "$REPLY" ] && valid_samples_zip "$REPLY"; then break; fi
+            warn "That is not a readable Midgard sample datasets zip. Type none to use the repository set."
+        done
+        SAMPLES_ZIP="$REPLY"
+    fi
+    if [ -n "$SAMPLES_ZIP" ]; then
+        { [ -f "$SAMPLES_ZIP" ] && valid_samples_zip "$SAMPLES_ZIP"; } || die "SAMPLES_ZIP is not a Midgard sample datasets zip: $SAMPLES_ZIP"
+        SAMPLES_ZIP="$(readlink -f "$SAMPLES_ZIP")"
+        ok "Using the full set from $SAMPLES_ZIP."
+        note "    Files not cleared for redistribution are marked in the install report. Check their terms"
+        note "    before any use beyond evaluation: some are licensed for non-commercial use only."
+    fi
+    echo
+    printf '  %s%sHEIMDALL FEEDS%s\n' "$C_HEIMDALL" "$B" "$R"
+    if ! has heimdall; then
+        note "  Heimdall is not selected, so no feeds are installed. Add it on step 4 to choose feeds."
+        FEEDS=""
+        pause
+        return 0
+    fi
+    say "Each feed replays a recording of a live source into the operating picture, signed by"
+    say "its own certified identity."
+    local table
+    table="$(feed_families "$SAMPLES_ZIP")"
+    if [ "$UNATTENDED" = 1 ]; then
+        local f
+        for f in $FEEDS; do printf '%s\n' "${FEED_FAMILIES[@]}" | grep -qx "$f" || die "unknown feed family $f"; done
+        pause
+        return 0
+    fi
+    while :; do
+        step 6 "DATA AND FEEDS"
+        printf '  %s%sHEIMDALL FEEDS%s  %stype a number to add or remove a family, then Enter%s\n\n' \
+            "$C_HEIMDALL" "$B" "$R" "$C_MUTED" "$R"
+        local i=1 fam mark have total names
+        for fam in "${FEED_FAMILIES[@]}"; do
+            read -r _ have total names < <(grep "^$fam " <<<"$table")
+            if [[ " $FEEDS " == *" $fam "* ]]; then mark="${C_SECURE}[x]${R}"; else mark="${C_FAINT}[ ]${R}"; fi
+            printf '  %s%d%s  %s %s%-15s%s %s%d of %d feed%s%s  %s\n' "$C_MUTED" "$i" "$R" "$mark" "$B" "$fam" "$R" \
+                "$C_MUTED" "$have" "$total" "$([ "$total" = 1 ] || echo s)" "$R" "${names//,/, }"
+            i=$((i + 1))
+        done
+        echo
+        printf '  %sToggle 1-%d, or Enter to continue:%s ' "$C_BODY" "${#FEED_FAMILIES[@]}" "$R"
+        read -r REPLY
+        [ -z "$REPLY" ] && break
+        if [[ "$REPLY" =~ ^[0-9]+$ ]] && [ "$REPLY" -ge 1 ] && [ "$REPLY" -le "${#FEED_FAMILIES[@]}" ]; then
+            fam="${FEED_FAMILIES[$((REPLY - 1))]}"
+            if [[ " $FEEDS " == *" $fam "* ]]; then
+                FEEDS="$(tr ' ' '\n' <<<"$FEEDS" | grep -vx "$fam" | xargs || true)"
+            else
+                FEEDS="$FEEDS $fam"
+            fi
+        fi
+    done
+    FEEDS="$(for f in "${FEED_FAMILIES[@]}"; do [[ " $FEEDS " == *" $f "* ]] && printf '%s ' "$f"; done | xargs || true)"
+}
+
+step_people() {
+    step 7 "PEOPLE"
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    say "The first user signs in to the console. They are given the role 'operator', clearance"
+    say "'$PROFILE_CLEARANCE' and the purposes '$PROFILE_PURPOSES', which this profile's schema uses."
+    echo
+    while :; do
+        ask OPERATOR "Username for the first user (lower case, e.g. j.smith):" "${OPERATOR:-}"
+        valid_name "$REPLY" && break
+        [ "$UNATTENDED" = 1 ] && die "OPERATOR must be 2-32 characters: a-z, 0-9, dot, underscore, hyphen"
+        warn "Use 2 to 32 characters: lower-case letters, digits, dot, underscore or hyphen."
+    done
+    OPERATOR="$REPLY"
+    if [ "$PROFILE_TOTP" = required ]; then
+        OPERATOR_TOTP=yes
+        ok "A second factor (an authenticator app code) is required for this use."
+    else
+        if yes_no OPERATOR_TOTP "Require an authenticator app code at sign-in? (recommended)" yes; then
+            OPERATOR_TOTP=yes; else OPERATOR_TOTP=no; fi
+    fi
+    note "  The password is asked for at step 9, just before it is used, and is never stored."
+    echo
+    if [ "$PROFILE_ADMINS" -ge 2 ]; then
+        say "Regulated use needs dual control: one administrator asks to enrol a new user and a"
+        say "different one approves. Each administrator gets a post-quantum passkey file."
+        echo
+        while :; do
+            ask ADMIN_1 "First administrator's username:" "${ADMIN_1:-}"
+            valid_name "$REPLY" && [ "$REPLY" != "$OPERATOR" ] && break
+            [ "$UNATTENDED" = 1 ] && die "ADMIN_1 is not a valid, distinct username"
+            warn "Use a valid username, different from the first user."
+        done
+        ADMIN_1="$REPLY"
+        while :; do
+            ask ADMIN_2 "Second administrator's username:" "${ADMIN_2:-}"
+            valid_name "$REPLY" && [ "$REPLY" != "$ADMIN_1" ] && [ "$REPLY" != "$OPERATOR" ] && break
+            [ "$UNATTENDED" = 1 ] && die "ADMIN_2 is not a valid, distinct username"
+            warn "Use a valid username, different from the other two."
+        done
+        ADMIN_2="$REPLY"
+    fi
+    pause
+}
+
+step_review() {
+    step 8 "REVIEW"
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    label "Install folder"; echo "$INSTALL_DIR"
+    label "Use"; echo "$PROFILE_TITLE"
+    label "Products"; printf '%sMidgard%s' "$C_MIDGARD" "$R"
+    local c
+    for c in $COMPONENTS; do printf ', %s%s%s' "$(accent_of "$c")" "${c^}" "$R"; done
+    echo
+    if has mimir; then label "Mimir model"; [ "$MODEL" = granite ] && echo "Granite 3.3 2B Instruct, CPU" || echo "reference engine"; fi
+    label "Web console"; echo "$CONSOLE"
+    label "Schema"; echo "$PROFILE starter schema$([ -n "$PROFILE_SAMPLES" ] && echo ", with the sample configuration")"
+    if has forge; then
+        label "Data"; echo "fictional $PROFILE records$([ -n "$PROFILE_SAMPLES" ] && echo ", recorded datasets from ${SAMPLES_ZIP:-the repository}")"
+    fi
+    if has heimdall; then
+        label "Heimdall feeds"; echo "${FEEDS:-none}"
+    fi
+    label "First user"; echo "$OPERATOR, operator, $PROFILE_CLEARANCE, second factor: $OPERATOR_TOTP"
+    [ -n "$ADMIN_1" ] && { label "Administrators"; echo "$ADMIN_1 and $ADMIN_2 (IAM-Admin, dual control)"; }
+    label "Listens on"; echo "127.0.0.1 only (gateway 7710$([ "$CONSOLE" = yes ] && echo ", console 5173"))"
+    echo
+    rule
+    say "Confirm to install. Docker images are built, the enclosure's keys are created and"
+    say "the services start. Running the installer again later resumes or repairs."
+    echo
+    yes_no CONFIRM "Install Midgard now?" "$([ "$UNATTENDED" = 1 ] && echo no || echo yes)" ||
+        die "Nothing was changed."
+}
+
+# ---- the install -----------------------------------------------------------------------
+
+# A fresh copy each time, swapped in whole, so an upgrade leaves no stale files behind.
+copy_source() {
+    if [ -d "$SRC" ] && [ "$(readlink -f "$REPO")" = "$(readlink -f "$SRC")" ]; then
+        echo "running from the installed source; nothing to copy"
+        return 0
+    fi
+    rm -rf "$SRC.new" "$SRC.old"
+    mkdir -p "$SRC.new"
+    tar -C "$REPO" --exclude=./.git --exclude=./target --exclude=node_modules \
+        -cf - . | tar -C "$SRC.new" -xf -
+    [ -d "$SRC" ] && mv "$SRC" "$SRC.old"
+    mv "$SRC.new" "$SRC"
+    rm -rf "$SRC.old"
+}
+
+# Where the sample datasets come from: the repository's open set, or the full set
+# extracted from the zip the operator named.
+samples_dir() {
+    if [ -n "$SAMPLES_ZIP" ]; then
+        dirname "$(find "$INSTALL_DIR/samples-full" -type d -name 1-configuration -not -path '*__MACOSX*' | head -1)"
+    else
+        echo "$SRC/samples"
+    fi
+}
+
+extract_samples() {
+    rm -rf "$INSTALL_DIR/samples-full"
+    python3 -I - "$SAMPLES_ZIP" "$INSTALL_DIR/samples-full" <<'EOF'
+import os, sys, zipfile
+archive, out = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(archive) as z:
+    for name in z.namelist():
+        if "__MACOSX" in name or name.endswith("/"):
+            continue
+        target = os.path.realpath(os.path.join(out, name))
+        if not target.startswith(os.path.realpath(out) + os.sep):
+            raise SystemExit(f"refusing {name}: it would land outside {out}")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with z.open(name) as src, open(target, "wb") as dst:
+            dst.write(src.read())
+EOF
+    chmod -R a+rX "$INSTALL_DIR/samples-full"
+    [ -d "$(samples_dir)" ] || { echo "the zip holds no 1-configuration folder"; return 1; }
+    echo "extracted to $(samples_dir)"
+}
+
+convert() { python3 -I "$SRC/samples/convert.py" "$@"; }
+
+feed_list() { has heimdall && [ -n "$FEEDS" ] && convert feeds --samples "$(samples_dir)" --families "$FEEDS"; true; }
+
+build_toolchain() {
+    if docker image inspect "$TOOLCHAIN_IMAGE" >/dev/null 2>&1; then
+        echo "the toolchain image is already built"
+    else
+        docker build -t "$TOOLCHAIN_IMAGE" "$SRC/deploy/acceptance"
+    fi
+}
+
+write_site() {
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    local prof="$SRC/deploy/installer/profiles/$PROFILE"
+    mkdir -p "$SITE"
+    chmod 0755 "$SITE"
+    {
+        echo "# Written by mg-install for this server. Regenerated on every run: edit the"
+        echo "# installer's profile instead. [RC-33] [NFR-SEC-1]"
+        echo "services:"
+        # The profile's schema and policy, joined with the sample configuration's when the
+        # profile loads recorded datasets; Forge's jobs are joined the same way.
+        local samples
+        samples="$(samples_dir)"
+        rm -rf "$SITE/forge" "$SITE/.samples-forge"
+        mkdir -p "$SITE/forge"
+        install -m 0644 "$prof"/forge/*.csv "$SITE/forge/"
+        if [ -n "$PROFILE_SAMPLES" ]; then
+            convert ontology --samples "$samples" >"$SITE/.samples-ontology.json" 2>>"$LOG"
+            convert merge "$SITE/.samples-ontology.json" "$prof/ontology.json" >"$SITE/ontology.json"
+            convert merge "$samples/1-configuration/midgard/policy.json" "$prof/policy.json" >"$SITE/policy.json"
+            convert forge --samples "$samples" --datasets "$PROFILE_SAMPLES" --out "$SITE/.samples-forge" 2>>"$LOG"
+            install -m 0644 "$SITE"/.samples-forge/*.csv "$SITE/forge/"
+            convert merge "$SITE/.samples-forge/jobs.json" "$prof/forge/jobs.json" >"$SITE/forge/jobs.json"
+            rm -rf "$SITE/.samples-forge" "$SITE/.samples-ontology.json"
+        else
+            install -m 0644 "$prof/ontology.json" "$prof/policy.json" "$SITE/"
+            install -m 0644 "$prof/forge/jobs.json" "$SITE/forge/jobs.json"
+        fi
+        chmod 0644 "$SITE/ontology.json" "$SITE/policy.json" "$SITE"/forge/*
+        chmod 0755 "$SITE/forge"
+        echo "  init:"
+        echo "    volumes:"
+        echo "      - $SITE/ontology.json:/etc/midgard/core-ontology.json:ro"
+        echo "      - $SITE/policy.json:/etc/midgard/core-policy.json:ro"
+        echo "  gateway:"
+        echo "    entrypoint: [http-gateway, --state-dir, /state, --bind, \"0.0.0.0:7710\","
+        echo "                 --mesh-bind, \"0.0.0.0:7711\", --mesh-identity-dir, /mesh-identity,"
+        echo "                 --allow-origin, \"http://localhost:5173\", --allow-origin, \"http://127.0.0.1:5173\"]"
+        if has forge; then
+            echo "  forge-worker:"
+            echo "    volumes:"
+            echo "      - $SITE/forge:/etc/midgard/forge:ro"
+        fi
+        if [ "$CONSOLE" = yes ]; then
+            cat <<EOF
+  console:
+    image: $CONSOLE_IMAGE
+    pull_policy: never
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp", "/var/cache/nginx"]
+    environment:
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    networks: [edge]
+    ports:
+      - "127.0.0.1:5173:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+EOF
+        fi
+    } >"$SITE/compose.site.yaml"
+    dc config --quiet
+}
+
+enrolled() { dc run --rm --no-deps -T --entrypoint mg-admin init user list --state-dir /vol/core-state 2>/dev/null | grep -qw -- "$1"; }
+
+enrol_operator() {
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    local out flags=() password
+    if enrolled "$OPERATOR"; then ok "$OPERATOR is already enrolled."; return 0; fi
+    if [ "$UNATTENDED" = 1 ]; then
+        [ -r "${ANSWER[OPERATOR_PASSWORD_FILE]:-}" ] || die "OPERATOR_PASSWORD_FILE is not a readable file"
+        password="$(head -n 1 "${ANSWER[OPERATOR_PASSWORD_FILE]}")"
+        [ "${#password}" -ge 12 ] || die "the operator's password must have at least 12 characters"
+    else
+        echo
+        say "Choose $OPERATOR's password now (at least 12 characters). It is not shown or stored."
+        secret "Password for $OPERATOR:"
+        password="$REPLY"
+    fi
+    [ "$OPERATOR_TOTP" = yes ] && flags+=(--totp)
+    # The output can carry the TOTP secret, so it goes to the screen only, never the log.
+    if ! out="$(printf '%s\n' "$password" | dc run --rm --no-deps -T --entrypoint mg-admin init \
+        user add --state-dir /vol/core-state --subject "$OPERATOR" --roles operator \
+        --clearance "$PROFILE_CLEARANCE" --purposes "$PROFILE_PURPOSES" "${flags[@]}" 2>&1)"; then
+        unset password
+        bad "Enrolling $OPERATOR failed:"
+        grep -v 'otpauth://' <<<"$out" | sed 's/^/      /'
+        exit 1
+    fi
+    # Kept in memory until the sign-in check at the end of the install, then dropped.
+    LOGIN_CHECK_PASSWORD="$password"
+    unset password
+    echo "enrolled $OPERATOR" >>"$LOG"
+    ok "Enrolled $OPERATOR."
+    local uri
+    uri="$(grep -o 'otpauth://[^[:space:]]*' <<<"$out" | head -1 || true)"
+    LOGIN_CHECK_TOTP_KEY="$(sed -n 's/.*[?&]secret=\([A-Z2-7]*\).*/\1/p' <<<"$uri")"
+    if [ -n "$uri" ]; then
+        echo
+        printf '  %s%sSET UP THE AUTHENTICATOR APP NOW%s\n' "$C_WARN" "$B" "$R"
+        say "This is shown once and is not saved anywhere. Scan it with an authenticator app"
+        say "(for example Microsoft Authenticator, Google Authenticator or KeePassXC)."
+        echo
+        if command -v qrencode >/dev/null 2>&1 && [ "$INTERACTIVE_TERM" = 1 ]; then
+            qrencode -t ANSIUTF8 -m 2 "$uri" | sed 's/^/    /'
+        fi
+        local key
+        key="$(sed -n 's/.*[?&]secret=\([A-Z2-7]*\).*/\1/p' <<<"$uri")"
+        label "Account"; echo "$OPERATOR"
+        label "Key (type it in)"; printf '%s%s%s\n' "$B" "$(sed 's/.\{4\}/& /g' <<<"$key")" "$R"
+        [ "$INTERACTIVE_TERM" = 1 ] || { label "URI"; echo "$uri"; }
+        command -v qrencode >/dev/null 2>&1 || note "  Install qrencode to see a QR code here instead of typing the key."
+        if [ "$UNATTENDED" = 0 ]; then
+            echo
+            printf '  %sPress Enter once the app shows a 6-digit code for Midgard.%s ' "$C_BODY" "$R"
+            read -r _
+            step 9 "INSTALLING"
+            ok "Enrolled $OPERATOR. The authenticator key has been cleared from the screen."
+        fi
+    fi
+}
+
+enrol_admins() {
+    [ -n "$ADMIN_1" ] || return 0
+    local keys="$INSTALL_DIR/admin-passkeys" a
+    install -d -m 0700 "$keys"
+    for a in "$ADMIN_1" "$ADMIN_2"; do
+        if [ -f "$keys/$a.passkey" ] || [ -f "$keys/.$a.handed-over" ]; then
+            ok "Administrator $a already exists."
+            continue
+        fi
+        chown 10001:10001 "$keys"
+        dc run --rm --no-deps -T -v "$keys:/admin-passkeys" --entrypoint mg-admin init \
+            admin add --state-dir /vol/core-state --admin "$a" --role IAM-Admin \
+            --keystore "/admin-passkeys/$a.passkey" >>"$LOG" 2>&1 ||
+            { chown root:root "$keys"; die "Creating administrator $a failed. See $LOG."; }
+        chown root:root "$keys" "$keys/$a.passkey"
+        chmod 0600 "$keys/$a.passkey"
+        ok "Administrator $a created. Passkey: $keys/$a.passkey"
+    done
+}
+
+stage_model() {
+    local file="${ANSWER[MODEL_FILE]:-}" dl="$INSTALL_DIR/downloads"
+    if docker run --rm -v midgard-models:/models "$DEV_IMAGE" test -f "/models/granite/model.manifest" 2>/dev/null; then
+        echo "the model is already staged"
+        return 0
+    fi
+    if [ -z "$file" ]; then
+        mkdir -p "$dl"
+        file="$dl/$GRANITE_GGUF"
+        if [ ! -f "$file" ]; then
+            curl -fL --retry 3 --retry-delay 5 -o "$file.part" "$GRANITE_URL"
+            mv "$file.part" "$file"
+        fi
+    fi
+    bash "$SRC/deploy/compose/stage-model.sh" "$file"
+    [ "$file" = "$dl/$GRANITE_GGUF" ] && rm -f "$file"
+    return 0
+}
+
+# One certified mesh identity per feed: the feed id Heimdall checks is the service its
+# certificate names. Needs the enclosure's lock, so it runs while the gateway is stopped.
+issue_feed_identities() {
+    local feeds
+    feeds="$(feed_list)"
+    [ -n "$feeds" ] || { echo "no feeds chosen"; return 0; }
+    # shellcheck disable=SC2016,SC2086
+    dc run --rm --no-deps -T --entrypoint sh init -c '
+        for feed in "$@"; do
+            if [ -f "/vol/heimdall-clients/$feed.cert" ]; then
+                echo "$feed already has an identity"
+            else
+                mg-admin mesh issue --state-dir /vol/core-state --service "$feed" \
+                    --roles feed-source --out /vol/heimdall-clients
+            fi
+        done' sh $feeds
+}
+
+# Replay the chosen feeds' observations into Heimdall, each signed by its feed's own
+# identity, then check the picture holds them.
+replay_feeds() {
+    local feeds dir="$SITE/feeds" digest
+    feeds="$(feed_list)"
+    [ -n "$feeds" ] || { echo "no feeds chosen"; return 0; }
+    install -d -m 0755 "$dir"
+    # Heimdall returns the whole picture in one PQ-mTLS frame of at most 1 MiB
+    # (crypto/pq-mtls/src/wire.rs), so the replay keeps the fused picture inside a budget.
+    convert observations --samples "$(samples_dir)" --feeds "${feeds// /,}" --budget-kb "$PICTURE_BUDGET_KB" \
+        >"$dir/observations.tsv"
+    chmod 0644 "$dir/observations.tsv"
+    digest="$(sha256sum "$dir/observations.tsv" | cut -d' ' -f1)"
+    if [ "$(cat "$dir/.replayed" 2>/dev/null)" = "$digest" ]; then
+        echo "these observations were replayed by an earlier run"
+        return 0
+    fi
+    echo "replaying $(wc -l <"$dir/observations.tsv") observations from: $feeds"
+    # shellcheck disable=SC2016
+    dc run --rm --no-deps -T -v "$dir:/feeds:ro" --entrypoint sh feed-source -c '
+        tab="$(printf "\t")"; ok=0; refused=0
+        while IFS="$tab" read -r feed kind entity at attrs; do
+            if heimdall-source --identity-dir /identity --service "$feed" --addr heimdall-feed:7730 \
+                --kind "$kind" --entity "$entity" --observed-at "$at" ${attrs:+--attrs "$attrs"} >/dev/null 2>/tmp/err; then
+                ok=$((ok + 1))
+            else
+                refused=$((refused + 1)); [ "$refused" -le 5 ] && echo "refused $feed $entity: $(cat /tmp/err)"
+            fi
+        done < /feeds/observations.tsv
+        echo "accepted $ok, refused $refused"
+        [ "$ok" -gt 0 ] && [ "$refused" -eq 0 ]'
+    echo "$digest" >"$dir/.replayed"
+    local picture entities
+    picture="$(dc run --rm -T picture 2>/dev/null)"
+    entities="$(python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)["entities"]))' <<<"$picture")" || {
+        echo "the picture could not be read back"
+        return 1
+    }
+    echo "the picture holds $entities entities in $(( ${#picture} / 1024 )) KiB"
+    [ "$entities" -gt 0 ]
+}
+
+# Wait until every Forge job has run once, then fail if any did not sync, naming it.
+wait_for_sync() {
+    local jobs i ran failed
+    jobs="$(python3 -I -c 'import json, sys; print(" ".join(j["id"] for j in json.load(open(sys.argv[1]))["jobs"]))' "$SITE/forge/jobs.json")"
+    for ((i = 0; i < 60; i++)); do
+        ran=0
+        for job in $jobs; do
+            dc logs --no-color forge-worker 2>/dev/null | grep -q "\"job\":\"$job\"" && ran=$((ran + 1))
+        done
+        [ "$ran" -eq "$(wc -w <<<"$jobs")" ] && break
+        sleep 3
+    done
+    dc logs --no-color forge-worker | { grep '"message":"job run"' || true; } | sed 's/.*"job":"\([^"]*\)".*"message":"\([^"]*\)".*/\1: \2/' | sort -u
+    failed="$(dc logs --no-color forge-worker | grep '"job run failed"' | sed 's/.*"job":"\([^"]*\)","reason":"\(.*\)"}.*/\1: \2/' | sort -u || true)"
+    if [ -n "$failed" ]; then
+        echo "these Forge jobs did not sync:"
+        echo "$failed"
+        return 1
+    fi
+    [ "$ran" -eq "$(wc -w <<<"$jobs")" ] || { echo "only $ran of $(wc -w <<<"$jobs") jobs ran within three minutes"; return 1; }
+    echo "all $ran jobs synced"
+}
+
+# The current code for a base32 TOTP key: RFC 6238 with HMAC-SHA256, 6 digits, 30 s,
+# as Midgard enrols it (services/iam/src/mfa.rs).
+totp_now() {
+    local key="$1" pad hexkey counter mac off bin
+    pad=$(( (8 - ${#key} % 8) % 8 ))
+    key+="$(printf '%*s' "$pad" '' | tr ' ' '=')"
+    hexkey="$(printf '%s' "$key" | base32 -d | od -An -vtx1 | tr -d ' \n')"
+    counter="$(printf '%016x' $(( $(date +%s) / 30 )))"
+    mac="$(printf '%b' "$(sed 's/../\\x&/g' <<<"$counter")" |
+        openssl dgst -sha256 -mac HMAC -macopt "hexkey:$hexkey" -binary | od -An -vtx1 | tr -d ' \n')"
+    off=$(( 16#${mac:62:2} & 15 ))
+    bin=$(( 16#${mac:$((off * 2)):8} & 0x7fffffff ))
+    printf '%06d' $(( bin % 1000000 ))
+}
+
+json_string() { sed 's/["\\]/\\&/g' <<<"$1"; }
+
+# Sign in as the first user, then read the schema, and the data Forge synced: the path
+# a person takes in the console, over the same API.
+check_login() {
+    local body token totp="" types first count
+    if [ -n "${LOGIN_CHECK_TOTP_KEY:-}" ]; then
+        command -v openssl >/dev/null 2>&1 || { echo "openssl is missing: sign in by hand to check"; return 0; }
+        totp=",\"totp\":\"$(totp_now "$LOGIN_CHECK_TOTP_KEY")\""
+    fi
+    body="{\"username\":\"$OPERATOR\",\"password\":\"$(json_string "$LOGIN_CHECK_PASSWORD")\"$totp}"
+    token="$(curl -fsS -X POST http://127.0.0.1:7710/api/v1/login -H 'content-type: application/json' \
+        --data-binary @- <<<"$body" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+    [ -n "$token" ] || { echo "the gateway refused $OPERATOR's sign-in"; return 1; }
+    types="$(curl -fsS http://127.0.0.1:7710/api/v1/object-types -H "authorization: Bearer $token")"
+    # The first type that holds objects: the one the check reads.
+    first="$(python3 -I -c 'import json, sys
+for t in json.load(sys.stdin):
+    if str(t.get("instanceCount", "0")) != "0":
+        print(t["apiName"]); break' <<<"$types")"
+    [ -n "$first" ] || { echo "no object type holds any objects"; return 1; }
+    echo "signed in; object types: $(grep -o '"apiName":"[^"]*"' <<<"$types" | cut -d'"' -f4 | xargs)"
+    has forge || return 0
+    count="$(curl -fsS -X POST http://127.0.0.1:7710/api/v1/query -H "authorization: Bearer $token" \
+        -H 'content-type: application/json' -d "{\"objectType\":\"$first\"}" | grep -o "\"typeId\":\"$first\"" | wc -l)"
+    echo "$OPERATOR can read $count $first object(s)"
+    [ "$count" -gt 0 ] || { echo "$OPERATOR cannot read any synced $first: check clearance and purposes"; return 1; }
+}
+
+install_now() {
+    step 9 "INSTALLING"
+    STATUS=in-progress
+    INSTALLED_AT="$(date -u +%FT%TZ)"
+    install -d -m 0750 "$INSTALL_DIR"
+    touch "$LOG"; chmod 0600 "$LOG"
+    note "  Progress is logged to $LOG"
+    echo
+    run "Copying the Midgard source to $SRC" copy_source
+    if [ -n "$SAMPLES_ZIP" ]; then
+        run "Unpacking the full sample datasets" extract_samples
+    fi
+    if git -C "$REPO" rev-parse --short=12 HEAD >/dev/null 2>&1; then
+        SOURCE_COMMIT="$(git -C "$REPO" rev-parse --short=12 HEAD)"
+        git -C "$REPO" diff --quiet HEAD 2>/dev/null || SOURCE_COMMIT+="+local-changes"
+    fi
+    SOURCE_COMMIT="${SOURCE_COMMIT:-unknown}"
+    save_state
+    run "Building the Rust toolchain image (first time only)" build_toolchain
+    run "Writing this server's configuration" write_site
+    run "Building the Midgard services from source" dc build init
+    if [ "$CONSOLE" = yes ]; then
+        if [ "$(docker image inspect -f '{{index .Config.Labels "org.midgard.source"}}' "$CONSOLE_IMAGE" 2>/dev/null)" = "$SOURCE_COMMIT" ] &&
+            [[ "$SOURCE_COMMIT" != unknown && "$SOURCE_COMMIT" != *+local-changes ]]; then
+            ok "The web console is already built from $SOURCE_COMMIT."
+        else
+            run "Building the web console" docker build -f "$SRC/deploy/installer/console.Dockerfile" \
+                --label "org.midgard.source=$SOURCE_COMMIT" -t "$CONSOLE_IMAGE" "$SRC"
+        fi
+    fi
+    if has mimir && [ "$MODEL" = granite ]; then
+        run "Fetching, verifying and signing the Granite model" stage_model
+    fi
+    if [ "$FRESH_ENCLOSURE" = 1 ]; then
+        run "Removing the previous enclosure" dc down -v --remove-orphans
+        rm -rf "$INSTALL_DIR/admin-passkeys"
+    fi
+    dc stop gateway >>"$LOG" 2>&1 || true
+    run "Creating the enclosure's keys and service identities" dc run --rm init
+    enrol_operator
+    enrol_admins
+    if [ -n "$(feed_list)" ]; then
+        run "Issuing an identity to each Heimdall feed" issue_feed_identities
+    fi
+    local count; count="$(services_of | wc -w)"
+    # shellcheck disable=SC2046
+    run "Starting $count service$([ "$count" = 1 ] || echo s) and waiting until each is ready" dc up -d --wait $(services_of)
+    run "Checking the gateway answers" curl -fsS http://127.0.0.1:7710/api/v1/health
+    has forge && run "Waiting for Forge's first sync into the fabric" wait_for_sync
+    if [ -n "${LOGIN_CHECK_PASSWORD:-}" ]; then
+        run "Signing in as $OPERATOR and reading the data" check_login
+    fi
+    unset LOGIN_CHECK_PASSWORD LOGIN_CHECK_TOTP_KEY
+    if has mimir; then
+        if [ "$MODEL" = granite ]; then
+            run "Asking Mimir a question over PQ-mTLS" dc run --rm probe --prompt "In one sentence, what is an audit ledger?" --max-tokens 48
+        else
+            run "Making a PQ-mTLS inference call to Mimir" dc run --rm probe
+        fi
+    fi
+    has bifrost && run "Reading the Bifrost fleet as an operator" dc run --rm fleet-status
+    has heimdall && run "Reading the Heimdall picture as an analyst" dc run --rm picture
+    if [ -n "$(feed_list)" ]; then
+        run "Replaying the Heimdall feeds and checking the picture" replay_feeds
+    fi
+    [ "$CONSOLE" = yes ] && run "Checking the web console is served" curl -fsS -o /dev/null http://127.0.0.1:5173/
+    ln -sf "$SRC/deploy/installer/mg-install" /usr/local/bin/mg-install
+    STATUS=complete
+    save_state
+    write_report
+    finish
+}
+
+tunnel_command() {
+    if [ "$CONSOLE" = yes ]; then
+        echo "ssh -N -L 5173:127.0.0.1:5173 -L 7710:127.0.0.1:7710"
+    else
+        echo "ssh -N -L 7710:127.0.0.1:7710"
+    fi
+}
+
+host_address() {
+    local h
+    h="$(hostname -f 2>/dev/null || hostname)"
+    [[ "$h" == *.* ]] || h="$(hostname -I 2>/dev/null | awk '{ print $1 }')"
+    echo "${h:-your-server}"
+}
+
+write_report() {
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    local f="$INSTALL_DIR/INSTALL_REPORT.md" n
+    {
+        echo "# Midgard install report"
+        echo
+        echo "Written by mg-install $MG_INSTALL_VERSION on $(date -u '+%d %B %Y at %H:%M UTC'). It holds no secrets."
+        echo
+        echo "| | |"
+        echo "|---|---|"
+        echo "| Server | $(host_address), $OS_NAME, $ARCH, $CPUS cores, $((RAM_MB / 1024)) GB |"
+        echo "| Use | $PROFILE_TITLE (profile \`$PROFILE\`) |"
+        echo "| Products | Midgard$(for c in $COMPONENTS; do printf ', %s' "${c^}"; done) |"
+        echo "| Model | $(has mimir && { [ "$MODEL" = granite ] && echo 'Granite 3.3 2B Instruct, CPU' || echo 'reference engine'; } || echo 'none') |"
+        echo "| Web console | $CONSOLE |"
+        if has forge && [ -n "$PROFILE_SAMPLES" ]; then
+            local origin="the open set in the repository"
+            [ -n "$SAMPLES_ZIP" ] && origin="$SAMPLES_ZIP"
+            echo "| Recorded datasets | ${PROFILE_SAMPLES//,/, }, from $origin |"
+        fi
+        if has heimdall; then
+            echo "| Heimdall feeds | $(feed_list | sed 's/ /, /g') |"
+        fi
+        echo "| Source | \`$SOURCE_COMMIT\`, copied to \`$SRC\` |"
+        echo "| Services | $(services_of) |"
+        echo "| First user | \`$OPERATOR\` (operator, $PROFILE_CLEARANCE, purposes $PROFILE_PURPOSES, second factor $OPERATOR_TOTP) |"
+        [ -n "$ADMIN_1" ] && echo "| Administrators | \`$ADMIN_1\`, \`$ADMIN_2\` (IAM-Admin) |"
+        echo
+        echo "## Reach it from your computer"
+        echo
+        echo '```bash'
+        echo "$(tunnel_command) <you>@$(host_address)"
+        echo '```'
+        echo
+        if [ "$CONSOLE" = yes ]; then
+            echo "Then open http://localhost:5173 and sign in as \`$OPERATOR\`."
+        else
+            echo "Then call the API at http://localhost:7710/api/v1, signing in as \`$OPERATOR\` (no web console is installed)."
+        fi
+        echo
+        echo "## Guidance for this use"
+        echo
+        for n in "${PROFILE_NOTES[@]}"; do echo "- $n"; done
+        echo
+        local credits
+        credits="$(convert credits --samples "$(samples_dir)" --datasets "$PROFILE_SAMPLES" --feeds "$(feed_list)" 2>/dev/null || true)"
+        if [ -n "$credits" ]; then
+            echo "## Data credits"
+            echo
+            echo "The recorded datasets and feeds carry their sources' licences. Keep these credits wherever the data is shown or shared."
+            echo
+            echo "$credits"
+            echo
+        fi
+        echo "## Look after it"
+        echo
+        echo "| Task | Command |"
+        echo "|---|---|"
+        echo "| See what is running | \`sudo mg-install status\` |"
+        echo "| Read a service's log | \`sudo mg-install logs gateway\` |"
+        echo "| Add a user | \`sudo mg-install add-user\` |"
+        echo "| Back up | \`sudo mg-install backup\` |"
+        echo "| Stop, start | \`sudo mg-install stop\`, \`sudo mg-install start\` |"
+        echo "| Remove (keeps data) | \`sudo mg-install uninstall\` |"
+        echo
+        echo "The full guide is \`$SRC/deploy/installer/README.md\`."
+    } >"$f"
+    chmod 0640 "$f"
+}
+
+card_line() { printf '  %s│%s %-*s %s│%s\n' "$C_FAINT" "$R" "$(( $(cols) - 8 ))" "$1" "$C_FAINT" "$R"; }
+
+finish() {
+    echo
+    rule
+    banner keep
+    local w=$(( $(cols) - 6 )) host
+    host="$(host_address)"
+    printf '  %s%s%sMIDGARD IS INSTALLED AND RUNNING%s\n\n' "$C_SECURE" "$B" "" "$R"
+    printf '  %s┌%s┐%s\n' "$C_FAINT" "$(printf '%*s' "$w" '' | sed 's/ /─/g')" "$R"
+    card_line "OPEN IT FROM YOUR OWN COMPUTER"
+    card_line ""
+    card_line "1. In a terminal on your computer, open the tunnel and leave it running:"
+    card_line "   $(tunnel_command) you@$host"
+    if [ "$CONSOLE" = yes ]; then
+        card_line "2. In your browser, open  http://localhost:5173"
+    else
+        card_line "2. The API is at  http://localhost:7710/api/v1  (no console installed)"
+    fi
+    card_line "3. Sign in as  $OPERATOR$([ "$OPERATOR_TOTP" = yes ] && echo '  with the code from your authenticator app')"
+    printf '  %s└%s┘%s\n\n' "$C_FAINT" "$(printf '%*s' "$w" '' | sed 's/ /─/g')" "$R"
+    if [ -n "$ADMIN_1" ]; then
+        printf '  %s%sDO THIS NEXT%s\n' "$C_WARN" "$B" "$R"
+        say "Give each administrator their passkey file, then delete it from this server:"
+        note "  $INSTALL_DIR/admin-passkeys/$ADMIN_1.passkey"
+        note "  $INSTALL_DIR/admin-passkeys/$ADMIN_2.passkey"
+        say "Whoever holds a passkey file can act as that administrator. Keep each in its"
+        say "owner's encrypted password manager or on encrypted media, never in email or chat."
+        say "Afterwards run:  sudo mg-install handed-over"
+        echo
+    fi
+    say "A record of this install, with the guidance for your use, is in"
+    note "  $INSTALL_DIR/INSTALL_REPORT.md"
+    say "Manage it with  ${B}sudo mg-install status${R}, ${B}add-user${R}, ${B}backup${R}, ${B}logs${R}."
+    echo
+}
+
+wizard() {
+    need_root
+    local dir="${ANSWER[INSTALL_DIR]:-${MG_INSTALL_DIR:-$DEFAULT_DIR}}"
+    set_dirs "$dir"
+    if load_state; then
+        INSTALLED_PROFILE="$PROFILE"
+        if [ "$STATUS" = complete ] && [ "$UNATTENDED" = 0 ]; then
+            banner
+            say "Midgard is already installed in $INSTALL_DIR ($PROFILE, $(services_of))."
+            echo
+            say "  1  Check and repair it, with the same choices"
+            say "  2  Change the choices and reinstall (data is kept)"
+            say "  3  Leave it as it is"
+            choose ACTION 1 repair change leave
+            case "$REPLY" in
+                leave) exit 0 ;;
+                repair) facts; install_now; return ;;
+            esac
+        fi
+    fi
+    if [ "$UNATTENDED" = 1 ]; then
+        banner
+        say "Unattended install from the answers file."
+        echo
+        preflight || die "The server check failed."
+        if [ -z "$PYTHON_VERSION" ]; then
+            [ "${ANSWER[INSTALL_PYTHON]:-no}" = yes ] || die "Python 3 is not installed and INSTALL_PYTHON is not yes."
+            install -d -m 0750 "$INSTALL_DIR"; touch "$LOG"
+            run "Installing Python 3" install_python
+            facts
+        fi
+        if [ -z "$DOCKER_VERSION" ]; then
+            [ "${ANSWER[INSTALL_DOCKER]:-no}" = yes ] || die "Docker is not installed and INSTALL_DOCKER is not yes."
+            install -d -m 0750 "$INSTALL_DIR"; touch "$LOG"
+            run "Installing Docker" install_docker
+            facts
+        fi
+        step_profile
+        step_components
+        step_model
+        step_data
+        step_people
+        step_review
+    else
+        [ -t 0 ] || die "Run the installer in a terminal, or pass --answers FILE for an unattended install."
+        step_welcome
+        step_server
+        step_profile
+        step_components
+        step_model
+        step_data
+        step_people
+        step_review
+    fi
+    install_now
+}
+
+# ---- management ------------------------------------------------------------------------
+
+cmd_status() {
+    find_install
+    banner
+    label "Install folder"; echo "$INSTALL_DIR"
+    label "Use"; echo "$PROFILE"
+    label "Installed"; echo "$INSTALLED_AT from source $SOURCE_COMMIT ($STATUS)"
+    echo
+    local s state health
+    for s in $(services_of); do
+        state="$(docker inspect -f '{{.State.Status}}' "midgard-$s-1" 2>/dev/null || echo absent)"
+        health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "midgard-$s-1" 2>/dev/null || true)"
+        if [ "$state" = running ] && { [ -z "$health" ] || [ "$health" = healthy ]; }; then
+            ok "$(printf '%-16s %s' "$s" "running${health:+, $health}")"
+        else
+            bad "$(printf '%-16s %s' "$s" "$state${health:+, $health}")"
+        fi
+    done
+    echo
+    if curl -fsS --max-time 3 http://127.0.0.1:7710/api/v1/health >/dev/null 2>&1; then
+        ok "The gateway answers on http://127.0.0.1:7710"
+    else
+        bad "The gateway does not answer on http://127.0.0.1:7710"
+    fi
+}
+
+cmd_add_user() {
+    need_root
+    find_install
+    # shellcheck disable=SC1090
+    . "$HERE/profiles/$PROFILE/profile.env"
+    banner
+    say "Add someone who can sign in. The gateway stops for a few seconds while they are enrolled."
+    if [ -n "$ADMIN_1" ]; then
+        note "  With administrators set up, you can instead enrol under dual control while it runs:"
+        note "  see 'Administrators and online enrolment' in $SRC/README.md."
+    fi
+    echo
+    local subject role clearance purposes totp=()
+    while :; do ask NEW_USER "Username:" ""; valid_name "$REPLY" && break; warn "2-32 characters: a-z, 0-9, dot, underscore, hyphen."; done
+    subject="$REPLY"
+    say "  1  operator: reads and runs actions        2  viewer: reads only"
+    choose ROLE 1 operator viewer; role="$REPLY"
+    ask CLEARANCE "Clearance (open, internal, restricted, confidential):" "$PROFILE_CLEARANCE"; clearance="$REPLY"
+    [[ "$clearance" =~ ^(open|internal|restricted|confidential)$ ]] || die "unknown clearance $clearance"
+    ask PURPOSES "Purposes, comma separated:" "$PROFILE_PURPOSES"; purposes="$REPLY"
+    # The gateway signs every session in for the purpose 'operations' (LOGIN_PURPOSE in
+    # services/http-gateway/src/lib.rs), so a user without it could never sign in.
+    [[ ",$purposes," == *,operations,* ]] || { purposes="operations,$purposes"; note "  Added 'operations': every sign-in is for that purpose today."; }
+    if [ "$PROFILE_TOTP" = required ] || yes_no TOTP "Require an authenticator app code?" yes; then totp=(--totp); fi
+    secret "Password for $subject:"
+    local password="$REPLY" out
+    dc stop gateway >/dev/null 2>&1
+    if out="$(printf '%s\n' "$password" | dc run --rm --no-deps -T --entrypoint mg-admin init user add \
+        --state-dir /vol/core-state --subject "$subject" --roles "$role" --clearance "$clearance" \
+        --purposes "$purposes" "${totp[@]}" 2>&1)"; then
+        unset password
+        ok "Enrolled $subject."
+        local uri
+        uri="$(grep -o 'otpauth://[^[:space:]]*' <<<"$out" | head -1 || true)"
+        if [ -n "$uri" ]; then
+            command -v qrencode >/dev/null 2>&1 && qrencode -t ANSIUTF8 -m 2 "$uri" | sed 's/^/    /'
+            label "Authenticator key"; sed -n 's/.*[?&]secret=\([A-Z2-7]*\).*/\1/p' <<<"$uri" | sed 's/.\{4\}/& /g'
+            note "  Shown once. Give it to $subject in person or over a secure channel."
+        fi
+    else
+        unset password
+        bad "Enrolling $subject failed:"; grep -v 'otpauth://' <<<"$out" | sed 's/^/      /'
+    fi
+    dc up -d --wait gateway >/dev/null 2>&1 && ok "The gateway is running again."
+}
+
+cmd_backup() {
+    need_root
+    find_install
+    local dest v n=0
+    dest="${1:-/var/backups/midgard}/$(date -u +%Y%m%dT%H%M%SZ)"
+    install -d -m 0700 "$dest"
+    banner
+    say "Backing up every Midgard volume to $dest"
+    note "  The stores are encrypted at rest, but the archive of core-state holds the enclosure's"
+    note "  sealed keys. Protect the backup as you would the server itself."
+    echo
+    dc stop >/dev/null 2>&1
+    for v in $(docker volume ls -q --filter label=com.docker.compose.project=midgard) midgard-models midgard-model-signing; do
+        docker volume inspect "$v" >/dev/null 2>&1 || continue
+        docker run --rm --network none -u 0 -v "$v:/v:ro" -v "$dest:/b" "$DEV_IMAGE" \
+            tar -C /v -czf "/b/$v.tar.gz" . && ok "$v" && n=$((n + 1))
+    done
+    (cd "$dest" && sha256sum ./*.tar.gz >SHA256SUMS)
+    cp "$STATE_FILE" "$dest/install.env"
+    chmod 0600 "$dest"/*
+    # shellcheck disable=SC2046
+    dc up -d --wait $(services_of) >/dev/null 2>&1 && ok "Services restarted."
+    echo
+    ok "$n volumes saved, with SHA256SUMS. Restore steps: $SRC/deploy/installer/README.md#restore"
+}
+
+cmd_uninstall() {
+    need_root
+    find_install
+    banner
+    if [ "${1:-}" = --purge ]; then
+        warn "This deletes Midgard and ALL its data: keys, users, ledgers, datasets, models."
+        say "There is no undo. Take a backup first (sudo mg-install backup) if in doubt."
+        ask PURGE "Type DELETE to confirm:" ""
+        [ "$REPLY" = DELETE ] || die "Nothing was deleted."
+        dc down -v --remove-orphans
+        docker volume rm midgard-models midgard-model-signing >/dev/null 2>&1 || true
+        docker image rm "$DEV_IMAGE" "$CONSOLE_IMAGE" >/dev/null 2>&1 || true
+        rm -f /usr/local/bin/mg-install
+        rm -rf "$INSTALL_DIR"
+        ok "Midgard and its data are removed. The toolchain image $TOOLCHAIN_IMAGE and Docker remain."
+    else
+        dc down --remove-orphans
+        STATUS=stopped; save_state
+        ok "The services are removed. Data volumes and $INSTALL_DIR are kept."
+        note "  Run the installer again to bring it back, or 'uninstall --purge' to delete everything."
+    fi
+}
+
+cmd_handed_over() {
+    need_root
+    find_install
+    local keys="$INSTALL_DIR/admin-passkeys" a
+    for a in $ADMIN_1 $ADMIN_2; do
+        if [ -f "$keys/$a.passkey" ]; then
+            shred -u "$keys/$a.passkey" 2>/dev/null || rm -f "$keys/$a.passkey"
+            touch "$keys/.$a.handed-over"
+            ok "Removed $a's passkey from this server."
+        fi
+    done
+}
+
+start_services() {
+    # shellcheck disable=SC2046
+    dc up -d --wait $(services_of)
+}
+
+usage() {
+    cat <<EOF
+mg-install $MG_INSTALL_VERSION: install and manage the Midgard Suite on one server.
+
+  sudo mg-install                     guided install (or resume, repair, change)
+  sudo mg-install --answers FILE      unattended install; see deploy/installer/answers.example
+  mg-install check                    check this server; changes nothing
+  sudo mg-install status              what is running, and is it healthy
+  sudo mg-install start | stop | restart
+  sudo mg-install logs [SERVICE]      e.g. gateway, mimir-server, forge-worker
+  sudo mg-install add-user            enrol someone who can sign in
+  sudo mg-install backup [DIR]        archive every volume (default /var/backups/midgard)
+  sudo mg-install handed-over         delete administrator passkeys once handed over
+  sudo mg-install uninstall [--purge] remove the services; --purge also deletes all data
+
+The install folder is $DEFAULT_DIR; set MG_INSTALL_DIR to use another.
+EOF
+}
+
+main() {
+    case "${1:-install}" in
+        -h | --help | help) usage ;;
+        --version) echo "mg-install $MG_INSTALL_VERSION" ;;
+        install) wizard ;;
+        --answers) [ -n "${2:-}" ] || die "--answers needs a file"; read_answers "$2"; wizard ;;
+        check)
+            banner
+            if preflight; then echo; ok "This server can run Midgard."
+            else echo; bad "Fix the items marked ✗ first."; exit 1; fi ;;
+        status) cmd_status ;;
+        start) need_root; find_install; start_services ;;
+        stop) need_root; find_install; dc stop ;;
+        restart) need_root; find_install; dc restart ;;
+        logs) need_root; find_install; dc logs --tail 200 -f ${2:+"$2"} ;;
+        add-user) cmd_add_user ;;
+        backup) cmd_backup "${2:-}" ;;
+        handed-over) cmd_handed_over ;;
+        uninstall) cmd_uninstall "${2:-}" ;;
+        *) usage; exit 2 ;;
+    esac
+}
+
+main "$@"

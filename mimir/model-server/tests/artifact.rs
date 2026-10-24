@@ -71,7 +71,7 @@ fn ac_mi_7_valid_artefact_of_each_family_loads() {
     let loader = ModelLoader::new(vk, LicencePolicy::default());
     let node = gpu_node(80);
 
-    for family in ["Mistral", "Nemotron", "Gemma"] {
+    for family in ["Mistral", "Nemotron", "Gemma", "Granite"] {
         let art = sign_manifest(manifest(&format!("{family}-1"), family, 24, true), &sk);
         let loaded = loader
             .verify_and_load(&art, &node)

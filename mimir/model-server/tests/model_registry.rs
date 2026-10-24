@@ -78,7 +78,7 @@ fn ac_ms_2_each_family_loads_from_registry_and_bad_signature_fails_closed() {
     let mut reg = ModelRegistry::new(vk, LicencePolicy::default());
     let node = gpu_node(1, 80);
 
-    for family in ["Mistral", "Nemotron", "Gemma"] {
+    for family in ["Mistral", "Nemotron", "Gemma", "Granite"] {
         let art = sign_manifest(
             manifest(
                 &format!("{family}-1"),
@@ -102,13 +102,16 @@ fn ac_ms_2_each_family_loads_from_registry_and_bad_signature_fails_closed() {
     );
     art.manifest.version = "9.9-evil".into();
     reg.register(art, None, None);
-    assert_eq!(reg.load("mistral-evil", &node), Err(LoadError::BadSignature));
+    assert_eq!(
+        reg.load("mistral-evil", &node),
+        Err(LoadError::BadSignature)
+    );
 
     // An artefact the registry does not know cannot be loaded.
     assert_eq!(reg.load("ghost", &node), Err(LoadError::NotRegistered));
 
-    // Every attempt was audited (system of record). 5 loads above.
-    assert_eq!(reg.load_events().len(), 5);
+    // Every attempt was audited (system of record). 6 loads above.
+    assert_eq!(reg.load_events().len(), 6);
     // The bad-signature attempt recorded sig_verified = false; the good ones true.
     let evil = reg
         .load_events()
@@ -156,7 +159,12 @@ fn ac_ms_5_offers_largest_eligible_variant_and_refuses_the_too_big_one() {
         &sk,
     );
     let large = sign_manifest(
-        manifest("mistral-large", "Mistral", HwProfile::multi(2, 80, false), true),
+        manifest(
+            "mistral-large",
+            "Mistral",
+            HwProfile::multi(2, 80, false),
+            true,
+        ),
         &sk,
     );
     reg.register(small, None, None);
@@ -185,7 +193,9 @@ fn ac_ms_5_offers_largest_eligible_variant_and_refuses_the_too_big_one() {
     // On a bigger node (2×80GB) the large variant becomes the largest eligible.
     let big_node = gpu_node(2, 80);
     assert_eq!(
-        reg.resolve_largest_eligible("Mistral", &big_node).unwrap().id(),
+        reg.resolve_largest_eligible("Mistral", &big_node)
+            .unwrap()
+            .id(),
         "mistral-large"
     );
 }

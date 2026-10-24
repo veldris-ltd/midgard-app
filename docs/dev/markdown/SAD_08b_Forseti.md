@@ -91,7 +91,7 @@ AC-F-1..18 covering: independent monitor; five integrity checks; SUSPECT/COMPROM
 
 ## 11. Integration & delivery
 
-Monitors Gungnir (SAD_08); force-protection reuses Phase 3 viewshed/3D + Heimdall tracking; independent monitor model via SAD_02b diverse-lineage supply; SAD_07 dual-control governance incl. the geometry/behaviour boundary; A.F-1..3 + AC-F-1..18 join SAD_05 (**consolidated ACs 144 → 162**).
+Monitors Gungnir (SAD_08); force-protection reuses Heimdall viewshed/3D and tracking; independent monitor model via SAD_02b diverse-lineage supply; SAD_07 dual-control governance incl. the geometry/behaviour boundary; A.F-1..3 + AC-F-1..18 join SAD_05 (**consolidated ACs 112 → 130**).
 
 **Delivery sequence:** independent integrity monitor → integrity-confidence feedback → asset-centric force-protection geometry → role-level human-factors, with the geometry/behaviour design-review gate in place before any force-protection work begins.
 

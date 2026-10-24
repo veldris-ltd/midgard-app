@@ -1,6 +1,8 @@
 // Record the Midgard launch walkthrough: real edge for the Midgard console, mock
 // gateways for the other consoles, title/terminal/end cards from ./pages.
 const { chromium } = require('playwright-core');
+// Edge by default; CHROME_PATH names any other Chromium build.
+const BROWSER = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'msedge' };
 const fs = require('fs'), path = require('path');
 
 const ORIGIN = 'http://localhost:5173';
@@ -62,7 +64,7 @@ const OVERLAY = `
 })();`;
 
 async function main() {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--host-resolver-rules=MAP localhost 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--hide-scrollbars'] });
+  const browser = await chromium.launch({ ...BROWSER, headless: true, args: ['--host-resolver-rules=MAP localhost 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--hide-scrollbars'] });
   const ctx = await browser.newContext({
     viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, colorScheme: MODE,
     recordVideo: { dir: path.join(OUT, 'raw'), size: { width: 1920, height: 1080 } },

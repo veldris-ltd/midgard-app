@@ -1,0 +1,4 @@
+reference,kind,status,completed_on,risk,client
+AML-201,CDD,complete,2025-03-15,standard,C-001
+AML-202,EDD,in-progress,,high,C-002
+AML-203,CDD,open,,standard,C-003

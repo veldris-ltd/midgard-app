@@ -14,7 +14,7 @@
 #
 # Accepted ids are the vocabulary the repo actually uses:
 #   [FR-*]  functional requirement      [AC-*]  acceptance criterion
-#   [NFR-*] non-functional requirement  [RC-*]  remedial / change item
+#   [NFR-*] non-functional requirement  [RC-*]  change item
 #   [DD-*]  design driver               [STD:*] external standard
 #
 # Usage:

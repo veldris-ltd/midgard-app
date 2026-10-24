@@ -1,0 +1,364 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "substations",
+      "every": 600,
+      "source": {
+        "file": "substations.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "voltage_kv",
+            "type": "int",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "region",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "substation",
+        "key": "key",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "asset-management"
+        ],
+        "properties": {
+          "name": "name",
+          "voltage_kv": "voltage_kv",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "substation_in",
+          "from": "key",
+          "to": "region"
+        }
+      ]
+    },
+    {
+      "id": "feeders",
+      "every": 300,
+      "source": {
+        "file": "feeders.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "customers",
+            "type": "int",
+            "nullable": true
+          },
+          {
+            "name": "substation",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "feeder",
+        "key": "key",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "asset-management"
+        ],
+        "properties": {
+          "name": "name",
+          "customers": "customers"
+        }
+      },
+      "links": [
+        {
+          "type": "feeder_from",
+          "from": "key",
+          "to": "substation"
+        }
+      ]
+    },
+    {
+      "id": "transformers",
+      "every": 60,
+      "source": {
+        "file": "transformers.csv",
+        "columns": [
+          {
+            "name": "serial",
+            "type": "text"
+          },
+          {
+            "name": "rating_kva",
+            "type": "int",
+            "nullable": true
+          },
+          {
+            "name": "load_fraction",
+            "type": "float",
+            "nullable": true
+          },
+          {
+            "name": "oil_temp_c",
+            "type": "float",
+            "nullable": true
+          },
+          {
+            "name": "in_service",
+            "type": "bool",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "feeder",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "transformer",
+        "key": "serial",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "asset-management"
+        ],
+        "properties": {
+          "serial": "serial",
+          "rating_kva": "rating_kva",
+          "load_fraction": "load_fraction",
+          "oil_temp_c": "oil_temp_c",
+          "in_service": "in_service",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "transformer_on",
+          "from": "serial",
+          "to": "feeder"
+        }
+      ]
+    },
+    {
+      "id": "water_assets",
+      "every": 300,
+      "source": {
+        "file": "water_assets.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "capacity_mld",
+            "type": "float",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "region",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "water_asset",
+        "key": "key",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "asset-management"
+        ],
+        "properties": {
+          "name": "name",
+          "kind": "kind",
+          "capacity_mld": "capacity_mld",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "water_asset_in",
+          "from": "key",
+          "to": "region"
+        }
+      ]
+    },
+    {
+      "id": "telecom_sites",
+      "every": 300,
+      "source": {
+        "file": "telecom_sites.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "operator",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "region",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "substation",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "telecom_site",
+        "key": "key",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "asset-management"
+        ],
+        "properties": {
+          "name": "name",
+          "kind": "kind",
+          "operator": "operator",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "telecom_site_in",
+          "from": "key",
+          "to": "region"
+        },
+        {
+          "type": "telecom_powered_by",
+          "from": "key",
+          "to": "substation"
+        }
+      ]
+    },
+    {
+      "id": "transport_assets",
+      "every": 300,
+      "source": {
+        "file": "transport_assets.csv",
+        "columns": [
+          {
+            "name": "key",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "mode",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "kind",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "region",
+            "type": "text",
+            "nullable": true
+          }
+        ]
+      },
+      "objects": {
+        "type": "transport_asset",
+        "key": "key",
+        "marking": "internal",
+        "purposes": [
+          "operations",
+          "asset-management"
+        ],
+        "properties": {
+          "name": "name",
+          "mode": "mode",
+          "kind": "kind",
+          "status": "status"
+        }
+      },
+      "links": [
+        {
+          "type": "transport_asset_in",
+          "from": "key",
+          "to": "region"
+        }
+      ]
+    }
+  ]
+}

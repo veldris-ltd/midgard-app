@@ -7,7 +7,9 @@ import { DataProvider } from './DataProvider';
  * operator exchanges credentials for a PQ-signed token, and only then is the
  * authenticated `HttpGateway` injected and the console rendered against live
  * enclosure data. In `mock` mode (explicit offline demos only) it passes straight
- * through with the in-process mock — no auth. [RC-37] */
+ * through with the in-process mock — no auth. A principal enrolled with a TOTP second
+ * factor adds the code from their authenticator app; it is sent only when entered.
+ * [RC-37] [RC-29] */
 
 const TOKEN_KEY = 'midgard.session.token';
 
@@ -21,7 +23,10 @@ export interface AuthGateProps<C> {
   /** Build the authenticated client from a token (http mode, post-login). */
   makeClient: (token: string) => C;
   /** Exchange credentials for a token (the SDK `login`). */
-  login: (baseUrl: string, creds: { username: string; password: string }) => Promise<{ token: string; subject: string }>;
+  login: (
+    baseUrl: string,
+    creds: { username: string; password: string; totp?: string },
+  ) => Promise<{ token: string; subject: string }>;
   children: React.ReactNode;
 }
 
@@ -38,6 +43,7 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
   });
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [totp, setTotp] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -56,7 +62,7 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
     setBusy(true);
     setError(null);
     try {
-      const res = await login(baseUrl, { username, password });
+      const res = await login(baseUrl, totp ? { username, password, totp } : { username, password });
       try {
         sessionStorage.setItem(TOKEN_KEY, res.token);
       } catch {
@@ -117,6 +123,21 @@ export function AuthGate<C>(props: AuthGateProps<C>): React.ReactElement {
             autoComplete="current-password"
             style={inputStyle}
           />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          Authenticator code
+          <input
+            value={totp}
+            onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="Only if you use an authenticator app"
+            aria-describedby="totp-hint"
+            style={inputStyle}
+          />
+          <span id="totp-hint" style={{ color: 'var(--text-muted, #9a9a9a)' }}>
+            The 6-digit code from your authenticator app, if your account has one.
+          </span>
         </label>
         {error && (
           <div role="alert" style={{ fontSize: 12, color: 'var(--accent-danger, #e5484d)' }}>

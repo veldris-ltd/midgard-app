@@ -1,0 +1,4 @@
+reference,kind,occurred,snomed_code,snomed_term,review,patient,unit
+E-1001,outpatient,2026-09-14,84114007,Heart failure,none,PX-7F31,U-CARD
+E-1002,admission,2026-09-20,13645005,Chronic obstructive lung disease,none,PX-22C8,U-RESP
+E-1003,outpatient,2026-10-02,84114007,Heart failure,none,PX-9A04,U-CARD

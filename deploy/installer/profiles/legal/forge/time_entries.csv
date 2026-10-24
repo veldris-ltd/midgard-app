@@ -1,0 +1,3 @@
+reference,fee_earner,worked_on,hours,activity,billable,status,matter
+T-10001,fee earner A (fictional),2026-10-20,2.5,Drafting the reply,true,draft,M-2025-014
+T-10002,fee earner B (fictional),2026-10-21,1.0,Call with Dutch counsel,true,submitted,M-2025-031

@@ -1,0 +1,3 @@
+reference,priority,received,rtt_clock,breach_date,status,patient,unit
+R-5001,routine,2026-08-03,open,2027-01-25,awaiting first appointment,PX-9A04,U-CARD
+R-5002,urgent,2026-10-15,open,2027-04-08,triaged,PX-22C8,U-RESP

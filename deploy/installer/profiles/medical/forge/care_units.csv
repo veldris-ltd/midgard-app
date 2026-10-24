@@ -1,0 +1,3 @@
+key,name,treatment_function,treatment_function_code,ods_site,organisation
+U-CARD,Cardiology outpatients,Cardiology,320,FICT1-01,FICT1
+U-RESP,Respiratory ward,Respiratory Medicine,340,FICT1-02,FICT1

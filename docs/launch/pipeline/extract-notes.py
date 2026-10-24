@@ -5,7 +5,7 @@ from pptx import Presentation
 deck, out = sys.argv[1], sys.argv[2]
 p = Presentation(deck)
 lines = ["# Midgard launch — speaker run-sheet", "",
-         "Generated from the speaker notes in `Midgard-Launch.pptx`. Timings in brackets add up to roughly 18 minutes; the demo video is 4 min 09 s.", ""]
+         "Generated from the speaker notes in `Midgard-Launch.pptx`. Timings in brackets add up to roughly 18 minutes; the demo video is 3 min 35 s.", ""]
 for i, slide in enumerate(p.slides, 1):
     title = None
     for sh in slide.shapes:

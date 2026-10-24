@@ -31,7 +31,7 @@ The product code exists (`just build` / `just test` compile and verify it — se
         └──────────────┬───────────────────────────────┘
                        ▼
              an AI coding agent
-        (your agent of choice)
+           (your agent of choice)
                        │
                        ▼
         production code for the suite
@@ -63,7 +63,7 @@ You need very little to *start*, because most of the work is reading and prompti
 - A modern browser. React, ReactDOM, and Babel-standalone are loaded from `unpkg` CDN at runtime, so **first load needs internet** (after that the browser caches them). If you must run air-gapped, vendor those three scripts locally and rewrite the `<script src>` tags.
 
 **To build the product**
-- An AI coding agent. Any capable agent works.
+- An AI coding agent. The design system ships its own agent instructions (`docs/design/DESIGN_GUIDE.md`), so any capable agent works.
 - Your chosen implementation stack. The SADs specify *requirements and architecture*, not a mandated language; `SAD_05`'s build-capabilities register and each SAD's C4 diagrams guide technology choices.
 
 > **Why a server and not just double-clicking the HTML?** The UI kits and docs load component source with `XMLHttpRequest` and compile it with Babel in the browser. `file://` blocks those requests; serve over `http://` and everything works.
@@ -107,13 +107,7 @@ This grounds the agent in the enclosure and the brand before it touches anything
 Point the agent at the design system's own instructions so it becomes brand-expert:
 
 ```
-/midgard-design
-```
-
-Otherwise, point the agent at the skill's instructions manually:
-
-```
-Read docs/design/SKILL.md and docs/design/readme.md, then load the tokens in
+Read docs/design/DESIGN_GUIDE.md and docs/design/readme.md, then load the tokens in
 ui/design-system/src/tokens/ and the component contracts in docs/design/components/**/*.d.ts
 and **/*.prompt.md. You are now the Midgard design authority. Confirm the rules
 you must never break (one accent per screen, never emoji, ALL-CAPS mono labels,
@@ -280,7 +274,7 @@ Global conventions apply to every prompt (Part A.0):
 - **Fail visible, not silent** — return a structured refusal with a reason code, never a fabricated result.
 - **No secrets, no PII echo** — never emit data above the caller's clearance.
 
-Prompts are written to be **model-portable** across three model families (Mistral / Nemotron / Gemma / Granite), which is tested against a deterministic engine and not yet against those models; family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author (`SAD_02b` covers model supply & resolution). When you implement an AI feature, implement its prompt *and* its Evals together — the Evals are your regression suite for behaviour.
+Prompts are written to be **model-portable** across four model families (Mistral / Nemotron / Gemma / Granite), which is tested against a deterministic engine and not yet against those models; family-specific chat templating is applied by the Model Abstraction Layer, not by the prompt author (`SAD_02b` covers model supply & resolution). When you implement an AI feature, implement its prompt *and* its Evals together — the Evals are your regression suite for behaviour.
 
 ---
 

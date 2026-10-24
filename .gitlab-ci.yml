@@ -129,6 +129,9 @@ default:
 .shell-audit:
   stage: audit
   extends: .on-audit
+  # shell-audit-gate decides: a failed audit leaves no record, and the gate refuses a
+  # missing one unless clients/shells/audit-waivers.txt waives that pre-release.
+  allow_failure: true
   artifacts:
     when: always
     paths:

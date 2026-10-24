@@ -1,0 +1,508 @@
+{
+ "fetched": 1792698851.432061,
+ "stations": [
+  {
+   "id": "720101",
+   "label": "Abbeystead Reservoir",
+   "lat": 53.978695,
+   "lon": -2.677098,
+   "river": "River Wyre"
+  },
+  {
+   "id": "768010",
+   "label": "Thacka Beck Reservoir",
+   "lat": 54.668303,
+   "lon": -2.76746,
+   "river": "Thacka Beck"
+  },
+  {
+   "id": "750604",
+   "label": "Thirlmere Reservoir (Spillway level = 16.55m)",
+   "lat": 54.561659,
+   "lon": -3.068796,
+   "river": "Thirlmere Reservoir"
+  },
+  {
+   "id": "E4823",
+   "label": "Great Easton Flood Storage Reservoir",
+   "lat": 52.529248,
+   "lon": -0.758769,
+   "river": "River Welland"
+  },
+  {
+   "id": "E1782",
+   "label": "Litte Bowden Flood Storage Reservoir",
+   "lat": 52.470494,
+   "lon": -0.909111,
+   "river": "River Jordan"
+  },
+  {
+   "id": "761102",
+   "label": "Haweswater Reservoir (Spillway level = 31.39m)",
+   "lat": 54.534679,
+   "lon": -2.769772,
+   "river": "Haweswater Reservoir"
+  },
+  {
+   "id": "E1310",
+   "label": "Weldon Flood Storage Reservoir",
+   "lat": 52.493886,
+   "lon": -0.649292,
+   "river": "Willow Brook"
+  },
+  {
+   "id": "E4828",
+   "label": "Medbourne Flood Storage Reservoir",
+   "lat": 52.546177,
+   "lon": -0.832027,
+   "river": "Medbourne Brook"
+  },
+  {
+   "id": "38_BRENT_RES",
+   "label": "Brent Reservoir",
+   "lat": 51.570831,
+   "lon": -0.245027,
+   "river": null
+  },
+  {
+   "id": "4092",
+   "label": "Ladybower Reservoir Level",
+   "lat": 53.365709,
+   "lon": -1.69955,
+   "river": null
+  },
+  {
+   "id": "692100",
+   "label": "Torside Reservoir",
+   "lat": 53.482675,
+   "lon": -1.917346,
+   "river": null
+  },
+  {
+   "id": "692117",
+   "label": "Bottoms Reservoir",
+   "lat": 53.470933,
+   "lon": -1.965681,
+   "river": null
+  },
+  {
+   "id": "711007",
+   "label": "Stocks Reservoir Level",
+   "lat": 53.986442,
+   "lon": -2.42948,
+   "river": null
+  },
+  {
+   "id": "023055",
+   "label": "Kielder Reservoir",
+   "lat": 55.177701,
+   "lon": -2.461265,
+   "river": null
+  },
+  {
+   "id": "023060",
+   "label": "Derwent Reservoir",
+   "lat": 54.854558,
+   "lon": -1.964666,
+   "river": null
+  },
+  {
+   "id": "700401",
+   "label": "Upper Rivington Reservoir",
+   "lat": 53.626219,
+   "lon": -2.575503,
+   "river": null
+  },
+  {
+   "id": "700399",
+   "label": "Lower Rivington Reservoir",
+   "lat": 53.606879,
+   "lon": -2.559824,
+   "river": null
+  },
+  {
+   "id": "531187",
+   "label": "Hancocks Water Reservoir",
+   "lat": 51.535097,
+   "lon": -1.885111,
+   "river": "Brinkworth Brook"
+  },
+  {
+   "id": "L1539",
+   "label": "Skipton Eller Beck Reservoir",
+   "lat": 53.973351,
+   "lon": -2.011314,
+   "river": "Eller Beck"
+  },
+  {
+   "id": "L1538A",
+   "label": "Skipton Waller Hill Reservoir",
+   "lat": 53.966232,
+   "lon": -1.987442,
+   "river": "Waller Hill Beck"
+  },
+  {
+   "id": "F2108a",
+   "label": "Gouthwaite Reservoir",
+   "lat": 54.110293,
+   "lon": -1.785619,
+   "river": "Reservoir"
+  },
+  {
+   "id": "5042",
+   "label": "Forge Mill Reservoir",
+   "lat": 52.533844,
+   "lon": -1.944283,
+   "river": null
+  },
+  {
+   "id": "4765",
+   "label": "Foston Reservoir",
+   "lat": 52.869404,
+   "lon": -1.719521,
+   "river": null
+  },
+  {
+   "id": "4090",
+   "label": "Derwent Reservoir LVL",
+   "lat": 53.40522,
+   "lon": -1.74026,
+   "river": null
+  },
+  {
+   "id": "4089",
+   "label": "Howden Reservoir LVL",
+   "lat": 53.429054,
+   "lon": -1.747038,
+   "river": null
+  },
+  {
+   "id": "4106",
+   "label": "Ogston Reservoir LVL",
+   "lat": 53.134907,
+   "lon": -1.435251,
+   "river": null
+  },
+  {
+   "id": "4846",
+   "label": "Quorn Swithland Reservoir",
+   "lat": 52.728527,
+   "lon": -1.176014,
+   "river": null
+  },
+  {
+   "id": "2853",
+   "label": "Trimpley Reservoir LVL",
+   "lat": 52.408288,
+   "lon": -2.337539,
+   "river": null
+  },
+  {
+   "id": "2820",
+   "label": "Chelmarsh Reservoir LVL",
+   "lat": 52.483696,
+   "lon": -2.387668,
+   "river": null
+  }
+ ],
+ "items": {
+  "RES-720101": {
+   "lat": 53.9787,
+   "lon": -2.6771,
+   "network": "water",
+   "name": "Abbeystead Reservoir",
+   "level_m": 0.146,
+   "spillway_m": null,
+   "reading_at": 1792681200,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-768010": {
+   "lat": 54.6683,
+   "lon": -2.76746,
+   "network": "water",
+   "name": "Thacka Beck Reservoir",
+   "level_m": -0.01,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-750604": {
+   "lat": 54.56166,
+   "lon": -3.0688,
+   "network": "water",
+   "name": "Thirlmere Reservoir",
+   "level_m": 10.769,
+   "spillway_m": 16.55,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-E4823": {
+   "lat": 52.52925,
+   "lon": -0.75877,
+   "network": "water",
+   "name": "Great Easton Flood Storage Reservoir",
+   "level_m": 0.315,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-E1782": {
+   "lat": 52.47049,
+   "lon": -0.90911,
+   "network": "water",
+   "name": "Litte Bowden Flood Storage Reservoir",
+   "level_m": 0.257,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-761102": {
+   "lat": 54.53468,
+   "lon": -2.76977,
+   "network": "water",
+   "name": "Haweswater Reservoir",
+   "level_m": 17.818,
+   "spillway_m": 31.39,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-E1310": {
+   "lat": 52.49389,
+   "lon": -0.64929,
+   "network": "water",
+   "name": "Weldon Flood Storage Reservoir",
+   "level_m": 0.146,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-E4828": {
+   "lat": 52.54618,
+   "lon": -0.83203,
+   "network": "water",
+   "name": "Medbourne Flood Storage Reservoir",
+   "level_m": 0.274,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-4092": {
+   "lat": 53.36571,
+   "lon": -1.69955,
+   "network": "water",
+   "name": "Ladybower Reservoir Level",
+   "level_m": 12.947,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-692100": {
+   "lat": 53.48268,
+   "lon": -1.91735,
+   "network": "water",
+   "name": "Torside Reservoir",
+   "level_m": -1.163,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-692117": {
+   "lat": 53.47093,
+   "lon": -1.96568,
+   "network": "water",
+   "name": "Bottoms Reservoir",
+   "level_m": -1.543,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-711007": {
+   "lat": 53.98644,
+   "lon": -2.42948,
+   "network": "water",
+   "name": "Stocks Reservoir Level",
+   "level_m": -4.9,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-023055": {
+   "lat": 55.1777,
+   "lon": -2.46127,
+   "network": "water",
+   "name": "Kielder Reservoir",
+   "level_m": -4.295,
+   "spillway_m": null,
+   "reading_at": 1792696500,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-023060": {
+   "lat": 54.85456,
+   "lon": -1.96467,
+   "network": "water",
+   "name": "Derwent Reservoir",
+   "level_m": -6.054,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-700401": {
+   "lat": 53.62622,
+   "lon": -2.5755,
+   "network": "water",
+   "name": "Upper Rivington Reservoir",
+   "level_m": -1.703,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-700399": {
+   "lat": 53.60688,
+   "lon": -2.55982,
+   "network": "water",
+   "name": "Lower Rivington Reservoir",
+   "level_m": -1.993,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-531187": {
+   "lat": 51.5351,
+   "lon": -1.88511,
+   "network": "water",
+   "name": "Hancocks Water Reservoir",
+   "level_m": 4.339,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-L1538A": {
+   "lat": 53.96623,
+   "lon": -1.98744,
+   "network": "water",
+   "name": "Skipton Waller Hill Reservoir",
+   "level_m": 0.318,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-F2108A": {
+   "lat": 54.11029,
+   "lon": -1.78562,
+   "network": "water",
+   "name": "Gouthwaite Reservoir",
+   "level_m": 8.6,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-5042": {
+   "lat": 52.53384,
+   "lon": -1.94428,
+   "network": "water",
+   "name": "Forge Mill Reservoir",
+   "level_m": 98.79,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-4765": {
+   "lat": 52.8694,
+   "lon": -1.71952,
+   "network": "water",
+   "name": "Foston Reservoir",
+   "level_m": 0.502,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-4090": {
+   "lat": 53.40522,
+   "lon": -1.74026,
+   "network": "water",
+   "name": "Derwent Reservoir LVL",
+   "level_m": 5.672,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-4089": {
+   "lat": 53.42905,
+   "lon": -1.74704,
+   "network": "water",
+   "name": "Howden Reservoir LVL",
+   "level_m": 10.698,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-4106": {
+   "lat": 53.13491,
+   "lon": -1.43525,
+   "network": "water",
+   "name": "Ogston Reservoir LVL",
+   "level_m": 3.249,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-4846": {
+   "lat": 52.72853,
+   "lon": -1.17601,
+   "network": "water",
+   "name": "Quorn Swithland Reservoir",
+   "level_m": 3.848,
+   "spillway_m": null,
+   "reading_at": 1792697400,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-2853": {
+   "lat": 52.40829,
+   "lon": -2.33754,
+   "network": "water",
+   "name": "Trimpley Reservoir LVL",
+   "level_m": 29.67,
+   "spillway_m": null,
+   "reading_at": 1792696500,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  },
+  "RES-2820": {
+   "lat": 52.4837,
+   "lon": -2.38767,
+   "network": "water",
+   "name": "Chelmarsh Reservoir LVL",
+   "level_m": 248.0,
+   "spillway_m": null,
+   "reading_at": 1792696500,
+   "operator": "Environment Agency",
+   "source": "environment-agency"
+  }
+ },
+ "stations_at": 1792677955.741798
+}

@@ -6,7 +6,7 @@ AI calls. Source: `SAD_02_Mimir.md`, `SAD_02b_Mimir_Model_Supply_Resolution.md`.
 | Directory | Role | Stack | Provenance |
 |---|---|---|---|
 | `model-server/` | Local serving: typed API, batching, KV-cache, quantisation, PQ-mTLS + per-call audit | Rust control plane; GPU engine out-of-process | `FR-MI-1` `FR-MI-8` |
-| `model-abstraction/` | Per-family adapters (Mistral / Nemotron / Gemma / Granite); templating/stop-tokens | Python | `FR-MS-7` |
+| `model-abstraction/` | Per-family adapters (Mistral/Nemotron/Gemma/Granite); templating/stop-tokens | Python | `FR-MS-7` |
 | `model-registry/` | System of record; fail-closed load; hw + licence gates | Rust/Python | `FR-MS-3..6` |
 | `agent-runtime/` | 8-layer assembly, OAG response, governed loop (INV-1..8), self-* loops, builders | Rust | `NFR-AI-1` `FR-MI-3/4/5/7` |
 | `oag-retriever/` | Ontology-augmented grounding: A.2 planning + cited fabric retrieval | Rust | `FR-MI-2` |
@@ -37,7 +37,7 @@ AI calls. Source: `SAD_02_Mimir.md`, `SAD_02b_Mimir_Model_Supply_Resolution.md`.
 > executes; self-healing (A.4) retries/reroutes/rolls back within budget and
 > escalates to a human on security events; self-learning (A.5) distils governed
 > feedback into retrieval/prompt/policy updates with provenance and never weight
-> changes. EV-A3/A4/A5 run per model family (Mistral / Nemotron / Gemma / Granite). The no-code
+> changes. EV-A3/A4/A5 run per model family (Mistral/Nemotron/Gemma/Granite). The no-code
 > **Logic builder** and **pro-code builder** produce the same agent contract, and
 > model artefacts **verify-on-load** (ML-DSA signature + licence + hardware, fail
 > closed) (Prompt 2.f — FR-MI-4; AC-MI-7). **Phase 2 is complete: AC-MI-1..8 and

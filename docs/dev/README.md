@@ -5,18 +5,21 @@ data and decision platform. Imhotep methodology (arc42 + TOGAF + C4; security al
 to NIST SP 800-53 / OWASP ASVS / ISO 27001). Provenance tags: [DD-*] driver, [FR-*]/[NFR-*]
 requirement, [STD:*] standard. Design specs, not evidence of an implemented system.
 
-## documents/  (branded Veldris Ltd DOCX)
+## documents/  (Veldris Ltd DOCX)
 - SAD_00_Midgard_Core.docx                       — sovereign core platform / enclosure
 - SAD_01_Forge.docx                              — data operations
 - SAD_02_Mimir.docx                              — local agentic AI
-- SAD_02b_Mimir_Model_Supply_Resolution.docx     — DCR: multi-model provenance (Mistral / Nemotron / Gemma / Granite)
+- SAD_02b_Mimir_Model_Supply_Resolution.docx     — DCR: multi-model provenance (Mistral/Nemotron/Gemma/Granite)
 - SAD_03_Bifrost.docx                            — continuous delivery
 - SAD_04_Heimdall.docx                           — operational fusion
 - SAD_05_Master_Prompt_and_Acceptance_Spec.docx  — CONSOLIDATING MASTER: prompt library +
                                                    agent-flow architecture + ALL acceptance criteria
                                                    (72 across the suite) + build-capabilities register
 - SAD_06_Client_Platforms.docx                   — native mobile/desktop + web (browser+extension)
-- SAD_07_Admin_Control_Panel.docx                — NEW: unified, self-governing admin console
+- SAD_07_Admin_Control_Panel.docx                — unified, self-governing admin console
+- SAD_08_Gungnir.docx                            — consequence-projection module (forward-looking)
+- SAD_08b_Forseti.docx                           — Gungnir assurance addendum (forward-looking)
+- SAD_09_Completion_Plan.docx                    — completion plan: RF work items and AC-RF-* criteria
 
 ## The Admin Control Panel SAD (SAD_07) covers
 - One unified console over IAM, Governance, KMS, Fabric, Mimir, Bifrost, and Observability —
