@@ -1,0 +1,168 @@
+<!doctype html>
+<!-- The one-page install sheet that ships in Midgard-1.0-Windows.zip (and on the Desktop) as
+     "Install Midgard on Windows.pdf". render-sheet.sh renders it with headless Chrome (A4) and
+     fails unless it is one page with the design system's fonts embedded. The look is
+     tools/mac-app/install-sheet.html's. The fonts are loaded by relative path, so it renders
+     with no network. The app's own messages are quoted from apps/windows (SystemCheck.cs,
+     MainForm.cs, MidgardFrames/Frames.cs); keep them in step. -->
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Install Midgard on Windows</title>
+<style>
+  @font-face { font-family: 'Oxanium'; src: url('../../ui/design-system/src/fonts/Oxanium.ttf') format('truetype'); font-weight: 200 800; }
+  @font-face { font-family: 'Space Grotesk'; src: url('../../ui/design-system/src/fonts/SpaceGrotesk.ttf') format('truetype'); font-weight: 300 700; }
+  @font-face { font-family: 'JetBrains Mono'; src: url('../../ui/design-system/src/fonts/JetBrainsMono.ttf') format('truetype'); font-weight: 100 800; }
+
+  /* From ui/design-system/src/tokens/colors.css and typography.css; light, for printing. */
+  :root {
+    --ink-900: #0a0b0d; --ink-800: #16181c;
+    --grey-100: #e9ebee; --grey-300: #b6bcc4; --grey-500: #6b7279; --grey-600: #4a4f56;
+    --midgard-300: #f26b70; --midgard-500: #ca1d25; --midgard-600: #a8171e;
+    --midgard-tint: rgba(202, 29, 37, 0.08);
+    --font-display: 'Oxanium', 'Space Grotesk', sans-serif;
+    --font-sans: 'Space Grotesk', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    width: 210mm;
+    font-family: var(--font-sans); font-size: 9pt; line-height: 1.3; color: var(--ink-800);
+    background: #ffffff;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  header {
+    background: var(--ink-900); color: #fff; padding: 5mm 14mm 4mm;
+    border-bottom: 1.2mm solid var(--midgard-500);
+  }
+  .eyebrow { font-family: var(--font-mono); font-size: 7pt; letter-spacing: 0.18em; text-transform: uppercase; color: var(--grey-300); margin: 0 0 1.5mm; }
+  h1 { font-family: var(--font-display); font-weight: 700; font-size: 21pt; line-height: 1.05; margin: 0; letter-spacing: 0.01em; }
+  h1 span { color: var(--midgard-300); }
+  header p.lead { margin: 2mm 0 0; color: var(--grey-100); font-size: 9.6pt; }
+  main { padding: 4mm 14mm 0; }
+  h2 {
+    font-family: var(--font-display); font-weight: 700; font-size: 11pt; margin: 0 0 1.6mm;
+    color: var(--ink-900); text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  h2::before { content: ''; display: inline-block; width: 2.6mm; height: 2.6mm; background: var(--midgard-500); margin-right: 2mm; vertical-align: 0.05em; }
+  b { font-weight: 700; color: var(--ink-900); }
+  .win { font-style: normal; color: var(--ink-900); }
+  code { font-family: var(--font-mono); font-size: 0.92em; color: var(--ink-900); }
+  .needs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm; margin: 0 0 2.8mm; }
+  .need { border: 0.3mm solid var(--grey-300); border-top: 0.9mm solid var(--ink-900); padding: 1.6mm 2.4mm; }
+  .need .big { font-family: var(--font-display); font-weight: 700; font-size: 12pt; color: var(--ink-900); line-height: 1.1; }
+  .need .small { font-size: 7.6pt; color: var(--grey-600); line-height: 1.28; margin-top: 0.6mm; }
+  ol.steps { list-style: none; margin: 0 0 3mm; padding: 0; counter-reset: step; }
+  ol.steps > li { counter-increment: step; position: relative; padding: 0 0 0 10mm; margin: 0 0 1.6mm; min-height: 7mm; }
+  ol.steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 7mm; height: 7mm; border-radius: 50%; background: var(--midgard-500); color: #fff;
+    font-family: var(--font-display); font-weight: 700; font-size: 11pt; line-height: 7mm; text-align: center;
+  }
+  ol.steps > li .t { font-weight: 700; color: var(--ink-900); font-size: 9.8pt; display: block; margin-bottom: 0.4mm; }
+  ol.steps p { margin: 0; }
+  .say { margin: 1mm 0 0 !important; padding: 1.2mm 2.4mm; background: var(--midgard-tint); border-left: 0.8mm solid var(--midgard-500); font-size: 8.2pt; }
+  .note { font-size: 8.2pt; color: var(--grey-600); margin-top: 0.6mm !important; }
+  .after { margin: 0 0 3mm; padding: 1.8mm 3mm; border: 0.3mm solid var(--grey-300); font-size: 8.6pt; }
+  .after p { margin: 0; }
+  .after p + p { margin-top: 1mm; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; }
+  dl { margin: 0; }
+  dt { font-weight: 700; color: var(--ink-900); margin-top: 1.1mm; font-size: 9pt; }
+  dt:first-child { margin-top: 0; }
+  dd { margin: 0.2mm 0 0; font-size: 8.5pt; }
+  .trouble dt { color: var(--midgard-600); }
+  .credits { margin: 2.4mm 14mm 0; padding-top: 1.4mm; border-top: 0.3mm solid var(--grey-300); font-size: 6.3pt; line-height: 1.32; color: var(--grey-600); }
+  .credits b { font-family: var(--font-mono); font-size: 6pt; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-900); }
+  footer {
+    margin: 1.6mm 14mm 0;
+    display: flex; justify-content: space-between; border-top: 0.3mm solid var(--grey-300); padding-top: 1.6mm;
+    font-family: var(--font-mono); font-size: 6.8pt; color: var(--grey-500); letter-spacing: 0.04em;
+  }
+</style>
+</head>
+<body>
+<header>
+  <p class="eyebrow">Install sheet · Windows · version 1.0</p>
+  <h1>Installing <span>Midgard</span> on Windows</h1>
+  <p class="lead">A demonstration of the Midgard suite (Midgard, Heimdall, Mimir, Forge) that runs entirely on your PC: no internet, nothing else to install, no administrator needed.</p>
+</header>
+
+<main>
+  <h2>What you need</h2>
+  <div class="needs">
+    <div class="need"><div class="big">Windows 11</div><div class="small">64-bit, on an Intel or AMD processor. Not Windows 10, not an ARM PC, not S mode.</div></div>
+    <div class="need"><div class="big">8 GB memory</div><div class="small">or more. Settings › System › About shows it as Installed RAM.</div></div>
+    <div class="need"><div class="big">6 GB free</div><div class="small">disk space, about: for the ZIP file, Midgard itself and its data.</div></div>
+    <div class="need"><div class="big">The ZIP file</div><div class="small"><b>Midgard-1.0-Windows.zip</b>, copied onto the PC (for example in Downloads).</div></div>
+  </div>
+
+  <h2>Install it (once per PC)</h2>
+  <ol class="steps">
+    <li><span class="t">Right-click Midgard-1.0-Windows.zip and choose Extract All…</span>
+      <p>Click <b>Browse…</b> and choose a short place such as <b>Documents</b>, then <b>Extract</b>. Wait for it to finish (a few minutes).</p>
+      <p class="note"><b>Don’t open Midgard from inside the ZIP</b> (double-clicking the ZIP only shows what is inside it).</p></li>
+    <li><span class="t">Open the Midgard folder and double-click Midgard.</span>
+      <p>For example Documents › Midgard. Midgard is the app with the Midgard icon.</p></li>
+    <li><span class="t">“Windows protected your PC”: click More info, then Run anyway.</span>
+      <p>The blue box appears because Midgard isn’t from the Microsoft Store. <b>Not Don’t run.</b> If a box says the publisher could not be verified, click <b>Run</b>.</p></li>
+    <li><span class="t">Midgard opens and shows Starting Midgard…</span>
+      <p><b>The first start can take a few minutes</b> while your antivirus checks Midgard’s files. Then Midgard asks once:</p>
+      <p class="say"><i class="win">Add Midgard to the Start menu? You can then open it from Start like any other app.</i> Click <b>Yes</b> (recommended) or <b>No</b>.</p></li>
+  </ol>
+
+  <div class="after">
+    <p>From now on open Midgard from the <b>Start menu</b>, or double-click Midgard in its folder. <b>Keep the Midgard folder where it is</b> (the Start menu entry points to it). <b>To pass it on:</b> send the ZIP file itself, not the extracted folder.</p>
+  </div>
+
+  <div class="cols">
+    <section>
+      <h2>Using Midgard</h2>
+      <dl>
+        <dt>Starting Midgard…</dt>
+        <dd>Shown each time it starts, with each part’s progress; longer on the first start and on slower laptops.</dd>
+        <dt>Home screen</dt>
+        <dd>Four tiles: Midgard, Heimdall, Mimir and Forge. Click one to open it; the menu at the top of the page switches product. <b>Home</b> on the toolbar comes back here.</dd>
+        <dt>Presenter’s guide</dt>
+        <dd>Below the tiles: questions to ask Mimir and alerts to show in Heimdall, with answers prepared so they appear straight away. Your own questions are answered live, which takes longer.</dd>
+        <dt>Reset demo…</dt>
+        <dd>On the toolbar. Puts all the data back as it started (about a minute); use it between audiences.</dd>
+        <dt>Quit</dt>
+        <dd><b>Quit</b> on the toolbar, or close the window. Everything Midgard started stops with it.</dd>
+        <dt>Removing it</dt>
+        <dd>Quit Midgard and delete the <b>Midgard</b> folder. Then type <code>%LOCALAPPDATA%</code> in File Explorer’s address bar, press Enter, and delete the <b>Midgard</b> folder there too (the demo’s data). If you added it to Start, right-click Midgard in Start › <b>Open file location</b> and delete the shortcut.</dd>
+      </dl>
+    </section>
+    <section class="trouble">
+      <h2>If something goes wrong</h2>
+      <dl>
+        <dt>“Midgard needs Windows 11”, “an Intel or AMD (x64) processor” or “8 GB of memory”</dt>
+        <dd>This PC can’t run it (Windows 10, an ARM PC, too little memory). Use another PC.</dd>
+        <dt>“…at least 4 GB of free disk space”</dt>
+        <dd>Empty the Recycle Bin or delete old files, then open Midgard again.</dd>
+        <dt>“…needs the Microsoft Edge WebView2 Runtime”</dt>
+        <dd>Run Windows Update (Settings › Windows Update), restart, try again.</dd>
+        <dt>“This Windows edition lacks the Media Feature Pack”</dt>
+        <dd>A Windows “N” edition: only camera clips can’t play. Add the <b>Media Feature Pack</b> (search Start for <i class="win">Optional features</i>).</dd>
+        <dt>Windows 11 in S mode</dt>
+        <dd>Not supported (it runs only Store apps). Use another PC.</dd>
+        <dt>A live Mimir answer takes minutes</dt>
+        <dd>Normal on a laptop. The Presenter’s guide questions answer instantly.</dd>
+        <dt>A work PC blocks Midgard, or no Run anyway</dt>
+        <dd>PCs managed by IT may block unsigned apps. Ask your IT team.</dd>
+        <dt>“Path too long” while extracting, or something stopped</dt>
+        <dd>Extract to a short place such as Documents. Otherwise <b>Reset demo…</b>, or quit and reopen.</dd>
+      </dl>
+    </section>
+  </div>
+</main>
+
+<section class="credits" aria-label="Data and credits">
+  <b>Data and credits</b> Midgard replays data recorded from these sources. Cameras: Powered by TfL Open Data · NZ Transport Agency Waka Kotahi · DriveBC (Open Government Licence – British Columbia) · LTA camera images via data.gov.sg (Singapore Open Data Licence). Weather data by RainViewer. Traffic ©TomTom. EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016), CC BY 4.0. Terrain Tiles (Mapzen, AWS Open Data): UK © Environment Agency copyright and/or database right 2015 (OGL), EU-DEM (Copernicus, EU), SRTM and GMTED2010 courtesy of the U.S. Geological Survey, ETOPO1 NOAA. Plus about 40 open data feeds (Environment Agency, Met Office, NOAA, USGS, Elexon, OpenStreetMap contributors and others). Software: Granite (Apache-2.0), llama.cpp (MIT), YOLOX (Apache-2.0). Full list with licences: <b>Data and credits</b> on Midgard’s home page, or Midgard\resources\licenses\CREDITS.txt.
+</section>
+
+<footer><span>MIDGARD · INSTALL SHEET · WINDOWS · 1.0</span><span>Runs offline · Nothing leaves this PC</span></footer>
+</body>
+</html>
