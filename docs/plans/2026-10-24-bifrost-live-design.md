@@ -1,6 +1,6 @@
 # Bifrost working for real — design
 
-Agreed with the user on 24 Oct 2026. Branch `md_bifrost`, branched from `dev_mac`; worktree `~/Desktop/Midgard/midgard-bifrost`. It follows `docs/dev/markdown/SAD_03_Bifrost.md`: a control plane in the enclosure plus a PQ-mTLS agent on each managed node, where deploys fail closed on trust.
+Agreed with the user on 24 Oct 2026. Branch `md_bifrost`, based on `md_mixedfeeds_3d` (first branched from `dev_mac`, then re-based on 24 Oct because `dev_mac`'s services are too old to run today's suite); worktree `~/Desktop/Midgard/midgard-bifrost`. It follows `docs/dev/markdown/SAD_03_Bifrost.md`: a control plane in the enclosure plus a PQ-mTLS agent on each managed node, where deploys fail closed on trust.
 
 ## Decisions
 
