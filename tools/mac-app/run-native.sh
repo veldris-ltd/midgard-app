@@ -29,7 +29,9 @@
 # it exits or is not ready within 180 s. `status <service>` is read-only and prints one
 # line: `ready <version>` (running, its log since this launch has the readiness line, and
 # it was launched from the version now linked), `unready <version>`, `stopped` or `paused`.
-# <version> is the version it was launched from (`-` unmanaged). <service> is a short name
+# <version> is the version it was launched from: native-run/<service>.version holds
+# "<pid> <version>" and is trusted only for the live pid in the pid file, otherwise `-`
+# (and never ready when managed). <service> is a short name
 # (gateway, mimir, heimdall, forge, replay) or a binary name (http-gateway, mimir-server,
 # heimdall-feed, forge-worker, midgard-replay, heimdall-source).
 #
@@ -53,7 +55,11 @@
 # `start` and `restart` refuse while any container mounts the enclosure home, and fail
 # closed if Docker is installed but cannot be queried. If Docker Desktop is quit (so no
 # container can be running), set MIDGARD_DOCKER_STOPPED=1 to skip the Docker check.
-# `check-docker` runs only that check.
+# MIDGARD_DOCKER_STOPPED=auto skips the check only while Docker's daemon cannot be
+# reached, deciding on each call (the suite agent uses it). `check-docker` runs only the
+# check. `restart` exits 4 (not attempted, nothing changed) when it cannot try now: the
+# Docker or managed-suite check fails, the service's lock is held past
+# MIDGARD_LOCK_TIMEOUT (600 s), or the old process will not stop.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BIN="$PWD/dist/mac/bin"
@@ -161,27 +167,44 @@ running() {
   rm -f "$RUN/$1.pid"; return 1
 }
 
-# The service's lock: a folder holding the owner's pid. Re-entrant for this script; a
-# lock whose owner has exited (or that never got an owner within 30 s) is removed; waits
-# up to 600 s for a live owner.
+# Whether a lock owner is a live run-native.sh (a pid reused by anything else is not).
+live_owner() {
+  [ -n "$1" ] && kill -0 "$1" 2>/dev/null || return 1
+  case $(ps -p "$1" -o command= 2>/dev/null) in *run-native.sh*) return 0 ;; esac
+  return 1
+}
+# Remove a stale lock: rename it aside (atomic, so of two contenders only one gets it),
+# then check that what was moved is still the stale owner's; if a live owner took the
+# lock in between, put it back.
+break_stale() {  # dir, stale owner
+  local aside="$1.stale.$$"
+  mv "$1" "$aside" 2>/dev/null || return 0
+  if [ "$(cat "$aside/pid" 2>/dev/null)" = "$2" ]; then
+    drop_lock_dir "$aside"; echo "removed the stale lock $1 (owner ${2:-none} is not a running run-native.sh)"
+  else
+    mv "$aside" "$1" 2>/dev/null || echo "warning: could not put back the lock moved to $aside"
+  fi
+}
+# The service's lock: a folder holding the owner's pid. Re-entrant for this script. A
+# lock whose owner is not a live run-native.sh (or that has had no owner for 30 s) is
+# stale and broken. Waits up to MIDGARD_LOCK_TIMEOUT (600) s for a live owner, then exits
+# 4 (not attempted).
 lock_service() {
   local d="$RUN/$1.busy" owner=""
   mkdir -p "$RUN"
-  for _ in $(seq 1 600); do
+  for _ in $(seq 1 "${MIDGARD_LOCK_TIMEOUT:-600}"); do
     if mkdir "$d" 2>/dev/null; then
       echo "$$" > "$d/pid"; HELD+=("$1"); return 0
     fi
     owner=$(cat "$d/pid" 2>/dev/null) || owner=
     [ "$owner" = "$$" ] && return 0
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-      drop_lock_dir "$d"; echo "removed the stale lock $d (pid $owner has exited)"; continue
-    fi
+    if [ -n "$owner" ] && ! live_owner "$owner"; then break_stale "$d" "$owner"; continue; fi
     if [ -z "$owner" ] && [ $(( $(date +%s) - $(stat -f %m "$d" 2>/dev/null || date +%s) )) -gt 30 ]; then
-      drop_lock_dir "$d"; echo "removed the stale lock $d (no owner)"; continue
+      break_stale "$d" ""; continue
     fi
     sleep 1
   done
-  echo "$1 is busy (lock $d held by pid ${owner:-?}); giving up"; exit 1
+  echo "$1 is busy (lock $d held by pid ${owner:-?}); not attempted"; exit 4
 }
 unlock_service() {
   if [ "$(cat "$RUN/$1.busy/pid" 2>/dev/null)" = "$$" ]; then drop_lock_dir "$RUN/$1.busy"; fi
@@ -191,7 +214,25 @@ held_by_other() {
   local owner
   [ -d "$RUN/$1.busy" ] || return 1
   owner=$(cat "$RUN/$1.busy/pid" 2>/dev/null) || owner=
-  [ -z "$owner" ] || kill -0 "$owner" 2>/dev/null
+  [ -z "$owner" ] || live_owner "$owner"
+}
+# The version the running process was launched from: native-run/<s>.version holds
+# "<pid> <version>", trusted only for the live pid in the pid file; "-" otherwise.
+running_version() {
+  local vp vv pid
+  alive "$1" || { echo -; return; }
+  pid=$(cat "$RUN/$1.pid" 2>/dev/null) || pid=
+  read -r vp vv < "$RUN/$1.version" 2>/dev/null || { echo -; return; }
+  if [ -n "$pid" ] && [ "$vp" = "$pid" ] && [ -n "${vv:-}" ]; then echo "$vv"; else echo -; fi
+}
+# A managed suite: say which script to use.
+managed_note() {
+  local root
+  root=$(cat "$RUN/suite-root" 2>/dev/null) || root=
+  [ -n "$root" ] || return 0
+  echo "note: this suite is managed by Bifrost's agent (suite root $root). Use only this script," \
+    "$PWD/tools/mac-app/run-native.sh (md_bifrost), with MIDGARD_SUITE_ROOT=$root; other checkouts'" \
+    "run-native.sh (midgard-app's) do not know the suite root and would run dist/mac/bin."
 }
 
 # A managed suite must be run managed.
@@ -208,13 +249,21 @@ check_managed() {
 
 launch() {  # name, ready-pattern, version, command...  (exits 1 unless it becomes ready)
   local name=$1 ready=$2 version=$3; shift 3
-  if running "$name"; then echo "$name already running"; return; fi
+  if running "$name"; then
+    echo "$name already running"
+    if [ -n "$MANAGED" ] && [ "$(running_version "$name")" = - ]; then
+      echo "warning: $name (pid $(cat "$RUN/$name.pid")) was not launched by this script managed;" \
+        "its version is unknown and it is reported unready until restarted (restart $name)"
+    fi
+    return
+  fi
   local pid
   if [ -f "$RUN/$name.log" ]; then mv -f "$RUN/$name.log" "$RUN/$name.log.1"; fi
-  echo "$version" > "$RUN/$name.version"
+  rm -f "$RUN/$name.version"
   nohup "$@" > "$RUN/$name.log" 2>&1 &
   pid=$!
   echo "$pid" > "$RUN/$name.pid"
+  echo "$pid $version" > "$RUN/$name.version"
   # The fresh child may still show as nohup just after launch, so test its pid only.
   for _ in $(seq 1 "${MIDGARD_READY_TIMEOUT:-180}"); do
     grep -qs "$ready" "$RUN/$name.log" && { echo "$name ready"; return; }
@@ -280,6 +329,10 @@ check_docker() {
   if ! err=$(docker ps -q 2>&1 > /dev/null); then
     case $err in
       *"Cannot connect to the Docker daemon"* | *"docker daemon running"* | *"daemon is not running"*)
+        # auto: decided on each call, so a daemon that comes back is checked again.
+        if [ "${MIDGARD_DOCKER_STOPPED:-}" = auto ]; then
+          echo "Docker's daemon is not running: no container can hold $H (MIDGARD_DOCKER_STOPPED=auto)"; return 0
+        fi
         echo "Docker is installed but not running. If no Midgard containers can be running" \
           "(Docker Desktop is quit), re-run with MIDGARD_DOCKER_STOPPED=1."; exit 1 ;;
     esac
@@ -289,8 +342,9 @@ check_docker() {
   if printf '%s\n' "$names" | grep -qE '^midgard-(gateway|heimdall|mimir|forge)$'; then
     echo "stop the Midgard Docker containers first"; exit 1
   fi
-  TMPF=$(mktemp)  # removed by cleanup, on exit
-  names=$(docker_conflicts) || names=$(docker_conflicts) || docker_refuse
+  TMPF=$(mktemp)
+  names=$(docker_conflicts) || names=$(docker_conflicts) || { rm -f "$TMPF"; docker_refuse; }
+  rm -f "$TMPF"
   if [ -n "$names" ]; then
     echo "these containers mount $H or a directory containing it; stop these containers first:"
     printf '  %s\n' $names; exit 1
@@ -319,10 +373,11 @@ start() {
     lock=$(lock_path "$s")
     [ -e "$lock" ] || continue
     if [ ! -r "$lock" ]; then echo "cannot read $lock; leaving it"; continue; fi
-    if ! running "$s" && ! grep -qx 'os=macos' "$lock"; then
+    if ! alive "$s" && ! grep -qx 'os=macos' "$lock"; then
       rm -f "$lock"; echo "removed stale lock $lock (left by a stopped container)"
     fi
   done
+  managed_note
   bash "$H/mimir-model.sh" start
   for s in mimir gateway heimdall forge; do
     lock_service "$s"; launch_one "$s"; unlock_service "$s"
@@ -426,6 +481,7 @@ stop() {
   mkdir -p "$RUN"
   # The user stopped the suite: Bifrost's agent changes nothing until `start`.
   echo "stopped by run-native.sh stop at $(date '+%Y-%m-%d %H:%M:%S')" > "$RUN/agent-paused"
+  managed_note
   for s in replay forge heimdall gateway mimir; do
     stop_one "$s" || true
     unlock_service "$s"
@@ -442,18 +498,24 @@ restart() {
   fi
   if [ "$s" = source ]; then
     lock_service source
+    if [ -f "$RUN/agent-paused" ]; then echo "the suite is paused (run-native.sh stop)"; exit 3; fi
     check_source || { echo "$BIN/heimdall-source does not run as heimdall-source"; exit 1; }
     linked_version source > "$RUN/source.version"
     echo "heimdall-source ready (midgard-replay runs $BIN/heimdall-source for each batch)"
     return
   fi
-  [ -d "$H" ] || { echo "enclosure home $H not found"; exit 1; }
-  check_managed
-  check_docker
+  # Exit 4 (not attempted, nothing changed) when it cannot try now.
+  [ -d "$H" ] || { echo "enclosure home $H not found"; exit 4; }
+  ( check_managed ) || exit 4
+  ( check_docker ) || exit 4
   [ -x "$BIN/$(binary "$s")" ] || { echo "$BIN/$(binary "$s") is missing"; exit 1; }
   mkdir -p "$RUN"
   lock_service "$s"
-  stop_one "$s" || { echo "not restarting $s"; exit 1; }
+  # The user may have stopped the suite while this waited for the lock.
+  if [ -f "$RUN/agent-paused" ]; then
+    echo "the suite is paused (run-native.sh stop); $s left as it is"; exit 3
+  fi
+  stop_one "$s" || { echo "not restarting $s"; exit 4; }
   # As in start: a lock no native process of ours holds, not written on macOS, was left
   # by a stopped container.
   lock=$(lock_path "$s")
@@ -480,9 +542,11 @@ status_one() {
     fi
     return
   fi
+  v=$(running_version "$s")
+  # A restart or stop in progress: whatever it finds, the service is not ready.
+  if held_by_other "$s"; then echo "unready $v"; return; fi
   if ! alive "$s"; then echo stopped; return; fi
-  v=$(cat "$RUN/$s.version" 2>/dev/null) || v=-
-  if held_by_other "$s"; then echo "unready $v"
+  if [ -n "$MANAGED" ] && [ "$v" = - ]; then echo "unready -"
   elif grep -qs "$(ready_pattern "$s")" "$RUN/$s.log" && { [ -z "$MANAGED" ] || [ "$v" = "$lv" ]; }; then
     echo "ready $v"
   else echo "unready $v"

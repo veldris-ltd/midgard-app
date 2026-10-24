@@ -25,10 +25,17 @@
 # registry), restarting the running services from their slots once. It returns when the
 # agent has recovered and adopted (it writes suite/agent.ready). The runner gets
 # MIDGARD_REPLAY=$BIFROST_REPLAY (default the hour-1 recording in ~/Library/Application
-# Support/Midgard-dev/recordings; BIFROST_REPLAY=none for no replay). If Docker's daemon
-# cannot be reached, MIDGARD_DOCKER_STOPPED=1 is exported for the runner; run-native's
-# Docker check must pass before the agent starts. `agent stop` sends SIGTERM and waits
-# (up to 10 minutes) while the agent finishes the swap in progress.
+# Support/Midgard-dev/recordings; BIFROST_REPLAY=none for no replay), and
+# MIDGARD_DOCKER_STOPPED=auto unless it is set (the Docker check is skipped only while
+# Docker's daemon is down, decided per restart); run-native's Docker check must pass
+# before the agent starts. `agent stop` sends SIGTERM and waits (up to 10 minutes) while
+# the agent finishes the swap in progress.
+#
+# While the suite is managed (after `agent start` has adopted it), start, stop and
+# restart it only with this checkout's tools/mac-app/run-native.sh and
+# MIDGARD_SUITE_ROOT=$BIFROST_SUITE_ROOT. Other checkouts' run-native.sh (midgard-app's)
+# do not know the suite root: they would start dist/mac/bin builds the agent cannot see.
+# This checkout's script refuses an unmanaged start of a managed suite and says so.
 #
 # Everything lives in $BIFROST_HOME (default ~/Desktop/Midgard/bifrost-local). Ports avoid
 # 7740, which the camera analytics use. The console (products/bifrost/ui) still shows demo
@@ -299,19 +306,13 @@ status() { running || die "start it first"; agent --service fleet-operator --sta
 agent_pid() { cat "$H/agent.pid" 2>/dev/null || true; }
 agent_running() { local p; p="$(agent_pid)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 
-# Docker for the runner's check: when the daemon cannot be reached (Docker Desktop quit),
-# no container can run, so MIDGARD_DOCKER_STOPPED=1 is exported; then run-native's own
-# check must pass, or the agent is not started.
+# Docker for the runner's check: unless MIDGARD_DOCKER_STOPPED is set, the agent's runner
+# gets MIDGARD_DOCKER_STOPPED=auto, which skips the check only while Docker's daemon
+# cannot be reached, deciding on each restart (a daemon that comes back is checked
+# again). run-native's check must pass now, or the agent is not started.
 agent_docker() {
-    local err
-    if [ "${MIDGARD_DOCKER_STOPPED:-}" != 1 ] && command -v docker >/dev/null; then
-        if ! err="$(docker ps -q 2>&1 >/dev/null)"; then
-            case "$err" in
-                *"Cannot connect to the Docker daemon"* | *"docker daemon running"* | *"daemon is not running"*)
-                    echo "Docker's daemon is not running: no container can hold the suite (MIDGARD_DOCKER_STOPPED=1)"
-                    export MIDGARD_DOCKER_STOPPED=1 ;;
-            esac
-        fi
+    if [ -z "${MIDGARD_DOCKER_STOPPED:-}" ]; then
+        export MIDGARD_DOCKER_STOPPED=auto
     fi
     MIDGARD_SUITE_ROOT="$SUITE" "$ROOT/tools/mac-app/run-native.sh" check-docker \
         || die "the runner's Docker check failed (above); the agent was not started"

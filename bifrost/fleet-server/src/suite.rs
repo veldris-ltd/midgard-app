@@ -71,8 +71,15 @@
 //! **Adoption:** on the first run, the binaries in the adopt-from folder become
 //! `--initial-version` only if every one's SHA-256 equals that version's signed
 //! `payloadSha256` (downloaded and verified against the agent's anchors); otherwise the
-//! agent refuses and lists the mismatches. Each adopted service that is running is then
-//! restarted once from its slot, so what runs is what was adopted.
+//! agent refuses and lists the mismatches.
+//!
+//! **Realigning** ([`realign`]): after recovery and adoption, every running service whose
+//! running version is not its linked one (it was started from elsewhere, or a restart was
+//! interrupted) is restarted from its slot, so what runs is what is linked.
+//!
+//! **Not attempted:** a runner that could not try a restart (its Docker check, a lock held
+//! too long) says so (exit 4) and changes nothing. The link goes back, the swap is
+//! deferred and tried again after a minute; it is not counted as a failed build.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -114,6 +121,10 @@ const INSTALL_RETRY: Duration = Duration::from_secs(60);
 /// suite is paused).
 pub const LEFT_STOPPED: i32 = 3;
 
+/// The exit code with which a runner's `restart` says it could not attempt the restart
+/// now and changed nothing.
+pub const NOT_ATTEMPTED: i32 = 4;
+
 /// The services the agent is in the middle of swapping; links move under its lock.
 pub type Busy = Mutex<BTreeSet<String>>;
 
@@ -133,7 +144,11 @@ fn handle_stop_signals() {
     // SAFETY: the handler only stores to an atomic, which is async-signal-safe.
     unsafe {
         libc::signal(libc::SIGTERM, handler);
-        libc::signal(libc::SIGINT, handler);
+        // A SIGINT ignored by whoever started the agent (nohup, a background job) stays
+        // ignored.
+        if libc::signal(libc::SIGINT, handler) == libc::SIG_IGN {
+            libc::signal(libc::SIGINT, libc::SIG_IGN);
+        }
     }
 }
 
@@ -170,12 +185,16 @@ impl Status {
 }
 
 /// What a restart did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Restarted {
     /// Restarted and ready.
     Ready,
     /// Not started: the suite is paused.
     LeftStopped,
+    /// Not attempted: the runner could not try now (its Docker check, the service's lock
+    /// held too long, the old process would not stop); nothing was changed. Worth trying
+    /// again later, not a verdict on the build.
+    NotAttempted(String),
 }
 
 /// Starts, restarts and reads the suite's services: `run-native.sh` in the suite, a fake
@@ -192,7 +211,8 @@ pub trait Runner: Send + Sync {
 ///   or `paused` (its last line counts; `<version>` is what the running process was
 ///   launched from, `-` if unknown);
 /// - `<cmd…> restart <service>` exits 0 once the service is ready, [`LEFT_STOPPED`] when
-///   it was not started because the suite is paused, anything else on a failure.
+///   it was not started because the suite is paused, [`NOT_ATTEMPTED`] when it could not
+///   try now and changed nothing, anything else when it tried and failed.
 ///
 /// It runs in its own process group, so a signal to the agent's group does not reach it.
 pub struct CommandRunner {
@@ -258,11 +278,13 @@ impl Runner for CommandRunner {
         let mut said = String::from_utf8_lossy(&out.stdout).into_owned();
         said.push_str(&String::from_utf8_lossy(&out.stderr));
         let tail: Vec<&str> = said.lines().rev().take(3).collect();
-        Err(format!(
-            "restart {service} failed ({}): {}",
-            out.status,
-            tail.into_iter().rev().collect::<Vec<_>>().join(" / ")
-        ))
+        let tail = tail.into_iter().rev().collect::<Vec<_>>().join(" / ");
+        if out.status.code() == Some(NOT_ATTEMPTED) {
+            return Ok(Restarted::NotAttempted(format!(
+                "restart {service} not attempted: {tail}"
+            )));
+        }
+        Err(format!("restart {service} failed ({}): {tail}", out.status))
     }
 }
 
@@ -516,6 +538,12 @@ pub enum SwapOutcome {
         /// Why.
         reason: String,
     },
+    /// The restart could not be attempted; the link is back on `from` and nothing else
+    /// changed. Tried again later.
+    Deferred {
+        /// Why.
+        reason: String,
+    },
 }
 
 /// What [`Slots::recover`] did.
@@ -760,6 +788,16 @@ impl Slots {
         match runner.restart(&j.service) {
             Ok(Restarted::Ready) => SwapOutcome::Done { restarted: true },
             Ok(Restarted::LeftStopped) => SwapOutcome::Done { restarted: false },
+            // Nothing was changed: put the link back where the running process came from,
+            // without a restart, and try again later.
+            Ok(Restarted::NotAttempted(e)) => {
+                let mut j = j;
+                j.restart = false;
+                match self.revert(j, &e, runner, anchors, busy) {
+                    SwapOutcome::Reverted { reason, .. } => SwapOutcome::Deferred { reason },
+                    other => other,
+                }
+            }
             Err(e) => {
                 let reason = format!("{} did not start: {e}", j.to);
                 self.revert(j, &reason, runner, anchors, busy)
@@ -801,7 +839,12 @@ impl Slots {
             }
         }
         let restored = if j.restart {
-            runner.restart(&j.service).map(|r| r == Restarted::Ready)
+            match runner.restart(&j.service) {
+                Ok(Restarted::Ready) => Ok(true),
+                Ok(Restarted::LeftStopped) => Ok(false),
+                Ok(Restarted::NotAttempted(e)) => Err(e),
+                Err(e) => Err(e),
+            }
         } else {
             Ok(false)
         };
@@ -859,6 +902,11 @@ impl Slots {
         let Some(mut j) = self.journal()? else {
             return Ok(Recovery::Clean);
         };
+        // Restart only what runs now: a service the user stopped (or a paused suite)
+        // since the journal was written is not started.
+        if j.restart && !runner.status(&j.service).running() {
+            j.restart = false;
+        }
         let (service, to) = (j.service.clone(), j.to.clone());
         let outcome = if j.step == Step::Reverting {
             self.revert(j, "a revert was interrupted", runner, anchors, busy)
@@ -1019,7 +1067,7 @@ pub fn sample(
             let linked_or_none = linked.clone().unwrap_or_else(|| "none".to_string());
             let running = |v: &str| {
                 if v == "-" || v.is_empty() {
-                    linked_or_none.clone()
+                    "unknown".to_string()
                 } else {
                     v.to_string()
                 }
@@ -1174,36 +1222,6 @@ fn adopt(
             services.join(", ")
         ),
     );
-    // What runs must be what was adopted: restart each running service from its slot.
-    for service in services {
-        if stopping() {
-            break;
-        }
-        match cfg.runner.status(service) {
-            Status::Paused => {
-                log(
-                    "info",
-                    "the suite is paused; adopted services are not restarted",
-                );
-                break;
-            }
-            Status::Stopped => log(
-                "info",
-                &format!("{service} is not running; adopted, left stopped"),
-            ),
-            _ => match cfg.runner.restart(service) {
-                Ok(Restarted::Ready) => log(
-                    "info",
-                    &format!("{service}: restarted from its {version} slot"),
-                ),
-                Ok(Restarted::LeftStopped) => log(
-                    "info",
-                    &format!("{service}: left stopped (the suite is paused)"),
-                ),
-                Err(e) => log("error", &format!("adoption restart: {e}")),
-            },
-        }
-    }
     Ok(true)
 }
 
@@ -1241,7 +1259,48 @@ fn log_outcome(service: &str, from: Option<&str>, to: &str, outcome: &SwapOutcom
             "error",
             &format!("{service}: swap to {to} stuck: {reason}; left as it runs"),
         ),
+        SwapOutcome::Deferred { reason } => log(
+            "warn",
+            &format!(
+                "{service}: swap to {to} deferred ({reason}); back on {from}, trying again later"
+            ),
+        ),
     }
+}
+
+/// Restart each running service whose running version is not its linked one, so what
+/// runs is what is linked: after adoption (the services were started from elsewhere), or
+/// after a restart that was interrupted. Nothing while the suite is paused; a stopped
+/// service is left stopped. Returns (service, running, linked, result) per restart.
+pub fn realign(
+    slots: &Slots,
+    runner: &dyn Runner,
+    services: &[String],
+) -> Vec<(String, String, String, Result<Restarted, String>)> {
+    let statuses: Vec<(&String, Status)> = services.iter().map(|s| (s, runner.status(s))).collect();
+    if statuses.iter().any(|(_, st)| *st == Status::Paused) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (s, st) in statuses {
+        let Some(linked) = slots.active_version(s) else {
+            continue;
+        };
+        let running = match st {
+            Status::Ready(v) | Status::Unready(v) => v,
+            _ => continue,
+        };
+        if running == linked {
+            continue;
+        }
+        let shown = if running == "-" {
+            "unknown".to_string()
+        } else {
+            running
+        };
+        out.push((s.clone(), shown, linked, runner.restart(s)));
+    }
+    out
 }
 
 /// The swaps a worker carries out, one service at a time; it stops between services when
@@ -1319,7 +1378,13 @@ fn swap_all(
         ) {
             Ok(outcome) => {
                 log_outcome(&service, from.as_deref(), &version, &outcome);
-                if !matches!(outcome, SwapOutcome::Done { .. }) {
+                if let SwapOutcome::Deferred { .. } = outcome {
+                    failed
+                        .lock()
+                        .expect("failed")
+                        .installs
+                        .insert((service.clone(), version.clone()), Instant::now());
+                } else if !matches!(outcome, SwapOutcome::Done { .. }) {
                     failed
                         .lock()
                         .expect("failed")
@@ -1377,7 +1442,10 @@ pub fn run(cfg: AgentConfig) -> Result<(), String> {
                 &format!("recovered an interrupted swap of {service} to {to}"),
             );
             log_outcome(&service, None, &to, &outcome);
-            if !matches!(outcome, SwapOutcome::Done { .. }) {
+            if !matches!(
+                outcome,
+                SwapOutcome::Done { .. } | SwapOutcome::Deferred { .. }
+            ) {
                 failed.lock().expect("failed").swaps.insert((service, to));
             }
         }
@@ -1430,6 +1498,19 @@ pub fn run(cfg: AgentConfig) -> Result<(), String> {
             nap(wait);
         }
         failures = 0;
+    }
+    // What runs must be what is linked (after adoption, or an interrupted restart).
+    for (s, running, linked, result) in realign(&cfg.slots, cfg.runner.as_ref(), &cfg.services) {
+        let how = match result {
+            Ok(Restarted::Ready) => "restarted, ready".to_string(),
+            Ok(Restarted::LeftStopped) => "left stopped (the suite is paused)".to_string(),
+            Ok(Restarted::NotAttempted(e)) => format!("not restarted now: {e}"),
+            Err(e) => format!("restart failed: {e}"),
+        };
+        log(
+            "info",
+            &format!("{s} runs {running}, linked {linked}: {how}"),
+        );
     }
     write_durably(&marker, format!("{}\n", std::process::id()).as_bytes())
         .map_err(|e| format!("cannot write {}: {e}", marker.display()))?;
@@ -1627,6 +1708,9 @@ mod tests {
         root: PathBuf,
         fail: Vec<&'static str>,
         paused: bool,
+        /// Restarts are not attempted (the runner's Docker check failed).
+        defer: bool,
+        status: Status,
         restarts: Mutex<Vec<String>>,
     }
     impl Fake {
@@ -1635,6 +1719,8 @@ mod tests {
                 root: slots.root().to_path_buf(),
                 fail: vec![],
                 paused: false,
+                defer: false,
+                status: Status::Ready("-".into()),
                 restarts: Mutex::default(),
             }
         }
@@ -1650,11 +1736,14 @@ mod tests {
     }
     impl Runner for Fake {
         fn status(&self, _: &str) -> Status {
-            Status::Ready("-".into())
+            self.status.clone()
         }
         fn restart(&self, service: &str) -> Result<Restarted, String> {
             if self.paused {
                 return Ok(Restarted::LeftStopped);
+            }
+            if self.defer {
+                return Ok(Restarted::NotAttempted("the Docker check failed".into()));
             }
             let v = Slots {
                 root: self.root.clone(),
@@ -2198,6 +2287,131 @@ mod tests {
         assert!(safe_name("0.1.0-rc.1"));
     }
 
+    #[test]
+    fn a_restart_that_was_not_attempted_puts_the_link_back_and_is_deferred() {
+        let (slots, k, _, d2, root) = two_slots("deferred");
+        let mut runner = Fake::new(&slots);
+        runner.defer = true;
+        let out = slots
+            .swap(
+                "forge-worker",
+                "0.2.0",
+                d2,
+                true,
+                &runner,
+                &k.anchors,
+                &Busy::default(),
+            )
+            .unwrap();
+        match out {
+            SwapOutcome::Deferred { reason } => {
+                assert!(reason.contains("Docker check"), "{reason}")
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(active(&slots).as_deref(), Some("0.1.0"));
+        assert!(runner.restarts().is_empty());
+        assert!(slots.journal().unwrap().is_none());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn recovery_restarts_only_a_service_that_runs_now() {
+        let (slots, k, _, d2, root) = two_slots("recover-stopped");
+        slots.link("forge-worker", "0.2.0").unwrap();
+        slots
+            .write_journal(&Journal {
+                service: "forge-worker".into(),
+                from: Some("0.1.0".into()),
+                to: "0.2.0".into(),
+                sha256: d2,
+                restart: true,
+                step: Step::Linked,
+            })
+            .unwrap();
+        let mut runner = Fake::new(&slots);
+        runner.status = Status::Stopped;
+        let got = slots
+            .recover(&runner, &k.anchors, &Busy::default())
+            .unwrap();
+        assert_eq!(
+            got,
+            Recovery::Recovered {
+                service: "forge-worker".into(),
+                to: "0.2.0".into(),
+                outcome: SwapOutcome::Done { restarted: false },
+            }
+        );
+        assert!(runner.restarts().is_empty());
+        assert_eq!(active(&slots).as_deref(), Some("0.2.0"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Restarts recorded; statuses set per service.
+    struct Realign(BTreeMap<String, Status>, Mutex<Vec<String>>);
+    impl Runner for Realign {
+        fn status(&self, s: &str) -> Status {
+            self.0.get(s).cloned().unwrap_or(Status::Stopped)
+        }
+        fn restart(&self, s: &str) -> Result<Restarted, String> {
+            self.1.lock().unwrap().push(s.to_string());
+            Ok(Restarted::Ready)
+        }
+    }
+
+    #[test]
+    fn realigning_restarts_only_running_services_off_their_linked_version() {
+        let root = scratch("realign");
+        let slots = Slots::open(&root).unwrap();
+        let k = keys();
+        let names = [
+            "forge-worker",
+            "http-gateway",
+            "mimir-server",
+            "heimdall-feed",
+        ];
+        for s in names {
+            slots
+                .install(s, "0.1.0", &build(&k, s, "0.1.0"), &k.anchors)
+                .unwrap();
+            slots.link(s, "0.1.0").unwrap();
+        }
+        let services: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+        let statuses = |paused: bool| {
+            let mut m: BTreeMap<String, Status> = [
+                ("forge-worker", Status::Ready("0.1.0".into())),
+                ("http-gateway", Status::Unready("-".into())),
+                ("mimir-server", Status::Ready("0.0.9".into())),
+                ("heimdall-feed", Status::Stopped),
+            ]
+            .into_iter()
+            .map(|(s, st)| (s.to_string(), st))
+            .collect();
+            if paused {
+                m.insert("heimdall-feed".into(), Status::Paused);
+            }
+            m
+        };
+        let runner = Realign(statuses(false), Mutex::default());
+        let got = realign(&slots, &runner, &services);
+        let summary: Vec<(String, String)> = got
+            .iter()
+            .map(|(s, r, _, _)| (s.clone(), r.clone()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("http-gateway".to_string(), "unknown".to_string()),
+                ("mimir-server".to_string(), "0.0.9".to_string())
+            ]
+        );
+        assert_eq!(*runner.1.lock().unwrap(), ["http-gateway", "mimir-server"]);
+        let paused = Realign(statuses(true), Mutex::default());
+        assert!(realign(&slots, &paused, &services).is_empty());
+        assert!(paused.1.lock().unwrap().is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
     /// A runner whose status and restart answers are set per test.
     struct Scripted(BTreeMap<String, Status>);
     impl Runner for Scripted {
@@ -2238,6 +2452,11 @@ mod tests {
             ("0.2.0".into(), false, false)
         );
         assert_eq!(report(Status::Paused, &busy), ("0.2.0".into(), false, true));
+        // A running version the runner does not know is reported as unknown.
+        assert_eq!(
+            report(Status::Ready("-".into()), &busy),
+            ("unknown".into(), false, false)
+        );
         busy.lock().unwrap().insert("forge-worker".into());
         assert_eq!(
             report(Status::Ready("0.2.0".into()), &busy),
@@ -2262,7 +2481,7 @@ mod tests {
         fs::write(
             &script,
             "#!/bin/sh\ncase $1-$2 in\n status-a) echo 'ready 1.0' ;;\n restart-a) exit 0 ;;\n \
-             restart-b) exit 3 ;;\n restart-c) echo 'c failed'; exit 1 ;;\n *) exit 1 ;;\nesac\n",
+             restart-b) exit 3 ;;\n restart-c) echo 'c failed'; exit 1 ;;\n restart-d) echo 'docker check failed'; exit 4 ;;\n *) exit 1 ;;\nesac\n",
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
@@ -2271,6 +2490,10 @@ mod tests {
         assert_eq!(r.status("b"), Status::Stopped);
         assert_eq!(r.restart("a"), Ok(Restarted::Ready));
         assert_eq!(r.restart("b"), Ok(Restarted::LeftStopped));
+        match r.restart("d") {
+            Ok(Restarted::NotAttempted(m)) => assert!(m.contains("docker check failed"), "{m}"),
+            other => panic!("{other:?}"),
+        }
         let e = r.restart("c").unwrap_err();
         assert!(e.contains("c failed"), "{e}");
         assert!(CommandRunner::new("  ").is_err());

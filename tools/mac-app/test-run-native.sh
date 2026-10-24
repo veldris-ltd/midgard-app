@@ -78,7 +78,7 @@ MIDGARD_REPLAY="$MIDGARD_HOME/rec" managed start > "$T/start.out" 2>&1 || { cat 
 for s in gateway mimir heimdall forge replay; do
   expect "$s ready on 1" "ready 1" "$(managed status "$s")"
 done
-expect "launched from the slot" "1" "$(cat "$RUN/forge.version")"
+expect "launched from the slot, bound to its pid" "$(cat "$RUN/forge.pid") 1" "$(cat "$RUN/forge.version")"
 case $(ps -p "$(cat "$RUN/forge.pid")" -o comm=) in
   "$SUITE/releases/1/forge-worker") ok "forge runs the resolved slot path" ;;
   *) bad "forge runs $(ps -p "$(cat "$RUN/forge.pid")" -o comm=)" ;;
@@ -109,8 +109,27 @@ relink forge-worker 2
 managed restart forge > /dev/null
 expect "back on 2" "ready 2" "$(managed status forge)"
 
+# A process that looks like a run-native.sh holding a lock for $1 seconds.
+holder() { bash -c "sleep $1; :" run-native.sh > /dev/null 2>&1 & echo $!; }
+
+echo "--- the version is bound to the pid"
+cp "$RUN/forge.version" "$T/forge.version"
+echo "99999 2" > "$RUN/forge.version"
+expect "a version recorded for another pid is not trusted" "unready -" "$(managed status forge)"
+cp "$T/forge.version" "$RUN/forge.version"
+expect "the real record is" "ready 2" "$(managed status forge)"
+kill "$(cat "$RUN/forge.pid")"; sleep 0.5
+FAKE=1 nohup "$SUITE/releases/2/forge-worker" > /dev/null 2>&1 &
+echo $! > "$RUN/forge.pid"; sleep 0.5
+MIDGARD_REPLAY="$MIDGARD_HOME/rec" managed start > "$T/other.out" 2>&1
+grep -q "was not launched by this script managed" "$T/other.out" \
+  && ok "start warns about a service launched elsewhere" || bad "$(cat "$T/other.out")"
+expect "and it is unready with an unknown version" "unready -" "$(managed status forge)"
+managed restart forge > /dev/null
+expect "until restarted" "ready 2" "$(managed status forge)"
+
 echo "--- the per-service lock"
-sleep 3 & holder=$!
+holder=$(holder 3)
 mkdir "$RUN/forge.busy"; echo "$holder" > "$RUN/forge.busy/pid"
 expect "locked: unready" "unready 2" "$(managed status forge)"
 start_s=$(date +%s)
@@ -121,6 +140,40 @@ waited=$(( $(date +%s) - start_s ))
 mkdir "$RUN/forge.busy"; echo 99999 > "$RUN/forge.busy/pid"
 managed restart forge > "$T/stale.out"
 grep -q "removed the stale lock" "$T/stale.out" && ok "a dead owner's lock is removed" || bad "$(cat "$T/stale.out")"
+sleep 30 & other=$!
+mkdir "$RUN/forge.busy"; echo "$other" > "$RUN/forge.busy/pid"
+managed restart forge > "$T/stale2.out"
+grep -q "removed the stale lock" "$T/stale2.out" && ok "a live owner that is not run-native.sh is stale" || bad "$(cat "$T/stale2.out")"
+kill "$other"
+holder=$(holder 10)
+mkdir "$RUN/forge.busy"; echo "$holder" > "$RUN/forge.busy/pid"
+rc=0; MIDGARD_LOCK_TIMEOUT=2 managed restart forge > /dev/null || rc=$?
+expect "a lock held too long: not attempted (exit 4)" "4" "$rc"
+expect "and nothing changed" "unready 2" "$(managed status forge)"
+kill "$holder"; drop() { rm -f "$RUN/forge.busy/pid"; rmdir "$RUN/forge.busy"; }; drop
+expect "lock gone: ready again" "ready 2" "$(managed status forge)"
+
+echo "--- paused while waiting for the lock"
+holder=$(holder 3)
+mkdir "$RUN/forge.busy"; echo "$holder" > "$RUN/forge.busy/pid"
+pid_before=$(cat "$RUN/forge.pid")
+( rc=0; managed restart forge > /dev/null || rc=$?; echo "$rc" > "$T/paused.rc" ) &
+sleep 1; echo "test" > "$RUN/agent-paused"
+wait $!
+expect "restart re-checks the pause after the lock (exit 3)" "3" "$(cat "$T/paused.rc")"
+expect "and left the service alone" "$pid_before" "$(cat "$RUN/forge.pid")"
+rm -f "$RUN/agent-paused"
+
+echo "--- Docker"
+if command -v docker > /dev/null && ! docker ps -q > /dev/null 2>&1; then
+  rc=0; MIDGARD_DOCKER_STOPPED= managed restart forge > /dev/null || rc=$?
+  expect "Docker's daemon down, no override: not attempted (exit 4)" "4" "$rc"
+  MIDGARD_DOCKER_STOPPED=auto managed restart forge > "$T/auto.out" \
+    && grep -q "MIDGARD_DOCKER_STOPPED=auto" "$T/auto.out" && ok "auto: a daemon that is down is seen as down" \
+    || bad "auto: $(cat "$T/auto.out")"
+else
+  echo "skip Docker checks (Docker's daemon is running, or no docker CLI)"
+fi
 
 echo "--- heimdall-source"
 managed restart heimdall-source > /dev/null && ok "heimdall-source checked by running it"
@@ -137,7 +190,8 @@ fi
 if bash "$RN" restart forge > /dev/null 2>&1; then bad "an unmanaged restart ran"; else ok "an unmanaged restart refuses"; fi
 
 echo "--- stop pauses"
-managed stop > /dev/null
+managed stop > "$T/stop.out"
+grep -q "note: this suite is managed by Bifrost's agent" "$T/stop.out" && ok "stop names the script to use" || bad "$(cat "$T/stop.out")"
 [ -f "$RUN/agent-paused" ] && ok "stop writes agent-paused" || bad "no agent-paused"
 expect "paused status" "paused" "$(managed status forge)"
 rc=0; managed restart forge > /dev/null || rc=$?

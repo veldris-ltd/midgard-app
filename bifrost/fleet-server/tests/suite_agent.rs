@@ -493,9 +493,14 @@ fn the_suite_agent_adopts_rolls_out_rolls_back_and_refuses_untrusted_builds() {
             "{id} runs its slot"
         );
     }
-    assert!(agent
-        .log()
-        .contains("heimdall-source is not running; adopted, left stopped"));
+    assert!(
+        agent
+            .log()
+            .contains("mimir-server runs unknown, linked 0.1.0: restarted, ready"),
+        "{}",
+        agent.log()
+    );
+    assert!(!agent.log().contains("heimdall-source runs"));
     runner_do(&runner, "restart", "heimdall-source");
 
     // One agent per suite root.
@@ -643,7 +648,16 @@ fn the_suite_agent_adopts_rolls_out_rolls_back_and_refuses_untrusted_builds() {
     assert!(!suite.join("agent.ready").exists());
     assert_eq!(running_version(&run, "forge-worker"), "forge-worker 0.1.0");
     fs::remove_file(run.join("slow")).unwrap();
+    // Meanwhile mimir-server is started from elsewhere: the new agent restarts it from
+    // its linked slot before anything else.
+    runner_do(&runner, "start-dist", "mimir-server");
     agent = setup.spawn(&root.join("agent.log"));
+    wait_for("mimir-server realigned", Duration::from_secs(20), || {
+        agent
+            .log()
+            .contains("mimir-server runs unknown, linked 0.2.0: restarted, ready")
+    });
+    assert_eq!(running_version(&run, "mimir-server"), "mimir-server 0.2.0");
     let done = finish(&mut rm, &id, Duration::from_secs(90));
     assert_eq!(
         done.str_field("state"),
