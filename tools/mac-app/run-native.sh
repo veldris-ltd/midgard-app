@@ -7,6 +7,10 @@
 #
 #   bash tools/mac-app/run-native.sh start | stop | status
 #
+# With MIDGARD_REPLAY set to a recording directory (made by record.py), `start` also runs
+# midgard-replay, which plays the recording into Heimdall and Forge's data folder in place
+# of the live feeds; `stop` stops it (and its heimdall-source runs) first.
+#
 # WARNING: the Docker containers' current Linux binaries (built before commit c7d8054) do
 # not honour macOS lock files. Do not `docker start` any midgard container (including via
 # heimdall-poc/day-start.sh) while the native suite runs.
@@ -30,13 +34,14 @@ lock_path() {
     mimir)    echo "$H/mimir-state/mimir.lock" ;;             # mimir/mimir-server/src/main.rs
     heimdall) echo "$H/heimdall-poc/state/feed.lock" ;;       # heimdall/feed-server/src/main.rs
     forge)    echo "$H/live-feeds/worker-state/worker.lock" ;; # forge/worker/src/main.rs
+    replay)   echo "" ;;                                      # none: holds no state directory
     *) echo "unknown service $1" >&2; exit 1 ;;
   esac
 }
 binary() {
   case $1 in
     gateway) echo http-gateway ;; mimir) echo mimir-server ;;
-    heimdall) echo heimdall-feed ;; forge) echo forge-worker ;;
+    heimdall) echo heimdall-feed ;; forge) echo forge-worker ;; replay) echo midgard-replay ;;
     *) echo "unknown service $1" >&2; exit 1 ;;
   esac
 }
@@ -142,6 +147,11 @@ start() {
     [ -x "$BIN/$b" ] || { echo "$BIN/$b is missing; run tools/mac-app/build-services.sh first"; exit 1; }
   done
   [ -f "$H/mimir-model.sh" ] || { echo "$H/mimir-model.sh is missing"; exit 1; }
+  if [ -n "${MIDGARD_REPLAY:-}" ]; then
+    [ -d "$MIDGARD_REPLAY" ] || { echo "recording $MIDGARD_REPLAY not found (MIDGARD_REPLAY)"; exit 1; }
+    [ -f "$MIDGARD_REPLAY/meta.json" ] || { echo "$MIDGARD_REPLAY has no meta.json; not a recording"; exit 1; }
+    [ -x "$BIN/midgard-replay" ] || { echo "$BIN/midgard-replay is missing; run tools/mac-app/build-services.sh first"; exit 1; }
+  fi
   mkdir -p "$RUN"
   # No container can hold these directories, so a lock that no native process of ours
   # holds and that was not written on macOS was left by a stopped container.
@@ -184,20 +194,41 @@ start() {
   launch forge '"message":"job run"' "$BIN/forge-worker" \
     --identity-dir "$H/airports-mesh/forge" --state-dir "$H/live-feeds/worker-state" \
     --jobs "$H/live-feeds/data/jobs.json" --gateway 127.0.0.1:7711
+  if [ -n "${MIDGARD_REPLAY:-}" ]; then
+    launch replay '"replay started"' "$BIN/midgard-replay" \
+      --recording "$MIDGARD_REPLAY" --identity-dir "$H/airports-mesh/feeds" \
+      --forge-dir "$H/live-feeds/data"
+  fi
+}
+
+# Stop the replay's heimdall-source runs with it: pause it so it cannot start another,
+# end its children while they are still its children, then end it.
+kill_replay() {  # pid
+  local kids k
+  kill -STOP "$1" 2>/dev/null || true
+  kids=$(pgrep -P "$1") || kids=
+  pkill -TERM -P "$1" 2>/dev/null || true
+  kill "$1" 2>/dev/null || true
+  kill -CONT "$1" 2>/dev/null || true
+  for k in $kids; do
+    for _ in $(seq 1 15); do kill -0 "$k" 2>/dev/null || break; sleep 1; done
+    kill -0 "$k" 2>/dev/null && echo "replay child $k did not exit within 15 s"
+  done
+  return 0
 }
 
 stop() {
   local s pid lock
-  for s in forge heimdall gateway mimir; do
+  for s in replay forge heimdall gateway mimir; do
     if running "$s"; then
       pid=$(cat "$RUN/$s.pid"); lock=$(lock_path "$s")
-      kill "$pid" 2>/dev/null || true
+      if [ "$s" = replay ]; then kill_replay "$pid"; else kill "$pid" 2>/dev/null || true; fi
       for _ in $(seq 1 15); do running "$s" || break; sleep 1; done
       if running "$s"; then
         echo "$s did not exit within 15 s (pid $pid); its lock is left in place"
         continue
       fi
-      if [ -f "$lock" ] && grep -qx "pid=$pid" "$lock"; then rm -f "$lock"; fi
+      if [ -n "$lock" ] && [ -f "$lock" ] && grep -qx "pid=$pid" "$lock"; then rm -f "$lock"; fi
       echo "$s stopped"
     fi
     rm -f "$RUN/$s.pid"
@@ -206,7 +237,7 @@ stop() {
 
 status() {
   local s
-  for s in mimir gateway heimdall forge; do
+  for s in mimir gateway heimdall forge replay; do
     if running "$s"; then echo "$s running (pid $(cat "$RUN/$s.pid"))"; else echo "$s stopped"; fi
   done
 }
