@@ -1,10 +1,16 @@
-//! The client side of the registry routes, over one PQ-mTLS [`Session`]: upload a signed
-//! artefact in chunks, list the registry, download an artefact and re-verify it. Used by
-//! the tests, and meant for the release tooling and the agent. [FR-B-1] [FR-B-4]
+//! The client side of the registry and orchestrator routes, over one PQ-mTLS
+//! [`Session`]: upload a signed artefact in chunks, list the registry, download an
+//! artefact and re-verify it; create, list, promote and roll back releases and read
+//! rollouts; and check in with per-service status. Used by the tests, the release
+//! tooling and the agent, and shaped for the console's bridge: every request and reply
+//! is a JSON object. [FR-B-1] [FR-B-2] [FR-B-4]
 //!
 //! Each call needs its own policy action: [`register`] `RegisterArtefact`; [`list`]
 //! `ReadArtefacts`; [`download`] and [`download_verified`] `DownloadArtefact` (agents);
-//! [`verify`] `VerifyArtefact`. A call the identity's roles lack is
+//! [`verify`] `VerifyArtefact`; [`create_release`] `CreateRelease`; [`list_releases`]
+//! `ListReleases`; [`promote`] `Promote`; [`rollback`] `Rollback`; [`list_rollouts`]
+//! `ListRollouts`; [`get_rollout`] `GetRollout`; [`check_in_services`] `CheckIn`
+//! (agents). A call the identity's roles lack is
 //! [`outcome::DENIED`](crate::outcome::DENIED), naming the action.
 
 use bifrost_artefact::{ArtefactManifest, SignedArtefact};
@@ -14,8 +20,9 @@ use service_runtime::json::{parse, Json};
 
 use crate::registry::CHUNK_BYTES;
 use crate::{
-    b64, outcome, COMMIT_ARTEFACT, GET_ARTEFACT, LIST_ARTEFACTS, PUT_ARTEFACT_CHUNK,
-    REGISTER_ARTEFACT, VERIFY_ARTEFACT,
+    b64, outcome, CHECK_IN_SERVICES, COMMIT_ARTEFACT, CREATE_RELEASE, GET_ARTEFACT, GET_ROLLOUT,
+    LIST_ARTEFACTS, LIST_RELEASES, LIST_ROLLOUTS, PROMOTE, PUT_ARTEFACT_CHUNK, REGISTER_ARTEFACT,
+    ROLLBACK, VERIFY_ARTEFACT,
 };
 
 /// A call that did not succeed: the service's outcome code and message, or `None` when
@@ -165,6 +172,153 @@ pub fn verify(session: &mut Session, id: &str, version: &str) -> Result<Json, Ca
         VERIFY_ARTEFACT,
         &Json::obj(vec![("id", Json::s(id)), ("version", Json::s(version))]),
     )
+}
+
+/// Create release `version` from verified artefacts: `artefacts` maps each ring service
+/// to its artefact version, or, when `None`, every ring service ships `version`. Answers
+/// the release. Needs `CreateRelease`.
+pub fn create_release(
+    session: &mut Session,
+    version: &str,
+    artefacts: Option<&[(String, String)]>,
+) -> Result<Json, CallError> {
+    let mut request = vec![("version", Json::s(version))];
+    if let Some(artefacts) = artefacts {
+        request.push((
+            "artefacts",
+            Json::Obj(
+                artefacts
+                    .iter()
+                    .map(|(id, v)| (id.clone(), Json::s(v)))
+                    .collect(),
+            ),
+        ));
+    }
+    call(session, CREATE_RELEASE, &Json::obj(request))
+}
+
+/// Releases (newest first), channels with their desired versions, and the rings:
+/// `{"releases", "channels", "rings"}`. Needs `ListReleases`.
+pub fn list_releases(session: &mut Session) -> Result<Json, CallError> {
+    call(session, LIST_RELEASES, &Json::obj(vec![]))
+}
+
+/// Start rolling `release` out to `channel`, ring by ring. Answers the run. Needs
+/// `Promote`.
+pub fn promote(session: &mut Session, channel: &str, release: &str) -> Result<Json, CallError> {
+    call(
+        session,
+        PROMOTE,
+        &Json::obj(vec![
+            ("channel", Json::s(channel)),
+            ("release", Json::s(release)),
+        ]),
+    )
+}
+
+/// Roll `channel` back, for `reason`: the active run, or (with none) to `to` or the
+/// previous release. Answers the run. Needs `Rollback`.
+pub fn rollback(
+    session: &mut Session,
+    channel: &str,
+    reason: &str,
+    to: Option<&str>,
+) -> Result<Json, CallError> {
+    let mut request = vec![("channel", Json::s(channel)), ("reason", Json::s(reason))];
+    if let Some(to) = to {
+        request.push(("to", Json::s(to)));
+    }
+    call(session, ROLLBACK, &Json::obj(request))
+}
+
+/// Rollouts, newest first, of `channel` or all: `{"rollouts"}`. Needs `ListRollouts`.
+pub fn list_rollouts(session: &mut Session, channel: Option<&str>) -> Result<Json, CallError> {
+    let mut request = vec![];
+    if let Some(channel) = channel {
+        request.push(("channel", Json::s(channel)));
+    }
+    call(session, LIST_ROLLOUTS, &Json::obj(request))
+}
+
+/// One rollout, every ring with its phase and times. Needs `GetRollout`.
+pub fn get_rollout(session: &mut Session, id: &str) -> Result<Json, CallError> {
+    call(session, GET_ROLLOUT, &Json::obj(vec![("id", Json::s(id))]))
+}
+
+/// A service as an agent reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceReport {
+    /// The service's name (its artefact id).
+    pub name: String,
+    /// The version it runs.
+    pub version: String,
+    /// Whether it is up and ready.
+    pub healthy: bool,
+}
+
+/// What a per-service check-in gets back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesiredState {
+    /// The channel's current release, if the orchestrator knows the channel.
+    pub release: Option<String>,
+    /// The rollout in progress on the channel, if any.
+    pub run: Option<String>,
+    /// The release it moves to, if any.
+    pub target: Option<String>,
+    /// Each service's desired artefact version (empty for an unknown channel).
+    pub desired: Vec<(String, String)>,
+}
+
+/// Check `install_id` in on `channel` with each service's version and health, and get
+/// each one's desired version back. Needs `CheckIn`; an agent checks in only for its own
+/// installation.
+pub fn check_in_services(
+    session: &mut Session,
+    install_id: &str,
+    channel: &str,
+    services: &[ServiceReport],
+) -> Result<DesiredState, CallError> {
+    let request = Json::obj(vec![
+        ("installId", Json::s(install_id)),
+        ("channel", Json::s(channel)),
+        (
+            "services",
+            Json::Obj(
+                services
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.name.clone(),
+                            Json::obj(vec![
+                                ("version", Json::s(&s.version)),
+                                ("healthy", Json::Bool(s.healthy)),
+                            ]),
+                        )
+                    })
+                    .collect(),
+            ),
+        ),
+    ]);
+    let reply = call(session, CHECK_IN_SERVICES, &request)?;
+    let opt = |k: &str| reply.str_field(k).map(str::to_string);
+    let desired = match reply.get("desired") {
+        Some(Json::Obj(fields)) => fields
+            .iter()
+            .map(|(s, v)| {
+                v.as_str()
+                    .map(|v| (s.clone(), v.to_string()))
+                    .ok_or_else(|| broken(format!("desired.{s} is not a version")))
+            })
+            .collect::<Result<_, _>>()?,
+        Some(Json::Null) | None => Vec::new(),
+        Some(_) => return Err(broken("desired is not an object")),
+    };
+    Ok(DesiredState {
+        release: opt("release"),
+        run: opt("run"),
+        target: opt("target"),
+        desired,
+    })
 }
 
 /// A downloaded artefact and the key id of the signer the registry verified it under.

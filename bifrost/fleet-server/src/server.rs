@@ -10,11 +10,16 @@
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
 //! to the program's name, `bifrost-server` or `bifrost-fleet`). `--state-dir` holds
-//! `policy.json` — the rules for `OpenChannel`, `CheckIn`, `ReadFleet`,
-//! `RegisterArtefact` and `ReadArtefacts` — and `channels.json`, each channel's desired
-//! version; the release signers the registry trusts, as `trust/release-signers/*.pub`
-//! (none: every upload is refused); and the service's sealed `fleet.journal`,
-//! `fleet.ledger` and `registry/`. It is locked while the service runs. Requests are
+//! `policy.json` — the rules for `OpenChannel`, `CheckIn`, `ReadFleet`, the registry's
+//! actions and the orchestrator's (`CreateRelease`, `ListReleases`, `Promote`,
+//! `Rollback`, `ListRollouts`, `GetRollout`) — and `channels.json`, each channel's
+//! starting release: it seeds a channel the orchestrator does not know yet, and after
+//! that the orchestrator's state decides where the channel is. `rings.json` (optional)
+//! sets the rollout rings (see [`crate::releases`]); without it the suite's default rings
+//! are used. The release signers the registry trusts are `trust/release-signers/*.pub`
+//! (none: every upload is refused). The service's sealed `fleet.journal`, `fleet.ledger`,
+//! `registry/` and `releases.sealed` are there too. It is locked while the service runs.
+//! The orchestrator steps active rollouts every second. Requests are
 //! audited under `--purpose` (default `fleet-management`), the one purpose the channel
 //! opens for. A node silent for `--stale-after` seconds (default 300) is reported stale.
 //! PQ-mTLS is served on `--bind` (default `0.0.0.0:7740`); `/healthz`, `/readyz` and
@@ -30,8 +35,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::registry::{load_signers, Registry};
+use crate::releases::{parse_rings, ReleaseStore};
 use crate::{parse_channels, FleetService};
 use bifrost_fleet::DurableFleet;
+use bifrost_rollout::runs::RingConfig;
+use bifrost_rollout::VersionId;
 use gateway::Gateway;
 use governance::Governance;
 use policy::{
@@ -51,6 +59,8 @@ const USAGE: &str = "--identity-dir DIR --state-dir DIR [--service NAME] \
 const LEDGER_ID: &str = "bifrost-fleet-audit";
 /// The id the fleet journal is sealed under.
 const FLEET_ID: &str = "bifrost-fleet";
+/// How often the orchestrator steps active rollouts.
+const TICK: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Run the service as `program` (its name in messages and its default `--service`).
 pub fn main(program: &str) {
@@ -128,19 +138,49 @@ fn run(program: &str, args: &Args) -> Result<(), String> {
     let recovered = writer.entries().len();
     let governance = Governance::with_audit(pdp()?, writer);
 
+    let rings = match std::fs::read_to_string(state_dir.join("rings.json")) {
+        Ok(text) => parse_rings(&text)
+            .map_err(|e| format!("{}: {e}", state_dir.join("rings.json").display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => RingConfig::suite_default(),
+        Err(e) => return Err(format!("cannot read rings.json: {e}")),
+    };
+    let mut releases =
+        ReleaseStore::open(state_dir.join("releases.sealed"), identity.data_sealer()?)
+            .map_err(|e| format!("the release state does not open: {e}"))?;
+    let mut seeded = releases.state().clone();
+    for (name, desired) in &channels {
+        seeded
+            .seed_channel(name, &desired.0)
+            .map_err(|e| format!("{channels_path}: {e}"))?;
+    }
+    releases
+        .commit(seeded)
+        .map_err(|e| format!("cannot record a channel: {e}"))?;
+
     let mut fleet = DurableFleet::open(
         state_dir.join("fleet.journal"),
         identity.data_sealer()?,
         FLEET_ID,
     )
     .map_err(|e| format!("the fleet journal does not open: {e}"))?;
-    for (name, desired) in channels {
-        if fleet.fleet().channel_desired(&name) != Some(&desired) {
+    // The fleet's channel desires follow the orchestrator's current releases.
+    for channel in releases.state().channels.values() {
+        let desired = VersionId::new(&channel.current);
+        if fleet.fleet().channel_desired(&channel.name) != Some(&desired) {
             fleet
-                .set_channel(name, desired)
+                .set_channel(channel.name.clone(), desired)
                 .map_err(|e| format!("cannot record a channel: {e}"))?;
         }
     }
+    let release_count = releases.state().releases.len();
+    let active_runs = releases
+        .state()
+        .runs
+        .iter()
+        .filter(|r| r.state == bifrost_rollout::runs::RunState::Running)
+        .map(|r| r.id.clone())
+        .collect::<Vec<_>>()
+        .join(",");
     let installations = fleet.fleet().installations().count();
 
     let signers = load_signers(&state_dir.join("trust").join("release-signers"))?;
@@ -162,6 +202,8 @@ fn run(program: &str, args: &Args) -> Result<(), String> {
     let fleet_service = FleetService::new(
         fleet,
         registry,
+        releases,
+        rings,
         governance,
         resource("bifrost-fleet"),
         Purpose(purpose.to_string()),
@@ -180,6 +222,29 @@ fn run(program: &str, args: &Args) -> Result<(), String> {
         Arc::new(fleet_service.router()),
     );
 
+    // The orchestrator: step active rollouts every second.
+    let ticker = fleet_service.clone();
+    let ticker_name = service.to_string();
+    std::thread::Builder::new()
+        .name("orchestrator".into())
+        .spawn(move || {
+            let logger = Logger::new(&ticker_name, &StdoutJsonSink);
+            loop {
+                std::thread::sleep(TICK);
+                let (events, problem) = ticker.tick();
+                for event in &events {
+                    logger.info(
+                        "rollout",
+                        &[("run", event.run()), ("event", &event.action())],
+                    );
+                }
+                if let Some(problem) = problem {
+                    logger.warn("rollout", &[("problem", &problem)]);
+                }
+            }
+        })
+        .map_err(|e| format!("cannot start the orchestrator: {e}"))?;
+
     let listener = TcpListener::bind(args.get("bind").unwrap_or("0.0.0.0:7740"))
         .map_err(|e| format!("cannot bind the mesh port: {e}"))?;
     let mesh_addr = listener
@@ -197,6 +262,8 @@ fn run(program: &str, args: &Args) -> Result<(), String> {
             ("artefacts", &artefacts.to_string()),
             ("rejected", &rejected.to_string()),
             ("release_signers", &signer_ids),
+            ("releases", &release_count.to_string()),
+            ("active_rollouts", &active_runs),
         ],
     );
     serve_mesh(service, listener, gateway, metrics)

@@ -9,6 +9,8 @@
 #   bash tools/bifrost/run-local.sh start    # start bifrost-server (mesh 127.0.0.1:7750, health :9750)
 #   bash tools/bifrost/run-local.sh demo     # three installations check in; one is behind
 #   bash tools/bifrost/run-local.sh status   # the fleet as the operator sees it (JSON)
+#   bash tools/bifrost/run-local.sh release list|create|promote|rollback|rollouts [...]
+#                                            # bifrost-release release ..., as release-manager
 #   bash tools/bifrost/run-local.sh stop
 #
 # Everything lives in $BIFROST_HOME (default ~/Desktop/Midgard/bifrost-local). Ports avoid
@@ -34,7 +36,7 @@
 # airports-backup-<date>.tar.gz and then removes the previous such backup (one is kept).
 # The choice is recorded in $BIFROST_HOME/mesh.conf, which start, demo, status and
 # release.sh read. The first switch moves the private enclosure, its identities and the
-# server's sealed state (fleet.journal, fleet.ledger, registry/: sealed under the old
+# server's sealed state (fleet.journal, fleet.ledger, registry/, releases.sealed: sealed under the old
 # identity, so the new one cannot open them) to $BIFROST_HOME/private-enclosure/.
 #
 # Both setups make fleet-state/ (policy.json, channels.json) and fleet-state/trust/
@@ -43,7 +45,12 @@
 # every upload is refused as an unknown signer. An older policy.json without the
 # registry's actions is replaced (the old one is kept as policy.json.pre-registry), and
 # one from before the read split (no DownloadArtefact) likewise (kept as
-# policy.json.pre-b2). bifrost-server reads its policy at start: restart it after.
+# policy.json.pre-b2), and one from before releases and rollouts (no CreateRelease) too
+# (kept as policy.json.pre-b2t2). rings.json, the rollout rings (canary forge-worker,
+# then midgard-replay + heimdall-feed + heimdall-source, then mimir-server, then
+# http-gateway; soak 60 s, readiness timeout 180 s), is copied from deploy/compose when
+# absent. channels.json only seeds a channel the orchestrator does not know yet.
+# bifrost-server reads its policy and rings at start: restart it after.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -99,10 +106,16 @@ state() {
         [ ! -e "$keep" ] || keep="$keep.$(date +%Y%m%d-%H%M%S)"
         mv "$H/fleet-state/policy.json" "$keep"
         echo "  policy.json predates the split read actions (DownloadArtefact, VerifyArtefact): replaced (old copy $(basename "$keep")); restart bifrost-server to apply it"
+    elif [ -f "$H/fleet-state/policy.json" ] && ! grep -q CreateRelease "$H/fleet-state/policy.json"; then
+        local keep="$H/fleet-state/policy.json.pre-b2t2"
+        [ ! -e "$keep" ] || keep="$keep.$(date +%Y%m%d-%H%M%S)"
+        mv "$H/fleet-state/policy.json" "$keep"
+        echo "  policy.json predates releases and rollouts (CreateRelease, Promote, Rollback, ...): replaced (old copy $(basename "$keep")); restart bifrost-server to apply it"
     fi
     [ -f "$H/fleet-state/policy.json" ] || cp "$ROOT/deploy/compose/fleet-policy.json" "$H/fleet-state/policy.json"
     [ -f "$H/fleet-state/channels.json" ] || cp "$ROOT/deploy/compose/fleet-channels.json" "$H/fleet-state/channels.json"
-    echo "state: $H/fleet-state (policy.json, channels.json: $(tr -d ' \n' < "$H/fleet-state/channels.json"))"
+    [ -f "$H/fleet-state/rings.json" ] || cp "$ROOT/deploy/compose/fleet-rings.json" "$H/fleet-state/rings.json"
+    echo "state: $H/fleet-state (policy.json, rings.json, channels.json: $(tr -d ' \n' < "$H/fleet-state/channels.json"))"
     echo "release signers: $H/fleet-state/trust/release-signers ($(ls "$H/fleet-state/trust/release-signers" | grep -c '\.pub$' || true) .pub files)"
 }
 
@@ -195,7 +208,7 @@ setup_real() {
     if [ ! -f "$CONF" ]; then
         # The server's sealed state belongs to the private identity; keep it, apart.
         local a="$H/private-enclosure" f moved=""
-        for f in enclosure fleet-identity fleet-clients fleet-state/fleet.journal fleet-state/fleet.ledger fleet-state/registry; do
+        for f in enclosure fleet-identity fleet-clients fleet-state/fleet.journal fleet-state/fleet.ledger fleet-state/registry fleet-state/releases.sealed; do
             [ -e "$H/$f" ] || continue
             mkdir -p "$a/fleet-state"
             [ ! -e "$a/$f" ] || die "$a/$f already exists; move it away first"
@@ -261,6 +274,12 @@ demo() {
 
 status() { running || die "start it first"; agent --service fleet-operator --status; }
 
+release() {
+    running || die "start it first"
+    "$BIN/bifrost-release" release "$1" --identity-dir "$CLIENTS" --addr "$MESH" \
+        --service release-manager "${@:2}"
+}
+
 case "${1:-}" in
     setup)
         case "${2:-}" in
@@ -272,5 +291,6 @@ case "${1:-}" in
     stop) stop ;;
     demo) demo ;;
     status) status ;;
-    *) sed -n '2,13p' "$0"; exit 2 ;;
+    release) [ -n "${2:-}" ] || die "release needs list, create, promote, rollback or rollouts"; release "${@:2}" ;;
+    *) sed -n '2,15p' "$0"; exit 2 ;;
 esac

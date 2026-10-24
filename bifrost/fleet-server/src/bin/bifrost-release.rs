@@ -12,7 +12,20 @@
 //!                           [--version V] [--json]
 //! bifrost-release preflight --identity-dir DIR --addr HOST:PORT [--service NAME]
 //!                           --keystore KS
+//! bifrost-release release create   --version V [--artefacts ID@V,ID@V,...]  (CONN)
+//! bifrost-release release list     [--json]                                (CONN)
+//! bifrost-release release promote  --channel C --release V                 (CONN)
+//! bifrost-release release rollback --channel C --reason TEXT [--to V]      (CONN)
+//! bifrost-release release rollouts [--channel C] [--id RUN] [--json]       (CONN)
+//!   CONN: --identity-dir DIR --addr HOST:PORT [--service NAME]
 //! ```
+//!
+//! `release` is the operator's side of the orchestrator. `create` makes a release from
+//! artefacts already verified in the registry: every ring service at `--version`, or the
+//! artefact versions `--artefacts` names (each ring service exactly once). `promote`
+//! starts a rollout to a channel, ring by ring; `rollback` stops one, with a reason, or,
+//! with none in progress, moves the channel back to its previous release (or `--to`).
+//! `rollouts` lists runs, or shows one with `--id`, ring by ring.
 //!
 //! Signing and uploading are separate steps. `sign` needs only the keystore, no
 //! server: it signs the manifest `{id, version, component, payloadSha256, sbomSha256}`
@@ -48,7 +61,13 @@ const USAGE: &str = "usage:
   bifrost-release list      --identity-dir DIR --addr HOST:PORT [--service NAME] \\
                             [--version V] [--json]
   bifrost-release preflight --identity-dir DIR --addr HOST:PORT [--service NAME] \\
-                            --keystore KS";
+                            --keystore KS
+  bifrost-release release create   CONN --version V [--artefacts ID@V,ID@V,...]
+  bifrost-release release list     CONN [--json]
+  bifrost-release release promote  CONN --channel C --release V
+  bifrost-release release rollback CONN --channel C --reason TEXT [--to V]
+  bifrost-release release rollouts CONN [--channel C] [--id RUN] [--json]
+    CONN: --identity-dir DIR --addr HOST:PORT [--service NAME]";
 
 /// The mesh purpose the registry routes are served under.
 const PURPOSE: &str = "fleet-management";
@@ -72,6 +91,7 @@ fn main() {
             "upload" => upload(rest),
             "list" => list(rest),
             "preflight" => preflight(rest),
+            "release" => release(rest),
             "-h" | "--help" | "help" if rest.is_empty() => {
                 println!("{USAGE}");
                 return;
@@ -345,4 +365,226 @@ fn preflight(argv: &[String]) -> Result<String, Failure> {
         require(&a, "addr")?,
         signer.key_id()
     ))
+}
+
+const CONN: [&str; 3] = ["identity-dir", "addr", "service"];
+
+fn with_conn<'a>(more: &[&'a str]) -> Vec<&'a str> {
+    CONN.iter().copied().chain(more.iter().copied()).collect()
+}
+
+/// `release create|list|promote|rollback|rollouts`.
+fn release(argv: &[String]) -> Result<String, Failure> {
+    let Some((cmd, rest)) = argv.split_first() else {
+        return Err(Failure::Usage(
+            "release needs create, list, promote, rollback or rollouts".into(),
+        ));
+    };
+    match cmd.as_str() {
+        "create" => {
+            let a = args(rest, &with_conn(&["version", "artefacts"]), &[])?;
+            let version = require(&a, "version")?;
+            let artefacts = match a.get("artefacts") {
+                None => None,
+                Some(list) => Some(
+                    list.split(',')
+                        .map(|item| {
+                            item.trim()
+                                .split_once('@')
+                                .map(|(id, v)| (id.to_string(), v.to_string()))
+                                .ok_or_else(|| {
+                                    Failure::Usage(format!(
+                                        "--artefacts: {item:?} is not ID@VERSION"
+                                    ))
+                                })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+            };
+            let mut s = session(&a)?;
+            let created = client::create_release(&mut s, version, artefacts.as_deref())?;
+            Ok(format!("created {}", release_line(&created)))
+        }
+        "list" => {
+            let a = args(rest, &with_conn(&[]), &["json"])?;
+            let mut s = session(&a)?;
+            let listing = client::list_releases(&mut s)?;
+            if a.flag("json") {
+                return Ok(listing.encode());
+            }
+            let mut lines = Vec::new();
+            if let Some(Json::Arr(channels)) = listing.get("channels") {
+                for c in channels {
+                    let f = |k: &str| c.str_field(k).unwrap_or("-");
+                    let mut line = format!(
+                        "channel {} current={} previous={}",
+                        f("name"),
+                        f("current"),
+                        f("previous")
+                    );
+                    if let Some(run) = c.str_field("run") {
+                        line.push_str(&format!(" rolling out {} ({run})", f("target")));
+                    }
+                    lines.push(line);
+                    if let Some(Json::Obj(desired)) = c.get("desired") {
+                        let pairs: Vec<String> = desired
+                            .iter()
+                            .map(|(s, v)| format!("{s}={}", v.as_str().unwrap_or("-")))
+                            .collect();
+                        lines.push(format!("  desired: {}", pairs.join(" ")));
+                    }
+                }
+            }
+            match listing.get("releases") {
+                Some(Json::Arr(items)) if !items.is_empty() => {
+                    for r in items {
+                        lines.push(format!("release {}", release_line(r)));
+                    }
+                }
+                _ => lines.push("no releases".into()),
+            }
+            if let Some(Json::Arr(rings)) = listing.get("rings").and_then(|r| r.get("rings")) {
+                let rings: Vec<String> = rings
+                    .iter()
+                    .map(|r| {
+                        let services = match r.get("services") {
+                            Some(Json::Arr(s)) => s
+                                .iter()
+                                .filter_map(Json::as_str)
+                                .collect::<Vec<_>>()
+                                .join("+"),
+                            _ => String::new(),
+                        };
+                        format!("{}[{services}]", r.str_field("name").unwrap_or("-"))
+                    })
+                    .collect();
+                lines.push(format!("rings: {}", rings.join(" -> ")));
+            }
+            Ok(lines.join("\n"))
+        }
+        "promote" => {
+            let a = args(rest, &with_conn(&["channel", "release"]), &[])?;
+            let mut s = session(&a)?;
+            let run = client::promote(&mut s, require(&a, "channel")?, require(&a, "release")?)?;
+            Ok(run_text(&run))
+        }
+        "rollback" => {
+            let a = args(rest, &with_conn(&["channel", "reason", "to"]), &[])?;
+            let mut s = session(&a)?;
+            let run = client::rollback(
+                &mut s,
+                require(&a, "channel")?,
+                require(&a, "reason")?,
+                a.get("to"),
+            )?;
+            Ok(run_text(&run))
+        }
+        "rollouts" => {
+            let a = args(rest, &with_conn(&["channel", "id"]), &["json"])?;
+            let mut s = session(&a)?;
+            if let Some(id) = a.get("id") {
+                let run = client::get_rollout(&mut s, id)?;
+                return Ok(if a.flag("json") {
+                    run.encode()
+                } else {
+                    run_text(&run)
+                });
+            }
+            let runs = client::list_rollouts(&mut s, a.get("channel"))?;
+            if a.flag("json") {
+                return Ok(runs.encode());
+            }
+            match runs.get("rollouts") {
+                Some(Json::Arr(items)) if !items.is_empty() => {
+                    Ok(items.iter().map(run_line).collect::<Vec<_>>().join("\n"))
+                }
+                _ => Ok("no rollouts".into()),
+            }
+        }
+        other => Err(Failure::Usage(format!("unknown release command {other:?}"))),
+    }
+}
+
+fn release_line(r: &Json) -> String {
+    let artefacts = match r.get("artefacts") {
+        Some(Json::Obj(fields)) => fields
+            .iter()
+            .map(|(s, v)| format!("{s}@{}", v.as_str().unwrap_or("-")))
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => String::new(),
+    };
+    format!(
+        "{} by {} at {}: {artefacts}",
+        r.str_field("version").unwrap_or("-"),
+        r.str_field("createdBy").unwrap_or("-"),
+        r.get("createdAt").and_then(Json::as_i64).unwrap_or(0)
+    )
+}
+
+fn run_line(run: &Json) -> String {
+    let f = |k: &str| run.str_field(k).unwrap_or("-");
+    let mut line = format!(
+        "{} {} {} {} -> {} {}",
+        f("id"),
+        f("kind"),
+        f("channel"),
+        f("from"),
+        f("release"),
+        f("state")
+    );
+    if let Some(Json::Arr(rings)) = run.get("rings") {
+        let phases: Vec<String> = rings
+            .iter()
+            .map(|g| {
+                format!(
+                    "{}:{}",
+                    g.str_field("name").unwrap_or("-"),
+                    g.str_field("phase").unwrap_or("-")
+                )
+            })
+            .collect();
+        if !phases.is_empty() {
+            line.push_str(&format!(" [{}]", phases.join(" ")));
+        }
+    }
+    if let Some(reason) = run.str_field("reason") {
+        line.push_str(&format!(" ({reason})"));
+    }
+    line
+}
+
+fn run_text(run: &Json) -> String {
+    let mut lines = vec![run_line(run)];
+    let t = |j: &Json, k: &str| {
+        j.get(k)
+            .and_then(Json::as_i64)
+            .map_or("-".to_string(), |n| n.to_string())
+    };
+    if let Some(Json::Arr(rings)) = run.get("rings") {
+        for g in rings {
+            let services = match g.get("services") {
+                Some(Json::Arr(s)) => s
+                    .iter()
+                    .filter_map(Json::as_str)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                _ => String::new(),
+            };
+            let mut line = format!(
+                "  {} [{services}] {} started={} deadline={} soakSince={} ended={}",
+                g.str_field("name").unwrap_or("-"),
+                g.str_field("phase").unwrap_or("-"),
+                t(g, "startedAt"),
+                t(g, "deadline"),
+                t(g, "soakSince"),
+                t(g, "endedAt"),
+            );
+            if let Some(reason) = g.str_field("reason") {
+                line.push_str(&format!(" ({reason})"));
+            }
+            lines.push(line);
+        }
+    }
+    lines.join("\n")
 }

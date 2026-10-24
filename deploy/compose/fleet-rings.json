@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "soakSecs": 60,
+  "readyTimeoutSecs": 180,
+  "reportTtlSecs": 30,
+  "rings": [
+    { "name": "canary", "services": ["forge-worker"] },
+    { "name": "ring-2", "services": ["midgard-replay", "heimdall-feed", "heimdall-source"] },
+    { "name": "ring-3", "services": ["mimir-server"] },
+    { "name": "last", "services": ["http-gateway"] }
+  ]
+}

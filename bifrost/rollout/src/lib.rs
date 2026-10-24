@@ -10,10 +10,16 @@
 //!
 //! This is the same health-gate-then-rollback discipline as the core `scheduler`'s
 //! replica-level rolling upgrade, lifted to fleet-wide ring granularity.
+//!
+//! [`runs`] is the same discipline for a live fleet, as a clock-free state machine a
+//! server steps with agents' reports: releases, channels, per-service rings with a soak
+//! and a readiness timeout, one run per channel, and rollback on a failed gate or by
+//! hand.
 
 pub mod gate;
 pub mod orchestrator;
 pub mod plan;
+pub mod runs;
 
 pub use gate::HealthGate;
 pub use orchestrator::{DeployAgent, DeployError, Orchestrator, RolloutReport, RolloutResult};

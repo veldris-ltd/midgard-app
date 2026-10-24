@@ -22,6 +22,15 @@
 //! `VerifyArtefact` always runs the whole gate (see [`registry`]'s reads). A refusal is recorded with its reason, audited,
 //! and listed as rejected. [FR-B-1] [FR-B-4] [NFR-PQ-3]
 //!
+//! It also runs releases out ([`releases`], built on `bifrost_rollout::runs`): a release
+//! manager creates a release from verified artefacts ([`CREATE_RELEASE`]), promotes it
+//! to a channel ([`PROMOTE`]) and can roll it back ([`ROLLBACK`]); operators and release
+//! managers read releases and runs ([`LIST_RELEASES`], [`LIST_ROLLOUTS`],
+//! [`GET_ROLLOUT`]). A promotion raises the desired version ring by ring; agents report
+//! per-service versions and health with [`CHECK_IN_SERVICES`] and get their desired
+//! versions back; [`FleetService::tick`], on a timer, gates each ring and rolls back on a
+//! failure. The state is sealed at rest and a run resumes after a restart.
+//!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
 //! [`FLEET_STATUS`] and an accepted registry call, JSON. Registry requests are JSON too,
 //! so a browser bridge can pass them through; artefact bytes travel as base64.
@@ -29,14 +38,20 @@
 pub mod b64;
 pub mod client;
 pub mod registry;
+pub mod releases;
 pub mod server;
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::LedgerStore;
 use bifrost_artefact::SignedArtefact;
 use bifrost_artefact::{ArtefactManifest, BIFROST_SIG_ALG};
 use bifrost_fleet::{AgentReport, DurableFleet, NodeStatus};
+use bifrost_rollout::runs::{
+    check_name, Event, InstallReport, Release, RingConfig, RolloutError, RolloutRun, Rollouts,
+    ServiceStatus, ORCHESTRATOR,
+};
 use bifrost_rollout::VersionId;
 use gateway::{RequestHandler, Router};
 use governance::{GovContext, Governance};
@@ -47,6 +62,7 @@ use registry::{
     Fetch, Listed, NewUpload, Recheck, Record, Refusal, Registry, Rejection, StoreError,
     CHUNK_BYTES, LIST_PAGE, MAX_LIST_PAGE,
 };
+use releases::{release_json, rings_json, run_json, ReleaseStore};
 use service_runtime::json::{parse, Json};
 use service_runtime::strict_json::{no_repeated_keys, object, only_keys, text};
 use telemetry::MetricsRegistry;
@@ -88,6 +104,46 @@ pub const ACTION_DOWNLOAD_ARTEFACT: &str = "DownloadArtefact";
 /// The policy action re-verifying an artefact ([`VERIFY_ARTEFACT`]) is authorised as.
 pub const ACTION_VERIFY_ARTEFACT: &str = "VerifyArtefact";
 
+/// Check in with per-service status (JSON), and get each service's desired version back:
+/// `{"installId", "channel", "services": {name: {"version", "healthy"}}}`. Answers
+/// `{"installId", "channel", "release", "run", "target", "desired": {name: version}}`
+/// (`desired` null for a channel the orchestrator does not know). Authorised as
+/// [`ACTION_CHECK_IN`], like [`CHECK_IN`], which stays as it was for simple agents.
+pub const CHECK_IN_SERVICES: &str = "CheckInServices";
+/// Create a release: `{"version", "artefacts"?: {service: version}}`. Without
+/// `artefacts`, every ring service at `version`. Every artefact must be held and pass
+/// the whole verification gate now. Answers the release.
+pub const CREATE_RELEASE: &str = "CreateRelease";
+/// Releases, channels (with their desired versions) and the rings: `{}`.
+pub const LIST_RELEASES: &str = "ListReleases";
+/// Start a rollout of a release to a channel: `{"channel", "release"}`. Answers the run.
+pub const PROMOTE: &str = "Promote";
+/// Roll a channel back: `{"channel", "reason", "to"?}`. Answers the run.
+pub const ROLLBACK: &str = "Rollback";
+/// Runs, newest first: `{"channel"?, "limit"?}`. Answers `{"rollouts"}`.
+pub const LIST_ROLLOUTS: &str = "ListRollouts";
+/// One run: `{"id"}`.
+pub const GET_ROLLOUT: &str = "GetRollout";
+/// The policy action creating a release is authorised as.
+pub const ACTION_CREATE_RELEASE: &str = "CreateRelease";
+/// The policy action listing releases is authorised as.
+pub const ACTION_LIST_RELEASES: &str = "ListReleases";
+/// The policy action promoting is authorised as.
+pub const ACTION_PROMOTE: &str = "Promote";
+/// The policy action rolling back is authorised as.
+pub const ACTION_ROLLBACK: &str = "Rollback";
+/// The policy action listing runs is authorised as.
+pub const ACTION_LIST_ROLLOUTS: &str = "ListRollouts";
+/// The policy action reading one run is authorised as.
+pub const ACTION_GET_ROLLOUT: &str = "GetRollout";
+
+/// Installations whose per-service reports are held in memory at most.
+const MAX_REPORTS: usize = 1024;
+/// Services one per-service check-in may report at most.
+const MAX_REPORTED_SERVICES: usize = 64;
+/// Runs one [`LIST_ROLLOUTS`] answers at most.
+const MAX_ROLLOUTS_PAGE: usize = 200;
+
 /// The first byte of every fleet response.
 pub mod outcome {
     /// Done: recorded, or the fleet follows.
@@ -111,6 +167,9 @@ pub mod outcome {
 pub struct FleetService<S: LedgerStore> {
     fleet: Mutex<DurableFleet>,
     registry: Mutex<Registry>,
+    releases: Mutex<ReleaseStore>,
+    reports: Mutex<BTreeMap<String, InstallReport>>,
+    rings: RingConfig,
     governance: Mutex<Governance<S>>,
     resource: Resource,
     purpose: Purpose,
@@ -122,11 +181,14 @@ pub struct FleetService<S: LedgerStore> {
 impl<S: LedgerStore + Send + 'static> FleetService<S> {
     /// Assemble the service. `resource` is what requests are authorised against and
     /// `purpose` the purpose they are audited under; a node that has not checked in for
-    /// `stale_after` seconds of `clock` is reported stale.
+    /// `stale_after` seconds of `clock` is reported stale. `releases` is the
+    /// orchestrator's state and `rings` the rings new runs use.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         fleet: DurableFleet,
         registry: Registry,
+        releases: ReleaseStore,
+        rings: RingConfig,
         governance: Governance<S>,
         resource: Resource,
         purpose: Purpose,
@@ -141,6 +203,9 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         Arc::new(Self {
             fleet: Mutex::new(fleet),
             registry: Mutex::new(registry),
+            releases: Mutex::new(releases),
+            reports: Mutex::new(BTreeMap::new()),
+            rings,
             governance: Mutex::new(governance),
             resource,
             purpose,
@@ -163,7 +228,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             .route(CHECK_IN, check_in)
             .route(FLEET_STATUS, status);
         type Handler<S> = fn(&FleetService<S>, &WorkloadIdentity, &Json, u64) -> (u8, String);
-        let routes: [(&'static str, &'static str, Handler<S>); 6] = [
+        let routes: [(&'static str, &'static str, Handler<S>); 13] = [
             (
                 REGISTER_ARTEFACT,
                 ACTION_REGISTER_ARTEFACT,
@@ -186,12 +251,19 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                 ACTION_VERIFY_ARTEFACT,
                 Self::verify_artefact,
             ),
+            (CHECK_IN_SERVICES, ACTION_CHECK_IN, Self::check_in_services),
+            (CREATE_RELEASE, ACTION_CREATE_RELEASE, Self::create_release),
+            (LIST_RELEASES, ACTION_LIST_RELEASES, Self::list_releases),
+            (PROMOTE, ACTION_PROMOTE, Self::promote),
+            (ROLLBACK, ACTION_ROLLBACK, Self::rollback),
+            (LIST_ROLLOUTS, ACTION_LIST_ROLLOUTS, Self::list_rollouts),
+            (GET_ROLLOUT, ACTION_GET_ROLLOUT, Self::get_rollout),
         ];
         for (method, action, handler) in routes {
             let service = self.clone();
             let route: Arc<dyn RequestHandler> =
                 Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| {
-                    service.registry_call(peer, body, method, action, handler)
+                    service.json_call(peer, body, method, action, handler)
                 });
             router = router.route(method, route);
         }
@@ -342,10 +414,11 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         self.reply(FLEET_STATUS, outcome::ACCEPTED, &body.encode())
     }
 
-    /// The spine every registry call goes through: the body must be a JSON object (an
-    /// empty body is `{}`); the call is authorised as `action` — or `action:MALFORMED`
-    /// for a body that is not one, still audited — and only then handled.
-    fn registry_call(
+    /// The spine every JSON call (the registry's, the orchestrator's, the per-service
+    /// check-in) goes through: the body must be a JSON object (an empty body is `{}`);
+    /// the call is authorised as `action` — or `action:MALFORMED` for a body that is not
+    /// one, still audited — and only then handled.
+    fn json_call(
         &self,
         peer: &WorkloadIdentity,
         body: &[u8],
@@ -747,6 +820,516 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         }
     }
 
+    // --- the orchestrator -------------------------------------------------------------
+
+    /// Step every active rollout with the latest per-service reports: soak, pass, start
+    /// the next ring, complete, or fail and roll back. The server calls it on a timer.
+    /// Changes are sealed before they take effect, then audited as the orchestrator;
+    /// what happened is returned (for the log), with a problem if the change could not
+    /// be saved (then nothing changed, and the next tick tries again) or audited.
+    pub fn tick(&self) -> (Vec<Event>, Option<String>) {
+        let now = (self.clock)();
+        let reports: Vec<InstallReport> = lock(&self.reports).values().cloned().collect();
+        let mut store = lock(&self.releases);
+        let mut next = store.state().clone();
+        let events = next.tick(now, &reports);
+        if next == *store.state() {
+            return (events, None);
+        }
+        if let Err(e) = store.commit(next) {
+            return (Vec::new(), Some(format!("not saved, nothing changed: {e}")));
+        }
+        let channels = channel_currents(store.state());
+        drop(store);
+        self.sync_channels(&channels);
+        let problem = (!self.audit_events(ORCHESTRATOR, &events, now))
+            .then(|| "not every rollout event could be audited".to_string());
+        (events, problem)
+    }
+
+    /// Make the fleet's channel desires (what FleetStatus's drift compares against) the
+    /// orchestrator's current releases.
+    fn sync_channels(&self, channels: &[(String, String)]) {
+        let mut fleet = lock(&self.fleet);
+        for (name, current) in channels {
+            let desired = VersionId::new(current);
+            if fleet.fleet().channel_desired(name) != Some(&desired) {
+                let _ = fleet.set_channel(name.clone(), desired);
+            }
+        }
+    }
+
+    fn audit_events(&self, actor: &str, events: &[Event], now: u64) -> bool {
+        let mut governance = lock(&self.governance);
+        events.iter().all(|e| {
+            governance
+                .record_event(actor, &e.action(), &format!("rollout:{}", e.run()), now)
+                .is_ok()
+        })
+    }
+
+    /// Change the orchestrator's state with `change`, sealed before it takes effect, and
+    /// audit what happened as `peer`.
+    fn change<T>(
+        &self,
+        peer: &WorkloadIdentity,
+        now: u64,
+        change: impl FnOnce(&mut Rollouts) -> Result<(T, Vec<Event>), RolloutError>,
+    ) -> Result<(T, Rollouts, bool), (u8, String)> {
+        let mut store = lock(&self.releases);
+        let mut next = store.state().clone();
+        let (value, events) = change(&mut next).map_err(rollout_error)?;
+        store
+            .commit(next)
+            .map_err(|e| (outcome::FAILED, format!("not saved, nothing changed: {e}")))?;
+        let state = store.state().clone();
+        drop(store);
+        self.sync_channels(&channel_currents(&state));
+        let audited = self.audit_events(&peer.id.0, &events, now);
+        Ok((value, state, audited))
+    }
+
+    fn check_in_services(&self, peer: &WorkloadIdentity, req: &Json, now: u64) -> (u8, String) {
+        let parsed = (|| -> Result<InstallReport, String> {
+            let at = "the check-in";
+            only_keys(object(req, at)?, at, &["installId", "channel", "services"])?;
+            let install_id = text(req, at, "installId")?.to_string();
+            let channel = text(req, at, "channel")?.to_string();
+            check_name(&channel, "a channel name")?;
+            let services = object(
+                req.get("services")
+                    .ok_or("the check-in: missing \"services\"")?,
+                "services",
+            )?;
+            no_repeated_keys(services, "services")?;
+            if services.len() > MAX_REPORTED_SERVICES {
+                return Err(format!(
+                    "the check-in reports more than {MAX_REPORTED_SERVICES} services"
+                ));
+            }
+            let mut map = BTreeMap::new();
+            for (name, status) in services {
+                check_name(name, "a service name")?;
+                let sat = format!("services.{name}");
+                only_keys(object(status, &sat)?, &sat, &["version", "healthy"])?;
+                let version = text(status, &sat, "version")?.to_string();
+                check_name(&version, "a version")?;
+                let healthy = match status.get("healthy") {
+                    Some(Json::Bool(b)) => *b,
+                    _ => return Err(format!("{sat}: \"healthy\" must be true or false")),
+                };
+                map.insert(name.clone(), ServiceStatus { version, healthy });
+            }
+            Ok(InstallReport {
+                install_id,
+                channel,
+                at: now,
+                services: map,
+            })
+        })();
+        let report = match parsed {
+            Ok(r) => r,
+            Err(e) => return (outcome::MALFORMED, e),
+        };
+        if report.install_id != peer.id.0 {
+            let recorded = lock(&self.governance).record_event(
+                &peer.id.0,
+                "CheckIn refused: reported for another installation",
+                &format!("installation:{}", report.install_id),
+                now,
+            );
+            let mut message = "an agent checks in only for its own installation".to_string();
+            if recorded.is_err() {
+                message.push_str(" (not audited)");
+            }
+            return (outcome::DENIED, message);
+        }
+        // The fleet view keeps one version per installation: the services' common
+        // version, or "mixed" while they differ.
+        let mut versions = report.services.values().map(|s| s.version.as_str());
+        let first = versions.next().unwrap_or("none");
+        let summary = if versions.all(|v| v == first) {
+            first
+        } else {
+            "mixed"
+        };
+        let legacy = AgentReport::new(
+            report.install_id.clone(),
+            report.channel.clone(),
+            VersionId::new(summary),
+            report.services.values().all(|s| s.healthy),
+        );
+        if let Err(e) = lock(&self.fleet).check_in(legacy, now) {
+            return (
+                outcome::FAILED,
+                format!("the check-in was not recorded: {e}"),
+            );
+        }
+        let (install_id, channel) = (report.install_id.clone(), report.channel.clone());
+        {
+            let mut reports = lock(&self.reports);
+            let stale_after = self.stale_after;
+            reports.retain(|_, r| now.saturating_sub(r.at) <= stale_after);
+            if reports.len() < MAX_REPORTS || reports.contains_key(&install_id) {
+                reports.insert(install_id.clone(), report);
+            }
+        }
+        let desired = lock(&self.releases).state().desired(&channel, &self.rings);
+        let body = match desired {
+            Some(d) => Json::obj(vec![
+                ("installId", Json::s(&install_id)),
+                ("channel", Json::s(&channel)),
+                ("release", Json::s(&d.release)),
+                ("run", d.run.as_deref().map_or(Json::Null, Json::s)),
+                ("target", d.target.as_deref().map_or(Json::Null, Json::s)),
+                (
+                    "desired",
+                    Json::Obj(
+                        d.services
+                            .iter()
+                            .map(|(s, v)| (s.clone(), Json::s(v)))
+                            .collect(),
+                    ),
+                ),
+            ]),
+            None => Json::obj(vec![
+                ("installId", Json::s(&install_id)),
+                ("channel", Json::s(&channel)),
+                ("release", Json::Null),
+                ("run", Json::Null),
+                ("target", Json::Null),
+                ("desired", Json::Null),
+            ]),
+        };
+        (outcome::ACCEPTED, body.encode())
+    }
+
+    fn create_release(&self, peer: &WorkloadIdentity, req: &Json, now: u64) -> (u8, String) {
+        let parsed = (|| -> Result<(String, BTreeMap<String, String>), String> {
+            let at = "the release";
+            only_keys(object(req, at)?, at, &["version", "artefacts"])?;
+            let version = text(req, at, "version")?.to_string();
+            check_name(&version, "a release version")?;
+            let artefacts = match req.get("artefacts") {
+                None | Some(Json::Null) => self
+                    .rings
+                    .services()
+                    .into_iter()
+                    .map(|s| (s.to_string(), version.clone()))
+                    .collect(),
+                Some(map) => {
+                    let fields = object(map, "artefacts")?;
+                    no_repeated_keys(fields, "artefacts")?;
+                    fields
+                        .iter()
+                        .map(|(s, v)| match v {
+                            Json::Str(v) => Ok((s.clone(), v.clone())),
+                            _ => Err(format!("artefacts.{s} must be a version string")),
+                        })
+                        .collect::<Result<_, String>>()?
+                }
+            };
+            Ok((version, artefacts))
+        })();
+        let (version, artefacts) = match parsed {
+            Ok(p) => p,
+            Err(e) => return (outcome::MALFORMED, e),
+        };
+        let release = Release {
+            version: version.clone(),
+            artefacts,
+            created_by: peer.id.0.clone(),
+            created_at: now,
+        };
+        // The shape first (every ring service, nothing else), without saving anything.
+        let mut trial = lock(&self.releases).state().clone();
+        if let Err(e) = trial.create_release(release.clone(), &self.rings) {
+            return rollout_error(e);
+        }
+        // Every artefact must be held, verified, and pass the whole gate again now.
+        let mut missing = Vec::new();
+        let mut unverified = Vec::new();
+        {
+            let registry = lock(&self.registry);
+            for (id, v) in &release.artefacts {
+                match registry.record(id, v) {
+                    Some(r) if r.state.is_ok() => {}
+                    Some(r) => unverified.push(format!(
+                        "{id}@{v} is unverifiable ({})",
+                        r.state.as_ref().err().map_or("", String::as_str)
+                    )),
+                    None => match registry
+                        .rejections()
+                        .iter()
+                        .rev()
+                        .find(|x| &x.id == id && &x.version == v)
+                    {
+                        Some(x) => {
+                            unverified.push(format!("{id}@{v} was rejected ({})", x.reason.code()))
+                        }
+                        None => missing.push(format!("{id}@{v} is not in the registry")),
+                    },
+                }
+            }
+        }
+        if missing.is_empty() && unverified.is_empty() {
+            for (id, v) in &release.artefacts {
+                if let Err((_, message)) =
+                    self.fetch_verified(peer, ACTION_CREATE_RELEASE, id, v, Recheck::Full, now)
+                {
+                    unverified.push(format!("{id}@{v}: {message}"));
+                }
+            }
+        }
+        if !missing.is_empty() || !unverified.is_empty() {
+            let code = if unverified.is_empty() {
+                outcome::NOT_FOUND
+            } else {
+                outcome::REJECTED
+            };
+            let problems: Vec<String> = unverified.into_iter().chain(missing).collect();
+            let audited = lock(&self.governance).record_event(
+                &peer.id.0,
+                "CreateRelease refused: artefacts not verified",
+                &format!("release:{version}"),
+                now,
+            );
+            let mut message = format!(
+                "release {version} refused: only verified artefacts may be released: {}",
+                problems.join("; ")
+            );
+            if audited.is_err() {
+                message.push_str(" (not audited)");
+            }
+            return (code, message);
+        }
+        let created = self.change(peer, now, |state| {
+            state.create_release(release.clone(), &self.rings)?;
+            Ok(((), Vec::new()))
+        });
+        match created {
+            Ok((_, state, _)) => {
+                let audited = lock(&self.governance).record_event(
+                    &peer.id.0,
+                    "CreateRelease created",
+                    &format!("release:{version}"),
+                    now,
+                );
+                let mut body = release_json(&state.releases[&version]);
+                if audited.is_err() {
+                    if let Json::Obj(fields) = &mut body {
+                        fields.push(("audited".into(), Json::Bool(false)));
+                    }
+                }
+                (outcome::ACCEPTED, body.encode())
+            }
+            Err(answer) => answer,
+        }
+    }
+
+    fn list_releases(&self, _: &WorkloadIdentity, req: &Json, _: u64) -> (u8, String) {
+        if let Err(e) = only_keys(
+            object(req, "the request").unwrap_or(&[]),
+            "the request",
+            &[],
+        ) {
+            return (outcome::MALFORMED, e);
+        }
+        let store = lock(&self.releases);
+        let state = store.state();
+        let mut releases: Vec<&Release> = state.releases.values().collect();
+        releases.sort_by(|a, b| (b.created_at, &b.version).cmp(&(a.created_at, &a.version)));
+        let channels = state
+            .channels
+            .values()
+            .map(|c| {
+                let desired = state.desired(&c.name, &self.rings);
+                Json::obj(vec![
+                    ("name", Json::s(&c.name)),
+                    ("current", Json::s(&c.current)),
+                    (
+                        "previous",
+                        c.previous.as_deref().map_or(Json::Null, Json::s),
+                    ),
+                    (
+                        "run",
+                        desired
+                            .as_ref()
+                            .and_then(|d| d.run.as_deref())
+                            .map_or(Json::Null, Json::s),
+                    ),
+                    (
+                        "target",
+                        desired
+                            .as_ref()
+                            .and_then(|d| d.target.as_deref())
+                            .map_or(Json::Null, Json::s),
+                    ),
+                    (
+                        "desired",
+                        desired.map_or(Json::Null, |d| {
+                            Json::Obj(
+                                d.services
+                                    .iter()
+                                    .map(|(s, v)| (s.clone(), Json::s(v)))
+                                    .collect(),
+                            )
+                        }),
+                    ),
+                ])
+            })
+            .collect();
+        let body = Json::obj(vec![
+            (
+                "releases",
+                Json::Arr(releases.into_iter().map(release_json).collect()),
+            ),
+            ("channels", Json::Arr(channels)),
+            ("rings", rings_json(&self.rings)),
+        ]);
+        (outcome::ACCEPTED, body.encode())
+    }
+
+    fn promote(&self, peer: &WorkloadIdentity, req: &Json, now: u64) -> (u8, String) {
+        let parsed = only_keys(
+            object(req, "the promotion").unwrap_or(&[]),
+            "the promotion",
+            &["channel", "release"],
+        )
+        .and_then(|_| {
+            Ok((
+                text(req, "the promotion", "channel")?.to_string(),
+                text(req, "the promotion", "release")?.to_string(),
+            ))
+        });
+        let (channel, version) = match parsed {
+            Ok(p) => p,
+            Err(e) => return (outcome::MALFORMED, e),
+        };
+        // The release's artefacts must still be verified: one marked unverifiable since
+        // the release was made stops the promotion.
+        let artefacts = lock(&self.releases)
+            .state()
+            .releases
+            .get(&version)
+            .map(|r| r.artefacts.clone());
+        if let Some(artefacts) = artefacts {
+            let registry = lock(&self.registry);
+            let bad: Vec<String> = artefacts
+                .iter()
+                .filter(|(id, v)| !registry.record(id, v).is_some_and(|r| r.state.is_ok()))
+                .map(|(id, v)| format!("{id}@{v}"))
+                .collect();
+            if !bad.is_empty() {
+                return (
+                    outcome::REJECTED,
+                    format!(
+                        "release {version} has artefacts that no longer verify: {}",
+                        bad.join(", ")
+                    ),
+                );
+            }
+        }
+        let rings = &self.rings;
+        let by = peer.id.0.clone();
+        match self.change(peer, now, |state| {
+            state.promote(&channel, &version, rings, &by, now)
+        }) {
+            Ok((id, state, audited)) => run_answer(state.run(&id), audited),
+            Err(answer) => answer,
+        }
+    }
+
+    fn rollback(&self, peer: &WorkloadIdentity, req: &Json, now: u64) -> (u8, String) {
+        let parsed = only_keys(
+            object(req, "the rollback").unwrap_or(&[]),
+            "the rollback",
+            &["channel", "reason", "to"],
+        )
+        .and_then(|_| {
+            let to = match req.get("to") {
+                None | Some(Json::Null) => None,
+                Some(_) => Some(text(req, "the rollback", "to")?.to_string()),
+            };
+            let reason = text(req, "the rollback", "reason")?.to_string();
+            if reason.chars().count() > 500 {
+                return Err("the rollback: \"reason\" is at most 500 characters".into());
+            }
+            Ok((
+                text(req, "the rollback", "channel")?.to_string(),
+                reason,
+                to,
+            ))
+        });
+        let (channel, reason, to) = match parsed {
+            Ok(p) => p,
+            Err(e) => return (outcome::MALFORMED, e),
+        };
+        let by = peer.id.0.clone();
+        match self.change(peer, now, |state| {
+            state.rollback(&channel, to.as_deref(), &reason, &by, now)
+        }) {
+            Ok((id, state, audited)) => run_answer(state.run(&id), audited),
+            Err(answer) => answer,
+        }
+    }
+
+    fn list_rollouts(&self, _: &WorkloadIdentity, req: &Json, _: u64) -> (u8, String) {
+        let parsed = (|| -> Result<(Option<String>, usize), String> {
+            only_keys(
+                object(req, "the request")?,
+                "the request",
+                &["channel", "limit"],
+            )?;
+            let channel = match req.get("channel") {
+                None | Some(Json::Null) => None,
+                Some(_) => Some(text(req, "the request", "channel")?.to_string()),
+            };
+            let limit = match req.get("limit") {
+                None => MAX_ROLLOUTS_PAGE,
+                Some(_) => usize::try_from(count(req, "the request", "limit")?)
+                    .unwrap_or(MAX_ROLLOUTS_PAGE)
+                    .min(MAX_ROLLOUTS_PAGE),
+            };
+            Ok((channel, limit))
+        })();
+        let (channel, limit) = match parsed {
+            Ok(p) => p,
+            Err(e) => return (outcome::MALFORMED, e),
+        };
+        let store = lock(&self.releases);
+        let runs: Vec<Json> = store
+            .state()
+            .runs
+            .iter()
+            .rev()
+            .filter(|r| channel.as_deref().is_none_or(|c| r.channel == c))
+            .take(limit)
+            .map(run_json)
+            .collect();
+        (
+            outcome::ACCEPTED,
+            Json::obj(vec![("rollouts", Json::Arr(runs))]).encode(),
+        )
+    }
+
+    fn get_rollout(&self, _: &WorkloadIdentity, req: &Json, _: u64) -> (u8, String) {
+        let id = match only_keys(
+            object(req, "the request").unwrap_or(&[]),
+            "the request",
+            &["id"],
+        )
+        .and_then(|_| text(req, "the request", "id"))
+        {
+            Ok(id) => id.to_string(),
+            Err(e) => return (outcome::MALFORMED, e),
+        };
+        match lock(&self.releases).state().run(&id) {
+            Some(run) => (outcome::ACCEPTED, run_json(run).encode()),
+            None => (outcome::NOT_FOUND, format!("no rollout {id}")),
+        }
+    }
+
     fn context(&self, peer: &WorkloadIdentity) -> GovContext {
         GovContext {
             subject: peer.id.0.clone(),
@@ -799,6 +1382,41 @@ fn store_error(e: StoreError) -> (u8, String) {
         StoreError::Busy(_) | StoreError::Io(_) => outcome::FAILED,
     };
     (code, e.to_string())
+}
+
+/// Each channel and its current release.
+fn channel_currents(state: &Rollouts) -> Vec<(String, String)> {
+    state
+        .channels
+        .values()
+        .map(|c| (c.name.clone(), c.current.clone()))
+        .collect()
+}
+
+/// The outcome and message for a refused orchestrator operation.
+fn rollout_error(e: RolloutError) -> (u8, String) {
+    let code = match &e {
+        RolloutError::NotFound(_) => outcome::NOT_FOUND,
+        RolloutError::Conflict(_) => outcome::CONFLICT,
+        RolloutError::Invalid(_) => outcome::MALFORMED,
+    };
+    (code, e.to_string())
+}
+
+/// A run as the answer to a promotion or rollback.
+fn run_answer(run: Option<&RolloutRun>, audited: bool) -> (u8, String) {
+    match run {
+        Some(run) => {
+            let mut body = run_json(run);
+            if !audited {
+                if let Json::Obj(fields) = &mut body {
+                    fields.push(("audited".into(), Json::Bool(false)));
+                }
+            }
+            (outcome::ACCEPTED, body.encode())
+        }
+        None => (outcome::FAILED, "the run is gone".into()),
+    }
 }
 
 /// A whole number field of at least 0.
