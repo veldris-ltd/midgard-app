@@ -23,17 +23,17 @@ window.KIT = {
  "modes": {
   "dark": {
    "deck": "Midgard-Launch.pptx",
-   "deckBytes": 24073440,
+   "deckBytes": 22027101,
    "video": "midgard-launch-demo.mp4",
-   "videoBytes": 21224045,
-   "videoSeconds": 249
+   "videoBytes": 19096332,
+   "videoSeconds": 215
   },
   "light": {
    "deck": "Midgard-Launch_light.pptx",
-   "deckBytes": 20373832,
+   "deckBytes": 22359929,
    "video": "midgard-launch-demo-light.mp4",
-   "videoBytes": 17529311,
-   "videoSeconds": 190
+   "videoBytes": 19343643,
+   "videoSeconds": 223
   }
  },
  "notes": [
@@ -52,7 +52,7 @@ window.KIT = {
   "Two cross-cutting layers. The admin control panel is designed to govern itself: role-separated RBAC with no super-admin, and dual control, which is live today for enrolling a principal. The guarded-action orchestrator, break-glass and its alerts are tested libraries, and the console runs on sample data. And the client platforms: one shared core, tested as a library, with offline-first, conflict-free sync. The native, desktop and web shells are specified and not built yet. (≈0.75 min)",
   "Play the video. It is about four minutes and it was recorded against the software as it is: the Midgard console is talking to the real Rust edge running in a container, and the other consoles run on their built-in sample data. Watch for three things: the token that comes back from login is post-quantum signed; the grounding action is refused until a person authorises it, and the authorisation is audited; and every ledger entry shows as re-verified. (≈5 min)",
   "The cryptography, layer by layer. In transit, every hop is a hybrid handshake: classical X25519 alongside ML-KEM-768, so an attacker has to break both. At rest, data keys are AES-256-GCM, wrapped under ML-KEM-1024 custody roots. Service identities, session tokens and audit entries are signed with ML-DSA-65; release signing uses ML-DSA-87; SLH-DSA is available for long-lived artefacts. The FIPS backend passes the official known-answer tests in the repository, and the two backends are mutually exclusive at compile time so a build cannot quietly mix them. What is not yet done is FIPS 140-3 module certification itself, which is external. (≈1.5 min)",
-  "These are measurements, each with its run. The gate was run at commit 3c8b1614bb1d, in the pinned toolchain container with networking disabled: 72 / 72 acceptance criteria passed, and 878 tests passed on both crypto backends. The record and its logs are in the repository. Every one of the 18 binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)",
+  "These are measurements, each with its run. The 72 acceptance criteria each map to a test, and the tree holds 873 test functions. The gate has not been run at this commit; the run that is recorded comes before the tag. Every one of the 18 binaries the workspace builds passes the per-artefact gate, and a missing one fails the build. The release pipeline produced a fifty-four-artefact signed bundle that installed on a three-node cluster, and the deployment tier passed its restart and cross-node handshake checks there. The GPU and HSM checks skipped because we have no such hardware yet, and the record says so. (≈1.5 min)",
   "Where we are, honestly. Five services run and are tested, most other subsystems are tested libraries, and version 0.1.0-rc.1 is prepared: the edge on the real fabric, five services on one PQ-mTLS runtime, compose and Helm deployment, connectors, real model serving, and a release pipeline rehearsed end to end on the fifteenth of September. What blocks general availability is external or hardware-bound: HSM-backed key custody, GPU serving, FIPS 140-3 certification, and the key ceremony and signing runner that let us tag the release. The authoritative go/no-go record is GA_READINESS.md and it currently reads no-go, naming every blocker. The next ninety days are about closing those and putting live data through Forge into the fabric. (≈2 min)",
   "To close. Midgard runs on a laptop with one command, on docker compose with five services, on Kubernetes through a hardened Helm chart, and in air-gapped sites from a signed bundle. We are looking for three things: design partners willing to run a pilot on the compose or Helm path, security teams to review the open core, and feedback on the roadmap you just saw. The repository, the specification and the verification record are all public. Thank you. Questions. (≈1 min)"
  ]
