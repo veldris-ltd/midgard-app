@@ -652,7 +652,8 @@ job_windows_shell_build() {
 
 # The artefact the pipeline keeps (midgard-shell-windows-x64-<sha>, 30 days) and
 # tools/win-app/fetch-artifacts.sh downloads: Midgard.exe, midgard-frames.exe, vcruntime/ (the
-# Visual C++ runtime the package ships, windows_vcruntime) and a BUILD.txt naming the commit,
+# Visual C++ runtime the package ships, windows_vcruntime), notices/ (the licences of what the
+# two exes carry, windows_shell_notices) and a BUILD.txt naming the commit,
 # runtime, SDK, the runtime's toolset and date, in target/windows-shell-artifact.
 WINDOWS_SHELL_ARTIFACT_DIR=target/windows-shell-artifact
 windows_shell_artifact() {
@@ -662,6 +663,9 @@ windows_shell_artifact() {
     cp "$1" "$2" "$out/"
     ci_group "the Visual C++ runtime (vcruntime/)"
     windows_vcruntime "$out/vcruntime"
+    ci_endgroup
+    ci_group "the .NET runtime's and WebView2's licences (notices/)"
+    windows_shell_notices "$out/notices"
     ci_endgroup
     {
         echo "commit: $(ci_sha)"
@@ -681,9 +685,9 @@ windows_shell_artifact() {
 # MSVCP140_1 (the analytics runtime brings only vcruntime140 and vcruntime140_1, and numpy its
 # own renamed msvcp140). check-imports.py on the package layout (windows-shell-e2e) fails if a
 # binary comes to need another.
-VCRUNTIME_DLLS=(vcruntime140.dll vcruntime140_1.dll msvcp140.dll msvcp140_1.dll)
-# The package folders that get a copy: the services', llama.cpp's and the analytics' python.exe's.
-VCRUNTIME_FOLDERS=(helpers helpers/llama helpers/analytics)
+# VCRUNTIME_DLLS, VCRUNTIME_FOLDERS (the package folders that get a copy) and
+# win_place_vcruntime are tools/win-app/layout.sh's, which build-zip.sh uses too.
+. tools/win-app/layout.sh
 # Copies the x64 Microsoft.VC14x.CRT DLLs of the runner's Visual Studio (its default redist
 # version) into $1, with VERSIONS.txt: the toolset, the source, each file's version and
 # SHA-256, and the licence notice.
@@ -725,14 +729,69 @@ windows_vcruntime() {
     ls "$vs/Licenses" 2>/dev/null | head -20 || true
     find "$vs/VC/Redist/MSVC/$ver" -maxdepth 1 -type f | head -20 || true
 }
-# Puts the runtime in $1 (windows_vcruntime's folder) into each of VCRUNTIME_FOLDERS of the
-# package $2 that exists, replacing older copies (the analytics' python-build-standalone ones).
-windows_place_vcruntime() {
-    local d f
-    for d in "${VCRUNTIME_FOLDERS[@]}"; do
-        [ -d "$2/$d" ] || continue
-        for f in "${VCRUNTIME_DLLS[@]}"; do cp -f "$1/$f" "$2/$d/$f"; done
-    done
+# The licences of what Midgard.exe and midgard-frames.exe carry inside them, into $1 for the
+# package's resources\licenses: the self-contained .NET runtime packs the publish used (the
+# *.Runtime.win-x64 download dependencies in Midgard's obj/project.assets.json: .NET's and
+# Windows Desktop's LICENSE.TXT and THIRD-PARTY-NOTICES.TXT) and the WebView2 SDK's LICENSE.txt
+# (its version from Midgard's packages.lock.json), from the NuGet global packages folder (or
+# the SDK's packs folder), with VERSIONS.txt naming each. Run after a restore.
+windows_shell_notices() {
+    local out=$1 py nuget packs line name ver dir short f n=0
+    py="$(command -v python || command -v python3)"
+    nuget="$(dotnet nuget locals global-packages --list | sed -n 's/^global-packages: *//p' | tr -d '\r')"
+    [ -n "$nuget" ] || { ci_error "notices: dotnet names no NuGet global packages folder"; return 1; }
+    nuget="$(cygpath -u "$nuget" 2>/dev/null || echo "$nuget")"
+    packs="$(dirname "$(command -v dotnet)")/packs"
+    rm -rf "$out"
+    mkdir -p "$out"
+    echo "# package, version, where the licence files came from" >"$out/VERSIONS.txt"
+    while IFS=' ' read -r name ver; do
+        [ -n "$name" ] || continue
+        case "$name" in
+            Microsoft.NETCore.App.Runtime.*) short=dotnet-runtime ;;
+            Microsoft.WindowsDesktop.App.Runtime.*) short=windowsdesktop-runtime ;;
+            Microsoft.AspNetCore.App.Runtime.*) short=aspnetcore-runtime ;;
+            Microsoft.Web.WebView2) short=WebView2 ;;
+            *) ci_error "notices: no short name for $name"; return 1 ;;
+        esac
+        dir="$nuget/$(echo "$name" | tr '[:upper:]' '[:lower:]')/$ver"
+        [ -d "$dir" ] || dir="$packs/$name/$ver"
+        [ -d "$dir" ] || { ci_error "notices: $name $ver is neither in $nuget nor in $packs"; return 1; }
+        local got=0
+        for f in "$dir"/*; do
+            [ -f "$f" ] || continue
+            case "$(basename "$f" | tr '[:lower:]' '[:upper:]')" in
+                LICENSE.TXT|LICENSE.MD|LICENSE) cp "$f" "$out/$short-LICENSE.txt"; got=1 ;;
+                THIRD-PARTY-NOTICES.TXT|THIRDPARTYNOTICES.TXT|NOTICE.TXT) cp "$f" "$out/$short-THIRD-PARTY-NOTICES.txt" ;;
+            esac
+        done
+        [ "$got" = 1 ] || { ls -la "$dir"; ci_error "notices: $name $ver has no LICENSE file in $dir"; return 1; }
+        echo "$name $ver $dir" >>"$out/VERSIONS.txt"
+        n=$((n + 1))
+    done < <("$py" -I - "$WINDOWS_SHELL/Midgard/obj/project.assets.json" "$WINDOWS_SHELL/Midgard/packages.lock.json" <<'PY2'
+import json, sys
+assets = json.load(open(sys.argv[1], encoding="utf-8-sig"))
+seen = set()
+for fw in assets["project"]["frameworks"].values():
+    for dep in fw.get("downloadDependencies", []):
+        name, ver = dep["name"], dep["version"].strip("[]").split(",")[0].strip()
+        if name.endswith(".Runtime.win-x64") and name not in seen:
+            seen.add(name)
+            print(name, ver)
+lock = json.load(open(sys.argv[2], encoding="utf-8-sig"))
+for tfm in lock["dependencies"].values():
+    w = tfm.get("Microsoft.Web.WebView2")
+    if w:
+        print("Microsoft.Web.WebView2", w["resolved"])
+        break
+PY2
+)
+    grep -q '^Microsoft.NETCore.App.Runtime.win-x64 ' "$out/VERSIONS.txt" \
+        || { ci_error "notices: the .NET runtime pack was not found in obj/project.assets.json"; return 1; }
+    grep -q '^Microsoft.Web.WebView2 ' "$out/VERSIONS.txt" \
+        || { ci_error "notices: WebView2's version was not found in packages.lock.json"; return 1; }
+    cat "$out/VERSIONS.txt"
+    ls -l "$out"
 }
 # tools/win-app/check-imports.py on package $2 (report to $3-before/after.txt) before and after
 # the runtime in $1 goes in: before, it must fail on Visual C++ runtime DLLs only; after, pass.
@@ -750,7 +809,7 @@ windows_check_imports() {
         return 1
     fi
     echo "check-imports, before the runtime: $(tail -n 1 "$rep-before.txt")"
-    windows_place_vcruntime "$rt" "$pkg"
+    win_place_vcruntime "$rt" "$pkg"
     "$py" -I tools/win-app/check-imports.py "$pkg" --report "$rep-after.txt"
 }
 
@@ -917,21 +976,24 @@ job_windows_llama() {
 }
 
 # The real shell end to end on Windows (docs/plans/2026-10-23-windows-app-w2-shell.md,
-# Task 7). It builds what a package holds and lays it out as the ZIP will:
+# Task 7). It builds what a package holds and lays it out with the presenters' ZIP's own
+# layout (tools/win-app/layout.sh's win_layout, which build-zip.sh uses; W4 Task 4):
 #   Midgard\Midgard.exe                 the published single-file shell
-#   Midgard\helpers\*.exe               the six services (built here; the cache makes it quick)
-#   Midgard\resources\home, consoles    the home page and the four offline consoles
-#   Midgard\resources\recording         the fixture (tools/win-app/make-fixture.py)
-#   Midgard\resources\starting-state, models   tools/win-app/make-starting-state.py's
-#   Midgard\helpers\analytics, midgard-frames.exe   the camera analytics' runtime
-#                                       (fetch-analytics.sh) and clip decoder
-#   Midgard\resources\analytics, models\yolox   analytics.py, config.json, YOLOX-s
-# with the fixture's camera clip drawn by make-camera-clip.py (the tests' ffmpeg),
-# then runs `Midgard.exe --headless-check` (Midgard/HeadlessCheck.cs) with the working
+#   Midgard\helpers\                    the six services (built here; the cache makes it
+#                                       quick), midgard-frames.exe, llama\ (fetch-llama.sh)
+#                                       and analytics\ (fetch-analytics.sh), with the
+#                                       Visual C++ runtime app-local
+#   Midgard\resources\                  consoles, home, starting-state, models, analytics,
+#                                       recording, licenses
+# with the fixture (tools/win-app/make-fixture.py; its camera clip drawn by
+# make-camera-clip.py with the tests' ffmpeg) for the recording, and make-starting-state.py's
+# starting state and stub model for the real ones; only the install sheet is left out. The
+# imports (check-imports.py) and the package (check-package.py) are checked as build-zip.sh
+# checks them. Then it runs `Midgard.exe --headless-check` (Midgard/HeadlessCheck.cs) with the working
 # copy and logs in %LOCALAPPDATA%\MidgardE2E and tools/win-app/stub_llm.py, run by this
 # python.exe, as the model server. Its report, home.png, heimdall.png and the logs go to
 # $WINDOWS_SHELL_E2E_OUT/report for the pipeline to keep, pass or fail. The consoles need
-# the JS workspace installed (pnpm, from the lock file; the only download besides NuGet).
+# the JS workspace installed (pnpm, from the lock file).
 WINDOWS_SHELL_E2E_OUT=target/windows-shell-e2e
 job_windows_shell_e2e() {
     local dir="target/$WINDOWS_TARGET/release" out="$WINDOWS_SHELL_E2E_OUT" py pkg app status=0
@@ -965,39 +1027,46 @@ job_windows_shell_e2e() {
     }
     "$py" --version
 
-    pkg="$out/package/Midgard"
-    mkdir -p "$pkg/helpers" "$pkg/resources"
-    cp "$out/publish/Midgard.exe" "$pkg/"
-    for b in "${WINDOWS_BINARIES[@]}"; do
-        cp "$dir/$b.exe" "$pkg/helpers/"
-    done
-    cp "$out/publish/midgard-frames.exe" "$pkg/helpers/"
-    cp -R "$analytics/runtime" "$pkg/helpers/analytics"
-    mkdir -p "$pkg/resources/analytics"
-    cp heimdall/analytics/analytics.py heimdall/analytics/config.json "$pkg/resources/analytics/"
-    # home/fonts is a symbolic link in the repo (to the design system's fonts), which a
-    # Windows checkout does not make: the files go in as build-app.sh's `cp -RL` puts them.
-    mkdir -p "$pkg/resources/home"
-    cp apps/mac/Resources/home/index.html apps/mac/Resources/home/prepared-answers.json "$pkg/resources/home/"
-    cp -R ui/design-system/src/fonts "$pkg/resources/home/fonts"
-    cp -R dist/mac/consoles "$pkg/resources/consoles"
+    # What the layout takes, as build-zip.sh gives it from the CI artefacts and the Mac's
+    # resources: the publish folder (the shell artefact's two exes), the services built here,
+    # the pinned llama.cpp and analytics runtime, the consoles, the fixture recording (its
+    # camera clip drawn by make-camera-clip.py with the tests' ffmpeg) with a starting state
+    # and stub model made from it (make-starting-state.py), the .NET and WebView2 licences,
+    # and the Visual C++ runtime.
+    ci_group "the model server (tools/win-app/fetch-llama.sh)"
+    MIDGARD_BUILD_DIR="$PWD/$CACHE_DIR/build" bash tools/win-app/fetch-llama.sh
+    ci_endgroup
+    ci_group "the .NET runtime's and WebView2's licences, the Visual C++ runtime"
+    windows_shell_notices "$out/notices"
+    windows_vcruntime "$out/vcruntime"
+    ci_endgroup
     # Relative paths: a native Windows python is handed no POSIX path to translate.
-    "$pkg/helpers/analytics/python.exe" -I tools/win-app/make-camera-clip.py --ffmpeg "$ffmpeg" \
+    "$analytics/runtime/python.exe" -I tools/win-app/make-camera-clip.py --ffmpeg "$ffmpeg" \
         --still "$out/clip.jpg" "$out/clip.mp4"
     "$py" tools/win-app/make-fixture.py --camera-clip "$out/clip.mp4" --camera-still "$out/clip.jpg" \
-        "$pkg/resources/recording"
-    "$py" tools/win-app/make-starting-state.py --tools "$dir" --fixture "$pkg/resources/recording" \
-        --out "$pkg/resources/starting-state" --models "$pkg/resources/models"
-    mkdir -p "$pkg/resources/models/yolox"
-    cp "$analytics/models/yolox_s.onnx" "$pkg/resources/models/yolox/"
+        "$out/fixture/recording"
+    "$py" tools/win-app/make-starting-state.py --tools "$dir" --fixture "$out/fixture/recording" \
+        --out "$out/fixture/starting-state" --models "$out/fixture/models"
+
+    # The package, by build-zip.sh's own layout (tools/win-app/layout.sh); only the install
+    # sheet (a PDF rendered on the Mac) is left out.
+    pkg="$out/package/Midgard"
+    mkdir -p "$out/package"
+    ci_group "layout (tools/win-app/layout.sh)"
+    RES_PYTHON="$py" WL_SHELL="$out/publish" WL_SERVICES="$dir" WL_LLAMA="$CACHE_DIR/build/win/llama/server" \
+        WL_ANALYTICS="$analytics" WL_CONSOLES=dist/mac/consoles WL_STATE="$out/fixture/starting-state" \
+        WL_MODELS="$out/fixture/models" WL_RECORDING="$out/fixture/recording" WL_NOTICES="$out/notices" \
+        WL_VCRUNTIME="$out/vcruntime" WL_SHEET= win_layout "$pkg"
+    ci_endgroup
     # Every import resolvable on a clean Windows 11: not before the Visual C++ runtime is in,
-    # and then yes (tools/win-app/check-imports.py, as build-zip.sh runs it).
-    ci_group "check-imports"
-    windows_vcruntime "$out/vcruntime"
+    # and then yes (tools/win-app/check-imports.py, as build-zip.sh runs it); then the
+    # package checks build-zip.sh makes before it zips (tools/win-app/check-package.py).
+    ci_group "check-imports, check-package"
     windows_check_imports "$out/vcruntime" "$pkg" "$out/report/imports"
+    "$py" -I tools/win-app/check-package.py "$pkg" --report "$out/report/package.txt"
     ci_endgroup
     echo "package: $(du -sk "$pkg" | cut -f1) KB"
-    ls -l "$pkg" "$pkg/helpers" "$pkg/resources"
+    ls -l "$pkg" "$pkg/helpers" "$pkg/resources" "$pkg/resources/licenses"
 
     # The working copy and logs where a presenter's would be (%LOCALAPPDATA%), so the
     # folder check sees a real profile's permissions; fresh for each run.

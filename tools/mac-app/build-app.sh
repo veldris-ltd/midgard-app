@@ -30,6 +30,8 @@
 #                                   [--skip-analytics] [--recording DIR] [--out DIR]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# The resource steps shared with the Windows package (tools/win-app/layout.sh).
+. tools/mac-app/resources.sh
 
 BUILD="${MIDGARD_BUILD_DIR:-$HOME/Library/Caches/midgard-build}"
 OUT="$BUILD/app"
@@ -87,7 +89,7 @@ while [ $# -gt 0 ]; do
 done
 
 die() { echo "build-app: $*" >&2; exit 1; }
-free_kb() { df -k "$1" | awk 'NR == 2 { print $4 }'; }
+free_kb() { res_free_kb "$1"; }
 now() { date +%s; }
 # True if $1 is a Mach-O file (thin or universal, 32 or 64 bit, either byte order), by its
 # first four bytes.
@@ -112,20 +114,7 @@ for f in granite/model.manifest trust/model-signing.pub; do
 done
 ls "$MODELS"/granite/*.gguf >/dev/null 2>&1 || die "no .gguf model in $MODELS/granite"
 # The prepared Mimir answers (prepare-answers.py) ship inside home/; check they parse.
-if [ -f "$PREPARED" ]; then
-  summary=$(python3 -c '
-import json, sys
-d = json.load(open(sys.argv[1]))
-v = d.get("version") if isinstance(d, dict) else None
-assert type(v) is int and v == 1, "not version 1"
-e, g = d.get("entries") or {}, d.get("guide") or {}
-print("%d answers, guide: %d questions, %d alerts (recording %s)" % (
-    len(e), len(g.get("questions") or []), len(g.get("alerts") or []), d.get("recording")))
-' "$PREPARED" 2>&1) || die "$PREPARED is not a valid version 1 prepared answers file: ${summary##*$'\n'}"
-  echo "prepared answers: $summary"
-else
-  echo "prepared answers: none ($PREPARED missing): every Mimir answer is asked live"
-fi
+res_check_prepared "$PREPARED"
 if [ -z "$RECORDING_GIVEN" ]; then
   if [ -f "$DEFAULT_RECORDING/meta.json" ]; then
     RECORDING="$DEFAULT_RECORDING"
@@ -246,17 +235,7 @@ mkdir -p "$C/MacOS" "$C/Helpers" "$R/models"
 
 # Copies $1 to the new path $2 as APFS clones; a plain copy (after a free space check)
 # when cloning is not possible, e.g. across volumes.
-clone_copy() {
-  local src="$1" dst="$2" err
-  if err=$(cp -cRp "$src" "$dst" 2>&1); then return; fi
-  echo "  cannot clone $src: ${err:-unknown error}; copying instead"
-  rm -rf "$dst"
-  local need have
-  need=$(du -sk "$src" | awk '{ print $1 }')
-  have=$(free_kb "$(dirname "$dst")")
-  [ "$have" -gt $((need + 1048576)) ] || die "not enough free disk to copy $src ($((need / 1024)) MB, $((have / 1024)) MB free)"
-  cp -Rp "$src" "$dst"
-}
+clone_copy() { res_clone_copy "$@"; }
 
 SHORT_SHA=$(git rev-parse --short HEAD)
 # Uncommitted changes mark the build "-dirty", which build-dmg.sh refuses.
@@ -317,49 +296,13 @@ cp "$ANALYTICS_SRC/analytics.py" "$ANALYTICS_SRC/config.json" "$R/analytics/"
 for a in arm64 x64; do clone_copy "$ANALYTICS/runtime/$a" "$R/analytics/runtime/$a"; done
 clone_copy "$ANALYTICS/models/yolox_s.onnx" "$R/models/yolox/yolox_s.onnx"
 for f in "$ANALYTICS"/licenses/*; do cp "$f" "$R/licenses/"; done
-cp -RL "$CONSOLES" "$R/consoles"
-cp -RL apps/mac/Resources/home "$R/home"          # fonts is a symlink in the repo
-# The data and software credits: with the licences, and in home/ for the home page's
-# "Data and credits" panel (served at /home/credits.txt).
-cp tools/mac-app/CREDITS.txt "$R/licenses/CREDITS.txt"
-cp tools/mac-app/CREDITS.txt "$R/home/credits.txt"
-clone_copy "$STATE" "$R/starting-state"
-clone_copy "$MODELS/granite" "$R/models/granite"
-clone_copy "$MODELS/trust" "$R/models/trust"
+res_consoles "$CONSOLES" "$R/consoles"
+res_home "$R/home"          # fonts is a symlink in the repo
+res_credits "$R/licenses" "$R/home"
+res_starting_state "$STATE" "$R/starting-state"
+res_models "$MODELS" "$R/models"
 if [ -n "$RECORDING" ]; then
-  mkdir "$R/recording"
-  for entry in "$RECORDING"/*; do
-    case "$(basename "$entry")" in
-      raw) continue ;;              # the raw capture is not replayed
-      *.tmp|*.old) continue ;;      # a capture (capture-radar.py, -traffic.py, -tiles.py) still being written or swapped
-    esac
-    clone_copy "$entry" "$R/recording/$(basename "$entry")"
-  done
-  echo "recording: $RECORDING"
-  # Camera stills and clips (record.py pack), served by the app at /media/.
-  if [ -d "$R/recording/media" ]; then
-    echo "recording media: $(find "$R/recording/media" -type f | wc -l | tr -d ' ') files, $(du -sh "$R/recording/media" | cut -f1)"
-  else
-    echo "recording media: none (cameras have no image or clip; re-pack with record.py pack)"
-  fi
-  # Rain radar frames (capture-radar.py), served by the app at /radar/.
-  if [ -f "$R/recording/radar/manifest.json" ]; then
-    echo "recording radar: $(find "$R/recording/radar" -name '*.png' -type f | wc -l | tr -d ' ') tiles, $(du -sh "$R/recording/radar" | cut -f1)"
-  else
-    echo "recording radar: none (the RADAR chip shows unavailable; run tools/mac-app/capture-radar.py)"
-  fi
-  # Road traffic flow snapshot (capture-traffic.py), served by the app at /traffic/.
-  if [ -f "$R/recording/traffic/manifest.json" ]; then
-    echo "recording traffic: $(find "$R/recording/traffic" -name '*.pbf' -type f | wc -l | tr -d ' ') tiles, $(du -sh "$R/recording/traffic" | cut -f1)"
-  else
-    echo "recording traffic: none (the TRAFFIC chip shows unavailable; run tools/mac-app/capture-traffic.py)"
-  fi
-  # Close-up globe terrain and imagery tiles (capture-tiles.py), served by the app at /tiles/.
-  if [ -f "$R/recording/tiles/manifest.json" ]; then
-    echo "recording tiles: $(find "$R/recording/tiles" -type f \( -name '*.png' -o -name '*.jpg' \) | wc -l | tr -d ' ') tiles, $(du -sh "$R/recording/tiles" | cut -f1)"
-  else
-    echo "recording tiles: none (the globe keeps the bundled map close up; run tools/mac-app/capture-tiles.py)"
-  fi
+  res_recording "$RECORDING" "$R/recording"
 else
   echo "recording: none (the app starts without replay)"
 fi

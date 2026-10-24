@@ -4,7 +4,8 @@
 #   $MIDGARD_BUILD_DIR/win/<sha>/services/  the six services (.exe) and BUILD.txt
 #   $MIDGARD_BUILD_DIR/win/<sha>/shell/     Midgard.exe, midgard-frames.exe, BUILD.txt and
 #                                           vcruntime/ (the app-local Visual C++ runtime DLLs
-#                                           and VERSIONS.txt)
+#                                           and VERSIONS.txt) and notices/ (the .NET
+#                                           runtime's and WebView2's licences)
 # (MIDGARD_BUILD_DIR defaults to ~/Library/Caches/midgard-build, outside the suite folder.)
 #
 # The run is the latest successful run of .github/workflows/windows.yml for that commit (a
@@ -66,6 +67,9 @@ fetch shell "midgard-shell-windows-x64-$sha" "${SHELL_EXES[@]}"
 for d in "${VCRUNTIME_DLLS[@]}"; do
     [ -f "$stage/shell/vcruntime/$d.dll" ] || die "the shell artefact has no vcruntime/$d.dll"
 done
+for f in VERSIONS.txt dotnet-runtime-LICENSE.txt WebView2-LICENSE.txt; do
+    [ -f "$stage/shell/notices/$f" ] || die "the shell artefact has no notices/$f"
+done
 
 rm -rf "$dest"
 mv "$stage" "$dest"
@@ -91,3 +95,6 @@ for d in "${VCRUNTIME_DLLS[@]}"; do
     f="$dest/shell/vcruntime/$d.dll"
     printf '%10s  %s: %s\n' "$(wc -c <"$f" | tr -d ' ')" "$d.dll" "$(file -b "$f")"
 done
+echo "== shell/notices"
+sed 's/^/   /' "$dest/shell/notices/VERSIONS.txt"
+ls -l "$dest/shell/notices" | sed 1d
