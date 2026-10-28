@@ -9,7 +9,27 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **Shamir secret sharing in the crypto core.** `pqc_agility::shamir` splits a secret
+  k of n over GF(2^8) in constant time and zeroises its intermediates. Dvalin
+  uses it, when key fragmentation is chosen, to split the escrow key that
+  seals the release keystores among named holders. It is new and marked for
+  independent review before production reliance. [RT-35] [NFR-PQ-2]
+- `docs/ops/KEY_CEREMONY.md`: where the key ceremony is held, and what it leaves in
+  this repository.
+
+### Changed
+- **The key ceremony is held with Dvalin**, a separate application
+  (veldris-ltd/dvalin-app): a guided Windows and Linux app, with a console
+  form, whose key generation, signing and verification are this repository's
+  `attest`, pinned by revision. `deploy/trust/ceremony.sh` is removed; its claims are
+  that repository's tests, and its contract test runs this repository's release
+  checks against what the app publishes. [RT-35] [AC-RF-CA-6a]
+
+### Fixed
+- `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony
+  publishes to be committed, so committing them failed. The anchors are now excepted;
+  other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.
 
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 

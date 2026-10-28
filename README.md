@@ -324,13 +324,16 @@ Open **http://localhost:5173**. It must be this port — the edge's CORS allowli
 
 ### 5 — Log in
 
-The console presents an auth gate. The edge provisions exactly one login at startup:
+The console presents an auth gate. The edge provisions two logins at startup:
 
-| Username | Password |
-|---|---|
-| `operator` | `midgard-demo` |
+| Username | Password | Role |
+|---|---|---|
+| `operator` | `midgard-demo` | reads and runs actions |
+| `approver` | `midgard-approve` | approves the operator's human-gated actions; cannot run them |
 
-These are compile-time constants (`DEMO_USERNAME` / `DEMO_PASSWORD` in `services/http-gateway/src/lib.rs`), published deliberately because this mode is for local development only. There is no user-provisioning interface.
+These are compile-time constants (`DEMO_USERNAME` / `DEMO_PASSWORD` and `DEMO_APPROVER_USERNAME` / `DEMO_APPROVER_PASSWORD` in `services/http-gateway/src/lib.rs`), published deliberately because this mode is for local development only. There is no user-provisioning interface.
+
+A human-gated action needs a second person. The operator requests approval for one action on one object, the approver approves it (sign in as `approver` in another browser or a private window), and the operator then runs it. The approval is good once, for that action on that object, for 15 minutes.
 
 Credentials are exchanged at `POST /api/v1/login` for an **ML-DSA-signed bearer token**, which authorises every subsequent request. A wrong password, a missing token and a forged token all return a uniform `401`.
 
@@ -360,7 +363,8 @@ Authenticated requests are authorised through the real policy PDP and audited th
 | `GET /api/v1/health` · `/api/v1/ready` · `/metrics` | liveness, readiness, in-enclosure Prometheus metrics |
 | `GET /api/v1/object-types` | the object-type registry |
 | `POST /api/v1/query` · `/api/v1/search-around` | object-fabric query and link traversal |
-| `POST /api/v1/actions` | human-gated action application |
+| `POST /api/v1/actions` | an action on one object; a human-gated one needs an approval |
+| `GET /api/v1/approvals` · `POST /api/v1/approvals` · `POST /api/v1/approvals/{id}/approve` · `/reject` | human-gate approvals, decided by a second person |
 | `GET /api/v1/policies` · `POST /api/v1/policy/simulate` | policy set and dry-run evaluation |
 | `GET /api/v1/audit` | audit lineage |
 | `GET /api/v1/identities` · `/keys` · `/compute` · `/observability` | IAM, KMS, compute and observability views |
@@ -370,10 +374,10 @@ Authenticated requests are authorised through the real policy PDP and audited th
 | Limit | Detail |
 |---|---|
 | **Illustrative data, real enforcement** | At startup, `Enclosure::seed_dev` (`services/http-gateway/src/enclosure.rs`) registers a small aviation ontology and seeds its objects into the real object fabric. Markings are enforced per object, and gated actions really mutate the fabric. The platform read views (identities, keys, compute, observability, resilience) are still fixed data in `data.rs`. |
-| **One credential** | `operator` / `midgard-demo`, hard-coded. No sign-up, no user management, no rotation. |
+| **Two credentials** | `operator` / `midgard-demo` and `approver` / `midgard-approve`, hard-coded. No sign-up, no user management, no rotation. Approvals are held in memory and lost on restart. |
 | **Ephemeral identity** | The IdP keypair is generated fresh on every start, so all tokens are invalidated by a restart. |
 | **Reduced work factor** | PBKDF2 runs at 4 096 iterations for a fast dev login — far below a production figure. |
-| **Built-in policy** | The dev policy is compiled in (`dev_login_policy()`): role `operator` may read and apply each registered action. Mandatory access control (clearance and compartments) and the purpose gate still run first, and anything not granted is denied. There is no policy file yet. |
+| **Built-in policy** | The dev policy is compiled in (`dev_login_policy()`): role `operator` may read and apply each registered action, and role `approver` may read and approve human gates. Mandatory access control (clearance and compartments) and the purpose gate still run first, and anything not granted is denied. There is no policy file yet. |
 | **One console** | Only `console-midgard` (port 5173) is in the CORS allowlist. The other six consoles are mock-only — see below. |
 | **No persistence** | Everything is in memory and lost on exit. |
 
@@ -389,7 +393,7 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev -- --strictPort
 
 **You were logged in, then everything returned 401.** The gateway was restarted. Its IdP keypair is generated fresh on every start, so previously issued tokens can no longer verify. Log in again.
 
-**`401` on every login attempt.** The credentials are exactly `operator` / `midgard-demo`; there is no other account and no way to add one in this mode.
+**`401` on every login attempt.** The credentials are exactly `operator` / `midgard-demo` or `approver` / `midgard-approve`; there are no other accounts and no way to add one in this mode.
 
 ### The other consoles
 

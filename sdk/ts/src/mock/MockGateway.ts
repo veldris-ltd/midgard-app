@@ -2,6 +2,8 @@ import type { GatewayClient } from '../client';
 import type {
   ApplyActionRequest,
   ApplyActionResponse,
+  Approval,
+  ApprovalStatus,
   AuditRecord,
   ComputeJob,
   Identity,
@@ -30,11 +32,22 @@ import {
   RESILIENCE,
 } from './fixtures';
 
-/** Error thrown when a gated action is applied without a human-gate token. */
+/** Error thrown when a gated action is applied without a current human-gate
+ *  approval. `message` is the gateway's own wording, where it gave one. */
 export class HumanGateRequiredError extends Error {
-  constructor(actionType: string) {
-    super(`Human gate required for action "${actionType}"`);
+  constructor(actionType: string, message?: string) {
+    super(message ?? `Human gate required for action "${actionType}"`);
     this.name = 'HumanGateRequiredError';
+  }
+}
+
+/** A request the gateway refused, with its HTTP status and the gateway's message. */
+export class GatewayError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'GatewayError';
+    this.status = status;
   }
 }
 
@@ -42,6 +55,27 @@ export interface MockGatewayOptions {
   /** Simulated round-trip latency in ms (default 180). */
   latencyMs?: number;
   policy?: PolicyContext;
+}
+
+/** How long an approved human gate can be redeemed (seconds), as at the edge. */
+const APPROVAL_TTL = 900;
+/** How long the mock's simulated second person takes to approve a request (ms). */
+const MOCK_APPROVER_DELAY_MS = 3000;
+
+const nowSecs = () => Math.floor(Date.now() / 1000);
+
+/** An approval's status now: an approved gate past its expiry has expired. */
+function status(a: Approval): ApprovalStatus {
+  return a.status === 'approved' && (a.expiresAt ?? 0) <= nowSecs() ? 'expired' : a.status;
+}
+
+/** The one object an action names, as the edge requires: a wildcard or a missing
+ *  target is refused. */
+function oneTarget(objectType: string, target: string | undefined): string {
+  if (!target || target.endsWith('/*')) {
+    throw new GatewayError(400, `an action applies to one object: name it as "target":"${objectType}/<id>"`);
+  }
+  return target;
 }
 
 const DEFAULT_POLICY: PolicyContext = {
@@ -67,6 +101,8 @@ export class MockGateway implements GatewayClient {
   private poolIdx = 0;
   private clock = 14 * 3600 + 32 * 60 + 8; // seconds since midnight, seeds "14:32:08"
   private listeners = new Set<(r: AuditRecord) => void>();
+  private approvals: Approval[] = [];
+  private approvalSeq = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: MockGatewayOptions = {}) {
@@ -142,16 +178,82 @@ export class MockGateway implements GatewayClient {
   async applyAction(req: ApplyActionRequest): Promise<ApplyActionResponse> {
     const type = OBJECT_TYPES.find((t) => t.actions.some((a) => a.name === req.actionType));
     const action = type?.actions.find((a) => a.name === req.actionType);
-    if (action?.humanGated && !req.humanGateToken) {
-      throw new HumanGateRequiredError(req.actionType);
+    const target = oneTarget(type?.apiName ?? 'fabric', req.params?.target);
+    if (action?.humanGated) {
+      if (!req.humanGateToken) throw new HumanGateRequiredError(req.actionType);
+      const approval = this.approvals.find(
+        (a) =>
+          a.id === req.humanGateToken &&
+          a.actionType === req.actionType &&
+          a.target === target &&
+          a.requester === this.ctx.subject &&
+          status(a) === 'approved',
+      );
+      if (!approval) {
+        throw new HumanGateRequiredError(
+          req.actionType,
+          `Human gate token is not a current approval of "${req.actionType}" on ${target} for this user`,
+        );
+      }
+      approval.status = 'used';
     }
     const audit = this.emit({
       actor: this.ctx.subject,
       action: `Action · ${req.actionType}`,
-      resource: req.params?.target ?? `${type?.apiName ?? 'fabric'}/*`,
+      resource: target,
       pqSignature: 'ML-DSA ✓',
     });
     return this.wait({ auditId: audit.id, applied: true });
+  }
+
+  listApprovals(): Promise<Approval[]> {
+    return this.wait(this.approvals.map((a) => ({ ...a, status: status(a), mine: a.requester === this.ctx.subject })).reverse());
+  }
+
+  async requestApproval(actionType: string, target: string): Promise<Approval> {
+    const type = OBJECT_TYPES.find((t) => t.actions.some((a) => a.name === actionType));
+    const action = type?.actions.find((a) => a.name === actionType);
+    if (!type || !action) throw new GatewayError(404, `unknown action type: ${actionType}`);
+    if (!action.humanGated) throw new GatewayError(400, `action "${actionType}" needs no approval`);
+    const approval: Approval = {
+      id: `APR-${++this.approvalSeq}`,
+      actionType,
+      target: oneTarget(type.apiName, target),
+      requester: this.ctx.subject,
+      requestedAt: nowSecs(),
+      status: 'pending',
+      mine: true,
+    };
+    this.approvals.push(approval);
+    // No second person signs in to the mock, so a simulated one approves shortly.
+    setTimeout(() => {
+      if (approval.status === 'pending') this.decideApproval(approval.id, true).catch(() => {});
+    }, MOCK_APPROVER_DELAY_MS);
+    return this.wait({ ...approval });
+  }
+
+  /** The mock has one session, so it plays the second person: a decision here is
+   *  made by "approver", never by the requester. */
+  async decideApproval(id: string, approve: boolean): Promise<Approval> {
+    const approval = this.approvals.find((a) => a.id === id);
+    if (!approval) throw new GatewayError(404, `unknown approval: ${id}`);
+    if (approval.status !== 'pending') {
+      throw new GatewayError(409, `approval ${id} is already ${status(approval)}`);
+    }
+    approval.approver = 'approver';
+    if (approve) {
+      approval.status = 'approved';
+      approval.expiresAt = nowSecs() + APPROVAL_TTL;
+    } else {
+      approval.status = 'rejected';
+    }
+    this.emit({
+      actor: 'approver',
+      action: `Approve · ${approval.actionType}`,
+      resource: approval.target,
+      pqSignature: 'ML-DSA ✓',
+    });
+    return this.wait({ ...approval });
   }
 
   async searchAround(seedId: string, hops: number): Promise<SearchGraph> {

@@ -17,7 +17,7 @@ use governance::{Governance, GOV_SIG_ALG};
 use http_gateway::enclosure::Enclosure;
 use http_gateway::http::Request;
 use http_gateway::json::Json;
-use http_gateway::{demo_operator, dev_login_policy, SecuredGateway};
+use http_gateway::{demo_approver, demo_operator, dev_login_policy, SecuredGateway};
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
 use policy::{DefaultPdp, Purpose};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
@@ -117,6 +117,29 @@ fn operator() -> PolicyContext {
     }
 }
 
+fn approver() -> PolicyContext {
+    let user = demo_approver();
+    PolicyContext {
+        subject: "approver".into(),
+        roles: user.roles,
+        clearance: user.clearance,
+        purpose: Purpose(PURPOSE.into()),
+    }
+}
+
+/// A human gate on `action` against `target`, requested by the operator and approved
+/// by someone else; its id is the action's `humanGateToken`.
+fn approved_gate(enclosure: &mut DurableEnclosure, action: &str, target: &str) -> String {
+    let requested = enclosure
+        .request_approval(&operator(), action, target, NOW)
+        .unwrap_or_else(|e| panic!("approval request refused: {}", e.body.encode()));
+    let id = requested.str_field("id").expect("approval id").to_string();
+    enclosure
+        .decide_approval(&approver(), &id, true, NOW)
+        .unwrap_or_else(|e| panic!("approval refused: {}", e.body.encode()));
+    id
+}
+
 /// An aircraft's `status`, read through the governed query path.
 fn status_of(enclosure: &mut DurableEnclosure, id: &str) -> String {
     let result = enclosure
@@ -152,8 +175,15 @@ fn an_action_and_its_lineage_survive_a_restart() {
 
         let params: BTreeMap<String, String> =
             [("target".to_string(), "aircraft/AC-2214".to_string())].into();
+        let gate = approved_gate(&mut enclosure, "Ground aircraft", "aircraft/AC-2214");
         let applied = enclosure
-            .apply_action(&operator(), "Ground aircraft", params, Some("HG-test"), NOW)
+            .apply_action(
+                &operator(),
+                "Ground aircraft",
+                params,
+                Some(gate.as_str()),
+                NOW,
+            )
             .unwrap_or_else(|e| panic!("action refused: {}", e.body.encode()));
         assert!(
             applied.encode().contains(r#""applied":true"#),
@@ -217,6 +247,30 @@ fn an_action_and_its_lineage_survive_a_restart() {
     )
     .expect("the ledger chain re-verifies across the restart");
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_requester_cannot_decide_their_own_approval() {
+    let dir = scratch("two-person");
+    let mut enclosure = boot(&dir);
+    enclosure.seed_dev_objects(PURPOSE);
+    let requested = enclosure
+        .request_approval(&operator(), "Ground aircraft", "aircraft/AC-2214", NOW)
+        .unwrap_or_else(|e| panic!("approval request refused: {}", e.body.encode()));
+    let id = requested.str_field("id").expect("approval id").to_string();
+
+    // Whatever roles the requester holds, the two-person rule is the enclosure's own.
+    let own = enclosure.decide_approval(&operator(), &id, true, NOW);
+    assert_eq!(own.err().map(|e| e.status), Some(403));
+    assert!(
+        enclosure
+            .approvals(&operator(), NOW)
+            .encode()
+            .contains(r#""status":"pending""#),
+        "a refused decision leaves the approval pending"
+    );
+    drop(enclosure);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

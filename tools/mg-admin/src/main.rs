@@ -71,8 +71,9 @@ USAGE:
 
 COMMANDS:
   init       create <dir> with fresh issuer and audit keystores, their verifying keys
-             under trust/, a starter policy.json (role operator may Read and Apply)
-             and an empty ontology.json. Refuses a directory that already has anything
+             under trust/, a starter policy.json (role operator may Read and Apply;
+             role approver may Read and Approve human gates) and an empty
+             ontology.json. Refuses a directory that already has anything
              in it.
   user add   enrol a principal. The password is read from standard input and must come
              from a pipe or a file, never a terminal. --clearance is one of open,
@@ -244,7 +245,7 @@ fn init(o: &Options) -> Result<String, Failure> {
         "initialised {root}\n\
          \x20 keys/        issuer and audit keystores — protect this directory as a secret\n\
          \x20 trust/       their verifying keys, safe to distribute\n\
-         \x20 policy.json  starter rules: role operator may Read and Apply\n\
+         \x20 policy.json  starter rules: operator may Read and Apply, approver may Approve\n\
          \x20 ontology.json  empty: declare object types, link types and actions here\n\
          next: printf '%s\\n' \"$PASSWORD\" | mg-admin user add --state-dir {root} \\\n\
          \x20       --subject <name> --roles operator --clearance internal --purposes operations"
@@ -426,20 +427,23 @@ fn import_data(o: &Options) -> Result<String, Failure> {
 
 // ---- helpers -----------------------------------------------------------------------
 
-/// The starter rules `init` writes: role `operator` may Read and Apply. Mandatory
-/// access control and the purpose gate still apply before either.
+/// The starter rules `init` writes: role `operator` may Read and Apply, and role
+/// `approver` may Read and Approve the human gates a gated action needs. Mandatory
+/// access control and the purpose gate still apply before any of them.
 fn starter_policy() -> Result<PolicySet, PolicyError> {
-    let rule = |id: &str, action: &str| Rule {
+    let rule = |id: &str, role: &str, action: &str| Rule {
         id: RuleId(id.into()),
-        role: Role("operator".into()),
+        role: Role(role.into()),
         action: Action(action.into()),
         purpose: None,
         selector: Selector::Any,
         effect: Effect::Permit,
     };
     PolicySet::new(vec![
-        rule("operator-read", "Read"),
-        rule("operator-apply", "Apply"),
+        rule("operator-read", "operator", "Read"),
+        rule("operator-apply", "operator", "Apply"),
+        rule("approver-read", "approver", "Read"),
+        rule("approver-approve", "approver", "Approve"),
     ])
 }
 

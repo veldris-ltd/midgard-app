@@ -36,6 +36,10 @@ result-*
 # committed — `just keygen` writes them into the working directory by default.
 *.keystore
 *.pub
+# ...except the pinned trust anchors, which the key ceremony publishes here to be
+# committed (deploy/trust/README.md). They hold public keys only.
+!/deploy/trust/release-trust.pub
+!/deploy/trust/bifrost-trust.pub
 
 # --- Secrets: never in the repo. Keys are issued at runtime by KMS/HSM. ---
 # [STD:OWASP ASVS V14.3]

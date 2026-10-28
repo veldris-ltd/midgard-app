@@ -26,6 +26,7 @@ pub mod negotiate;
 pub mod registry;
 pub mod rng;
 pub mod secret;
+pub mod shamir;
 pub mod sign;
 
 pub use algorithm::{KemId, KemSuiteId, SigId};

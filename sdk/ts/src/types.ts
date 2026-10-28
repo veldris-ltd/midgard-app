@@ -81,6 +81,29 @@ export interface ApplyActionResponse {
   applied: boolean;
 }
 
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'used' | 'expired';
+
+/** A human gate on one action against one object. Someone other than the requester
+ *  approves it; its `id` is then the requester's `humanGateToken`, good once, for
+ *  that action on that object, until `expiresAt`. `[NFR-AI-1]` */
+export interface Approval {
+  id: string;
+  /** The action's display name. */
+  actionType: string;
+  /** The one object it acts on, e.g. "aircraft/AC-2214". */
+  target: string;
+  requester: string;
+  /** Unix seconds. */
+  requestedAt: number;
+  status: ApprovalStatus;
+  /** Who approved or rejected it, once decided. */
+  approver?: string;
+  /** Unix seconds; set while approved. */
+  expiresAt?: number;
+  /** Whether the caller requested it (and so may redeem it, but not decide it). */
+  mine: boolean;
+}
+
 // ---- fabric type registry (view models) ------------------------------------
 
 export interface LinkType {

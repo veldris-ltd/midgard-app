@@ -6,7 +6,7 @@
 
 export * from './types';
 export type { GatewayClient } from './client';
-export { MockGateway, HumanGateRequiredError } from './mock/MockGateway';
+export { MockGateway, HumanGateRequiredError, GatewayError } from './mock/MockGateway';
 export type { MockGatewayOptions } from './mock/MockGateway';
 export { createHttpGateway } from './http/HttpGateway';
 export type { HttpGatewayOptions } from './http/HttpGateway';

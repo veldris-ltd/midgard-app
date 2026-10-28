@@ -10,7 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use http_gateway::http::{Request, Response};
 use http_gateway::json::{parse, Json};
-use http_gateway::{SecuredGateway, DEMO_PASSWORD, DEMO_USERNAME};
+use http_gateway::{
+    SecuredGateway, DEMO_APPROVER_PASSWORD, DEMO_APPROVER_USERNAME, DEMO_PASSWORD, DEMO_USERNAME,
+};
 
 fn now() -> u64 {
     SystemTime::now()
@@ -27,6 +29,18 @@ fn call(
     body: &str,
     token: Option<&str>,
 ) -> Response {
+    call_at(gw, method, path, query, body, token, now())
+}
+
+fn call_at(
+    gw: &SecuredGateway,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &str,
+    token: Option<&str>,
+    at: u64,
+) -> Response {
     gw.handle(
         &Request {
             method: method.into(),
@@ -36,18 +50,60 @@ fn call(
             authorization: token.map(|t| format!("Bearer {t}")),
             origin: None,
         },
-        now(),
+        at,
     )
+}
+
+fn login(gw: &SecuredGateway, username: &str, password: &str) -> String {
+    let body = format!(r#"{{"username":"{username}","password":"{password}"}}"#);
+    let r = call(gw, "POST", "/api/v1/login", "", &body, None);
+    assert_eq!(r.status, 200, "login: {}", r.body);
+    field(&json(&r), "token").to_string()
 }
 
 /// A development gateway and a bearer token for its operator.
 fn session() -> (SecuredGateway, String) {
     let gw = SecuredGateway::dev();
-    let body = format!(r#"{{"username":"{DEMO_USERNAME}","password":"{DEMO_PASSWORD}"}}"#);
-    let r = call(&gw, "POST", "/api/v1/login", "", &body, None);
-    assert_eq!(r.status, 200, "login: {}", r.body);
-    let token = field(&json(&r), "token").to_string();
+    let token = login(&gw, DEMO_USERNAME, DEMO_PASSWORD);
     (gw, token)
+}
+
+/// A bearer token for the development gateway's approver.
+fn approver(gw: &SecuredGateway) -> String {
+    login(gw, DEMO_APPROVER_USERNAME, DEMO_APPROVER_PASSWORD)
+}
+
+/// Ask for a human gate on `action` against `target`; the pending approval's id.
+fn request_approval(gw: &SecuredGateway, token: &str, action: &str, target: &str) -> String {
+    let body = format!(r#"{{"actionType":"{action}","target":"{target}"}}"#);
+    let r = call(gw, "POST", "/api/v1/approvals", "", &body, Some(token));
+    assert_eq!(r.status, 200, "{}", r.body);
+    let approval = json(&r);
+    assert_eq!(field(&approval, "status"), "pending");
+    field(&approval, "id").to_string()
+}
+
+fn decide(gw: &SecuredGateway, token: &str, id: &str, verb: &str) -> Response {
+    let path = format!("/api/v1/approvals/{id}/{verb}");
+    call(gw, "POST", &path, "", "", Some(token))
+}
+
+/// Run `action` on `target` with `gate` as its human-gate token.
+fn act(gw: &SecuredGateway, token: &str, action: &str, target: &str, gate: &str) -> Response {
+    let body = format!(
+        r#"{{"actionType":"{action}","params":{{"target":"{target}"}},"humanGateToken":"{gate}"}}"#
+    );
+    call(gw, "POST", "/api/v1/actions", "", &body, Some(token))
+}
+
+/// A fresh approval of `action` on `target`, requested by the operator and approved by
+/// the approver.
+fn approved(gw: &SecuredGateway, token: &str, action: &str, target: &str) -> String {
+    let id = request_approval(gw, token, action, target);
+    let r = decide(gw, &approver(gw), &id, "approve");
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert_eq!(field(&json(&r), "status"), "approved");
+    id
 }
 
 fn json(r: &Response) -> Json {
@@ -167,7 +223,7 @@ fn a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing() {
         "POST",
         "/api/v1/actions",
         "",
-        r#"{"actionType":"Ground aircraft","params":{"target":"aircraft/*"}}"#,
+        r#"{"actionType":"Ground aircraft","params":{"target":"aircraft/AC-2214"}}"#,
         Some(&token),
     );
     assert_eq!(r.status, 403, "{}", r.body);
@@ -176,16 +232,116 @@ fn a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing() {
 }
 
 #[test]
-fn an_authorised_gated_action_really_changes_the_fabric() {
+fn a_made_up_human_gate_token_is_refused_and_changes_nothing() {
     let (gw, token) = session();
-    let r = call(
+    for gate in ["x", " ", "HG-test", "APR-1"] {
+        let r = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", gate);
+        assert_eq!(r.status, 403, "token {gate:?}: {}", r.body);
+    }
+    // A pending approval is not yet a gate either.
+    let pending = request_approval(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+    let r = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", &pending);
+    assert_eq!(r.status, 403, "{}", r.body);
+    assert!(!query(&gw, &token, "aircraft").body.contains("grounded"));
+}
+
+#[test]
+fn an_action_names_one_object_and_a_wildcard_is_refused() {
+    let (gw, token) = session();
+    for params in [r#"{"target":"sensor_feed/*"}"#, r#"{}"#, r#"{"target":""}"#] {
+        let body = format!(r#"{{"actionType":"Recalibrate","params":{params}}}"#);
+        let r = call(&gw, "POST", "/api/v1/actions", "", &body, Some(&token));
+        assert_eq!(r.status, 400, "{params}: {}", r.body);
+    }
+    let body = r#"{"actionType":"Ground aircraft","target":"aircraft/*"}"#;
+    let r = call(&gw, "POST", "/api/v1/approvals", "", body, Some(&token));
+    assert_eq!(r.status, 400, "{}", r.body);
+    assert!(!query(&gw, &token, "sensor_feed")
+        .body
+        .contains("calibrating"));
+}
+
+#[test]
+fn an_approval_is_bound_to_its_requester_action_and_object_and_redeems_once() {
+    let (gw, token) = session();
+    let id = approved(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+
+    // Another object, another action, or another user: refused.
+    let other_object = act(&gw, &token, "Ground aircraft", "aircraft/AC-2261", &id);
+    assert_eq!(other_object.status, 403, "{}", other_object.body);
+    let other_action = act(&gw, &token, "Schedule maintenance", "aircraft/AC-2214", &id);
+    assert_eq!(other_action.status, 403, "{}", other_action.body);
+    let by_approver = act(
+        &gw,
+        &approver(&gw),
+        "Ground aircraft",
+        "aircraft/AC-2214",
+        &id,
+    );
+    assert_eq!(by_approver.status, 403, "{}", by_approver.body);
+
+    let first = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", &id);
+    assert_eq!(first.status, 200, "{}", first.body);
+    let again = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", &id);
+    assert_eq!(again.status, 403, "a gate is used once: {}", again.body);
+
+    let listed = json(&call(&gw, "GET", "/api/v1/approvals", "", "", Some(&token)));
+    let row = items(&listed)
+        .iter()
+        .find(|a| field(a, "id") == id)
+        .expect("the approval is listed");
+    assert_eq!(field(row, "status"), "used");
+    assert_eq!(field(row, "requester"), DEMO_USERNAME);
+    assert_eq!(field(row, "approver"), DEMO_APPROVER_USERNAME);
+    assert!(matches!(row.get("mine"), Some(Json::Bool(true))));
+}
+
+#[test]
+fn only_someone_else_holding_approve_can_decide_and_only_once() {
+    let (gw, token) = session();
+    let id = request_approval(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+
+    // The operator holds no Approve rule: the edge refuses, and audits it.
+    let own = decide(&gw, &token, &id, "approve");
+    assert_eq!(own.status, 403, "{}", own.body);
+
+    let approver = approver(&gw);
+    let rejected = decide(&gw, &approver, &id, "reject");
+    assert_eq!(rejected.status, 200, "{}", rejected.body);
+    assert_eq!(field(&json(&rejected), "status"), "rejected");
+    let twice = decide(&gw, &approver, &id, "approve");
+    assert_eq!(twice.status, 409, "{}", twice.body);
+
+    let r = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", &id);
+    assert_eq!(r.status, 403, "a rejected approval is no gate: {}", r.body);
+    assert_eq!(decide(&gw, &approver, "APR-999", "approve").status, 404);
+}
+
+#[test]
+fn an_approval_expires() {
+    let (gw, token) = session();
+    let id = approved(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+    let body = format!(
+        r#"{{"actionType":"Ground aircraft","params":{{"target":"aircraft/AC-2214"}},"humanGateToken":"{id}"}}"#
+    );
+    // Past the approval's 15 minutes, inside the session token's hour.
+    let late = call_at(
         &gw,
         "POST",
         "/api/v1/actions",
         "",
-        r#"{"actionType":"Ground aircraft","params":{"target":"aircraft/AC-2214"},"humanGateToken":"HG-test"}"#,
+        &body,
         Some(&token),
+        now() + 1_000,
     );
+    assert_eq!(late.status, 403, "{}", late.body);
+}
+
+#[test]
+fn an_authorised_gated_action_really_changes_the_fabric() {
+    let (gw, token) = session();
+    let id = approved(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+    let r = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", &id);
     assert_eq!(r.status, 200, "{}", r.body);
     let body = json(&r);
     assert!(matches!(body.get("applied"), Some(Json::Bool(true))));
@@ -219,14 +375,14 @@ fn an_authorised_gated_action_really_changes_the_fabric() {
 }
 
 #[test]
-fn an_ungated_action_needs_no_token_and_applies_only_to_readable_objects() {
+fn an_ungated_action_needs_no_token_and_changes_only_its_target() {
     let (gw, token) = session();
     let r = call(
         &gw,
         "POST",
         "/api/v1/actions",
         "",
-        r#"{"actionType":"Recalibrate","params":{"target":"sensor_feed/*"}}"#,
+        r#"{"actionType":"Recalibrate","params":{"target":"sensor_feed/SF-TRANSPONDER-4"}}"#,
         Some(&token),
     );
     assert_eq!(r.status, 200, "{}", r.body);
