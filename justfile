@@ -130,7 +130,7 @@ lint:
     cargo clippy -p pqc-agility -p pq-mtls -p audit-writer --features test-backend --all-targets -- -D warnings
     cargo clippy -p pqc-agility --features backend-fips --all-targets -- -D warnings
     cargo clippy -p policy -p iam -p gateway -p http-gateway -p service-runtime -p kms -p governance -p fabric -p scheduler --all-targets -- -D warnings
-    cargo clippy -p attest -p mg-sign -p mg-verify -p mg-sbom -p mg-scan -p mg-repro -p mg-bundle -p mg-register -p mg-admin --all-targets -- -D warnings
+    cargo clippy -p attest -p mg-sign -p mg-verify -p mg-sbom -p mg-scan -p mg-repro -p mg-bundle -p mg-register -p mg-admin -p mg-ceremony --all-targets -- -D warnings
     cargo clippy -p model-server -p mimir-server -p staging -p mimir-prompts -p oag-retriever -p agent-runtime --features backend-fips --all-targets -- -D warnings
     cargo clippy -p forge-engine -p forge-dataset-store -p forge-connector-sdk -p forge-pipeline -p forge-health -p forge-projection -p forge-ai-assist -p forge-worker --features backend-fips --all-targets -- -D warnings
     cargo clippy -p bifrost-rollout -p bifrost-fleet -p bifrost-fleet-server -p bifrost-risk -p bifrost-artefact -p bifrost-bundle --features backend-fips --all-targets -- -D warnings
@@ -199,6 +199,7 @@ test:
     cargo test -p attest --no-default-features --features backend-fips
     cargo test -p mg-sign -p mg-sbom -p mg-scan -p mg-verify -p mg-repro
     cargo test -p mg-admin
+    cargo test -p mg-ceremony
     # go.work exists but declares no modules and there are no .go files, so this
     # is a no-op that only ever fails when Go is absent. Whether the Go workspace
     # stays at all is RF-SDK-4.
@@ -349,6 +350,12 @@ sign path:
 # key ceremonies, rotation and distribution are RF-SC-8.
 keygen keystore="mg.keystore" anchor="mg.pub":
     cargo run -q --release -p mg-sign -- keygen --keystore "{{keystore}}" --export-verifying-key "{{anchor}}"
+
+# The release key ceremony, guided: it asks one question at a time and can rehearse
+# first (docs/ops/KEY_CEREMONY.md). On Windows, run mg-ceremony.exe itself; for the
+# flag form, run deploy/trust/ceremony.sh directly.
+ceremony:
+    bash deploy/trust/ceremony.sh
 
 # 7. Verify signature + SBOM + provenance before publish. Fails closed. [AC-B-1]
 #

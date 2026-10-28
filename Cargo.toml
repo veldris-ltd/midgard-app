@@ -14,6 +14,7 @@ members = [
     "tools/mg-register",
     "tools/mg-admin",
     "tools/mg-model",
+    "tools/mg-ceremony",
     "crypto/pqc-agility",
     "crypto/pq-mtls",
     "crypto/audit-writer",

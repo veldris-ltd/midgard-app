@@ -25,8 +25,11 @@ run unless both files exist, hold a key of the right algorithm, and hold nothing
 
 ## Provisioning
 
-The **key ceremony** (RT-35, `docs/ops/PKI.md`) populates both files: when a keypair is
-generated, its public half is committed here and the key id recorded. Until then the
+The **key ceremony** (RT-35) populates all three files. Follow
+[`docs/ops/KEY_CEREMONY.md`](../../docs/ops/KEY_CEREMONY.md), step by step; its
+mechanical part is `tools/mg-ceremony` (`mg-ceremony.exe` on Windows, or
+`bash deploy/trust/ceremony.sh` here), which generates each keypair, writes its public
+half here and records the key id. Until then the
 anchors are absent, and verification **fails closed**. That is the correct posture, not
 a bug. Do not commit a placeholder or development key: an unpinned or fake anchor would
 defeat the purpose.

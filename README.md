@@ -6,7 +6,7 @@ Midgard is a **Veldris Ltd** project. This repository holds three things that fi
 
 1. **The specification** — the Solutions Architecture Documents (the "what and why").
 2. **The design system** — a complete, branded UI system (the "how it looks and behaves").
-3. **The implementation** — a post-quantum, air-gap-capable platform built from the spec: a 70-crate Rust workspace (core services, Mimir, Forge, Bifrost, Heimdall, admin, clients) plus the console UIs and gateway edge.
+3. **The implementation** — a post-quantum, air-gap-capable platform built from the spec: a 71-crate Rust workspace (core services, Mimir, Forge, Bifrost, Heimdall, admin, clients) plus the console UIs and gateway edge.
 
 The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md); in the full working history, one commit maps to each playbook prompt. This public repository begins from a squashed initial import of that verified state.
 
@@ -107,7 +107,7 @@ midgard/
 ├── admin/             ← identity, privilege, sim, config, breakglass, audit, ai-assist, service-identity, orchestrator
 ├── clients/           ← shared core + sync, keystore, store, enclosure, inference, broker, delivery; shells/
 ├── sdk/ · products/ · ui/   ← generated SDKs, product surfaces, console UIs (Vite/React)
-├── tools/             ← CLIs: mg-sign, mg-sbom, mg-scan, mg-verify, mg-repro, mg-bundle, mg-register, mg-admin, mg-model
+├── tools/             ← CLIs: mg-sign, mg-sbom, mg-scan, mg-verify, mg-repro, mg-bundle, mg-register, mg-admin, mg-model, mg-ceremony
 ├── deploy/            ← acceptance gates, container images, k8s + helm, air-gap bundle, trust anchors, installer
 ├── samples/           ← recorded sample datasets, their configuration, Heimdall feeds, convert.py
 ├── vendor/            ← vendored crates → fully offline builds

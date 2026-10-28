@@ -13,14 +13,14 @@ Counted from tracked files. `vendor/` is other people's code and is not counted.
 
 | Figure | Value | Counting rule | Reproduce |
 |---|---|---|---|
-| Workspace crates | **70** | members of `[workspace]` in the root `Cargo.toml` | `cargo metadata --no-deps --offline --format-version 1` lists the same packages |
-| Rust source files | **570** | tracked `*.rs` outside `vendor/` | `git ls-files '*.rs' ':(exclude)vendor' \| wc -l` |
-| Rust lines, raw | **103,388** | every line of those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| wc -l` |
-| Rust lines, code | **80,273** | lines that are neither blank nor begin with `//` (so doc comments are excluded and block comments are not) | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -vcE '^\s*(//.*)?\r?$'` |
-| Test functions | **873** | `#[test]` attributes in those files. A count of functions written, not of tests run | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[test\]'` |
+| Workspace crates | **71** | members of `[workspace]` in the root `Cargo.toml` | `cargo metadata --no-deps --offline --format-version 1` lists the same packages |
+| Rust source files | **576** | tracked `*.rs` outside `vendor/` | `git ls-files '*.rs' ':(exclude)vendor' \| wc -l` |
+| Rust lines, raw | **105,498** | every line of those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| wc -l` |
+| Rust lines, code | **82,065** | lines that are neither blank nor begin with `//` (so doc comments are excluded and block comments are not) | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -vcE '^\s*(//.*)?\r?$'` |
+| Test functions | **899** | `#[test]` attributes in those files. A count of functions written, not of tests run | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[test\]'` |
 | …of which ignored | **0** | `#[ignore]` attributes in those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[ignore'` |
 | Acceptance criteria defined | **72** | distinct `AC-*` ids in Part C of `docs/dev/markdown/SAD_05_Master_Prompt_and_Acceptance_Spec.md` | `bash tools/ci/numbers.sh --figures \| grep criteria_defined` |
-| Shipped binaries | **18** | binaries the workspace builds, each of which the release gates | `bash tools/ci/release-artefacts.sh --rows \| wc -l` |
+| Shipped binaries | **19** | binaries the workspace builds, each of which the release gates | `bash tools/ci/release-artefacts.sh --rows \| wc -l` |
 | …of which services | **6** | those `supply-chain/release-artefacts.txt` marks `service`; the rest ship as tools | `bash tools/ci/release-artefacts.sh --rows \| awk '$3 == "service"' \| wc -l` |
 | Service images | **6** | verify-before-run images those binaries are packed into | `bash tools/ci/release-artefacts.sh --images \| wc -l` |
 | Console UI bundles | **7** | pnpm workspace packages that build a UI bundle | `bash tools/ci/js-artefacts.sh --rows \| grep -c '^ui-bundle'` |
@@ -32,13 +32,12 @@ Counted from tracked files. `vendor/` is other people's code and is not counted.
 
 Read from the gate record and from nowhere else. A test count here is of tests that ran and passed in that run. It is a different measure from the count of test functions above, and the two are never quoted as one figure.
 
-The gate was run at commit [`5534b1f40dbba922fd3c6f780808f01ac5627fc2`](gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md). This tree is that commit, apart from the record itself and the prose generated from it, so its results are this tree's.
+The gate has not been run at this commit. Files it covers have changed since the last recorded run, so that run's results are not this tree's and are shown only as what they are: the results of another commit.
 
-| Figure | Value | Counting rule |
+| Figure | Value | Last recorded run |
 |---|---|---|
-| Gate result | **PASS** | the acceptance suite and `just test` both exited 0 and no criterion failed |
-| Acceptance criteria passed | **72 / 72** | criteria of Part C with a PASS verdict line in the acceptance log |
-| Tests passed, `just test` | **879** | sum of the `test result:` lines of the `just test` log; 0 failed, 0 ignored, in 289 test binaries across 50 of 50 invocations |
-| Tests passed, acceptance suite | **251** | sum of the `test result:` lines between each step's header and its verdict; 0 failed, 0 ignored. The suite runs selected tests, some more than once, so this is not comparable with the figure above |
+| Acceptance criteria passed | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 72 / 72 |
+| Tests passed, `just test` | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 879 |
+| Tests passed, acceptance suite | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 251 |
 
-Reproduce: `bash tools/ci/gate-record.sh --check` makes these from the logs under [`gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2/`](gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2/); [the record](gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md) says how to make the run again.
+The record of that run is [`gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md`](gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md).

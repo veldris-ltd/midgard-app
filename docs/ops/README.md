@@ -9,6 +9,7 @@ the sovereign posture: no cloud dependency, no telemetry or data egress (NFR-PRV
 | [DR_PLAN.md](DR_PLAN.md) | Disaster recovery: RTO/RPO, the restore runbook, drill cadence. |
 | [BACKUP_RESTORE.md](BACKUP_RESTORE.md) | Backup/snapshot + restore for every durable store (RT-09..14). |
 | [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md) | Severity levels, on-call roster, escalation, post-mortems. |
+| [KEY_CEREMONY.md](KEY_CEREMONY.md) | The release key ceremony, step by step, with the `mg-ceremony` guided tool (Windows and Linux). |
 | [PKI.md](PKI.md) | CA/PKI bootstrap, cert issuance/renewal/revocation, HSM key ceremony, rotation, signing runner. |
 
 ## Tested, not just written

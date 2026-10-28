@@ -1,0 +1,28 @@
+[package]
+name = "mg-ceremony"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The release key ceremony as one guided run: generate the release and Bifrost admission keys into sealed keystores, publish the trust anchors and tag signers, check them as the release does, and write the ceremony record. Runs on Windows and Linux. [RT-35] [AC-RF-CA-6a] [NFR-PQ-3]"
+
+[[bin]]
+name = "mg-ceremony"
+path = "src/main.rs"
+
+[features]
+# Real ML-DSA (FIPS 204), as mg-sign: a ceremony that published a key nobody could
+# sign with would be worse than no ceremony.
+default = ["backend-fips"]
+backend-fips = [
+    "attest/backend-fips",
+    "pqc-agility/backend-fips",
+    "kms/backend-fips",
+]
+
+[dependencies]
+# Key generation is attest's Keystore, the same code `mg-sign keygen` runs; this
+# crate adds no cryptography of its own. [AC-B-1]
+attest = { path = "../../crypto/attest" }
+pqc-agility = { path = "../../crypto/pqc-agility" }
+kms = { path = "../../services/kms" }

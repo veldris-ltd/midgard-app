@@ -9,7 +9,27 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **A step-by-step key ceremony, and a guided tool for it.** `docs/ops/KEY_CEREMONY.md`
+  is the release key ceremony as a checklist, from preparing the people and the
+  encrypted media to provisioning the signing runner, with exact commands for Windows
+  and Linux. `tools/mg-ceremony` does its mechanical part: run with no arguments
+  (double-click `mg-ceremony.exe` on Windows) it asks one question at a time, checks
+  each answer, can rehearse with throwaway keys, and generates nothing until told
+  `GENERATE`. `mg-ceremony check` applies the release's checks to the published files
+  and prints the values to compare with the second channel. Key generation is
+  `attest::Keystore`, as in `mg-sign keygen`. [RT-35] [AC-RF-CA-6a]
+
+### Changed
+- `deploy/trust/ceremony.sh` now builds and runs `mg-ceremony`, so Windows and Linux
+  hold the ceremony with one implementation. With no arguments it starts the guided
+  ceremony. The ceremony record also names the Security Officer, and computes SSH
+  fingerprints itself, so `ssh-keygen` is no longer needed to hold the ceremony.
+
+### Fixed
+- `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony
+  publishes to be committed, so committing them failed. The anchors are now excepted;
+  other `.pub` files stay ignored.
 
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 

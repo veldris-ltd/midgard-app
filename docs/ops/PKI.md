@@ -105,20 +105,20 @@ the handoff. Neither has a default; a runner missing either fails the release.
 
 ## HSM key ceremony (CA + release signing key)
 
-**The mechanical part, as one run.** `deploy/trust/ceremony.sh` generates the release
-signing key (ML-DSA-87) and the Bifrost admission key (ML-DSA-65) into sealed keystores
-outside the checkout, writes `deploy/trust/release-trust.pub`, `bifrost-trust.pub` and
-`allowed_signers`, checks them as the release will, and writes a ceremony record under
-`docs/ops/ceremonies/` with every digest and fingerprint and blank sign-off lines. It
-commits nothing. Until custody is hardware, it stands in for steps 2 to 4 below with
-software keystores; steps 5 and 6 remain the officers'.
+**To hold the ceremony, follow [KEY_CEREMONY.md](KEY_CEREMONY.md).** It is the
+step-by-step procedure, from preparing the people and the media to provisioning the
+signing runner. Its mechanical part is one program, `tools/mg-ceremony`
+(`mg-ceremony.exe` on Windows; `bash deploy/trust/ceremony.sh` or `just ceremony` on
+Linux): a guided run that generates the release signing key (ML-DSA-87) and the Bifrost
+admission key (ML-DSA-65) into sealed keystores outside the checkout, writes
+`deploy/trust/release-trust.pub`, `bifrost-trust.pub` and `allowed_signers`, checks
+them as the release will, and writes a ceremony record under `docs/ops/ceremonies/`
+with every digest and fingerprint and blank sign-off lines. It can rehearse with
+throwaway keys first, and it commits nothing. Until custody is hardware, it stands in
+for steps 2 to 4 below with software keystores; steps 5 and 6 remain the officers'.
 
-```bash
-bash deploy/trust/ceremony.sh --custody /secure/midgard-keys-2026 --signer you@example.org=$HOME/.ssh/id_ed25519_signing.pub --witness "A. Witness"
-```
-
-Run with the duty Security Officer + a second witness (dual-control), recorded in the
-audit chain:
+The hardware target, for when custody moves to an HSM. Run with the duty Security
+Officer and a second witness (dual control), recorded in the audit chain:
 
 1. **Prepare** a FIPS 140-3 HSM (or TPM 2.0 with a PQ command set); confirm firmware +
    attestation (RT-28).
