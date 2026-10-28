@@ -114,6 +114,10 @@ class HttpGateway implements GatewayClient {
       objectType: req.objectType,
       maxResults: req.maxResults ?? 5,
       filter: req.filter,
+      where: req.where,
+      orderBy: req.orderBy,
+      descending: req.descending,
+      offset: req.offset,
     });
   }
   applyAction(req: ApplyActionRequest): Promise<ApplyActionResponse> {
@@ -133,8 +137,8 @@ class HttpGateway implements GatewayClient {
     const verb = approve ? 'approve' : 'reject';
     return this.post<Approval>(`/approvals/${encodeURIComponent(id)}/${verb}`, {});
   }
-  searchAround(seedId: string, hops: number): Promise<SearchGraph> {
-    return this.post<SearchGraph>('/search-around', { seedId, hops });
+  searchAround(seedId: string, hops: number, limit?: number): Promise<SearchGraph> {
+    return this.post<SearchGraph>('/search-around', { seedId, hops, limit });
   }
 
   // Governance / audit -------------------------------------------------------

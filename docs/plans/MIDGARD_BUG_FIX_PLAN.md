@@ -227,6 +227,27 @@ they also lack one.
 
 ## WP6: Search: Bugs 18, 19
 
+> **Status (2026-10-28): implemented.** The fabric gained a search beside its query:
+> `Fabric::search` with conditions (`eq` `ne` `lt` `lte` `gt` `gte` `contains`, and
+> `*` for any text property), ordering and paging, authorised and audited once.
+> `total` counts only readable matches. `/query` runs on it and refuses a property,
+> value or operator the schema can't answer with 400, where it used to return an empty
+> result. Object types now list their properties.
+>
+> Search-around takes a `limit` (default 60, at most 500) and returns `truncated` and
+> `seedObjects`; the 25-root cap is gone. The console offers 1–4 hops and a limit, and
+> warns when a walk was cut short.
+>
+> The new **Data search** page builds the conditions, orders, pages by 50 and opens
+> any match in Search-around. The top search box now searches text in every object
+> type.
+>
+> The UK airports dataset is not in the open samples, so these were checked live on
+> the open samples instead. Earthquakes with magnitude ≥ 4.5 gave 80 matches over two
+> pages, largest first, exactly as counted from the data. `tsunami` true gave 2.
+> "norfolk" found its one flood warning. Search-around on every earthquake at 60
+> reported "Cut short … from 209 starting objects", and showed all 209 at 500.
+
 **Bug 18: Search-around truncation**
 1. Gateway: add `truncated: bool`, `totalRoots` and `nodeLimit` to the
    search-around response, and set them when `MAX_ROOTS` or `MAX_NODES` is hit.

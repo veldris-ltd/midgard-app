@@ -52,8 +52,9 @@ export interface GatewayClient {
   requestApproval(actionType: string, target: string): Promise<Approval>;
   /** Approve or reject someone else's pending approval. */
   decideApproval(id: string, approve: boolean): Promise<Approval>;
-  /** Search-around: expand links from a seed object out to `hops`. */
-  searchAround(seedId: string, hops: number): Promise<SearchGraph>;
+  /** Search-around: expand links from a seed object out to `hops`, returning at most
+   *  `limit` nodes (the edge's default is 60); `truncated` says when it stopped short. */
+  searchAround(seedId: string, hops: number, limit?: number): Promise<SearchGraph>;
 
   // Governance / audit -------------------------------------------------------
   /** Snapshot of the most recent audit records (newest first). */

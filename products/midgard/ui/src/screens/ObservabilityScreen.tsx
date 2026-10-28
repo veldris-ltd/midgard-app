@@ -62,7 +62,7 @@ export function ObservabilityScreen() {
       active="obs"
       context="ENCLOSURE / OBSERVABILITY"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search SLOs, traces, sinks…" />}
+      toolbar={<ConsoleToolbar />}
       aside={aside}
     >
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>

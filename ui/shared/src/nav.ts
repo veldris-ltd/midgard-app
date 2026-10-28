@@ -39,6 +39,7 @@ export const NAV: Record<ConsoleProduct, NavConfig> = {
     sections: [
       { title: 'FABRIC', items: [
         { id: 'objects', label: 'Object types', icon: 'boxes', href: '/' },
+        { id: 'data', label: 'Data search', icon: 'filter', href: '/data' },
         { id: 'search', label: 'Search-around', icon: 'search', href: '/search' },
       ] },
       { title: 'GOVERNANCE', items: [
