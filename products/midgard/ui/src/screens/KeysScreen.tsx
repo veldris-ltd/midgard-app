@@ -14,11 +14,14 @@ import {
 import { useAsync } from '@midgard/ui-shared';
 import type { KeyRecord } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { SampleData } from '../app/SampleData';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 /* Keys & crypto: the post-quantum key hierarchy — ML-KEM-1024 envelope wrapping
  * AES-256-GCM data keys, ML-DSA signing keys — with custody, wrap state, and
- * rotation, sourced from `listKeys()`. FIPS 203/204, crypto-agile. */
+ * rotation, sourced from `listKeys()`. FIPS 203/204, crypto-agile.
+ * The gateway serves this view from fixed example data, so the page is labelled
+ * SAMPLE DATA, and its controls are disabled and say why. [AC-M-4] */
 const STATUS_PILL: Record<KeyRecord['status'], { status: 'secure' | 'live' | 'offline'; label: string }> = {
   active: { status: 'secure', label: 'Active' },
   rotating: { status: 'live', label: 'Rotating' },
@@ -95,13 +98,13 @@ export function KeysScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={7}>KEYS & CRYPTO</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Key hierarchy</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>Key hierarchy <SampleData /></h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value={total} label="KEYS" size="sm" />
         <StatBlock value={wrappedPct + '%'} label="WRAPPED" size="sm" accent />
         <StatBlock value={rotating} label="ROTATING" size="sm" />
-        <Button variant="primary" iconLeft={<Icon name="refresh-cw" size={15} />}>Rotate now</Button>
+        <Button variant="primary" iconLeft={<Icon name="refresh-cw" size={15} />} disabled title="Not available yet: keys are rotated by the KMS on its schedule">Rotate now</Button>
       </div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

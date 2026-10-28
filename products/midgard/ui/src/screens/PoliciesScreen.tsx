@@ -22,7 +22,9 @@ import { ConsoleToolbar } from '../app/ConsoleToolbar';
 /* Policies & markings · governance. Role / marking / purpose policy evaluated at
  * query time, deny-by-default. The rules Table comes from `listPolicies()`; the key
  * flow is the policy dry-run — pick a purpose + marking against the session's policy
- * context and evaluate `simulatePolicy(ctx, marking)` for a signed grant/deny. */
+ * context and evaluate `simulatePolicy(ctx, marking)` for a signed grant/deny.
+ * Rules come from the policy file at boot, so New policy and Edit clearances are
+ * disabled and say so. [NFR-SEC-2] */
 
 const MARKINGS: MarkingLevel[] = ['confidential', 'restricted', 'internal', 'open'];
 
@@ -110,7 +112,7 @@ export function PoliciesScreen() {
         <StatBlock value={String(rules.length)} label="POLICIES" size="sm" />
         <StatBlock value="4" label="MARKING LEVELS" size="sm" />
         <StatBlock value="0" label="UNGOVERNED TYPES" size="sm" accent />
-        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New policy</Button>
+        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />} disabled title="Not available yet: policies come from the policy file at boot">New policy</Button>
       </div>
 
       <Tabs
@@ -129,7 +131,7 @@ export function PoliciesScreen() {
                   <MarkingChip level={lvl} />
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{count} polic{count === 1 ? 'y' : 'ies'} reference this marking</span>
                   <div style={{ flex: 1 }} />
-                  <Button variant="ghost" size="sm">Edit clearances</Button>
+                  <Button variant="ghost" size="sm" disabled title="Not available yet: clearances are set when an identity is enrolled">Edit clearances</Button>
                 </div>
               </Card>
             );

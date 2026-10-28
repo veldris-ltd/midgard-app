@@ -14,11 +14,14 @@ import {
 import { useAsync } from '@midgard/ui-shared';
 import type { ComputeJob } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { SampleData } from '../app/SampleData';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 /* Compute: the enclosure workload scheduler — typed queries, function applies,
  * and projection rebuilds dispatched to in-process or forge backends, with live
- * progress and state, sourced from `listComputeJobs()`. */
+ * progress and state, sourced from `listComputeJobs()`.
+ * The gateway serves this view from fixed example data, so the page is labelled
+ * SAMPLE DATA, and its controls are disabled and say why. [AC-M-4] */
 const STATE_PILL: Record<ComputeJob['state'], { status: 'live' | 'offline' | 'secure' | 'danger'; label: string }> = {
   running: { status: 'live', label: 'Running' },
   queued: { status: 'offline', label: 'Queued' },
@@ -82,13 +85,13 @@ export function ComputeScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={10}>COMPUTE</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Jobs</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>Jobs <SampleData /></h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value={running} label="RUNNING" size="sm" accent />
         <StatBlock value={queued} label="QUEUED" size="sm" />
         <StatBlock value={failed} label="FAILED" size="sm" />
-        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>Schedule job</Button>
+        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />} disabled title="Not available yet: jobs are scheduled by the compute service, not from here">Schedule job</Button>
       </div>
 
       <div style={{ overflowX: 'auto' }}>

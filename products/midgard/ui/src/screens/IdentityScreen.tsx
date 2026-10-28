@@ -16,11 +16,14 @@ import {
 import { useAsync } from '@midgard/ui-shared';
 import type { Identity } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { SampleData } from '../app/SampleData';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 /* Identity & access: users, service identities, and agent identities with their
  * clearance marking, role/group grants, and session state — sourced from
- * `listIdentities()`. Zero standing privilege; every call re-authorised. */
+ * `listIdentities()`. Zero standing privilege; every call re-authorised.
+ * The gateway serves this view from fixed example data, so the page is labelled
+ * SAMPLE DATA, and its controls are disabled and say why. [AC-M-4] */
 const KIND_ICON: Record<Identity['kind'], string> = { user: 'user', service: 'server', agent: 'bot' };
 
 export function IdentityScreen() {
@@ -72,8 +75,8 @@ export function IdentityScreen() {
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-        <Button variant="secondary" size="sm" fullWidth>Edit grants</Button>
-        <Button variant="outline" size="sm" fullWidth>Revoke session</Button>
+        <Button variant="secondary" size="sm" fullWidth disabled title="Not available yet: grants are managed with mg-admin">Edit grants</Button>
+        <Button variant="outline" size="sm" fullWidth disabled title="Not available yet: sessions end when their token expires">Revoke session</Button>
       </div>
     </>
   ) : null;
@@ -90,13 +93,13 @@ export function IdentityScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={5}>IDENTITY & ACCESS</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Identities</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>Identities <SampleData /></h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value={total} label="SUBJECTS" size="sm" />
         <StatBlock value={active} label="ACTIVE" size="sm" accent />
         <StatBlock value={agents} label="AGENTS" size="sm" />
-        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New identity</Button>
+        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />} disabled title="Not available yet: identities are enrolled with mg-admin user add">New identity</Button>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
