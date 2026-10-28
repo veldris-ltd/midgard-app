@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { Icon, IconButton, Input } from '@midgard/design-system';
-import { ModeToggle } from '@midgard/ui-shared';
+import { AccountMenu, ModeToggle } from '@midgard/ui-shared';
 
 /* Standard top-bar cluster shared by every Midgard screen: scoped search, the
- * colour-mode toggle, and account/notification affordances. */
+ * colour-mode toggle, notifications, and the Account menu with who is signed in and
+ * Sign out. [RC-37] */
 export function ConsoleToolbar({ placeholder = 'Search objects, links, actionsâ€¦' }: { placeholder?: string }) {
   return (
     <>
@@ -18,9 +19,7 @@ export function ConsoleToolbar({ placeholder = 'Search objects, links, actionsâ€
       <IconButton label="Notifications">
         <Icon name="bell" size={17} />
       </IconButton>
-      <IconButton label="Account">
-        <Icon name="user" size={17} />
-      </IconButton>
+      <AccountMenu />
     </>
   );
 }

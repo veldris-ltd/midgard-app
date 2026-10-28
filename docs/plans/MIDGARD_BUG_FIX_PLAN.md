@@ -113,6 +113,8 @@ approval, and change every object of a type at once.
 
 ## WP3: Session and identity in the console: Bugs 13, 10, and sign-out from 11
 
+> **Status (2026-10-28): implemented.** The gateway gained `GET /api/v1/whoami` > rather than more fields on the login response, so a token restored after a > reload is checked and identified too. `AuthGate` checks a stored token before > rendering and ends the session on any 401, at the token's expiry, or on > **Account → Sign out**. The console's policy context, which the dry-run shows, > is the signed-in user's; `j.benjamin` now exists only in the mock.
+
 **Bug 13: expired login**
 1. `DataProvider.tsx`: when any call returns 401, clear the stored token, stop
    polling the audit log, and raise an "unauthenticated" event.
