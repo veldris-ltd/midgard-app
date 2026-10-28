@@ -136,6 +136,17 @@ approval, and change every object of a type at once.
 
 ## WP4: Layout: Bugs 01, 02, 03
 
+> **Status (2026-10-28): implemented.** The fix is one rule rather than a new
+> component: the console frame's main column (`.mg-main`, in the design system's
+> `base.css`) stops its direct children shrinking, so the column scrolls instead. That
+> covers every console screen at once, and a block meant to fill still says so with an
+> inline `flex`. The live audit stream no longer echoes the session's own reads of
+> `/api/v1/audit`; the gateway still audits them, and `getAudit` still returns them.
+> This relies on the console knowing who is signed in, so the branch is stacked on WP3.
+> Measured against a live gateway: every table on Object types, Policies, Keys, Audit,
+> Identity and Compute shows all its rows at 1024×768 and at 390×844. At 1508×746 the
+> Object types table kept its height for 66 s while the audit list stayed the same.
+
 1. Use one shared fix instead of patching each screen: add a `ScrollTable` (or
    `TableWrap`) component to `ui/shared` with `flexShrink: 0` and
    `overflowX: 'auto'`, and use it for every table wrapper in a console screen
