@@ -31,29 +31,40 @@ interface Traversal {
   seedType: string;
   seedId: string;
   hops: number;
+  /** Most objects to return; the gateway says when the walk had more. */
+  limit: number;
 }
+
+/** Node limits on offer; the gateway allows up to 500. */
+const LIMITS = [60, 200, 500];
 
 export function SearchAroundScreen() {
   const { data: types } = useAsync((c) => c.listObjectTypes(), []);
   const objectTypes: ObjectType[] = types ?? [];
 
   // "Explore instances" on Object types opens this page as /search?type=<apiName>:
-  // every object of that type, one hop out.
+  // every object of that type, one hop out. Data search opens one object as
+  // /search?seed=<type>/<id>.
   const [params] = useSearchParams();
   const explore = params.get('type');
-  const first: Traversal = explore
-    ? { seedType: explore, seedId: '', hops: 1 }
-    : { seedType: 'aircraft', seedId: 'AC-2214', hops: 2 };
+  const seedParam = params.get('seed');
+  const [seedParamType, ...seedParamId] = seedParam?.split('/') ?? [];
+  const first: Traversal = seedParam && seedParamId.length
+    ? { seedType: seedParamType, seedId: seedParamId.join('/'), hops: 2, limit: LIMITS[0] }
+    : explore
+      ? { seedType: explore, seedId: '', hops: 1, limit: LIMITS[0] }
+      : { seedType: 'aircraft', seedId: 'AC-2214', hops: 2, limit: LIMITS[0] };
   const [seedType, setSeedType] = React.useState(first.seedType);
   const [seedId, setSeedId] = React.useState(first.seedId);
   const [hops, setHops] = React.useState(first.hops);
+  const [limit, setLimit] = React.useState(first.limit);
   const [run, setRun] = React.useState<Traversal>(first);
   const [selId, setSelId] = React.useState<string | null>(null);
 
   // Re-runs only when a traversal is requested: the button drives the query, not
   // every keystroke.
   const seed = `${run.seedType}/${run.seedId || '*'}`;
-  const { data: result, loading, error } = useAsync((c) => c.searchAround(seed, run.hops), [run]);
+  const { data: result, loading, error } = useAsync((c) => c.searchAround(seed, run.hops, run.limit), [run]);
   // While a run is in flight, or after it failed, the previous run's results are not
   // this one's: show none.
   const graph = loading || error ? null : result;
@@ -106,7 +117,7 @@ export function SearchAroundScreen() {
       active="search"
       context="ENCLOSURE / SEARCH-AROUND"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search objects, links, actions…" />}
+      toolbar={<ConsoleToolbar />}
       navFooter={<Terminal lines={['> midgard status', '# ALL SYSTEMS NOMINAL']} style={{ fontSize: 10 }} />}
       aside={aside}
     >
@@ -140,16 +151,23 @@ export function SearchAroundScreen() {
           />
           <Select
             label="Hops"
-            options={[{ value: '1', label: '1 hop' }, { value: '2', label: '2 hops' }, { value: '3', label: '3 hops' }]}
+            options={[1, 2, 3, 4].map((h) => ({ value: String(h), label: h === 1 ? '1 hop' : `${h} hops` }))}
             value={String(hops)}
             onChange={(e) => setHops(Number(e.target.value))}
+            size="sm"
+          />
+          <Select
+            label="Most objects"
+            options={LIMITS.map((l) => ({ value: String(l), label: String(l) }))}
+            value={String(limit)}
+            onChange={(e) => setLimit(Number(e.target.value))}
             size="sm"
           />
           <div style={{ flex: 1 }} />
           <Button
             variant="primary"
             iconLeft={<Icon name="search" size={15} />}
-            onClick={() => { setRun({ seedType, seedId, hops }); setSelId(null); }}
+            onClick={() => { setRun({ seedType, seedId, hops, limit }); setSelId(null); }}
           >
             Run traversal
           </Button>
@@ -159,6 +177,20 @@ export function SearchAroundScreen() {
       {loading && (
         <div style={{ padding: '12px 4px', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>
           EXPANDING LINKS · POLICY AT QUERY TIME…
+        </div>
+      )}
+
+      {graph?.truncated && (
+        <div
+          role="status"
+          style={{ padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--warn)', borderRadius: 'var(--radius-md)', fontSize: 'var(--fs-sm)', color: 'var(--text-body)' }}
+        >
+          <strong style={{ color: 'var(--warn)' }}>Cut short.</strong> Showing {nodes.length} objects: the walk
+          reached more than the limit of {graph.nodeLimit ?? run.limit}
+          {(graph.seedObjects ?? 1) > 1 ? `, from ${graph.seedObjects} starting objects` : ''}.{' '}
+          {run.limit < LIMITS[LIMITS.length - 1]
+            ? 'Raise Most objects, use fewer hops, or start from one object.'
+            : 'Use fewer hops, or start from one object.'}
         </div>
       )}
 

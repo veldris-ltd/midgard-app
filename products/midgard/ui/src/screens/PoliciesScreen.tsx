@@ -99,7 +99,7 @@ export function PoliciesScreen() {
       active="policies"
       context="ENCLOSURE / GOVERNANCE"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search policies, markings, purposes…" />}
+      toolbar={<ConsoleToolbar />}
       navFooter={<Terminal lines={['> midgard status', '# ALL SYSTEMS NOMINAL']} style={{ fontSize: 10 }} />}
       aside={aside}
     >

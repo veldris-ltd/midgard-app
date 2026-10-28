@@ -649,12 +649,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             ("GET", "/api/v1/object-types") => Ok(self.lock().object_types(&ctx, now)),
             ("POST", "/api/v1/query") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))
-                .and_then(|body| {
-                    let object_type = body.str_field("objectType").unwrap_or("").to_string();
-                    let max = body.get("maxResults").and_then(|v| v.as_i64()).unwrap_or(5);
-                    let filter = body.get("filter").map(Json::str_map).unwrap_or_default();
-                    self.lock().query(&ctx, &object_type, max, filter, now)
-                }),
+                .and_then(|body| search_of(&body))
+                .and_then(|search| self.lock().query(&ctx, search, now)),
             ("POST", "/api/v1/actions") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))
                 .and_then(|body| {
@@ -682,7 +678,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 .and_then(|body| {
                     let seed = body.str_field("seedId").unwrap_or("").to_string();
                     let hops = body.get("hops").and_then(|v| v.as_i64()).unwrap_or(2);
-                    self.lock().search_around(&ctx, &seed, hops, now)
+                    let limit = body.get("limit").and_then(Json::as_i64);
+                    self.lock().search_around(&ctx, &seed, hops, limit, now)
                 }),
             ("GET", "/api/v1/audit") => {
                 let limit = req
@@ -894,6 +891,65 @@ fn hex_encode(bytes: &[u8]) -> String {
         s.push(char::from_digit((b & 0x0f) as u32, 16).unwrap());
     }
     s
+}
+
+/// A `/query` body as a fabric search:
+///
+/// ```json
+/// {"objectType":"runway",
+///  "filter":{"lighted":"true"},
+///  "where":[{"property":"length_ft","op":"gt","value":"5000"}],
+///  "orderBy":"length_ft","descending":true,"offset":0,"limit":50}
+/// ```
+///
+/// `filter` is exact matches, as before; `where` adds `eq`, `ne`, `lt`, `lte`, `gt`,
+/// `gte` and `contains` (text; property `*` for any text property). `limit` defaults
+/// to 5 and `maxResults` is still read for it. [DD-1]
+fn search_of(body: &Json) -> Result<fabric::Search, EdgeError> {
+    let int = |key: &str| body.get(key).and_then(Json::as_i64);
+    let count = |n: i64| usize::try_from(n.max(0)).unwrap_or(0);
+    let mut conditions: Vec<fabric::Condition> = body
+        .get("filter")
+        .map(Json::str_map)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(property, value)| fabric::Condition {
+            property,
+            op: fabric::CompareOp::Eq,
+            value,
+        })
+        .collect();
+    match body.get("where") {
+        None | Some(Json::Null) => {}
+        Some(Json::Arr(items)) => {
+            for item in items {
+                let field = |key: &str| item.str_field(key).unwrap_or("").to_string();
+                let op = fabric::CompareOp::parse(&field("op")).ok_or_else(|| {
+                    EdgeError::bad_request(&format!(
+                        "unknown operator {:?}: use eq, ne, lt, lte, gt, gte or contains",
+                        field("op")
+                    ))
+                })?;
+                conditions.push(fabric::Condition {
+                    property: field("property"),
+                    op,
+                    value: field("value"),
+                });
+            }
+        }
+        Some(_) => return Err(EdgeError::bad_request("\"where\" must be a list")),
+    }
+    Ok(fabric::Search {
+        object_type: body.str_field("objectType").unwrap_or("").to_string(),
+        conditions,
+        order_by: body
+            .str_field("orderBy")
+            .filter(|p| !p.is_empty())
+            .map(str::to_string),
+        descending: matches!(body.get("descending"), Some(Json::Bool(true))),
+        offset: count(int("offset").unwrap_or(0)),
+        limit: count(int("limit").or_else(|| int("maxResults")).unwrap_or(5)),
+    })
 }
 
 /// `/api/v1/approvals/{id}/approve` or `/reject` → the approval id and whether it

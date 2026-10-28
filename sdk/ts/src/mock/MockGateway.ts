@@ -172,7 +172,10 @@ export class MockGateway implements GatewayClient {
         },
       ],
     }));
-    return this.wait({ results, auditId: audit.id });
+    // The mock's synthesised objects carry no searchable properties, so conditions
+    // and ordering are accepted and ignored; paging still applies.
+    const page = results.slice(req.offset ?? 0);
+    return this.wait({ results: page, total: results.length, offset: req.offset ?? 0, limit: n, auditId: audit.id });
   }
 
   async applyAction(req: ApplyActionRequest): Promise<ApplyActionResponse> {
@@ -285,7 +288,7 @@ export class MockGateway implements GatewayClient {
         edges.push({ from: parent, to: id, label: s.label });
       }
     }
-    return this.wait({ seed: seedId, nodes, edges, auditId: audit.id });
+    return this.wait({ seed: seedId, nodes, edges, truncated: false, nodeLimit: 60, seedObjects: 1, auditId: audit.id });
   }
 
   // ---- governance / audit --------------------------------------------------

@@ -86,7 +86,7 @@ export function IdentityScreen() {
       active="identity"
       context="ENCLOSURE / IDENTITY & ACCESS"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search identities, roles, groups…" />}
+      toolbar={<ConsoleToolbar />}
       navFooter={<Terminal lines={['> midgard status', '# ALL SYSTEMS NOMINAL']} style={{ fontSize: 10 }} />}
       aside={aside}
     >

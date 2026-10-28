@@ -55,16 +55,39 @@ export interface ObjectInstance {
   markings: Marking[];
 }
 
+/** A comparison a search condition makes. `contains` matches text, ignoring case. */
+export type CompareOp = 'eq' | 'ne' | 'lt' | 'lte' | 'gt' | 'gte' | 'contains';
+
+/** One search condition. `property` may be `'*'` with `contains`: any text property. */
+export interface QueryCondition {
+  property: string;
+  op: CompareOp;
+  value: string;
+}
+
 export interface QueryRequest {
   policy: PolicyContext;
   objectType: string;
+  /** Exact matches, property → value. */
   filter?: Record<string, string>;
-  linkTraversals?: string[];
+  /** Further conditions; every one must hold. */
+  where?: QueryCondition[];
+  /** Order by this property (then by id); objects without it come last. */
+  orderBy?: string;
+  descending?: boolean;
+  /** Matches to skip, for paging. */
+  offset?: number;
+  /** Most matches to return (the edge allows up to 500). */
   maxResults?: number;
+  linkTraversals?: string[];
 }
 
 export interface QueryResponse {
   results: ObjectInstance[];
+  /** How many readable objects match in all. */
+  total?: number;
+  offset?: number;
+  limit?: number;
   auditId: string;
 }
 
@@ -122,6 +145,8 @@ export interface ObjectType {
   name: string;
   apiName: string;
   propertyCount: number;
+  /** Each property's api name and type (`text`, `int`, `float`, `bool`, `timestamp`). */
+  properties?: { name: string; type: string }[];
   instanceCount: string;
   marking: MarkingLevel;
   compartment: string | null;
@@ -152,6 +177,12 @@ export interface SearchGraph {
   seed: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** The walk had more to show than `nodeLimit` allowed: this graph is partial. */
+  truncated?: boolean;
+  /** The most nodes this walk could return. */
+  nodeLimit?: number;
+  /** Starting objects the caller may read (more than one for a `<type>/*` seed). */
+  seedObjects?: number;
   auditId: string;
 }
 

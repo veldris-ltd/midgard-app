@@ -27,7 +27,7 @@ use audit_writer::{entry_hash, genesis_hash, signing_preimage, SealedEntry};
 use fabric::{
     ActionFunction, ActionType, Cardinality, Effect, Fabric, FabricError, FunctionRuntime,
     Governance, InMemoryLedger, InMemoryStore, LedgerStore, LinkInstance, LinkType, ObjectInstance,
-    ObjectStore, ObjectType, PolicyContext, PropertyType, Query, TypeRegistry, Value, ValueType,
+    ObjectStore, ObjectType, PolicyContext, PropertyType, Search, TypeRegistry, Value, ValueType,
 };
 use policy::{
     ClassificationLevel, Compartment, DecisionReason, Effect as RuleEffect, Marking, Purpose,
@@ -43,12 +43,14 @@ use service_runtime::marking::BANDS;
 /// ordinal (see `service_runtime::marking`), shared with the mesh services.
 pub use service_runtime::marking::{band, level_of};
 
-/// Most root objects a `<type>/*` search-around starts from.
-const MAX_ROOTS: usize = 25;
-/// Most nodes a search-around returns.
-const MAX_NODES: usize = 60;
+/// Nodes a search-around returns when the caller names no limit.
+const DEFAULT_NODE_LIMIT: i64 = 60;
+/// Most nodes a search-around returns, whatever the caller asks for.
+const MAX_NODE_LIMIT: i64 = 500;
 /// Deepest search-around.
 const MAX_HOPS: i64 = 4;
+/// Most matches one page of a search returns.
+const MAX_PAGE: i64 = 500;
 /// How long an approved human gate can be redeemed (seconds).
 const APPROVAL_TTL: u64 = 900;
 /// Most approvals the enclosure holds; the oldest are dropped first.
@@ -348,6 +350,20 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                             "propertyCount",
                             Json::Int(i64::try_from(ot.properties.len()).unwrap_or(i64::MAX)),
                         ),
+                        (
+                            "properties",
+                            Json::Arr(
+                                ot.properties
+                                    .iter()
+                                    .map(|p| {
+                                        Json::obj(vec![
+                                            ("name", Json::s(&p.api_name)),
+                                            ("type", Json::s(p.value_type.as_str())),
+                                        ])
+                                    })
+                                    .collect(),
+                            ),
+                        ),
                         ("instanceCount", Json::s(&thousands(readable.len()))),
                         ("marking", Json::s(band(top))),
                         ("compartment", compartment),
@@ -363,32 +379,41 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         )
     }
 
-    /// `POST /query`: a typed fabric query, authorised and audited once, with every
-    /// result marking-filtered against the caller.
+    /// `POST /query`: a search of one object type — conditions beyond equality, text
+    /// matching, ordering and paging — authorised and audited once, with every match
+    /// marking-filtered against the caller. `total` counts only what they may read.
+    /// A search naming a property the type lacks, or a value it cannot hold, is
+    /// refused with 400 rather than quietly matching nothing. [DD-1] [NFR-SEC-2]
     pub fn query(
         &mut self,
         ctx: &PolicyContext,
-        object_type: &str,
-        max_results: i64,
-        filter: BTreeMap<String, String>,
+        mut s: Search,
         now: u64,
     ) -> Result<Json, EdgeError> {
-        let q = Query {
-            object_type: object_type.to_string(),
-            filter,
-            link_traversals: Vec::new(),
-            max_results: usize::try_from(max_results.clamp(1, 500)).unwrap_or(500),
-        };
-        let resp = match self.fabric.query(ctx, &q, now) {
-            Ok(resp) => resp,
+        s.limit = s.limit.clamp(1, usize::try_from(MAX_PAGE).unwrap_or(500));
+        if let Err(problem) = fabric::search::check(self.fabric.registry(), &s) {
+            return Err(
+                if self.fabric.registry().object_type(&s.object_type).is_none() {
+                    EdgeError::new(404, &problem.0)
+                } else {
+                    EdgeError::bad_request(&problem.0)
+                },
+            );
+        }
+        let page = match self.fabric.search(ctx, &s, now) {
+            Ok(page) => page,
             Err(e) => return Err(self.refusal(e)),
         };
+        let int = |n: usize| Json::Int(i64::try_from(n).unwrap_or(i64::MAX));
         Ok(Json::obj(vec![
             (
                 "results",
-                Json::Arr(resp.results.iter().map(object_json).collect()),
+                Json::Arr(page.results.iter().map(object_json).collect()),
             ),
-            ("auditId", Json::s(&audit_id(resp.audit_seq))),
+            ("total", int(page.total)),
+            ("offset", int(s.offset)),
+            ("limit", int(s.limit)),
+            ("auditId", Json::s(&audit_id(page.audit_seq))),
         ]))
     }
 
@@ -620,14 +645,23 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     /// is then authorised individually and dropped if the caller may not read it — the
     /// same model as a fabric query. A seed the caller cannot read is reported as
     /// unknown, and writes no object-specific audit row that would reveal it exists.
+    ///
+    /// At most `limit` nodes come back (60 by default, 500 at most). When the walk
+    /// had more to show — more starting objects than the limit, or more objects
+    /// reached — the response says so with `truncated`, so a partial graph is never
+    /// shown as the whole. `seedObjects` counts the starting objects the caller may
+    /// read. [DD-1]
     pub fn search_around(
         &mut self,
         ctx: &PolicyContext,
         seed: &str,
         hops: i64,
+        limit: Option<i64>,
         now: u64,
     ) -> Result<Json, EdgeError> {
         let hops = u64::try_from(hops.clamp(1, MAX_HOPS)).unwrap_or(1);
+        let node_limit = limit.unwrap_or(DEFAULT_NODE_LIMIT).clamp(1, MAX_NODE_LIMIT);
+        let node_limit = usize::try_from(node_limit).unwrap_or(60);
 
         let (roots, resource) = {
             let gov = self.fabric.governance();
@@ -641,7 +675,6 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                         .objects_of_type(ty)
                         .into_iter()
                         .filter(|o| can_read(gov, ctx, o))
-                        .take(MAX_ROOTS)
                         .map(|o| o.id.clone())
                         .collect();
                     let resource = Resource {
@@ -678,8 +711,10 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
         let mut frontier: Vec<String> = Vec::new();
+        let seed_objects = roots.len();
+        let mut truncated = roots.len() > node_limit;
 
-        for id in &roots {
+        for id in roots.iter().take(node_limit) {
             if let Some(o) = store.get_object(id) {
                 if seen.insert(o.id.clone()) {
                     nodes.push(node_json(reg, o, 0));
@@ -720,7 +755,8 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                         continue;
                     }
                     let is_new = !seen.contains(&other.id);
-                    if is_new && nodes.len() >= MAX_NODES {
+                    if is_new && nodes.len() >= node_limit {
+                        truncated = true;
                         continue;
                     }
                     if edge_keys.insert((lt.id.clone(), source.id.clone(), target.id.clone())) {
@@ -744,6 +780,15 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             ("seed", Json::s(seed)),
             ("nodes", Json::Arr(nodes)),
             ("edges", Json::Arr(edges)),
+            ("truncated", Json::Bool(truncated)),
+            (
+                "nodeLimit",
+                Json::Int(i64::try_from(node_limit).unwrap_or(i64::MAX)),
+            ),
+            (
+                "seedObjects",
+                Json::Int(i64::try_from(seed_objects).unwrap_or(i64::MAX)),
+            ),
             ("auditId", Json::s(&audit_id(decision.audit_seq))),
         ]))
     }

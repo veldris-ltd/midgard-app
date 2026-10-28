@@ -137,7 +137,7 @@ export function AuditScreen() {
       active="audit"
       context="ENCLOSURE / AUDIT LINEAGE"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Trace by resource, actor, or audit id…" />}
+      toolbar={<ConsoleToolbar />}
       navFooter={<Terminal lines={['> midgard status', '# ALL SYSTEMS NOMINAL']} style={{ fontSize: 10 }} />}
       aside={aside}
     >

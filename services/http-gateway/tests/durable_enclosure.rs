@@ -143,7 +143,18 @@ fn approved_gate(enclosure: &mut DurableEnclosure, action: &str, target: &str) -
 /// An aircraft's `status`, read through the governed query path.
 fn status_of(enclosure: &mut DurableEnclosure, id: &str) -> String {
     let result = enclosure
-        .query(&operator(), "aircraft", 50, BTreeMap::new(), NOW)
+        .query(
+            &operator(),
+            fabric::Search {
+                object_type: "aircraft".into(),
+                conditions: Vec::new(),
+                order_by: None,
+                descending: false,
+                offset: 0,
+                limit: 50,
+            },
+            NOW,
+        )
         .unwrap_or_else(|e| panic!("query refused: {}", e.body.encode()));
     let Some(Json::Arr(objects)) = result.get("results") else {
         panic!("no results: {}", result.encode());
