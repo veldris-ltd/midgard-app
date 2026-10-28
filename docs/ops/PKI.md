@@ -105,7 +105,7 @@ the handoff. Neither has a default; a runner missing either fails the release.
 
 ## HSM key ceremony (CA + release signing key)
 
-**To hold the ceremony, use Midgard Signing** (veldris-ltd/midgard-signing-app), and
+**To hold the ceremony, use Dvalin** (veldris-ltd/midgard-signing-app), and
 follow its `docs/KEY_CEREMONY.md`, step by step; [KEY_CEREMONY.md](KEY_CEREMONY.md)
 here says what it leaves in this repository. It is a guided Windows (and Linux) app
 that generates the release signing key (ML-DSA-87) and the Bifrost admission key

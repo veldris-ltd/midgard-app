@@ -1,13 +1,13 @@
 # Release key ceremony
 
-The release key ceremony is held with **Midgard Signing**, a separate application:
+The release key ceremony is held with **Dvalin** (DVALIN · MIDGARD KEY CEREMONY), a separate application:
 [veldris-ltd/midgard-signing-app](https://github.com/veldris-ltd/midgard-signing-app)
 (branch `dev`). Its step-by-step procedure is
 [`docs/KEY_CEREMONY.md`](https://github.com/veldris-ltd/midgard-signing-app/blob/dev/docs/KEY_CEREMONY.md)
 in that repository. Follow that document; this page says only what the ceremony leaves
 in this repository and how it is checked here. [RT-35] [AC-RF-CA-6a] [NFR-PQ-3]
 
-Midgard Signing is a Windows window app (`midgard-signing.exe`, which also runs on
+Dvalin is a Windows window app (`dvalin.exe`, which also runs on
 Linux) with a console form (`mg-ceremony`). Its key generation, signing and
 verification are this repository's `attest` crate, pinned by revision, so the keystores
 it writes are read by the same code on the signing runner; before publishing, each key

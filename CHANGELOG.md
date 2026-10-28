@@ -19,7 +19,7 @@ CONTRIBUTING.md for the version policy.
   this repository.
 
 ### Changed
-- **The key ceremony is held with Midgard Signing**, a separate application
+- **The key ceremony is held with Dvalin**, a separate application
   (veldris-ltd/midgard-signing-app): a guided Windows and Linux app, with a console
   form, whose key generation, signing and verification are this repository's
   `attest`, pinned by revision. `deploy/trust/ceremony.sh` is removed; its claims are
