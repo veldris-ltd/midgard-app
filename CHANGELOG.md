@@ -11,8 +11,8 @@ CONTRIBUTING.md for the version policy.
 
 ### Added
 - **Shamir secret sharing in the crypto core.** `pqc_agility::shamir` splits a secret
-  k of n over GF(2^8) in constant time and zeroises its intermediates. The Midgard
-  Signing app uses it, when key fragmentation is chosen, to split the escrow key that
+  k of n over GF(2^8) in constant time and zeroises its intermediates. Dvalin
+  uses it, when key fragmentation is chosen, to split the escrow key that
   seals the release keystores among named holders. It is new and marked for
   independent review before production reliance. [RT-35] [NFR-PQ-2]
 - `docs/ops/KEY_CEREMONY.md`: where the key ceremony is held, and what it leaves in
@@ -20,7 +20,7 @@ CONTRIBUTING.md for the version policy.
 
 ### Changed
 - **The key ceremony is held with Dvalin**, a separate application
-  (veldris-ltd/midgard-signing-app): a guided Windows and Linux app, with a console
+  (veldris-ltd/dvalin-app): a guided Windows and Linux app, with a console
   form, whose key generation, signing and verification are this repository's
   `attest`, pinned by revision. `deploy/trust/ceremony.sh` is removed; its claims are
   that repository's tests, and its contract test runs this repository's release

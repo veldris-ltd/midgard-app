@@ -25,8 +25,8 @@ run unless both files exist, hold a key of the right algorithm, and hold nothing
 
 ## Provisioning
 
-The **key ceremony** (RT-35) populates all three files. It is held with the Midgard
-Signing app (veldris-ltd/midgard-signing-app; see
+The **key ceremony** (RT-35) populates all three files. It is held with Dvalin
+(veldris-ltd/dvalin-app; see
 [`docs/ops/KEY_CEREMONY.md`](../../docs/ops/KEY_CEREMONY.md)), which generates each
 keypair, writes its public half here and records the key id. Until then the
 anchors are absent, and verification **fails closed**. That is the correct posture, not

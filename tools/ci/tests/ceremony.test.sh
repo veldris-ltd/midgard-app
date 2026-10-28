@@ -3,7 +3,7 @@
 #
 #   bash tools/ci/tests/ceremony.test.sh
 #
-# The ceremony itself is the Dvalin app (veldris-ltd/midgard-signing-app),
+# The ceremony itself is the Dvalin app (veldris-ltd/dvalin-app),
 # whose contract test runs this repository's release checks against what it
 # publishes. The claim under test here is this repository's half: the two trust
 # anchors the ceremony writes are not ignored by git, so its commit step works, while

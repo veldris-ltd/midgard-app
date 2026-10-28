@@ -1,9 +1,9 @@
 # Release key ceremony
 
 The release key ceremony is held with **Dvalin** (DVALIN · MIDGARD KEY CEREMONY), a separate application:
-[veldris-ltd/midgard-signing-app](https://github.com/veldris-ltd/midgard-signing-app)
+[veldris-ltd/dvalin-app](https://github.com/veldris-ltd/dvalin-app)
 (branch `dev`). Its step-by-step procedure is
-[`docs/KEY_CEREMONY.md`](https://github.com/veldris-ltd/midgard-signing-app/blob/dev/docs/KEY_CEREMONY.md)
+[`docs/KEY_CEREMONY.md`](https://github.com/veldris-ltd/dvalin-app/blob/dev/docs/KEY_CEREMONY.md)
 in that repository. Follow that document; this page says only what the ceremony leaves
 in this repository and how it is checked here. [RT-35] [AC-RF-CA-6a] [NFR-PQ-3]
 
