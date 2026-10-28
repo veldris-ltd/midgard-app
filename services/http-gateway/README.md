@@ -86,6 +86,17 @@ A permitted request is audited before it is served; a denied one is audited and
 returns `403`.
 CORS is locked to `http://localhost:5173`.
 
+Limits, each answered before anything is read or authenticated:
+
+| Request | Status |
+|---|---|
+| Body over 1 MiB (`MAX_BODY_BYTES`) | **413** |
+| Request line and headers over 16 KiB (`MAX_HEAD_BYTES`) | **431** |
+| `Transfer-Encoding` (a chunked body) | **411**: send `Content-Length` |
+| A `Content-Length` that is not a number | **400** |
+
+Logins are throttled per username (`login_throttle.rs`): after five failures in a row the name is locked for 30 s, doubling with each further failure up to 15 minutes, and refused with **429** and `Retry-After` until it lapses, even with the right password. A success, or 15 minutes without a failure, clears the count. Every throttled attempt is audited. The edge sees no client address, so limiting by source is left to the TLS front end.
+
 ## Test
 
 ```bash

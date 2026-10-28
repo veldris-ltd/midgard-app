@@ -127,7 +127,7 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
     };
 
     let gw = gateway(&dir);
-    for (label, body) in [
+    for (i, (label, body)) in [
         ("no second factor", credentials("alice", PASSWORD, None)),
         (
             "wrong second factor",
@@ -145,13 +145,19 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
             "the built-in demo credential",
             credentials(DEMO_USERNAME, DEMO_PASSWORD, None),
         ),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let r = login(&gw, &body);
         assert_eq!(r.status, 401, "{label}: {}", r.body);
         assert!(!r.body.contains("token"), "{label} mints nothing");
+        // Compared with a different stranger each time, so no one name collects
+        // enough failures to be locked.
+        let stranger = format!("stranger-{i}");
         assert_eq!(
             r.body,
-            login(&gw, &credentials("mallory", "x", None)).body,
+            login(&gw, &credentials(&stranger, "x", None)).body,
             "{label} is indistinguishable from any other refusal"
         );
     }
@@ -184,7 +190,8 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
             .count()
     };
     assert_eq!(rows("alice", "LOGIN refused"), 3, "{}", audit.body);
-    assert_eq!(rows("mallory", "LOGIN refused"), 6, "{}", audit.body);
+    assert_eq!(rows("mallory", "LOGIN refused"), 1, "{}", audit.body);
+    assert_eq!(rows("stranger-0", "LOGIN refused"), 1, "{}", audit.body);
     assert_eq!(rows(DEMO_USERNAME, "LOGIN refused"), 1, "{}", audit.body);
     assert_eq!(rows("alice", "LOGIN succeeded"), 1, "{}", audit.body);
     drop(gw);

@@ -24,6 +24,7 @@ pub mod data;
 pub mod enclosure;
 pub mod http;
 pub mod import_file;
+pub mod login_throttle;
 pub mod mesh_sync;
 pub mod ontology_file;
 pub mod state_dir;
@@ -35,7 +36,7 @@ use data::State;
 use enclosure::{EdgeError, Enclosure};
 use fabric::{InMemoryLedger, InMemoryStore, LedgerStore, ObjectStore};
 use governance::{GovContext, Governance};
-use http::{read_request, Request, Response};
+use http::{read_request, Incoming, Request, Response};
 use iam::{
     verify_token, AuthError, Authenticator, Credentials, Directory, DurableDirectory, Enrollment,
     Idp, InMemoryDirectory, IssueError, MfaProof, PasswordHasher, Pbkdf2Hasher, TokenClaims,
@@ -112,6 +113,8 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// Login principals: token attributes, password hash and any second factor. Behind
     /// a lock because an approved enrolment writes to it while logins read it.
     directory: Mutex<Logins>,
+    /// Failed logins per username, and the lockouts they earn. [NFR-SEC-1]
+    login_throttle: Mutex<login_throttle::LoginThrottle>,
     /// Administration — dual-controlled enrolment — where a durable directory is served.
     admin: Option<Mutex<admin_api::AdminControl>>,
     /// The ontology records synced over the mesh are checked against, where a state
@@ -166,6 +169,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             markings: BTreeMap::new(),
             idp: None,
             directory: Mutex::new(Logins::InMemory(InMemoryDirectory::new())),
+            login_throttle: Mutex::new(login_throttle::LoginThrottle::new()),
             admin: None,
             ontology: None,
             hasher: Pbkdf2Hasher::production(),
@@ -270,6 +274,23 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         };
 
         let unauthorized = || Response::json(401, error_json("invalid credentials").encode());
+        let throttled = |seconds: u64| {
+            Response::json(
+                429,
+                error_json(&format!(
+                    "too many failed logins: try again in {seconds} seconds"
+                ))
+                .encode(),
+            )
+            .with_retry_after(seconds)
+        };
+        // A name locked by repeated failures is refused before its password is
+        // checked, so guessing gains nothing while the lock holds. [NFR-SEC-1]
+        let locked = self.throttle().retry_after(username, now);
+        if let Some(seconds) = locked {
+            return self.record_login(username, "LOGIN throttled", throttled(seconds), now);
+        }
+
         // Password, then any enrolled second factor, then the PQ-signed token bound to
         // the principal's attributes — one path, every check fail-closed. [RC-29]
         let outcome = {
@@ -311,13 +332,22 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             ),
             // An unknown principal, a wrong password, a missing or wrong second factor,
             // or a purpose the principal does not hold: one uniform 401, so a caller
-            // cannot tell which check refused them.
-            Err(_) => ("LOGIN refused", unauthorized()),
+            // cannot tell which check refused them. The failure counts towards a lock.
+            Err(_) => match self.throttle().record_failure(username, now) {
+                Some(seconds) => ("LOGIN refused, locked", throttled(seconds)),
+                None => ("LOGIN refused", unauthorized()),
+            },
         };
+        if response.status == 200 {
+            self.throttle().record_success(username);
+        }
+        self.record_login(username, event, response, now)
+    }
 
-        // Every attempt is recorded in the same ledger as every access decision, so a
-        // password spray or a stolen credential leaves lineage. A login the ledger cannot
-        // record does not complete: no token leaves. [AC-M-4] [RC-29]
+    /// Every attempt is recorded in the same ledger as every access decision, so a
+    /// password spray or a stolen credential leaves lineage. A login the ledger cannot
+    /// record does not complete: no token leaves. [AC-M-4] [RC-29]
+    fn record_login(&self, username: &str, event: &str, response: Response, now: u64) -> Response {
         match self.lock().governance_mut().record_event(
             &audit_actor(username),
             event,
@@ -327,6 +357,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             Ok(_) => response,
             Err(e) => Response::json(500, error_json(&format!("audit failure: {e}")).encode()),
         }
+    }
+
+    /// The failed-login throttle, recovering from poisoning like [`Self::lock`].
+    fn throttle(&self) -> std::sync::MutexGuard<'_, login_throttle::LoginThrottle> {
+        self.login_throttle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// `POST /api/v1/admin/*` — administration, authenticated by an administrator's
@@ -543,10 +580,14 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     }
 
     fn cors_origin(&self, req: &Request) -> Option<String> {
-        req.origin
-            .as_ref()
-            .filter(|o| self.allowed_origins.iter().any(|a| a == *o))
-            .cloned()
+        self.allowed_origin(req.origin.as_deref())
+    }
+
+    /// `origin`, if it is on the allowlist.
+    fn allowed_origin(&self, origin: Option<&str>) -> Option<String> {
+        origin
+            .filter(|o| self.allowed_origins.iter().any(|a| a == o))
+            .map(str::to_string)
     }
 
     fn handle_inner(&self, req: &Request, now: u64) -> Response {
@@ -815,7 +856,15 @@ fn handle_connection<S: ObjectStore, L: LedgerStore>(
     gw: &SecuredGateway<S, L>,
 ) -> std::io::Result<()> {
     match read_request(&stream)? {
-        Some(req) => gw.handle(&req, now_secs()).write(&mut stream),
+        Some(Incoming::Request(req)) => gw.handle(&req, now_secs()).write(&mut stream),
+        // Too large or unframed: refused before the body is read, and not admitted, so
+        // it reaches neither authentication nor the ledger. [NFR-SEC-1]
+        Some(Incoming::Refused { response, origin }) => {
+            let cors = gw.allowed_origin(origin.as_deref());
+            response.with_allow_origin(cors).write(&mut stream)?;
+            http::linger(&stream);
+            Ok(())
+        }
         None => Ok(()),
     }
 }

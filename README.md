@@ -335,7 +335,7 @@ These are compile-time constants (`DEMO_USERNAME` / `DEMO_PASSWORD` and `DEMO_AP
 
 A human-gated action needs a second person. The operator requests approval for one action on one object, the approver approves it (sign in as `approver` in another browser or a private window), and the operator then runs it. The approval is good once, for that action on that object, for 15 minutes.
 
-Credentials are exchanged at `POST /api/v1/login` for an **ML-DSA-signed bearer token**, which authorises every subsequent request. A wrong password, a missing token and a forged token all return a uniform `401`.
+Credentials are exchanged at `POST /api/v1/login` for an **ML-DSA-signed bearer token**, which authorises every subsequent request. A wrong password, a missing token and a forged token all return a uniform `401`. After five wrong passwords in a row a username is locked: the sixth attempt and any made while the lock holds get `429` with `Retry-After`, even with the right password. The first lock is 30 seconds and each further failure doubles it, up to 15 minutes.
 
 You can drive the same flow without a browser:
 
@@ -390,6 +390,8 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev -- --strictPort
 ```
 
 **`Connection refused` on 7710.** The edge isn't running, or it bound inside a container without `-p 7710:7710`.
+
+**`429 Too Many Requests` when logging in.** Too many wrong passwords for that username. Wait the number of seconds the message gives (also sent as `Retry-After`), then log in with the right one. Restarting the gateway also clears it.
 
 **You were logged in, then everything returned 401.** The gateway was restarted. Its IdP keypair is generated fresh on every start, so previously issued tokens can no longer verify. Log in again.
 
