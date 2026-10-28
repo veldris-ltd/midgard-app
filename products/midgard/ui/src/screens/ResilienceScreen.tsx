@@ -84,7 +84,7 @@ export function ResilienceScreen() {
       active="resilience"
       context="ENCLOSURE / RESILIENCE"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search rollouts, rings, versions…" />}
+      toolbar={<ConsoleToolbar />}
       aside={aside}
     >
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>

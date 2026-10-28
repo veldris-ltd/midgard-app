@@ -284,7 +284,7 @@ AUTH=(-H "authorization: Bearer $TOKEN" -H 'content-type: application/json')
 curl -s "${AUTH[@]}" http://127.0.0.1:7710/api/v1/object-types
 ```
 
-**Query a type**, optionally filtering on property equality. Filter values are always written as strings and are read against the property's type, so `"500"` matches the integer `500`. Several filters must all match. `maxResults` defaults to 5 and is capped at 500.
+**Query a type**, optionally filtering on property equality. Filter values are always written as strings and are read against the property's type, so `"500"` matches the integer `500`. Several filters must all match. `maxResults` (or `limit`) defaults to 5 and is capped at 500. Every response carries `total`, the number of matches you may read, so you can page with `offset`.
 
 ```bash
 curl -s -X POST "${AUTH[@]}" http://127.0.0.1:7710/api/v1/query \
@@ -295,7 +295,15 @@ curl -s -X POST "${AUTH[@]}" http://127.0.0.1:7710/api/v1/query \
 {"results":[{"id":"transformer/TX-40117","typeId":"transformer","propertyValues":{"in_service":"true","last_inspected":"1767225600","load_fraction":"0.71","oil_temp_c":"58.5","rating_kva":"500","serial":"TX-40117","status":"normal"},"markings":[{"id":"mk-internal","name":"INTERNAL","level":"internal","compartments":[]}]}],"auditId":"AUD-…"}
 ```
 
-A filter on a property the type does not declare returns no results rather than an error, so check spelling if a query comes back empty.
+**Compare, match text, order and page** with `where`, `orderBy`, `descending` and `offset`. Each `where` condition names a property, an operator (`eq`, `ne`, `lt`, `lte`, `gt`, `gte`, or `contains` for text, ignoring case) and a value; the property `*` with `contains` matches any text property. Every condition must hold, together with any `filter`:
+
+```bash
+curl -s -X POST "${AUTH[@]}" http://127.0.0.1:7710/api/v1/query \
+  -d '{"objectType":"transformer","where":[{"property":"load_fraction","op":"gt","value":"0.8"}],"orderBy":"oil_temp_c","descending":true,"offset":0,"limit":50}'
+# {"results":[…],"total":3,"offset":0,"limit":50,"auditId":"AUD-…"}
+```
+
+A filter or condition on a property the type does not declare, a value its property cannot hold, `contains` on a property that is not text, or an unknown operator is refused with `400` and says which. The Midgard console's **Data search** page builds these queries for you.
 
 **Walk the links** out from an object, up to `hops` steps (default 2) in either direction:
 

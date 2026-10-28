@@ -69,13 +69,13 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
 |---|---|---|
 | GET | `/health` | — |
 | GET | `/object-types` | `listObjectTypes` |
-| POST | `/query` | `query` |
+| POST | `/query` | `query` — `filter` (exact), `where` (`eq` `ne` `lt` `lte` `gt` `gte` `contains`; `*` = any text property), `orderBy` + `descending`, `offset` + `limit`/`maxResults` (≤ 500). Returns `total`, the readable matches. A property, value or operator the schema can't answer is **400** |
 | POST | `/actions` | `applyAction` — on one object (`params.target` = `<type>/<id>`; a wildcard is **400**). A gated action needs `humanGateToken` = the id of an approval granted for this caller, action and object, else **403** |
 | GET | `/whoami` | `whoami` — the caller's subject, roles, clearance, compartments, purpose and `expiresAt`, read from their verified token |
 | GET | `/approvals` | `listApprovals` — approvals whose object the caller can read |
 | POST | `/approvals` | `requestApproval` — `{actionType, target}` → a pending approval |
 | POST | `/approvals/{id}/approve` · `/approvals/{id}/reject` | `decideApproval` — needs the policy's `Approve` action; never the requester. **409** once decided |
-| POST | `/search-around` | `searchAround` |
+| POST | `/search-around` | `searchAround` — `seedId` (`<type>/<id>` or `<type>/*`), `hops` (1–4), `limit` (nodes, default 60, ≤ 500). `truncated` says the walk had more than `limit`; `seedObjects` counts the starting objects |
 | GET | `/audit?limit=` | `getAudit` (polled for `auditStream`) |
 | GET | `/policies` | `listPolicies` |
 | POST | `/policy/simulate` | `simulatePolicy` (deny-by-default PDP) |

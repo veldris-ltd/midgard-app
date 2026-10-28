@@ -91,7 +91,7 @@ export function KeysScreen() {
       active="kms"
       context="ENCLOSURE / KEYS & CRYPTO"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search keys, algorithms, scopes…" />}
+      toolbar={<ConsoleToolbar />}
       navFooter={<Terminal lines={['> midgard status', '# ALL SYSTEMS NOMINAL']} style={{ fontSize: 10 }} />}
       aside={aside}
     >

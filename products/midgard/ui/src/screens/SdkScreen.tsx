@@ -94,7 +94,7 @@ export function SdkScreen() {
       active="sdk"
       context="ENCLOSURE / SDK & APIs"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search services, RPCs, types…" />}
+      toolbar={<ConsoleToolbar />}
       aside={aside}
     >
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>

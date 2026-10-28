@@ -16,6 +16,7 @@ use crate::action::{Effect, FunctionRuntime};
 use crate::error::FabricError;
 use crate::object::ObjectInstance;
 use crate::query::{run_query, Query};
+use crate::search::{run_search, Search, SearchPage};
 use crate::store::ObjectStore;
 use crate::types::TypeRegistry;
 use crate::value::Value;
@@ -137,6 +138,38 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         let results = run_query(&self.registry, &self.store, &self.governance, ctx, q)?;
         Ok(QueryResponse {
             results,
+            audit_seq: decision.audit_seq,
+        })
+    }
+
+    /// Search one object type with comparisons, text matching, ordering and paging.
+    /// Authorised and audited once, like [`Self::query`]; every match, the total and
+    /// the page are marking-filtered for the caller. [NFR-SEC-2] [AC-M-4]
+    pub fn search(
+        &mut self,
+        ctx: &GovContext,
+        s: &Search,
+        now: u64,
+    ) -> Result<SearchPage, FabricError> {
+        let type_resource = Resource {
+            id: ResourceId(s.object_type.clone()),
+            marking: Marking {
+                level: ClassificationLevel::UNCLASSIFIED,
+                compartments: BTreeSet::new(),
+            },
+            allowed_purposes: [ctx.purpose.clone()].into_iter().collect(),
+        };
+        let decision = self
+            .governance
+            .authorize(ctx, &type_resource, "Read", now)
+            .map_err(|e| FabricError::Audit(e.to_string()))?;
+        if !decision.permitted {
+            return Err(FabricError::Denied);
+        }
+        let (results, total) = run_search(&self.registry, &self.store, &self.governance, ctx, s)?;
+        Ok(SearchPage {
+            results,
+            total,
             audit_seq: decision.audit_seq,
         })
     }

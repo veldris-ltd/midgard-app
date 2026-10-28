@@ -78,7 +78,7 @@ export function ComputeScreen() {
       active="compute"
       context="ENCLOSURE / COMPUTE"
       asideWidth={340}
-      toolbar={<ConsoleToolbar placeholder="Search jobs, backends, kinds…" />}
+      toolbar={<ConsoleToolbar />}
       navFooter={<Terminal lines={['> midgard status', '# ALL SYSTEMS NOMINAL']} style={{ fontSize: 10 }} />}
       aside={aside}
     >
