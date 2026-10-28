@@ -489,6 +489,44 @@ fn every_audit_row_is_verified_against_its_ml_dsa_signature() {
 }
 
 #[test]
+fn whoami_is_the_signed_in_user_from_their_token() {
+    let (gw, token) = session();
+    let strings = |j: &Json, key: &str| -> Vec<String> {
+        items(j.get(key).expect(key))
+            .iter()
+            .map(|v| v.as_str().expect("a string").to_string())
+            .collect()
+    };
+
+    let r = call(&gw, "GET", "/api/v1/whoami", "", "", Some(&token));
+    assert_eq!(r.status, 200, "{}", r.body);
+    let me = json(&r);
+    assert_eq!(field(&me, "subject"), DEMO_USERNAME);
+    assert_eq!(strings(&me, "roles"), ["operator"]);
+    assert_eq!(field(&me, "clearance"), "confidential");
+    assert_eq!(strings(&me, "compartments"), ["OPS-N"]);
+    assert_eq!(field(&me, "purpose"), "operations");
+    let expires = me
+        .get("expiresAt")
+        .and_then(Json::as_i64)
+        .expect("expiresAt");
+    assert!(expires > i64::try_from(now()).unwrap());
+
+    let them = json(&call(
+        &gw,
+        "GET",
+        "/api/v1/whoami",
+        "",
+        "",
+        Some(&approver(&gw)),
+    ));
+    assert_eq!(field(&them, "subject"), DEMO_APPROVER_USERNAME);
+    assert_eq!(strings(&them, "roles"), ["approver"]);
+
+    assert_eq!(call(&gw, "GET", "/api/v1/whoami", "", "", None).status, 401);
+}
+
+#[test]
 fn policies_are_the_rule_set_the_pdp_enforces() {
     let (gw, token) = session();
     let r = call(&gw, "GET", "/api/v1/policies", "", "", Some(&token));

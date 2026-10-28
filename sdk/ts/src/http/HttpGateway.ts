@@ -38,26 +38,33 @@ export interface HttpGatewayOptions {
   baseUrl: string;
   /** Bearer of a PQ-signed IdP token, when the edge terminates PQ-mTLS for the browser. */
   token?: string;
-  /** Session policy context sent on fabric calls (defaults to the demo operator). */
+  /** The signed-in session's identity, as `whoami` reports it; `policy()` returns it.
+   *  Without one the context is empty: the edge authorises from the token either way,
+   *  but screens that show who is acting have no one to show. */
   policy?: PolicyContext;
+  /** Called when the edge answers 401: the token has expired or no longer verifies
+   *  (a gateway restart re-keys its IdP), so the session is over. */
+  onUnauthorized?: () => void;
 }
 
-const DEFAULT_POLICY: PolicyContext = {
-  subject: 'j.benjamin',
+const NO_SESSION: PolicyContext = {
+  subject: '',
   purpose: 'operations',
-  clearance: 'confidential',
-  roles: ['operator', 'analyst'],
+  clearance: 'open',
+  roles: [],
 };
 
 class HttpGateway implements GatewayClient {
   private readonly base: string;
   private readonly token?: string;
   private readonly ctx: PolicyContext;
+  private readonly onUnauthorized?: () => void;
 
   constructor(opts: HttpGatewayOptions) {
     this.base = opts.baseUrl.replace(/\/$/, '');
     this.token = opts.token;
-    this.ctx = opts.policy ?? DEFAULT_POLICY;
+    this.ctx = opts.policy ?? NO_SESSION;
+    this.onUnauthorized = opts.onUnauthorized;
   }
 
   policy(): PolicyContext {
@@ -91,6 +98,7 @@ class HttpGateway implements GatewayClient {
   private async fail(res: Response, path: string): Promise<never> {
     const j = (await res.json().catch(() => ({}))) as { error?: string };
     const message = j.error ?? `http-gateway ${path} → ${res.status}`;
+    if (res.status === 401) this.onUnauthorized?.();
     if (res.status === 403 && message.startsWith('Human gate')) {
       throw new HumanGateRequiredError(path, message);
     }
