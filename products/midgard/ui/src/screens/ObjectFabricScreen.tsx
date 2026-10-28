@@ -30,6 +30,12 @@ const instanceLabel = (i: ObjectInstance) => {
   return name ? `${i.id} · ${name}` : i.id;
 };
 
+/* Object fabric · object types. The registry's types, and actions on one object of
+ * the selected type at a time. A human-gated action is requested here, approved by a
+ * second person, and only then run by the requester with that approval's id; every
+ * action, request and decision shows its outcome or the gateway's refusal.
+ * [DD-1] [NFR-AI-1] */
+
 export function ObjectFabricScreen() {
   const gateway = useGateway();
   const { data: types, loading } = useAsync((c) => c.listObjectTypes(), []);
