@@ -38,6 +38,12 @@ export async function login(baseUrl: string, creds: LoginCredentials): Promise<L
     ),
   });
   if (res.status === 401) throw new Error('Invalid credentials');
+  if (res.status === 429) {
+    // Too many failed logins for this name: the edge says how long to wait.
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    const wait = res.headers.get('Retry-After');
+    throw new Error(j.error ?? `Too many failed logins${wait ? `: try again in ${wait} seconds` : ''}`);
+  }
   if (!res.ok) throw new Error(`login failed: ${res.status}`);
   return (await res.json()) as LoginResult;
 }
