@@ -14,6 +14,7 @@ import {
 import { useAsync } from '@midgard/ui-shared';
 import type { RpcSurface } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { SampleData } from '../app/SampleData';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 type Rpc = RpcSurface['rpcs'][number];
@@ -44,6 +45,9 @@ const SNIPPETS: Record<Lang, string[]> = {
   ],
 };
 
+/* SDK & API surface. The contract surface is fixed example data from the gateway,
+ * labelled SAMPLE DATA; the SDKs ship in the repository, so Download SDKs is disabled
+ * and says where they are. [AC-M-4] */
 export function SdkScreen() {
   const { data, loading } = useAsync((c) => c.getContractSurface(), []);
   const surfaces: RpcSurface[] = data ?? [];
@@ -96,13 +100,13 @@ export function SdkScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={11}>SDK & APIS</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>SDK & API surface</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>SDK & API surface <SampleData /></h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value={surfaces.length} label="SERVICES" size="sm" />
         <StatBlock value={rpcCount} label="RPCS" size="sm" />
         <StatBlock value="TS · PY · RS · GO" label="SDK TARGETS" size="sm" accent />
-        <Button variant="primary" iconLeft={<Icon name="download" size={15} />}>Download SDKs</Button>
+        <Button variant="primary" iconLeft={<Icon name="download" size={15} />} disabled title="Not available yet: the SDKs ship in the repository (sdk/)">Download SDKs</Button>
       </div>
 
       {surfaces.map((svc, si) => (

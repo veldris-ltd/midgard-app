@@ -18,26 +18,59 @@ import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 /* Audit lineage. An append-only, ML-DSA-signed ledger: seeded from `getAudit(40)`
  * then grown live via `useAuditStream`. A client-side substring filter and category
- * tags narrow the view; stat blocks emphasise the signed, unbroken chain. */
+ * tags narrow the view, and Export chain saves what is shown. Every figure is counted
+ * from the records on screen. [NFR-SEC-2] [AC-M-4] */
 
-type Category = 'all' | 'actions' | 'queries' | 'writes' | 'agent';
+type Category = 'all' | 'actions' | 'queries' | 'writes' | 'sessions' | 'admin' | 'agent';
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: 'all', label: 'all events' },
   { id: 'actions', label: 'actions' },
   { id: 'queries', label: 'queries' },
   { id: 'writes', label: 'writes' },
+  { id: 'sessions', label: 'sign-ins' },
+  { id: 'admin', label: 'administration' },
   { id: 'agent', label: 'agent activity' },
 ];
 
-function matchesCategory(r: AuditRecord, cat: Category): boolean {
-  switch (cat) {
-    case 'actions': return r.action.startsWith('Action');
-    case 'queries': return r.action.startsWith('Query');
-    case 'writes': return r.action.startsWith('Write');
-    case 'agent': return r.actor.startsWith('agent:');
-    default: return true;
+/** Edge decisions on these verbs bring data in, rather than act on it. */
+const WRITE_VERBS = new Set(['SyncRecords', 'OpenChannel']);
+
+/** The category of one ledger entry. The gateway writes `PERMIT <verb>` / `DENY <verb>`
+ *  for each decision (`Read` for a query, `Apply`, `Approve` or an action's api name
+ *  for an action), `LOGIN …` for a sign-in, `SYNC records` and `IMPORT data` for data
+ *  coming in, and `ENROLL …`, `GRANT …` and `ISSUE …` from mg-admin. The offline mock
+ *  writes `Query · …`, `Action · …` and `Write · …`. */
+function categoryOf(r: AuditRecord): Exclude<Category, 'all' | 'agent'> | null {
+  const [head, verb = ''] = r.action.split(/\s+/, 2);
+  if (head === 'PERMIT' || head === 'DENY') {
+    if (verb === 'Read') return 'queries';
+    return WRITE_VERBS.has(verb) ? 'writes' : 'actions';
   }
+  if (head === 'LOGIN') return 'sessions';
+  if (head === 'SYNC' || head === 'IMPORT') return 'writes';
+  if (head === 'ENROLL' || head === 'GRANT' || head === 'ISSUE') return 'admin';
+  if (r.action.startsWith('Query')) return 'queries';
+  if (r.action.startsWith('Action')) return 'actions';
+  if (r.action.startsWith('Write')) return 'writes';
+  return null;
+}
+
+function matchesCategory(r: AuditRecord, cat: Category): boolean {
+  if (cat === 'all') return true;
+  if (cat === 'agent') return r.actor.startsWith('agent:');
+  return categoryOf(r) === cat;
+}
+
+/** Save `records` as a JSON file the browser downloads. */
+function exportChain(records: AuditRecord[]) {
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `audit-chain-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function AuditScreen() {
@@ -54,7 +87,9 @@ export function AuditScreen() {
   );
 
   const total = live.length;
-  const signed = live.filter((r) => r.pqSignature.includes('ML-DSA')).length;
+  // The gateway re-verifies each row's hash and ML-DSA signature as it serves it, and
+  // marks it ✓ only when both hold.
+  const signed = live.filter((r) => r.pqSignature.includes('✓')).length;
   const signedPct = total ? Math.round((signed / total) * 100) : 100;
 
   const e = rows[Math.min(sel, Math.max(0, rows.length - 1))];
@@ -84,10 +119,10 @@ export function AuditScreen() {
         title="RECORD"
         lines={[
           `actor    ${e.actor}`,
+          `action   ${e.action}`,
           `resource ${e.resource}`,
-          'sig      ML-DSA-65 · lineage-sign-02',
-          'prev     sha3:44e1…9c02',
-          '# append-only · verified',
+          `sig      ${e.pqSignature}`,
+          e.pqSignature.includes('✓') ? '# append-only · verified' : '# signature did not verify',
         ]}
       />
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
@@ -114,8 +149,16 @@ export function AuditScreen() {
         <div style={{ flex: 1 }} />
         <StatBlock value={String(total)} label="RECORDS · LIVE" size="sm" />
         <StatBlock value={`${signedPct}%`} label="ML-DSA SIGNED" size="sm" accent />
-        <StatBlock value="0" label="CHAIN BREAKS" size="sm" />
-        <Button variant="secondary" iconLeft={<Icon name="download" size={15} />}>Export chain</Button>
+        <StatBlock value={String(total - signed)} label="UNVERIFIED" size="sm" />
+        <Button
+          variant="secondary"
+          iconLeft={<Icon name="download" size={15} />}
+          disabled={rows.length === 0}
+          title="Download the records shown, as JSON"
+          onClick={() => exportChain(rows)}
+        >
+          Export chain
+        </Button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

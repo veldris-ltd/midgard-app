@@ -165,6 +165,23 @@ approval, and change every object of a type at once.
 
 ## WP5: Truthful UI: Bugs 12, 04, 05, 06, 11, 16
 
+> **Status (2026-10-28): implemented.** What changed from the plan below:
+> - Search-around nodes now carry their real properties. The fake REDACTIONS figure
+>   is removed rather than replaced: counting the linked objects a caller can't see
+>   would reveal that they exist.
+> - The audit categories are worked out in the console from the gateway's real entry
+>   formats, with no new `kind` field. Sign-ins and administration get their own
+>   categories.
+> - "CHAIN BREAKS 0" became UNVERIFIED, counted from rows whose signature did not
+>   verify.
+> - Explore instances opens Search-around on every object of the type. Export chain
+>   downloads the records shown. Every other dead control is disabled with a reason.
+> - The top search box stays disabled until WP6's search page exists.
+> - The Midgard console's favicon reuses the launch site's, so the browser no longer
+>   requests a missing `favicon.ico`.
+> - The other consoles still have hard-coded nav badges. They run on mock data only,
+>   and Phill's notes cover Midgard.
+
 **Bug 12: made-up figures**
 - Object types header: work out the type count and the sum of `instanceCount`
   from `getObjectTypes()`, and use the same values in the nav badge and the

@@ -138,6 +138,8 @@ export interface GraphNode {
   typeName: string;
   marking: MarkingLevel;
   hop: number;
+  /** The object's properties. Every node returned is one the caller may read. */
+  propertyValues: Record<string, string>;
 }
 
 export interface GraphEdge {

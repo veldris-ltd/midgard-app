@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Badge,
   Button,
@@ -20,23 +21,42 @@ import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 /* Search-around · query engine. An interactive traversal: pick a seed object and a
  * hop depth, run `searchAround(seedId, hops)` through the gateway, and render the
- * returned SearchGraph grouped by hop with policy-filtered node detail. All data is
- * sourced from the SDK — the prototype's inline NODES const is replaced by the hook. */
+ * returned SearchGraph grouped by hop with each node's own properties. What is shown
+ * is always the traversal that was run: the heading names its seed, a failed run shows
+ * the gateway's error instead of the previous results, and nothing on screen is a
+ * placeholder. [DD-1] [NFR-SEC-2] */
+
+/** One traversal as it was run, so typing a new seed changes nothing until Run. */
+interface Traversal {
+  seedType: string;
+  seedId: string;
+  hops: number;
+}
 
 export function SearchAroundScreen() {
   const { data: types } = useAsync((c) => c.listObjectTypes(), []);
   const objectTypes: ObjectType[] = types ?? [];
 
-  const [seedType, setSeedType] = React.useState('aircraft');
-  const [seedId, setSeedId] = React.useState('AC-2214');
-  const [hops, setHops] = React.useState(2);
-  const [runKey, setRunKey] = React.useState(0);
+  // "Explore instances" on Object types opens this page as /search?type=<apiName>:
+  // every object of that type, one hop out.
+  const [params] = useSearchParams();
+  const explore = params.get('type');
+  const first: Traversal = explore
+    ? { seedType: explore, seedId: '', hops: 1 }
+    : { seedType: 'aircraft', seedId: 'AC-2214', hops: 2 };
+  const [seedType, setSeedType] = React.useState(first.seedType);
+  const [seedId, setSeedId] = React.useState(first.seedId);
+  const [hops, setHops] = React.useState(first.hops);
+  const [run, setRun] = React.useState<Traversal>(first);
   const [selId, setSelId] = React.useState<string | null>(null);
 
-  // Re-runs only when a traversal is requested; the loader closes over the latest
-  // seed/hops so the button drives the query rather than every keystroke.
-  const seed = `${seedType}/${seedId || '*'}`;
-  const { data: graph, loading } = useAsync((c) => c.searchAround(seed, hops), [runKey]);
+  // Re-runs only when a traversal is requested: the button drives the query, not
+  // every keystroke.
+  const seed = `${run.seedType}/${run.seedId || '*'}`;
+  const { data: result, loading, error } = useAsync((c) => c.searchAround(seed, run.hops), [run]);
+  // While a run is in flight, or after it failed, the previous run's results are not
+  // this one's: show none.
+  const graph = loading || error ? null : result;
 
   const nodes: GraphNode[] = graph?.nodes ?? [];
   const edges: GraphEdge[] = graph?.edges ?? [];
@@ -57,16 +77,11 @@ export function SearchAroundScreen() {
         </div>
       </Card>
       <div>
-        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PROPERTIES · POLICY-FILTERED</div>
-        {([
-          ['object_id', node.id],
-          ['risk_score', node.hop === 0 ? '0.87' : '—'],
-          ['position', '53.42N · 6.27W'],
-          ['clearance_note', '█ REDACTED · marking'],
-        ] as const).map(([k, v]) => (
+        <div className="mg-label" style={{ color: 'var(--text-faint)', marginBottom: 8 }}>PROPERTIES</div>
+        {[['object_id', node.id] as const, ...Object.entries(node.propertyValues ?? {})].map(([k, v]) => (
           <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)' }}>
-            <span style={{ color: 'var(--text-faint)', width: 104, flex: 'none' }}>{k}</span>
-            <span style={{ color: v.startsWith('█') ? 'var(--text-faint)' : 'var(--grey-100)' }}>{v}</span>
+            <span style={{ color: 'var(--text-faint)', width: 104, flex: 'none', overflowWrap: 'anywhere' }}>{k}</span>
+            <span style={{ color: 'var(--grey-100)', overflowWrap: 'anywhere' }}>{v}</span>
           </div>
         ))}
       </div>
@@ -74,9 +89,8 @@ export function SearchAroundScreen() {
         title="QUERY · AUDITED"
         lines={[
           `> fabric.searchAround("${seed}")`,
-          `hops      ${hops} · links ${edges.length} · objects ${nodes.length}`,
-          'policy    row + column level · applied',
-          'redacted  1 property (marking)',
+          `hops      ${run.hops} · links ${edges.length} · objects ${nodes.length}`,
+          'policy    per object, at query time',
           `# decision audited · #${graph?.auditId ?? '—'}`,
         ]}
       />
@@ -99,12 +113,11 @@ export function SearchAroundScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={13}>QUERY ENGINE</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Search-around · {seedId || 'seed'}</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Search-around · {run.seedId || `every ${run.seedType}`}</h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value={String(nodes.length)} label="OBJECTS" size="sm" />
-        <StatBlock value={`${edges.length} · ${hops} HOPS`} label="LINKS" size="sm" />
-        <StatBlock value="1" label="REDACTIONS" size="sm" accent />
+        <StatBlock value={`${edges.length} · ${run.hops} HOPS`} label="LINKS" size="sm" />
       </div>
 
       <Card size="sm">
@@ -136,7 +149,7 @@ export function SearchAroundScreen() {
           <Button
             variant="primary"
             iconLeft={<Icon name="search" size={15} />}
-            onClick={() => { setRunKey((k) => k + 1); setSelId(null); }}
+            onClick={() => { setRun({ seedType, seedId, hops }); setSelId(null); }}
           >
             Run traversal
           </Button>
@@ -146,6 +159,15 @@ export function SearchAroundScreen() {
       {loading && (
         <div style={{ padding: '12px 4px', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>
           EXPANDING LINKS · POLICY AT QUERY TIME…
+        </div>
+      )}
+
+      {error && (
+        <div
+          role="alert"
+          style={{ padding: '12px 14px', background: 'var(--surface-inset)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-xs)', color: 'var(--danger)', overflowWrap: 'anywhere' }}
+        >
+          {error.message}
         </div>
       )}
 
@@ -198,7 +220,7 @@ export function SearchAroundScreen() {
 
       {graph && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', letterSpacing: '0.12em', color: 'var(--text-faint)' }}>
-          SEARCH-AROUND · {hops} HOPS · POLICY AT QUERY TIME · DECISION AUDITED #{graph.auditId}
+          SEARCH-AROUND · {run.hops} HOPS · POLICY AT QUERY TIME · DECISION AUDITED #{graph.auditId}
         </div>
       )}
     </ConsolePage>

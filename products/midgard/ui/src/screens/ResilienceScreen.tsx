@@ -14,6 +14,7 @@ import {
 import { useAsync } from '@midgard/ui-shared';
 import type { RolloutState } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { SampleData } from '../app/SampleData';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 const STATE_PILL: Record<RolloutState['state'], { status: React.ComponentProps<typeof StatusPill>['status']; label: string; pulse: boolean }> = {
@@ -29,6 +30,9 @@ const GATE_TONE: Record<RolloutState['healthGate'], { tone: React.ComponentProps
   fail: { tone: 'danger', label: 'GATE FAIL' },
 };
 
+/* Resilience · rollouts and health gates. The gateway serves this view from fixed
+ * example data until the delivery subsystem is wired to it, and the page is labelled
+ * SAMPLE DATA so the examples are not taken for this enclosure's own. [AC-M-4] */
 export function ResilienceScreen() {
   const { data, loading } = useAsync((c) => c.getResilience(), []);
   const rows: RolloutState[] = data ?? [];
@@ -86,7 +90,7 @@ export function ResilienceScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={12}>RESILIENCE</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Rollouts & health gates</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>Rollouts & health gates <SampleData /></h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value={healthy} label="ROLLOUTS HEALTHY" size="sm" accent />

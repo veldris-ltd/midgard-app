@@ -12,11 +12,13 @@ export function ConsoleToolbar({ placeholder = 'Search objects, links, actionsâ€
         mono
         size="sm"
         placeholder={placeholder}
+        disabled
+        title="Not available yet: search is coming with the data search page"
         prefix={<Icon name="search" size={14} color="var(--text-faint)" />}
         style={{ width: 'min(300px, 42vw)' }}
       />
       <ModeToggle />
-      <IconButton label="Notifications">
+      <IconButton label="Notifications (not available yet)" disabled>
         <Icon name="bell" size={17} />
       </IconButton>
       <AccountMenu />

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Badge,
   Button,
@@ -22,6 +23,15 @@ import { ConsoleToolbar } from '../app/ConsoleToolbar';
 /** The outcome of the last action, approval request or decision. */
 type Notice = { tone: 'secure' | 'danger'; text: string } | null;
 
+/** The registry views the gateway does not serve yet, each with what it would show. */
+const UNSERVED_TABS: Record<number, string> = {
+  1: 'Interfaces are not served by this gateway yet. Object types are declared in the ontology file, which has no interfaces section.',
+  2: 'Shared properties are not served by this gateway yet. Each object type lists its own properties.',
+};
+
+/** "1,445" → 1445. */
+const count = (s: string) => Number(s.replace(/[^0-9]/g, '')) || 0;
+
 /** How often to re-read approvals while one of ours waits for a second person. */
 const APPROVAL_POLL_MS = 5000;
 
@@ -38,6 +48,7 @@ const instanceLabel = (i: ObjectInstance) => {
 
 export function ObjectFabricScreen() {
   const gateway = useGateway();
+  const navigate = useNavigate();
   const { data: types, loading } = useAsync((c) => c.listObjectTypes(), []);
   const { data: auditSeed } = useAsync((c) => c.getAudit(8), []);
   const live = useAuditStream(auditSeed ?? [], 40);
@@ -49,6 +60,10 @@ export function ObjectFabricScreen() {
   const [busy, setBusy] = React.useState(false);
 
   const rows: ObjectType[] = types ?? [];
+  // The header's figures are counted from what the gateway returned for this caller.
+  const instanceTotal = rows.reduce((sum, t) => sum + count(t.instanceCount), 0);
+  const signed = live.filter((r) => r.pqSignature.includes('✓')).length;
+  const signedShare = live.length ? `${Math.round((100 * signed) / live.length)}%` : '—';
   const o = rows[sel];
 
   // Actions change one object at a time, so the side panel picks it from the type's
@@ -208,8 +223,8 @@ export function ObjectFabricScreen() {
         </div>
       </div>
       <div style={{ marginTop: 'auto', display: 'flex', gap: 8 }}>
-        <Button variant="secondary" size="sm" fullWidth>Edit schema</Button>
-        <Button variant="primary" size="sm" fullWidth iconRight={<Icon name="arrow-right" size={14} />}>Explore instances</Button>
+        <Button variant="secondary" size="sm" fullWidth disabled title="Not available yet: the schema comes from the ontology file at boot">Edit schema</Button>
+        <Button variant="primary" size="sm" fullWidth iconRight={<Icon name="arrow-right" size={14} />} onClick={() => navigate(`/search?type=${encodeURIComponent(o.apiName)}`)}>Explore instances</Button>
       </div>
     </>
   ) : null;
@@ -229,18 +244,23 @@ export function ObjectFabricScreen() {
           <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>Object types</h1>
         </div>
         <div style={{ flex: 1 }} />
-        <StatBlock value="312" label="OBJECT TYPES" size="sm" />
-        <StatBlock value="1.2M" label="INSTANCES" size="sm" />
-        <StatBlock value="100%" label="LINEAGE SIGNED" size="sm" accent />
-        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />}>New object type</Button>
+        <StatBlock value={types ? String(rows.length) : '—'} label="OBJECT TYPES" size="sm" />
+        <StatBlock value={types ? instanceTotal.toLocaleString('en-GB') : '—'} label="INSTANCES" size="sm" />
+        <StatBlock value={signedShare} label="LINEAGE SIGNED" size="sm" accent />
+        <Button variant="primary" iconLeft={<Icon name="plus" size={15} />} disabled title="Not available yet: object types come from the ontology file at boot">New object type</Button>
       </div>
 
       <Tabs
-        tabs={[{ label: 'All types', badge: '312' }, { label: 'Interfaces' }, { label: 'Shared properties' }, { label: 'Change requests', badge: '4' }]}
+        tabs={[{ label: 'All types', badge: types ? String(rows.length) : undefined }, { label: 'Interfaces' }, { label: 'Shared properties' }]}
         active={tab}
         onChange={setTab}
       />
 
+      {UNSERVED_TABS[tab] ? (
+        <div role="status" style={{ padding: '18px 16px', border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text-muted)', fontSize: 'var(--fs-sm)' }}>
+          {UNSERVED_TABS[tab]}
+        </div>
+      ) : (
       <div style={{ overflowX: 'auto' }}>
         <Table<ObjectType>
           columns={[
@@ -258,6 +278,7 @@ export function ObjectFabricScreen() {
         />
         {loading && <div style={{ padding: '12px 4px', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--text-faint)' }}>QUERYING FABRIC…</div>}
       </div>
+      )}
 
       <div>
         <SectionLabel number={3} muted>AUDIT LINEAGE · LIVE</SectionLabel>
