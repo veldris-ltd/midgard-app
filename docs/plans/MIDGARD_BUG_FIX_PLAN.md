@@ -92,6 +92,8 @@ approval, and change every object of a type at once.
 
 ## WP2: Gateway hardening: Bugs 15, 14
 
+> **Status (2026-10-28): implemented.** The body limit is 1 MiB, and the head is > also capped at 16 KiB (431). A chunked body gets 411 rather than being read as > empty, which is the likely cause of the 404 in the note. Refusals are drained > for up to 2 s, so the client sees the status rather than a reset. Logins are > throttled per username only, because the edge sees no client address: after 5 > failures the name is locked for 30 s, doubling to a 15-minute cap. Up to 10,000 > names are tracked, in memory.
+
 **Bug 15: request body limit**
 1. `http.rs`: add `MAX_BODY_BYTES` (for example 1 MiB; it may need to be larger
    for any import route). If `Content-Length` is above the limit, respond with
