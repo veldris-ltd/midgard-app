@@ -664,6 +664,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     self.lock()
                         .apply_action(&ctx, &action, params, token.as_deref(), now)
                 }),
+            ("GET", "/api/v1/whoami") => Ok(whoami_json(claims)),
             ("GET", "/api/v1/approvals") => Ok(self.lock().approvals(&ctx, now)),
             ("POST", "/api/v1/approvals") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))
@@ -906,6 +907,31 @@ fn approval_decision(path: &str) -> Option<(&str, bool)> {
         _ => return None,
     };
     (!id.is_empty() && !id.contains('/')).then_some((id, approve))
+}
+
+/// `GET /whoami`: the session's own identity, from its verified token — who it is,
+/// what it holds and when it ends — so a console shows and dry-runs as the signed-in
+/// user, and knows when to ask them to sign in again. Nothing here is taken from the
+/// request. [RC-37] [NFR-SEC-2]
+fn whoami_json(claims: &TokenClaims) -> Json {
+    let strings = |items: Vec<&str>| Json::Arr(items.into_iter().map(Json::s).collect());
+    Json::obj(vec![
+        ("subject", Json::s(&claims.subject)),
+        (
+            "roles",
+            strings(claims.roles.iter().map(|r| r.0.as_str()).collect()),
+        ),
+        ("clearance", Json::s(enclosure::band(claims.level))),
+        (
+            "compartments",
+            strings(claims.compartments.iter().map(|c| c.0.as_str()).collect()),
+        ),
+        ("purpose", Json::s(&claims.purpose.0)),
+        (
+            "expiresAt",
+            Json::Int(i64::try_from(claims.expires_at).unwrap_or(i64::MAX)),
+        ),
+    ])
 }
 
 /// The caller's governance context, from their verified token claims.

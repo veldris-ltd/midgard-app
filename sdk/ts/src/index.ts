@@ -10,8 +10,8 @@ export { MockGateway, HumanGateRequiredError, GatewayError } from './mock/MockGa
 export type { MockGatewayOptions } from './mock/MockGateway';
 export { createHttpGateway } from './http/HttpGateway';
 export type { HttpGatewayOptions } from './http/HttpGateway';
-export { login } from './http/login';
-export type { LoginCredentials, LoginResult } from './http/login';
+export { login, whoami, sessionPolicy } from './http/login';
+export type { LoginCredentials, LoginResult, Session } from './http/login';
 
 // Per-product gateway slices (one interface + mock + fixtures each). All symbols
 // are product-prefixed to avoid collisions across the shared barrel.

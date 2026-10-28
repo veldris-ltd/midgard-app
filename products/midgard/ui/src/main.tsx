@@ -3,7 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { initMode } from '@midgard/design-system';
 import { AuthGate } from '@midgard/ui-shared';
-import { MockGateway, createHttpGateway, login, type GatewayClient } from '@midgard/sdk';
+import {
+  MockGateway,
+  createHttpGateway,
+  login,
+  sessionPolicy,
+  whoami,
+  type GatewayClient,
+  type Session,
+} from '@midgard/sdk';
 import { router } from './app/routes';
 
 import '@midgard/design-system/tokens.css';
@@ -26,12 +34,15 @@ const baseUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://127.0.0.1:7710/api/v
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AuthGate<GatewayClient>
+    <AuthGate<GatewayClient, Session>
       mode={mode}
       baseUrl={baseUrl}
       mockClient={new MockGateway()}
-      makeClient={(token) => createHttpGateway({ baseUrl, token })}
+      makeClient={(token, session, onUnauthorized) =>
+        createHttpGateway({ baseUrl, token, policy: sessionPolicy(session), onUnauthorized })
+      }
       login={login}
+      whoami={whoami}
     >
       <RouterProvider router={router} />
     </AuthGate>

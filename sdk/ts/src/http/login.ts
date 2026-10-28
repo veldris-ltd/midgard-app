@@ -1,3 +1,6 @@
+import type { MarkingLevel, PolicyContext } from '../types';
+import { GatewayError } from '../mock/MockGateway';
+
 /* Login: exchange operator credentials for a PQ-signed bearer token at the
  * authenticated HTTP/JSON edge (`services/http-gateway` `/api/v1/login`). The token
  * is then attached to every `HttpGateway` request (`Authorization: Bearer <token>`),
@@ -46,4 +49,37 @@ export async function login(baseUrl: string, creds: LoginCredentials): Promise<L
   }
   if (!res.ok) throw new Error(`login failed: ${res.status}`);
   return (await res.json()) as LoginResult;
+}
+
+/** The signed-in session as the edge reads it from the token (`GET /whoami`). */
+export interface Session {
+  subject: string;
+  roles: string[];
+  /** The clearance band. */
+  clearance: MarkingLevel;
+  compartments: string[];
+  /** The purpose the token authorises. */
+  purpose: string;
+  /** Token expiry (unix seconds). */
+  expiresAt: number;
+}
+
+/**
+ * Ask the edge who `token` belongs to. Throws a `GatewayError` with status 401 when
+ * the token has expired or no longer verifies — the session is over — and a plain
+ * `Error` when the edge cannot be reached.
+ */
+export async function whoami(baseUrl: string, token: string): Promise<Session> {
+  const base = baseUrl.replace(/\/$/, '');
+  const res = await fetch(`${base}/whoami`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new GatewayError(res.status, j.error ?? `whoami failed: ${res.status}`);
+  }
+  return (await res.json()) as Session;
+}
+
+/** The policy context a session acts under. */
+export function sessionPolicy(s: Session): PolicyContext {
+  return { subject: s.subject, purpose: s.purpose, clearance: s.clearance, roles: s.roles };
 }
