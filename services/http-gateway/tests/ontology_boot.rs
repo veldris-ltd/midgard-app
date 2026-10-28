@@ -61,18 +61,20 @@ fn provision(dir: &Path) -> StateDir {
     idp.write(&state.idp_keystore()).unwrap();
     audit.write(&state.audit_keystore()).unwrap();
 
-    let rule = |id: &str, action: &str| Rule {
+    let rule = |id: &str, role: &str, action: &str| Rule {
         id: RuleId(id.into()),
-        role: Role("operator".into()),
+        role: Role(role.into()),
         action: Action(action.into()),
         purpose: None,
         selector: Selector::Any,
         effect: Effect::Permit,
     };
     let policy = PolicySet::new(vec![
-        rule("operator-read", "Read"),
-        rule("operator-apply", "Apply"),
-        rule("operator-ground", "groundAircraft"),
+        rule("operator-read", "operator", "Read"),
+        rule("operator-apply", "operator", "Apply"),
+        rule("operator-ground", "operator", "groundAircraft"),
+        rule("approver-read", "approver", "Read"),
+        rule("approver-approve", "approver", "Approve"),
     ])
     .unwrap();
     std::fs::write(state.policy(), render_policy(&policy).unwrap()).unwrap();
@@ -82,25 +84,28 @@ fn provision(dir: &Path) -> StateDir {
     let directory_sealer = KmsSealer::new(Kms::new(fips_provider(), idp.trust_root()));
     let mut directory =
         DurableDirectory::open(state.directory(), Box::new(directory_sealer)).unwrap();
-    directory
-        .enroll(
-            "olivia",
-            Enrollment {
-                user: UserRecord {
-                    roles: [Role("operator".into())].into_iter().collect(),
-                    clearance: Clearance {
-                        level: internal,
-                        compartments: Default::default(),
+    // Olivia operates; Victor approves her human gates.
+    for (username, role) in [("olivia", "operator"), ("victor", "approver")] {
+        directory
+            .enroll(
+                username,
+                Enrollment {
+                    user: UserRecord {
+                        roles: [Role(role.into())].into_iter().collect(),
+                        clearance: Clearance {
+                            level: internal,
+                            compartments: Default::default(),
+                        },
+                        purposes: [Purpose("operations".into())].into_iter().collect(),
                     },
-                    purposes: [Purpose("operations".into())].into_iter().collect(),
+                    credentials: Credentials {
+                        password_hash: Pbkdf2Hasher::production().hash(PASSWORD.as_bytes()),
+                        ..Credentials::default()
+                    },
                 },
-                credentials: Credentials {
-                    password_hash: Pbkdf2Hasher::production().hash(PASSWORD.as_bytes()),
-                    ..Credentials::default()
-                },
-            },
-        )
-        .unwrap();
+            )
+            .unwrap();
+    }
 
     let store_sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let mut store =
@@ -138,7 +143,11 @@ fn call(gw: &DurableGateway, method: &str, path: &str, body: &str, token: &str) 
 }
 
 fn login(gw: &DurableGateway) -> String {
-    let body = format!(r#"{{"username":"olivia","password":"{PASSWORD}"}}"#);
+    login_as(gw, "olivia")
+}
+
+fn login_as(gw: &DurableGateway, username: &str) -> String {
+    let body = format!(r#"{{"username":"{username}","password":"{PASSWORD}"}}"#);
     let r = call(gw, "POST", "/api/v1/login", &body, "");
     assert_eq!(r.status, 200, "{}", r.body);
     parse(&r.body)
@@ -202,11 +211,42 @@ fn a_declared_action_changes_a_stored_object_durably() {
             "a refused action changes nothing"
         );
 
-        let gated = call(
+        let made_up = call(
             gw,
             "POST",
             "/api/v1/actions",
             &ground(r#","humanGateToken":"HG-1""#),
+            &token,
+        );
+        assert_eq!(made_up.status, 403, "{}", made_up.body);
+
+        let requested = call(
+            gw,
+            "POST",
+            "/api/v1/approvals",
+            r#"{"actionType":"Ground aircraft","target":"aircraft/AC-1"}"#,
+            &token,
+        );
+        assert_eq!(requested.status, 200, "{}", requested.body);
+        let id = parse(&requested.body)
+            .unwrap()
+            .str_field("id")
+            .expect("approval id")
+            .to_string();
+        let approved = call(
+            gw,
+            "POST",
+            &format!("/api/v1/approvals/{id}/approve"),
+            "",
+            &login_as(gw, "victor"),
+        );
+        assert_eq!(approved.status, 200, "{}", approved.body);
+
+        let gated = call(
+            gw,
+            "POST",
+            "/api/v1/actions",
+            &ground(&format!(r#","humanGateToken":"{id}""#)),
             &token,
         );
         assert_eq!(gated.status, 200, "{}", gated.body);

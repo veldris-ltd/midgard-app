@@ -63,6 +63,9 @@ const LOGIN_PURPOSE: &str = "operations";
 /// real IdP directory over the enclosure connection). [RC-37]
 pub const DEMO_USERNAME: &str = "operator";
 pub const DEMO_PASSWORD: &str = "midgard-demo";
+/// The dev gateway's demo approver, the second person a human-gated action needs.
+pub const DEMO_APPROVER_USERNAME: &str = "approver";
+pub const DEMO_APPROVER_PASSWORD: &str = "midgard-approve";
 
 /// Where logins are looked up: in memory for development, a durable KMS-sealed
 /// directory for a deployment. Either way a login authenticates through
@@ -494,6 +497,12 @@ impl SecuredGateway {
         .with_idp(idp, Pbkdf2Hasher::new(4096)); // lower work factor for a snappy dev login
         gw.provision_login(DEMO_USERNAME, DEMO_PASSWORD, demo_operator())
             .expect("the dev login provisions in memory");
+        gw.provision_login(
+            DEMO_APPROVER_USERNAME,
+            DEMO_APPROVER_PASSWORD,
+            demo_approver(),
+        )
+        .expect("the dev approver provisions in memory");
         gw.lock()
             .seed_dev(LOGIN_PURPOSE, now_secs())
             .expect("dev enclosure seeds");
@@ -614,6 +623,18 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     self.lock()
                         .apply_action(&ctx, &action, params, token.as_deref(), now)
                 }),
+            ("GET", "/api/v1/approvals") => Ok(self.lock().approvals(&ctx, now)),
+            ("POST", "/api/v1/approvals") => parse(&req.body)
+                .map_err(|e| EdgeError::bad_request(&e))
+                .and_then(|body| {
+                    let action = body.str_field("actionType").unwrap_or("").to_string();
+                    let target = body.str_field("target").unwrap_or("").to_string();
+                    self.lock().request_approval(&ctx, &action, &target, now)
+                }),
+            ("POST", path) if approval_decision(path).is_some() => {
+                let (id, approve) = approval_decision(path).expect("matched above");
+                self.lock().decide_approval(&ctx, id, approve, now)
+            }
             ("POST", "/api/v1/search-around") => parse(&req.body)
                 .map_err(|e| EdgeError::bad_request(&e))
                 .and_then(|body| {
@@ -667,8 +688,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 let level = self.marking_for(&ot);
                 (format!("object-type:{ot}"), level, "Read")
             }
-            ("POST", "/api/v1/actions") => {
+            ("POST", "/api/v1/actions") | ("POST", "/api/v1/approvals") => {
                 (req.path.clone(), self.marking_for("__actions__"), "Apply")
+            }
+            // Deciding someone else's human gate is its own permission, so the policy
+            // says who may approve, and the ledger records each decision. [NFR-AI-1]
+            ("POST", path) if approval_decision(path).is_some() => {
+                (path.to_string(), self.marking_for("__actions__"), "Approve")
             }
             (_, path) => (path.to_string(), self.marking_for(path), "Read"),
         }
@@ -820,6 +846,19 @@ fn hex_encode(bytes: &[u8]) -> String {
     s
 }
 
+/// `/api/v1/approvals/{id}/approve` or `/reject` → the approval id and whether it
+/// approves.
+fn approval_decision(path: &str) -> Option<(&str, bool)> {
+    let rest = path.strip_prefix("/api/v1/approvals/")?;
+    let (id, verb) = rest.split_once('/')?;
+    let approve = match verb {
+        "approve" => true,
+        "reject" => false,
+        _ => return None,
+    };
+    (!id.is_empty() && !id.contains('/')).then_some((id, approve))
+}
+
 /// The caller's governance context, from their verified token claims.
 fn gov_context(claims: &TokenClaims) -> GovContext {
     GovContext {
@@ -834,27 +873,30 @@ fn gov_context(claims: &TokenClaims) -> GovContext {
 }
 
 /// The dev/login policy: permit the demo operator role to Read + Apply at the edge,
-/// and to run each seeded fabric action. Public so a test can assemble the same
-/// governance over a durable ledger. [RC-37]
+/// and to run each seeded fabric action; permit the demo approver role to Read and to
+/// Approve human gates. Public so a test can assemble the same governance over a
+/// durable ledger. [RC-37] [NFR-AI-1]
 pub fn dev_login_policy() -> PolicySet {
-    let rule = |id: String, action: &str| Rule {
+    let rule = |id: String, role: &str, action: &str| Rule {
         id: RuleId(id),
-        role: Role("operator".into()),
+        role: Role(role.into()),
         action: Action(action.into()),
         purpose: None,
         selector: Selector::Any,
         effect: Effect::Permit,
     };
     let mut rules = vec![
-        rule("operator-read".into(), "Read"),
-        rule("operator-apply".into(), "Apply"),
+        rule("operator-read".into(), "operator", "Read"),
+        rule("operator-apply".into(), "operator", "Apply"),
+        rule("approver-read".into(), "approver", "Read"),
+        rule("approver-approve".into(), "approver", "Approve"),
     ];
     // The fabric authorises an action on the action's own api name, not on the edge's
     // generic "Apply" — without one rule per action, every action is denied.
     rules.extend(
         enclosure::DEV_ACTIONS
             .iter()
-            .map(|a| rule(format!("operator-{}", a.id), a.api_name)),
+            .map(|a| rule(format!("operator-{}", a.id), "operator", a.api_name)),
     );
     PolicySet::new(rules).expect("valid dev policy")
 }
@@ -872,6 +914,16 @@ pub fn demo_operator() -> UserRecord {
             compartments: [Compartment("OPS-N".into())].into_iter().collect(),
         },
         purposes: [Purpose(LOGIN_PURPOSE.into())].into_iter().collect(),
+    }
+}
+
+/// The demo approver's token attributes (dev only): the operator's clearance, so they
+/// can see what they are asked to approve, but the approver role alone — they decide
+/// human gates and cannot run actions themselves. [NFR-AI-1]
+pub fn demo_approver() -> UserRecord {
+    UserRecord {
+        roles: [Role("approver".into())].into_iter().collect(),
+        ..demo_operator()
     }
 }
 

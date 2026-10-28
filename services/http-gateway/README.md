@@ -70,7 +70,10 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
 | GET | `/health` | — |
 | GET | `/object-types` | `listObjectTypes` |
 | POST | `/query` | `query` |
-| POST | `/actions` | `applyAction` — **403** if a gated action lacks `humanGateToken` |
+| POST | `/actions` | `applyAction` — on one object (`params.target` = `<type>/<id>`; a wildcard is **400**). A gated action needs `humanGateToken` = the id of an approval granted for this caller, action and object, else **403** |
+| GET | `/approvals` | `listApprovals` — approvals whose object the caller can read |
+| POST | `/approvals` | `requestApproval` — `{actionType, target}` → a pending approval |
+| POST | `/approvals/{id}/approve` · `/approvals/{id}/reject` | `decideApproval` — needs the policy's `Approve` action; never the requester. **409** once decided |
 | POST | `/search-around` | `searchAround` |
 | GET | `/audit?limit=` | `getAudit` (polled for `auditStream`) |
 | GET | `/policies` | `listPolicies` |
