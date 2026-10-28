@@ -417,6 +417,32 @@ fn an_action_on_an_unreadable_target_is_indistinguishable_from_a_missing_one() {
 }
 
 #[test]
+fn search_around_nodes_carry_their_own_properties() {
+    let (gw, token) = session();
+    let body = r#"{"seedId":"aircraft/AC-2214","hops":1}"#;
+    let r = call(&gw, "POST", "/api/v1/search-around", "", body, Some(&token));
+    assert_eq!(r.status, 200, "{}", r.body);
+    let graph = json(&r);
+    let seed = items(graph.get("nodes").expect("nodes"))
+        .iter()
+        .find(|n| field(n, "id") == "aircraft/AC-2214")
+        .expect("the seed is a node");
+    let props = seed.get("propertyValues").expect("propertyValues");
+
+    // The same values a query returns for that object, not placeholders.
+    let queried = json(&query(&gw, &token, "aircraft"));
+    let row = items(queried.get("results").expect("results"))
+        .iter()
+        .find(|o| field(o, "id") == "aircraft/AC-2214")
+        .expect("AC-2214 is readable");
+    assert_eq!(
+        props.encode(),
+        row.get("propertyValues").expect("propertyValues").encode()
+    );
+    assert_eq!(field(props, "status"), "active");
+}
+
+#[test]
 fn search_around_walks_real_links_in_both_directions_under_access_control() {
     let (gw, token) = session();
     let walk = |seed: &str| {

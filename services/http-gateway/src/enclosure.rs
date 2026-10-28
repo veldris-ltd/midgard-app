@@ -1417,17 +1417,19 @@ fn object_json(o: &ObjectInstance) -> Json {
     Json::obj(vec![
         ("id", Json::s(&o.id)),
         ("typeId", Json::s(&o.type_id)),
-        (
-            "propertyValues",
-            Json::obj(
-                o.properties
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), Json::s(&v.as_index_key())))
-                    .collect(),
-            ),
-        ),
+        ("propertyValues", property_values(o)),
         ("markings", Json::Arr(vec![marking_json(&o.marking)])),
     ])
+}
+
+/// An object's properties as strings, the way every view shows them.
+fn property_values(o: &ObjectInstance) -> Json {
+    Json::obj(
+        o.properties
+            .iter()
+            .map(|(k, v)| (k.as_str(), Json::s(&v.as_index_key())))
+            .collect(),
+    )
 }
 
 fn marking_json(m: &Marking) -> Json {
@@ -1463,6 +1465,9 @@ fn node_json(reg: &TypeRegistry, o: &ObjectInstance, hop: u64) -> Json {
         ("typeName", Json::s(&type_name)),
         ("marking", Json::s(band(o.marking.level))),
         ("hop", Json::Int(i64::try_from(hop).unwrap_or(i64::MAX))),
+        // Every node reached is one the caller may read, so its properties are theirs
+        // to see; the console shows them instead of placeholders. [NFR-SEC-2]
+        ("propertyValues", property_values(o)),
     ])
 }
 

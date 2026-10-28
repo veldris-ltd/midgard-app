@@ -264,7 +264,7 @@ export class MockGateway implements GatewayClient {
       pqSignature: 'ML-DSA ✓',
     });
     const nodes: SearchGraph['nodes'] = [
-      { id: seedId, label: seedId, typeName: 'Aircraft', marking: 'confidential', hop: 0 },
+      { id: seedId, label: seedId, typeName: 'Aircraft', marking: 'confidential', hop: 0, propertyValues: { status: 'active' } },
     ];
     const edges: SearchGraph['edges'] = [];
     const shape = [
@@ -280,7 +280,7 @@ export class MockGateway implements GatewayClient {
         const s = shape[idx % shape.length];
         idx += 1;
         const id = `n${hop}-${i}`;
-        nodes.push({ id, label: `${s.typeName} ${hop}.${i + 1}`, typeName: s.typeName, marking: s.marking, hop });
+        nodes.push({ id, label: `${s.typeName} ${hop}.${i + 1}`, typeName: s.typeName, marking: s.marking, hop, propertyValues: { status: 'active' } });
         const parent = hop === 1 ? seedId : `n${hop - 1}-0`;
         edges.push({ from: parent, to: id, label: s.label });
       }

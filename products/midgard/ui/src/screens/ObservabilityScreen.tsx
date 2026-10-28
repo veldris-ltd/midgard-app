@@ -12,6 +12,7 @@ import {
 import { useAsync } from '@midgard/ui-shared';
 import type { SloMetric } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { SampleData } from '../app/SampleData';
 import { ConsoleToolbar } from '../app/ConsoleToolbar';
 
 /** Parse the leading numeric out of an SLO readout ("99.97%", "100%") for the meter. */
@@ -21,6 +22,8 @@ function pct(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/* Observability · SLOs and traces. The gateway serves this view from fixed example
+ * data until telemetry is wired to it, so the page is labelled SAMPLE DATA. [AC-M-4] */
 export function ObservabilityScreen() {
   const { data, loading } = useAsync((c) => c.getObservability(), []);
   const metrics: SloMetric[] = data ?? [];
@@ -65,7 +68,7 @@ export function ObservabilityScreen() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px 24px', flexWrap: 'wrap' }}>
         <div>
           <SectionLabel number={12}>OBSERVABILITY</SectionLabel>
-          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6 }}>SLOs & traces</h1>
+          <h1 style={{ fontSize: 'var(--fs-h3)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>SLOs & traces <SampleData /></h1>
         </div>
         <div style={{ flex: 1 }} />
         <StatBlock value="99.9%" label="CONTROL-PLANE SLO" size="sm" accent />
