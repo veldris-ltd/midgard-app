@@ -35,6 +35,12 @@ a:hover { color: var(--accent-hover); }
 
 code, kbd, samp { font-family: var(--font-mono); font-size: 0.9em; }
 
+/* The console's main column is a fixed-height flex column that scrolls. Its blocks
+   keep their own height and the column scrolls, rather than the browser shrinking
+   one of them — a table in an overflow wrapper can otherwise be squeezed to nothing.
+   A block meant to fill or give up space says so with an inline `flex`, which wins. */
+.mg-main > * { flex-shrink: 0; }
+
 /* Mono eyebrow / section label, house signature */
 .mg-label {
   font-family: var(--font-mono);

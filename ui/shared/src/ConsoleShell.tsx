@@ -228,6 +228,7 @@ export function ConsoleShell({
           </>
         )}
         <main
+          className="mg-main"
           style={{
             flex: 1,
             minWidth: 0,

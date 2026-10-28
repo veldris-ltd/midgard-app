@@ -146,6 +146,11 @@ class HttpGateway implements GatewayClient {
   auditStream(onRecord: (record: AuditRecord) => void): () => void {
     const seen = new Set<string>();
     let stopped = false;
+    // Every poll is itself audited, as every read is. Echoing those rows back would
+    // add one to the live list per tick, forever, burying real activity; the stream
+    // skips this session's own reads of the audit log. `getAudit` still returns them.
+    const ownPoll = (rec: AuditRecord) =>
+      rec.actor === this.ctx.subject && rec.resource === '/api/v1/audit' && /\bRead$/.test(rec.action);
     const tick = async () => {
       try {
         const recent = await this.getAudit(40);
@@ -153,7 +158,7 @@ class HttpGateway implements GatewayClient {
         for (const rec of [...recent].reverse()) {
           if (!seen.has(rec.id)) {
             seen.add(rec.id);
-            if (!stopped) onRecord(rec);
+            if (!stopped && !ownPoll(rec)) onRecord(rec);
           }
         }
       } catch {
