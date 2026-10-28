@@ -1,6 +1,7 @@
 import type {
   ApplyActionRequest,
   ApplyActionResponse,
+  Approval,
   AuditRecord,
   ComputeJob,
   Identity,
@@ -41,9 +42,16 @@ export interface GatewayClient {
   listObjectTypes(): Promise<ObjectType[]>;
   /** Typed object/link query under policy. `ObjectFabric.Query` */
   query(req: QueryRequest): Promise<QueryResponse>;
-  /** Apply a validated, function-backed action. Gated actions require a
-   *  `humanGateToken`; the mock rejects gated calls without one. `ObjectFabric.ApplyAction` */
+  /** Apply a validated, function-backed action to the one object named in
+   *  `params.target`. Gated actions require a `humanGateToken`: the id of an
+   *  approval granted for this caller, action and object. `ObjectFabric.ApplyAction` */
   applyAction(req: ApplyActionRequest): Promise<ApplyActionResponse>;
+  /** Approvals whose object the caller can read, newest first. `[NFR-AI-1]` */
+  listApprovals(): Promise<Approval[]>;
+  /** Ask a second person to approve a gated action on one object. */
+  requestApproval(actionType: string, target: string): Promise<Approval>;
+  /** Approve or reject someone else's pending approval. */
+  decideApproval(id: string, approve: boolean): Promise<Approval>;
   /** Search-around: expand links from a seed object out to `hops`. */
   searchAround(seedId: string, hops: number): Promise<SearchGraph>;
 

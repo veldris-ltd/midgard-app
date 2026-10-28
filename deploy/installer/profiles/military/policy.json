@@ -16,6 +16,20 @@
       "effect": "permit"
     },
     {
+      "id": "approver-read",
+      "role": "approver",
+      "action": "Read",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
+      "id": "approver-approve",
+      "role": "approver",
+      "action": "Approve",
+      "resource": "*",
+      "effect": "permit"
+    },
+    {
       "id": "operator-setReadiness",
       "role": "operator",
       "action": "setReadiness",

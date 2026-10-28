@@ -49,6 +49,10 @@ const MAX_ROOTS: usize = 25;
 const MAX_NODES: usize = 60;
 /// Deepest search-around.
 const MAX_HOPS: i64 = 4;
+/// How long an approved human gate can be redeemed (seconds).
+const APPROVAL_TTL: u64 = 900;
+/// Most approvals the enclosure holds; the oldest are dropped first.
+const MAX_APPROVALS: usize = 256;
 
 /// A request the enclosure refused, already mapped to its HTTP status.
 pub struct EdgeError {
@@ -95,6 +99,39 @@ pub struct CatalogAction {
     pub object_type: String,
     /// Whether a named human must authorise it first. [NFR-AI-1]
     pub human_gated: bool,
+}
+
+/// Where an approval stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ApprovalState {
+    /// Waiting for a second person.
+    Pending,
+    /// Approved by `approver`; redeemable by the requester until `expires`.
+    Approved { approver: String, expires: u64 },
+    /// Refused by `approver`.
+    Rejected { approver: String },
+    /// Redeemed: the action ran.
+    Used { approver: String },
+}
+
+/// A request for a human gate on one action against one object. [NFR-AI-1]
+///
+/// The gate is a two-person rule: the requester asks, someone else approves, and only
+/// the requester can then redeem it — once, for that action on that object, before it
+/// expires. Approvals live in memory: a restart drops them, and the requester asks
+/// again.
+#[derive(Debug, Clone)]
+struct Approval {
+    id: String,
+    /// The catalog action id.
+    action_id: String,
+    /// The action's display name.
+    action_title: String,
+    /// The one object it acts on.
+    target: String,
+    requester: String,
+    requested: u64,
+    state: ApprovalState,
 }
 
 /// One action the development enclosure provisions.
@@ -177,6 +214,10 @@ pub struct Enclosure<S: ObjectStore = InMemoryStore, L: LedgerStore = InMemoryLe
     actions: Vec<CatalogAction>,
     /// Last write per object type (Unix seconds), for the `updated` column.
     updated: BTreeMap<String, u64>,
+    /// Human-gate approvals, oldest first.
+    approvals: Vec<Approval>,
+    /// The number the next approval id takes.
+    next_approval: u64,
 }
 
 impl<L: LedgerStore> Enclosure<InMemoryStore, L> {
@@ -199,6 +240,8 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             ),
             actions: Vec::new(),
             updated: BTreeMap::new(),
+            approvals: Vec::new(),
+            next_approval: 1,
         }
     }
 
@@ -349,15 +392,16 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         ]))
     }
 
-    /// `POST /actions`: a governed fabric action.
+    /// `POST /actions`: a governed fabric action on one object.
     ///
     /// The human gate is checked first, at the edge, because it is a workflow control
-    /// the fabric does not model. The console's `target` is then resolved to the
-    /// concrete objects **the caller may read** and handed to the fabric as one
-    /// `targets` parameter, so the action is validated, authorised and audited once.
-    /// The fabric authorises an action type rather than a target instance; resolving
-    /// targets here is what keeps an action from reaching an object the caller
-    /// cannot see.
+    /// the fabric does not model: a gated action needs the id of an approval a second
+    /// person granted for this caller, this action and this object (see
+    /// [`Self::request_approval`]). The console's `target` must name one object **the
+    /// caller may read**; it is handed to the fabric as the `targets` parameter, so
+    /// the action is validated, authorised and audited once. The fabric authorises an
+    /// action type rather than a target instance; resolving the target here is what
+    /// keeps an action from reaching an object the caller cannot see.
     pub fn apply_action(
         &mut self,
         ctx: &PolicyContext,
@@ -366,23 +410,21 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         human_gate_token: Option<&str>,
         now: u64,
     ) -> Result<Json, EdgeError> {
-        let entry = self
-            .actions
-            .iter()
-            .find(|a| a.title == action_type || a.id == action_type)
-            .cloned()
-            .ok_or_else(|| EdgeError::new(404, &format!("unknown action type: {action_type}")))?;
-        if entry.human_gated && human_gate_token.is_none_or(str::is_empty) {
+        let entry = self.catalog_action(action_type)?;
+        let gate = human_gate_token.map(str::trim).filter(|t| !t.is_empty());
+        if entry.human_gated && gate.is_none() {
             return Err(EdgeError::new(
                 403,
                 &format!("Human gate required for action \"{}\"", entry.title),
             ));
         }
-        let target = params
-            .remove("target")
-            .unwrap_or_else(|| format!("{}/*", entry.object_type));
-        let targets = self.readable_targets(ctx, &entry.object_type, &target)?;
-        params.insert("targets".into(), targets.join(","));
+        let target = params.remove("target").unwrap_or_default();
+        let target = self.readable_target(ctx, &entry.object_type, &target)?;
+        let approval = match gate {
+            Some(id) if entry.human_gated => Some(self.redeemable(ctx, &entry, &target, id, now)?),
+            _ => None,
+        };
+        params.insert("targets".into(), target);
 
         let resp = match self.fabric.apply_action(ctx, &entry.id, &params, now) {
             Ok(resp) => resp,
@@ -390,6 +432,13 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         };
         if resp.applied {
             self.updated.insert(entry.object_type, now);
+            if let Some(i) = approval {
+                let a = &mut self.approvals[i];
+                if let ApprovalState::Approved { approver, .. } = &a.state {
+                    let approver = approver.clone();
+                    a.state = ApprovalState::Used { approver };
+                }
+            }
         }
         Ok(Json::obj(vec![
             ("auditId", Json::s(&audit_id(resp.audit_seq))),
@@ -397,39 +446,172 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         ]))
     }
 
-    /// Resolve a console `target` to object ids the caller may read. `<type>/*`
-    /// expands to every readable instance of the action's type; a single id must
-    /// exist, be of that type, and be readable. An unreadable id is reported exactly
-    /// like a missing one, so the edge is not an oracle for objects above the
-    /// caller's clearance.
-    fn readable_targets(
+    /// The catalog entry for an action, by display name or id.
+    fn catalog_action(&self, action_type: &str) -> Result<CatalogAction, EdgeError> {
+        self.actions
+            .iter()
+            .find(|a| a.title == action_type || a.id == action_type)
+            .cloned()
+            .ok_or_else(|| EdgeError::new(404, &format!("unknown action type: {action_type}")))
+    }
+
+    /// Resolve a console `target` to the one object id it names, which must exist, be
+    /// of `object_type`, and be readable by the caller. A wildcard is refused: an
+    /// action changes one object at a time. An unreadable id is reported exactly like
+    /// a missing one, so the edge is not an oracle for objects above the caller's
+    /// clearance.
+    fn readable_target(
         &self,
         ctx: &PolicyContext,
         object_type: &str,
         target: &str,
-    ) -> Result<Vec<String>, EdgeError> {
-        let gov = self.fabric.governance();
-        let store = self.fabric.store();
-        if target == format!("{object_type}/*") {
-            let ids: Vec<String> = store
-                .objects_of_type(object_type)
-                .into_iter()
-                .filter(|o| can_read(gov, ctx, o))
-                .map(|o| o.id.clone())
-                .collect();
-            return if ids.is_empty() {
-                Err(EdgeError::new(
-                    404,
-                    &format!("no readable {object_type} objects to act on"),
-                ))
-            } else {
-                Ok(ids)
-            };
+    ) -> Result<String, EdgeError> {
+        if target.is_empty() || target.ends_with("/*") {
+            return Err(EdgeError::bad_request(&format!(
+                "an action applies to one object: name it as \"target\":\"{object_type}/<id>\""
+            )));
         }
-        match store.get_object(target) {
-            Some(o) if o.type_id == object_type && can_read(gov, ctx, o) => Ok(vec![o.id.clone()]),
+        let gov = self.fabric.governance();
+        match self.fabric.store().get_object(target) {
+            Some(o) if o.type_id == object_type && can_read(gov, ctx, o) => Ok(o.id.clone()),
             _ => Err(EdgeError::new(404, &format!("unknown target: {target}"))),
         }
+    }
+
+    // ---- human-gate approvals [NFR-AI-1] -----------------------------------------
+
+    /// `POST /approvals`: ask for a human gate on one gated action against one object
+    /// the caller may read. Returns the pending approval; its `id` is the
+    /// `humanGateToken` the caller sends once someone else has approved it.
+    pub fn request_approval(
+        &mut self,
+        ctx: &PolicyContext,
+        action_type: &str,
+        target: &str,
+        now: u64,
+    ) -> Result<Json, EdgeError> {
+        let entry = self.catalog_action(action_type)?;
+        if !entry.human_gated {
+            return Err(EdgeError::bad_request(&format!(
+                "action \"{}\" needs no approval",
+                entry.title
+            )));
+        }
+        let target = self.readable_target(ctx, &entry.object_type, target)?;
+        if self.approvals.len() >= MAX_APPROVALS {
+            self.approvals.remove(0);
+        }
+        let approval = Approval {
+            id: format!("APR-{}", self.next_approval),
+            action_id: entry.id,
+            action_title: entry.title,
+            target,
+            requester: ctx.subject.clone(),
+            requested: now,
+            state: ApprovalState::Pending,
+        };
+        self.next_approval += 1;
+        let json = approval_json(&approval, now, &ctx.subject);
+        self.approvals.push(approval);
+        Ok(json)
+    }
+
+    /// `POST /approvals/{id}/approve` or `/reject`: a second person decides a pending
+    /// approval. The requester cannot decide their own, and an approver who cannot
+    /// read the target sees the approval as unknown. The edge has already authorised
+    /// and audited the decision (`Approve`), so the ledger names who decided.
+    pub fn decide_approval(
+        &mut self,
+        ctx: &PolicyContext,
+        id: &str,
+        approve: bool,
+        now: u64,
+    ) -> Result<Json, EdgeError> {
+        let unknown = || EdgeError::new(404, &format!("unknown approval: {id}"));
+        let i = self
+            .approvals
+            .iter()
+            .position(|a| a.id == id)
+            .ok_or_else(unknown)?;
+        if !self.can_read_id(ctx, &self.approvals[i].target) {
+            return Err(unknown());
+        }
+        let a = &mut self.approvals[i];
+        if a.state != ApprovalState::Pending {
+            return Err(EdgeError::new(
+                409,
+                &format!("approval {id} is already {}", approval_status(a, now)),
+            ));
+        }
+        if a.requester == ctx.subject {
+            return Err(EdgeError::new(
+                403,
+                "an approval must be decided by someone other than its requester",
+            ));
+        }
+        let approver = ctx.subject.clone();
+        a.state = if approve {
+            ApprovalState::Approved {
+                approver,
+                expires: now.saturating_add(APPROVAL_TTL),
+            }
+        } else {
+            ApprovalState::Rejected { approver }
+        };
+        Ok(approval_json(a, now, &ctx.subject))
+    }
+
+    /// `GET /approvals`: every approval whose target the caller may read, newest first;
+    /// `mine` marks the ones the caller requested.
+    pub fn approvals(&self, ctx: &PolicyContext, now: u64) -> Json {
+        Json::Arr(
+            self.approvals
+                .iter()
+                .rev()
+                .filter(|a| self.can_read_id(ctx, &a.target))
+                .map(|a| approval_json(a, now, &ctx.subject))
+                .collect(),
+        )
+    }
+
+    /// The index of approval `id` if the caller can redeem it now for `entry` on
+    /// `target`: approved by someone else, requested by this caller, for this action
+    /// and object, unexpired and unused. Every failure reads the same, so a token
+    /// cannot be probed.
+    fn redeemable(
+        &self,
+        ctx: &PolicyContext,
+        entry: &CatalogAction,
+        target: &str,
+        id: &str,
+        now: u64,
+    ) -> Result<usize, EdgeError> {
+        self.approvals
+            .iter()
+            .position(|a| {
+                a.id == id
+                    && a.requester == ctx.subject
+                    && a.action_id == entry.id
+                    && a.target == target
+                    && matches!(a.state, ApprovalState::Approved { expires, .. } if now < expires)
+            })
+            .ok_or_else(|| {
+                EdgeError::new(
+                    403,
+                    &format!(
+                        "Human gate token is not a current approval of \"{}\" on {target} for this user",
+                        entry.title
+                    ),
+                )
+            })
+    }
+
+    /// Whether the caller may read object `id`.
+    fn can_read_id(&self, ctx: &PolicyContext, id: &str) -> bool {
+        self.fabric
+            .store()
+            .get_object(id)
+            .is_some_and(|o| can_read(self.fabric.governance(), ctx, o))
     }
 
     /// `POST /search-around`: walk real links, in both directions, out to `hops`.
@@ -1186,6 +1368,42 @@ fn can_read<L: LedgerStore>(
 
 fn audit_id(seq: u64) -> String {
     format!("AUD-{seq}")
+}
+
+/// An approval's state as the console shows it.
+fn approval_status(a: &Approval, now: u64) -> &'static str {
+    match &a.state {
+        ApprovalState::Pending => "pending",
+        ApprovalState::Approved { expires, .. } if now >= *expires => "expired",
+        ApprovalState::Approved { .. } => "approved",
+        ApprovalState::Rejected { .. } => "rejected",
+        ApprovalState::Used { .. } => "used",
+    }
+}
+
+/// An approval as the console shows it to `subject`.
+fn approval_json(a: &Approval, now: u64, subject: &str) -> Json {
+    let secs = |t: u64| Json::Int(i64::try_from(t).unwrap_or(i64::MAX));
+    let mut fields = vec![
+        ("id", Json::s(&a.id)),
+        ("actionType", Json::s(&a.action_title)),
+        ("target", Json::s(&a.target)),
+        ("requester", Json::s(&a.requester)),
+        ("requestedAt", secs(a.requested)),
+        ("status", Json::s(approval_status(a, now))),
+        ("mine", Json::Bool(a.requester == subject)),
+    ];
+    match &a.state {
+        ApprovalState::Pending => {}
+        ApprovalState::Approved { approver, expires } => {
+            fields.push(("approver", Json::s(approver)));
+            fields.push(("expiresAt", secs(*expires)));
+        }
+        ApprovalState::Rejected { approver } | ApprovalState::Used { approver } => {
+            fields.push(("approver", Json::s(approver)));
+        }
+    }
+    Json::obj(fields)
 }
 
 fn link_label(reg: &TypeRegistry, lt: &LinkType) -> String {

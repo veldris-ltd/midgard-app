@@ -2,6 +2,7 @@ import type { GatewayClient } from '../client';
 import type {
   ApplyActionRequest,
   ApplyActionResponse,
+  Approval,
   AuditRecord,
   ComputeJob,
   Identity,
@@ -17,7 +18,7 @@ import type {
   SearchGraph,
   SloMetric,
 } from '../types';
-import { HumanGateRequiredError } from '../mock/MockGateway';
+import { GatewayError, HumanGateRequiredError } from '../mock/MockGateway';
 
 /**
  * The real transport: talks HTTP/JSON to the `http-gateway` Rust service
@@ -71,7 +72,7 @@ class HttpGateway implements GatewayClient {
 
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${this.base}${path}`, { headers: this.headers() });
-    if (!res.ok) throw new Error(`http-gateway ${path} → ${res.status}`);
+    if (!res.ok) return this.fail(res, path);
     return (await res.json()) as T;
   }
 
@@ -81,12 +82,19 @@ class HttpGateway implements GatewayClient {
       headers: this.headers(),
       body: JSON.stringify(body),
     });
-    if (res.status === 403) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new HumanGateRequiredError(j.error ?? path);
-    }
-    if (!res.ok) throw new Error(`http-gateway ${path} → ${res.status}`);
+    if (!res.ok) return this.fail(res, path);
     return (await res.json()) as T;
+  }
+
+  /** Throw the edge's own error message: a human gate the request lacks, or any
+   *  other refusal with its status. */
+  private async fail(res: Response, path: string): Promise<never> {
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    const message = j.error ?? `http-gateway ${path} → ${res.status}`;
+    if (res.status === 403 && message.startsWith('Human gate')) {
+      throw new HumanGateRequiredError(path, message);
+    }
+    throw new GatewayError(res.status, message);
   }
 
   // Object fabric ------------------------------------------------------------
@@ -94,7 +102,11 @@ class HttpGateway implements GatewayClient {
     return this.get<ObjectType[]>('/object-types');
   }
   query(req: QueryRequest): Promise<QueryResponse> {
-    return this.post<QueryResponse>('/query', { objectType: req.objectType, maxResults: req.maxResults ?? 5 });
+    return this.post<QueryResponse>('/query', {
+      objectType: req.objectType,
+      maxResults: req.maxResults ?? 5,
+      filter: req.filter,
+    });
   }
   applyAction(req: ApplyActionRequest): Promise<ApplyActionResponse> {
     return this.post<ApplyActionResponse>('/actions', {
@@ -102,6 +114,16 @@ class HttpGateway implements GatewayClient {
       params: req.params ?? {},
       humanGateToken: req.humanGateToken,
     });
+  }
+  listApprovals(): Promise<Approval[]> {
+    return this.get<Approval[]>('/approvals');
+  }
+  requestApproval(actionType: string, target: string): Promise<Approval> {
+    return this.post<Approval>('/approvals', { actionType, target });
+  }
+  decideApproval(id: string, approve: boolean): Promise<Approval> {
+    const verb = approve ? 'approve' : 'reject';
+    return this.post<Approval>(`/approvals/${encodeURIComponent(id)}/${verb}`, {});
   }
   searchAround(seedId: string, hops: number): Promise<SearchGraph> {
     return this.post<SearchGraph>('/search-around', { seedId, hops });

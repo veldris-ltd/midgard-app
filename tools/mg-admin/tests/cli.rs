@@ -108,7 +108,7 @@ fn init_lays_out_a_state_directory_and_never_overwrites_one() {
     }
     let policy = parse_policy(&std::fs::read_to_string(state.policy()).unwrap())
         .expect("the starter policy loads");
-    assert_eq!(policy.rules().len(), 2);
+    assert_eq!(policy.rules().len(), 4);
     let ontology = parse_ontology(&std::fs::read_to_string(state.ontology()).unwrap())
         .expect("the starter ontology loads");
     assert!(ontology.object_types.is_empty());
