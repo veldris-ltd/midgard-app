@@ -10,26 +10,26 @@ CONTRIBUTING.md for the version policy.
 ## [Unreleased]
 
 ### Added
-- **A step-by-step key ceremony, and a guided tool for it.** `docs/ops/KEY_CEREMONY.md`
-  is the release key ceremony as a checklist, from preparing the people and the
-  encrypted media to provisioning the signing runner, with exact commands for Windows
-  and Linux. `tools/mg-ceremony` does its mechanical part: run with no arguments
-  (double-click `mg-ceremony.exe` on Windows) it asks one question at a time, checks
-  each answer, can rehearse with throwaway keys, and generates nothing until told
-  `GENERATE`. `mg-ceremony check` applies the release's checks to the published files
-  and prints the values to compare with the second channel. Key generation is
-  `attest::Keystore`, as in `mg-sign keygen`. [RT-35] [AC-RF-CA-6a]
+- **Shamir secret sharing in the crypto core.** `pqc_agility::shamir` splits a secret
+  k of n over GF(2^8) in constant time and zeroises its intermediates. The Midgard
+  Signing app uses it, when key fragmentation is chosen, to split the escrow key that
+  seals the release keystores among named holders. It is new and marked for
+  independent review before production reliance. [RT-35] [NFR-PQ-2]
+- `docs/ops/KEY_CEREMONY.md`: where the key ceremony is held, and what it leaves in
+  this repository.
 
 ### Changed
-- `deploy/trust/ceremony.sh` now builds and runs `mg-ceremony`, so Windows and Linux
-  hold the ceremony with one implementation. With no arguments it starts the guided
-  ceremony. The ceremony record also names the Security Officer, and computes SSH
-  fingerprints itself, so `ssh-keygen` is no longer needed to hold the ceremony.
+- **The key ceremony is held with Midgard Signing**, a separate application
+  (veldris-ltd/midgard-signing-app): a guided Windows and Linux app, with a console
+  form, whose key generation, signing and verification are this repository's
+  `attest`, pinned by revision. `deploy/trust/ceremony.sh` is removed; its claims are
+  that repository's tests, and its contract test runs this repository's release
+  checks against what the app publishes. [RT-35] [AC-RF-CA-6a]
 
 ### Fixed
 - `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony
   publishes to be committed, so committing them failed. The anchors are now excepted;
-  other `.pub` files stay ignored.
+  other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.
 
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 

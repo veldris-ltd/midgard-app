@@ -691,15 +691,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mg-ceremony"
-version = "0.1.0-rc.1"
-dependencies = [
- "attest",
- "kms",
- "pqc-agility",
-]
-
-[[package]]
 name = "mg-model"
 version = "0.1.0-rc.1"
 dependencies = [

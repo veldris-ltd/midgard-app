@@ -25,7 +25,6 @@ forge-worker            forge-worker      service    forge-worker
 forge-worker            forge-egress      service    forge-worker
 mg-admin                mg-admin          tool       -
 mg-bundle               mg-bundle         tool       -
-mg-ceremony             mg-ceremony       tool       -
 mg-model                mg-model          tool       -
 mg-register             mg-register       tool       -
 mg-repro                mg-repro          tool       -
