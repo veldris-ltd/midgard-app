@@ -1,0 +1,29 @@
+{
+  "name": "@midgard/play",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Midgard playground: the seven consoles on sample data in the browser, with a guided tour (play.veldris.dev)",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node scripts/serve.mjs",
+    "play": "node build.mjs && node scripts/serve.mjs",
+    "check": "node scripts/check.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@midgard/design-system": "workspace:*",
+    "@midgard/sdk": "workspace:*",
+    "@midgard/ui-shared": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

@@ -10,12 +10,38 @@ Midgard is a **Veldris Ltd** project. This repository holds three things that fi
 
 The implementation was produced, phase by phase, from [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md); in the full working history, one commit maps to each playbook prompt. This public repository begins from a squashed initial import of that verified state.
 
+- **Want to try it now?** → [play.veldris.dev](https://play.veldris.dev): all seven consoles in your browser, on sample data, with a guided tour. Or locally in one command: [Try it](#try-it).
 - **Just want to see it?** → [Run the design system](#run-the-design-system) (static files, no toolchain).
 - **Want it on a server?** → [Install on a server](#install-on-a-server): one guided installer, with profiles for EU legal practice, NHS-aligned healthcare, British and EU military use, and utilities.
 - **Want real data in it?** → [Sample datasets](#sample-datasets): recorded datasets, the configuration they came from, and Heimdall feeds, with the commands that load them.
 - **Want to run it?** → [Run the platform locally](#run-the-platform-locally) (gateway edge + console, step by step).
 - **Want to verify it?** → [Verify the platform](#verify-the-platform) (build, test, and the 72-criterion air-gapped gate).
 - **Want to understand how it was built?** → [GETTING_STARTED.md](GETTING_STARTED.md) and [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md).
+
+---
+
+## Try it
+
+**In the browser:** [play.veldris.dev](https://play.veldris.dev) serves the playground: the seven consoles (Midgard, Forge, Mimir, Heimdall, Bifrost, Admin and the client shells) built from this repository and running on sample data in your browser, with an 18-step guided tour. No server is involved and nothing you do is sent anywhere. It is published from the `sub-domain_play` branch.
+
+**On your machine, offline:** with Node 22 and pnpm,
+
+```bash
+pnpm install
+pnpm play            # or: just play
+```
+
+then open http://127.0.0.1:4173. The same playground, served on loopback only.
+
+**Against the real edge:** with the Rust toolchain as well,
+
+```bash
+just try
+```
+
+builds and starts the development-mode edge on `127.0.0.1:7710`, then serves the Midgard console on http://localhost:5173. Sign in as `operator` / `midgard-demo`. Ctrl+C stops both. Development mode is for your own machine only; see [Run the platform locally](#run-the-platform-locally) for what it is and is not.
+
+How the playground is built and why: [docs/play](docs/play/README.md).
 
 ---
 

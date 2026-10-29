@@ -44,6 +44,36 @@ gateway-http addr="127.0.0.1:7710":
 console-midgard-http:
     VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
 
+# --- Try it locally (docs/play, ADR-PLAY-005) --------------------------------
+# Node and pnpm only; works offline once the workspace is installed.
+# The playground: all seven consoles on sample data with the guided tour, on http://127.0.0.1:4173.
+play:
+    pnpm install --frozen-lockfile --prefer-offline
+    pnpm play
+
+# Builds and starts the edge on 127.0.0.1:7710, waits for it, then serves the console on
+# http://localhost:5173, the one origin the development edge allows. Ctrl+C stops both.
+# Development mode is for this machine only.
+# The Midgard console against the real Rust edge (development mode), in one command.
+try:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pnpm install --frozen-lockfile --prefer-offline
+    cargo build -p http-gateway
+    ./target/debug/http-gateway 127.0.0.1:7710 &
+    gw=$!
+    trap 'kill "$gw" 2>/dev/null || true' EXIT INT TERM
+    for _ in $(seq 1 60); do
+        if curl -fsS http://127.0.0.1:7710/api/v1/health >/dev/null 2>&1; then break; fi
+        kill -0 "$gw" 2>/dev/null || { echo "try: the edge exited; is 127.0.0.1:7710 already in use?" >&2; exit 1; }
+        sleep 0.5
+    done
+    curl -fsS http://127.0.0.1:7710/api/v1/health >/dev/null || { echo "try: the edge did not answer on 127.0.0.1:7710" >&2; exit 1; }
+    printf '\n  Midgard edge: http://127.0.0.1:7710 (development mode, loopback only)\n'
+    printf '  Console:      http://localhost:5173\n'
+    printf '  Sign in as:   operator / midgard-demo (development credentials, see README)\n\n'
+    VITE_GATEWAY=http pnpm --filter @midgard/console-midgard exec vite --host localhost --port 5173 --strictPort
+
 # --- Services on one machine (docker compose) -----------------------------
 # The HTTP edge and the Mimir inference plane, built from source into hardened
 # containers (see deploy/compose/compose.yaml). Needs the acceptance toolchain image:

@@ -7,3 +7,4 @@ packages:
   - "products/*/ui"
   - "clients/shells/web"
   - "clients/shells/extension"
+  - "play"

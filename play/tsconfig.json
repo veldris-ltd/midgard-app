@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"],
+    "paths": {
+      "@midgard/design-system": ["ui/design-system/src/index.ts"],
+      "@midgard/design-system/*": ["ui/design-system/src/*"],
+      "@midgard/sdk/*": ["sdk/ts/src/*"],
+      "@midgard/sdk": ["sdk/ts/src/index.ts"],
+      "@midgard/ui-shared": ["ui/shared/src/index.ts"],
+      "@midgard/ui-shared/nav": ["ui/shared/src/nav.ts"]
+    }
+  },
+  "include": ["src"]
+}

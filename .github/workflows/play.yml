@@ -1,0 +1,91 @@
+name: play.veldris.dev
+
+# The Midgard playground: the seven consoles on sample data with a guided tour,
+# built from this branch and published to https://play.veldris.dev.
+# Decisions: docs/play/adr (ADR-PLAY-001 to ADR-PLAY-005). This workflow is
+# ADR-PLAY-004: it deploys only from sub-domain_play, with its own PLAY_DEPLOY_*
+# secrets, so it cannot write to any other site.
+
+on:
+  push:
+    branches: [sub-domain_play]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: build, check and deploy the playground
+    runs-on: ubuntu-24.04
+    environment:
+      name: play
+      url: https://play.veldris.dev
+    steps:
+      - name: Refuse to run from any other branch
+        if: ${{ github.ref != 'refs/heads/sub-domain_play' }}
+        run: |
+          echo "::error::This workflow deploys only the sub-domain_play branch (got $GITHUB_REF)."
+          exit 1
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Install the JS workspace from the lockfile
+        run: |
+          node --version
+          corepack enable pnpm
+          pnpm install --frozen-lockfile
+
+      - name: Build the playground
+        run: node play/build.mjs
+
+      - name: Check the build
+        run: node play/scripts/check.mjs --static
+
+      - name: Check deploy secrets
+        env:
+          PLAY_DEPLOY_KEY: ${{ secrets.PLAY_DEPLOY_KEY }}
+          PLAY_DEPLOY_HOST: ${{ secrets.PLAY_DEPLOY_HOST }}
+          PLAY_DEPLOY_USER: ${{ secrets.PLAY_DEPLOY_USER }}
+          PLAY_DEPLOY_PATH: ${{ secrets.PLAY_DEPLOY_PATH }}
+        run: |
+          missing=""
+          for v in PLAY_DEPLOY_KEY PLAY_DEPLOY_HOST PLAY_DEPLOY_USER PLAY_DEPLOY_PATH; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing (see docs/play/README.md, Deployment)"
+            exit 1
+          fi
+
+      - name: Set up SSH
+        env:
+          PLAY_DEPLOY_KEY: ${{ secrets.PLAY_DEPLOY_KEY }}
+          PLAY_DEPLOY_HOST: ${{ secrets.PLAY_DEPLOY_HOST }}
+          PLAY_DEPLOY_PORT: ${{ secrets.PLAY_DEPLOY_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$PLAY_DEPLOY_KEY" > ~/.ssh/id_play
+          chmod 600 ~/.ssh/id_play
+          ssh-keyscan -p "${PLAY_DEPLOY_PORT:-22}" -H "$PLAY_DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync the site
+        env:
+          PLAY_DEPLOY_HOST: ${{ secrets.PLAY_DEPLOY_HOST }}
+          PLAY_DEPLOY_USER: ${{ secrets.PLAY_DEPLOY_USER }}
+          PLAY_DEPLOY_PATH: ${{ secrets.PLAY_DEPLOY_PATH }}
+          PLAY_DEPLOY_PORT: ${{ secrets.PLAY_DEPLOY_PORT }}
+        run: |
+          rsync -rlptcz --delete --delay-updates \
+            -e "ssh -i ~/.ssh/id_play -p ${PLAY_DEPLOY_PORT:-22}" \
+            play/dist/ "$PLAY_DEPLOY_USER@$PLAY_DEPLOY_HOST:$PLAY_DEPLOY_PATH/"
+
+      - name: Smoke test
+        continue-on-error: true
+        run: |
+          curl -fsS -o /dev/null -w 'https://play.veldris.dev/ -> %{http_code}\n' https://play.veldris.dev/
+          curl -fsS -o /dev/null -w 'heimdall console -> %{http_code}\n' https://play.veldris.dev/consoles/heimdall/index.html
