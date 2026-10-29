@@ -1,7 +1,8 @@
 /* Finding a tour target inside a console frame. The frame is same-origin, so
    the shell can read its document. A target is visible text: an element whose
    own text equals it (case-insensitive, whitespace collapsed) wins; otherwise
-   the smallest visible element whose text contains it. Hidden elements never
+   the smallest visible element whose text contains it; otherwise a control
+   whose accessible name (aria-label or title) equals it. Hidden elements never
    match. [ADR-PLAY-002] */
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -36,7 +37,13 @@ export function findTarget(doc: Document, text: string): HTMLElement | null {
   // Prefer the control or element that is exactly the text, but if a smaller
   // element inside it also matches (a label inside a button), keep the outer one:
   // the ring should surround what the visitor clicks.
-  return exact ?? best;
+  if (exact ?? best) return exact ?? best;
+  // Icon-only controls carry their name in aria-label or title, not in text.
+  for (const el of doc.body.querySelectorAll<HTMLElement>('[aria-label], [title]')) {
+    const name = norm(el.getAttribute('aria-label') ?? el.getAttribute('title') ?? '');
+    if (name === want && visible(el)) return el;
+  }
+  return null;
 }
 
 /* A ring drawn in the shell, positioned over an element inside the frame. It

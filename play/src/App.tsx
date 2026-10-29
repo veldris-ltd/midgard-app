@@ -16,6 +16,9 @@ import { findTarget, trackRing } from './highlight';
 type View = { kind: 'home' } | { kind: 'tour'; step: number } | { kind: 'console'; id: ConsoleId };
 
 const STEP_KEY = 'mg-play-step';
+/* The control the consoles show on narrow screens in place of their detail rail. */
+const INSPECTOR = 'Expand inspector';
+type Missing = 'none' | 'inspector' | 'absent';
 const REPO = 'https://github.com/veldris-ltd/midgard-app';
 
 function parse(hash: string): View {
@@ -191,7 +194,7 @@ function Workspace({ view }: { view: Exclude<View, { kind: 'home' }> }) {
   const frame = React.useRef<HTMLIFrameElement>(null);
   const ring = React.useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = React.useState<string | null>(null);
-  const [missing, setMissing] = React.useState(false);
+  const [missing, setMissing] = React.useState<Missing>('none');
   const src = consoleUrl(info.id, route);
 
   // Load a different console by replacing the frame's document; within the same
@@ -223,25 +226,36 @@ function Workspace({ view }: { view: Exclude<View, { kind: 'home' }> }) {
     });
   }, [info.id]);
 
-  // Ring the step's target once it is on screen; give the console up to 3 s to render it.
+  // Ring the step's target while the step is open. On narrow screens the consoles
+  // fold their detail rail behind an "Expand inspector" control; when the target
+  // is not on screen but that control is, ring it instead and say so, then move
+  // the ring to the target once the visitor opens the inspector. The tour never
+  // presses anything itself. [ADR-PLAY-002] [ADR-PLAY-003]
   React.useEffect(() => {
-    setMissing(false);
+    setMissing('none');
     const f = frame.current;
     const r = ring.current;
     if (!step?.target || !f || !r || loaded !== info.id) return;
     let stop = () => {};
+    let ringed: HTMLElement | null = null;
     let tries = 0;
-    const id = window.setInterval(() => {
+    const tick = () => {
       const doc = f.contentDocument;
-      const el = doc && f.contentWindow?.location.hash === `#${route}` ? findTarget(doc, step.target!) : null;
-      if (el) {
-        window.clearInterval(id);
-        stop = trackRing(f, el, r);
-      } else if (++tries > 30) {
-        window.clearInterval(id);
-        setMissing(true);
+      if (!doc || f.contentWindow?.location.hash !== `#${route}`) return;
+      const target = findTarget(doc, step.target!);
+      const fallback = target ? null : findTarget(doc, INSPECTOR);
+      const el = target ?? fallback;
+      if (el !== ringed) {
+        stop();
+        stop = el ? trackRing(f, el, r) : () => {};
+        ringed = el;
       }
-    }, 100);
+      if (target) setMissing('none');
+      else if (fallback) setMissing('inspector');
+      else if (++tries > 10) setMissing('absent');
+    };
+    tick();
+    const id = window.setInterval(tick, 300);
     return () => {
       window.clearInterval(id);
       stop();
@@ -259,7 +273,7 @@ function Workspace({ view }: { view: Exclude<View, { kind: 'home' }> }) {
   );
 }
 
-function TourPanel({ n, missing }: { n: number; missing: boolean }) {
+function TourPanel({ n, missing }: { n: number; missing: Missing }) {
   const step = TOUR[n - 1];
   const info = byId(step.console) as ConsoleInfo;
   const prev = n > 1 ? href({ kind: 'tour', step: n - 1 }) : null;
@@ -296,7 +310,12 @@ function TourPanel({ n, missing }: { n: number; missing: boolean }) {
           <p>{step.try}</p>
         </div>
       )}
-      {step.target && missing && <p className="faint">The highlighted control is not on screen right now; the step still applies.</p>}
+      {step.target && missing === 'inspector' && (
+        <p className="faint" aria-live="polite">
+          On a narrow screen this is in the console's inspector: press the ringed Expand inspector control to open it.
+        </p>
+      )}
+      {step.target && missing === 'absent' && <p className="faint">The control for this step is not on screen right now; the step still applies.</p>}
       <div className="step-nav">
         {prev ? (
           <a className="btn" href={prev}>

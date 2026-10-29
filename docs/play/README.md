@@ -34,7 +34,7 @@ Each criterion names the ADR it realises and how it is verified. `check` is `nod
 |---|---|---|---|---|---|
 | AC-PLAY-01 | a clean checkout with the workspace installed | `node play/build.mjs` runs | `play/dist/` holds the shell and all seven consoles, each built from its own Vite config, with no console source changed | 001 | check (static); `git diff --stat products/` is empty |
 | AC-PLAY-02 | the workspace | `bash tools/ci/js-artefacts.sh --rows` runs | `play/` is not listed as a release artefact | 001 | manual run, recorded below |
-| AC-PLAY-03 | a built playground | every tour step is opened through the shell | each step's console route exists and its highlight is found on screen | 002 | check (static: routes; browser: highlights) |
+| AC-PLAY-03 | a built playground | every tour step is opened through the shell | each step's console route exists and its highlight is found on screen, at desktop width and at phone width (where a target in a folded inspector is reached through the ringed Expand inspector control) | 002 | check (static: routes; browser: highlights) |
 | AC-PLAY-04 | a tour step | the visitor presses the right or left arrow key in the panel, or opens `#/tour/<n>` directly | the tour moves to the next, previous or named step and the frame follows | 002 | browser check (direct links); manual (keys) |
 | AC-PLAY-05 | any playground page | it is displayed | a strip states that the data is sample data, runs in the browser and is sent nowhere | 003 | manual; visible in every workspace screenshot |
 | AC-PLAY-06 | the shell and all seven consoles | every tour step and every console is opened | no request leaves the playground's origin and no page logs an error, CSP violations included | 003 | check (browser) |
@@ -48,6 +48,7 @@ Each criterion names the ADR it realises and how it is verified. `check` is `nod
 ### Verification record, 29 October 2026, base commit `e298d665498d`
 
 - AC-PLAY-01, 03, 06, 07: `node play/build.mjs` built the shell and seven consoles in about 9 s; `check` reported 7 consoles, 18 tour steps, every highlight found, no page errors, no requests outside the origin: **OK**.
+- 29 October 2026, live: play.veldris.dev served from Apache with HSTS; every file 200 with the right type; `build.json` reports `714ee7755339`. The browser check against the live site passed on desktop and found that four steps (3, 10, 11, 13) had no highlight at phone width, because their targets sit in the consoles' folded inspector. Fixed in the shell (inspector fallback, accessible-name matching) and `check.mjs` now runs desktop and phone, opening the inspector as a visitor would.
 - AC-PLAY-02: `js-artefacts.sh --rows` lists the seven console bundles and the SDK, 8 artefacts; `play/` is absent.
 - AC-PLAY-08: contrast audit over the launcher, 18 tour steps and 7 console views, in dark and light: 0 failures.
 - AC-PLAY-11: `pnpm play` served the site on `127.0.0.1:4173`; `/`, a console page, the favicon and `mode.js` returned 200 with the right types; `/../../etc/passwd` returned 404.
