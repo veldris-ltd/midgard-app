@@ -1,14 +1,14 @@
 //! The break-glass grant, its request, and its lifecycle state.
 
-/// A request to open a break-glass grant.
+/// A request to open a break-glass grant. It names no approver: the approver is the
+/// administrator whose passkey-authenticated session approves it. `[MG-SEC-07]`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantRequest {
     /// Stable grant id.
     pub id: String,
-    /// The principal being elevated.
+    /// The principal being elevated — the requester, whose authenticated session
+    /// must be this principal's.
     pub principal: String,
-    /// The approving security officer (dual-control counterpart).
-    pub approver: String,
     /// The scope the elevation applies to.
     pub scope: String,
     /// Mandatory written justification. `[FR-AD-8]`
@@ -33,9 +33,10 @@ pub struct Review {
 pub struct BreakGlassGrant {
     /// Stable grant id.
     pub id: String,
-    /// The elevated principal.
+    /// The elevated principal: the authenticated requester.
     pub principal: String,
-    /// The approver.
+    /// The approver: the authenticated identity of the second administrator, taken
+    /// from their passkey session, never from the request. `[MG-SEC-07]`
     pub approver: String,
     /// The scope.
     pub scope: String,

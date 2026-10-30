@@ -43,6 +43,13 @@ CONTRIBUTING.md for the version policy.
   - Upgrading: a ledger written before this change has no checkpoint and does not
     open. Run `mg-admin audit checkpoint --state-dir DIR --audit-pin FILE` once: it
     verifies the whole ledger under the pinned key and records its first checkpoint.
+- **Break-glass needs a real second person.** The approver was free text checked only
+  for being non-empty. A grant now takes the requester's and the approver's
+  `AdminSession`s, which exist only after each signed in with their own passkey: the
+  requester must be the principal being elevated, the approver a different
+  administrator who re-authenticated within the approval window, and the grant and the
+  audit ledger record both identities (`breakglass-approve`, then `breakglass-grant`).
+  `GrantRequest` no longer has an `approver` field. [MG-SEC-07]
 
 ### Fixed
 - `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony

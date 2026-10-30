@@ -300,18 +300,22 @@ A guarded-action orchestrator that makes a mutating admin action one transaction
 
 ### `break-glass` (reference)
 
-Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout.
+Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. It takes two people: the requester and a different approver, each signed in with their own passkey, and both identities are sealed into the audit ledger.
 
-**Until it is operable, say:** "Break-glass alerting with durable, at-least-once delivery is implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
+**Until it is operable, say:** "Break-glass alerting with durable, at-least-once delivery, and two-person approval between passkey-authenticated administrators, are implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
 
 **Milestone.** RF-CA-11: the alert path runs in a service and the console reads it.
 
 - Criteria: AC-AD-8
 - Source:
   - [`admin/breakglass/src/alert.rs:84`](../../admin/breakglass/src/alert.rs)
+  - [`admin/breakglass/src/service.rs:1`](../../admin/breakglass/src/service.rs)
 - Tests:
   - [`admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage`](../../admin/breakglass/tests/rc_32.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::the_requester_cannot_approve_their_own_break_glass`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::an_unauthenticated_approver_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::a_valid_two_person_grant_records_both_identities_in_the_ledger`](../../admin/breakglass/tests/mg_sec_07.rs)
 
 ### `config-reconciliation` (reference)
 

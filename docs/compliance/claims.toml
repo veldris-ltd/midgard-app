@@ -192,12 +192,12 @@ milestone = "The admin surface is served from a running service through the orch
 [[claim]]
 id = "break-glass"
 area = "Admin"
-claim = "Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout."
+claim = "Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. It takes two people: the requester and a different approver, each signed in with their own passkey, and both identities are sealed into the audit ledger."
 status = "reference"
 criteria = ["AC-AD-8"]
-evidence = ["admin/breakglass/src/alert.rs:84"]
-tests = ["admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires", "admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage"]
-fallback = "Break-glass alerting with durable, at-least-once delivery is implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
+evidence = ["admin/breakglass/src/alert.rs:84", "admin/breakglass/src/service.rs:1"]
+tests = ["admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires", "admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage", "admin/breakglass/tests/mg_sec_07.rs::the_requester_cannot_approve_their_own_break_glass", "admin/breakglass/tests/mg_sec_07.rs::an_unauthenticated_approver_is_refused", "admin/breakglass/tests/mg_sec_07.rs::a_valid_two_person_grant_records_both_identities_in_the_ledger"]
+fallback = "Break-glass alerting with durable, at-least-once delivery, and two-person approval between passkey-authenticated administrators, are implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
 milestone = "RF-CA-11: the alert path runs in a service and the console reads it."
 
 [[claim]]

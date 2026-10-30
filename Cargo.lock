@@ -20,6 +20,7 @@ version = "0.1.0-rc.1"
 dependencies = [
  "admin-breakglass",
  "admin-config",
+ "admin-identity",
  "admin-sim",
  "audit-writer",
  "policy",
@@ -30,6 +31,7 @@ dependencies = [
 name = "admin-breakglass"
 version = "0.1.0-rc.1"
 dependencies = [
+ "admin-identity",
  "audit-writer",
  "kms",
  "pqc-agility",

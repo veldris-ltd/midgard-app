@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use admin_identity::AdminSession;
+
 use crate::alert::{AlertKind, Alerter, BreakGlassAlert};
 use crate::error::BreakGlassError;
 use crate::grant::{BreakGlassGrant, BreakGlassState, GrantRequest, Review};
@@ -21,18 +23,37 @@ impl<A: Alerter> BreakGlassService<A> {
         }
     }
 
-    /// Open a break-glass grant. Requires a justification, an approver, and a
-    /// non-zero time-box; raises a real-time `Granted` alert. `[FR-AD-8]`
+    /// Open a break-glass grant. Requires a justification and a non-zero time-box;
+    /// raises a real-time `Granted` alert. `[FR-AD-8]`
+    ///
+    /// Two people, both authenticated: `requester` must be the session of the
+    /// principal being elevated, and `approver` the session of a *different*
+    /// administrator whose passkey re-authentication is within `approval_max_age`
+    /// seconds of `now`. Sessions exist only after a verified passkey assertion
+    /// ([`admin_identity::AdminAuthenticator::sign_in`]), so the identities compared
+    /// and recorded are authenticated ones, never names anyone typed. `[MG-SEC-07]`
     pub fn grant(
         &mut self,
         req: GrantRequest,
+        requester: &AdminSession,
+        approver: &AdminSession,
         now: u64,
+        approval_max_age: u64,
     ) -> Result<&BreakGlassGrant, BreakGlassError> {
+        if requester.admin().0 != req.principal {
+            return Err(BreakGlassError::SessionMismatch);
+        }
+        if !requester.has_mfa() || !approver.has_mfa() {
+            return Err(BreakGlassError::MfaRequired);
+        }
+        if approver.admin() == requester.admin() {
+            return Err(BreakGlassError::SelfApprovalDenied);
+        }
+        if !approver.has_fresh_reauth(now, approval_max_age) {
+            return Err(BreakGlassError::StaleApproval);
+        }
         if req.justification.trim().is_empty() {
             return Err(BreakGlassError::JustificationRequired);
-        }
-        if req.approver.trim().is_empty() {
-            return Err(BreakGlassError::ApproverRequired);
         }
         if req.ttl_secs == 0 {
             return Err(BreakGlassError::InvalidTtl);
@@ -45,7 +66,7 @@ impl<A: Alerter> BreakGlassService<A> {
         let grant = BreakGlassGrant {
             id: req.id.clone(),
             principal: req.principal.clone(),
-            approver: req.approver,
+            approver: approver.admin().0.clone(),
             scope: req.scope,
             justification: req.justification,
             granted_at: now,

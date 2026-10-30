@@ -2,11 +2,15 @@
 //! delivered AND a time-boxed capability actually elevates the grantee's access,
 //! expiring automatically and audited throughout. [FR-AD-8] [RC-32]
 
+mod common;
+
 use admin_breakglass::{
     AlertKind, BreakGlassController, BreakGlassService, DurableAlerter, GrantRequest,
     SecurityOfficerBus,
 };
+use admin_identity::AdminSession;
 use audit_writer::{verify_chain, AuditWriter, InMemoryLedger, LedgerId};
+use common::{Admins, APPROVAL_MAX_AGE};
 use pqc_agility::backend::fips::FipsSig;
 use pqc_agility::registry::CryptoProvider;
 use pqc_agility::{Rng, SigId, SignatureScheme, SigningKey, VerifyingKey};
@@ -60,11 +64,19 @@ fn request(id: &str) -> GrantRequest {
     GrantRequest {
         id: id.into(),
         principal: "responder".into(),
-        approver: "security-officer".into(),
         scope: "kms".into(),
         justification: "prod incident: root key custody unreachable".into(),
         ttl_secs: TTL,
     }
+}
+
+/// The responder and the security officer, each signed in with their own passkey.
+fn sessions() -> (AdminSession, AdminSession) {
+    let mut admins = Admins::new(&["responder", "security-officer"]);
+    (
+        admins.sign_in("responder", NOW),
+        admins.sign_in("security-officer", NOW),
+    )
 }
 
 fn chain_ok(c: &Controller) -> bool {
@@ -78,13 +90,22 @@ fn chain_ok(c: &Controller) -> bool {
 #[test]
 fn grant_delivers_a_real_alert_and_elevates_access_which_auto_expires() {
     let mut c = controller(SecurityOfficerBus::new());
+    let (responder, officer) = sessions();
 
     // Before any grant, the responder is NOT elevated for the emergency capability.
     assert!(!c.elevates("responder", "kms", "kms.key.rotate", NOW));
 
     // Grant break-glass elevating kms.key.rotate within the kms scope.
     let token = c
-        .grant(request("bg-1"), "kms.key.rotate", NOW, "t0")
+        .grant(
+            request("bg-1"),
+            &responder,
+            &officer,
+            APPROVAL_MAX_AGE,
+            "kms.key.rotate",
+            NOW,
+            "t0",
+        )
         .expect("grant opens");
     assert_eq!(token.capability, "kms.key.rotate");
     assert_eq!(token.expires_at, NOW + TTL);
@@ -119,10 +140,14 @@ fn grant_delivers_a_real_alert_and_elevates_access_which_auto_expires() {
         AlertKind::ExpiredUnreviewed
     );
 
-    // Audited throughout: grant → expired, sealed and chain-verifiable.
+    // Audited throughout: approve → grant → expired, sealed and chain-verifiable,
+    // with both people's authenticated identities. [MG-SEC-07]
     let entries = c.audit_entries();
-    assert_eq!(entries[0].record.action.0, "breakglass-grant");
-    assert_eq!(entries[1].record.action.0, "breakglass-expired");
+    assert_eq!(entries[0].record.action.0, "breakglass-approve");
+    assert_eq!(entries[0].record.actor.0, "security-officer");
+    assert_eq!(entries[1].record.action.0, "breakglass-grant");
+    assert_eq!(entries[1].record.actor.0, "responder");
+    assert_eq!(entries[2].record.action.0, "breakglass-expired");
     assert!(chain_ok(&c));
 
     // The mandatory post-hoc review is also audited.
@@ -134,7 +159,7 @@ fn grant_delivers_a_real_alert_and_elevates_access_which_auto_expires() {
         "t2",
     )
     .unwrap();
-    assert_eq!(c.audit_entries()[2].record.action.0, "breakglass-review");
+    assert_eq!(c.audit_entries()[3].record.action.0, "breakglass-review");
     assert!(chain_ok(&c));
 }
 
@@ -144,10 +169,19 @@ fn alert_delivery_is_durable_across_a_transient_bus_outage() {
     let mut bus = SecurityOfficerBus::new();
     bus.fail_next(1);
     let mut c = controller(bus);
+    let (responder, officer) = sessions();
 
     // Granting still succeeds (the grant is not lost), but the alert is pending.
-    c.grant(request("bg-1"), "kms.key.rotate", NOW, "t0")
-        .unwrap();
+    c.grant(
+        request("bg-1"),
+        &responder,
+        &officer,
+        APPROVAL_MAX_AGE,
+        "kms.key.rotate",
+        NOW,
+        "t0",
+    )
+    .unwrap();
     assert_eq!(
         c.service().alerter().delivered(),
         0,
