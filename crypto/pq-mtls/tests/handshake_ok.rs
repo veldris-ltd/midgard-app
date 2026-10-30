@@ -1,14 +1,14 @@
 //! Happy path: a full mutual handshake yields equal traffic secrets and correct
 //! peer identities over a post-quantum suite.
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
 use std::collections::BTreeSet;
 
+use common::SeedRng;
 use policy::{ClassificationLevel, Purpose};
 use pq_mtls::{mutual_handshake, Initiator, Posture, Responder};
-use pqc_agility::SeedRng;
 
 #[test]
 fn successful_mutual_handshake() {

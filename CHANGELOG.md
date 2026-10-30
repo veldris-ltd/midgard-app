@@ -50,13 +50,6 @@ CONTRIBUTING.md for the version policy.
   administrator who re-authenticated within the approval window, and the grant and the
   audit ledger record both identities (`breakglass-approve`, then `breakglass-grant`).
   `GrantRequest` no longer has an `approver` field. [MG-SEC-07]
-
-### Fixed
-- `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony
-  publishes to be committed, so committing them failed. The anchors are now excepted;
-  other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.
-
-### Security
 - **Services check who they connected to.** [MG-SEC-01] Every mesh client names the
   service it means to call, and refuses any other before sending its key exchange.
 - **Mesh certificates expire.** [MG-SEC-02] Certificates hold a serial and a validity
@@ -87,6 +80,33 @@ CONTRIBUTING.md for the version policy.
   connections at once, time out a handshake after 10 seconds and an idle stream
   after 5 minutes, and cap a frame at 64 KiB during the handshake and 1 MiB after,
   before reserving memory.
+- **The gateway is safe by default.** [MG-SEC-06] Started with no arguments it
+  refuses to start; it needs `--state-dir`. Development mode, with its published demo
+  logins, is behind an explicit `--dev` flag and listens on loopback only; a bare
+  address no longer starts it.
+- **Vetted crypto libraries.** [MG-SEC-10] The hand-written HMAC, HKDF, PBKDF2 and
+  constant-time comparison are replaced by RustCrypto's `hmac`, `hkdf`, `pbkdf2` and
+  `subtle`, behind the same functions, and checked against the RFC 4231, 5869, 6070
+  and 7914 vectors.
+- **Stronger password storage.** [MG-SEC-11] New passwords are Argon2id. A stored hash
+  outside fixed cost bounds is refused like a wrong password, so an edited entry
+  cannot weaken itself; legacy PBKDF2 entries (210,000 iterations) still sign in and
+  are replaced with Argon2id at that sign-in, recorded in the audit ledger.
+- **Tighter checks before loading signed software.** [MG-SEC-14] Model manifests and
+  bundles are checked against their signature before they are parsed; an older
+  release, or the same version with different content, is refused across restarts;
+  model weights are hashed through the handle that is then used; and the image no
+  longer reads `MIDGARD_RELEASE_TRUST_KEY`.
+- **Tests that prove the claims.** [MG-SEC-15] CI fails a build whose dependency graph
+  enables the insecure test backend (`tools/ci/no-test-backend.sh`). The NIST ACVP
+  ML-KEM and ML-DSA vectors run offline; the ledger tamper and truncation tests and the
+  handshake downgrade tests also run on the FIPS backend; the whole crypto suites run
+  there, not chosen files; and seven crates no recipe tested now are.
+
+### Fixed
+- `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony
+  publishes to be committed, so committing them failed. The anchors are now excepted;
+  other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.
 
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 

@@ -1,13 +1,13 @@
 //! Post-handshake authorization via the policy PDP (AC-M-3).
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
 use std::collections::BTreeSet;
 
+use common::SeedRng;
 use policy::{ClassificationLevel, Purpose};
 use pq_mtls::{mutual_handshake, Initiator, MtlsError, Posture, Responder};
-use pqc_agility::SeedRng;
 
 fn posture(level: ClassificationLevel) -> Posture {
     Posture {

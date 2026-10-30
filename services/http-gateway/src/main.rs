@@ -93,7 +93,7 @@ fn main() {
         Ok(pin) => pin,
         Err(e) => {
             eprintln!(
-                "http-gateway: cannot read the pinned audit key {}: {e}",
+                "http-gateway: cannot serve {state_dir}: cannot read the pinned audit key {}: {e}",
                 pin_path.display()
             );
             exit(1);

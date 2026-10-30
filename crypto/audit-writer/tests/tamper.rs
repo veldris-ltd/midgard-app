@@ -1,5 +1,5 @@
 //! Tamper detection, including the adversarial compromised-signer case.
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
@@ -7,8 +7,9 @@ use audit_writer::{
     entry_hash, signing_preimage, verify_chain, Action, AuditError, AuditWriter, InMemoryLedger,
     LedgerId, SealedEntry,
 };
-use pqc_agility::backend::test_backend::{provider, TestSig};
-use pqc_agility::{SeedRng, SigId, SignatureScheme, VerifyingKey};
+use common::SeedRng;
+use common::{provider, Sig};
+use pqc_agility::{SigId, SignatureScheme, VerifyingKey};
 
 const ALG: SigId = SigId::MlDsa65;
 
@@ -65,7 +66,7 @@ fn swapped_signature_is_detected() {
 fn wrong_key_resign_is_detected() {
     let (mut entries, ledger, vk) = build_chain();
     // Re-sign entry 1 with a different key but the correct entry hash.
-    let scheme = TestSig::new(ALG);
+    let scheme = Sig::new(ALG);
     let mut rng = SeedRng::new(999);
     let (_wrong_vk, wrong_sk) = scheme.keypair(&mut rng).unwrap();
     let eh = entries[1].entry_hash;
@@ -88,7 +89,7 @@ fn compromised_signer_cannot_rewrite_history() {
     // entry that already has a successor.
     let (mut entries, ledger, vk) = build_chain();
     let sk = common::signing_key(ALG, 1); // the genuine key
-    let scheme = TestSig::new(ALG);
+    let scheme = Sig::new(ALG);
 
     entries[1].record.action = Action("tampered".into());
     let new_eh = entry_hash(entries[1].seq, &entries[1].prev_hash, &entries[1].record);

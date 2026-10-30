@@ -2,7 +2,7 @@
 //! key of the attacker's choosing. Cutting entries off the end, deleting the ledger
 //! or its checkpoint, re-signing it under another key, and forging a checkpoint for
 //! a shortened chain all fail closed. [MG-SEC-05]
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
@@ -12,7 +12,7 @@ use audit_writer::{
     checkpoint_path, verify_ledger, AuditError, AuditWriter, FileLedger, InMemoryLedger,
     LedgerCheckpoint, LedgerId, LedgerStore, PinnedKey, Sealer,
 };
-use pqc_agility::backend::test_backend::{provider, TestSig};
+use common::{provider, Sig};
 use pqc_agility::{SigId, VerifyingKey};
 
 const ALG: SigId = SigId::MlDsa65;
@@ -370,7 +370,7 @@ fn a_checkpoint_for_another_ledger_is_refused() {
         "{err:?}"
     );
 
-    let scheme = TestSig::new(ALG);
+    let scheme = Sig::new(ALG);
     let sk = common::signing_key(ALG, 1);
     let other = LedgerCheckpoint::sign(&scheme, &sk, &LedgerId("other".into()), &[]).unwrap();
     let err = verify_ledger(&[], Some(&other), &provider(), &id(), &pin(1)).unwrap_err();

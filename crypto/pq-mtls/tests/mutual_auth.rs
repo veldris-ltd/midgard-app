@@ -1,13 +1,14 @@
 //! Mutual-authentication failures all fail closed (AC-M-3).
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
 use std::collections::BTreeSet;
 
+use common::SeedRng;
 use policy::{ClassificationLevel, DefaultPdp, Purpose, Resource};
 use pq_mtls::{mutual_handshake, Initiator, MtlsError, Posture, Responder};
-use pqc_agility::{Ciphertext, CryptoProvider, SeedRng};
+use pqc_agility::{Ciphertext, CryptoProvider};
 
 fn fixtures() -> (
     CryptoProvider,

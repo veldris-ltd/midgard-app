@@ -4,20 +4,21 @@
 //! from the certificate [MG-SEC-04], a peer on another protocol version is refused
 //! [MG-SEC-09], hybrid is required by default [MG-SEC-12], and hostile lengths never
 //! size an allocation [MG-SEC-13].
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
 use std::collections::BTreeSet;
 use std::io::Cursor;
 
+use common::SeedRng;
 use policy::{ClassificationLevel, Compartment, Purpose};
 use pq_mtls::{
     certify, decode_message, encode_message, mutual_handshake, read_frame_limited, CertTerms,
     ClientHello, HandshakeMessage, Initiator, MtlsError, Posture, Responder, TransportError,
     PROTOCOL_VERSION,
 };
-use pqc_agility::{KemSuiteId, SeedRng};
+use pqc_agility::KemSuiteId;
 
 const NOW: u64 = 1_800_000_000;
 

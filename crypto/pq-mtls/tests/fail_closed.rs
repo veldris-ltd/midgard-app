@@ -1,11 +1,12 @@
 //! Fail-closed negotiation (AC-M-1): no common PQ suite → the handshake aborts.
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
+use common::SeedRng;
 use policy::{ClassificationLevel, Purpose};
 use pq_mtls::{mutual_handshake, Initiator, MtlsError, Posture, Responder};
-use pqc_agility::{KemSuiteId, SeedRng};
+use pqc_agility::KemSuiteId;
 
 #[test]
 fn no_common_pq_suite_fails_closed() {
