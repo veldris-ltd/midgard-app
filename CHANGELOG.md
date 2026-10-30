@@ -49,7 +49,12 @@ CONTRIBUTING.md for the version policy.
   requester must be the principal being elevated, the approver a different
   administrator who re-authenticated within the approval window, and the grant and the
   audit ledger record both identities (`breakglass-approve`, then `breakglass-grant`).
-  `GrantRequest` no longer has an `approver` field. [MG-SEC-07]
+  `GrantRequest` no longer has an `approver` field. Signed in is not enough: a grant
+  also takes the `IdentityDirectory`, and the requester must hold `breakglass.request`
+  and the approver `breakglass.approve` (the security officer's) through role bindings
+  in force at the time and covering the grant's scope, or it is refused
+  (`RequesterNotAuthorised`, `ApproverNotAuthorised`) with nothing alerted, issued or
+  sealed. [MG-SEC-07]
 - **Services check who they connected to.** [MG-SEC-01] Every mesh client names the
   service it means to call, and refuses any other before sending its key exchange.
 - **Mesh certificates expire.** [MG-SEC-02] Certificates hold a serial and a validity

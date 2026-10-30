@@ -11,7 +11,11 @@
 //!   administrator's own passkey assertion verified. The approver must be a
 //!   *different* authenticated administrator with a fresh re-authentication, and both
 //!   identities are recorded in the grant and the audit ledger. A typed approver name
-//!   is no longer accepted anywhere. `[MG-SEC-07]`
+//!   is no longer accepted anywhere. Authenticated is not enough: in the
+//!   [`IdentityDirectory`](admin_identity::IdentityDirectory) the requester must hold
+//!   `breakglass.request` and the approver `breakglass.approve` (the security
+//!   officer's) through role bindings active now and covering the grant's scope.
+//!   `[MG-SEC-07]`
 //! - **real-time alerted** — granting raises an alert immediately, and an expiry
 //!   that has not yet been reviewed raises another;
 //! - **forced post-hoc review** — an expired grant remains outstanding until a
@@ -39,5 +43,5 @@ pub use controller::BreakGlassController;
 pub use durable::DurableBreakGlass;
 pub use error::BreakGlassError;
 pub use grant::{BreakGlassGrant, BreakGlassState, GrantRequest, Review};
-pub use service::BreakGlassService;
+pub use service::{BreakGlassService, CAP_APPROVE, CAP_REQUEST};
 pub use token::{BreakGlassAuthority, CapabilityToken};

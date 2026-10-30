@@ -3,14 +3,49 @@
 #![allow(dead_code)]
 
 use admin_identity::{
-    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, IdentityError,
-    SoftwareAdminAuthenticator,
+    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, IdentityDirectory, IdentityError,
+    ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::Rng;
 
 /// How fresh the approver's passkey re-authentication must be, in seconds.
 pub const APPROVAL_MAX_AGE: u64 = 300;
+
+/// The identity directory over the standard role catalog, binding each
+/// `(admin, role)` over every `kms` resource with no expiry. [MG-SEC-07]
+pub fn directory(bindings: &[(&str, &str)]) -> IdentityDirectory {
+    let mut dir = IdentityDirectory::new(RoleCatalog::standard());
+    for (admin, role) in bindings {
+        bind(
+            &mut dir,
+            admin,
+            role,
+            ResourceScope::all("kms"),
+            0,
+            u64::MAX,
+        );
+    }
+    dir
+}
+
+/// Bind `role` to `admin` within `scope` for `[not_before, not_after)`.
+pub fn bind(
+    dir: &mut IdentityDirectory,
+    admin: &str,
+    role: &str,
+    scope: ResourceScope,
+    not_before: u64,
+    not_after: u64,
+) {
+    dir.bind(RoleBinding {
+        admin: AdminId(admin.into()),
+        role: role.into(),
+        scope,
+        not_before,
+        not_after,
+    });
+}
 
 pub struct SeedRng(pub u64);
 impl Rng for SeedRng {

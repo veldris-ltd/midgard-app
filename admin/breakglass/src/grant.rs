@@ -1,5 +1,7 @@
 //! The break-glass grant, its request, and its lifecycle state.
 
+use admin_identity::{ResourceScope, Subsystem};
+
 /// A request to open a break-glass grant. It names no approver: the approver is the
 /// administrator whose passkey-authenticated session approves it. `[MG-SEC-07]`
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,6 +17,22 @@ pub struct GrantRequest {
     pub justification: String,
     /// Time-box duration in seconds; must be non-zero. `[FR-AD-8]`
     pub ttl_secs: u64,
+}
+
+impl GrantRequest {
+    /// The directory scope the requester's and approver's role bindings must cover:
+    /// `subsystem` names every resource in it, `subsystem/selector` one of them. A
+    /// binding confined to one selector therefore cannot authorise a whole-subsystem
+    /// grant. `[MG-SEC-07]`
+    pub fn resource_scope(&self) -> ResourceScope {
+        match self.scope.split_once('/') {
+            Some((subsystem, selector)) => ResourceScope {
+                subsystem: Subsystem(subsystem.to_string()),
+                selector: selector.to_string(),
+            },
+            None => ResourceScope::all(self.scope.as_str()),
+        }
+    }
 }
 
 /// The mandatory post-hoc review of a break-glass grant. `[FR-AD-8]`

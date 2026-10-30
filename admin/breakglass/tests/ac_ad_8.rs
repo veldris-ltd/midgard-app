@@ -6,8 +6,8 @@ mod common;
 use admin_breakglass::{
     AlertKind, BreakGlassError, BreakGlassService, BreakGlassState, GrantRequest, RecordingAlerter,
 };
-use admin_identity::AdminSession;
-use common::{Admins, APPROVAL_MAX_AGE};
+use admin_identity::{AdminSession, IdentityDirectory, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
+use common::{directory, Admins, APPROVAL_MAX_AGE};
 
 fn req(id: &str, justification: &str, ttl: u64) -> GrantRequest {
     GrantRequest {
@@ -28,14 +28,24 @@ fn sessions() -> (AdminSession, AdminSession) {
     )
 }
 
+/// `mallory` may request break-glass; `secoff` is the security officer who approves.
+fn roles() -> IdentityDirectory {
+    directory(&[
+        ("mallory", ROLE_IAM_ADMIN),
+        ("secoff", ROLE_SECURITY_OFFICER),
+    ])
+}
+
 #[test]
 fn ac_ad_8_grant_is_time_boxed_justified_and_alerted() {
     let mut svc = BreakGlassService::new(RecordingAlerter::new());
     let (mallory, secoff) = sessions();
+    let dir = roles();
 
     // A justification is mandatory.
     assert_eq!(
         svc.grant(
+            &dir,
             req("g0", "  ", 60),
             &mallory,
             &secoff,
@@ -48,6 +58,7 @@ fn ac_ad_8_grant_is_time_boxed_justified_and_alerted() {
     // The time-box must be non-zero.
     assert_eq!(
         svc.grant(
+            &dir,
             req("g0", "prod incident", 0),
             &mallory,
             &secoff,
@@ -60,6 +71,7 @@ fn ac_ad_8_grant_is_time_boxed_justified_and_alerted() {
 
     // A valid grant: active within its box, and a real-time alert was raised.
     svc.grant(
+        &dir,
         req("g1", "prod incident #42", 60),
         &mallory,
         &secoff,
@@ -81,7 +93,9 @@ fn ac_ad_8_grant_is_time_boxed_justified_and_alerted() {
 fn ac_ad_8_expiry_forces_a_reviewed_post_hoc() {
     let mut svc = BreakGlassService::new(RecordingAlerter::new());
     let (mallory, secoff) = sessions();
+    let dir = roles();
     svc.grant(
+        &dir,
         req("g1", "prod incident #42", 60),
         &mallory,
         &secoff,
@@ -124,8 +138,10 @@ fn ac_ad_8_expiry_forces_a_reviewed_post_hoc() {
 fn ac_ad_8_break_glass_is_never_unilateral() {
     let mut svc = BreakGlassService::new(RecordingAlerter::new());
     let (mallory, _) = sessions();
+    let dir = roles();
     assert_eq!(
         svc.grant(
+            &dir,
             req("g1", "prod incident", 60),
             &mallory,
             &mallory,

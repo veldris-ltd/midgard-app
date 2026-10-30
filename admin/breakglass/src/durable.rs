@@ -3,7 +3,7 @@
 //! into a [`BreakGlassService`] on boot — so the emergency-elevation record, a
 //! legal/forensic backbone, survives a restart. [FR-AD-8] [RC-14]
 
-use admin_identity::AdminSession;
+use admin_identity::{AdminSession, IdentityDirectory};
 use audit_writer::{SealedJournal, Sealer};
 
 use crate::alert::Alerter;
@@ -38,9 +38,10 @@ impl<A: Alerter> DurableBreakGlass<A> {
 
     /// Open a break-glass grant (alerts), then durably persist it — including the
     /// authenticated approver. See [`BreakGlassService::grant`] for the two-person
-    /// rule. [MG-SEC-07]
+    /// rule and the role check against `dir`. [MG-SEC-07]
     pub fn grant(
         &mut self,
+        dir: &IdentityDirectory,
         req: GrantRequest,
         requester: &AdminSession,
         approver: &AdminSession,
@@ -49,7 +50,7 @@ impl<A: Alerter> DurableBreakGlass<A> {
     ) -> Result<&BreakGlassGrant, BreakGlassError> {
         let id = req.id.clone();
         self.inner
-            .grant(req, requester, approver, now, approval_max_age)?;
+            .grant(dir, req, requester, approver, now, approval_max_age)?;
         let g = self.inner.get(&id).expect("just granted").clone();
         self.journal
             .append(&encode_grant(&g))

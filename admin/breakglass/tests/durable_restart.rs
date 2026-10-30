@@ -6,7 +6,8 @@ mod common;
 use std::path::PathBuf;
 
 use admin_breakglass::{BreakGlassState, DurableBreakGlass, GrantRequest, RecordingAlerter};
-use common::{Admins, APPROVAL_MAX_AGE};
+use admin_identity::{ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
+use common::{directory, Admins, APPROVAL_MAX_AGE};
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::Rng;
@@ -64,10 +65,15 @@ fn breakglass_grants_survive_restart() {
     let mut admins = Admins::new(&["responder", "duty-officer"]);
     let responder = admins.sign_in("responder", 1_000);
     let officer = admins.sign_in("duty-officer", 1_000);
+    let roles = directory(&[
+        ("responder", ROLE_IAM_ADMIN),
+        ("duty-officer", ROLE_SECURITY_OFFICER),
+    ]);
     {
         let mut store = open(&path);
         store
             .grant(
+                &roles,
                 req("bg-1", 3600),
                 &responder,
                 &officer,
@@ -77,6 +83,7 @@ fn breakglass_grants_survive_restart() {
             .unwrap();
         store
             .grant(
+                &roles,
                 req("bg-2", 60),
                 &responder,
                 &officer,

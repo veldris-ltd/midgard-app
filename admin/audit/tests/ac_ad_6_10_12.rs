@@ -13,7 +13,8 @@ use admin_audit::{decode_detail, AdminAuditLog, AdminEvent, AdminOutcome};
 use admin_breakglass::{BreakGlassService, GrantRequest, RecordingAlerter};
 use admin_config::{ConfigState, ConfigStore};
 use admin_identity::{
-    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, SoftwareAdminAuthenticator,
+    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, IdentityDirectory, ResourceScope,
+    RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER,
 };
 use admin_sim::{simulate, AccessProbe};
 use audit_writer::{verify_chain, AuditWriter, InMemoryLedger, LedgerId};
@@ -85,6 +86,25 @@ fn breakglass_sessions(now: u64) -> (AdminSession, AdminSession) {
             .unwrap()
     };
     (sign_in("mallory"), sign_in("secoff"))
+}
+
+/// `mallory` holds `breakglass.request` and `secoff` (security officer)
+/// `breakglass.approve` over `kms`: break-glass checks both bindings. [MG-SEC-07]
+fn breakglass_roles() -> IdentityDirectory {
+    let mut dir = IdentityDirectory::new(RoleCatalog::standard());
+    for (admin, role) in [
+        ("mallory", ROLE_IAM_ADMIN),
+        ("secoff", ROLE_SECURITY_OFFICER),
+    ] {
+        dir.bind(RoleBinding {
+            admin: AdminId(admin.into()),
+            role: role.into(),
+            scope: ResourceScope::all("kms"),
+            not_before: 0,
+            not_after: u64::MAX,
+        });
+    }
+    dir
 }
 
 fn config_store() -> ConfigStore {
@@ -169,7 +189,9 @@ fn ac_ad_6_every_admin_action_including_denied_and_simulated_is_audited() {
     // denial itself is audited.
     let mut bg = BreakGlassService::new(RecordingAlerter::new());
     let (mallory, secoff) = breakglass_sessions(1000);
+    let roles = breakglass_roles();
     let denied = bg.grant(
+        &roles,
         GrantRequest {
             id: "bg-bad".into(),
             principal: "mallory".into(),
@@ -200,6 +222,7 @@ fn ac_ad_6_every_admin_action_including_denied_and_simulated_is_audited() {
     // recorded is the authenticated second person, not a typed name.
     let approver = bg
         .grant(
+            &roles,
             GrantRequest {
                 id: "bg-1".into(),
                 principal: "mallory".into(),
@@ -326,8 +349,10 @@ fn ac_ad_12_break_glass_and_audit_work_offline() {
     let (mut log, vk) = audit_log();
     let mut bg = BreakGlassService::new(RecordingAlerter::new());
     let (mallory, secoff) = breakglass_sessions(1000);
+    let roles = breakglass_roles();
     let approver = bg
         .grant(
+            &roles,
             GrantRequest {
                 id: "bg-1".into(),
                 principal: "mallory".into(),

@@ -9,9 +9,10 @@
 //! A grant takes two passkey-authenticated sessions, the requester's and a different
 //! approver's, and seals both identities: a `breakglass-approve` entry whose actor is
 //! the approver, then the `breakglass-grant` entry whose actor is the requester.
-//! [MG-SEC-07]
+//! Both must hold their capability (`breakglass.request`, `breakglass.approve`) over
+//! the grant's scope in the identity directory, or nothing is issued. [MG-SEC-07]
 
-use admin_identity::AdminSession;
+use admin_identity::{AdminSession, IdentityDirectory};
 use audit_writer::{
     Action, Actor, AuditRecord, AuditWriter, LedgerId, LedgerStore, RecordId, Resource,
     SealedEntry, Timestamp,
@@ -42,7 +43,7 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
     }
 
     /// Open a break-glass grant elevating `capability` within the request's scope:
-    /// validate both sessions and the request + raise a real-time alert (via the
+    /// validate both sessions, their role bindings in `dir`, and the request + raise a real-time alert (via the
     /// service), issue a scoped time-boxed [`CapabilityToken`] and register it so the
     /// PDP honours it, and seal a `breakglass-approve` entry (actor: the approver)
     /// and a `breakglass-grant` entry (actor: the requester). Returns the issued
@@ -50,6 +51,7 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
     #[allow(clippy::too_many_arguments)]
     pub fn grant(
         &mut self,
+        dir: &IdentityDirectory,
         req: GrantRequest,
         requester: &AdminSession,
         approver: &AdminSession,
@@ -58,10 +60,10 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
         now: u64,
         ts: &str,
     ) -> Result<CapabilityToken, BreakGlassError> {
-        // Validates both sessions and the request, then alerts.
+        // Validates both sessions, their entitlement and the request, then alerts.
         let grant = self
             .service
-            .grant(req, requester, approver, now, approval_max_age)?;
+            .grant(dir, req, requester, approver, now, approval_max_age)?;
         let approver = grant.approver.clone();
         let token = CapabilityToken {
             grant_id: grant.id.clone(),

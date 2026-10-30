@@ -8,9 +8,9 @@ use admin_breakglass::{
     AlertKind, BreakGlassController, BreakGlassService, DurableAlerter, GrantRequest,
     SecurityOfficerBus,
 };
-use admin_identity::AdminSession;
+use admin_identity::{AdminSession, IdentityDirectory, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
 use audit_writer::{verify_chain, AuditWriter, InMemoryLedger, LedgerId};
-use common::{Admins, APPROVAL_MAX_AGE};
+use common::{directory, Admins, APPROVAL_MAX_AGE};
 use pqc_agility::backend::fips::FipsSig;
 use pqc_agility::registry::CryptoProvider;
 use pqc_agility::{Rng, SigId, SignatureScheme, SigningKey, VerifyingKey};
@@ -79,6 +79,14 @@ fn sessions() -> (AdminSession, AdminSession) {
     )
 }
 
+/// The responder may request break-glass; the security officer approves it.
+fn roles() -> IdentityDirectory {
+    directory(&[
+        ("responder", ROLE_IAM_ADMIN),
+        ("security-officer", ROLE_SECURITY_OFFICER),
+    ])
+}
+
 fn chain_ok(c: &Controller) -> bool {
     let vk = c.verifying_key().clone();
     verify_chain(c.audit_entries(), &provider(), c.ledger_id(), &|alg| {
@@ -91,6 +99,7 @@ fn chain_ok(c: &Controller) -> bool {
 fn grant_delivers_a_real_alert_and_elevates_access_which_auto_expires() {
     let mut c = controller(SecurityOfficerBus::new());
     let (responder, officer) = sessions();
+    let dir = roles();
 
     // Before any grant, the responder is NOT elevated for the emergency capability.
     assert!(!c.elevates("responder", "kms", "kms.key.rotate", NOW));
@@ -98,6 +107,7 @@ fn grant_delivers_a_real_alert_and_elevates_access_which_auto_expires() {
     // Grant break-glass elevating kms.key.rotate within the kms scope.
     let token = c
         .grant(
+            &dir,
             request("bg-1"),
             &responder,
             &officer,
@@ -170,9 +180,11 @@ fn alert_delivery_is_durable_across_a_transient_bus_outage() {
     bus.fail_next(1);
     let mut c = controller(bus);
     let (responder, officer) = sessions();
+    let dir = roles();
 
     // Granting still succeeds (the grant is not lost), but the alert is pending.
     c.grant(
+        &dir,
         request("bg-1"),
         &responder,
         &officer,

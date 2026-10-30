@@ -300,7 +300,7 @@ A guarded-action orchestrator that makes a mutating admin action one transaction
 
 ### `break-glass` (reference)
 
-Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. It takes two people: the requester and a different approver, each signed in with their own passkey, and both identities are sealed into the audit ledger.
+Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. It takes two people: the requester and a different approver, each signed in with their own passkey and each holding the role that entitles them (the approver a security officer), and both identities are sealed into the audit ledger.
 
 **Until it is operable, say:** "Break-glass alerting with durable, at-least-once delivery, and two-person approval between passkey-authenticated administrators, are implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
 
@@ -316,6 +316,8 @@ Break-glass access: a scoped, time-boxed elevation that alerts a security office
   - [`admin/breakglass/tests/mg_sec_07.rs::the_requester_cannot_approve_their_own_break_glass`](../../admin/breakglass/tests/mg_sec_07.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::an_unauthenticated_approver_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::a_valid_two_person_grant_records_both_identities_in_the_ledger`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::an_approver_without_breakglass_approve_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::a_requester_without_breakglass_request_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
 
 ### `config-reconciliation` (reference)
 

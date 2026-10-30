@@ -18,6 +18,12 @@ pub enum BreakGlassError {
     /// The approver's passkey re-authentication is older than the approval window.
     /// `[MG-SEC-07]`
     StaleApproval,
+    /// The requester holds no active role binding granting `breakglass.request`
+    /// over the grant's scope. `[MG-SEC-07]`
+    RequesterNotAuthorised,
+    /// The approver holds no active role binding granting `breakglass.approve` (the
+    /// security officer's) over the grant's scope. `[MG-SEC-07]`
+    ApproverNotAuthorised,
     /// The time-box duration was zero.
     InvalidTtl,
     /// The grant id was reused.
@@ -51,6 +57,12 @@ impl std::fmt::Display for BreakGlassError {
             }
             BreakGlassError::StaleApproval => {
                 write!(f, "the approver must re-authenticate with their passkey")
+            }
+            BreakGlassError::RequesterNotAuthorised => {
+                write!(f, "the requester may not request break-glass in this scope")
+            }
+            BreakGlassError::ApproverNotAuthorised => {
+                write!(f, "the approver may not approve break-glass in this scope")
             }
             BreakGlassError::InvalidTtl => write!(f, "break-glass time-box must be non-zero"),
             BreakGlassError::DuplicateGrant(id) => write!(f, "duplicate break-glass grant {id}"),

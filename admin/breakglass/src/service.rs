@@ -2,11 +2,17 @@
 
 use std::collections::BTreeMap;
 
-use admin_identity::AdminSession;
+use admin_identity::{AdminSession, IdentityDirectory};
 
 use crate::alert::{AlertKind, Alerter, BreakGlassAlert};
 use crate::error::BreakGlassError;
 use crate::grant::{BreakGlassGrant, BreakGlassState, GrantRequest, Review};
+
+/// The capability a requester must hold over the grant's scope. `[MG-SEC-07]`
+pub const CAP_REQUEST: &str = "breakglass.request";
+/// The capability an approver must hold over the grant's scope (the security
+/// officer's). `[MG-SEC-07]`
+pub const CAP_APPROVE: &str = "breakglass.approve";
 
 /// Manages break-glass grants over an injected clock and alert sink.
 pub struct BreakGlassService<A: Alerter> {
@@ -32,8 +38,14 @@ impl<A: Alerter> BreakGlassService<A> {
     /// seconds of `now`. Sessions exist only after a verified passkey assertion
     /// ([`admin_identity::AdminAuthenticator::sign_in`]), so the identities compared
     /// and recorded are authenticated ones, never names anyone typed. `[MG-SEC-07]`
+    ///
+    /// Both must also be entitled, per `dir`'s role bindings active at `now` and
+    /// covering the request's [`GrantRequest::resource_scope`]: the requester holds
+    /// [`CAP_REQUEST`], the approver [`CAP_APPROVE`]. Any refusal leaves no grant
+    /// and raises no alert. `[MG-SEC-07]`
     pub fn grant(
         &mut self,
+        dir: &IdentityDirectory,
         req: GrantRequest,
         requester: &AdminSession,
         approver: &AdminSession,
@@ -51,6 +63,15 @@ impl<A: Alerter> BreakGlassService<A> {
         }
         if !approver.has_fresh_reauth(now, approval_max_age) {
             return Err(BreakGlassError::StaleApproval);
+        }
+        // Authenticated is not entitled: each must hold their half of the capability
+        // pair over this scope, now, as the privilege service checks. [MG-SEC-07]
+        let scope = req.resource_scope();
+        if !dir.has_capability(requester.admin(), CAP_REQUEST, &scope, now) {
+            return Err(BreakGlassError::RequesterNotAuthorised);
+        }
+        if !dir.has_capability(approver.admin(), CAP_APPROVE, &scope, now) {
+            return Err(BreakGlassError::ApproverNotAuthorised);
         }
         if req.justification.trim().is_empty() {
             return Err(BreakGlassError::JustificationRequired);
