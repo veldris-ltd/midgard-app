@@ -1,5 +1,6 @@
 //! AC-C-3 — client-to-enclosure transport is hybrid PQ-mTLS and fails closed if PQ
 //! negotiation fails. Driven over real TCP sockets, the transport a shell uses.
+//! [AC-C-3]
 #![cfg(feature = "test-backend")]
 
 mod common;

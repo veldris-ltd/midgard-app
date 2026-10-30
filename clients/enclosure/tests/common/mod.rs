@@ -1,4 +1,5 @@
 //! Shared handshake fixtures for the enclosure-client tests (test backend only).
+//! [AC-C-3]
 #![allow(dead_code)]
 
 use std::collections::BTreeSet;

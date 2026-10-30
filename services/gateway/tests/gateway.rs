@@ -1,6 +1,6 @@
 //! The gateway terminates PQ-mTLS over real TCP: it authenticates IdP-certified
 //! peers (AC-M-3), negotiates the hybrid PQ suite (AC-M-1), authorises the
-//! channel, and fails closed on unauthorised or untrusted peers.
+//! channel, and fails closed on unauthorised or untrusted peers. [AC-M-1] [AC-M-3]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;

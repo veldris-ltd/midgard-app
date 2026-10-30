@@ -2,7 +2,7 @@
 //! written to a directory off the state directory, and a ledger rolled back together
 //! with its checkpoint, deleted with it, or left without a mirrored checkpoint refuses
 //! to boot, through the library and through the binary. Without the option nothing
-//! changes. [MG-SEC-05]
+//! changes. [NFR-PQ-3] [AC-M-4] [MG-SEC-05]
 #![cfg(feature = "backend-fips")]
 
 use std::path::{Path, PathBuf};
