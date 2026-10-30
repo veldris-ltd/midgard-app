@@ -487,6 +487,8 @@ cp ./enclosure/trust/audit.pub /etc/midgard/audit.pin   # somewhere the state di
 
 At startup the gateway re-verifies every recovered audit entry and refuses to start if anything fails to authenticate. That covers a tampered or mismatched keystore, journal or ledger, and an invalid policy file. The ledger is checked under the pinned key, not the key in `keys/audit.keystore`: an audit keystore that does not hold the pinned key refuses to start, and so does a ledger that is missing, has lost its checkpoint, or is shorter than its checkpoint says. Without `--audit-pin` the gateway pins `trust/audit.pub` inside the state directory and says so; that still refuses a swapped keystore, but not one swapped together with the trust file beside it. It prints how many users are enrolled. `--bind ADDR` changes the address (default `127.0.0.1:7710`), and each `--allow-origin` adds a browser origin (there are none by default).
 
+To make it detectable when the ledger and its checkpoint are rolled back together, give the gateway a checkpoint mirror on another mount: seed it once with `mg-admin audit checkpoint --state-dir ./enclosure --audit-pin /etc/midgard/audit.pin --checkpoint-mirror /mnt/audit-mirror`, then add `--checkpoint-mirror /mnt/audit-mirror` to the command above. Every checkpoint is then written there too, and a ledger behind its mirror refuses to start ([docs/ops/BACKUP_RESTORE.md](docs/ops/BACKUP_RESTORE.md)).
+
 Log in from the Midgard console ([step 4 above](#4--start-the-midgard-console)) with the user you enrolled. From the command line, add `"totp":"123456"` to the login body when the user has a second factor:
 
 ```bash
@@ -560,7 +562,7 @@ Then build and start everything:
 just compose-up
 ```
 
-- **`init`** runs first. `mg-admin init` creates the enclosure's keys and state. `mg-admin mesh issue` then gives each mesh workload an identity key, a separate audit key and a certificate signed by the enclosure's issuer: `mimir-server`, `mimir-probe`, `bifrost-fleet`, the agent `fleet-agent-1`, the operator `fleet-operator`, `heimdall-feed`, the source `feed-source-1`, the analyst `picture-analyst`, the gateway's own mesh identity `http-gateway`, and `forge-worker`. A fresh enclosure also gets a demonstration ontology (aircraft, facilities and the link between them) and a policy that lets the worker sync into it. `init` never overwrites anything, so it is safe to run again.
+- **`init`** runs first. `mg-admin init` creates the enclosure's keys and state. `mg-admin mesh issue` then gives each mesh workload an identity key, a separate audit key and a certificate signed by the enclosure's issuer: `mimir-server`, `mimir-probe`, `bifrost-fleet`, the agent `fleet-agent-1`, the operator `fleet-operator`, `heimdall-feed`, the source `feed-source-1`, the analyst `picture-analyst`, the gateway's own mesh identity `http-gateway`, and `forge-worker`. A fresh enclosure also gets a demonstration ontology (aircraft, facilities and the link between them) and a policy that lets the worker sync into it. Each identity directory also gets the mesh trust anchor and the signed revocation list, `mesh.crl`, every service needs to start. `init` never overwrites a key, so it is safe to run again; on an enclosure from an earlier release it is the upgrade: it brings each identity up to date in place (`mg-admin mesh upgrade`) and adopts each audit ledger written before ledgers had checkpoints (`mg-admin audit checkpoint`). See [docs/ops/UPGRADING.md](docs/ops/UPGRADING.md).
 - **`gateway`** serves the edge from that state on `http://127.0.0.1:7710`. On the internal network it also opens a PQ-mTLS door, `SyncRecords`, for certified workloads to sync objects and links into the fabric. Each sync is handled in this order:
   1. It is authorised by `policy.json` and audited in the enclosure's one ledger.
   2. It is checked against the ontology, all or nothing, and what it will change is recorded before anything is written.
@@ -691,7 +693,7 @@ On Kubernetes, the chart's `modelServing` values for `mimir-server` run the same
 | **One real model, on CPU** | Without the Granite override, `mimir-server` serves the deterministic reference backend. Granite on llama.cpp has run end to end. vLLM on GPUs is wired in the code and the chart but has not been run, because no GPU was available, so the 800 ms first-token target is unproven. The model-signing key `stage-model.sh` creates is a development key. |
 | **Nothing calls Mimir yet** | The gateway does not route AI requests to `mimir-server`. Only `mimir-probe` does. |
 | **Not the release image** | The image is built from source and unsigned. |
-| **Certificates do not expire** | To rotate a service's key, remove its identity files from its volume and run `init` again. |
+| **Certificates are renewed by hand** | Certificates expire after 30 days. Nothing in compose renews them yet: run `mg-admin mesh renew --within 10` for each service (see [docs/ops/PKI.md](docs/ops/PKI.md)) and restart it, or the service stops at expiry. |
 
 ---
 
@@ -795,6 +797,23 @@ When the pod starts, an init container runs `forge-egress`, which renders HAProx
 S3 and Kafka can go through the broker. PostgreSQL cannot, because PostgreSQL negotiates TLS inside its own protocol, and before PostgreSQL 17 no TLS-originating proxy can speak it. `just live-connectors` checks S3 through the broker against a MinIO server that serves TLS. It also checks that a route pinned to the wrong CA fails, and that plaintext sent straight to that server fails.
 
 ---
+
+## Upgrade an existing enclosure
+
+The security release (MG-SEC-01 to MG-SEC-15) changes the mesh protocol and the formats of certificates, trust anchors and audit ledgers, so an enclosure created by an earlier build needs one upgrade pass before its services start again. No key is replaced and no audit history is lost. Upgrade every service together: a service on this release refuses one on the earlier release.
+
+| You run it with | Do this |
+|---|---|
+| `mg-install` | Update the checkout, run `sudo deploy/installer/mg-install`, choose **Check and repair it**. |
+| docker compose | `just compose-down`, update the checkout, `just compose-up`. `init` does the upgrade before anything starts. |
+| kind | Delete the namespace and run `deploy/kind/up.sh` again. |
+| By hand | Stop everything, then `mg-admin audit checkpoint` for each audit ledger, then `mg-admin mesh upgrade` for each identity directory, and start the gateway with `--state-dir` (and `--audit-pin`). |
+
+[docs/ops/UPGRADING.md](docs/ops/UPGRADING.md) has every step, the services' roles and ledger ids, and what else changed: passwords move to Argon2id at their owners' next sign-in, break-glass needs the `breakglass.request` and `breakglass.approve` roles, model manifests must be signed again, and a model sidecar needs `--serve-dir`.
+
+### Keep mesh identities current
+
+Certificates are valid for 30 days by default (`--days`). Run `mg-admin mesh renew --within 10` for each service daily and restart what it renews. To revoke one, `mg-admin mesh revoke --cert FILE --out DIR,DIR,...` with every service's identity directory: each picks the new list up within 30 seconds. [docs/ops/PKI.md](docs/ops/PKI.md) covers both.
 
 ## What is not yet runnable
 
