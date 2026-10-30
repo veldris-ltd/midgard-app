@@ -108,10 +108,12 @@ fn handshake(
         client_cert.clone(),
         client_sk,
         client_anchor.clone(),
+        pq_mtls::ServiceId("svc-gateway".into()),
         Purpose("investigation".into()),
         posture(),
         &mut irng,
-    );
+    )
+    .at_time(NOW);
     let mut resp = Responder::new(
         &provider,
         gw_cert.clone(),
@@ -120,7 +122,8 @@ fn handshake(
         &pdp,
         channel_resource(),
         &mut rrng,
-    );
+    )
+    .at_time(NOW);
     mutual_handshake(&mut init, &mut resp).map(|_| ())
 }
 
@@ -130,11 +133,11 @@ fn renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake() {
     let idp = Idp::generate("mesh-ca", &mut SeedRng(1)).unwrap();
     let mut ca = MeshCa::new(idp);
     let (gw_id, gw_sk) = workload("svc-gateway", &["server"], 2);
-    let (gw_cert, _gw_serial) = ca.issue(&gw_id, NOW, NOW + TTL).unwrap();
+    let (gw_cert, _gw_serial) = ca.issue(&gw_id, NOW, NOW + TTL, posture()).unwrap();
 
     // A client workload gets its first cert (v1).
     let (client_v1_id, client_v1_sk) = workload("svc-client", &["client"], 3);
-    let (client_v1, serial_v1) = ca.issue(&client_v1_id, NOW, NOW + TTL).unwrap();
+    let (client_v1, serial_v1) = ca.issue(&client_v1_id, NOW, NOW + TTL, posture()).unwrap();
     assert_eq!(ca.status(serial_v1, NOW), CertStatus::Valid);
 
     // Baseline: a mutual handshake with v1 succeeds.
@@ -152,7 +155,9 @@ fn renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake() {
     // The cert nears expiry; the CA renews it with a rekeyed identity (v2). The OLD
     // cert (v1) is untouched and still works — no session is dropped.
     let (client_v2_id, client_v2_sk) = workload("svc-client", &["client"], 4);
-    let (client_v2, serial_v2) = ca.renew(&client_v2_id, NOW, NOW + 2 * TTL).unwrap();
+    let (client_v2, serial_v2) = ca
+        .renew(&client_v2_id, NOW, NOW + 2 * TTL, posture())
+        .unwrap();
     assert_ne!(serial_v1, serial_v2);
 
     // Both the renewed cert AND the still-valid old cert handshake successfully —
@@ -215,7 +220,7 @@ fn expiry_is_tracked_and_renewal_worklist_surfaces_expiring_certs() {
     let idp = Idp::generate("mesh-ca", &mut SeedRng(1)).unwrap();
     let mut ca = MeshCa::new(idp);
     let (id, _sk) = workload("svc-a", &["client"], 3);
-    let (_cert, serial) = ca.issue(&id, NOW, NOW + 100).unwrap();
+    let (_cert, serial) = ca.issue(&id, NOW, NOW + 100, posture()).unwrap();
 
     assert_eq!(ca.status(serial, NOW), CertStatus::Valid);
     assert_eq!(ca.status(serial, NOW + 100), CertStatus::Expired);
@@ -228,4 +233,43 @@ fn expiry_is_tracked_and_renewal_worklist_surfaces_expiring_certs() {
     // Once revoked, a cert drops off the renewal worklist.
     ca.revoke(serial).unwrap();
     assert!(ca.expiring_by(NOW + 100).is_empty());
+}
+
+/// MG-SEC-03: verifiers elsewhere learn of a revocation only from the CA-signed list,
+/// whose version moves forward with every revocation.
+#[test]
+fn the_signed_list_carries_the_revocation_to_other_verifiers() {
+    let idp = Idp::generate("mesh-ca", &mut SeedRng(1)).unwrap();
+    let mut ca = MeshCa::new(idp);
+    let (gw_id, gw_sk) = workload("svc-gateway", &["server"], 2);
+    let (gw_cert, _) = ca.issue(&gw_id, NOW, NOW + TTL, posture()).unwrap();
+    let (cl_id, cl_sk) = workload("svc-client", &["client"], 3);
+    let (cl_cert, serial) = ca.issue(&cl_id, NOW, NOW + TTL, posture()).unwrap();
+
+    // A verifier that holds only the bare anchor.
+    let remote = ca.idp().trust_anchor();
+    let before = ca.signed_crl(NOW).unwrap();
+    ca.revoke(serial).unwrap();
+    let after = ca.signed_crl(NOW).unwrap();
+    assert!(after.version > before.version);
+
+    remote.install_crl(&after, ca.idp().provider()).unwrap();
+    let err = handshake(&gw_cert, &gw_sk, &cl_cert, &cl_sk, &remote, &remote).unwrap_err();
+    assert!(matches!(err, MtlsError::PeerCertRevoked), "{err:?}");
+    // The pre-revocation list cannot be replayed to undo it.
+    assert!(remote.install_crl(&before, ca.idp().provider()).is_err());
+}
+
+/// MG-SEC-02: a certificate issued for a window does not work outside it.
+#[test]
+fn an_expired_certificate_no_longer_handshakes() {
+    let idp = Idp::generate("mesh-ca", &mut SeedRng(1)).unwrap();
+    let mut ca = MeshCa::new(idp);
+    let (gw_id, gw_sk) = workload("svc-gateway", &["server"], 2);
+    let (gw_cert, _) = ca.issue(&gw_id, NOW - 500, NOW + TTL, posture()).unwrap();
+    let (cl_id, cl_sk) = workload("svc-client", &["client"], 3);
+    let (cl_cert, _) = ca.issue(&cl_id, NOW - 500, NOW, posture()).unwrap();
+    let anchor = ca.trust_anchor();
+    let err = handshake(&gw_cert, &gw_sk, &cl_cert, &cl_sk, &anchor, &anchor).unwrap_err();
+    assert!(matches!(err, MtlsError::PeerCertExpired { .. }), "{err:?}");
 }

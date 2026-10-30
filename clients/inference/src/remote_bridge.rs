@@ -82,6 +82,10 @@ impl RemoteInference for PqMtlsRemoteInference {
         let raw = open
             .open(REMOTE_INFERENCE_AAD, &frame)
             .map_err(unreachable)?;
+        // End the stream explicitly so the gateway can tell a finished call from
+        // a cut connection. [MG-SEC-12]
+        let close = seal.seal_close(REMOTE_INFERENCE_AAD).map_err(unreachable)?;
+        write_frame(&mut stream, &close).map_err(unreachable)?;
         decode_output(&raw).map_err(unreachable)
     }
 }

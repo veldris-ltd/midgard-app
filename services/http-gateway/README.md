@@ -29,7 +29,13 @@ There are two startup modes:
   created, with its persisted issuer and audit keys, durable KMS-sealed object store,
   audit ledger and identity directory, and `policy.json`. Logins go through
   `iam::Authenticator` (password, then any enrolled TOTP). Boot re-verifies the
-  recovered ledger and fails closed on anything that does not authenticate. An
+  recovered ledger and fails closed on anything that does not authenticate. The
+  ledger is checked under a pinned audit key (`--audit-pin`, from outside the
+  keystore that signs it), must already exist (`mg-admin init` creates it), and must
+  reach its signed checkpoint, so a shortened or deleted ledger refuses to boot.
+  [MG-SEC-05] With `--checkpoint-mirror DIR` every checkpoint is also written to a
+  directory on another mount, and a ledger behind it (rolled back together with its
+  checkpoint, or restored from an older backup) refuses to boot too. An
   exclusive lock keeps a second gateway or `mg-admin` out while it runs. The schema
   comes from `ontology.json` (`ontology_file`), registered on every boot. Data is added
   offline with `mg-admin import`, checked against the ontology by `import_file`.
@@ -48,13 +54,31 @@ There are two startup modes:
 ## Run
 
 ```bash
-cargo run -p http-gateway                 # development mode on 127.0.0.1:7710
-cargo run -p http-gateway -- 0.0.0.0:8080 # development mode, custom bind address
+cargo run -p http-gateway -- --dev                # development mode on 127.0.0.1:7710
+cargo run -p http-gateway -- --dev 127.0.0.1:8080 # development mode, another loopback port
 
 # a real enclosure (see the repository README, "Run a real enclosure")
 cargo run -p http-gateway -- --state-dir ./enclosure \
   --bind 127.0.0.1:7710 --allow-origin http://localhost:5173
 ```
+
+Options of the state-directory mode:
+
+| Option | Meaning |
+|---|---|
+| `--state-dir DIR` | the state directory `mg-admin init` created (required) |
+| `--audit-pin FILE` | the audit verifying key the ledger is checked under, kept outside `DIR`; default `DIR/trust/audit.pub`, with a warning [MG-SEC-05] |
+| `--checkpoint-mirror DIR` | a directory on another mount (NFS, an object-store FUSE mount, a separate volume) that every audit ledger checkpoint is also written to. The ledger must not be behind it at boot; an append whose checkpoint it does not take fails. It must exist and lie outside the state directory; give each enclosure its own. Default: none, the checkpoint is kept beside the ledger only. See `docs/ops/BACKUP_RESTORE.md` [MG-SEC-05] |
+| `--bind ADDR` | the HTTP bind address (default `127.0.0.1:7710`) |
+| `--allow-origin URL` | a browser origin for the CORS allowlist, repeatable |
+| `--mesh-bind ADDR`, `--mesh-identity-dir DIR` | serve the PQ-mTLS mesh door (together) |
+| `--mesh-service NAME`, `--mesh-purpose P` | the mesh identity's service name and the purpose of mesh calls |
+
+The gateway is safe by default. With no arguments, or with only an address, it
+refuses to start: it needs a state directory. Development mode (seeded in-memory
+data and the published demo logins `operator` / `midgard-demo` and `approver` /
+`midgard-approve`) needs the explicit `--dev` flag, and listens on a loopback address
+only: `--dev 0.0.0.0:7710` is refused. [MG-SEC-06]
 
 Point a console at it (Midgard core surface):
 

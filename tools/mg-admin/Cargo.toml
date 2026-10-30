@@ -44,5 +44,7 @@ governance = { path = "../../services/governance" }
 # the gateway that serves the directory.
 http-gateway = { path = "../../services/http-gateway" }
 kms = { path = "../../services/kms" }
+# A mesh service's own audit ledger, adopted by `audit checkpoint --identity-dir`.
+service-runtime = { path = "../../services/runtime", features = ["backend-fips"] }
 policy = { path = "../../crypto/policy" }
 pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }

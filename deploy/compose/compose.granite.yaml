@@ -13,8 +13,14 @@
 # the model before it serves: the signature, the family, and the weights' size, format
 # and SHA-256. It exits if any fails. The llama.cpp server joins mimir-server's network
 # namespace and listens only on its loopback address, so nothing else on the mesh can
-# reach it, and it cannot reach anything but mimir-server. Both mount the models volume
-# read-only.
+# reach it, and it cannot reach anything but mimir-server.
+#
+# llama.cpp loads its weights by path, so it never sees the models volume: mimir-server
+# copies the weights it verified, from the file it verified them through and hashing
+# them again, into the `mimir-serve` volume — read-only, under their signed name — and
+# writes `staged.ready` last. Only mimir-server can write that volume; llama.cpp mounts
+# it read-only and starts only once the marker exists, so a file swapped into the models
+# volume after the check is never what it loads. [MG-SEC-14]
 
 services:
   mimir-server:
@@ -36,10 +42,13 @@ services:
       - /models/granite
       - --model-trust
       - /models/trust/model-signing.pub
+      - --serve-dir
+      - /serve
       - --sidecar
       - 127.0.0.1:8080
     volumes:
       - mimir-models:/models:ro
+      - mimir-serve:/serve
     # Ready only once the model is verified and llama.cpp has loaded it.
     healthcheck:
       test: ["CMD", "midgard-ready", "9090", "/readyz"]
@@ -56,9 +65,16 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: ["/tmp"]
+    # Wait for mimir-server to stage the verified weights, then run the image's own
+    # server on the staged copy. [MG-SEC-14]
+    entrypoint:
+      - sh
+      - -c
+      - 'until [ -f /serve/staged.ready ]; do sleep 1; done; exec /app/llama-server "$$@"'
+      - llama-server
     command:
       - -m
-      - /models/granite/granite-3.3-2b-instruct-Q4_K_M.gguf
+      - /serve/granite-3.3-2b-instruct-Q4_K_M.gguf
       - --alias
       - granite-3.3-2b-instruct-q4km
       - --host
@@ -73,7 +89,7 @@ services:
       mimir-server:
         condition: service_started
     volumes:
-      - mimir-models:/models:ro
+      - mimir-serve:/serve:ro
     restart: unless-stopped
     # Loading the weights takes a while on a CPU: allow it before calling it unhealthy.
     healthcheck:
@@ -86,3 +102,5 @@ volumes:
   mimir-models:
     external: true
     name: midgard-models
+  # The verified weights, staged by mimir-server for llama.cpp. [MG-SEC-14]
+  mimir-serve: {}

@@ -5,7 +5,14 @@
 //! review — is sealed. A grant therefore: raises a delivered alert, issues a
 //! capability that elevates the grantee within scope, auto-expires, and is audited
 //! throughout. [FR-AD-8] [RC-32]
+//!
+//! A grant takes two passkey-authenticated sessions, the requester's and a different
+//! approver's, and seals both identities: a `breakglass-approve` entry whose actor is
+//! the approver, then the `breakglass-grant` entry whose actor is the requester.
+//! Both must hold their capability (`breakglass.request`, `breakglass.approve`) over
+//! the grant's scope in the identity directory, or nothing is issued. [MG-SEC-07]
 
+use admin_identity::{AdminSession, IdentityDirectory};
 use audit_writer::{
     Action, Actor, AuditRecord, AuditWriter, LedgerId, LedgerStore, RecordId, Resource,
     SealedEntry, Timestamp,
@@ -36,17 +43,28 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
     }
 
     /// Open a break-glass grant elevating `capability` within the request's scope:
-    /// validate + raise a real-time alert (via the service), issue a scoped
-    /// time-boxed [`CapabilityToken`] and register it so the PDP honours it, and seal
-    /// a `breakglass-grant` audit entry. Returns the issued token. [RC-32]
+    /// validate both sessions, their role bindings in `dir`, and the request + raise a real-time alert (via the
+    /// service), issue a scoped time-boxed [`CapabilityToken`] and register it so the
+    /// PDP honours it, and seal a `breakglass-approve` entry (actor: the approver)
+    /// and a `breakglass-grant` entry (actor: the requester). Returns the issued
+    /// token. [RC-32] [MG-SEC-07]
+    #[allow(clippy::too_many_arguments)]
     pub fn grant(
         &mut self,
+        dir: &IdentityDirectory,
         req: GrantRequest,
+        requester: &AdminSession,
+        approver: &AdminSession,
+        approval_max_age: u64,
         capability: &str,
         now: u64,
         ts: &str,
     ) -> Result<CapabilityToken, BreakGlassError> {
-        let grant = self.service.grant(req, now)?; // validates + alerts
+        // Validates both sessions, their entitlement and the request, then alerts.
+        let grant = self
+            .service
+            .grant(dir, req, requester, approver, now, approval_max_age)?;
+        let approver = grant.approver.clone();
         let token = CapabilityToken {
             grant_id: grant.id.clone(),
             principal: grant.principal.clone(),
@@ -57,6 +75,7 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
         };
         let (grant_id, principal) = (token.grant_id.clone(), token.principal.clone());
         self.authority.register(token.clone());
+        self.audit(&approver, "breakglass-approve", &grant_id, ts)?;
         self.audit(&principal, "breakglass-grant", &grant_id, ts)?;
         Ok(token)
     }

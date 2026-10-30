@@ -18,14 +18,18 @@ use crate::error::{MtlsError, TransportError};
 use crate::handshake::{
     ClientHello, ClientKeyExchange, Finished, HandshakeMessage, Initiator, Responder, ServerHello,
 };
-use crate::identity::{IdentityCert, ServiceId, TrustAnchor, WorkloadIdentity};
+use crate::identity::{CertTerms, IdentityCert, ServiceId, TrustAnchor, WorkloadIdentity};
 use crate::posture::Posture;
 use crate::session::Session;
 use policy::ClassificationLevel;
 
-/// Upper bound on a single frame body. Handshake messages are a few KB even with
-/// ML-DSA-87; this bounds memory against a hostile length prefix.
-const MAX_FRAME: usize = 1 << 20;
+/// Upper bound on a handshake or resumption frame — everything a peer can send before
+/// it is authenticated. The largest flight (a ServerHello with an ML-DSA-87 or
+/// SLH-DSA certificate and an ML-KEM-1024 key) is under 20 KiB. [MG-SEC-13]
+pub const MAX_HANDSHAKE_FRAME: usize = 64 << 10;
+
+/// Upper bound on a post-handshake record frame.
+pub const MAX_RECORD_FRAME: usize = 1 << 20;
 
 // ---- encoding primitives --------------------------------------------------
 
@@ -73,11 +77,28 @@ impl<'a> Reader<'a> {
         let n = self.u32()? as usize;
         Ok(self.take(n)?.to_vec())
     }
+    fn u64(&mut self) -> Result<u64, TransportError> {
+        let s = self.take(8)?;
+        let mut a = [0u8; 8];
+        a.copy_from_slice(s);
+        Ok(u64::from_le_bytes(a))
+    }
     fn arr32(&mut self) -> Result<[u8; 32], TransportError> {
         let s = self.take(32)?;
         let mut a = [0u8; 32];
         a.copy_from_slice(s);
         Ok(a)
+    }
+    /// A count read from the wire, refused if the frame cannot possibly hold that many
+    /// items of at least `min_item` bytes — so a hostile count never sizes an
+    /// allocation. [MG-SEC-13]
+    fn count(&mut self, min_item: usize) -> Result<usize, TransportError> {
+        let n = self.u32()? as usize;
+        let left = self.b.len() - self.pos;
+        if n.saturating_mul(min_item.max(1)) > left {
+            return Err(TransportError::Malformed("count exceeds frame".into()));
+        }
+        Ok(n)
     }
     fn string(&mut self) -> Result<String, TransportError> {
         let b = self.bytes()?;
@@ -149,7 +170,7 @@ fn enc_identity(o: &mut Vec<u8>, id: &WorkloadIdentity) {
 }
 fn dec_identity(r: &mut Reader) -> Result<WorkloadIdentity, TransportError> {
     let id = ServiceId(r.string()?);
-    let n = r.u32()? as usize;
+    let n = r.count(4)?;
     let mut roles = BTreeSet::new();
     for _ in 0..n {
         roles.insert(Role(r.string()?));
@@ -166,15 +187,29 @@ fn dec_identity(r: &mut Reader) -> Result<WorkloadIdentity, TransportError> {
 
 fn enc_cert(o: &mut Vec<u8>, c: &IdentityCert) {
     enc_identity(o, &c.identity);
+    o.extend_from_slice(&c.terms.serial.to_le_bytes());
+    o.extend_from_slice(&c.terms.not_before.to_le_bytes());
+    o.extend_from_slice(&c.terms.not_after.to_le_bytes());
+    enc_posture(o, &c.terms.clearance);
     o.push(c.ca_sig_alg.as_u8());
     enc_sig(o, &c.ca_signature);
 }
 fn dec_cert(r: &mut Reader) -> Result<IdentityCert, TransportError> {
     let identity = dec_identity(r)?;
+    let serial = r.u64()?;
+    let not_before = r.u64()?;
+    let not_after = r.u64()?;
+    let clearance = dec_posture(r)?;
     let ca_sig_alg = dec_sig_id(r)?;
     let ca_signature = dec_sig(r)?;
     Ok(IdentityCert {
         identity,
+        terms: CertTerms {
+            serial,
+            not_before,
+            not_after,
+            clearance,
+        },
         ca_sig_alg,
         ca_signature,
     })
@@ -182,10 +217,14 @@ fn dec_cert(r: &mut Reader) -> Result<IdentityCert, TransportError> {
 
 // ---- identity files -------------------------------------------------------
 
-/// File magic of a stored [`IdentityCert`].
-pub const CERT_MAGIC: &[u8; 7] = b"MGCERT1";
-/// File magic of a stored [`TrustAnchor`].
-pub const ANCHOR_MAGIC: &[u8; 9] = b"MGANCHOR1";
+/// File magic of a stored [`IdentityCert`]. Version 2 carries the certificate terms
+/// (serial, validity, clearance); version-1 files are refused and must be reissued.
+/// [MG-SEC-02] [MG-SEC-04]
+pub const CERT_MAGIC: &[u8; 7] = b"MGCERT2";
+/// File magic of a stored [`TrustAnchor`]. Version 2 is the CA key alone: revocations
+/// travel separately in a CA-signed list ([`crate::revocation`]), never unsigned
+/// beside the key as version 1 carried them. [MG-SEC-03]
+pub const ANCHOR_MAGIC: &[u8; 9] = b"MGANCHOR2";
 
 /// Encode a workload certificate for storage: the magic, then the same canonical
 /// encoding the handshake carries, so a service loads exactly what it will present.
@@ -213,21 +252,18 @@ pub fn decode_cert(bytes: &[u8]) -> Result<IdentityCert, TransportError> {
     Ok(cert)
 }
 
-/// Encode a trust anchor for storage: the magic, the CA algorithm and key, and the
-/// revoked fingerprints, so the CRL travels with the anchor. [RC-35]
+/// Encode a trust anchor for storage: the magic, the CA algorithm and key. Its
+/// revocation state is not written: that is the signed list's job. [MG-SEC-03]
 pub fn encode_anchor(anchor: &TrustAnchor) -> Vec<u8> {
     let mut o = ANCHOR_MAGIC.to_vec();
     o.push(anchor.ca_alg.as_u8());
     enc_vk(&mut o, &anchor.ca_key);
-    put_u32(&mut o, anchor.revoked.len() as u32);
-    for fingerprint in &anchor.revoked {
-        o.extend_from_slice(fingerprint);
-    }
     o
 }
 
-/// Decode a stored trust anchor, revocations included. A wrong magic, truncated or
-/// trailing input, or a CA key whose algorithm is not the declared one is refused.
+/// Decode a stored trust anchor. A wrong magic (including a version-1 anchor with an
+/// unsigned revocation list), truncated or trailing input, or a CA key whose algorithm
+/// is not the declared one is refused.
 pub fn decode_anchor(bytes: &[u8]) -> Result<TrustAnchor, TransportError> {
     let body = bytes
         .strip_prefix(ANCHOR_MAGIC.as_slice())
@@ -240,13 +276,8 @@ pub fn decode_anchor(bytes: &[u8]) -> Result<TrustAnchor, TransportError> {
             "trust anchor key algorithm does not match its declared algorithm".into(),
         ));
     }
-    let n = r.u32()? as usize;
-    let mut revoked = BTreeSet::new();
-    for _ in 0..n {
-        revoked.insert(r.arr32()?);
-    }
     r.finish()?;
-    Ok(TrustAnchor::new(ca_alg, ca_key).with_revocations(revoked))
+    Ok(TrustAnchor::new(ca_alg, ca_key))
 }
 
 fn enc_caps(o: &mut Vec<u8>, c: &Capabilities) {
@@ -260,12 +291,12 @@ fn enc_caps(o: &mut Vec<u8>, c: &Capabilities) {
     }
 }
 fn dec_caps(r: &mut Reader) -> Result<Capabilities, TransportError> {
-    let nk = r.u32()? as usize;
+    let nk = r.count(1)?;
     let mut kem_suites = Vec::with_capacity(nk);
     for _ in 0..nk {
         kem_suites.push(dec_suite(r)?);
     }
-    let ns = r.u32()? as usize;
+    let ns = r.count(1)?;
     let mut sig_algs = Vec::with_capacity(ns);
     for _ in 0..ns {
         sig_algs.push(dec_sig_id(r)?);
@@ -285,7 +316,7 @@ fn enc_posture(o: &mut Vec<u8>, p: &Posture) {
 }
 fn dec_posture(r: &mut Reader) -> Result<Posture, TransportError> {
     let level = ClassificationLevel(r.u8()?);
-    let n = r.u32()? as usize;
+    let n = r.count(4)?;
     let mut compartments = BTreeSet::new();
     for _ in 0..n {
         compartments.insert(Compartment(r.string()?));
@@ -309,6 +340,7 @@ pub fn encode_message(m: &HandshakeMessage) -> Vec<u8> {
     match m {
         HandshakeMessage::ClientHello(m) => {
             o.push(TAG_CLIENT_HELLO);
+            o.push(m.version);
             o.extend_from_slice(&m.nonce_c);
             enc_caps(&mut o, &m.capabilities);
             put_str(&mut o, &m.purpose.0);
@@ -351,11 +383,13 @@ pub fn decode_message(body: &[u8]) -> Result<HandshakeMessage, TransportError> {
     let tag = r.u8()?;
     let msg = match tag {
         TAG_CLIENT_HELLO => {
+            let version = r.u8()?;
             let nonce_c = r.arr32()?;
             let capabilities = dec_caps(&mut r)?;
             let purpose = Purpose(r.string()?);
             let posture = dec_posture(&mut r)?;
             HandshakeMessage::ClientHello(ClientHello {
+                version,
                 nonce_c,
                 capabilities,
                 purpose,
@@ -443,18 +477,33 @@ pub fn write_frame(w: &mut impl Write, body: &[u8]) -> Result<(), TransportError
     Ok(())
 }
 
-/// Read one length-prefixed frame, bounding the body length against a hostile
-/// prefix.
-pub fn read_frame(r: &mut impl Read) -> Result<Vec<u8>, TransportError> {
+/// Read one length-prefixed frame of at most `max` bytes. The length prefix is
+/// checked against `max` before anything is read, and the body buffer grows only as
+/// bytes actually arrive — a peer that announces a large frame and sends nothing gets
+/// no memory reserved for it. [MG-SEC-13]
+pub fn read_frame_limited(r: &mut impl Read, max: usize) -> Result<Vec<u8>, TransportError> {
     let mut len = [0u8; 4];
     r.read_exact(&mut len).map_err(io)?;
     let n = u32::from_le_bytes(len) as usize;
-    if n > MAX_FRAME {
+    if n > max {
         return Err(TransportError::Malformed("frame too large".into()));
     }
-    let mut body = vec![0u8; n];
-    r.read_exact(&mut body).map_err(io)?;
+    let mut body = Vec::new();
+    r.take(n as u64).read_to_end(&mut body).map_err(io)?;
+    if body.len() != n {
+        return Err(TransportError::Io("connection closed mid-frame".into()));
+    }
     Ok(body)
+}
+
+/// Read one record frame (at most [`MAX_RECORD_FRAME`] bytes).
+pub fn read_frame(r: &mut impl Read) -> Result<Vec<u8>, TransportError> {
+    read_frame_limited(r, MAX_RECORD_FRAME)
+}
+
+/// Read one handshake or resumption frame (at most [`MAX_HANDSHAKE_FRAME`] bytes).
+pub fn read_handshake_frame(r: &mut impl Read) -> Result<Vec<u8>, TransportError> {
+    read_frame_limited(r, MAX_HANDSHAKE_FRAME)
 }
 
 impl Channel for TcpChannel {
@@ -462,7 +511,7 @@ impl Channel for TcpChannel {
         write_frame(&mut self.stream, &encode_message(&msg))
     }
     fn recv(&mut self) -> Result<HandshakeMessage, TransportError> {
-        decode_message(&read_frame(&mut self.stream)?)
+        decode_message(&read_handshake_frame(&mut self.stream)?)
     }
 }
 

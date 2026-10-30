@@ -32,12 +32,12 @@ pub mod sign;
 pub use algorithm::{KemId, KemSuiteId, SigId};
 pub use error::{CryptoError, NegotiationError};
 pub use hash::{ct_eq, hkdf_sha256_32, hmac_sha256, sha256, Digest, Sha256};
-pub use hybrid::combine_secrets;
+pub use hybrid::{combine_hybrid, reject_noncontributory_x25519};
 pub use kem::{Ciphertext, Kem, KemPublicKey, KemSecretKey, KemSizes, SharedSecret};
 pub use negotiate::{negotiate_kem, negotiate_sig, Capabilities};
 pub use registry::{shared, CryptoProvider, SharedProvider};
 pub use rng::Rng;
-pub use secret::{SecretArray, SecretBytes};
+pub use secret::{mlock_failures, SecretArray, SecretBytes};
 pub use sign::{Signature, SignatureScheme, SigningKey, VerifyingKey};
 
 #[cfg(any(test, feature = "test-backend"))]

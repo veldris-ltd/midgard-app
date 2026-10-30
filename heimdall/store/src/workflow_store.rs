@@ -53,8 +53,9 @@ impl DurableWorkflow {
         let state_path = dir.join(STATE_FILE);
 
         // 1. Reopen the durable, PQ-signed audit ledger (fails closed on tamper).
-        let ledger = FileLedger::open(dir.join(AUDIT_FILE), audit_sealer, ledger_id.clone())
-            .map_err(|e| StoreError::Seal(e.to_string()))?;
+        let ledger =
+            FileLedger::open_or_create(dir.join(AUDIT_FILE), audit_sealer, ledger_id.clone())
+                .map_err(|e| StoreError::Seal(e.to_string()))?;
 
         // 2. Recover the in-flight workflow state snapshot.
         let actions = if state_path.exists() {

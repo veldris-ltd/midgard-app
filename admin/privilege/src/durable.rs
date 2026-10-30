@@ -17,7 +17,8 @@ use crate::service::{ActionEntry, ActionState, AdminActionRequest, Disposition, 
 use admin_identity::{AdminId, AdminSession, IdentityDirectory, ResourceScope, Subsystem};
 
 const DOMAIN: &[u8] = b"midgard-admin-privilege-state-v1";
-const AUDIT_FILE: &str = "audit.ledger";
+/// The privilege service's audit ledger, in the directory it is opened at.
+pub const AUDIT_FILE: &str = "audit.ledger";
 const STATE_FILE: &str = "actions.journal";
 
 /// A privilege service whose audit lineage and in-flight action state are durable.
@@ -42,8 +43,9 @@ impl DurablePrivilege {
         std::fs::create_dir_all(dir).map_err(|e| PrivError::Io(e.to_string()))?;
 
         // Durable, PQ-signed audit ledger (fails closed on tamper).
-        let ledger = FileLedger::open(dir.join(AUDIT_FILE), audit_sealer, ledger_id.clone())
-            .map_err(|e| PrivError::Io(e.to_string()))?;
+        let ledger =
+            FileLedger::open_or_create(dir.join(AUDIT_FILE), audit_sealer, ledger_id.clone())
+                .map_err(|e| PrivError::Io(e.to_string()))?;
 
         // Recover in-flight action state.
         let (journal, records) =

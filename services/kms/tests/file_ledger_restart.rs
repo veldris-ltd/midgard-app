@@ -85,7 +85,8 @@ fn ledger_survives_restart_recovers_and_reverifies() {
     // --- session 1: append N entries, then drop the process (writer) ---
     const N: usize = 8;
     {
-        let ledger = FileLedger::open(&path, Box::new(sealer()), ledger_id.clone()).unwrap();
+        let ledger =
+            FileLedger::open_or_create(&path, Box::new(sealer()), ledger_id.clone()).unwrap();
         let mut writer = AuditWriter::new(
             ledger,
             Box::new(FipsSig::new(ALG)),
@@ -152,7 +153,8 @@ fn tampered_on_disk_entry_is_detected_on_load() {
     let ledger_id = LedgerId("gov-audit".into());
 
     {
-        let ledger = FileLedger::open(&path, Box::new(sealer()), ledger_id.clone()).unwrap();
+        let ledger =
+            FileLedger::open_or_create(&path, Box::new(sealer()), ledger_id.clone()).unwrap();
         let mut writer = AuditWriter::new(
             ledger,
             Box::new(FipsSig::new(ALG)),

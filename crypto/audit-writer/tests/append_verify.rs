@@ -1,10 +1,10 @@
 //! Happy path: append a chain and verify it end to end.
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
 use audit_writer::{verify_chain, AuditWriter, InMemoryLedger, LedgerId};
-use pqc_agility::backend::test_backend::provider;
+use common::provider;
 use pqc_agility::SigId;
 
 #[test]

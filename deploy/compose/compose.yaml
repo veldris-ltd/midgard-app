@@ -50,6 +50,7 @@ services:
       - heimdall-clients:/vol/heimdall-clients
       - gateway-identity:/vol/gateway-identity
       - forge-identity:/vol/forge-identity
+      - forge-state:/vol/forge-state
 
   # The edge on the host port, and on the mesh the door certified workloads sync
   # records into the fabric through.

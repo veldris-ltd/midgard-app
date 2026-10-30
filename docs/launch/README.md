@@ -28,8 +28,8 @@ The light video runs 3 min 43 s against the dark one's 3 min 35 s. The beats, ca
 ## What the demo shows, and what is real
 
 The Midgard console in the video is talking to the **real enclosure edge**:
-`http-gateway` from the `midgard/dev:local` image, running in development mode
-in a container. The login returns a genuine ML-DSA-signed token, the object
+`http-gateway` running in development mode (`--dev`), which listens on loopback
+only. The login returns a genuine ML-DSA-signed token, the object
 fabric returns the four seeded aircraft after per-object marking checks, the
 "Ground aircraft" action is refused until an operator authorises it, the policy
 dry-run is evaluated by the real policy decision point, and every row in the
@@ -119,8 +119,11 @@ cd docs/launch/pipeline
 npm install                                              # playwright-core, pptxgenjs, sharp, react-icons
 python prep-images.py                                    # deck fallbacks from docs/demo/screenshots
 
-# 1. the real edge, in development mode
-docker run -d --name mg-launch-gw -p 7710:7710 midgard/dev:local http-gateway 0.0.0.0:7710
+# 1. the real edge, in development mode: --dev, on loopback only (MG-SEC-06), so it
+#    runs on this machine rather than behind a published container port
+(cd ../../.. && just gateway-http) &                     # http://127.0.0.1:7710
+#    or, on a Linux host, from the compose image on the host's network:
+#    docker run -d --name mg-launch-gw --network host midgard/dev:local http-gateway --dev 127.0.0.1:7710
 
 # 2. the Midgard console built for the edge (the six others use their checked-in mock builds)
 (cd ../../../products/midgard/ui && VITE_GATEWAY=http npx vite build --outDir ../../../docs/launch/pipeline/pages/midgard --emptyOutDir)

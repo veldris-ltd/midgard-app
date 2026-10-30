@@ -1,10 +1,10 @@
 //! Reorder / gap / cross-ledger splice detection.
-#![cfg(feature = "test-backend")]
+#![cfg(any(feature = "test-backend", feature = "backend-fips"))]
 
 mod common;
 
 use audit_writer::{verify_chain, AuditError, AuditWriter, InMemoryLedger, LedgerId, SealedEntry};
-use pqc_agility::backend::test_backend::provider;
+use common::provider;
 use pqc_agility::{SigId, VerifyingKey};
 
 const ALG: SigId = SigId::MlDsa65;

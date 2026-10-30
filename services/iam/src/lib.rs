@@ -22,7 +22,9 @@ pub mod password;
 pub mod store;
 pub mod token;
 
-pub use auth::{AuthError, Authenticator, MfaProof};
+pub use auth::{
+    AuthError, Authenticator, Login, MfaProof, PasswordUpgrade, UpgradingAuthenticator,
+};
 pub use directory::{Credentials, Directory, DurableDirectory, Enrollment, InMemoryDirectory};
 pub use federation::{
     federated_login, FederatedClaims, FederatedIdp, FederationError, PqFederation,
@@ -31,6 +33,9 @@ pub use idp::{Idp, IssueError, IDP_SIG_ALG};
 pub use mesh_ca::{CaError, CertStatus, IssuedCert, MeshCa};
 pub use mfa::{AuthAssertion, TotpSecret, WebAuthnCredential, WebAuthnError, PASSKEY_SIG_ALG};
 pub use oidc::jwks_json;
-pub use password::{PasswordHasher, Pbkdf2Hasher, DEFAULT_ITERATIONS};
+pub use password::{
+    check_enrolment_hash, Argon2idHasher, PasswordHasher, Pbkdf2Hasher, DEFAULT_ITERATIONS,
+    MIN_PBKDF2_ITERATIONS,
+};
 pub use store::{IdentityStore, UserRecord};
 pub use token::{sign_token, verify_token, TokenClaims, TokenError};

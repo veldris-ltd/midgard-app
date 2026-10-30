@@ -21,8 +21,8 @@ async function type(cmd, speed = 26) { html += '<span class="p">$ </span><span c
 async function out(lines, pace = 40) { for (const l of lines) { html += l + '\n'; cur(); await sleep(pace); } }
 async function run() {
   await sleep(600);
-  await type('docker run --rm -p 7710:7710 midgard/dev:local http-gateway 0.0.0.0:7710');
-  await out(['<span class="w">http-gateway: WARNING binding non-loopback 0.0.0.0:7710; production MUST front this with PQ-mTLS/TLS-1.3 termination. [RC-24]</span>', 'http-gateway (secured) listening on <span class="k">http://0.0.0.0:7710</span>', '']);
+  await type('just gateway-http');
+  await out(['<span class="w">http-gateway: DEVELOPMENT MODE — seeded data and the published demo logins, on loopback only. Never use it for real data. [MG-SEC-06]</span>', 'http-gateway (secured) listening on <span class="k">http://127.0.0.1:7710</span>', '']);
   await sleep(600);
   await type('curl -s http://127.0.0.1:7710/api/v1/health');
   const h = await (await fetch(base + '/health')).json();

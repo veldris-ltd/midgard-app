@@ -14,10 +14,10 @@ Counted from tracked files. `vendor/` is other people's code and is not counted.
 | Figure | Value | Counting rule | Reproduce |
 |---|---|---|---|
 | Workspace crates | **70** | members of `[workspace]` in the root `Cargo.toml` | `cargo metadata --no-deps --offline --format-version 1` lists the same packages |
-| Rust source files | **575** | tracked `*.rs` outside `vendor/` | `git ls-files '*.rs' ':(exclude)vendor' \| wc -l` |
-| Rust lines, raw | **105,458** | every line of those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| wc -l` |
-| Rust lines, code | **81,927** | lines that are neither blank nor begin with `//` (so doc comments are excluded and block comments are not) | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -vcE '^\s*(//.*)?\r?$'` |
-| Test functions | **906** | `#[test]` attributes in those files. A count of functions written, not of tests run | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[test\]'` |
+| Rust source files | **594** | tracked `*.rs` outside `vendor/` | `git ls-files '*.rs' ':(exclude)vendor' \| wc -l` |
+| Rust lines, raw | **117,159** | every line of those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| wc -l` |
+| Rust lines, code | **91,067** | lines that are neither blank nor begin with `//` (so doc comments are excluded and block comments are not) | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -vcE '^\s*(//.*)?\r?$'` |
+| Test functions | **1,037** | `#[test]` attributes in those files. A count of functions written, not of tests run | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[test\]'` |
 | …of which ignored | **0** | `#[ignore]` attributes in those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[ignore'` |
 | Acceptance criteria defined | **72** | distinct `AC-*` ids in Part C of `docs/dev/markdown/SAD_05_Master_Prompt_and_Acceptance_Spec.md` | `bash tools/ci/numbers.sh --figures \| grep criteria_defined` |
 | Shipped binaries | **18** | binaries the workspace builds, each of which the release gates | `bash tools/ci/release-artefacts.sh --rows \| wc -l` |
@@ -36,8 +36,8 @@ The gate has not been run at this commit. Files it covers have changed since the
 
 | Figure | Value | Last recorded run |
 |---|---|---|
-| Acceptance criteria passed | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 72 / 72 |
-| Tests passed, `just test` | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 879 |
-| Tests passed, acceptance suite | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 251 |
+| Acceptance criteria passed | not run at this commit | at `8bec725eb55f0126c644752b8e420aa8583f7b18`: 72 / 72 |
+| Tests passed, `just test` | not run at this commit | at `8bec725eb55f0126c644752b8e420aa8583f7b18`: 1,180 |
+| Tests passed, acceptance suite | not run at this commit | at `8bec725eb55f0126c644752b8e420aa8583f7b18`: 254 |
 
-The record of that run is [`gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md`](gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md).
+The record of that run is [`gate-runs/8bec725eb55f0126c644752b8e420aa8583f7b18.md`](gate-runs/8bec725eb55f0126c644752b8e420aa8583f7b18.md).

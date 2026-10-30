@@ -4,12 +4,13 @@
 //!
 //! ```text
 //! mimir-probe --identity-dir DIR --addr HOST:PORT --purpose P
-//!             [--service NAME] [--prompt TEXT] [--max-tokens N]
+//!             [--service NAME] [--server NAME] [--prompt TEXT] [--max-tokens N]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME
 //! defaults to `mimir-probe`); policy must let that identity's roles open the channel
-//! and `Infer`.
+//! and `Infer`. The service at `--addr` must hold the mesh identity `--server` (default
+//! `mimir-server`); any other is refused before the prompt is sent.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -17,11 +18,11 @@ use std::sync::Arc;
 use mimir_bridge::{Inference, MimirEndpoint, PqMtlsClient};
 use model_server::{InferenceRequest, WorkloadClass};
 use policy::ClassificationLevel;
-use pq_mtls::Posture;
+use pq_mtls::{Posture, ServiceId};
 use service_runtime::{Args, ServiceIdentity};
 
 const USAGE: &str = "usage: mimir-probe --identity-dir DIR --addr HOST:PORT --purpose P \
-                     [--service NAME] [--prompt TEXT] [--max-tokens N]";
+                     [--service NAME] [--server NAME] [--prompt TEXT] [--max-tokens N]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -32,6 +33,7 @@ fn main() {
             "addr",
             "purpose",
             "service",
+            "server",
             "prompt",
             "max-tokens",
         ],
@@ -67,6 +69,7 @@ fn run(args: &Args) -> Result<String, String> {
 
     let client = PqMtlsClient::new(MimirEndpoint {
         addr: args.require("addr")?.to_string(),
+        server: ServiceId(args.get("server").unwrap_or("mimir-server").to_string()),
         anchor: identity.anchor,
         cert: identity.cert,
         signing_key,

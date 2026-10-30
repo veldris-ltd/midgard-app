@@ -19,8 +19,8 @@ use policy::{
     ResourceId, Role, Rule, RuleId, Selector,
 };
 use pq_mtls::{
-    canonical_identity, read_frame, run_responder, write_frame, IdentityCert, Posture, Responder,
-    Role as RecordRole, ServiceId, TcpChannel, TrustAnchor, WorkloadIdentity,
+    read_frame, run_responder, write_frame, IdentityCert, Posture, Responder, Role as RecordRole,
+    ServiceId, TcpChannel, TrustAnchor, WorkloadIdentity,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::{CryptoProvider, Rng, SigId, SigningKey, VerifyingKey};
@@ -72,11 +72,15 @@ fn party(
     let ca_signature = p
         .sig_for(ALG)
         .unwrap()
-        .sign(ca_sk, &canonical_identity(&identity))
+        .sign(
+            ca_sk,
+            &pq_mtls::canonical_cert_body(&identity, &test_terms()),
+        )
         .unwrap();
     (
         IdentityCert {
             identity,
+            terms: test_terms(),
             ca_sig_alg: ALG,
             ca_signature,
         },
@@ -174,6 +178,7 @@ fn tier2_request_delegates_over_real_pqmtls() {
         let enclosure = EnclosureClient::new(
             client_cert,
             anchor.clone(),
+            pq_mtls::ServiceId("svc-enclosure".into()),
             Purpose("investigation".into()),
             posture(),
         );
@@ -197,4 +202,15 @@ fn tier2_request_delegates_over_real_pqmtls() {
 
         server.join().unwrap();
     });
+}
+
+/// Terms for test certificates: valid from the epoch to the end of time, granting
+/// TOP SECRET, so a test's requested clearance is what it gets.
+fn test_terms() -> pq_mtls::CertTerms {
+    pq_mtls::CertTerms::new(
+        1,
+        0,
+        u64::MAX,
+        pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+    )
 }
