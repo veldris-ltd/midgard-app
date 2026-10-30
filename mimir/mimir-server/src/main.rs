@@ -25,9 +25,14 @@
 //! OpenAI-compatible sidecar on a loopback address (`--sidecar`, default
 //! `127.0.0.1:8080`). Before anything is served, the model in `--model-dir` must pass
 //! the load gate, or the service exits: a manifest signed by the key in `--model-trust`
-//! (what `mg-model keygen` exported), a supported family this node can serve, and
-//! weights whose size, format and SHA-256 match it. The service is ready only while the
-//! sidecar reports healthy, so an orchestrator holds traffic while the sidecar loads.
+//! (what `mg-model keygen` exported) and checked over its raw bytes before it is parsed,
+//! a supported family this node can serve, and weights whose size, format and SHA-256
+//! match it. A release older than the last one this service accepted for that model, or
+//! the same version with different signed content, is refused: the floor is kept in
+//! `--state-dir` as `model-release.floor`. The service is ready only while the sidecar
+//! reports healthy and the weights file is still the one that was verified, so an
+//! orchestrator holds traffic while the sidecar loads, and a file swapped in under the
+//! sidecar is caught. [MG-SEC-14]
 
 use std::collections::BTreeSet;
 use std::net::{SocketAddr, TcpListener};
@@ -40,7 +45,7 @@ use governance::Governance;
 use model_server::{
     parse_trust_key, probe, reference_registry, Clock, FamilyAdapter, GemmaAdapter, GraniteAdapter,
     InferenceHandler, LicencePolicy, MistralAdapter, ModelBackend, ModelLoader, NemotronAdapter,
-    Server, SidecarBackend,
+    ReleaseFloor, Server, SidecarBackend, VerifiedWeights,
 };
 use policy::{
     ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
@@ -57,6 +62,10 @@ const USAGE: &str = "usage: mimir-server --identity-dir DIR --state-dir DIR --pu
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "mimir-inference";
+
+/// The release floor of the models this service has accepted, in its state directory.
+/// [MG-SEC-14]
+const MODEL_FLOOR_FILE: &str = "model-release.floor";
 
 /// Extra fields for the `serving` log line.
 type LogFields = Vec<(&'static str, String)>;
@@ -89,6 +98,20 @@ impl ReadinessCheck for SidecarReady {
     }
     fn check(&self) -> bool {
         self.0.get().is_some_and(|sidecar| sidecar.healthy())
+    }
+}
+
+/// Ready while the verified weights file is still the one at its path: the sidecar loads
+/// by path, so a file swapped in after the check takes the service out of rotation.
+/// [MG-SEC-14]
+struct WeightsUnchanged(Arc<OnceLock<VerifiedWeights>>);
+
+impl ReadinessCheck for WeightsUnchanged {
+    fn name(&self) -> &str {
+        "model-weights-unchanged"
+    }
+    fn check(&self) -> bool {
+        self.0.get().is_some_and(VerifiedWeights::still_at_path)
     }
 }
 
@@ -143,19 +166,27 @@ fn main() {
     }
 }
 
-/// Verify the model directory and build the sidecar backend that serves it, with the
-/// log fields that name what is served.
+/// Verify the model directory, at the release floor kept in `state_dir`, and build the
+/// sidecar backend that serves it, with the verified weights (held open) and the log
+/// fields that name what is served. [MG-SEC-14]
 fn sidecar_backend(
     args: &Args,
     engine: EngineChoice,
-) -> Result<(Arc<SidecarBackend>, LogFields), String> {
+    state_dir: &Path,
+) -> Result<(Arc<SidecarBackend>, VerifiedWeights, LogFields), String> {
     let dir = Path::new(args.require("model-dir")?);
     let trust_path = args.require("model-trust")?;
     let trust = std::fs::read_to_string(trust_path)
         .map_err(|e| format!("cannot read {trust_path}: {e}"))
         .and_then(|text| parse_trust_key(&text).map_err(|e| format!("{trust_path}: {e}")))?;
-    let model = ModelLoader::new(trust, LicencePolicy::default()).verify_dir(dir, &probe())?;
-    let manifest = &model.artifact.manifest;
+    let mut floor =
+        ReleaseFloor::open(state_dir.join(MODEL_FLOOR_FILE)).map_err(|e| e.to_string())?;
+    let model = ModelLoader::new(trust, LicencePolicy::default()).verify_dir_at_floor(
+        dir,
+        &probe(),
+        &mut floor,
+    )?;
+    let manifest = &model.manifest;
 
     let addr: SocketAddr = args
         .get("sidecar")
@@ -185,10 +216,11 @@ fn sidecar_backend(
 
     let fields = vec![
         ("model", manifest.id.clone()),
+        ("model_version", manifest.version.clone()),
         ("model_sha256", hex(&manifest.sha256)),
         ("sidecar", addr.to_string()),
     ];
-    Ok((Arc::new(backend), fields))
+    Ok((Arc::new(backend), model.weights, fields))
 }
 
 fn run(args: &Args) -> Result<(), String> {
@@ -233,12 +265,14 @@ fn run(args: &Args) -> Result<(), String> {
         engine == EngineChoice::Reference,
     ));
     let sidecar_cell = Arc::new(OnceLock::new());
+    let weights_cell = Arc::new(OnceLock::new());
     let mut health = HealthRegistry::new();
     health.register(Box::new(ledger_ready.clone()));
     health.register(Box::new(mesh_ready.clone()));
     health.register(Box::new(model_ready.clone()));
     if engine != EngineChoice::Reference {
         health.register(Box::new(SidecarReady(sidecar_cell.clone())));
+        health.register(Box::new(WeightsUnchanged(weights_cell.clone())));
     }
     let metrics = Arc::new(MetricsRegistry::new());
     let health_addr = spawn_health_port(
@@ -268,8 +302,9 @@ fn run(args: &Args) -> Result<(), String> {
     let (registry, model_fields): (Vec<Arc<dyn ModelBackend>>, LogFields) = match engine {
         EngineChoice::Reference => (reference_registry(), Vec::new()),
         _ => {
-            let (sidecar, fields) = sidecar_backend(args, engine)?;
+            let (sidecar, weights, fields) = sidecar_backend(args, engine, state_dir)?;
             let _ = sidecar_cell.set(sidecar.clone());
+            let _ = weights_cell.set(weights);
             model_ready.set(true);
             (vec![sidecar as Arc<dyn ModelBackend>], fields)
         }

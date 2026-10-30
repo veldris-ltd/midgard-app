@@ -9,7 +9,10 @@ set -eu
 
 SERVICE="${MIDGARD_SERVICE:?MIDGARD_SERVICE (the service binary name) must be set}"
 BIN="/app/${SERVICE}"
-TRUST="${MIDGARD_RELEASE_TRUST_KEY:-/trust/release-trust.pub}"
+# The pinned release trust key, at the one path the image installs it. It is not
+# configurable: nothing in the environment can point verification at another key.
+# [MG-SEC-14]
+readonly TRUST=/trust/release-trust.pub
 
 # Safe by default: a service started with no options is refused, never started on a
 # default address. The gateway in particular needs its state directory (--state-dir);

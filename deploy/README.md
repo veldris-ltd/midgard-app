@@ -14,7 +14,9 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   - `entrypoint.sh` — **verify-before-run**: `mg-verify` re-checks the ML-DSA
     signature + SBOM + provenance against the pinned trust key before the service is
     exec'd; a tampered image fails closed and the container refuses to start.
-    [AC-B-1] [NFR-PQ-3]
+    The trust key is always `/trust/release-trust.pub`, owned by root: no environment
+    variable can point verification at another key (`MIDGARD_RELEASE_TRUST_KEY` is
+    gone). [AC-B-1] [NFR-PQ-3] [MG-SEC-14]
 - **`compose/`** — Midgard on one machine with docker compose: the HTTP edge, the
   Mimir inference plane, the Bifrost fleet manager, the Heimdall feed gateway and the
   Forge worker in hardened containers (non-root, read-only rootfs, no

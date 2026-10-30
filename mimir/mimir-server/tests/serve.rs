@@ -328,8 +328,8 @@ fn strs(args: &[String]) -> Vec<&str> {
 /// A signed Granite model directory, and the trust file for its signing key.
 fn signed_model(root: &Path) -> (PathBuf, PathBuf) {
     use model_server::{
-        render_manifest_file, sign_manifest, HwProfile, Licence, ModelManifest, WeightFormat,
-        WeightsFile, MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
+        sign_manifest_file, HwProfile, Licence, ModelManifest, WeightFormat, WeightsFile,
+        MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
     };
     use pqc_agility::backend::fips::FipsSig;
     use pqc_agility::SignatureScheme;
@@ -360,7 +360,7 @@ fn signed_model(root: &Path) -> (PathBuf, PathBuf) {
             size: weights.len() as u64,
         }),
     };
-    let text = render_manifest_file(&sign_manifest(manifest, &sk)).unwrap();
+    let text = sign_manifest_file(&manifest, &sk).unwrap();
     std::fs::write(dir.join(MANIFEST_FILE), text).unwrap();
     let hex = vk.as_bytes().iter().fold(String::new(), |mut s, b| {
         use std::fmt::Write;
@@ -415,6 +415,9 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
     let server = start_with(&server_identity, &state, &strs(&args));
     let (status, body) = get(&server.health, "/readyz");
     assert_eq!(status, 200, "{body}");
+    // The accepted release is the floor from now on. [MG-SEC-14]
+    let floor = std::fs::read_to_string(state.join("model-release.floor")).unwrap();
+    assert!(floor.contains(" 1 "), "{floor}");
     let served = probe(&consumers, "forge-worker", &server.mesh);
     assert!(served.status.success(), "{}", text(&served.stderr));
     let out = text(&served.stdout);

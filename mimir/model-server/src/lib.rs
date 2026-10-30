@@ -50,12 +50,18 @@ pub use adapter::{
 };
 pub use api::{Completion, InferenceRequest, InferenceResponse, Malformed, WorkloadClass};
 pub use artifact::{
-    digest_weights, parse_manifest_file, parse_trust_key, render_manifest_file, verify_weights,
-    Licence, LicencePolicy, LoadError, LoadedModel, ModelManifest, SignedArtifact, WeightFormat,
-    WeightsDigest, WeightsFile, MANIFEST_FILE, MANIFEST_FILE_HEADER, VELDRIS_MODEL_SIG_ALG,
+    digest_weights, manifest_file_with_signature, open_verified_weights, parse_trust_key,
+    render_manifest_body, split_manifest_file, verify_manifest_file, verify_weights, Licence,
+    LicencePolicy, LoadError, LoadedModel, ManifestFileError, ModelManifest, SignedArtifact,
+    VerifiedWeights, WeightFormat, WeightsDigest, WeightsFile, MANIFEST_FILE, MANIFEST_FILE_HEADER,
+    MAX_MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
 };
 #[cfg(feature = "backend-fips")]
-pub use artifact::{sign_manifest, ModelLoader, VerifiedModel};
+pub use artifact::{sign_manifest, sign_manifest_file, ModelLoader, VerifiedModel};
+/// The anti-rollback floor a service loads models at (`ModelLoader::verify_dir_at_floor`).
+/// [MG-SEC-14]
+#[cfg(feature = "backend-fips")]
+pub use attest::{ReleaseFloor, RollbackError};
 pub use backend::{
     BackendDescriptor, InferError, Locality, ModelBackend, PreparedRequest, RawCompletion,
 };

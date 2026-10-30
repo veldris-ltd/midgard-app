@@ -20,15 +20,20 @@
 //! first bytes: GGUF or safetensors, and nothing else. It signs the digest, the file's
 //! name, format, quantisation and size, the family, the licence and the hardware the
 //! model needs, and writes `model.manifest` beside the weights (or `--out`), never over
-//! an existing file. With `--sha256`, the digest the upstream published must match what
-//! was read, or nothing is signed.
+//! an existing file. The manifest is format 2: signed over its own bytes, so the plane
+//! checks the signature before it parses the file. With `--sha256`, the digest the
+//! upstream published must match what was read, or nothing is signed. [MG-SEC-14]
 //!
 //! `verify` runs the plane's load gate on a model directory: the signature against the
 //! trust key, the family, the hardware against this node, and the weights' size, format
-//! and digest. Exit 1 on any refusal, 2 on bad usage.
+//! and digest. Exit 1 on any refusal, 2 on bad usage. It keeps no release floor: the
+//! anti-rollback check is `mimir-server`'s, against the releases it has served.
 //!
 //! `pack` carries a model across the air gap as one signed bundle. [AC-MS-3] [FR-B-5]
-//! It runs the load gate on `--dir` first, so only a model that verifies is packed.
+//! It runs the load gate on `--dir` first, so only a model that verifies is packed, and
+//! packs the very bytes that were verified: the manifest as it was read, and the weights
+//! through the handle they were hashed through, each refused unless it still has the
+//! verified digest — never the files re-opened by name. [MG-SEC-14]
 //! It writes `model.manifest` and the weights as `model-bundle` artefacts, a chunk at a
 //! time (bundle format version 2), so the weights are never held in memory. The bundle is
 //! signed with the Bifrost admission keystore (`--keystore`, ML-DSA-65), not the model
@@ -46,12 +51,11 @@ use std::process::exit;
 use attest::Keystore;
 use bifrost_artefact::{generate_sbom, SbomComponent, BIFROST_SIG_ALG};
 use bifrost_bundle::{
-    import_streaming, pack_streaming, BundleError, FileArtefact, DEFAULT_CHUNK_SIZE,
+    import_streaming, pack_streaming_open, BundleError, OpenArtefact, DEFAULT_CHUNK_SIZE,
 };
 use model_server::{
-    digest_weights, parse_trust_key, probe, render_manifest_file, sign_manifest, HwProfile,
-    Licence, LicencePolicy, ModelLoader, ModelManifest, VerifiedModel, WeightsFile, MANIFEST_FILE,
-    VELDRIS_MODEL_SIG_ALG,
+    digest_weights, parse_trust_key, probe, sign_manifest_file, HwProfile, Licence, LicencePolicy,
+    ModelLoader, ModelManifest, VerifiedModel, WeightsFile, MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
 };
 use pqc_agility::{OsRng, SecretBytes, SigningKey, VerifyingKey};
 use service_runtime::Args;
@@ -277,8 +281,7 @@ fn sign(args: &Args) -> Result<String, Failure> {
             size: found.size,
         }),
     };
-    let text =
-        render_manifest_file(&sign_manifest(manifest, &signing_key)).map_err(Failure::Usage)?;
+    let text = sign_manifest_file(&manifest, &signing_key).map_err(Failure::Usage)?;
     std::fs::write(&out, text)
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", out.display())))?;
     Ok(format!(
@@ -335,7 +338,7 @@ fn bundle_anchors(path: &str) -> Result<Vec<VerifyingKey>, Failure> {
 fn pack(args: &Args) -> Result<String, Failure> {
     let dir = Path::new(require(args, "dir")?);
     // Only a model that passes the load gate is packed.
-    let model = load_gate(dir, require(args, "model-trust")?)?;
+    let mut model = load_gate(dir, require(args, "model-trust")?)?;
     let out = Path::new(require(args, "out")?);
     if out.exists() {
         return Err(Failure::Run(format!(
@@ -363,32 +366,51 @@ fn pack(args: &Args) -> Result<String, Failure> {
         SecretBytes::new(root.expose_signing_key().expose().to_vec()),
     );
 
-    let manifest = &model.artifact.manifest;
+    let manifest = model.manifest.clone();
     let weights = manifest
         .weights
         .as_ref()
         .expect("a verified manifest names its weights file");
-    let artefact = |name: &str, path: PathBuf| FileArtefact {
-        id: name.to_string(),
-        version: manifest.version.clone(),
-        component: MODEL_BUNDLE.to_string(),
-        sbom: generate_sbom(
+    let sbom = |name: &str| {
+        generate_sbom(
             name,
             &manifest.version,
             MODEL_BUNDLE,
             vec![SbomComponent::new(&manifest.id, &manifest.version)],
-        ),
-        path,
+        )
     };
-    let artefacts = [
-        artefact(MANIFEST_FILE, dir.join(MANIFEST_FILE)),
-        artefact(&weights.name, model.weights_path.clone()),
+    // Pack what was verified: the manifest bytes as they were read and checked, and the
+    // weights through the handle they were hashed through. Each must still have its
+    // verified digest, or nothing is signed. [MG-SEC-14]
+    let manifest_digest = pqc_agility::hash::sha256(&model.manifest_bytes);
+    let mut manifest_bytes = std::io::Cursor::new(model.manifest_bytes.clone());
+    let weights_file = model
+        .weights
+        .file()
+        .map_err(|e| Failure::Run(format!("cannot rewind the verified weights: {e}")))?;
+    let mut artefacts = [
+        OpenArtefact {
+            id: MANIFEST_FILE.to_string(),
+            version: manifest.version.clone(),
+            component: MODEL_BUNDLE.to_string(),
+            sbom: sbom(MANIFEST_FILE),
+            payload: &mut manifest_bytes,
+            expect_sha256: Some(manifest_digest),
+        },
+        OpenArtefact {
+            id: weights.name.clone(),
+            version: manifest.version.clone(),
+            component: MODEL_BUNDLE.to_string(),
+            sbom: sbom(&weights.name),
+            payload: weights_file,
+            expect_sha256: Some(manifest.sha256),
+        },
     ];
-    pack_streaming(
+    pack_streaming_open(
         out,
         manifest.id.as_str(),
         format!("{}@{}", manifest.id, manifest.version),
-        &artefacts,
+        &mut artefacts,
         &signing_key,
         DEFAULT_CHUNK_SIZE,
     )
@@ -462,7 +484,7 @@ fn unpack(args: &Args) -> Result<String, Failure> {
 fn verify(args: &Args) -> Result<String, Failure> {
     let dir = Path::new(require(args, "dir")?);
     let model = load_gate(dir, require(args, "trust")?)?;
-    let manifest = &model.artifact.manifest;
+    let manifest = &model.manifest;
     let weights = manifest
         .weights
         .as_ref()

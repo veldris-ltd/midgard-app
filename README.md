@@ -641,7 +641,7 @@ just model-stage granite-3.3-2b-instruct-Q4_K_M.gguf
 Staging uses `mg-model`, and does the following:
 
 1. Refuses the file unless its SHA-256 is the one the upstream publishes.
-2. Signs a manifest over the weights' digest, file name, format, quantisation and size, the family, the licence and the hardware the model needs.
+2. Signs a manifest over the weights' digest, file name, format, quantisation and size, the family, the licence and the hardware the model needs. The manifest file is format 2: its signature covers the file's own bytes, so it is checked before the file is parsed. A format 1 manifest, from before, is refused; sign the model again.
 3. Verifies the model directory the way `mimir-server` will.
 
 The signing key it creates is a development key, kept in the `midgard-model-signing` volume on the same machine. In production the key stays in staging, and only the signed manifest and the public key enter the enclosure.
@@ -658,7 +658,9 @@ docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.
 
 What happens when it starts and serves:
 
-- **The model is verified first.** Before it serves, `mimir-server` checks the manifest's ML-DSA-65 signature against the trust key, the family and the hardware the model needs. It then streams the weights through SHA-256 and checks their size, and their format from their own first bytes. Only GGUF and safetensors load. Any failure stops the service.
+- **The model is verified first.** Before it serves, `mimir-server` checks the manifest's ML-DSA-65 signature against the trust key over the file's raw bytes, before parsing it; then the family and the hardware the model needs. It then opens the weights once, streams that handle through SHA-256 and checks their size, and their format from their own first bytes. Only GGUF and safetensors load. Any failure stops the service. [MG-SEC-14]
+- **No going back.** `mimir-server` keeps a release floor in its state directory (`model-release.floor`): the highest version of each model it has accepted, and a digest of its signed manifest. A model signed with an older version, or the same version with a different manifest, is refused even though its signature is valid. To replace a model, sign the new one with a higher `--version`. [MG-SEC-14]
+- **The weights stay the verified ones.** The engine loads the weights by path, so `mimir-server` keeps the verified file open and is ready only while the path still names that file, unchanged; a file swapped in afterwards takes it out of rotation. [MG-SEC-14]
 - **The engine is reachable only from `mimir-server`.** llama.cpp runs in `mimir-server`'s network namespace, listening on its loopback address only, with the models volume mounted read-only by both.
 - **Readiness follows the engine.** `mimir-server` is ready only while llama.cpp reports healthy.
 - **Calls stay governed.** Every call is still authorised and audited as before, and a failed call to the engine is refused, never answered by another model.

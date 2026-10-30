@@ -5,6 +5,12 @@
 
 use bifrost_artefact::SignedArtefact;
 
+use crate::error::BundleError;
+
+/// The largest bundle manifest a reader takes in before its signature has been checked.
+/// [MG-SEC-14]
+pub const MAX_MANIFEST: usize = 16 * 1024 * 1024;
+
 /// One entry in a bundle: the identity + digests of a contained artefact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BundleEntry {
@@ -64,5 +70,94 @@ impl BundleManifest {
             o.extend_from_slice(&e.sbom_sha256);
         }
         o
+    }
+}
+
+impl BundleManifest {
+    /// Decode a manifest from exactly the bytes [`encode`](Self::encode) writes. Call it
+    /// only on bytes whose bundle signature has verified: the signature is checked over
+    /// these raw bytes, and only then are they decoded. Strict: every byte belongs to a
+    /// field, and the result re-encodes to the same bytes. [MG-SEC-14]
+    pub fn decode(raw: &[u8]) -> Result<Self, BundleError> {
+        let mut r = Frame { b: raw, p: 0 };
+        let bundle_id = r.string()?;
+        let label = r.string()?;
+        let count = r.u32()?;
+        let mut entries = Vec::new();
+        for _ in 0..count {
+            entries.push(BundleEntry {
+                id: r.string()?,
+                version: r.string()?,
+                component: r.string()?,
+                payload_sha256: r.digest()?,
+                sbom_sha256: r.digest()?,
+            });
+        }
+        let manifest = Self {
+            bundle_id,
+            label,
+            entries,
+        };
+        if manifest.encode() != raw {
+            return Err(BundleError::Io("malformed bundle manifest".into()));
+        }
+        Ok(manifest)
+    }
+}
+
+/// How many bytes the manifest at the start of `b` occupies, following only its length
+/// prefixes — the framing a reader needs to find the bytes a bundle signature covers
+/// without decoding any of them. At most [`MAX_MANIFEST`] bytes. [MG-SEC-14]
+pub(crate) fn manifest_extent(b: &[u8]) -> Result<usize, BundleError> {
+    let mut r = Frame {
+        b: &b[..b.len().min(MAX_MANIFEST)],
+        p: 0,
+    };
+    r.field()?; // bundle id
+    r.field()?; // label
+    for _ in 0..r.u32()? {
+        for _ in 0..3 {
+            r.field()?; // id, version, component
+        }
+        r.take(64)?; // payload and SBOM digests
+    }
+    Ok(r.p)
+}
+
+/// A position in a byte slice, every step bounds-checked.
+struct Frame<'a> {
+    b: &'a [u8],
+    p: usize,
+}
+
+impl<'a> Frame<'a> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8], BundleError> {
+        let end = self
+            .p
+            .checked_add(n)
+            .filter(|&e| e <= self.b.len())
+            .ok_or_else(|| BundleError::Io("truncated or oversized bundle manifest".into()))?;
+        let s = &self.b[self.p..end];
+        self.p = end;
+        Ok(s)
+    }
+
+    fn u32(&mut self) -> Result<usize, BundleError> {
+        let b = self.take(4)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    }
+
+    fn field(&mut self) -> Result<&'a [u8], BundleError> {
+        let n = self.u32()?;
+        self.take(n)
+    }
+
+    fn string(&mut self) -> Result<String, BundleError> {
+        String::from_utf8(self.field()?.to_vec())
+            .map_err(|_| BundleError::Io("malformed bundle manifest".into()))
+    }
+
+    fn digest(&mut self) -> Result<[u8; 32], BundleError> {
+        Ok(<[u8; 32]>::try_from(self.take(32)?).expect("32 bytes"))
     }
 }

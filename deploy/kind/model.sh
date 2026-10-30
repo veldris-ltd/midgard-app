@@ -37,6 +37,11 @@ fromvolume test -f /models/granite/model.manifest || {
     echo "model: stage it first: bash deploy/compose/stage-model.sh PATH/TO/$GGUF" >&2
     exit 1
 }
+# mimir-server loads only a format 2 manifest, signed over its own bytes. [MG-SEC-14]
+fromvolume sh -c 'head -n 1 /models/granite/model.manifest | grep -qx "midgard-model-manifest 2"' || {
+    echo "model: the manifest predates format 2; sign it again: bash deploy/compose/stage-model.sh" >&2
+    exit 1
+}
 docker image inspect "$LLAMA_PINNED" >/dev/null 2>&1 || {
     echo "model: pull the llama.cpp image first: docker pull ${LLAMA_PINNED/@/:server@}" >&2
     exit 1

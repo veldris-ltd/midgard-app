@@ -1117,8 +1117,16 @@ enrol_admins() {
 
 stage_model() {
     local file="${ANSWER[MODEL_FILE]:-}" dl="$INSTALL_DIR/downloads"
-    if docker run --rm -v midgard-models:/models "$DEV_IMAGE" test -f "/models/granite/model.manifest" 2>/dev/null; then
+    # Staged means a format 2 manifest: one signed over its own bytes, which
+    # mimir-server checks before parsing it. An older manifest is signed again. [MG-SEC-14]
+    if docker run --rm -v midgard-models:/models "$DEV_IMAGE" sh -c \
+        'head -n 1 /models/granite/model.manifest 2>/dev/null | grep -qx "midgard-model-manifest 2"' 2>/dev/null; then
         echo "the model is already staged"
+        return 0
+    fi
+    if docker run --rm -v midgard-models:/models "$DEV_IMAGE" test -f "/models/granite/$GRANITE_GGUF" 2>/dev/null; then
+        echo "the model's manifest predates format 2; signing it again"
+        bash "$SRC/deploy/compose/stage-model.sh"
         return 0
     fi
     if [ -z "$file" ]; then

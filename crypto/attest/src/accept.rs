@@ -63,6 +63,9 @@ pub const BIFROST_ARTEFACT: Domain = Domain::new(b"midgard-bifrost-artefact-v1")
 pub const BIFROST_BUNDLE: Domain = Domain::new(b"midgard-bifrost-bundle-v1");
 /// A Mimir model manifest.
 pub const MIMIR_MODEL: Domain = Domain::new(b"midgard-mimir-model-v1");
+/// A Mimir model manifest **file**: the signature covers the file's bytes exactly as
+/// they lie on disk, so it is checked before the file is parsed. [MG-SEC-14]
+pub const MIMIR_MODEL_FILE: Domain = Domain::new(b"midgard-mimir-model-file-v2");
 
 /// Build the canonical preimage for `body` in `domain`.
 pub fn preimage(domain: &Domain, body: &[u8]) -> Vec<u8> {
@@ -284,6 +287,7 @@ mod tests {
             BIFROST_ARTEFACT,
             BIFROST_BUNDLE,
             MIMIR_MODEL,
+            MIMIR_MODEL_FILE,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {

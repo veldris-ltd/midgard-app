@@ -8,16 +8,30 @@
 //! [NFR-PQ-3]
 //!
 //! A model on disk is a directory holding a signed manifest file ([`MANIFEST_FILE`])
-//! and the weights file it names. The signature covers the weights' SHA-256, file name,
-//! format, quantisation and size; [`verify_weights`] streams the file through SHA-256 and
-//! checks each, and recognises the format from the file's own first bytes. Only GGUF and
-//! safetensors load: formats that can carry executable code, such as pickled
-//! checkpoints, never do. [FR-MS-4]
+//! and the weights file it names. The manifest file is format 2: its signature covers
+//! the file's bytes exactly as they lie on disk, and is checked **before** a byte of it
+//! is parsed, so a tampered manifest is the signature's failure and never the parser's
+//! input ([`verify_manifest_file`]). The signed fields bind the weights' SHA-256, file
+//! name, format, quantisation and size; [`open_verified_weights`] opens the weights
+//! **once**, streams that handle through SHA-256, checks each field, recognises the
+//! format from the file's own first bytes, and hands back the same handle, so whatever
+//! reads the weights afterwards reads the bytes that were hashed rather than whatever
+//! the path names by then. Only GGUF and safetensors load: formats that can carry
+//! executable code, such as pickled checkpoints, never do. [FR-MS-4] [MG-SEC-14]
+//!
+//! A signature proves where a model came from, not that it is current, so
+//! `ModelLoader::verify_dir_at_floor` also refuses a release older than the last one
+//! accepted for its id, or the same version with different signed content
+//! (`attest::ReleaseFloor`). [MG-SEC-14]
 
 use std::collections::BTreeSet;
-use std::io::Read;
-#[cfg(feature = "backend-fips")]
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+#[cfg(feature = "backend-fips")]
+use attest::ReleaseFloor;
 
 use crate::hardware::{HwProfile, NodeProfile};
 
@@ -27,8 +41,17 @@ pub const VELDRIS_MODEL_SIG_ALG: pqc_agility::SigId = pqc_agility::SigId::MlDsa6
 /// The manifest file a model directory holds.
 pub const MANIFEST_FILE: &str = "model.manifest";
 
-/// The first line of a manifest file.
-pub const MANIFEST_FILE_HEADER: &str = "midgard-model-manifest 1";
+/// The first line of a manifest file (format 2: signed over its bytes as they lie on
+/// disk). [MG-SEC-14]
+pub const MANIFEST_FILE_HEADER: &str = "midgard-model-manifest 2";
+
+/// The first line of a format 1 manifest file, which was signed over its parsed fields
+/// and so could not be checked before it was parsed. It is refused: re-sign the model
+/// with `mg-model sign`. [MG-SEC-14]
+const LEGACY_MANIFEST_FILE_HEADER: &str = "midgard-model-manifest 1";
+
+/// The largest manifest file read. A larger one is refused, never truncated.
+pub const MAX_MANIFEST_FILE: usize = 64 * 1024;
 
 /// The governing licence of a model artefact.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,6 +236,8 @@ pub enum LoadError {
     /// The weights are not in the format the manifest records, or in no format the
     /// plane loads.
     UnsupportedWeightsFormat,
+    /// The weights file changed while it was being hashed. [MG-SEC-14]
+    WeightsChanged,
 }
 
 impl std::fmt::Display for LoadError {
@@ -232,6 +257,7 @@ impl std::fmt::Display for LoadError {
             LoadError::UnsupportedWeightsFormat => {
                 "the weights are not in the signed format (only GGUF and safetensors load)"
             }
+            LoadError::WeightsChanged => "the weights file changed while it was being hashed",
         })
     }
 }
@@ -247,16 +273,19 @@ pub struct LoadedModel {
     pub family: String,
 }
 
-/// A model loaded from its directory: the verified artefact and its weights file.
+/// A model loaded from its directory: the verified manifest and the weights file it
+/// covers, held open.
 #[cfg(feature = "backend-fips")]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VerifiedModel {
-    /// The signed artefact.
-    pub artifact: SignedArtifact,
+    /// The verified manifest.
+    pub manifest: ModelManifest,
+    /// The manifest file's bytes, exactly as they were verified.
+    pub manifest_bytes: Vec<u8>,
     /// What passed the load gates.
     pub loaded: LoadedModel,
-    /// The verified weights file.
-    pub weights_path: PathBuf,
+    /// The verified weights: read them through this handle, not by re-opening the path.
+    pub weights: VerifiedWeights,
 }
 
 /// The verify-on-load gate. Holds the trusted Veldris verifying key, the licence
@@ -315,60 +344,130 @@ impl ModelLoader {
             &[VELDRIS_MODEL_SIG_ALG],
         )
         .map_err(|_| LoadError::BadSignature)?;
+        self.gates(&artifact.manifest, node)
+    }
 
+    /// The gates after the signature: family, revocation, licence and hardware. Only
+    /// ever applied to a manifest whose signature has verified.
+    fn gates(
+        &self,
+        manifest: &ModelManifest,
+        node: &NodeProfile,
+    ) -> Result<LoadedModel, LoadError> {
         // 2. Supported family.
-        if !self.families.contains(&artifact.manifest.family) {
+        if !self.families.contains(&manifest.family) {
             return Err(LoadError::UnsupportedFamily);
         }
         // 3. Revocation (fails closed even with a valid signature).
-        if self.revoked.contains(&artifact.manifest.id) {
+        if self.revoked.contains(&manifest.id) {
             return Err(LoadError::Revoked);
         }
         // 4. Licence policy.
-        if self.policy.require_redistribution_ok && !artifact.manifest.licence.redistribution_ok {
+        if self.policy.require_redistribution_ok && !manifest.licence.redistribution_ok {
             return Err(LoadError::LicenceDenied);
         }
         // 5. Hardware eligibility.
-        if !artifact.manifest.hw.is_satisfied_by(node) {
+        if !manifest.hw.is_satisfied_by(node) {
             return Err(LoadError::HardwareIneligible);
         }
 
         Ok(LoadedModel {
-            id: artifact.manifest.id.clone(),
-            family: artifact.manifest.family.clone(),
+            id: manifest.id.clone(),
+            family: manifest.family.clone(),
         })
     }
 
     /// Load a model from a directory holding [`MANIFEST_FILE`] and the weights file it
-    /// names. The manifest must parse and pass every gate of
-    /// [`verify_and_load`](Self::verify_and_load) before its weights are read; then the
-    /// weights must match it. Fails closed at the first failure. [AC-MI-7] [FR-MS-4]
+    /// names. The manifest file's signature is checked over its raw bytes before it is
+    /// parsed; then it must pass every gate of [`verify_and_load`](Self::verify_and_load)
+    /// before its weights are opened; then the weights must match it, hashed through
+    /// the handle returned in [`VerifiedModel::weights`]. Fails closed at the first
+    /// failure. [AC-MI-7] [FR-MS-4] [MG-SEC-14]
+    ///
+    /// This checks a model; it keeps no release floor. A service that serves the model
+    /// loads it with [`verify_dir_at_floor`](Self::verify_dir_at_floor).
     pub fn verify_dir(&self, dir: &Path, node: &NodeProfile) -> Result<VerifiedModel, String> {
+        self.load_dir(dir, node, None)
+    }
+
+    /// [`verify_dir`](Self::verify_dir), and refuse a release older than the last one
+    /// `floor` accepted for this model id, or the same version with different signed
+    /// content (anti-rollback). Once every check has passed, the floor rises to this
+    /// release (persisted, for a floor opened over a file). [MG-SEC-14]
+    pub fn verify_dir_at_floor(
+        &self,
+        dir: &Path,
+        node: &NodeProfile,
+        floor: &mut ReleaseFloor,
+    ) -> Result<VerifiedModel, String> {
+        self.load_dir(dir, node, Some(floor))
+    }
+
+    fn load_dir(
+        &self,
+        dir: &Path,
+        node: &NodeProfile,
+        floor: Option<&mut ReleaseFloor>,
+    ) -> Result<VerifiedModel, String> {
         let path = dir.join(MANIFEST_FILE);
-        let mut text = String::new();
-        std::fs::File::open(&path)
-            .and_then(|file| file.take(64 * 1024).read_to_string(&mut text))
+        let mut bytes = Vec::new();
+        File::open(&path)
+            .and_then(|file| {
+                file.take(MAX_MANIFEST_FILE as u64 + 1)
+                    .read_to_end(&mut bytes)
+            })
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        let artifact =
-            parse_manifest_file(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-        let loaded = self
-            .verify_and_load(&artifact, node)
+        if bytes.len() > MAX_MANIFEST_FILE {
+            return Err(format!(
+                "{}: refused: larger than {MAX_MANIFEST_FILE} bytes",
+                path.display()
+            ));
+        }
+        // 1. The signature, over the bytes as read — before any of them is parsed.
+        let manifest = verify_manifest_file(&bytes, &self.trust_key)
             .map_err(|e| format!("{}: refused: {e}", path.display()))?;
-        let name = &artifact
-            .manifest
+        // 2–5. The gates on what the signature vouches for.
+        let loaded = self
+            .gates(&manifest, node)
+            .map_err(|e| format!("{}: refused: {e}", path.display()))?;
+        // 6. Anti-rollback, before the weights are read; the floor rises only once
+        // everything has passed.
+        let content = manifest_content_digest(&bytes);
+        if let Some(floor) = floor.as_deref() {
+            floor
+                .check(&manifest.id, &manifest.version, &content)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+        // 7. The weights, opened once and hashed through that handle.
+        let name = &manifest
             .weights
             .as_ref()
             .expect("a parsed manifest names its weights file")
             .name;
         let weights_path = dir.join(name);
-        verify_weights(&weights_path, &artifact.manifest)
+        let weights = open_verified_weights(&weights_path, &manifest)
             .map_err(|e| format!("{}: refused: {e}", weights_path.display()))?;
+        if let Some(floor) = floor {
+            floor
+                .admit(&manifest.id, &manifest.version, &content)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+        }
         Ok(VerifiedModel {
-            artifact,
+            manifest,
+            manifest_bytes: bytes,
             loaded,
-            weights_path,
+            weights,
         })
     }
+}
+
+/// The digest of a manifest file's signed content (everything but the signature line):
+/// what the release floor records for a model, so a re-signed copy of the same manifest
+/// is the same release. Only call it on bytes that verified.
+#[cfg(feature = "backend-fips")]
+fn manifest_content_digest(bytes: &[u8]) -> [u8; 32] {
+    let body = split_manifest_file(bytes).map_or(bytes, |(body, _)| body);
+    pqc_agility::hash::sha256(body)
 }
 
 /// Sign a manifest under an Veldris ML-DSA signing key (the staging-side custody
@@ -431,23 +530,78 @@ pub fn digest_weights(reader: &mut impl Read) -> std::io::Result<WeightsDigest> 
     })
 }
 
-/// Check a weights file against a manifest whose signature has already verified: its
-/// size, its format (from its own first bytes, not its name) and its SHA-256, streamed.
-/// [AC-MI-7] [FR-MS-4]
-pub fn verify_weights(path: &std::path::Path, manifest: &ModelManifest) -> Result<(), LoadError> {
+/// The verified weights file, held open: the handle the SHA-256 was computed through.
+/// Whatever loads the weights reads them through [`file`](Self::file), so a file
+/// swapped in at the same path after the check is never what is read. [MG-SEC-14]
+#[derive(Debug)]
+pub struct VerifiedWeights {
+    path: PathBuf,
+    file: File,
+    size: u64,
+    modified: Option<SystemTime>,
+}
+
+impl VerifiedWeights {
+    /// Where the weights were opened from.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Their size in bytes, as signed.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// The verified file, rewound to its first byte.
+    pub fn file(&mut self) -> std::io::Result<&mut File> {
+        self.file.seek(SeekFrom::Start(0))?;
+        Ok(&mut self.file)
+    }
+
+    /// Whether the path still names the file that was verified, unchanged: the same
+    /// file (device and inode, on Unix), the same size and the same modification time.
+    /// For a loader that can only be handed a path — an engine in another process —
+    /// this is how a swap after the check is caught. [MG-SEC-14]
+    pub fn still_at_path(&self) -> bool {
+        let (Ok(now), Ok(held)) = (std::fs::metadata(&self.path), self.file.metadata()) else {
+            return false;
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if now.dev() != held.dev() || now.ino() != held.ino() {
+                return false;
+            }
+        }
+        now.len() == self.size
+            && held.len() == self.size
+            && now.modified().ok() == self.modified
+            && held.modified().ok() == self.modified
+    }
+}
+
+/// Open a weights file **once** and check it against a manifest whose signature has
+/// already verified: its size, its format (from its own first bytes, not its name) and
+/// its SHA-256, streamed through the same handle that is returned, rewound. The file
+/// must not change while it is hashed. [AC-MI-7] [FR-MS-4] [MG-SEC-14]
+pub fn open_verified_weights(
+    path: &Path,
+    manifest: &ModelManifest,
+) -> Result<VerifiedWeights, LoadError> {
     let expected = manifest
         .weights
         .as_ref()
         .ok_or(LoadError::WeightsUnreadable)?;
-    let mut file = std::fs::File::open(path).map_err(|_| LoadError::WeightsUnreadable)?;
-    let on_disk = file
-        .metadata()
-        .map_err(|_| LoadError::WeightsUnreadable)?
-        .len();
-    if on_disk != expected.size {
+    let mut file = File::open(path).map_err(|_| LoadError::WeightsUnreadable)?;
+    let before = file.metadata().map_err(|_| LoadError::WeightsUnreadable)?;
+    if !before.is_file() || before.len() != expected.size {
         return Err(LoadError::WeightsUnreadable);
     }
     let found = digest_weights(&mut file).map_err(|_| LoadError::WeightsUnreadable)?;
+    let after = file.metadata().map_err(|_| LoadError::WeightsUnreadable)?;
+    if after.len() != before.len() || after.modified().ok() != before.modified().ok() {
+        return Err(LoadError::WeightsChanged);
+    }
     if found.size != expected.size {
         return Err(LoadError::WeightsUnreadable);
     }
@@ -457,10 +611,24 @@ pub fn verify_weights(path: &std::path::Path, manifest: &ModelManifest) -> Resul
     if !pqc_agility::hash::ct_eq(&found.sha256, &manifest.sha256) {
         return Err(LoadError::WeightsMismatch);
     }
-    Ok(())
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| LoadError::WeightsUnreadable)?;
+    Ok(VerifiedWeights {
+        path: path.to_path_buf(),
+        file,
+        size: expected.size,
+        modified: before.modified().ok(),
+    })
 }
 
-const MANIFEST_KEYS: [&str; 15] = [
+/// [`open_verified_weights`], keeping only the verdict. Prefer the handle: checking a
+/// path and then opening it again to load is the race this exists to avoid.
+pub fn verify_weights(path: &Path, manifest: &ModelManifest) -> Result<(), LoadError> {
+    open_verified_weights(path, manifest).map(|_| ())
+}
+
+/// The keys of a manifest file's body, in order. The signature line follows them.
+const MANIFEST_KEYS: [&str; 14] = [
     "id",
     "family",
     "version",
@@ -475,8 +643,34 @@ const MANIFEST_KEYS: [&str; 15] = [
     "weights-format",
     "quantisation",
     "weights-size",
-    "signature",
 ];
+
+/// What separates a manifest file's signed body from its signature line.
+const SIGNATURE_LINE: &[u8] = b"\nsignature ";
+
+/// Why a manifest file was refused. Every variant is a refusal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManifestFileError {
+    /// The file has no well-formed signature line to check, or is format 1.
+    Unsigned(String),
+    /// The signature does not verify over the file's bytes: tampered, or signed by
+    /// another key. Nothing in the file was parsed.
+    BadSignature,
+    /// The signature verified but the signed body is not a well-formed manifest.
+    Malformed(String),
+}
+
+impl std::fmt::Display for ManifestFileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ManifestFileError::Unsigned(why) => write!(f, "not a signed model manifest: {why}"),
+            ManifestFileError::BadSignature => write!(f, "{}", LoadError::BadSignature),
+            ManifestFileError::Malformed(why) => write!(f, "malformed manifest: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for ManifestFileError {}
 
 /// A manifest value: one word of printable ASCII.
 fn check_token(what: &str, value: &str) -> Result<(), String> {
@@ -519,11 +713,10 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// Render a signed artefact as its manifest file: a header line, one `key value` line
-/// per field in a fixed order, then the signature. Only a manifest that names its
-/// weights file can be written, and what is written always parses back.
-pub fn render_manifest_file(artifact: &SignedArtifact) -> Result<String, String> {
-    let m = &artifact.manifest;
+/// Render a manifest's signed body: the header line and one `key value` line per field
+/// in a fixed order. Only a manifest that names its weights file can be rendered, and
+/// what is rendered always parses back.
+pub fn render_manifest_body(m: &ModelManifest) -> Result<String, String> {
     let w = m
         .weights
         .as_ref()
@@ -538,17 +731,11 @@ pub fn render_manifest_file(artifact: &SignedArtifact) -> Result<String, String>
         check_token(what, value)?;
     }
     check_file_name(&w.name)?;
-    if artifact.signature.alg() != VELDRIS_MODEL_SIG_ALG {
-        return Err(format!(
-            "the signature must be {}",
-            VELDRIS_MODEL_SIG_ALG.as_str()
-        ));
-    }
     let yes_no = |b: bool| if b { "yes" } else { "no" };
     Ok(format!(
         "{MANIFEST_FILE_HEADER}\nid {}\nfamily {}\nversion {}\nsha256 {}\nmin-gpus {}\n\
          min-vram-gb {}\nmultinode {}\nlicence {}\nosi-approved {}\nredistribution-ok {}\n\
-         weights-file {}\nweights-format {}\nquantisation {}\nweights-size {}\nsignature {} {}\n",
+         weights-file {}\nweights-format {}\nquantisation {}\nweights-size {}\n",
         m.id,
         m.family,
         m.version,
@@ -563,16 +750,115 @@ pub fn render_manifest_file(artifact: &SignedArtifact) -> Result<String, String>
         w.format.as_str(),
         w.quantisation,
         w.size,
-        VELDRIS_MODEL_SIG_ALG.as_str(),
-        hex(artifact.signature.as_bytes()),
     ))
 }
 
-/// Parse a manifest file strictly: the header, every key in order, nothing after the
-/// signature. Parsing checks form only — the signature is checked by
-/// [`ModelLoader::verify_and_load`].
-pub fn parse_manifest_file(text: &str) -> Result<SignedArtifact, String> {
-    let mut lines = text.lines().map(|l| l.strip_suffix('\r').unwrap_or(l));
+/// Append the signature line to a rendered body: the manifest file.
+pub fn manifest_file_with_signature(body: &str, signature: &pqc_agility::Signature) -> String {
+    format!(
+        "{body}signature {} {}\n",
+        signature.alg().as_str(),
+        hex(signature.as_bytes())
+    )
+}
+
+/// Render and sign a manifest file (format 2): the body, then a signature over the
+/// body's exact bytes in the model-file domain. This is what `mg-model sign` writes.
+/// [MG-SEC-14]
+#[cfg(feature = "backend-fips")]
+pub fn sign_manifest_file(
+    manifest: &ModelManifest,
+    signing_key: &pqc_agility::SigningKey,
+) -> Result<String, String> {
+    if signing_key.alg() != VELDRIS_MODEL_SIG_ALG {
+        return Err(format!(
+            "the signature must be {}",
+            VELDRIS_MODEL_SIG_ALG.as_str()
+        ));
+    }
+    let body = render_manifest_body(manifest)?;
+    let signature = attest::accept::sign_in_domain(
+        &attest::accept::MIMIR_MODEL_FILE,
+        body.as_bytes(),
+        signing_key,
+    )
+    .map_err(|e| format!("cannot sign the manifest: {e}"))?;
+    Ok(manifest_file_with_signature(&body, &signature))
+}
+
+/// Split a manifest file into its signed body and its signature, without reading the
+/// body: the signature line is the last line, and the body is every byte before it.
+/// This is framing, not parsing — nothing in the body is interpreted. [MG-SEC-14]
+pub fn split_manifest_file(
+    bytes: &[u8],
+) -> Result<(&[u8], pqc_agility::Signature), ManifestFileError> {
+    let unsigned = |why: &str| ManifestFileError::Unsigned(why.to_string());
+    if bytes.starts_with(LEGACY_MANIFEST_FILE_HEADER.as_bytes()) {
+        return Err(unsigned(
+            "format 1 was signed over its parsed fields and is no longer accepted; re-sign \
+             the model with `mg-model sign`",
+        ));
+    }
+    let at = bytes
+        .windows(SIGNATURE_LINE.len())
+        .rposition(|w| w == SIGNATURE_LINE)
+        .ok_or_else(|| unsigned("no signature line"))?;
+    let (body, line) = bytes.split_at(at + 1);
+    let line = line.strip_suffix(b"\n").unwrap_or(line);
+    let line = std::str::from_utf8(line).map_err(|_| unsigned("the signature line is not text"))?;
+    let mut parts = line.split(' ');
+    let (Some("signature"), Some(alg), Some(sig), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(unsigned(
+            "expected the last line to be `signature <alg> <hex>`",
+        ));
+    };
+    if alg != VELDRIS_MODEL_SIG_ALG.as_str() {
+        return Err(ManifestFileError::Unsigned(format!(
+            "the signature must be {}, not {alg:?}",
+            VELDRIS_MODEL_SIG_ALG.as_str()
+        )));
+    }
+    let sig = unhex(sig)
+        .filter(|b| !b.is_empty())
+        .ok_or_else(|| unsigned("the signature is not hex"))?;
+    Ok((
+        body,
+        pqc_agility::Signature::new(VELDRIS_MODEL_SIG_ALG, sig),
+    ))
+}
+
+/// Verify a manifest file and only then parse it: the signature is checked over the
+/// body's bytes exactly as they lie in the file, through the one acceptance decision in
+/// the model-file domain, and a body is parsed only once it has verified. A tampered
+/// file is refused as [`ManifestFileError::BadSignature`] whatever it contains.
+/// [AC-MI-7] [MG-SEC-14]
+pub fn verify_manifest_file(
+    bytes: &[u8],
+    trust_key: &pqc_agility::VerifyingKey,
+) -> Result<ModelManifest, ManifestFileError> {
+    let (body, signature) = split_manifest_file(bytes)?;
+    attest::accept::accept(
+        &attest::accept::MIMIR_MODEL_FILE,
+        body,
+        trust_key,
+        &signature,
+        &[VELDRIS_MODEL_SIG_ALG],
+    )
+    .map_err(|_| ManifestFileError::BadSignature)?;
+    let text = std::str::from_utf8(body)
+        .map_err(|_| ManifestFileError::Malformed("the body is not text".into()))?;
+    parse_manifest_body(text).map_err(ManifestFileError::Malformed)
+}
+
+/// Parse a manifest body strictly: the header, every key in order, nothing after. Only
+/// ever called on a body whose signature has verified.
+fn parse_manifest_body(text: &str) -> Result<ModelManifest, String> {
+    let body = text
+        .strip_suffix('\n')
+        .ok_or("the body must end with a newline")?;
+    let mut lines = body.split('\n');
     if lines.next() != Some(MANIFEST_FILE_HEADER) {
         return Err(format!(
             "not a model manifest: the first line must be `{MANIFEST_FILE_HEADER}`"
@@ -589,8 +875,8 @@ pub fn parse_manifest_file(text: &str) -> Result<SignedArtifact, String> {
         }
         values.push(value);
     }
-    if lines.any(|l| !l.trim().is_empty()) {
-        return Err("unexpected lines after the signature".into());
+    if lines.next().is_some() {
+        return Err("unexpected lines before the signature".into());
     }
 
     let token = |i: usize| -> Result<&str, String> {
@@ -633,43 +919,28 @@ pub fn parse_manifest_file(text: &str) -> Result<SignedArtifact, String> {
             values[11]
         )
     })?;
-    let (alg, signature) = values[14]
-        .split_once(' ')
-        .ok_or("expected `signature <alg> <hex>`")?;
-    if alg != VELDRIS_MODEL_SIG_ALG.as_str() {
-        return Err(format!(
-            "the signature must be {}, not {alg:?}",
-            VELDRIS_MODEL_SIG_ALG.as_str()
-        ));
-    }
-    let signature = unhex(signature)
-        .filter(|b| !b.is_empty())
-        .ok_or("the signature is not hex")?;
 
-    Ok(SignedArtifact {
-        manifest: ModelManifest {
-            id: token(0)?.to_string(),
-            family: token(1)?.to_string(),
-            version: token(2)?.to_string(),
-            sha256,
-            hw: HwProfile {
-                min_gpus: small(4)?,
-                min_vram_gb: small(5)?,
-                multinode: yes_no(6)?,
-            },
-            licence: Licence {
-                name: token(7)?.to_string(),
-                osi_approved: yes_no(8)?,
-                redistribution_ok: yes_no(9)?,
-            },
-            weights: Some(WeightsFile {
-                name: name.to_string(),
-                format,
-                quantisation: token(12)?.to_string(),
-                size: number(13)?,
-            }),
+    Ok(ModelManifest {
+        id: token(0)?.to_string(),
+        family: token(1)?.to_string(),
+        version: token(2)?.to_string(),
+        sha256,
+        hw: HwProfile {
+            min_gpus: small(4)?,
+            min_vram_gb: small(5)?,
+            multinode: yes_no(6)?,
         },
-        signature: pqc_agility::Signature::new(VELDRIS_MODEL_SIG_ALG, signature),
+        licence: Licence {
+            name: token(7)?.to_string(),
+            osi_approved: yes_no(8)?,
+            redistribution_ok: yes_no(9)?,
+        },
+        weights: Some(WeightsFile {
+            name: name.to_string(),
+            format,
+            quantisation: token(12)?.to_string(),
+            size: number(13)?,
+        }),
     })
 }
 

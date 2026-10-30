@@ -725,7 +725,7 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 
 - Criteria: AC-B-1
 - Source:
-  - [`deploy/images/entrypoint.sh:24`](../../deploy/images/entrypoint.sh)
+  - [`deploy/images/entrypoint.sh:27`](../../deploy/images/entrypoint.sh)
   - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
