@@ -23,6 +23,15 @@ backend-fips = ["dep:fips203", "dep:fips204", "dep:fips205", "dep:x25519-dalek",
 # kept out of swap on Unix. [RC-39] [NFR-PQ-2]
 zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 libc = "0.2"
+# Vetted symmetric primitives (always on, vendored, pure Rust, no_std): SHA-256,
+# HMAC, HKDF, PBKDF2 and constant-time comparison come from RustCrypto behind the
+# unchanged `hash` module API, replacing the hand-written versions, and are pinned
+# by RFC/NIST test vectors in `tests/hash_kat.rs`. [MG-SEC-10] [NFR-PRV-1]
+sha2 = { version = "0.10", default-features = false }
+hmac = { version = "0.12", default-features = false }
+hkdf = { version = "0.12", default-features = false }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+subtle = { version = "2.6", default-features = false }
 # All post-quantum primitives are pure Rust and OPTIONAL — with no features the
 # crate stays std-only apart from the two secret-hygiene deps above (traits,
 # negotiation, registry, hash, hybrid combiner all still compile). The vendored

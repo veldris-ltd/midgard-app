@@ -10,7 +10,7 @@
 //! built here on the enclosure's own HMAC-SHA256, no external dependency — is the
 //! air-gapped default. [NFR-PRV-1]
 
-use pqc_agility::hash::{ct_eq, hmac_sha256};
+use pqc_agility::hash::{ct_eq, pbkdf2_hmac_sha256};
 use pqc_agility::{OsRng, Rng};
 
 use crate::enc::{hex, unhex};
@@ -108,21 +108,11 @@ fn parse_phc(s: &str) -> Option<(u32, Vec<u8>, Vec<u8>)> {
     Some((iters, salt, hash))
 }
 
-/// PBKDF2 with HMAC-SHA256 as the PRF, derived-key length fixed at one hash block
-/// (32 bytes), so exactly one output block is computed (RFC 8018 §5.2).
+/// PBKDF2 with HMAC-SHA256 as the PRF (RFC 8018 §5.2), derived-key length fixed at
+/// one hash block (32 bytes). Computed by the vetted RustCrypto `pbkdf2` crate via
+/// `pqc-agility`, not a local loop. [MG-SEC-10]
 fn pbkdf2_hmac_sha256_32(password: &[u8], salt: &[u8], iterations: u32) -> [u8; DK_LEN] {
-    // U1 = PRF(P, S ‖ INT_BE(1))
-    let mut msg = Vec::with_capacity(salt.len() + 4);
-    msg.extend_from_slice(salt);
-    msg.extend_from_slice(&1u32.to_be_bytes());
-    let mut u = hmac_sha256(password, &msg);
-    let mut out = u;
-    // Ui = PRF(P, U(i-1));  DK = U1 xor U2 xor ... xor Uc
-    for _ in 1..iterations {
-        u = hmac_sha256(password, &u);
-        for (o, x) in out.iter_mut().zip(u.iter()) {
-            *o ^= *x;
-        }
-    }
+    let mut out = [0u8; DK_LEN];
+    pbkdf2_hmac_sha256(password, salt, iterations, &mut out);
     out
 }
