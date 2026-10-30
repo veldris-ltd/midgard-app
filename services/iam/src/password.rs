@@ -19,8 +19,11 @@
 //!   p ≥ [`ARGON2_MIN_PARALLELISM`] (1) — OWASP's minimum Argon2id configuration;
 //!   only Argon2id (not Argon2i/Argon2d), version 19, a ≥128-bit salt and a 256-bit
 //!   output are accepted;
-//! - PBKDF2-HMAC-SHA256: [`MIN_PBKDF2_ITERATIONS`] (600 000, OWASP's figure for
-//!   PBKDF2-HMAC-SHA256), with a ≥128-bit salt and a 256-bit output.
+//! - PBKDF2-HMAC-SHA256: [`MIN_PBKDF2_ITERATIONS`] (210 000, the cost every legacy
+//!   entry was written at), with a ≥128-bit salt and a 256-bit output. A higher
+//!   floor would lock out every existing account before it could be upgraded; no
+//!   new entry is ever PBKDF2, and each legacy one becomes Argon2id at its owner's
+//!   next sign-in.
 //!
 //! It also refuses entries *above* a ceiling ([`ARGON2_MAX_MEMORY_KIB`],
 //! [`ARGON2_MAX_TIME_COST`], [`ARGON2_MAX_PARALLELISM`], [`MAX_PBKDF2_ITERATIONS`]),
@@ -59,8 +62,10 @@ const SALT_LEN: usize = 16;
 const PBKDF2_TAG: &str = "pbkdf2-sha256";
 
 /// The fewest PBKDF2-HMAC-SHA256 iterations a stored legacy hash may claim and still
-/// verify (OWASP Password Storage Cheat Sheet). [MG-SEC-11]
-pub const MIN_PBKDF2_ITERATIONS: u32 = 600_000;
+/// verify: the cost every legacy entry was written at, so existing accounts can sign
+/// in once more and be upgraded to Argon2id, while an entry weakened below it is
+/// refused. [MG-SEC-11]
+pub const MIN_PBKDF2_ITERATIONS: u32 = 210_000;
 /// The most PBKDF2 iterations a stored hash may claim (a tampered entry must not turn
 /// one sign-in into minutes of CPU). [MG-SEC-11]
 pub const MAX_PBKDF2_ITERATIONS: u32 = 10_000_000;

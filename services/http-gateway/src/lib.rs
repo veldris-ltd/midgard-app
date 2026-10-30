@@ -39,9 +39,9 @@ use fabric::{InMemoryLedger, InMemoryStore, LedgerStore, ObjectStore};
 use governance::{GovContext, Governance};
 use http::{read_request, Incoming, Request, Response};
 use iam::{
-    verify_token, AuthError, Authenticator, Credentials, Directory, DurableDirectory, Enrollment,
-    Idp, InMemoryDirectory, IssueError, MfaProof, PasswordHasher, Pbkdf2Hasher, TokenClaims,
-    UserRecord,
+    verify_token, AuthError, Credentials, Directory, DurableDirectory, Enrollment, Idp,
+    InMemoryDirectory, IssueError, MfaProof, PasswordHasher, PasswordUpgrade, Pbkdf2Hasher,
+    TokenClaims, UpgradingAuthenticator, UserRecord,
 };
 use json::{parse, Json};
 use policy::{
@@ -82,6 +82,22 @@ impl Directory for Logins {
         match self {
             Logins::InMemory(directory) => directory.enrollment(subject),
             Logins::Durable(directory) => directory.enrollment(subject),
+        }
+    }
+
+    fn replace_password_hash(
+        &mut self,
+        subject: &str,
+        current: &str,
+        new_hash: String,
+    ) -> Result<bool, String> {
+        match self {
+            Logins::InMemory(directory) => {
+                directory.replace_password_hash(subject, current, new_hash)
+            }
+            Logins::Durable(directory) => {
+                directory.replace_password_hash(subject, current, new_hash)
+            }
         }
     }
 }
@@ -293,13 +309,15 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
 
         // Password, then any enrolled second factor, then the PQ-signed token bound to
-        // the principal's attributes — one path, every check fail-closed. [RC-29]
+        // the principal's attributes — one path, every check fail-closed. [RC-29] A
+        // legacy or weaker password hash is replaced with Argon2id once every check has
+        // passed. [MG-SEC-11]
         let outcome = {
-            let directory = self
+            let mut directory = self
                 .directory
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            Authenticator::new(idp, &*directory, &self.hasher).authenticate(
+            UpgradingAuthenticator::new(idp, &mut *directory, &self.hasher).authenticate(
                 username,
                 password.as_bytes(),
                 mfa,
@@ -308,7 +326,17 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 TOKEN_TTL,
             )
         };
-        let (event, response) = match outcome {
+        let upgrade = match &outcome {
+            Ok(login) => match &login.upgrade {
+                PasswordUpgrade::Upgraded => Some("PASSWORD rehashed to Argon2id".to_string()),
+                PasswordUpgrade::NotRecorded(e) => {
+                    Some(format!("PASSWORD rehash not recorded: {e}"))
+                }
+                PasswordUpgrade::Current | PasswordUpgrade::Superseded => None,
+            },
+            Err(_) => None,
+        };
+        let (event, response) = match outcome.map(|login| login.token) {
             Ok(token) => (
                 "LOGIN succeeded",
                 Response::json(
@@ -342,6 +370,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         if response.status == 200 {
             self.throttle().record_success(username);
         }
+        let response = match upgrade {
+            Some(upgrade) => self.record_login(username, &upgrade, response, now),
+            None => response,
+        };
         self.record_login(username, event, response, now)
     }
 

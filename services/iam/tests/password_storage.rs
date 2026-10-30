@@ -109,7 +109,7 @@ fn legacy_pbkdf2_entries_are_standard_pbkdf2_hmac_sha256() {
     // salt length and the floor iteration count: a legacy entry written by any
     // correct PBKDF2-HMAC-SHA256 verifies here.
     let salt: Vec<u8> = (0u8..16).collect();
-    let expected = "ef177144eec9420cbc1093d2a8b344a92bc506d0d4ec9c028dd19f8324d8c1e6";
+    let expected = "18465cade096c185b5f60765891fca3f74477e23fd9b6fc88faf7831a91753ac";
     let stored = format!(
         "pbkdf2-sha256$i={MIN_PBKDF2_ITERATIONS}${}${expected}",
         hex(&salt)
