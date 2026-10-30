@@ -29,7 +29,11 @@ There are two startup modes:
   created, with its persisted issuer and audit keys, durable KMS-sealed object store,
   audit ledger and identity directory, and `policy.json`. Logins go through
   `iam::Authenticator` (password, then any enrolled TOTP). Boot re-verifies the
-  recovered ledger and fails closed on anything that does not authenticate. An
+  recovered ledger and fails closed on anything that does not authenticate. The
+  ledger is checked under a pinned audit key (`--audit-pin`, from outside the
+  keystore that signs it), must already exist (`mg-admin init` creates it), and must
+  reach its signed checkpoint, so a shortened or deleted ledger refuses to boot.
+  [MG-SEC-05] An
   exclusive lock keeps a second gateway or `mg-admin` out while it runs. The schema
   comes from `ontology.json` (`ontology_file`), registered on every boot. Data is added
   offline with `mg-admin import`, checked against the ontology by `import_file`.

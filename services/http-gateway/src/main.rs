@@ -4,13 +4,19 @@
 //!   http-gateway [ADDR]
 //!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
 //!       into an in-memory fabric, one built-in login, an ephemeral issuer key.
-//!   http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
+//!   http-gateway --state-dir DIR [--audit-pin FILE] [--bind ADDR] [--allow-origin URL]...
 //!                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
 //!                 [--mesh-purpose P]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
 //!       origin to the CORS allowlist, which is otherwise empty.
+//!
+//!       --audit-pin names the audit verifying key the ledger is checked under — a
+//!       copy of `trust/audit.pub` kept outside DIR (a read-only mount, a config
+//!       map). Without it the gateway pins DIR/trust/audit.pub and says so: that
+//!       still refuses a swapped audit keystore, but not one swapped together with
+//!       the trust file beside it. [MG-SEC-05]
 //!
 //!       With --mesh-bind, the gateway also serves `SyncRecords` over PQ-mTLS, so a
 //!       certified workload — the Forge worker — can sync objects and links into the
@@ -26,7 +32,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 use std::sync::Arc;
 
-use http_gateway::boot::{open_state_dir, DurableGateway};
+use http_gateway::boot::{open_state_dir, read_audit_pin, DurableGateway};
 use http_gateway::mesh_sync::spawn_mesh_listener;
 use http_gateway::policy_file::parse_policy;
 use http_gateway::state_dir::StateDir;
@@ -38,7 +44,7 @@ const DEFAULT_BIND: &str = "127.0.0.1:7710";
 const USAGE: &str = "\
 usage:
   http-gateway [ADDR]
-  http-gateway --state-dir DIR [--bind ADDR] [--allow-origin URL]...
+  http-gateway --state-dir DIR [--audit-pin FILE] [--bind ADDR] [--allow-origin URL]...
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]";
 
 fn main() {
@@ -62,6 +68,7 @@ fn main() {
     }
 
     let mut state_dir = None;
+    let mut audit_pin = None;
     let mut bind = DEFAULT_BIND.to_string();
     let mut origins = Vec::new();
     let mut mesh_bind = None;
@@ -75,6 +82,7 @@ fn main() {
         };
         match flag.as_str() {
             "--state-dir" if state_dir.is_none() => state_dir = Some(value.clone()),
+            "--audit-pin" if audit_pin.is_none() => audit_pin = Some(value.clone()),
             "--bind" => bind = value.clone(),
             "--allow-origin" => origins.push(value.clone()),
             "--mesh-bind" => mesh_bind = Some(value.clone()),
@@ -82,6 +90,7 @@ fn main() {
             "--mesh-service" => mesh_service = value.clone(),
             "--mesh-purpose" => mesh_purpose = value.clone(),
             "--state-dir" => fail_usage("--state-dir given twice"),
+            "--audit-pin" => fail_usage("--audit-pin given twice"),
             other => fail_usage(&format!("unknown option {other}")),
         }
     }
@@ -92,7 +101,30 @@ fn main() {
         fail_usage("--mesh-bind and --mesh-identity-dir go together");
     }
 
-    let served = match open_state_dir(&StateDir::new(&state_dir), origins) {
+    let state = StateDir::new(&state_dir);
+    let pin_path = match audit_pin {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            let path = state.audit_trust_anchor();
+            eprintln!(
+                "http-gateway: no --audit-pin given; pinning the audit key in {}, inside the \
+                 state directory. Pass --audit-pin with a copy kept outside it.",
+                path.display()
+            );
+            path
+        }
+    };
+    let pin = match read_audit_pin(&pin_path) {
+        Ok(pin) => pin,
+        Err(e) => {
+            eprintln!(
+                "http-gateway: cannot read the pinned audit key {}: {e}",
+                pin_path.display()
+            );
+            exit(1);
+        }
+    };
+    let served = match open_state_dir(&state, origins, &pin) {
         Ok(served) => served,
         Err(e) => {
             eprintln!("http-gateway: cannot serve {state_dir}: {e}");

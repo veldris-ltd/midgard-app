@@ -435,7 +435,8 @@ This writes:
 | Path | What it is |
 |---|---|
 | `keys/idp.keystore`, `keys/audit.keystore` | the ML-DSA-65 issuer and audit keys, each sealed under its own ML-KEM-1024 custody root. **Protect `keys/` as a secret**: whoever can read it can sign as the enclosure and read its data. |
-| `trust/idp.pub`, `trust/audit.pub` | their verifying keys, safe to distribute |
+| `trust/idp.pub`, `trust/audit.pub` | their verifying keys, safe to distribute. Keep a copy of `trust/audit.pub` **outside** the state directory: it is the key the gateway checks the audit ledger with (`--audit-pin`). |
+| `governance.ledger`, `governance.ledger.checkpoint` | the audit ledger, created empty, and the signed checkpoint of its length and last entry |
 | `policy.json` | the discretionary rules the PDP enforces. The starter file lets role `operator` Read and Apply. |
 | `ontology.json` | the object types, link types and actions the enclosure serves. The starter file declares none. |
 
@@ -484,10 +485,12 @@ unset PASSWORD
 ### 4 — Serve it
 
 ```bash
-./target/release/http-gateway --state-dir ./enclosure --allow-origin http://localhost:5173
+cp ./enclosure/trust/audit.pub /etc/midgard/audit.pin   # somewhere the state directory's writer cannot reach
+./target/release/http-gateway --state-dir ./enclosure --audit-pin /etc/midgard/audit.pin \
+    --allow-origin http://localhost:5173
 ```
 
-At startup the gateway re-verifies every recovered audit entry and refuses to start if anything fails to authenticate. That covers a tampered or mismatched keystore, journal or ledger, and an invalid policy file. It prints how many users are enrolled. `--bind ADDR` changes the address (default `127.0.0.1:7710`), and each `--allow-origin` adds a browser origin (there are none by default).
+At startup the gateway re-verifies every recovered audit entry and refuses to start if anything fails to authenticate. That covers a tampered or mismatched keystore, journal or ledger, and an invalid policy file. The ledger is checked under the pinned key, not the key in `keys/audit.keystore`: an audit keystore that does not hold the pinned key refuses to start, and so does a ledger that is missing, has lost its checkpoint, or is shorter than its checkpoint says. Without `--audit-pin` the gateway pins `trust/audit.pub` inside the state directory and says so; that still refuses a swapped keystore, but not one swapped together with the trust file beside it. It prints how many users are enrolled. `--bind ADDR` changes the address (default `127.0.0.1:7710`), and each `--allow-origin` adds a browser origin (there are none by default).
 
 Log in from the Midgard console ([step 4 above](#4--start-the-midgard-console)) with the user you enrolled. From the command line, add `"totp":"123456"` to the login body when the user has a second factor:
 

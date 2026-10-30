@@ -156,8 +156,9 @@ impl ServiceIdentity {
         let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
         let (verifying_key, signing_key, alg) = unseal_keystore(keystore, &keystore_path)?;
 
-        let ledger = FileLedger::open(path.as_ref(), Box::new(sealer), LedgerId(ledger_id.into()))
-            .map_err(|e| format!("the audit ledger does not open: {e}"))?;
+        let ledger =
+            FileLedger::open_or_create(path.as_ref(), Box::new(sealer), LedgerId(ledger_id.into()))
+                .map_err(|e| format!("the audit ledger does not open: {e}"))?;
         let writer = AuditWriter::new(
             ledger,
             Box::new(FipsSig::new(alg)),

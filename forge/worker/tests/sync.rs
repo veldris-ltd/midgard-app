@@ -86,6 +86,8 @@ fn provision(dir: &Path) -> StateDir {
         .unwrap()
         .write(&state.audit_keystore())
         .unwrap();
+    // What `mg-admin init` also creates: the ledger and its signed checkpoint.
+    http_gateway::boot::init_audit_ledger(&state).unwrap();
     std::fs::write(state.policy(), render_policy(&policy()).unwrap()).unwrap();
     std::fs::write(state.ontology(), ONTOLOGY).unwrap();
     state
@@ -204,7 +206,9 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
     let jobs = data.join("jobs.json");
     std::fs::write(&jobs, JOBS).unwrap();
 
-    let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+    let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
+        .unwrap()
+        .into_parts();
     let mesh = spawn_mesh_listener(
         Arc::new(gateway),
         &ServiceIdentity::load(&identities, "http-gateway").unwrap(),
@@ -292,4 +296,14 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
     assert_eq!(datasets.len(), 3);
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The audit key the operator pins the gateway to, from outside the keystore it
+/// checks. [MG-SEC-05]
+fn pin(state: &StateDir) -> audit_writer::PinnedKey {
+    audit_writer::PinnedKey::new(
+        attest::Keystore::read(&state.audit_keystore())
+            .unwrap()
+            .verifying_key,
+    )
 }

@@ -18,6 +18,7 @@
 //!   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>]
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
 //!   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
+//!   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file>
 //!
 //! The password for `user add` is read from standard input, and only from a pipe or a
 //! file: std has no portable way to stop a terminal echoing it, so an interactive
@@ -39,6 +40,7 @@ use audit_writer::{
     Resource as AuditResource, Timestamp,
 };
 use fabric::{DurableObjectStore, ObjectStore};
+use http_gateway::boot::{checkpoint_legacy_ledger, init_audit_ledger, read_audit_pin};
 use http_gateway::enclosure::{band, level_of};
 use http_gateway::import_file::parse_import;
 use http_gateway::ontology_file::parse_ontology;
@@ -76,6 +78,7 @@ USAGE:
   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>] \\
                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
+  mg-admin audit checkpoint --state-dir <dir> --audit-pin <file>
 
 COMMANDS:
   init       create <dir> with fresh issuer and audit keystores, their verifying keys
@@ -118,6 +121,10 @@ COMMANDS:
              revoke the certificate in --cert: sign the next revocation list and write it
              as mesh.crl into each --out service directory. Running services pick it up
              without a restart.
+  audit checkpoint
+             once, on upgrade: verify a governance ledger written before ledgers had
+             checkpoints under the audit key pinned in --audit-pin, and record its first
+             signed checkpoint. The gateway refuses a ledger without one.
 
 init, user, import and admin add need the state directory's lock, which a running
 gateway holds: stop it first. The enrol commands talk to the running gateway instead.
@@ -233,6 +240,9 @@ fn run(argv: &[String]) -> Result<String, Failure> {
         ["mesh", "revoke", rest @ ..] => {
             mesh::mesh_revoke(&options(rest, &["state-dir", "cert", "out"], &[])?)
         }
+        ["audit", "checkpoint", rest @ ..] => {
+            audit_checkpoint(&options(rest, &["state-dir", "audit-pin"], &[])?)
+        }
         [] => Err(Failure::Usage("no command given".into())),
         _ => Err(Failure::Usage(format!(
             "unknown command '{}'",
@@ -275,6 +285,9 @@ fn init(o: &Options) -> Result<String, Failure> {
     }
     write_file(&state.idp_trust_anchor(), &idp.export_verifying_key())?;
     write_file(&state.audit_trust_anchor(), &audit.export_verifying_key())?;
+    // The governance ledger exists from the start, vouched for by a signed empty
+    // checkpoint, so the gateway can refuse one that later goes missing. [MG-SEC-05]
+    init_audit_ledger(&state).map_err(Failure::Run)?;
 
     let policy = starter_policy()
         .map_err(|e| Failure::Run(format!("cannot build the starter policy: {e}")))?;
@@ -286,11 +299,26 @@ fn init(o: &Options) -> Result<String, Failure> {
     Ok(format!(
         "initialised {root}\n\
          \x20 keys/        issuer and audit keystores — protect this directory as a secret\n\
-         \x20 trust/       their verifying keys, safe to distribute\n\
+         \x20 trust/       their verifying keys, safe to distribute; keep a copy of\n\
+         \x20              trust/audit.pub outside {root} for http-gateway --audit-pin\n\
+         \x20 governance.ledger  the audit ledger, vouched for by a signed checkpoint\n\
          \x20 policy.json  starter rules: operator may Read and Apply, approver may Approve\n\
          \x20 ontology.json  empty: declare object types, link types and actions here\n\
          next: printf '%s\\n' \"$PASSWORD\" | mg-admin user add --state-dir {root} \\\n\
          \x20       --subject <name> --roles operator --clearance internal --purposes operations"
+    ))
+}
+
+/// Adopt a governance ledger written before checkpoints: verified under the pinned
+/// audit key, then vouched for by its first signed checkpoint. [MG-SEC-05]
+fn audit_checkpoint(o: &Options) -> Result<String, Failure> {
+    let state = StateDir::new(o.require("state-dir")?);
+    let pin = read_audit_pin(Path::new(o.require("audit-pin")?)).map_err(Failure::Run)?;
+    let _lock = StateLock::acquire(&state, "mg-admin audit checkpoint").map_err(Failure::Run)?;
+    let entries = checkpoint_legacy_ledger(&state, &pin).map_err(Failure::Run)?;
+    Ok(format!(
+        "the audit ledger verifies under the pinned key; its checkpoint now vouches for \
+         {entries} entries"
     ))
 }
 

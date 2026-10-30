@@ -42,8 +42,9 @@ impl DurablePrivilege {
         std::fs::create_dir_all(dir).map_err(|e| PrivError::Io(e.to_string()))?;
 
         // Durable, PQ-signed audit ledger (fails closed on tamper).
-        let ledger = FileLedger::open(dir.join(AUDIT_FILE), audit_sealer, ledger_id.clone())
-            .map_err(|e| PrivError::Io(e.to_string()))?;
+        let ledger =
+            FileLedger::open_or_create(dir.join(AUDIT_FILE), audit_sealer, ledger_id.clone())
+                .map_err(|e| PrivError::Io(e.to_string()))?;
 
         // Recover in-flight action state.
         let (journal, records) =

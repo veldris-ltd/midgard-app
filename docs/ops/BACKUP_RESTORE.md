@@ -11,7 +11,7 @@ tested procedure for all of them.
 
 | Store | Crate | What it holds |
 |-------|-------|---------------|
-| Audit ledger | `crypto/audit-writer` (`FileLedger`) | the PQ-signed audit chain |
+| Audit ledger | `crypto/audit-writer` (`FileLedger`) | the PQ-signed audit chain, and beside it `<ledger>.checkpoint`, the signed record of its length and last entry |
 | Object fabric | `services/fabric` | fabric objects/links |
 | Forge dataset store | `forge/dataset-store` | content-addressed datasets + lineage |
 | Bifrost registry / fleet | `bifrost/artefact`, `bifrost/fleet` | artefacts, fleet state |
@@ -34,6 +34,10 @@ log, which is always valid and re-verifiable).
    - `fsync` the store's data directory,
    - copy every `*.journal` file to the backup vault, tagged with a monotonic
      snapshot id + timestamp,
+   - for an audit ledger, copy the ledger **and then** its `.checkpoint` at once. A
+     ledger without its checkpoint does not open, and one an append moved past (or
+     short of) its copied checkpoint fails the verify step below as truncated or
+     stale: re-take it. [MG-SEC-05]
    - **verify the copy**: open it read-only through the store's `open()` (replay +
      chain re-verify) on the backup host; a copy that does not re-verify is discarded
      and re-taken. **A backup is not "done" until it has been verified.**
@@ -53,6 +57,10 @@ is the point.
    **re-verifies** the signed chain. Fail-closed: a corrupt/tampered snapshot is
    rejected here; fall back to the previous snapshot.
 4. Confirm the recovered head/version matches the snapshot checkpoint.
+
+Restoring an older snapshot of an audit ledger rolls it back, and a checkpoint kept on
+the same disk cannot tell a restore from an attack: record each restore as an incident,
+and compare the restored checkpoint with any copy of a later one kept off the server.
 
 ## Tested
 

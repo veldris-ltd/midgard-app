@@ -56,7 +56,8 @@ fn serve(dir: &Path) -> String {
         .local_addr()
         .unwrap()
         .port();
-    let served = open_state_dir(&StateDir::new(dir), Vec::new()).expect("the enclosure boots");
+    let served = open_state_dir(&StateDir::new(dir), Vec::new(), &pin(&StateDir::new(dir)))
+        .expect("the enclosure boots");
     let addr = format!("127.0.0.1:{port}");
     let bind = addr.clone();
     thread::spawn(move || {
@@ -229,4 +230,10 @@ fn two_administrators_enrol_a_principal_through_a_running_gateway() {
     for admin in ["alice", "bob"] {
         let _ = std::fs::remove_file(keystore(admin));
     }
+}
+
+/// The audit key `mg-admin init` exported, pinned as an operator would pin it.
+/// [MG-SEC-05]
+fn pin(state: &StateDir) -> audit_writer::PinnedKey {
+    http_gateway::boot::read_audit_pin(&state.audit_trust_anchor()).unwrap()
 }

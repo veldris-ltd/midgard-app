@@ -6,12 +6,20 @@
 //! per-entry `fsync` and `0600` permissions. On [`FileLedger::open`] every frame
 //! is decrypted and decoded back into memory; any at-rest tamper fails the AEAD
 //! authentication and the open fails closed. The caller then re-verifies the hash
-//! chain + signatures with [`crate::verify::verify_chain`]. [AC-M-4] [NFR-PQ-3]
+//! chain, signatures and checkpoint with [`crate::verify::verify_ledger`].
+//! [AC-M-4] [NFR-PQ-3]
+//!
+//! Beside the ledger sits its signed [`LedgerCheckpoint`] (`<ledger>.checkpoint`),
+//! replaced atomically after every append. [`FileLedger::open`] refuses a ledger
+//! that is missing, has no checkpoint, or is shorter than its checkpoint; a new
+//! ledger is made only by [`FileLedger::create`], so a deleted ledger is never
+//! quietly replaced by an empty one. [MG-SEC-05]
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::checkpoint::LedgerCheckpoint;
 use crate::codec::{decode_sealed_entry, encode_sealed_entry};
 use crate::error::AuditError;
 use crate::ledger::LedgerStore;
@@ -58,47 +66,158 @@ pub struct FileLedger {
     sealer: Box<dyn Sealer>,
     ledger_id: LedgerId,
     entries: Vec<SealedEntry>,
+    checkpoint: Option<LedgerCheckpoint>,
+}
+
+/// Where a ledger's signed checkpoint lives: `<ledger path>.checkpoint`.
+pub fn checkpoint_path(ledger: &Path) -> PathBuf {
+    let mut name = ledger.as_os_str().to_os_string();
+    name.push(".checkpoint");
+    PathBuf::from(name)
+}
+
+fn append_handle(path: &Path, create_new: bool) -> Result<File, AuditError> {
+    // Append-only handle, owner-read/write only.
+    let mut opts = OpenOptions::new();
+    opts.append(true);
+    if create_new {
+        opts.create_new(true);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(path).map_err(io)
 }
 
 impl FileLedger {
-    /// Open (creating if absent) the ledger at `path`, decrypting and loading every
-    /// existing entry into memory. Fails closed if any on-disk frame cannot be
-    /// authenticated/decoded (at-rest tamper). After opening, the caller should
-    /// re-verify the chain with [`crate::verify::verify_chain`].
+    /// Create a new, empty ledger at `path`. Refuses if a ledger or a checkpoint is
+    /// already there — an existing ledger is never overwritten. Until a first
+    /// checkpoint is recorded (wrap it in an `AuditWriter` and call
+    /// `seal_checkpoint`, or append) [`open`](Self::open) refuses it. [MG-SEC-05]
+    pub fn create(
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+        ledger_id: LedgerId,
+    ) -> Result<Self, AuditError> {
+        let path = path.as_ref().to_path_buf();
+        for p in [&path, &checkpoint_path(&path)] {
+            if p.exists() {
+                return Err(AuditError::LedgerExists(p.display().to_string()));
+            }
+        }
+        let file = append_handle(&path, true)?;
+        Ok(Self {
+            path,
+            file,
+            sealer,
+            ledger_id,
+            entries: Vec::new(),
+            checkpoint: None,
+        })
+    }
+
+    /// Open the existing ledger at `path`, decrypting and loading every entry into
+    /// memory. Fails closed if the ledger is missing ([`AuditError::LedgerMissing`]),
+    /// its checkpoint is missing or malformed, any frame cannot be
+    /// authenticated/decoded (at-rest tamper), or the ledger is shorter than, or
+    /// diverges from, its checkpoint ([`AuditError::Truncated`]). The checkpoint's
+    /// signature is not checked here — there is no key — so the caller must still
+    /// re-verify with [`crate::verify::verify_ledger`]. [MG-SEC-05]
     pub fn open(
         path: impl AsRef<Path>,
         sealer: Box<dyn Sealer>,
         ledger_id: LedgerId,
     ) -> Result<Self, AuditError> {
         let path = path.as_ref().to_path_buf();
-
-        let entries = if path.exists() {
-            let mut buf = Vec::new();
-            File::open(&path)
-                .map_err(io)?
-                .read_to_end(&mut buf)
-                .map_err(io)?;
-            load_frames(&buf, sealer.as_ref(), &ledger_id)?
-        } else {
-            Vec::new()
-        };
-
-        // Append-only handle, owner-read/write only.
-        let mut opts = OpenOptions::new();
-        opts.create(true).append(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
+        if !path.exists() {
+            return Err(AuditError::LedgerMissing(path.display().to_string()));
         }
-        let file = opts.open(&path).map_err(io)?;
-
+        let entries = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
+        let checkpoint = read_checkpoint(&path)?.ok_or(AuditError::CheckpointMissing)?;
+        if checkpoint.ledger_id != ledger_id {
+            return Err(AuditError::CheckpointInvalid(format!(
+                "it is for ledger {:?}, not {:?}",
+                checkpoint.ledger_id.0, ledger_id.0
+            )));
+        }
+        checkpoint.check_covers(&entries)?;
+        let file = append_handle(&path, false)?;
         Ok(Self {
             path,
             file,
             sealer,
             ledger_id,
             entries,
+            checkpoint: Some(checkpoint),
+        })
+    }
+
+    /// Open the ledger at `path`, or create it when **neither** the ledger nor its
+    /// checkpoint exists (or the ledger holds no entry and was never checkpointed —
+    /// a creation that stopped before its first checkpoint). Anything else follows
+    /// [`open`](Self::open)'s rules, so a ledger without its checkpoint, or cut short
+    /// of it, still fails closed.
+    ///
+    /// For stores that create their own ledger on first start and have no other
+    /// record that one should exist; deleting both files is then indistinguishable
+    /// from a first start. A ledger that an installer creates (the gateway's
+    /// governance ledger) is opened with [`open`](Self::open) instead. [MG-SEC-05]
+    pub fn open_or_create(
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+        ledger_id: LedgerId,
+    ) -> Result<Self, AuditError> {
+        let path = path.as_ref().to_path_buf();
+        let has_checkpoint = checkpoint_path(&path).exists();
+        if !path.exists() && !has_checkpoint {
+            return Self::create(path, sealer, ledger_id);
+        }
+        if path.exists() && !has_checkpoint {
+            let entries = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
+            if entries.is_empty() {
+                let file = append_handle(&path, false)?;
+                return Ok(Self {
+                    path,
+                    file,
+                    sealer,
+                    ledger_id,
+                    entries,
+                    checkpoint: None,
+                });
+            }
+        }
+        Self::open(path, sealer, ledger_id)
+    }
+
+    /// Open an existing ledger written before checkpoints existed, so it can be
+    /// adopted: the caller verifies its chain under the pinned key and then records a
+    /// first checkpoint (`AuditWriter::seal_checkpoint`). Refuses a missing ledger,
+    /// and refuses one that already has a checkpoint — that one opens with
+    /// [`open`](Self::open). An operator step, never a boot path. [MG-SEC-05]
+    pub fn open_uncheckpointed(
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+        ledger_id: LedgerId,
+    ) -> Result<Self, AuditError> {
+        let path = path.as_ref().to_path_buf();
+        if !path.exists() {
+            return Err(AuditError::LedgerMissing(path.display().to_string()));
+        }
+        let checkpoint = checkpoint_path(&path);
+        if checkpoint.exists() {
+            return Err(AuditError::LedgerExists(checkpoint.display().to_string()));
+        }
+        let entries = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
+        let file = append_handle(&path, false)?;
+        Ok(Self {
+            path,
+            file,
+            sealer,
+            ledger_id,
+            entries,
+            checkpoint: None,
         })
     }
 
@@ -110,6 +229,56 @@ impl FileLedger {
     pub fn ledger_id(&self) -> &LedgerId {
         &self.ledger_id
     }
+}
+
+fn read_ledger(
+    path: &Path,
+    sealer: &dyn Sealer,
+    ledger_id: &LedgerId,
+) -> Result<Vec<SealedEntry>, AuditError> {
+    let mut buf = Vec::new();
+    File::open(path)
+        .map_err(io)?
+        .read_to_end(&mut buf)
+        .map_err(io)?;
+    load_frames(&buf, sealer, ledger_id)
+}
+
+fn read_checkpoint(ledger: &Path) -> Result<Option<LedgerCheckpoint>, AuditError> {
+    match std::fs::read(checkpoint_path(ledger)) {
+        Ok(bytes) => LedgerCheckpoint::decode(&bytes).map(Some),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io(e)),
+    }
+}
+
+/// Replace the checkpoint file atomically: write and `fsync` a temporary file, then
+/// rename it over the old one, so a crash leaves either the old checkpoint or the
+/// new one, never a torn one. [MG-SEC-05]
+fn write_checkpoint(ledger: &Path, checkpoint: &LedgerCheckpoint) -> Result<(), AuditError> {
+    let target = checkpoint_path(ledger);
+    let mut tmp_name = target.as_os_str().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = PathBuf::from(tmp_name);
+    {
+        let mut opts = OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp).map_err(io)?;
+        f.write_all(&checkpoint.encode()).map_err(io)?;
+        f.sync_all().map_err(io)?;
+    }
+    std::fs::rename(&tmp, &target).map_err(io)?;
+    #[cfg(unix)]
+    if let Some(dir) = target.parent() {
+        // Make the rename itself durable.
+        File::open(dir).and_then(|d| d.sync_all()).map_err(io)?;
+    }
+    Ok(())
 }
 
 /// Parse the length-framed file into decrypted, decoded entries. The positional
@@ -166,5 +335,18 @@ impl LedgerStore for FileLedger {
     }
     fn entries(&self) -> &[SealedEntry] {
         &self.entries
+    }
+    fn record_checkpoint(&mut self, checkpoint: LedgerCheckpoint) -> Result<(), AuditError> {
+        if checkpoint.ledger_id != self.ledger_id {
+            return Err(AuditError::CheckpointInvalid(
+                "it is for another ledger".into(),
+            ));
+        }
+        write_checkpoint(&self.path, &checkpoint)?;
+        self.checkpoint = Some(checkpoint);
+        Ok(())
+    }
+    fn checkpoint(&self) -> Option<&LedgerCheckpoint> {
+        self.checkpoint.as_ref()
     }
 }

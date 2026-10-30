@@ -273,3 +273,73 @@ fn a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn audit_checkpoint_adopts_a_ledger_written_before_checkpoints_once() {
+    let dir = scratch("checkpoint");
+    init(&dir);
+    let state = StateDir::new(&dir);
+    assert!(state.ledger().exists(), "init creates the audit ledger");
+    let checkpoint = audit_writer::checkpoint_path(&state.ledger());
+    assert!(checkpoint.exists(), "...vouched for by a signed checkpoint");
+    let o = add_user(&dir, "alice", &[], PASSWORD);
+    assert!(o.status.success(), "user add: {}", stderr(&o));
+
+    // A ledger from before checkpoints: the same entries, no checkpoint. Nothing
+    // that appends to it opens it.
+    std::fs::remove_file(&checkpoint).unwrap();
+    let o = add_user(&dir, "bob", &[], PASSWORD);
+    assert!(
+        !o.status.success(),
+        "a ledger without a checkpoint is refused"
+    );
+
+    let dir_arg = dir.display().to_string();
+    let pin = state.audit_trust_anchor().display().to_string();
+    let wrong = dir.join("wrong.pub");
+    let other = Keystore::generate("other", governance::GOV_SIG_ALG, &mut OsRng).unwrap();
+    std::fs::write(&wrong, other.export_verifying_key()).unwrap();
+    let wrong = wrong.display().to_string();
+    let adopt = |pin: &str| {
+        mg_admin(
+            &[
+                "audit",
+                "checkpoint",
+                "--state-dir",
+                &dir_arg,
+                "--audit-pin",
+                pin,
+            ],
+            "",
+        )
+    };
+
+    // Under a key that is not the audit key, it is not adopted. [MG-SEC-05]
+    let o = adopt(&wrong);
+    assert!(!o.status.success(), "a wrong pin must not adopt the ledger");
+    assert!(stderr(&o).contains("pinned audit key"), "{}", stderr(&o));
+    assert!(!checkpoint.exists());
+
+    // Under the pinned key, it is, once.
+    let o = adopt(&pin);
+    assert!(o.status.success(), "audit checkpoint: {}", stderr(&o));
+    assert!(
+        stdout(&o).contains("vouches for 1 entries"),
+        "{}",
+        stdout(&o)
+    );
+    let o = adopt(&pin);
+    assert!(
+        !o.status.success(),
+        "an already-checkpointed ledger is not re-adopted"
+    );
+
+    let o = add_user(&dir, "bob", &[], PASSWORD);
+    assert!(
+        o.status.success(),
+        "user add after adoption: {}",
+        stderr(&o)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

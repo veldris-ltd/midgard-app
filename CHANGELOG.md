@@ -26,6 +26,24 @@ CONTRIBUTING.md for the version policy.
   that repository's tests, and its contract test runs this repository's release
   checks against what the app publishes. [RT-35] [AC-RF-CA-6a]
 
+### Security
+- **The audit ledger can no longer be quietly shortened or deleted, or checked with a
+  key of the attacker's choosing.** [MG-SEC-05]
+  - Every append refreshes a signed checkpoint of the ledger's length and last entry
+    (`<ledger>.checkpoint`, replaced atomically). A ledger shorter than its checkpoint,
+    or whose last entry is not the checkpointed one, fails closed.
+  - `FileLedger::open` refuses a missing ledger or checkpoint; a new ledger is made by
+    `FileLedger::create`, and `mg-admin init` now creates the governance ledger with a
+    signed empty checkpoint. Stores that make their own ledger on first start use
+    `FileLedger::open_or_create`.
+  - The gateway checks the ledger under a pinned audit key, `--audit-pin FILE`
+    (default: `trust/audit.pub` in the state directory, with a warning), and refuses
+    an audit keystore that does not hold it. `audit_writer::verify_ledger` is the
+    check.
+  - Upgrading: a ledger written before this change has no checkpoint and does not
+    open. Run `mg-admin audit checkpoint --state-dir DIR --audit-pin FILE` once: it
+    verifies the whole ledger under the pinned key and records its first checkpoint.
+
 ### Fixed
 - `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony
   publishes to be committed, so committing them failed. The anchors are now excepted;
