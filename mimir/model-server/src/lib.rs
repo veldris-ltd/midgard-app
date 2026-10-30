@@ -51,10 +51,11 @@ pub use adapter::{
 pub use api::{Completion, InferenceRequest, InferenceResponse, Malformed, WorkloadClass};
 pub use artifact::{
     digest_weights, manifest_file_with_signature, open_verified_weights, parse_trust_key,
-    render_manifest_body, split_manifest_file, verify_manifest_file, verify_weights, Licence,
-    LicencePolicy, LoadError, LoadedModel, ManifestFileError, ModelManifest, SignedArtifact,
-    VerifiedWeights, WeightFormat, WeightsDigest, WeightsFile, MANIFEST_FILE, MANIFEST_FILE_HEADER,
-    MAX_MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
+    render_manifest_body, split_manifest_file, stage_verified_weights, verify_manifest_file,
+    verify_weights, withdraw_staged, Licence, LicencePolicy, LoadError, LoadedModel,
+    ManifestFileError, ModelManifest, SignedArtifact, StagedWeights, VerifiedWeights, WeightFormat,
+    WeightsDigest, WeightsFile, MANIFEST_FILE, MANIFEST_FILE_HEADER, MAX_MANIFEST_FILE,
+    STAGED_MARKER, VELDRIS_MODEL_SIG_ALG,
 };
 #[cfg(feature = "backend-fips")]
 pub use artifact::{sign_manifest, sign_manifest_file, ModelLoader, VerifiedModel};

@@ -26,6 +26,13 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   PQ-mTLS. `smoke.sh` builds, starts, probes and restarts a throwaway copy. The image
   is built from source (`compose/Dockerfile`), **not** the signed release image.
   [RC-33] [NFR-SEC-1]
+  `compose.granite.yaml` serves a real model (Granite on llama.cpp) instead of the
+  reference engine. The llama.cpp sidecar never mounts the models volume: mimir-server
+  verifies the model, stages the verified weights read-only into the `mimir-serve`
+  volume (`--serve-dir`), which only it writes, and writes `staged.ready` last;
+  llama.cpp mounts that volume read-only and starts on the staged copy once the marker
+  exists. The chart's `modelServing` (and `kind/model.sh`) does the same with an
+  emptyDir at `/serve`. [MG-SEC-14]
 - **`installer/`**: `mg-install`, the guided installer for one server: a server check,
   use-case profiles (each with a starter schema, policy and sample Forge jobs), the choice
   of products, first users and administrators enrolled before anything starts, an

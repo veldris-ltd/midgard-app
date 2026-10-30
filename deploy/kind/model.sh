@@ -14,7 +14,9 @@
 # The weights go into a PersistentVolumeClaim, `mimir-models`, on the node that holds
 # mimir-server's own state volume, so the pod can mount both; a loader pod streams them
 # in and runs `mg-model verify` there before anything uses them. mimir-server verifies
-# them again, itself, before it serves.
+# them again, itself, before it serves, and stages the copy it verified into the pod's
+# /serve emptyDir; llama.cpp mounts only that, read-only, and starts once
+# /serve/staged.ready exists, so it never loads from the claim. [MG-SEC-14]
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
@@ -150,4 +152,6 @@ $HELM upgrade --install midgard deploy/helm/midgard \
     -f deploy/kind/values.yaml -f deploy/kind/values-granite.yaml
 $KUBECTL -n "$NS" rollout status statefulset/mimir-server --timeout=600s
 $KUBECTL -n "$NS" logs mimir-server-0 -c mimir-server | grep '"message":"serving"' | tail -1
+# What llama.cpp was given: the staged copy and its signed digest. [MG-SEC-14]
+echo "model: staged for llama.cpp: $($KUBECTL -n "$NS" exec mimir-server-0 -c mimir-server -- cat /serve/staged.ready)"
 echo "model: mimir-server is serving Granite"

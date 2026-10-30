@@ -10,7 +10,7 @@
 //! mimir-server --identity-dir DIR --state-dir DIR --purposes P[,P...]
 //!              [--service NAME] [--bind ADDR] [--health-bind ADDR]
 //!              [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE
-//!               [--sidecar ADDR]]
+//!               --serve-dir DIR [--sidecar ADDR]]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME
@@ -29,23 +29,32 @@
 //! a supported family this node can serve, and weights whose size, format and SHA-256
 //! match it. A release older than the last one this service accepted for that model, or
 //! the same version with different signed content, is refused: the floor is kept in
-//! `--state-dir` as `model-release.floor`. The service is ready only while the sidecar
-//! reports healthy and the weights file is still the one that was verified, so an
-//! orchestrator holds traffic while the sidecar loads, and a file swapped in under the
-//! sidecar is caught. [MG-SEC-14]
+//! `--state-dir` as `model-release.floor`.
+//!
+//! The sidecar loads its weights by path, so it is never given the model directory.
+//! The verified weights are staged into `--serve-dir`, a directory only this service
+//! writes and the sidecar mounts read-only: copied from the handle they were verified
+//! through, hashed again as they are copied, made read-only and renamed into place under
+//! their signed file name, after which the marker `staged.ready` is written. The sidecar
+//! is started on `DIR/<weights file>` once that marker exists; a file swapped into the
+//! model directory after the check is never what it loads. The marker is withdrawn
+//! before the model is verified, so a sidecar (re)started meanwhile waits. The service
+//! is ready only while the sidecar reports healthy and the staged file is still the one
+//! that was staged, so an orchestrator holds traffic while the sidecar loads. [MG-SEC-14]
 
 use std::collections::BTreeSet;
 use std::net::{SocketAddr, TcpListener};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gateway::{Gateway, RequestHandler};
 use governance::Governance;
 use model_server::{
-    parse_trust_key, probe, reference_registry, Clock, FamilyAdapter, GemmaAdapter, GraniteAdapter,
-    InferenceHandler, LicencePolicy, MistralAdapter, ModelBackend, ModelLoader, NemotronAdapter,
-    ReleaseFloor, Server, SidecarBackend, VerifiedWeights,
+    parse_trust_key, probe, reference_registry, stage_verified_weights, withdraw_staged, Clock,
+    FamilyAdapter, GemmaAdapter, GraniteAdapter, InferenceHandler, LicencePolicy, MistralAdapter,
+    ModelBackend, ModelLoader, NemotronAdapter, ReleaseFloor, Server, SidecarBackend,
+    StagedWeights,
 };
 use policy::{
     ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
@@ -58,7 +67,7 @@ use telemetry::{HealthRegistry, Logger, MetricsRegistry, ReadinessCheck, StdoutJ
 const USAGE: &str = "usage: mimir-server --identity-dir DIR --state-dir DIR --purposes P[,P...] \
                      [--service NAME] [--bind ADDR] [--health-bind ADDR] \
                      [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE \
-                     [--sidecar ADDR]]";
+                     --serve-dir DIR [--sidecar ADDR]]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "mimir-inference";
@@ -101,18 +110,42 @@ impl ReadinessCheck for SidecarReady {
     }
 }
 
-/// Ready while the verified weights file is still the one at its path: the sidecar loads
-/// by path, so a file swapped in after the check takes the service out of rotation.
-/// [MG-SEC-14]
-struct WeightsUnchanged(Arc<OnceLock<VerifiedWeights>>);
+/// Ready while the staged weights file is still the one that was staged, read-only, in
+/// place: it is what the sidecar loads. [MG-SEC-14]
+struct WeightsUnchanged(Arc<OnceLock<StagedWeights>>);
 
 impl ReadinessCheck for WeightsUnchanged {
     fn name(&self) -> &str {
         "model-weights-unchanged"
     }
     fn check(&self) -> bool {
-        self.0.get().is_some_and(VerifiedWeights::still_at_path)
+        self.0.get().is_some_and(StagedWeights::still_in_place)
     }
+}
+
+/// The serve directory: an existing directory that is neither the model directory nor
+/// inside it, nor holds it. [MG-SEC-14]
+fn serve_dir(args: &Args, model_dir: &Path) -> Result<PathBuf, String> {
+    let serve = Path::new(args.require("serve-dir")?);
+    let canonical = |path: &Path| {
+        path.canonicalize()
+            .map_err(|e| format!("cannot use {}: {e}", path.display()))
+    };
+    let (serve_abs, model_abs) = (canonical(serve)?, canonical(model_dir)?);
+    if !serve_abs.is_dir() {
+        return Err(format!(
+            "--serve-dir {} is not a directory",
+            serve.display()
+        ));
+    }
+    if serve_abs.starts_with(&model_abs) || model_abs.starts_with(&serve_abs) {
+        return Err(
+            "--serve-dir must be apart from --model-dir: the sidecar must never see the \
+             unverified model directory"
+                .into(),
+        );
+    }
+    Ok(serve.to_path_buf())
 }
 
 /// The chat template for a model family.
@@ -150,6 +183,7 @@ fn main() {
             "engine",
             "model-dir",
             "model-trust",
+            "serve-dir",
             "sidecar",
         ],
         &[],
@@ -166,26 +200,32 @@ fn main() {
     }
 }
 
-/// Verify the model directory, at the release floor kept in `state_dir`, and build the
-/// sidecar backend that serves it, with the verified weights (held open) and the log
-/// fields that name what is served. [MG-SEC-14]
+/// Verify the model directory, at the release floor kept in `state_dir`, stage the
+/// verified weights into the serve directory for the sidecar, and build the sidecar
+/// backend that serves them, with the staged weights (held open) and the log fields that
+/// name what is served. [MG-SEC-14]
 fn sidecar_backend(
     args: &Args,
     engine: EngineChoice,
     state_dir: &Path,
-) -> Result<(Arc<SidecarBackend>, VerifiedWeights, LogFields), String> {
+) -> Result<(Arc<SidecarBackend>, StagedWeights, LogFields), String> {
     let dir = Path::new(args.require("model-dir")?);
+    let serve = serve_dir(args, dir)?;
+    // Before anything is verified: a sidecar (re)started from here on waits for this
+    // model to be staged. [MG-SEC-14]
+    withdraw_staged(&serve).map_err(|e| format!("cannot use {}: {e}", serve.display()))?;
     let trust_path = args.require("model-trust")?;
     let trust = std::fs::read_to_string(trust_path)
         .map_err(|e| format!("cannot read {trust_path}: {e}"))
         .and_then(|text| parse_trust_key(&text).map_err(|e| format!("{trust_path}: {e}")))?;
     let mut floor =
         ReleaseFloor::open(state_dir.join(MODEL_FLOOR_FILE)).map_err(|e| e.to_string())?;
-    let model = ModelLoader::new(trust, LicencePolicy::default()).verify_dir_at_floor(
+    let mut model = ModelLoader::new(trust, LicencePolicy::default()).verify_dir_at_floor(
         dir,
         &probe(),
         &mut floor,
     )?;
+    let staged = stage_verified_weights(&mut model.weights, &model.manifest, &serve)?;
     let manifest = &model.manifest;
 
     let addr: SocketAddr = args
@@ -218,9 +258,10 @@ fn sidecar_backend(
         ("model", manifest.id.clone()),
         ("model_version", manifest.version.clone()),
         ("model_sha256", hex(&manifest.sha256)),
+        ("model_staged", staged.path().display().to_string()),
         ("sidecar", addr.to_string()),
     ];
-    Ok((Arc::new(backend), model.weights, fields))
+    Ok((Arc::new(backend), staged, fields))
 }
 
 fn run(args: &Args) -> Result<(), String> {
@@ -248,11 +289,14 @@ fn run(args: &Args) -> Result<(), String> {
         }
     };
     if engine == EngineChoice::Reference {
-        for option in ["model-dir", "model-trust", "sidecar"] {
+        for option in ["model-dir", "model-trust", "serve-dir", "sidecar"] {
             if args.get(option).is_some() {
                 return Err(format!("--{option} needs --engine llama-cpp or vllm"));
             }
         }
+    } else {
+        // The sidecar is only ever given the staged copy. [MG-SEC-14]
+        args.require("serve-dir")?;
     }
     let logger = Logger::new(service, &StdoutJsonSink);
 

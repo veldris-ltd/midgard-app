@@ -55,7 +55,9 @@ the trust boundaries, with each threat mapped to the implemented, tested control
   bundle manifest before either is parsed; Bifrost's artefact registry and
   `mimir-server` keep a persisted release floor (`attest::ReleaseFloor`) and refuse an
   older signed release, or the same version with different content; model weights are
-  hashed through the handle that is then read, never re-opened by path; and the
+  hashed through the handle that is then read, never re-opened by path, and a sidecar
+  engine that can only load by path is given a read-only copy staged from that handle
+  into a directory only `mimir-server` writes, never the model directory; and the
   release image verifies against the pinned `/trust/release-trust.pub` only, with no
   environment override. [MG-SEC-14]
 

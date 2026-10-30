@@ -19,6 +19,13 @@
 //! the path names by then. Only GGUF and safetensors load: formats that can carry
 //! executable code, such as pickled checkpoints, never do. [FR-MS-4] [MG-SEC-14]
 //!
+//! An engine in another process cannot be handed that handle, only a path. For it,
+//! [`stage_verified_weights`] copies the weights from the verified handle, hashing them
+//! again as they are copied, into a serve directory only the verifier writes, read-only
+//! and under an atomic rename, and writes [`STAGED_MARKER`] last; the engine loads the
+//! staged copy, never the model directory, so a file swapped in there after the check is
+//! never what it loads. [MG-SEC-14]
+//!
 //! A signature proves where a model came from, not that it is current, so
 //! `ModelLoader::verify_dir_at_floor` also refuses a release older than the last one
 //! accepted for its id, or the same version with different signed content
@@ -560,8 +567,9 @@ impl VerifiedWeights {
 
     /// Whether the path still names the file that was verified, unchanged: the same
     /// file (device and inode, on Unix), the same size and the same modification time.
-    /// For a loader that can only be handed a path — an engine in another process —
-    /// this is how a swap after the check is caught. [MG-SEC-14]
+    /// This only detects a swap; a loader that can only be handed a path — an engine in
+    /// another process — is given a staged copy instead ([`stage_verified_weights`]), so
+    /// that a swap cannot reach it. [MG-SEC-14]
     pub fn still_at_path(&self) -> bool {
         let (Ok(now), Ok(held)) = (std::fs::metadata(&self.path), self.file.metadata()) else {
             return false;
@@ -625,6 +633,266 @@ pub fn open_verified_weights(
 /// path and then opening it again to load is the race this exists to avoid.
 pub fn verify_weights(path: &Path, manifest: &ModelManifest) -> Result<(), LoadError> {
     open_verified_weights(path, manifest).map(|_| ())
+}
+
+/// The marker [`stage_verified_weights`] writes into a serve directory last, once the
+/// staged weights are in place: `<file name> <sha256 hex>`. An engine in another process
+/// starts only once it exists, and it is removed before a new model is verified, so the
+/// engine never starts on a file that is still being staged. [MG-SEC-14]
+pub const STAGED_MARKER: &str = "staged.ready";
+
+/// Reads from `reader` and copies every byte read into `writer`, so one pass both hashes
+/// and copies.
+struct Tee<'a, R, W> {
+    reader: &'a mut R,
+    writer: &'a mut W,
+}
+
+impl<R: Read, W: std::io::Write> Read for Tee<'_, R, W> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.reader.read(buf)?;
+        self.writer.write_all(&buf[..n])?;
+        Ok(n)
+    }
+}
+
+/// Weights staged by [`stage_verified_weights`] for an engine that loads by path: a
+/// read-only copy in a directory only the verifier writes, held open. [MG-SEC-14]
+#[derive(Debug)]
+pub struct StagedWeights {
+    path: PathBuf,
+    file: File,
+    size: u64,
+    modified: Option<SystemTime>,
+    sha256: [u8; 32],
+}
+
+impl StagedWeights {
+    /// The staged file: what the engine is told to load.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Its size in bytes, as signed.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Its SHA-256, as signed.
+    pub fn sha256(&self) -> [u8; 32] {
+        self.sha256
+    }
+
+    /// Whether the staged path still names the file that was staged, unchanged and still
+    /// read-only: the same file (device and inode, on Unix), the same size and the same
+    /// modification time. Cheap enough for every readiness probe. [MG-SEC-14]
+    pub fn still_in_place(&self) -> bool {
+        let (Ok(now), Ok(held)) = (std::fs::metadata(&self.path), self.file.metadata()) else {
+            return false;
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if now.dev() != held.dev() || now.ino() != held.ino() {
+                return false;
+            }
+        }
+        now.permissions().readonly()
+            && now.len() == self.size
+            && held.len() == self.size
+            && now.modified().ok() == self.modified
+            && held.modified().ok() == self.modified
+    }
+
+    /// Hash the staged file again, through the handle held on it, and check it is still
+    /// the signed bytes and still in place. This reads the whole file. [MG-SEC-14]
+    pub fn verify_digest(&mut self) -> Result<(), LoadError> {
+        self.file
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| LoadError::WeightsUnreadable)?;
+        let found = digest_weights(&mut self.file).map_err(|_| LoadError::WeightsUnreadable)?;
+        if found.size != self.size || !pqc_agility::hash::ct_eq(&found.sha256, &self.sha256) {
+            return Err(LoadError::WeightsMismatch);
+        }
+        if !self.still_in_place() {
+            return Err(LoadError::WeightsChanged);
+        }
+        Ok(())
+    }
+}
+
+/// Remove a serve directory's [`STAGED_MARKER`], so an engine waiting on it does not
+/// start until new weights are staged. A missing marker is not an error. [MG-SEC-14]
+pub fn withdraw_staged(serve_dir: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(serve_dir.join(STAGED_MARKER)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// Make a file read-only for everyone (0444 on Unix).
+fn make_read_only(file: &File) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o444))
+    }
+    #[cfg(not(unix))]
+    {
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_readonly(true);
+        file.set_permissions(permissions)
+    }
+}
+
+/// Create `path` afresh for writing, readable only by its owner while it is written.
+fn create_fresh(path: &Path) -> std::io::Result<File> {
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if meta.is_file() {
+            let mut permissions = meta.permissions();
+            #[allow(clippy::permissions_set_readonly_false)] // only to remove our own leftover
+            permissions.set_readonly(false);
+            let _ = std::fs::set_permissions(path, permissions);
+        }
+        std::fs::remove_file(path)?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+/// Rename `from` over `to` and make the rename durable.
+fn replace(from: &Path, to: &Path, dir: &Path) -> std::io::Result<()> {
+    #[cfg(not(unix))]
+    if let Ok(meta) = std::fs::metadata(to) {
+        // Windows will not rename over a read-only file.
+        let mut permissions = meta.permissions();
+        #[allow(clippy::permissions_set_readonly_false)] // only to replace our own file
+        permissions.set_readonly(false);
+        std::fs::set_permissions(to, permissions)?;
+        std::fs::remove_file(to)?;
+    }
+    std::fs::rename(from, to)?;
+    #[cfg(unix)]
+    File::open(dir)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
+}
+
+/// Stage verified weights for an engine in another process that can only be handed a
+/// path, such as a llama.cpp or vLLM sidecar, so that what it loads is the bytes that
+/// were verified rather than whatever the model directory's path names by then.
+/// [MG-SEC-14]
+///
+/// The weights are copied **from the verified handle**, never re-opened by path, and
+/// hashed again as they are copied: if they are not the signed size, format and SHA-256
+/// (the file was changed in place after it was verified), nothing is staged. The copy is
+/// written to a temporary file in `serve_dir`, flushed to disk, hashed once more as it
+/// lies there, made read-only (0444) and renamed atomically to the weights' signed file
+/// name; only then is [`STAGED_MARKER`] written. The marker is withdrawn first, so a
+/// failure leaves no marker behind.
+///
+/// `serve_dir` must be a directory that only the verifier can write — the engine mounts
+/// it read-only — and not the model directory.
+pub fn stage_verified_weights(
+    weights: &mut VerifiedWeights,
+    manifest: &ModelManifest,
+    serve_dir: &Path,
+) -> Result<StagedWeights, String> {
+    let expected = manifest
+        .weights
+        .as_ref()
+        .ok_or_else(|| LoadError::WeightsUnreadable.to_string())?;
+    check_file_name(&expected.name)?;
+    let dir_meta = std::fs::metadata(serve_dir)
+        .map_err(|e| format!("cannot use {}: {e}", serve_dir.display()))?;
+    if !dir_meta.is_dir() {
+        return Err(format!("{} is not a directory", serve_dir.display()));
+    }
+    withdraw_staged(serve_dir).map_err(|e| {
+        format!(
+            "cannot withdraw the staged marker in {}: {e}",
+            serve_dir.display()
+        )
+    })?;
+
+    let target = serve_dir.join(&expected.name);
+    let temp = serve_dir.join(format!(".{}.staging", expected.name));
+    let refuse = |why: String| {
+        let _ = std::fs::remove_file(&temp);
+        format!("{}: refused to stage: {why}", target.display())
+    };
+    let mut out = create_fresh(&temp).map_err(|e| refuse(e.to_string()))?;
+
+    // 1. Copy from the verified handle, hashing what is copied.
+    let source = weights.file().map_err(|e| refuse(e.to_string()))?;
+    let copied = digest_weights(&mut Tee {
+        reader: source,
+        writer: &mut out,
+    })
+    .map_err(|e| refuse(e.to_string()))?;
+    let matches = |found: &WeightsDigest| {
+        found.size == expected.size
+            && found.format == Some(expected.format)
+            && pqc_agility::hash::ct_eq(&found.sha256, &manifest.sha256)
+    };
+    if !matches(&copied) {
+        return Err(refuse(
+            "the weights changed since they were verified: they are no longer the signed bytes"
+                .into(),
+        ));
+    }
+    out.sync_all().map_err(|e| refuse(e.to_string()))?;
+
+    // 2. Hash the copy as it lies on disk.
+    out.seek(SeekFrom::Start(0))
+        .map_err(|e| refuse(e.to_string()))?;
+    let landed = digest_weights(&mut out).map_err(|e| refuse(e.to_string()))?;
+    if !matches(&landed) {
+        return Err(refuse(LoadError::WeightsMismatch.to_string()));
+    }
+
+    // 3. Read-only, then into place under its signed name.
+    make_read_only(&out).map_err(|e| refuse(e.to_string()))?;
+    let meta = out.metadata().map_err(|e| refuse(e.to_string()))?;
+    replace(&temp, &target, serve_dir).map_err(|e| refuse(e.to_string()))?;
+    let file = File::open(&target).map_err(|e| refuse(e.to_string()))?;
+    let staged = StagedWeights {
+        path: target.clone(),
+        file,
+        size: expected.size,
+        modified: meta.modified().ok(),
+        sha256: manifest.sha256,
+    };
+    if !staged.still_in_place() {
+        return Err(refuse(LoadError::WeightsChanged.to_string()));
+    }
+    drop(out);
+
+    // 4. The marker, last.
+    let marker = serve_dir.join(STAGED_MARKER);
+    let marker_temp = serve_dir.join(format!(".{STAGED_MARKER}.staging"));
+    let write_marker = || -> std::io::Result<()> {
+        let mut file = create_fresh(&marker_temp)?;
+        std::io::Write::write_all(
+            &mut file,
+            format!("{} {}\n", expected.name, hex(&manifest.sha256)).as_bytes(),
+        )?;
+        file.sync_all()?;
+        make_read_only(&file)?;
+        replace(&marker_temp, &marker, serve_dir)
+    };
+    write_marker().map_err(|e| {
+        let _ = std::fs::remove_file(&marker_temp);
+        format!("cannot write {}: {e}", marker.display())
+    })?;
+    Ok(staged)
 }
 
 /// The keys of a manifest file's body, in order. The signature line follows them.

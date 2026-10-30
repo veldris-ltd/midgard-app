@@ -5,7 +5,9 @@
 //!
 //! The signature is checked over the manifest file's raw bytes before it is parsed; an
 //! older release than the one last accepted is refused; and the weights are read through
-//! the one handle they were hashed through. [MG-SEC-14]
+//! the one handle they were hashed through. For an engine that loads by path they are
+//! staged from that handle into a read-only copy, and a swap at the model path after the
+//! check never reaches it. [MG-SEC-14]
 #![cfg(feature = "backend-fips")]
 
 use std::io::Read;
@@ -14,8 +16,9 @@ use std::path::PathBuf;
 use attest::{ReleaseFloor, RollbackError};
 use model_server::{
     manifest_file_with_signature, parse_trust_key, render_manifest_body, sign_manifest_file,
-    verify_manifest_file, HwProfile, Licence, LicencePolicy, ManifestFileError, ModelLoader,
-    ModelManifest, NodeProfile, WeightFormat, WeightsFile, MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
+    stage_verified_weights, verify_manifest_file, withdraw_staged, HwProfile, Licence,
+    LicencePolicy, LoadError, ManifestFileError, ModelLoader, ModelManifest, NodeProfile,
+    WeightFormat, WeightsFile, MANIFEST_FILE, STAGED_MARKER, VELDRIS_MODEL_SIG_ALG,
 };
 use pqc_agility::backend::fips::FipsSig;
 use pqc_agility::hash::sha256;
@@ -374,4 +377,125 @@ fn weights_swapped_after_the_check_are_never_read() {
     // And the path no longer names the verified file.
     assert!(!model.weights.still_at_path());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A staged copy is made from the verified handle: a file swapped in at the model path
+/// after the check does not change what is staged, and the copy is the signed bytes,
+/// read-only, under the signed name, with the marker written last. [MG-SEC-14]
+#[test]
+fn verified_weights_are_staged_and_a_swap_after_the_check_never_reaches_the_copy() {
+    let (dir, vk, bytes) = model_dir("stage", "Granite");
+    let serve = scratch("stage-serve");
+    let mut model = loader(vk).verify_dir(&dir, &node()).unwrap();
+
+    // Swap other bytes of the same size in at the model path, after the check.
+    let mut evil = bytes.clone();
+    evil[50_000..50_100].fill(0x41);
+    std::fs::write(dir.join("evil.gguf"), &evil).unwrap();
+    std::fs::rename(dir.join("evil.gguf"), dir.join(WEIGHTS)).unwrap();
+
+    let mut staged = stage_verified_weights(&mut model.weights, &model.manifest, &serve).unwrap();
+    assert_eq!(staged.path(), serve.join(WEIGHTS));
+    assert_eq!(std::fs::read(serve.join(WEIGHTS)).unwrap(), bytes);
+    assert_eq!(staged.sha256(), model.manifest.sha256);
+    assert!(staged.still_in_place());
+    staged.verify_digest().unwrap();
+    let meta = std::fs::metadata(staged.path()).unwrap();
+    assert!(meta.permissions().readonly());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(meta.permissions().mode() & 0o777, 0o444);
+    }
+    assert_eq!(
+        std::fs::read_to_string(serve.join(STAGED_MARKER)).unwrap(),
+        format!("{WEIGHTS} {}\n", hex(&model.manifest.sha256))
+    );
+    // Nothing else is left behind.
+    let mut names: Vec<String> = std::fs::read_dir(&serve)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, [WEIGHTS, STAGED_MARKER]);
+
+    // Staging again (a restart) replaces the copy and the marker.
+    let again = stage_verified_weights(&mut model.weights, &model.manifest, &serve).unwrap();
+    assert!(again.still_in_place());
+    assert!(!staged.still_in_place(), "the old copy was replaced");
+    assert_eq!(std::fs::read(serve.join(WEIGHTS)).unwrap(), bytes);
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&serve);
+}
+
+/// Weights changed in place after the check — through the very file that was verified —
+/// are hashed again as they are copied, and nothing is staged: no copy, no marker.
+/// [MG-SEC-14]
+#[test]
+fn weights_changed_in_place_after_the_check_are_not_staged() {
+    use std::io::{Seek, SeekFrom, Write};
+    let (dir, vk, _) = model_dir("stage-inplace", "Granite");
+    let serve = scratch("stage-inplace-serve");
+    let mut model = loader(vk).verify_dir(&dir, &node()).unwrap();
+    // A marker from an earlier staging is withdrawn before anything else.
+    std::fs::write(serve.join(STAGED_MARKER), "old\n").unwrap();
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(dir.join(WEIGHTS))
+        .unwrap();
+    file.seek(SeekFrom::Start(100_000)).unwrap();
+    file.write_all(b"AAAA").unwrap();
+    drop(file);
+
+    let e = stage_verified_weights(&mut model.weights, &model.manifest, &serve).unwrap_err();
+    assert!(e.contains("changed since they were verified"), "{e}");
+    assert_eq!(std::fs::read_dir(&serve).unwrap().count(), 0);
+
+    // And a serve directory that is not a directory is refused.
+    let e = stage_verified_weights(&mut model.weights, &model.manifest, &dir.join(WEIGHTS))
+        .unwrap_err();
+    assert!(e.contains("not a directory"), "{e}");
+    withdraw_staged(&serve).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&serve);
+}
+
+/// A staged copy that is replaced, made writable or edited in place is caught: the first
+/// two by the cheap check readiness runs, an edit by hashing it again. [MG-SEC-14]
+#[test]
+fn a_staged_copy_that_is_altered_is_caught() {
+    let (dir, vk, bytes) = model_dir("stage-alter", "Granite");
+    let serve = scratch("stage-alter-serve");
+    let mut model = loader(vk).verify_dir(&dir, &node()).unwrap();
+    let path = serve.join(WEIGHTS);
+    let writable = |writable: bool| {
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)] // the attack under test
+        permissions.set_readonly(!writable);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    };
+
+    // Replaced by another file of the same bytes.
+    let staged = stage_verified_weights(&mut model.weights, &model.manifest, &serve).unwrap();
+    let other = serve.join("other.gguf");
+    std::fs::write(&other, &bytes).unwrap();
+    std::fs::rename(&other, &path).unwrap();
+    assert!(!staged.still_in_place());
+
+    // Made writable.
+    let staged = stage_verified_weights(&mut model.weights, &model.manifest, &serve).unwrap();
+    writable(true);
+    assert!(!staged.still_in_place());
+
+    // Edited in place, and made read-only again.
+    let mut staged = stage_verified_weights(&mut model.weights, &model.manifest, &serve).unwrap();
+    writable(true);
+    let mut edited = bytes.clone();
+    edited[150_000] ^= 1;
+    std::fs::write(&path, &edited).unwrap();
+    writable(false);
+    assert_eq!(staged.verify_digest(), Err(LoadError::WeightsMismatch));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&serve);
 }

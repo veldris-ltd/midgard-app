@@ -101,7 +101,13 @@ CONTRIBUTING.md for the version policy.
   bundles are checked against their signature before they are parsed; an older
   release, or the same version with different content, is refused across restarts;
   model weights are hashed through the handle that is then used; and the image no
-  longer reads `MIDGARD_RELEASE_TRUST_KEY`.
+  longer reads `MIDGARD_RELEASE_TRUST_KEY`. A llama.cpp or vLLM sidecar, which loads by
+  path, is no longer given the model directory: `mimir-server --serve-dir` (required
+  with a sidecar engine) copies the weights from the handle they were verified through,
+  hashing them again, into a directory only it writes, read-only and renamed into place,
+  and writes `staged.ready` last; the sidecar mounts only that directory, read-only, and
+  starts once the marker exists, so a file swapped into the model directory after the
+  check is never loaded. Readiness now watches the staged copy.
 - **Tests that prove the claims.** [MG-SEC-15] CI fails a build whose dependency graph
   enables the insecure test backend (`tools/ci/no-test-backend.sh`). The NIST ACVP
   ML-KEM and ML-DSA vectors run offline; the ledger tamper and truncation tests and the
