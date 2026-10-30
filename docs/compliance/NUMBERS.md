@@ -32,12 +32,13 @@ Counted from tracked files. `vendor/` is other people's code and is not counted.
 
 Read from the gate record and from nowhere else. A test count here is of tests that ran and passed in that run. It is a different measure from the count of test functions above, and the two are never quoted as one figure.
 
-The gate has not been run at this commit. Files it covers have changed since the last recorded run, so that run's results are not this tree's and are shown only as what they are: the results of another commit.
+The gate was run at commit [`513147ca23976a0ac6200f7b1ad477c627424ccb`](gate-runs/513147ca23976a0ac6200f7b1ad477c627424ccb.md). This tree is that commit, apart from the record itself and the prose generated from it, so its results are this tree's.
 
-| Figure | Value | Last recorded run |
+| Figure | Value | Counting rule |
 |---|---|---|
-| Acceptance criteria passed | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 72 / 72 |
-| Tests passed, `just test` | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 879 |
-| Tests passed, acceptance suite | not run at this commit | at `5534b1f40dbba922fd3c6f780808f01ac5627fc2`: 251 |
+| Gate result | **PASS** | the acceptance suite and `just test` both exited 0 and no criterion failed |
+| Acceptance criteria passed | **72 / 72** | criteria of Part C with a PASS verdict line in the acceptance log |
+| Tests passed, `just test` | **1,141** | sum of the `test result:` lines of the `just test` log; 0 failed, 0 ignored, in 347 test binaries across 51 of 51 invocations |
+| Tests passed, acceptance suite | **254** | sum of the `test result:` lines between each step's header and its verdict; 0 failed, 0 ignored. The suite runs selected tests, some more than once, so this is not comparable with the figure above |
 
-The record of that run is [`gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md`](gate-runs/5534b1f40dbba922fd3c6f780808f01ac5627fc2.md).
+Reproduce: `bash tools/ci/gate-record.sh --check` makes these from the logs under [`gate-runs/513147ca23976a0ac6200f7b1ad477c627424ccb/`](gate-runs/513147ca23976a0ac6200f7b1ad477c627424ccb/); [the record](gate-runs/513147ca23976a0ac6200f7b1ad477c627424ccb.md) says how to make the run again.
