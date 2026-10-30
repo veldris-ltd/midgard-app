@@ -1,20 +1,38 @@
 //! The break-glass grant, its request, and its lifecycle state.
 
-/// A request to open a break-glass grant.
+use admin_identity::{ResourceScope, Subsystem};
+
+/// A request to open a break-glass grant. It names no approver: the approver is the
+/// administrator whose passkey-authenticated session approves it. `[MG-SEC-07]`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantRequest {
     /// Stable grant id.
     pub id: String,
-    /// The principal being elevated.
+    /// The principal being elevated — the requester, whose authenticated session
+    /// must be this principal's.
     pub principal: String,
-    /// The approving security officer (dual-control counterpart).
-    pub approver: String,
     /// The scope the elevation applies to.
     pub scope: String,
     /// Mandatory written justification. `[FR-AD-8]`
     pub justification: String,
     /// Time-box duration in seconds; must be non-zero. `[FR-AD-8]`
     pub ttl_secs: u64,
+}
+
+impl GrantRequest {
+    /// The directory scope the requester's and approver's role bindings must cover:
+    /// `subsystem` names every resource in it, `subsystem/selector` one of them. A
+    /// binding confined to one selector therefore cannot authorise a whole-subsystem
+    /// grant. `[MG-SEC-07]`
+    pub fn resource_scope(&self) -> ResourceScope {
+        match self.scope.split_once('/') {
+            Some((subsystem, selector)) => ResourceScope {
+                subsystem: Subsystem(subsystem.to_string()),
+                selector: selector.to_string(),
+            },
+            None => ResourceScope::all(self.scope.as_str()),
+        }
+    }
 }
 
 /// The mandatory post-hoc review of a break-glass grant. `[FR-AD-8]`
@@ -33,9 +51,10 @@ pub struct Review {
 pub struct BreakGlassGrant {
     /// Stable grant id.
     pub id: String,
-    /// The elevated principal.
+    /// The elevated principal: the authenticated requester.
     pub principal: String,
-    /// The approver.
+    /// The approver: the authenticated identity of the second administrator, taken
+    /// from their passkey session, never from the request. `[MG-SEC-07]`
     pub approver: String,
     /// The scope.
     pub scope: String,

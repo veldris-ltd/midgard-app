@@ -18,6 +18,10 @@ policy = { path = "../../crypto/policy" }
 # The durable identity directory persists enrollments through the KMS-sealed
 # append-only journal, replaying on boot. [RC-29]
 audit-writer = { path = "../../crypto/audit-writer" }
+# Argon2id (RFC 9106) password storage in the PHC string format. Pure Rust,
+# vendored; salts come from the platform OS RNG, so the crate's `rand` feature is
+# off. [MG-SEC-11] [NFR-PRV-1]
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash", "zeroize"] }
 
 [dev-dependencies]
 # The RC-29 harness seals the directory with a real KMS trust root.

@@ -50,6 +50,7 @@ pub mod json;
 #[cfg(feature = "custody")]
 pub mod keystore;
 pub mod preimage;
+pub mod release_floor;
 pub mod sbom;
 
 use std::collections::BTreeMap;
@@ -63,6 +64,7 @@ pub use attestation::{Provenance, ReproEntry};
 pub use backend::SigningBackend;
 pub use error::{SignError, VerifyError};
 pub use preimage::DOMAIN_LABEL;
+pub use release_floor::{Admission, ReleaseFloor, ReleaseVersion, RollbackError};
 
 #[cfg(feature = "custody")]
 pub use backend::{FileSigner, KmsSigner};

@@ -1,7 +1,7 @@
 //! RC-45 (transport): the live `PqMtlsClient` reaches a real inference gateway over
 //! PQ-mTLS and returns a served completion — and fails closed (never fabricates a
 //! result) on a policy denial or an unreachable server. Stands up the same gateway
-//! + server the model-server's own PQ-mTLS test uses; here the *client* under test
+//! and server the model-server's own PQ-mTLS test uses; here the *client* under test
 //! is the production bridge. [FR-MI-8] [RT-45]
 #![cfg(feature = "backend-fips")]
 
@@ -59,7 +59,19 @@ fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (IdentityCert, Si
         sig_alg: IDP_SIG_ALG,
         verifying_key: vk,
     };
-    (idp.certify(&identity).unwrap(), sk)
+    (
+        idp.certify(
+            &identity,
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
+        .unwrap(),
+        sk,
+    )
 }
 
 fn permit(role: &str, action: &str) -> DefaultPdp {
@@ -153,6 +165,7 @@ fn endpoint(
 ) -> MimirEndpoint {
     MimirEndpoint {
         addr,
+        server: ServiceId("svc-mimir".into()),
         anchor,
         cert,
         signing_key: sk,

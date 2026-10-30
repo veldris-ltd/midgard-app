@@ -28,7 +28,9 @@ cargo vendor --versioned-dirs vendor > /tmp/vendor-stanza.toml   # refreshes /ve
 ```
 
 Dependencies are pinned to Rust 1.82-compatible versions. Notably `zeroize` is
-held at `1.8.1` (1.9's `zeroize_derive` requires edition 2024 / Cargo ≥ 1.85).
+held at `1.8.1` (1.9's `zeroize_derive` requires edition 2024 / Cargo ≥ 1.85), and
+`base64ct` (pulled in by `argon2` / `password-hash`) at `1.6.0`, because later
+releases need edition 2024 (`cargo update -p base64ct --precise 1.6.0`).
 
 ## Option A — Docker (canonical; used by CI) [AC-M-5] [AC-M-6]
 

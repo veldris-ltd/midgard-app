@@ -24,6 +24,14 @@ different places:
 | Bifrost artefact manifest | `midgard-bifrost-artefact-v1` | `bifrost_artefact::verify` |
 | Bifrost offline-bundle manifest | `midgard-bifrost-bundle-v1` | `bifrost_bundle::import` |
 | Mimir model manifest | `midgard-mimir-model-v1` | `ModelLoader::verify_and_load` |
+| Mimir model manifest file (`model.manifest`, format 2) | `midgard-mimir-model-file-v2` | `model_server::verify_manifest_file` (`ModelLoader::verify_dir`) |
+
+A signature only proves where a release came from, not that it is current, so the
+places that accept signed software also keep a **release floor**
+(`attest::ReleaseFloor`): per artefact id, the highest version accepted and the digest
+of what was signed. An older version, or the same version with different content, is
+refused. Bifrost's artefact registry and `mimir-server`'s model load keep one.
+[MG-SEC-14]
 
 Its `custody` feature (the KMS-backed signer and the sealed keystore) is for
 *signers* only; verifiers take `default-features = false` and never pull `kms`

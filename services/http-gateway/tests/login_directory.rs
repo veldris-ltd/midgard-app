@@ -1,7 +1,8 @@
 //! Logins authenticate through `iam::Authenticator` against an identity directory.
 //! Against a durable, KMS-sealed directory an enrolled principal's password and TOTP
 //! second factor are both enforced, every refusal is the same 401, and the enrollment
-//! survives a restart. [RC-29] [RC-37]
+//! survives a restart. A legacy password hash is replaced with Argon2id at the next
+//! sign-in, durably. [RC-29] [RC-37] [MG-SEC-11]
 #![cfg(feature = "backend-fips")]
 
 use std::path::{Path, PathBuf};
@@ -11,7 +12,8 @@ use http_gateway::http::{Request, Response};
 use http_gateway::json::parse;
 use http_gateway::{demo_operator, dev_login_policy, SecuredGateway, DEMO_PASSWORD, DEMO_USERNAME};
 use iam::{
-    Credentials, DurableDirectory, Enrollment, Idp, PasswordHasher, Pbkdf2Hasher, TotpSecret,
+    Credentials, Directory, DurableDirectory, Enrollment, Idp, PasswordHasher, Pbkdf2Hasher,
+    TotpSecret,
 };
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
 use policy::DefaultPdp;
@@ -203,5 +205,53 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
         200
     );
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// MG-SEC-11: a principal stored with a legacy PBKDF2 hash signs in once more and
+/// leaves an Argon2id hash in the durable directory; a refused attempt changes nothing.
+#[test]
+fn a_legacy_password_hash_is_upgraded_at_the_next_sign_in() {
+    let dir = scratch("rehash");
+    let legacy = Pbkdf2Hasher::new(1_000).hash(PASSWORD.as_bytes());
+    assert!(legacy.starts_with("pbkdf2-sha256$"));
+    open_directory(&dir)
+        .enroll(
+            "bob",
+            Enrollment {
+                user: demo_operator(),
+                credentials: Credentials {
+                    password_hash: legacy.clone(),
+                    ..Credentials::default()
+                },
+            },
+        )
+        .expect("enrolls");
+    let stored = |dir: &Path| {
+        open_directory(dir)
+            .enrollment("bob")
+            .expect("bob is enrolled")
+            .credentials
+            .password_hash
+            .clone()
+    };
+
+    let gw = gateway(&dir);
+    assert_eq!(
+        login(&gw, &credentials("bob", "tr0ub4dor", None)).status,
+        401
+    );
+    drop(gw);
+    assert_eq!(stored(&dir), legacy, "a refused sign-in writes nothing");
+
+    let gw = gateway(&dir);
+    assert_eq!(login(&gw, &credentials("bob", PASSWORD, None)).status, 200);
+    drop(gw);
+    let upgraded = stored(&dir);
+    assert!(upgraded.starts_with("$argon2id$"), "{upgraded}");
+
+    // The upgraded hash survives a restart and still signs bob in.
+    let gw = gateway(&dir);
+    assert_eq!(login(&gw, &credentials("bob", PASSWORD, None)).status, 200);
     let _ = std::fs::remove_dir_all(&dir);
 }

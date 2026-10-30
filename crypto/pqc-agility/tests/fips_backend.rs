@@ -220,3 +220,70 @@ fn wrong_verifying_key_fails() {
         );
     }
 }
+
+/// MG-SEC-09: a hybrid peer that forces the X25519 half to the all-zero result — by
+/// sending the identity point as its public key or as the ephemeral key — is refused,
+/// on both the encapsulating and the decapsulating side.
+#[test]
+fn hybrid_refuses_an_all_zero_x25519_result() {
+    let p = provider();
+    for suite in [
+        KemSuiteId::HybridX25519MlKem768,
+        KemSuiteId::HybridX25519MlKem1024,
+    ] {
+        let kem = p.kem_for(suite).unwrap();
+        let (pk, sk) = kem.keypair(&mut SeedRng(11)).unwrap();
+
+        // Encapsulating to a public key whose X25519 half is a low-order point.
+        let mut bad_pk = pk.as_bytes().to_vec();
+        let n = bad_pk.len();
+        bad_pk[n - 32..].fill(0);
+        assert!(
+            kem.encapsulate(&KemPublicKey::new(suite, bad_pk), &mut SeedRng(12))
+                .is_err(),
+            "{suite:?}: encapsulating to a zero X25519 key must fail"
+        );
+
+        // Decapsulating a ciphertext whose ephemeral X25519 key is a low-order point.
+        let (ct, _) = kem.encapsulate(&pk, &mut SeedRng(13)).unwrap();
+        let mut bad_ct = ct.as_bytes().to_vec();
+        let n = bad_ct.len();
+        bad_ct[n - 32..].fill(0);
+        assert!(
+            kem.decapsulate(&sk, &Ciphertext::new(suite, bad_ct))
+                .is_err(),
+            "{suite:?}: decapsulating a zero ephemeral key must fail"
+        );
+    }
+}
+
+/// MG-SEC-09: the hybrid secret binds the X25519 ciphertext. Swapping in a different
+/// (valid) ephemeral key changes the secret, so the halves cannot be mixed and matched.
+#[test]
+fn hybrid_secret_binds_the_x25519_ciphertext() {
+    let p = provider();
+    let suite = KemSuiteId::HybridX25519MlKem768;
+    let kem = p.kem_for(suite).unwrap();
+    let (pk, sk) = kem.keypair(&mut SeedRng(21)).unwrap();
+    let (ct_a, ss_a) = kem.encapsulate(&pk, &mut SeedRng(22)).unwrap();
+    let (ct_b, _) = kem.encapsulate(&pk, &mut SeedRng(23)).unwrap();
+    let mut mixed = ct_a.as_bytes().to_vec();
+    let n = mixed.len();
+    mixed[n - 32..].copy_from_slice(&ct_b.as_bytes()[n - 32..]);
+    let ss_mixed = kem
+        .decapsulate(&sk, &Ciphertext::new(suite, mixed))
+        .unwrap();
+    assert_ne!(ss_a.expose(), ss_mixed.expose());
+}
+
+/// MG-SEC-08: a hybrid secret key is built at its final size, so it never moves (and
+/// never leaves a copy behind) while the X25519 half is appended.
+#[test]
+fn hybrid_secret_key_is_allocated_at_its_final_size() {
+    let p = provider();
+    for suite in ALL_SUITES {
+        let kem = p.kem_for(suite).unwrap();
+        let (_, sk) = kem.keypair(&mut SeedRng(31)).unwrap();
+        assert_eq!(sk.expose().len(), kem.sizes().secret_key, "{suite:?}");
+    }
+}

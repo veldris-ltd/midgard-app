@@ -32,7 +32,6 @@ FROM ${BASE}
 ARG SOURCE_DATE_EPOCH
 ARG SERVICE
 ENV MIDGARD_SERVICE=${SERVICE}
-ENV MIDGARD_RELEASE_TRUST_KEY=/trust/release-trust.pub
 
 # A dedicated non-root, no-login service account. Written directly rather than with
 # `useradd`, which stamps the day the account was created into /etc/shadow — the same
@@ -51,7 +50,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/mg-verify \
     && find /app -type f ! -name '*.*' -exec chmod 0755 {} + \
     && test -x "/app/${SERVICE}" \
-    && chown -R 10001:10001 /app /trust
+    && chown -R 10001:10001 /app
 
 USER 10001
 EXPOSE 7710

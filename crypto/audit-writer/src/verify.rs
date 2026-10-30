@@ -1,11 +1,18 @@
 //! Chain verification. Walks from genesis and fails closed on the first defect,
 //! naming the offending sequence number. Supports per-entry signature-algorithm
 //! rotation via a key resolver (the verifying key can differ per algorithm).
+//!
+//! [`verify_chain`] proves the entries a ledger still holds. [`verify_ledger`] is
+//! the full check a durable ledger is opened under: the chain, its signed
+//! checkpoint (so nothing was cut off the end), and both under a pinned key from
+//! outside the signing keystore. [MG-SEC-05]
 
 use pqc_agility::{CryptoProvider, SigId, VerifyingKey};
 
 use crate::chain::{entry_hash, genesis_hash, signing_preimage};
+use crate::checkpoint::LedgerCheckpoint;
 use crate::error::AuditError;
+use crate::pin::PinnedKey;
 use crate::record::{LedgerId, SealedEntry};
 
 /// Verify an entire chain.
@@ -51,4 +58,25 @@ pub fn verify_chain(
         expected_prev = e.entry_hash;
     }
     Ok(())
+}
+
+/// Verify a whole ledger: every entry chains and is signed under the **pinned** key,
+/// and a checkpoint signed under the same pin vouches for its length and head.
+///
+/// Fails closed with [`AuditError::CheckpointMissing`] when there is no checkpoint,
+/// [`AuditError::Truncated`] when entries were cut off the end,
+/// [`AuditError::CheckpointMismatch`] when the tail was rewritten, and
+/// [`AuditError::SignatureInvalid`] / [`AuditError::CheckpointInvalid`] when the
+/// ledger was signed by any key but the pinned one. [MG-SEC-05]
+pub fn verify_ledger(
+    entries: &[SealedEntry],
+    checkpoint: Option<&LedgerCheckpoint>,
+    provider: &CryptoProvider,
+    ledger_id: &LedgerId,
+    pin: &PinnedKey,
+) -> Result<(), AuditError> {
+    let checkpoint = checkpoint.ok_or(AuditError::CheckpointMissing)?;
+    verify_chain(entries, provider, ledger_id, &|alg| pin.resolve(alg))?;
+    checkpoint.verify_signature(provider, ledger_id, pin.key())?;
+    checkpoint.check_covers(entries)
 }

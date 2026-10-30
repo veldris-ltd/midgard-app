@@ -1,8 +1,13 @@
-//! RC-14 (break-glass): grants + reviews survive a restart, recovered intact.
+//! RC-14 (break-glass): grants + reviews survive a restart, recovered intact —
+//! including the authenticated approver. [MG-SEC-07]
+
+mod common;
 
 use std::path::PathBuf;
 
 use admin_breakglass::{BreakGlassState, DurableBreakGlass, GrantRequest, RecordingAlerter};
+use admin_identity::{ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
+use common::{directory, Admins, APPROVAL_MAX_AGE};
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::Rng;
@@ -46,7 +51,6 @@ fn req(id: &str, ttl: u64) -> GrantRequest {
     GrantRequest {
         id: id.into(),
         principal: "responder".into(),
-        approver: "duty-officer".into(),
         scope: "kms".into(),
         justification: "sev-1 incident".into(),
         ttl_secs: ttl,
@@ -58,10 +62,35 @@ fn breakglass_grants_survive_restart() {
     let dir = scratch();
     let path = dir.join("breakglass.journal");
 
+    let mut admins = Admins::new(&["responder", "duty-officer"]);
+    let responder = admins.sign_in("responder", 1_000);
+    let officer = admins.sign_in("duty-officer", 1_000);
+    let roles = directory(&[
+        ("responder", ROLE_IAM_ADMIN),
+        ("duty-officer", ROLE_SECURITY_OFFICER),
+    ]);
     {
         let mut store = open(&path);
-        store.grant(req("bg-1", 3600), 1_000).unwrap();
-        store.grant(req("bg-2", 60), 1_000).unwrap();
+        store
+            .grant(
+                &roles,
+                req("bg-1", 3600),
+                &responder,
+                &officer,
+                1_000,
+                APPROVAL_MAX_AGE,
+            )
+            .unwrap();
+        store
+            .grant(
+                &roles,
+                req("bg-2", 60),
+                &responder,
+                &officer,
+                1_000,
+                APPROVAL_MAX_AGE,
+            )
+            .unwrap();
         // bg-2 gets its mandatory post-hoc review.
         store
             .review("bg-2", "security-officer", "justified", 2_000)
@@ -95,6 +124,11 @@ fn breakglass_grants_survive_restart() {
     assert_eq!(
         s.get("bg-2").unwrap().review.as_ref().unwrap().reviewer,
         "security-officer"
+    );
+    assert_eq!(
+        s.get("bg-1").unwrap().approver,
+        "duty-officer",
+        "the authenticated approver is recovered"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

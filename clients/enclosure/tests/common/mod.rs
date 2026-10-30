@@ -1,4 +1,5 @@
 //! Shared handshake fixtures for the enclosure-client tests (test backend only).
+//! [AC-C-3]
 #![allow(dead_code)]
 
 use std::collections::BTreeSet;
@@ -7,7 +8,7 @@ use policy::{
     Action, ClassificationLevel, DefaultPdp, Effect, Marking, PolicySet, Purpose, Resource,
     ResourceId, Role, Rule, RuleId, Selector,
 };
-use pq_mtls::{canonical_identity, IdentityCert, ServiceId, TrustAnchor, WorkloadIdentity};
+use pq_mtls::{IdentityCert, ServiceId, TrustAnchor, WorkloadIdentity};
 use pqc_agility::backend::test_backend::{provider as test_provider, TestSig};
 use pqc_agility::{CryptoProvider, KemSuiteId, SeedRng, SigId, SignatureScheme, SigningKey};
 
@@ -70,10 +71,14 @@ pub fn party(id: &str, roles: &[&str], seed: u64, ca: &Ca) -> Party {
     };
     let ca_scheme = TestSig::new(ALG);
     let ca_sig = ca_scheme
-        .sign(&ca.signing_key, &canonical_identity(&identity))
+        .sign(
+            &ca.signing_key,
+            &pq_mtls::canonical_cert_body(&identity, &test_terms()),
+        )
         .unwrap();
     let cert = IdentityCert {
         identity: identity.clone(),
+        terms: test_terms(),
         ca_sig_alg: ALG,
         ca_signature: ca_sig,
     };
@@ -108,5 +113,16 @@ pub fn permit_pdp(role: &str) -> DefaultPdp {
             effect: Effect::Permit,
         }])
         .unwrap(),
+    )
+}
+
+/// Terms for test certificates: valid from the epoch to the end of time, granting
+/// TOP SECRET, so a test's requested clearance is what it gets.
+fn test_terms() -> pq_mtls::CertTerms {
+    pq_mtls::CertTerms::new(
+        1,
+        0,
+        u64::MAX,
+        pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
     )
 }

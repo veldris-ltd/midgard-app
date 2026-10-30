@@ -43,12 +43,20 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
     let key = Keystore::generate(service, IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(&format!("{service}-audit"), IDP_SIG_ALG, &mut OsRng).unwrap();
     let cert = idp
-        .certify(&WorkloadIdentity {
-            id: ServiceId(service.into()),
-            roles: roles.iter().map(|r| Role(r.to_string())).collect(),
-            sig_alg: IDP_SIG_ALG,
-            verifying_key: key.verifying_key.clone(),
-        })
+        .certify(
+            &WorkloadIdentity {
+                id: ServiceId(service.into()),
+                roles: roles.iter().map(|r| Role(r.to_string())).collect(),
+                sig_alg: IDP_SIG_ALG,
+                verifying_key: key.verifying_key.clone(),
+            },
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
         .unwrap();
     key.write(&dir.join(format!("{service}.keystore"))).unwrap();
     audit
@@ -56,6 +64,8 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
+    let crl = idp.sign_crl(1, 0, Default::default()).unwrap();
+    std::fs::write(dir.join("mesh.crl"), pq_mtls::encode_crl(&crl)).unwrap();
 }
 
 /// A field of a JSON log line (the sink writes every field as a string).
@@ -318,8 +328,8 @@ fn strs(args: &[String]) -> Vec<&str> {
 /// A signed Granite model directory, and the trust file for its signing key.
 fn signed_model(root: &Path) -> (PathBuf, PathBuf) {
     use model_server::{
-        render_manifest_file, sign_manifest, HwProfile, Licence, ModelManifest, WeightFormat,
-        WeightsFile, MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
+        sign_manifest_file, HwProfile, Licence, ModelManifest, WeightFormat, WeightsFile,
+        MANIFEST_FILE, VELDRIS_MODEL_SIG_ALG,
     };
     use pqc_agility::backend::fips::FipsSig;
     use pqc_agility::SignatureScheme;
@@ -350,7 +360,7 @@ fn signed_model(root: &Path) -> (PathBuf, PathBuf) {
             size: weights.len() as u64,
         }),
     };
-    let text = render_manifest_file(&sign_manifest(manifest, &sk)).unwrap();
+    let text = sign_manifest_file(&manifest, &sk).unwrap();
     std::fs::write(dir.join(MANIFEST_FILE), text).unwrap();
     let hex = vk.as_bytes().iter().fold(String::new(), |mut s, b| {
         use std::fmt::Write;
@@ -384,7 +394,13 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
     std::fs::write(state.join("policy.json"), POLICY).unwrap();
 
     let (model, trust) = signed_model(&root);
-    let (model_arg, trust_arg) = (model.display().to_string(), trust.display().to_string());
+    let serve = root.join("serve");
+    std::fs::create_dir_all(&serve).unwrap();
+    let (model_arg, trust_arg, serve_arg) = (
+        model.display().to_string(),
+        trust.display().to_string(),
+        serve.display().to_string(),
+    );
     let (sidecar, requests) = fake_sidecar("Olsen holds case 42.");
     let engine = |sidecar: &str| -> Vec<String> {
         [
@@ -394,6 +410,8 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
             &model_arg,
             "--model-trust",
             &trust_arg,
+            "--serve-dir",
+            &serve_arg,
             "--sidecar",
             sidecar,
         ]
@@ -405,6 +423,9 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
     let server = start_with(&server_identity, &state, &strs(&args));
     let (status, body) = get(&server.health, "/readyz");
     assert_eq!(status, 200, "{body}");
+    // The accepted release is the floor from now on. [MG-SEC-14]
+    let floor = std::fs::read_to_string(state.join("model-release.floor")).unwrap();
+    assert!(floor.contains(" 1 "), "{floor}");
     let served = probe(&consumers, "forge-worker", &server.mesh);
     assert!(served.status.success(), "{}", text(&served.stderr));
     let out = text(&served.stdout);
@@ -456,5 +477,109 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
         "{}",
         text(&tampered.stderr)
     );
+    // The marker the sidecar waits on was withdrawn before the check. [MG-SEC-14]
+    assert!(!serve.join(model_server::STAGED_MARKER).exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The sidecar is given a read-only copy staged from the verified handle, never the
+/// model directory: a file swapped into the model directory after the check changes
+/// nothing it can load, and a staged copy that is replaced takes the service out of
+/// rotation. A sidecar engine needs a serve directory apart from the model directory.
+/// [MG-SEC-14]
+#[test]
+fn the_sidecar_loads_a_staged_copy_that_a_swap_in_the_model_directory_never_reaches() {
+    let root = scratch("staged");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let state = root.join("state");
+    issue(
+        &idp,
+        &server_identity,
+        "mimir-server",
+        &["inference-server"],
+    );
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+    let (model, trust) = signed_model(&root);
+    let serve = root.join("serve");
+    std::fs::create_dir_all(&serve).unwrap();
+    let (sidecar, _) = fake_sidecar("ok");
+    let (model_arg, trust_arg, serve_arg) = (
+        model.display().to_string(),
+        trust.display().to_string(),
+        serve.display().to_string(),
+    );
+    let engine = |serve: Option<&str>| -> Vec<String> {
+        let mut args = vec![
+            "--engine",
+            "llama-cpp",
+            "--model-dir",
+            &model_arg,
+            "--model-trust",
+            &trust_arg,
+            "--sidecar",
+            &sidecar,
+        ];
+        if let Some(serve) = serve {
+            args.extend(["--serve-dir", serve]);
+        }
+        args.into_iter().map(String::from).collect()
+    };
+    let (identity_arg, state_arg) = (
+        server_identity.display().to_string(),
+        state.display().to_string(),
+    );
+    let refused = |extra: &[String]| -> String {
+        let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+            .args(server_args(&identity_arg, &state_arg))
+            .args(extra)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+        text(&out.stderr)
+    };
+
+    // No serve directory, the model directory itself, or one inside it: refused.
+    let e = refused(&engine(None));
+    assert!(e.contains("--serve-dir is required"), "{e}");
+    let e = refused(&engine(Some(&model_arg)));
+    assert!(e.contains("apart from --model-dir"), "{e}");
+    let inside = model.join("serve");
+    std::fs::create_dir_all(&inside).unwrap();
+    let e = refused(&engine(Some(&inside.display().to_string())));
+    assert!(e.contains("apart from --model-dir"), "{e}");
+    std::fs::remove_dir(&inside).unwrap();
+    // And the reference engine takes none.
+    let e = refused(&["--serve-dir".to_string(), serve_arg.clone()]);
+    assert!(e.contains("--serve-dir needs --engine"), "{e}");
+
+    let weights = model.join("granite-test.gguf");
+    let signed = std::fs::read(&weights).unwrap();
+    let staged = serve.join("granite-test.gguf");
+    let server = start_with(&server_identity, &state, &strs(&engine(Some(&serve_arg))));
+    assert_eq!(std::fs::read(&staged).unwrap(), signed);
+    assert!(std::fs::metadata(&staged).unwrap().permissions().readonly());
+    assert!(serve.join(model_server::STAGED_MARKER).exists());
+    let (status, body) = get(&server.health, "/readyz");
+    assert_eq!(status, 200, "{body}");
+
+    // A file swapped into the model directory after the check: the staged copy, which
+    // is all the sidecar is given, is untouched, and the service stays ready.
+    let mut evil = signed.clone();
+    evil[2_000..2_100].fill(0x41);
+    std::fs::write(model.join("evil.gguf"), &evil).unwrap();
+    std::fs::rename(model.join("evil.gguf"), &weights).unwrap();
+    assert_eq!(std::fs::read(&staged).unwrap(), signed);
+    let (status, body) = get(&server.health, "/readyz");
+    assert_eq!(status, 200, "{body}");
+
+    // The staged copy replaced underneath the sidecar: out of rotation.
+    std::fs::write(serve.join("other.gguf"), &signed).unwrap();
+    std::fs::rename(serve.join("other.gguf"), &staged).unwrap();
+    let (status, body) = get(&server.health, "/readyz");
+    assert_ne!(status, 200, "{body}");
+    assert!(body.contains("model-weights-unchanged"), "{body}");
+    drop(server);
     let _ = std::fs::remove_dir_all(&root);
 }

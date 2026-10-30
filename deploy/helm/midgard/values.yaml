@@ -125,9 +125,16 @@ services:
 # [AC-MI-7] A sidecar runs the engine in the pod, listening on 127.0.0.1:8080 only.
 # mimir-server verifies the model in /models/<modelDir> before it serves: a manifest
 # signed by the key in trustConfigMap (key model-signing.pub, from `mg-model keygen`),
-# and weights whose size, format and SHA-256 match it. It is ready only while the
-# sidecar is healthy. modelsClaim is a PersistentVolumeClaim holding the staged model
-# directories; both containers mount it read-only.
+# and weights whose size, format and SHA-256 match it. modelsClaim is a
+# PersistentVolumeClaim holding the staged model directories; mimir-server mounts it
+# read-only, and the sidecar not at all. [MG-SEC-14] The sidecar loads by path, so
+# mimir-server copies the weights it verified, from the file it verified them through
+# and hashing them again, into /serve — an emptyDir only it writes, at most
+# serveSizeLimit — read-only and under their signed file name, then writes
+# /serve/staged.ready. The sidecar mounts /serve read-only and runs sidecarEntrypoint
+# with sidecarArgs only once that marker exists, so point sidecarArgs at
+# /serve/<weights file>. It is ready only while the sidecar is healthy and the staged
+# copy is unchanged.
 modelServing:
   enabled: false
   service: mimir-server
@@ -138,10 +145,14 @@ modelServing:
   modelsClaim: mimir-models
   modelDir: granite
   trustConfigMap: mimir-model-trust
-  # The engine's own arguments. For vLLM, use its image and e.g.
-  # ["--model", "/models/<dir>", "--served-model-name", "<manifest id>",
-  #  "--host", "127.0.0.1", "--port", "8080"], with a GPU in resources.
-  sidecarArgs: ["-m", "/models/granite/granite-3.3-2b-instruct-Q4_K_M.gguf",
+  # Room for the staged copy of the weights.
+  serveSizeLimit: 4Gi
+  # The engine's own program, from its image, and arguments. For vLLM, use its image,
+  # its server as sidecarEntrypoint and e.g. ["--model", "/serve/<weights file>",
+  # "--served-model-name", "<manifest id>", "--host", "127.0.0.1", "--port", "8080"],
+  # with a GPU in resources. Only the signed weights file is staged.
+  sidecarEntrypoint: ["/app/llama-server"]
+  sidecarArgs: ["-m", "/serve/granite-3.3-2b-instruct-Q4_K_M.gguf",
                 "--alias", "granite-3.3-2b-instruct-q4km",
                 "--host", "127.0.0.1", "--port", "8080", "--ctx-size", "4096"]
   resources:

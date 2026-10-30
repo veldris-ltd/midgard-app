@@ -5,12 +5,14 @@
 //! ```text
 //! heimdall-source --identity-dir DIR --addr HOST:PORT --kind K --entity KEY
 //!                 [--attrs k=v,...] [--observed-at T] [--observation-id ID]
-//!                 [--service NAME] [--feed-id FEED] [--purpose P]
-//! heimdall-source --identity-dir DIR --addr HOST:PORT --picture [--service NAME] [--purpose P]
+//!                 [--service NAME] [--server NAME] [--feed-id FEED] [--purpose P]
+//! heimdall-source --identity-dir DIR --addr HOST:PORT --picture [--service NAME]
+//!                 [--server NAME] [--purpose P]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
-//! to `feed-source`). The observation's feed is NAME — `--feed-id` defaults to it, and
+//! to `feed-source`). The gateway at `--addr` must hold the mesh identity `--server`
+//! (default `heimdall-feed`); any other is refused before anything is sent. The observation's feed is NAME — `--feed-id` defaults to it, and
 //! the gateway refuses any other. `--observed-at` defaults to now. Exits 1 when the
 //! gateway refuses.
 
@@ -23,7 +25,7 @@ use service_runtime::{client, unix_seconds, Args, ServiceIdentity};
 const USAGE: &str = "usage: heimdall-source --identity-dir DIR --addr HOST:PORT \
                      (--kind K --entity KEY [--attrs k=v,...] [--observed-at T] \
                      [--observation-id ID] [--feed-id FEED] | --picture) \
-                     [--service NAME] [--purpose P]";
+                     [--service NAME] [--server NAME] [--purpose P]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -32,6 +34,7 @@ fn main() {
         &[
             "identity-dir",
             "addr",
+            "server",
             "service",
             "purpose",
             "kind",
@@ -63,9 +66,17 @@ fn run(args: &Args) -> Result<String, String> {
     let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
     let addr = args.require("addr")?;
     let purpose = args.get("purpose").unwrap_or("situational-awareness");
+    let server = args.get("server").unwrap_or("heimdall-feed");
 
     if args.flag("picture") {
-        return answer(&client::call(&identity, addr, purpose, READ_PICTURE, &[])?);
+        return answer(&client::call(
+            &identity,
+            addr,
+            server,
+            purpose,
+            READ_PICTURE,
+            &[],
+        )?);
     }
 
     let feed = args.get("feed-id").unwrap_or(service);
@@ -96,6 +107,7 @@ fn run(args: &Args) -> Result<String, String> {
     answer(&client::call(
         &identity,
         addr,
+        server,
         purpose,
         INGEST,
         &encode_signed_observation(&signed),

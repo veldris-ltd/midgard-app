@@ -17,6 +17,16 @@ CONTRIBUTING.md for the version policy.
   independent review before production reliance. [RT-35] [NFR-PQ-2]
 - `docs/ops/KEY_CEREMONY.md`: where the key ceremony is held, and what it leaves in
   this repository.
+- **An upgrade path for enclosures from an earlier build.** `mg-admin mesh upgrade`
+  reissues a service's certificate for the key it already holds and rewrites its trust
+  anchor and `mesh.crl`, keeping both keystores (a new audit keystore would lock the
+  service out of its ledger and sealed state). `mg-admin audit checkpoint` now adopts
+  the gateway's dual-control ledger as well as its governance ledger, is safe to run
+  again, and with `--identity-dir` adopts a mesh service's own ledger. Compose `init`
+  and `mg-install`'s repair run both, so re-running them is the upgrade; the installer
+  now stops every service, not only the gateway, before `init`. The kind identity
+  Secrets carry `mesh.crl`. `docs/ops/UPGRADING.md` has every step. [MG-SEC-02]
+  [MG-SEC-03] [MG-SEC-05]
 
 ### Changed
 - **The key ceremony is held with Dvalin**, a separate application
@@ -25,6 +35,106 @@ CONTRIBUTING.md for the version policy.
   `attest`, pinned by revision. `deploy/trust/ceremony.sh` is removed; its claims are
   that repository's tests, and its contract test runs this repository's release
   checks against what the app publishes. [RT-35] [AC-RF-CA-6a]
+
+### Security
+- **The audit ledger can no longer be quietly shortened or deleted, or checked with a
+  key of the attacker's choosing.** [MG-SEC-05]
+  - Every append refreshes a signed checkpoint of the ledger's length and last entry
+    (`<ledger>.checkpoint`, replaced atomically). A ledger shorter than its checkpoint,
+    or whose last entry is not the checkpointed one, fails closed.
+  - `FileLedger::open` refuses a missing ledger or checkpoint; a new ledger is made by
+    `FileLedger::create`, and `mg-admin init` now creates the governance ledger with a
+    signed empty checkpoint. Stores that make their own ledger on first start use
+    `FileLedger::open_or_create`.
+  - The gateway checks the ledger under a pinned audit key, `--audit-pin FILE`
+    (default: `trust/audit.pub` in the state directory, with a warning), and refuses
+    an audit keystore that does not hold it. `audit_writer::verify_ledger` is the
+    check.
+  - Upgrading: a ledger written before this change has no checkpoint and does not
+    open. Run `mg-admin audit checkpoint --state-dir DIR --audit-pin FILE` once: it
+    verifies the whole ledger under the pinned key and records its first checkpoint.
+  - Checkpoints can be sent off the server. With `--checkpoint-mirror DIR` (the
+    gateway, `mg-admin init`) every checkpoint is also written, atomically, to a
+    directory on another mount, which only ever moves forward. A ledger rolled back
+    together with its checkpoint, or restored from an older backup, is behind the
+    mirror and refuses to boot; one deleted with its checkpoint is not re-created; and
+    a mirror that holds nothing for a ledger with entries fails closed. An append
+    whose checkpoint the mirror does not take fails, and the ledger takes no further
+    entry until it does. `mg-admin audit checkpoint --checkpoint-mirror DIR` verifies
+    the ledger under the pinned key and enables or re-seeds the mirror; it never moves
+    one back. `audit_writer::CheckpointMirror` lets a deployment push checkpoints to a
+    sink of its own; `FileCheckpointMirror` is the directory one. Without the option
+    nothing changes.
+- **Break-glass needs a real second person.** The approver was free text checked only
+  for being non-empty. A grant now takes the requester's and the approver's
+  `AdminSession`s, which exist only after each signed in with their own passkey: the
+  requester must be the principal being elevated, the approver a different
+  administrator who re-authenticated within the approval window, and the grant and the
+  audit ledger record both identities (`breakglass-approve`, then `breakglass-grant`).
+  `GrantRequest` no longer has an `approver` field. Signed in is not enough: a grant
+  also takes the `IdentityDirectory`, and the requester must hold `breakglass.request`
+  and the approver `breakglass.approve` (the security officer's) through role bindings
+  in force at the time and covering the grant's scope, or it is refused
+  (`RequesterNotAuthorised`, `ApproverNotAuthorised`) with nothing alerted, issued or
+  sealed. [MG-SEC-07]
+- **Services check who they connected to.** [MG-SEC-01] Every mesh client names the
+  service it means to call, and refuses any other before sending its key exchange.
+- **Mesh certificates expire.** [MG-SEC-02] Certificates hold a serial and a validity
+  window, checked at every handshake (format `MGCERT2`; v1 certificates and anchors
+  are refused). `mg-admin mesh issue` takes `--days` (default 30, at most 365) and
+  `mg-admin mesh renew` replaces a certificate that is due.
+- **Revocation works in practice.** [MG-SEC-03] Revocation is a list signed by the
+  mesh CA (`mesh.crl`): every service requires it at start, re-reads it every 30
+  seconds and refuses an older or forged one. `mg-admin mesh revoke` signs the next
+  version and writes it to each service directory named. A resumed session is
+  refused if either side's certificate was revoked or has expired since, and a
+  ticket never outlives the certificate.
+- **Clearance comes from the certificate.** [MG-SEC-04] A certificate carries the
+  clearance it grants (`mg-admin mesh issue --clearance`); the server authorizes the
+  lower of that and what the client asks for, and keeps it on the session.
+- **Keys are wiped from memory.** [MG-SEC-08] The X25519 and AES libraries are built
+  with their zeroize features, intermediate secrets are wiped, the ML-KEM secret-key
+  buffer is allocated at its final size, and a failure to lock memory is logged
+  (`pqc_agility::mlock_failures`).
+- **Standard hybrid key combination.** [MG-SEC-09] The hybrid secret uses the X-Wing
+  combiner (SHA3-256 over both secrets, the X25519 ciphertext and public key), and
+  an all-zero X25519 result is refused. This is protocol version 2.
+- **Hybrid required, rekeying and an end-of-stream marker.** [MG-SEC-12] Both sides
+  require a hybrid suite by default; the record layer rekeys after 2^24 records or
+  2^34 bytes; a close marker ends a stream, so a cut connection is reported as
+  truncated rather than finished.
+- **Server hardening.** [MG-SEC-13] The mesh gateway and services accept at most 512
+  connections at once, time out a handshake after 10 seconds and an idle stream
+  after 5 minutes, and cap a frame at 64 KiB during the handshake and 1 MiB after,
+  before reserving memory.
+- **The gateway is safe by default.** [MG-SEC-06] Started with no arguments it
+  refuses to start; it needs `--state-dir`. Development mode, with its published demo
+  logins, is behind an explicit `--dev` flag and listens on loopback only; a bare
+  address no longer starts it.
+- **Vetted crypto libraries.** [MG-SEC-10] The hand-written HMAC, HKDF, PBKDF2 and
+  constant-time comparison are replaced by RustCrypto's `hmac`, `hkdf`, `pbkdf2` and
+  `subtle`, behind the same functions, and checked against the RFC 4231, 5869, 6070
+  and 7914 vectors.
+- **Stronger password storage.** [MG-SEC-11] New passwords are Argon2id. A stored hash
+  outside fixed cost bounds is refused like a wrong password, so an edited entry
+  cannot weaken itself; legacy PBKDF2 entries (210,000 iterations) still sign in and
+  are replaced with Argon2id at that sign-in, recorded in the audit ledger.
+- **Tighter checks before loading signed software.** [MG-SEC-14] Model manifests and
+  bundles are checked against their signature before they are parsed; an older
+  release, or the same version with different content, is refused across restarts;
+  model weights are hashed through the handle that is then used; and the image no
+  longer reads `MIDGARD_RELEASE_TRUST_KEY`. A llama.cpp or vLLM sidecar, which loads by
+  path, is no longer given the model directory: `mimir-server --serve-dir` (required
+  with a sidecar engine) copies the weights from the handle they were verified through,
+  hashing them again, into a directory only it writes, read-only and renamed into place,
+  and writes `staged.ready` last; the sidecar mounts only that directory, read-only, and
+  starts once the marker exists, so a file swapped into the model directory after the
+  check is never loaded. Readiness now watches the staged copy.
+- **Tests that prove the claims.** [MG-SEC-15] CI fails a build whose dependency graph
+  enables the insecure test backend (`tools/ci/no-test-backend.sh`). The NIST ACVP
+  ML-KEM and ML-DSA vectors run offline; the ledger tamper and truncation tests and the
+  handshake downgrade tests also run on the FIPS backend; the whole crypto suites run
+  there, not chosen files; and seven crates no recipe tested now are.
 
 ### Fixed
 - `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony

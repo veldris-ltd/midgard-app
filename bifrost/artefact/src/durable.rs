@@ -7,6 +7,12 @@
 //! artefact is decoded and **re-ingested through the same verify-on-ingest path**,
 //! so a tampered on-disk artefact fails ML-DSA verification and boot fails closed.
 //! [FR-B-1] [FR-B-4] [AC-B-1] [RC-12]
+//!
+//! The anti-rollback floor is persisted beside them (`release.floor`), raised before an
+//! artefact's file is written, and checked on boot: every stored artefact must be at or
+//! below the floor for its id, and at the floor's version must be the very release the
+//! floor recorded. A registry written before it kept a floor adopts one on first open,
+//! from the highest release it holds per id. [MG-SEC-14]
 
 // The module is gated at its declaration in lib.rs; repeating the cfg here is
 // the same attribute applied twice (clippy::duplicated_attributes).
@@ -17,12 +23,17 @@ use std::path::{Path, PathBuf};
 
 use pqc_agility::{SigId, Signature, VerifyingKey};
 
+use attest::ReleaseFloor;
+
 use crate::error::RegistryError;
 use crate::manifest::{ArtefactManifest, ArtefactRef};
-use crate::registry::ArtefactRegistry;
+use crate::registry::{release_digest, ArtefactRegistry};
 use crate::signed::SignedArtefact;
 
 const EXT: &str = "artefact";
+
+/// The persisted anti-rollback floor's file name. [MG-SEC-14]
+const FLOOR_FILE: &str = "release.floor";
 
 /// An [`ArtefactRegistry`] whose contents survive a restart, re-verified on boot.
 pub struct DurableArtefactRegistry {
@@ -37,7 +48,9 @@ impl DurableArtefactRegistry {
     pub fn open(dir: impl AsRef<Path>, trust_key: VerifyingKey) -> Result<Self, RegistryError> {
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir).map_err(io)?;
-        let mut inner = ArtefactRegistry::new(trust_key);
+        let floor = ReleaseFloor::open(dir.join(FLOOR_FILE)).map_err(RegistryError::Rollback)?;
+        let adopt = !floor.is_persisted();
+        let mut inner = ArtefactRegistry::with_floor(trust_key, floor);
 
         for entry in fs::read_dir(&dir).map_err(io)? {
             let path = entry.map_err(io)?.path();
@@ -46,15 +59,42 @@ impl DurableArtefactRegistry {
             }
             let bytes = fs::read(&path).map_err(io)?;
             let artefact = decode_artefact(&bytes)?;
-            // Re-verify on boot through the normal ingest path (fails closed).
-            inner.ingest(artefact)?;
+            // Re-verify on boot (fails closed).
+            inner.restore(artefact)?;
+        }
+
+        // What is stored must agree with the floor; a registry from before the floor
+        // adopts one from what it holds. [MG-SEC-14]
+        let held: Vec<(String, String, [u8; 32])> = inner
+            .artefacts()
+            .map(|a| {
+                (
+                    a.manifest.id.clone(),
+                    a.manifest.version.clone(),
+                    release_digest(a),
+                )
+            })
+            .collect();
+        if adopt {
+            inner
+                .floor_mut()
+                .adopt(held.iter().map(|(id, v, d)| (id.as_str(), v.as_str(), *d)))
+                .map_err(RegistryError::Rollback)?;
+        } else {
+            for (id, version, digest) in &held {
+                inner
+                    .floor()
+                    .covers(id, version, digest)
+                    .map_err(RegistryError::Rollback)?;
+            }
         }
 
         Ok(Self { inner, dir })
     }
 
-    /// Ingest (verify + store) an artefact and durably persist it. A rejected
-    /// artefact never touches disk. [AC-B-1]
+    /// Ingest (verify + anti-rollback + store) an artefact and durably persist it: the
+    /// floor first, then the artefact. A rejected artefact never touches disk. [AC-B-1]
+    /// [MG-SEC-14]
     pub fn ingest(&mut self, artefact: SignedArtefact) -> Result<ArtefactRef, RegistryError> {
         let key = self.inner.ingest(artefact)?;
         let stored = self

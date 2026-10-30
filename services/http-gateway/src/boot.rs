@@ -8,20 +8,38 @@
 //! authenticate, a ledger chain that does not re-verify, an unreadable policy file, or
 //! a state directory another process holds all refuse to start rather than serve
 //! something partial.
+//!
+//! The governance ledger is checked under a **pinned** audit key the operator supplies
+//! from outside the state directory's keystore: an audit keystore whose key is not the
+//! pinned one refuses to boot, and so does a ledger that is missing, has no signed
+//! checkpoint, or is shorter than its checkpoint. `mg-admin init` creates the ledger
+//! ([`init_audit_ledger`]); the gateway only ever opens it. [MG-SEC-05]
+//!
+//! With a checkpoint mirror (`--checkpoint-mirror DIR`, a directory on another mount)
+//! every ledger checkpoint is also written there, and a ledger behind the mirror (it
+//! and its checkpoint rolled back together, or an older backup restored) refuses to
+//! boot, as does a mirror that holds nothing for a ledger with entries. `mg-admin
+//! audit checkpoint --checkpoint-mirror` verifies the ledger and (re-)seeds the
+//! mirror ([`mirror_audit_ledger`]). [MG-SEC-05]
 
 use std::path::Path;
 
 use admin_identity::{DurableAdminPasskeys, DurableIdentityDirectory, RoleCatalog};
 use admin_privilege::DurablePrivilege;
 use attest::Keystore;
-use audit_writer::{verify_chain, AuditWriter, FileLedger, LedgerId, Sealer};
+pub use audit_writer::Adoption;
+use audit_writer::{
+    adopt_ledger, checkpoint_path, verify_chain, verify_ledger, AdoptionKeys, AuditError,
+    AuditWriter, CheckpointMirror, FileCheckpointMirror, FileLedger, LedgerId, LedgerStore,
+    PinnedKey, Sealer,
+};
 use fabric::DurableObjectStore;
 use governance::Governance;
 use iam::{DurableDirectory, Idp, Pbkdf2Hasher};
 use kms::{Kms, KmsSealer};
 use policy::DefaultPdp;
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
-use pqc_agility::{SecretBytes, SigId, SigningKey, VerifyingKey};
+use pqc_agility::{SecretBytes, SigningKey, VerifyingKey};
 
 use crate::admin_api::AdminControl;
 use crate::enclosure::Enclosure;
@@ -59,10 +77,25 @@ impl ServedEnclosure {
 }
 
 /// Open the enclosure in `state` for serving, allowing browser sessions from
-/// `allowed_origins`.
+/// `allowed_origins`, with the governance ledger checked under `audit_pin` — the audit
+/// verifying key, supplied from outside the state directory's keystore. [MG-SEC-05]
 pub fn open_state_dir(
     state: &StateDir,
     allowed_origins: Vec<String>,
+    audit_pin: &PinnedKey,
+) -> Result<ServedEnclosure, String> {
+    open_state_dir_mirrored(state, allowed_origins, audit_pin, None)
+}
+
+/// [`open_state_dir`], with the governance ledger's checkpoints also kept in the
+/// checkpoint mirror `checkpoint_mirror`, a directory outside the state directory:
+/// a ledger behind the mirror refuses to boot, and every later checkpoint is written
+/// there too. `None` is exactly [`open_state_dir`]. [MG-SEC-05]
+pub fn open_state_dir_mirrored(
+    state: &StateDir,
+    allowed_origins: Vec<String>,
+    audit_pin: &PinnedKey,
+    checkpoint_mirror: Option<&Path>,
 ) -> Result<ServedEnclosure, String> {
     let lock = StateLock::acquire(state, "http-gateway")?;
 
@@ -86,16 +119,48 @@ pub fn open_state_dir(
     let pending_sealer = sealer(&audit_keystore);
     let audit_alg = audit_keystore.alg;
     let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+    // The keystore that signs the ledger does not get to say which key checks it.
+    // [MG-SEC-05]
+    audit_pin.check(&audit_vk).map_err(|_| {
+        format!(
+            "the audit keystore {} does not hold the pinned audit key; refusing to serve a \
+             ledger signed by an unpinned key",
+            state.audit_keystore().display()
+        )
+    })?;
 
-    let ledger = FileLedger::open(state.ledger(), ledger_sealer, LedgerId(LEDGER_ID.into()))
-        .map_err(|e| format!("the audit ledger does not open: {e}"))?;
+    // The ledger must already exist (`mg-admin init` makes it) and reach its signed
+    // checkpoint: a deleted or shortened ledger is tampering, not a fresh start. With
+    // a mirror, it must not be behind the checkpoint kept off the server either.
+    let ledger_id = LedgerId(LEDGER_ID.into());
+    let ledger = match checkpoint_mirror {
+        None => FileLedger::open(state.ledger(), ledger_sealer, ledger_id),
+        Some(dir) => FileLedger::open_mirrored(
+            state.ledger(),
+            ledger_sealer,
+            ledger_id,
+            mirror_in(state, dir)?,
+        ),
+    }
+    .map_err(|e| ledger_refused(state, checkpoint_mirror, e))?;
     let writer = AuditWriter::new(
         ledger,
         Box::new(FipsSig::new(audit_alg)),
         audit_sk,
-        audit_vk.clone(),
+        audit_vk,
         LedgerId(LEDGER_ID.into()),
     );
+    // Every recovered entry, and the checkpoint vouching for how many there are, must
+    // verify under the pinned key before a single request is served on top of them.
+    verify_ledger(
+        writer.entries(),
+        writer.checkpoint(),
+        &fips_provider(),
+        &LedgerId(LEDGER_ID.into()),
+        audit_pin,
+    )
+    .map_err(|e| format!("the audit ledger does not re-verify: {e}"))?;
+    let audit_entries = writer.entries().len();
 
     let policy_path = state.policy();
     let policy_text = std::fs::read_to_string(&policy_path)
@@ -103,19 +168,6 @@ pub fn open_state_dir(
     let policy =
         parse_policy(&policy_text).map_err(|e| format!("{}: {e}", policy_path.display()))?;
     let governance = Governance::with_audit(DefaultPdp::new(policy), writer);
-
-    // Every recovered entry must chain and verify under the audit key before a single
-    // request is served on top of it.
-    let resolver =
-        move |alg: SigId| -> Option<VerifyingKey> { (alg == audit_alg).then(|| audit_vk.clone()) };
-    verify_chain(
-        governance.audit_entries(),
-        &fips_provider(),
-        &LedgerId(LEDGER_ID.into()),
-        &resolver,
-    )
-    .map_err(|e| format!("the audit ledger does not re-verify: {e:?}"))?;
-    let audit_entries = governance.audit_entries().len();
 
     let store = DurableObjectStore::open(state.store(), store_sealer, STORE_ID)
         .map_err(|e| format!("the object store does not open: {e}"))?;
@@ -197,6 +249,212 @@ pub fn open_state_dir(
         administrators,
         lock,
     })
+}
+
+/// Create the governance audit ledger in a new state directory and vouch for it with a
+/// signed, empty checkpoint, so that from then on a deleted or emptied ledger refuses
+/// to boot. Refuses if a ledger is already there. `mg-admin init` calls this once.
+/// [MG-SEC-05]
+pub fn init_audit_ledger(state: &StateDir) -> Result<(), String> {
+    init_audit_ledger_mirrored(state, None)
+}
+
+/// [`init_audit_ledger`], with every checkpoint also written to the checkpoint
+/// mirror `checkpoint_mirror`, starting with the empty one. Refuses a mirror that
+/// already holds a checkpoint for the ledger: a ledger existed, and a new one does
+/// not replace it. [MG-SEC-05]
+pub fn init_audit_ledger_mirrored(
+    state: &StateDir,
+    checkpoint_mirror: Option<&Path>,
+) -> Result<(), String> {
+    let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+    let ledger_sealer = sealer(&audit_keystore);
+    let audit_alg = audit_keystore.alg;
+    let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+    let ledger_id = LedgerId(LEDGER_ID.into());
+    let ledger = match checkpoint_mirror {
+        None => FileLedger::create(state.ledger(), ledger_sealer, ledger_id),
+        Some(dir) => FileLedger::create_mirrored(
+            state.ledger(),
+            ledger_sealer,
+            ledger_id,
+            mirror_in(state, dir)?,
+        ),
+    }
+    .map_err(|e| format!("cannot create the audit ledger: {e}"))?;
+    AuditWriter::new(
+        ledger,
+        Box::new(FipsSig::new(audit_alg)),
+        audit_sk,
+        audit_vk,
+        LedgerId(LEDGER_ID.into()),
+    )
+    .seal_checkpoint()
+    .map_err(|e| format!("cannot checkpoint the new audit ledger: {e}"))
+}
+
+/// Adopt the state directory's ledgers written before checkpoints existed — the
+/// governance ledger and the dual-control (privilege) ledger: verify each whole chain
+/// under the pinned key, then record its first signed checkpoint. A ledger that already
+/// has a checkpoint, or that does not exist yet, is left alone, so this is safe to run
+/// again. Refuses an audit keystore that does not hold the pinned key and a ledger that
+/// does not verify. Returns what was done to each, by name. `mg-admin audit checkpoint`
+/// calls this, on upgrade. [MG-SEC-05]
+pub fn checkpoint_legacy_ledger(
+    state: &StateDir,
+    audit_pin: &PinnedKey,
+) -> Result<Vec<(&'static str, Adoption)>, String> {
+    let ledgers = [
+        ("governance ledger", state.ledger(), LEDGER_ID),
+        (
+            "dual-control ledger",
+            state.admin_privilege().join(admin_privilege::LEDGER_FILE),
+            PRIVILEGE_LEDGER_ID,
+        ),
+    ];
+    let mut done = Vec::new();
+    for (name, path, ledger_id) in ledgers {
+        // A fresh read per ledger: an unsealed signing key is consumed by its writer.
+        let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+        let ledger_sealer = sealer(&audit_keystore);
+        let audit_alg = audit_keystore.alg;
+        let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+        audit_pin
+            .check(&audit_vk)
+            .map_err(|_| "the audit keystore does not hold the pinned audit key".to_string())?;
+        let adoption = adopt_ledger(
+            &path,
+            ledger_sealer,
+            LedgerId(ledger_id.into()),
+            &fips_provider(),
+            AdoptionKeys {
+                scheme: Box::new(FipsSig::new(audit_alg)),
+                signing_key: audit_sk,
+                verifying_key: audit_vk,
+                verify_under: &|alg| audit_pin.resolve(alg),
+            },
+        )
+        .map_err(|e| match e {
+            AuditError::SignatureInvalid { .. } => format!(
+                "the {name} ({}) does not verify under the pinned key: {e}",
+                path.display()
+            ),
+            e => format!("cannot adopt the {name} ({}): {e}", path.display()),
+        })?;
+        done.push((name, adoption));
+    }
+    Ok(done)
+}
+
+/// Verify the governance ledger under the pinned key and start mirroring its
+/// checkpoints to `checkpoint_mirror`, publishing the current one now. This enables
+/// a mirror for an existing ledger, or re-seeds one that was lost; a ledger written
+/// before checkpoints is adopted at the same time. Refuses a mirror ahead of the
+/// ledger or naming another head: re-seeding never moves a mirror back. Returns the
+/// number of entries the mirrored checkpoint vouches for. `mg-admin audit checkpoint
+/// --checkpoint-mirror` calls this. [MG-SEC-05]
+pub fn mirror_audit_ledger(
+    state: &StateDir,
+    audit_pin: &PinnedKey,
+    checkpoint_mirror: &Path,
+) -> Result<usize, String> {
+    let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+    let ledger_sealer = sealer(&audit_keystore);
+    let audit_alg = audit_keystore.alg;
+    let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+    audit_pin
+        .check(&audit_vk)
+        .map_err(|_| "the audit keystore does not hold the pinned audit key".to_string())?;
+    let mirror = mirror_in(state, checkpoint_mirror)?;
+    let ledger_id = LedgerId(LEDGER_ID.into());
+    let legacy = !checkpoint_path(&state.ledger()).exists();
+    let mut ledger = if legacy {
+        let ledger =
+            FileLedger::open_uncheckpointed(state.ledger(), ledger_sealer, ledger_id.clone())
+                .map_err(|e| format!("cannot adopt the audit ledger: {e}"))?;
+        verify_chain(ledger.entries(), &fips_provider(), &ledger_id, &|alg| {
+            audit_pin.resolve(alg)
+        })
+        .map_err(|e| format!("the audit ledger does not verify under the pinned key: {e}"))?;
+        ledger
+    } else {
+        let ledger = FileLedger::open(state.ledger(), ledger_sealer, ledger_id.clone())
+            .map_err(|e| format!("the audit ledger does not open: {e}"))?;
+        verify_ledger(
+            ledger.entries(),
+            ledger.checkpoint(),
+            &fips_provider(),
+            &ledger_id,
+            audit_pin,
+        )
+        .map_err(|e| format!("the audit ledger does not verify under the pinned key: {e}"))?;
+        ledger
+    };
+    ledger
+        .start_mirroring(mirror)
+        .map_err(|e| format!("cannot mirror the audit ledger's checkpoint: {e}"))?;
+    if legacy {
+        // Its first checkpoint, published to the mirror as it is recorded.
+        let mut writer = AuditWriter::new(
+            ledger,
+            Box::new(FipsSig::new(audit_alg)),
+            audit_sk,
+            audit_vk,
+            ledger_id,
+        );
+        writer
+            .seal_checkpoint()
+            .map_err(|e| format!("cannot checkpoint the audit ledger: {e}"))?;
+        return Ok(writer.entries().len());
+    }
+    Ok(ledger.checkpoint().map_or(0, |c| c.count as usize))
+}
+
+/// The checkpoint mirror in `dir`. It must be an existing directory outside the state
+/// directory: a mirror inside it rolls back with it. [MG-SEC-05]
+fn mirror_in(state: &StateDir, dir: &Path) -> Result<Box<dyn CheckpointMirror>, String> {
+    let mirror = FileCheckpointMirror::new(dir).map_err(|e| e.to_string())?;
+    let inside = match (
+        std::fs::canonicalize(dir),
+        std::fs::canonicalize(state.root()),
+    ) {
+        (Ok(mirror), Ok(root)) => mirror.starts_with(root),
+        _ => false,
+    };
+    if inside {
+        return Err(format!(
+            "the checkpoint mirror {} is inside the state directory; put it on another \
+             mount, where whoever can roll the state directory back cannot",
+            dir.display()
+        ));
+    }
+    Ok(Box::new(mirror))
+}
+
+/// Why the governance ledger did not open, with the way forward for the mirror cases.
+fn ledger_refused(state: &StateDir, mirror: Option<&Path>, e: AuditError) -> String {
+    let hint = match (&e, mirror) {
+        (AuditError::MirrorMissing(_), Some(dir)) => format!(
+            "; if the mirror was lost, or is new for this ledger, verify the ledger and \
+             re-seed the mirror with `mg-admin audit checkpoint --state-dir {} --audit-pin \
+             <file> --checkpoint-mirror {}`",
+            state.root().display(),
+            dir.display()
+        ),
+        (AuditError::RolledBack { .. } | AuditError::MirrorMismatch { .. }, Some(_)) => {
+            "; restore a ledger at least as recent as the mirror (docs/ops/BACKUP_RESTORE.md)"
+                .to_string()
+        }
+        _ => String::new(),
+    };
+    format!("the audit ledger does not open: {e}{hint}")
+}
+
+/// Read the pinned audit key: one `<alg> <key-id> <hex>` line, as `mg-admin init`
+/// writes to `trust/audit.pub`. Keep the copy the gateway is given somewhere the
+/// state directory's writer cannot reach. [MG-SEC-05]
+pub fn read_audit_pin(path: &Path) -> Result<PinnedKey, String> {
+    PinnedKey::read(path).map_err(|e| e.to_string())
 }
 
 fn read_keystore(path: &Path, what: &str) -> Result<Keystore, String> {
