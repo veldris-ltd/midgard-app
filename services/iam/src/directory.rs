@@ -98,11 +98,56 @@ impl DurableDirectory {
 pub trait Directory {
     /// The enrollment for `subject`, if one exists.
     fn enrollment(&self, subject: &str) -> Option<&Enrollment>;
+
+    /// Replace `subject`'s stored password hash with `new_hash` — the rehash-on-sign-in
+    /// upgrade — but only while it still equals `current`, so an enrolment replaced in
+    /// the meantime is never overwritten. `Ok(true)`: replaced (and, for a durable
+    /// directory, persisted); `Ok(false)`: the subject is gone or its hash changed;
+    /// `Err`: this directory cannot record it. The default records nothing.
+    /// [MG-SEC-11]
+    fn replace_password_hash(
+        &mut self,
+        subject: &str,
+        current: &str,
+        new_hash: String,
+    ) -> Result<bool, String> {
+        let _ = (subject, current, new_hash);
+        Err("this directory cannot update stored credentials".into())
+    }
+}
+
+/// The updated enrollment, if `subject`'s password hash is still `current`.
+fn with_password_hash(
+    entry: Option<&Enrollment>,
+    current: &str,
+    new_hash: String,
+) -> Option<Enrollment> {
+    let entry = entry.filter(|e| e.credentials.password_hash == current)?;
+    let mut updated = entry.clone();
+    updated.credentials.password_hash = new_hash;
+    Some(updated)
 }
 
 impl Directory for DurableDirectory {
     fn enrollment(&self, subject: &str) -> Option<&Enrollment> {
         self.get(subject)
+    }
+
+    /// Appends the updated enrollment to the sealed journal, so the upgrade survives
+    /// a restart exactly like an enrolment does. [MG-SEC-11] [RC-29]
+    fn replace_password_hash(
+        &mut self,
+        subject: &str,
+        current: &str,
+        new_hash: String,
+    ) -> Result<bool, String> {
+        match with_password_hash(self.get(subject), current, new_hash) {
+            Some(updated) => self
+                .enroll(subject, updated)
+                .map(|()| true)
+                .map_err(|e| e.to_string()),
+            None => Ok(false),
+        }
     }
 }
 
@@ -137,6 +182,21 @@ impl InMemoryDirectory {
 impl Directory for InMemoryDirectory {
     fn enrollment(&self, subject: &str) -> Option<&Enrollment> {
         self.entries.get(subject)
+    }
+
+    fn replace_password_hash(
+        &mut self,
+        subject: &str,
+        current: &str,
+        new_hash: String,
+    ) -> Result<bool, String> {
+        match with_password_hash(self.entries.get(subject), current, new_hash) {
+            Some(updated) => {
+                self.enroll(subject, updated);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
 
