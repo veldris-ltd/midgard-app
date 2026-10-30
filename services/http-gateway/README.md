@@ -52,13 +52,19 @@ There are two startup modes:
 ## Run
 
 ```bash
-cargo run -p http-gateway                 # development mode on 127.0.0.1:7710
-cargo run -p http-gateway -- 0.0.0.0:8080 # development mode, custom bind address
+cargo run -p http-gateway -- --dev                # development mode on 127.0.0.1:7710
+cargo run -p http-gateway -- --dev 127.0.0.1:8080 # development mode, another loopback port
 
 # a real enclosure (see the repository README, "Run a real enclosure")
 cargo run -p http-gateway -- --state-dir ./enclosure \
   --bind 127.0.0.1:7710 --allow-origin http://localhost:5173
 ```
+
+The gateway is safe by default. With no arguments, or with only an address, it
+refuses to start: it needs a state directory. Development mode (seeded in-memory
+data and the published demo logins `operator` / `midgard-demo` and `approver` /
+`midgard-approve`) needs the explicit `--dev` flag, and listens on a loopback address
+only: `--dev 0.0.0.0:7710` is refused. [MG-SEC-06]
 
 Point a console at it (Midgard core surface):
 

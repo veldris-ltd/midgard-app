@@ -1,9 +1,6 @@
 //! http-gateway binary — the browser-facing HTTP/JSON edge for the console UIs.
 //!
 //! Usage:
-//!   http-gateway [ADDR]
-//!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
-//!       into an in-memory fabric, one built-in login, an ephemeral issuer key.
 //!   http-gateway --state-dir DIR [--audit-pin FILE] [--bind ADDR] [--allow-origin URL]...
 //!                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
 //!                 [--mesh-purpose P]]
@@ -24,6 +21,13 @@
 //!       --mesh-identity-dir (NAME defaults to `http-gateway`); policy.json decides
 //!       who may open the channel and `SyncRecords`, under --mesh-purpose (default
 //!       `data-integration`).
+//!   http-gateway --dev [ADDR]
+//!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
+//!       into an in-memory fabric, the published demo logins, an ephemeral issuer key.
+//!       It listens on a loopback ADDR only; any other address is refused.
+//!
+//! Started with no arguments, or with only an address, the gateway refuses to start:
+//! development mode is never the default. [MG-SEC-06]
 //!
 //! Point a console at it with `VITE_GATEWAY=http` (see products/*/ui). [RC-24] [RC-29]
 //! [FR-F-4] [NFR-SEC-1]
@@ -33,73 +37,44 @@ use std::process::exit;
 use std::sync::Arc;
 
 use http_gateway::boot::{open_state_dir, read_audit_pin, DurableGateway};
+use http_gateway::cli::{self, Command, ServeArgs, USAGE};
 use http_gateway::mesh_sync::spawn_mesh_listener;
 use http_gateway::policy_file::parse_policy;
 use http_gateway::state_dir::StateDir;
 use policy::DefaultPdp;
 use service_runtime::ServiceIdentity;
 
-const DEFAULT_BIND: &str = "127.0.0.1:7710";
-
-const USAGE: &str = "\
-usage:
-  http-gateway [ADDR]
-  http-gateway --state-dir DIR [--audit-pin FILE] [--bind ADDR] [--allow-origin URL]...
-               [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]";
-
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    if argv.iter().any(|a| a == "-h" || a == "--help") {
-        println!("{USAGE}");
-        return;
-    }
-
-    // A bare address (or nothing) is development mode, as it always has been.
-    if argv.first().map_or(true, |a| !a.starts_with("--")) {
-        if argv.len() > 1 {
-            fail_usage("development mode takes at most one argument, the bind address");
+    let args = match cli::parse(&argv) {
+        Ok(Command::Help) => {
+            println!("{USAGE}");
+            return;
         }
-        let addr = argv.first().map_or(DEFAULT_BIND, String::as_str);
-        if let Err(e) = http_gateway::serve(addr) {
-            eprintln!("http-gateway: failed to bind {addr}: {e}");
-            exit(1);
+        Ok(Command::Dev(addr)) => {
+            eprintln!(
+                "http-gateway: DEVELOPMENT MODE — seeded data and the published demo logins, \
+                 on loopback only. Never use it for real data. [MG-SEC-06]"
+            );
+            if let Err(e) = http_gateway::serve_dev(addr) {
+                eprintln!("http-gateway: failed to bind {addr}: {e}");
+                exit(1);
+            }
+            return;
         }
-        return;
-    }
-
-    let mut state_dir = None;
-    let mut audit_pin = None;
-    let mut bind = DEFAULT_BIND.to_string();
-    let mut origins = Vec::new();
-    let mut mesh_bind = None;
-    let mut mesh_identity_dir = None;
-    let mut mesh_service = "http-gateway".to_string();
-    let mut mesh_purpose = "data-integration".to_string();
-    let mut args = argv.iter();
-    while let Some(flag) = args.next() {
-        let Some(value) = args.next().filter(|v| !v.starts_with("--")) else {
-            fail_usage(&format!("{flag} requires a value"));
-        };
-        match flag.as_str() {
-            "--state-dir" if state_dir.is_none() => state_dir = Some(value.clone()),
-            "--audit-pin" if audit_pin.is_none() => audit_pin = Some(value.clone()),
-            "--bind" => bind = value.clone(),
-            "--allow-origin" => origins.push(value.clone()),
-            "--mesh-bind" => mesh_bind = Some(value.clone()),
-            "--mesh-identity-dir" => mesh_identity_dir = Some(value.clone()),
-            "--mesh-service" => mesh_service = value.clone(),
-            "--mesh-purpose" => mesh_purpose = value.clone(),
-            "--state-dir" => fail_usage("--state-dir given twice"),
-            "--audit-pin" => fail_usage("--audit-pin given twice"),
-            other => fail_usage(&format!("unknown option {other}")),
-        }
-    }
-    let Some(state_dir) = state_dir else {
-        fail_usage("--state-dir is required with options");
+        Ok(Command::Serve(args)) => args,
+        Err(message) => fail_usage(&message),
     };
-    if mesh_bind.is_some() != mesh_identity_dir.is_some() {
-        fail_usage("--mesh-bind and --mesh-identity-dir go together");
-    }
+    let ServeArgs {
+        state_dir,
+        audit_pin,
+        bind,
+        origins,
+        mesh_bind,
+        mesh_identity_dir,
+        mesh_service,
+        mesh_purpose,
+    } = args;
 
     let state = StateDir::new(&state_dir);
     let pin_path = match audit_pin {

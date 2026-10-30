@@ -53,7 +53,7 @@ What that does **not** yet mean:
   - `forge-worker`, which syncs sources into versioned datasets and on into the enclosure's fabric
 
   All five run under docker compose. See [Run the services with docker compose](#run-the-services-with-docker-compose) and [What is not yet runnable](#what-is-not-yet-runnable).
-- **The gateway edge runs on the real `fabric` + `governance` crates, and can serve a real enclosure.** Queries, actions, search-around, audit and policy dry-runs go through the object fabric and its single PQ-signed ledger. Development mode keeps everything in memory with one built-in login. A state directory created by `mg-admin` gives the gateway persisted keys, a durable, encrypted store, ledger and identity directory, a policy file and enrolled users (optionally with TOTP). Its schema, including the object types, links and human-gated actions, comes from an ontology file. Data is loaded offline with `mg-admin import`, which checks every record against the ontology before anything is written. Data can also arrive while it runs, through the Forge worker's connectors (files, PostgreSQL, S3-compatible stores). See [Run a real enclosure](#run-a-real-enclosure-no-demo-data).
+- **The gateway edge runs on the real `fabric` + `governance` crates, and can serve a real enclosure.** Queries, actions, search-around, audit and policy dry-runs go through the object fabric and its single PQ-signed ledger. Development mode (`--dev`, loopback only) keeps everything in memory with built-in demo logins. A state directory created by `mg-admin` gives the gateway persisted keys, a durable, encrypted store, ledger and identity directory, a policy file and enrolled users (optionally with TOTP). Its schema, including the object types, links and human-gated actions, comes from an ontology file. Data is loaded offline with `mg-admin import`, which checks every record against the ontology before anything is written. Data can also arrive while it runs, through the Forge worker's connectors (files, PostgreSQL, S3-compatible stores). See [Run a real enclosure](#run-a-real-enclosure-no-demo-data).
 - **GA is gated on external work** — FIPS 140-3 module certification and deployment-tier assurance on real HSM / GPU / cluster hardware.
 
 The authoritative go/no-go record is **[docs/compliance/GA_READINESS.md](docs/compliance/GA_READINESS.md)**, which currently reads **NO-GO** and names every blocker. The step-by-step gate procedure is [docs/ops/RUNBOOK_ga_gate.md](docs/ops/RUNBOOK_ga_gate.md).
@@ -266,7 +266,7 @@ This repository is public, so `samples/` holds only files whose sources state an
 
 This brings up the HTTP/JSON gateway edge and the Midgard console against it. Five steps.
 
-> **Read this first.** These steps start the gateway edge in **development mode**, for trying the consoles. For your own users and no demo data, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data). Development mode means illustrative data seeded into an in-memory object fabric, one built-in credential, and an ephemeral identity key. It is genuinely the real Rust service, with real PQ-signed token issuance, real per-object policy evaluation and a real signed audit ledger — but it is **not** a production deployment and must not be exposed beyond loopback. The gap, and what closing it requires, is spelled out in [What is not yet runnable](#what-is-not-yet-runnable).
+> **Read this first.** These steps start the gateway edge in **development mode**, for trying the consoles. For your own users and no demo data, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data). Development mode means illustrative data seeded into an in-memory object fabric, one built-in credential, and an ephemeral identity key. It is genuinely the real Rust service, with real PQ-signed token issuance, real per-object policy evaluation and a real signed audit ledger — but it is **not** a production deployment, and it refuses to listen beyond loopback. The gap, and what closing it requires, is spelled out in [What is not yet runnable](#what-is-not-yet-runnable).
 
 ### 1 — Install the console dependencies
 
@@ -293,15 +293,10 @@ docker run --rm -v "$PWD":/work -w /work midgard-acceptance:1.82.0 \
 ### 3 — Start the gateway edge
 
 ```bash
-just gateway-http                 # equivalent to: cargo run -p http-gateway -- 127.0.0.1:7710
+just gateway-http                 # equivalent to: cargo run -p http-gateway -- --dev 127.0.0.1:7710
 ```
 
-Or, from the container:
-
-```bash
-docker run --rm -p 7710:7710 -v "$PWD":/work -w /work midgard-acceptance:1.82.0 \
-  cargo run --offline --release -p http-gateway -- 0.0.0.0:7710
-```
+Development mode needs the explicit `--dev` flag. Started with no arguments, or with only an address, the gateway refuses to start: it serves a state directory (`--state-dir`, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data)) or nothing. `--dev` listens on a loopback address only and refuses any other, such as `0.0.0.0`. [MG-SEC-06]
 
 It prints `http-gateway (secured) listening on http://127.0.0.1:7710`. Confirm it is up:
 
@@ -310,7 +305,7 @@ curl -s http://127.0.0.1:7710/api/v1/health
 # {"status":"ok","service":"http-gateway","transport":"HTTP/JSON edge → enclosure"}
 ```
 
-> Binding anything other than loopback prints a warning and is not supported without PQ-mTLS/TLS-1.3 termination in front of it. The container form above binds `0.0.0.0` inside the container only; the published port still reaches you on loopback.
+> Because development mode binds loopback only, it cannot be published from a container: a `docker run -p 7710:7710` reaches nothing. Without a local Rust toolchain, run the enclosure with [docker compose](#run-the-services-with-docker-compose) instead, which serves a state directory with your own users.
 
 ### 4 — Start the Midgard console
 
@@ -389,7 +384,7 @@ Authenticated requests are authorised through the real policy PDP and audited th
 VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev -- --strictPort
 ```
 
-**`Connection refused` on 7710.** The edge isn't running, or it bound inside a container without `-p 7710:7710`.
+**`Connection refused` on 7710.** The edge isn't running. Development mode listens on loopback only, so a gateway started with `--dev` inside a container cannot be reached from outside it.
 
 **`429 Too Many Requests` when logging in.** Too many wrong passwords for that username. Wait the number of seconds the message gives (also sent as `Retry-After`), then log in with the right one. Restarting the gateway also clears it.
 

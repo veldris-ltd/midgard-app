@@ -35,10 +35,11 @@ build-py:
     @uv sync --frozen || echo "no python members yet"
 
 # --- UI edges (dev) -------------------------------------------------------
-# Run the browser-facing HTTP/JSON edge for the console UIs. Point a console at
-# it with `VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev`.
+# Run the browser-facing HTTP/JSON edge for the console UIs, in development mode
+# (seeded data, the published demo logins, loopback only). Point a console at it
+# with `VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev`. [MG-SEC-06]
 gateway-http addr="127.0.0.1:7710":
-    cargo run -p http-gateway -- {{addr}}
+    cargo run -p http-gateway -- --dev {{addr}}
 
 # Run the Midgard console against the real HTTP edge (start `just gateway-http` first).
 console-midgard-http:

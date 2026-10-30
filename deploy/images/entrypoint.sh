@@ -10,7 +10,15 @@ set -eu
 SERVICE="${MIDGARD_SERVICE:?MIDGARD_SERVICE (the service binary name) must be set}"
 BIN="/app/${SERVICE}"
 TRUST="${MIDGARD_RELEASE_TRUST_KEY:-/trust/release-trust.pub}"
-BIND="${MIDGARD_BIND:-0.0.0.0:7710}"
+
+# Safe by default: a service started with no options is refused, never started on a
+# default address. The gateway in particular needs its state directory (--state-dir);
+# its development mode (--dev) listens on loopback only, so it is of no use in an
+# image. [MG-SEC-06]
+if [ "$#" -eq 0 ]; then
+    echo "::fatal:: ${SERVICE} was started with no options — refusing to start. Pass the service's own options as the container's arguments (for http-gateway: --state-dir DIR --bind ADDR ...)." >&2
+    exit 2
+fi
 
 echo "verify-before-run: checking ${BIN} against ${TRUST}"
 if ! mg-verify --trust-anchor "${TRUST}" "${BIN}"; then
@@ -18,10 +26,6 @@ if ! mg-verify --trust-anchor "${TRUST}" "${BIN}"; then
     exit 1
 fi
 # Arguments given to the container are the service's own options (e.g. mimir-server's
-# --identity-dir/--state-dir); with none, the service is started on MIDGARD_BIND.
-if [ "$#" -gt 0 ]; then
-    echo "verify-before-run: OK — starting ${SERVICE}"
-    exec "${BIN}" "$@"
-fi
-echo "verify-before-run: OK — starting ${SERVICE} on ${BIND}"
-exec "${BIN}" "${BIND}"
+# --identity-dir/--state-dir).
+echo "verify-before-run: OK — starting ${SERVICE}"
+exec "${BIN}" "$@"

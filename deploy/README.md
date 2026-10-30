@@ -74,9 +74,11 @@ services are not built yet. The remaining services (admin) join with the identic
 `services/runtime`; the release **coverage gate** (RT-07) forces each new binary
 through the release gate first.
 
-The runtime image's entrypoint passes any container arguments to the service
-(`mimir-server --identity-dir … --state-dir …`); with none, it starts the service on
-`MIDGARD_BIND`.
+The runtime image's entrypoint passes the container arguments to the service
+(`mimir-server --identity-dir … --state-dir …`). With none, it refuses to start: no
+service is ever started on a default address, and `http-gateway` in particular needs
+`--state-dir`. The gateway's development mode (`--dev`) listens on loopback only, so it
+cannot be served from an image. [MG-SEC-06]
 
 A real multi-node `kubectl apply` + cross-host PQ-mTLS smoke belongs to the
 **deployment-tier acceptance suite (RT-40)**, run on a staging cluster — it cannot

@@ -22,7 +22,7 @@ initMode();
 /* The data seam.
  *
  * By DEFAULT the console authenticates against the real Rust HTTP/JSON edge
- * (`cargo run -p http-gateway`, 127.0.0.1:7710): `AuthGate` presents a login,
+ * (`cargo run -p http-gateway -- --dev`, 127.0.0.1:7710): `AuthGate` presents a login,
  * exchanges credentials for a PQ-signed token, and injects the authenticated
  * `HttpGateway` so screens render live enclosure data — not fixtures. [RC-37]
  *

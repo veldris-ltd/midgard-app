@@ -13,13 +13,14 @@
 //! origin allowlist. `[DD-6] [NFR-SEC-1]`
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod admin_api;
 pub mod boot;
+pub mod cli;
 pub mod data;
 pub mod enclosure;
 pub mod http;
@@ -792,15 +793,33 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     }
 }
 
-/// Serve the development gateway — seeded, in memory, one built-in login — on `addr`
-/// until the process is killed. [RC-24]
+/// Serve the development gateway — seeded, in memory, the published demo logins — on
+/// `addr` until the process is killed. Development mode listens on loopback only: an
+/// address that is not loopback, or a name that resolves to one that is not, is
+/// refused with [`std::io::ErrorKind::InvalidInput`] before anything is generated or
+/// bound. [RC-24] [MG-SEC-06]
 pub fn serve(addr: &str) -> std::io::Result<()> {
-    serve_gateway(addr, SecuredGateway::dev())
+    let addr = cli::loopback_addr(addr)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    serve_dev(addr)
+}
+
+/// [`serve`] on an address already resolved. It is checked again here, so no caller
+/// can put the demo logins on another interface. [MG-SEC-06]
+pub fn serve_dev(addr: SocketAddr) -> std::io::Result<()> {
+    if !addr.ip().is_loopback() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("development mode listens on a loopback address only, not {addr}"),
+        ));
+    }
+    let listener = TcpListener::bind(addr)?;
+    serve_listener(listener, Arc::new(SecuredGateway::dev()))
 }
 
 /// Bind `addr` (loopback-only in the interim, before PQ-mTLS/TLS termination fronts
-/// this) and serve `gateway` until the process is killed — the development gateway,
-/// or one opened over a state directory by [`boot::open_state_dir`]. [RC-24]
+/// this) and serve `gateway` until the process is killed — a gateway opened over a
+/// state directory by [`boot::open_state_dir`]. [RC-24]
 pub fn serve_gateway<S, L>(addr: &str, gateway: SecuredGateway<S, L>) -> std::io::Result<()>
 where
     S: ObjectStore + Send + 'static,
@@ -820,12 +839,23 @@ where
         || addr.starts_with("[::1]"))
     {
         eprintln!(
-            "http-gateway: WARNING binding non-loopback {addr}; production MUST front this with \
-             PQ-mTLS/TLS-1.3 termination that forwards to the enclosure. [RC-24]"
+            "http-gateway: WARNING binding non-loopback {addr}; production MUST front this with              PQ-mTLS/TLS-1.3 termination that forwards to the enclosure. [RC-24]"
         );
     }
-    let listener = TcpListener::bind(addr)?;
-    eprintln!("http-gateway (secured) listening on http://{addr}");
+    serve_listener(TcpListener::bind(addr)?, gw)
+}
+
+/// Serve `gw` on a bound listener until the process is killed, naming the address it
+/// actually listens on (a port of 0 binds an ephemeral one).
+fn serve_listener<S, L>(listener: TcpListener, gw: Arc<SecuredGateway<S, L>>) -> std::io::Result<()>
+where
+    S: ObjectStore + Send + 'static,
+    L: LedgerStore + Send + 'static,
+{
+    eprintln!(
+        "http-gateway (secured) listening on http://{}",
+        listener.local_addr()?
+    );
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
