@@ -43,6 +43,18 @@ CONTRIBUTING.md for the version policy.
   - Upgrading: a ledger written before this change has no checkpoint and does not
     open. Run `mg-admin audit checkpoint --state-dir DIR --audit-pin FILE` once: it
     verifies the whole ledger under the pinned key and records its first checkpoint.
+  - Checkpoints can be sent off the server. With `--checkpoint-mirror DIR` (the
+    gateway, `mg-admin init`) every checkpoint is also written, atomically, to a
+    directory on another mount, which only ever moves forward. A ledger rolled back
+    together with its checkpoint, or restored from an older backup, is behind the
+    mirror and refuses to boot; one deleted with its checkpoint is not re-created; and
+    a mirror that holds nothing for a ledger with entries fails closed. An append
+    whose checkpoint the mirror does not take fails, and the ledger takes no further
+    entry until it does. `mg-admin audit checkpoint --checkpoint-mirror DIR` verifies
+    the ledger under the pinned key and enables or re-seeds the mirror; it never moves
+    one back. `audit_writer::CheckpointMirror` lets a deployment push checkpoints to a
+    sink of its own; `FileCheckpointMirror` is the directory one. Without the option
+    nothing changes.
 - **Break-glass needs a real second person.** The approver was free text checked only
   for being non-empty. A grant now takes the requester's and the approver's
   `AdminSession`s, which exist only after each signed in with their own passkey: the

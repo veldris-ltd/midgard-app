@@ -13,6 +13,8 @@
 //! refreshes a signed [`LedgerCheckpoint`] of the ledger's length and head; a durable
 //! ledger must exist to be opened; and [`verify::verify_ledger`] checks chain and
 //! checkpoint under a [`PinnedKey`] supplied from outside the signing keystore.
+//! Optionally every checkpoint is also published to a [`CheckpointMirror`] off the
+//! server, so the ledger and its checkpoint cannot be rolled back together.
 //! [MG-SEC-05]
 
 pub mod canonical;
@@ -23,6 +25,7 @@ pub mod error;
 pub mod file;
 pub mod journal;
 pub mod ledger;
+pub mod mirror;
 pub mod pin;
 pub mod record;
 pub mod verify;
@@ -35,6 +38,7 @@ pub use error::AuditError;
 pub use file::{checkpoint_path, FileLedger, Sealer};
 pub use journal::SealedJournal;
 pub use ledger::{AuditWriter, InMemoryLedger, LedgerStore};
+pub use mirror::{CheckpointMirror, FileCheckpointMirror};
 pub use pin::PinnedKey;
 pub use record::{
     Action, Actor, AuditRecord, LedgerId, RecordId, Resource, SealedEntry, Timestamp,

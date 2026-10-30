@@ -1,8 +1,8 @@
 //! http-gateway binary — the browser-facing HTTP/JSON edge for the console UIs.
 //!
 //! Usage:
-//!   http-gateway --state-dir DIR [--audit-pin FILE] [--bind ADDR] [--allow-origin URL]...
-//!                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
+//!   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
+//!                [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
 //!                 [--mesh-purpose P]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
@@ -14,6 +14,12 @@
 //!       map). Without it the gateway pins DIR/trust/audit.pub and says so: that
 //!       still refuses a swapped audit keystore, but not one swapped together with
 //!       the trust file beside it. [MG-SEC-05]
+//!
+//!       --checkpoint-mirror names a directory on another mount (NFS, an object-store
+//!       FUSE mount, a separate volume) that every audit ledger checkpoint is also
+//!       written to. The gateway refuses to boot a ledger that is behind it — rolled
+//!       back together with its local checkpoint, or restored from an older backup —
+//!       and an append whose checkpoint the mirror does not take fails. [MG-SEC-05]
 //!
 //!       With --mesh-bind, the gateway also serves `SyncRecords` over PQ-mTLS, so a
 //!       certified workload — the Forge worker — can sync objects and links into the
@@ -36,7 +42,7 @@ use std::net::SocketAddr;
 use std::process::exit;
 use std::sync::Arc;
 
-use http_gateway::boot::{open_state_dir, read_audit_pin, DurableGateway};
+use http_gateway::boot::{open_state_dir_mirrored, read_audit_pin, DurableGateway};
 use http_gateway::cli::{self, Command, ServeArgs, USAGE};
 use http_gateway::mesh_sync::spawn_mesh_listener;
 use http_gateway::policy_file::parse_policy;
@@ -68,6 +74,7 @@ fn main() {
     let ServeArgs {
         state_dir,
         audit_pin,
+        checkpoint_mirror,
         bind,
         origins,
         mesh_bind,
@@ -99,7 +106,8 @@ fn main() {
             exit(1);
         }
     };
-    let served = match open_state_dir(&state, origins, &pin) {
+    let mirror = checkpoint_mirror.as_deref().map(std::path::Path::new);
+    let served = match open_state_dir_mirrored(&state, origins, &pin, mirror) {
         Ok(served) => served,
         Err(e) => {
             eprintln!("http-gateway: cannot serve {state_dir}: {e}");

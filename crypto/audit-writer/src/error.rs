@@ -51,6 +51,18 @@ pub enum AuditError {
     CheckpointStale { checkpoint: u64, found: u64 },
     /// The key the ledger is checked with is not the pinned audit key. [MG-SEC-05]
     KeyNotPinned,
+    /// The checkpoint mirror vouches for more entries than the local checkpoint: the
+    /// ledger and its checkpoint were rolled back together. [MG-SEC-05]
+    RolledBack { mirrored: u64, local: u64 },
+    /// The entry the checkpoint mirror names as the head at its position is not the
+    /// one in the ledger: the ledger was replaced. [MG-SEC-05]
+    MirrorMismatch { seq: u64 },
+    /// A checkpoint mirror is configured, the ledger holds entries, and the mirror
+    /// holds no checkpoint for it. [MG-SEC-05]
+    MirrorMissing(String),
+    /// The checkpoint mirror cannot be read or written, or refused a checkpoint that
+    /// would move it back. [MG-SEC-05]
+    Mirror(String),
 }
 
 impl fmt::Display for AuditError {
@@ -73,19 +85,40 @@ impl fmt::Display for AuditError {
             AuditError::LedgerMissing(p) => write!(f, "the ledger {p} is missing"),
             AuditError::LedgerExists(p) => write!(f, "a ledger already exists at {p}"),
             AuditError::CheckpointMissing => write!(f, "the ledger has no signed checkpoint"),
-            AuditError::CheckpointInvalid(why) => write!(f, "the ledger checkpoint is invalid: {why}"),
+            AuditError::CheckpointInvalid(why) => {
+                write!(f, "the ledger checkpoint is invalid: {why}")
+            }
             AuditError::Truncated { checkpoint, found } => write!(
                 f,
-                "the ledger was truncated: its checkpoint vouches for {checkpoint} entries,                  {found} remain"
+                "the ledger was truncated: its checkpoint vouches for {checkpoint} entries, \
+                 {found} remain"
             ),
             AuditError::CheckpointMismatch { seq } => {
-                write!(f, "the ledger's entry at seq {seq} is not the checkpointed head")
+                write!(
+                    f,
+                    "the ledger's entry at seq {seq} is not the checkpointed head"
+                )
             }
             AuditError::CheckpointStale { checkpoint, found } => write!(
                 f,
                 "the ledger holds {found} entries but its checkpoint only {checkpoint}"
             ),
             AuditError::KeyNotPinned => write!(f, "the audit key is not the pinned audit key"),
+            AuditError::RolledBack { mirrored, local } => write!(
+                f,
+                "the ledger was rolled back: its checkpoint mirror vouches for {mirrored} \
+                 entries, the local checkpoint only for {local}"
+            ),
+            AuditError::MirrorMismatch { seq } => write!(
+                f,
+                "the ledger's entry at seq {seq} is not the head its checkpoint mirror names"
+            ),
+            AuditError::MirrorMissing(at) => write!(
+                f,
+                "the ledger holds entries but its checkpoint mirror has no checkpoint for it \
+                 ({at})"
+            ),
+            AuditError::Mirror(why) => write!(f, "checkpoint mirror: {why}"),
         }
     }
 }

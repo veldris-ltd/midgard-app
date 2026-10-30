@@ -59,8 +59,83 @@ is the point.
 4. Confirm the recovered head/version matches the snapshot checkpoint.
 
 Restoring an older snapshot of an audit ledger rolls it back, and a checkpoint kept on
-the same disk cannot tell a restore from an attack: record each restore as an incident,
-and compare the restored checkpoint with any copy of a later one kept off the server.
+the same disk cannot tell a restore from an attack: record each restore as an incident.
+With a checkpoint mirror (below) the gateway makes that comparison itself.
+
+## The audit ledger's checkpoint mirror [MG-SEC-05]
+
+Whoever can write the state directory can roll the governance ledger **and** its
+`.checkpoint` back together to an earlier consistent pair, or delete both and put an
+old backup in their place; on its own disk the pair still agrees. The checkpoint
+mirror keeps a second copy of every checkpoint somewhere they cannot reach.
+
+**Placing it.** Give the gateway and `mg-admin init` the same
+`--checkpoint-mirror DIR`:
+
+- `DIR` must be on **another mount** than the state directory: an NFS export, an
+  object-store FUSE mount, a separate volume. A mirror inside the state directory is
+  refused, and one on the same disk rolls back with it. Mount it with credentials
+  the state directory's storage administrators and backups do not hold; where the
+  target supports it, turn on versioning or object lock, so that even the gateway's
+  own credentials cannot replace a newer checkpoint with an older one.
+- `DIR` must already exist. A mount point that is not mounted is not a mirror: if it
+  is an empty local directory, a ledger with entries refuses to boot (see below)
+  rather than mirror to the wrong place.
+- One mirror directory per enclosure. The governance ledger's checkpoint is
+  `DIR/midgard-governance.checkpoint`, the same signed record as the local one
+  (`LedgerCheckpoint::encode`), replaced atomically. `mg-admin init` refuses a
+  mirror that already holds one.
+
+**What it does.** Every append writes the entry, then the local checkpoint, then the
+mirror's. The mirror only moves forward: a lower entry count, or another head at the
+same count, is refused. At boot the gateway refuses to serve when:
+
+| What it finds | Error | Means |
+|---|---|---|
+| the local checkpoint counts fewer entries than the mirror's | `the ledger was rolled back` | the ledger and its checkpoint were rolled back, or an older backup restored |
+| the ledger does not hold the mirrored head at the mirrored position | `... is not the head its checkpoint mirror names` | the ledger was replaced by another |
+| no ledger and no checkpoint | `the ledger ... is missing` | both were deleted |
+| the ledger holds entries and the mirror holds no checkpoint for it | `its checkpoint mirror has no checkpoint for it` | the mirror was lost, is not mounted, or is new for this ledger |
+
+A mirror **behind** the ledger is not an error: a crash between the local and the
+mirror write leaves it one checkpoint behind, and `mg-admin` commands that write the
+ledger (`user add`, `import`, `admin add`, `mesh issue`, `mesh renew`) do not write
+the mirror. The gateway's next checkpoint brings it up to date.
+
+**When the mirror cannot be written** the append fails, fail-closed: the entry is
+already durable and checkpointed locally, but the request it audits is refused, and
+the ledger takes **no further entry** until the mirror takes the checkpoint again (each
+later append retries it first). Audited operations stop while the mirror is
+unreachable; restore the mount and they resume, with nothing lost.
+
+**Enabling it on an existing enclosure, or re-seeding a lost mirror.** Stop the
+gateway and run
+
+```bash
+mg-admin audit checkpoint --state-dir DIR --audit-pin FILE --checkpoint-mirror MIRROR
+```
+
+It verifies the whole ledger and its checkpoint under the pinned audit key and writes
+the checkpoint to the mirror (adopting a ledger written before checkpoints at the same
+time). It refuses a mirror that is ahead of the ledger or names another head: it never
+moves a mirror back. Because it accepts a mirror that holds nothing, run it only after
+establishing why the mirror is empty; it is the one step that vouches for the ledger
+as it now stands.
+
+**Restore with a mirror.** Back up the mirror directory with the rest, but **never
+restore it over a newer one**: it is the record of how far the ledger got.
+
+1. Restore the ledger and its checkpoint as above, from a snapshot **at least as
+   recent as the mirror's checkpoint**. The gateway boots against the mirror as it
+   stands; a restored ledger that is behind it is refused with `rolled back`.
+2. If only an older snapshot exists (the newer entries are lost), the loss of audit
+   entries is an incident, not a restore: record it, then, with the incident's
+   approval, move the mirror's checkpoint aside (keep it as evidence of how far the
+   ledger got) and re-seed from the restored ledger with `mg-admin audit checkpoint
+   --checkpoint-mirror`. Nothing does this automatically.
+3. If the mirror itself was lost and the ledger is intact, re-seed it as above, or
+   restore the mirror's own backup: an older mirror is behind the ledger, which is
+   accepted and caught up by the next checkpoint.
 
 ## Tested
 

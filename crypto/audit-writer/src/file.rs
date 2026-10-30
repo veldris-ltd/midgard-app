@@ -14,6 +14,11 @@
 //! that is missing, has no checkpoint, or is shorter than its checkpoint; a new
 //! ledger is made only by [`FileLedger::create`], so a deleted ledger is never
 //! quietly replaced by an empty one. [MG-SEC-05]
+//!
+//! A ledger may also publish every checkpoint to a [`CheckpointMirror`] off the
+//! server ([`FileLedger::open_mirrored`], [`FileLedger::create_mirrored`]), so that a
+//! ledger rolled back together with its local checkpoint still fails closed. See
+//! [`crate::mirror`]. [MG-SEC-05]
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -23,6 +28,7 @@ use crate::checkpoint::LedgerCheckpoint;
 use crate::codec::{decode_sealed_entry, encode_sealed_entry};
 use crate::error::AuditError;
 use crate::ledger::LedgerStore;
+use crate::mirror::{check_against_mirror, write_atomic, CheckpointMirror};
 use crate::record::{LedgerId, SealedEntry};
 
 /// Seals and unseals opaque bytes at rest. Kept backend-agnostic so `audit-writer`
@@ -67,6 +73,11 @@ pub struct FileLedger {
     ledger_id: LedgerId,
     entries: Vec<SealedEntry>,
     checkpoint: Option<LedgerCheckpoint>,
+    /// Where every checkpoint is also published, off the server. [MG-SEC-05]
+    mirror: Option<Box<dyn CheckpointMirror>>,
+    /// The last checkpoint could not be published to the mirror: no entry is appended
+    /// until it is. [MG-SEC-05]
+    mirror_failed: bool,
 }
 
 /// Where a ledger's signed checkpoint lives: `<ledger path>.checkpoint`.
@@ -115,6 +126,8 @@ impl FileLedger {
             ledger_id,
             entries: Vec::new(),
             checkpoint: None,
+            mirror: None,
+            mirror_failed: false,
         })
     }
 
@@ -151,6 +164,8 @@ impl FileLedger {
             ledger_id,
             entries,
             checkpoint: Some(checkpoint),
+            mirror: None,
+            mirror_failed: false,
         })
     }
 
@@ -185,6 +200,8 @@ impl FileLedger {
                     ledger_id,
                     entries,
                     checkpoint: None,
+                    mirror: None,
+                    mirror_failed: false,
                 });
             }
         }
@@ -218,7 +235,131 @@ impl FileLedger {
             ledger_id,
             entries,
             checkpoint: None,
+            mirror: None,
+            mirror_failed: false,
         })
+    }
+
+    /// [`create`](Self::create) a new ledger that publishes every checkpoint to
+    /// `mirror` as well. Refuses if the mirror already holds a checkpoint for this
+    /// ledger: one existed, and a new one must not take its place. [MG-SEC-05]
+    pub fn create_mirrored(
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+        ledger_id: LedgerId,
+        mirror: Box<dyn CheckpointMirror>,
+    ) -> Result<Self, AuditError> {
+        if mirror.latest(&ledger_id)?.is_some() {
+            return Err(AuditError::LedgerExists(mirror.describe(&ledger_id)));
+        }
+        let mut ledger = Self::create(path, sealer, ledger_id)?;
+        ledger.mirror = Some(mirror);
+        Ok(ledger)
+    }
+
+    /// [`open`](Self::open) the ledger and check it against its checkpoint `mirror`,
+    /// which every later checkpoint is published to as well. On top of `open`'s
+    /// checks, fails closed if the local checkpoint is behind the mirror's
+    /// ([`AuditError::RolledBack`]), if the ledger does not hold the mirrored head
+    /// ([`AuditError::MirrorMismatch`]), or if the ledger holds entries and the
+    /// mirror holds no checkpoint for it ([`AuditError::MirrorMissing`]). A mirror
+    /// behind the ledger is brought up to date by the next checkpoint: nothing is
+    /// published here, before the caller has verified the ledger. [MG-SEC-05]
+    pub fn open_mirrored(
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+        ledger_id: LedgerId,
+        mirror: Box<dyn CheckpointMirror>,
+    ) -> Result<Self, AuditError> {
+        let mut ledger = Self::open(path, sealer, ledger_id)?;
+        ledger.attach_mirror(mirror, false)?;
+        Ok(ledger)
+    }
+
+    /// [`open_or_create`](Self::open_or_create) with a checkpoint `mirror`: as
+    /// [`open_mirrored`](Self::open_mirrored), except that where neither the ledger
+    /// nor its checkpoint exists a new one is created, unless the mirror vouches
+    /// that one existed, which fails closed with [`AuditError::LedgerMissing`].
+    /// Deleting both files is then no longer a first start. [MG-SEC-05]
+    pub fn open_or_create_mirrored(
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+        ledger_id: LedgerId,
+        mirror: Box<dyn CheckpointMirror>,
+    ) -> Result<Self, AuditError> {
+        let path = path.as_ref().to_path_buf();
+        if !path.exists() && !checkpoint_path(&path).exists() {
+            if let Some(mirrored) = mirror.latest(&ledger_id)? {
+                return Err(AuditError::LedgerMissing(format!(
+                    "{} (its checkpoint mirror vouches for {} entries)",
+                    path.display(),
+                    mirrored.count
+                )));
+            }
+            return Self::create_mirrored(path, sealer, ledger_id, mirror);
+        }
+        let mut ledger = Self::open_or_create(path, sealer, ledger_id)?;
+        ledger.attach_mirror(mirror, false)?;
+        Ok(ledger)
+    }
+
+    /// Start mirroring this ledger's checkpoints to `mirror`, publishing the current
+    /// checkpoint now. Unlike [`open_mirrored`](Self::open_mirrored) it accepts a
+    /// mirror that holds nothing for a ledger with entries, so it **re-seeds** a lost
+    /// mirror or enables one for an existing ledger: an operator step, taken only
+    /// after the ledger was verified under the pinned key, never a boot path. A mirror
+    /// ahead of the ledger, or naming another head, is still refused. [MG-SEC-05]
+    pub fn start_mirroring(&mut self, mirror: Box<dyn CheckpointMirror>) -> Result<(), AuditError> {
+        self.attach_mirror(mirror, true)?;
+        self.publish_to_mirror()
+    }
+
+    /// Check the ledger against `mirror` and keep it. `seed` accepts a mirror that
+    /// holds nothing for a ledger with entries.
+    fn attach_mirror(
+        &mut self,
+        mirror: Box<dyn CheckpointMirror>,
+        seed: bool,
+    ) -> Result<(), AuditError> {
+        match mirror.latest(&self.ledger_id)? {
+            Some(mirrored) => {
+                check_against_mirror(
+                    &mirrored,
+                    self.checkpoint.as_ref(),
+                    &self.entries,
+                    &self.ledger_id,
+                )?;
+            }
+            None if !seed && !self.entries.is_empty() => {
+                return Err(AuditError::MirrorMissing(mirror.describe(&self.ledger_id)));
+            }
+            None => {}
+        }
+        self.mirror = Some(mirror);
+        Ok(())
+    }
+
+    /// Publish the latest checkpoint to the mirror, if there is one. A failure is
+    /// remembered, and no entry is appended until a publish succeeds. [MG-SEC-05]
+    fn publish_to_mirror(&mut self) -> Result<(), AuditError> {
+        let (Some(mirror), Some(checkpoint)) = (&self.mirror, &self.checkpoint) else {
+            return Ok(());
+        };
+        match mirror.publish(checkpoint) {
+            Ok(()) => {
+                self.mirror_failed = false;
+                Ok(())
+            }
+            Err(e) => {
+                self.mirror_failed = true;
+                Err(e)
+            }
+        }
+    }
+
+    /// Whether the ledger publishes its checkpoints to a mirror. [MG-SEC-05]
+    pub fn is_mirrored(&self) -> bool {
+        self.mirror.is_some()
     }
 
     /// The ledger file path.
@@ -256,29 +397,7 @@ fn read_checkpoint(ledger: &Path) -> Result<Option<LedgerCheckpoint>, AuditError
 /// rename it over the old one, so a crash leaves either the old checkpoint or the
 /// new one, never a torn one. [MG-SEC-05]
 fn write_checkpoint(ledger: &Path, checkpoint: &LedgerCheckpoint) -> Result<(), AuditError> {
-    let target = checkpoint_path(ledger);
-    let mut tmp_name = target.as_os_str().to_os_string();
-    tmp_name.push(".tmp");
-    let tmp = PathBuf::from(tmp_name);
-    {
-        let mut opts = OpenOptions::new();
-        opts.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        let mut f = opts.open(&tmp).map_err(io)?;
-        f.write_all(&checkpoint.encode()).map_err(io)?;
-        f.sync_all().map_err(io)?;
-    }
-    std::fs::rename(&tmp, &target).map_err(io)?;
-    #[cfg(unix)]
-    if let Some(dir) = target.parent() {
-        // Make the rename itself durable.
-        File::open(dir).and_then(|d| d.sync_all()).map_err(io)?;
-    }
-    Ok(())
+    write_atomic(&checkpoint_path(ledger), &checkpoint.encode()).map_err(io)
 }
 
 /// Parse the length-framed file into decrypted, decoded entries. The positional
@@ -317,6 +436,11 @@ fn load_frames(
 
 impl LedgerStore for FileLedger {
     fn append(&mut self, entry: SealedEntry) -> Result<(), AuditError> {
+        // While the mirror is behind because a publish failed, the ledger does not
+        // grow: retry it first, and refuse the entry if it still fails. [MG-SEC-05]
+        if self.mirror_failed {
+            self.publish_to_mirror()?;
+        }
         let aad = entry_aad(&self.ledger_id, entry.seq);
         let plaintext = encode_sealed_entry(&entry);
         let sealed = self.sealer.seal(&aad, &plaintext)?;
@@ -342,9 +466,11 @@ impl LedgerStore for FileLedger {
                 "it is for another ledger".into(),
             ));
         }
+        // Locally first, then the mirror, so the mirror is never ahead of the local
+        // checkpoint. A mirror that does not take it fails the call. [MG-SEC-05]
         write_checkpoint(&self.path, &checkpoint)?;
         self.checkpoint = Some(checkpoint);
-        Ok(())
+        self.publish_to_mirror()
     }
     fn checkpoint(&self) -> Option<&LedgerCheckpoint> {
         self.checkpoint.as_ref()

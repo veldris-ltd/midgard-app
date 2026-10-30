@@ -17,7 +17,8 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:7710";
 /// The usage text.
 pub const USAGE: &str = "\
 usage:
-  http-gateway --state-dir DIR [--audit-pin FILE] [--bind ADDR] [--allow-origin URL]...
+  http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
+               [--allow-origin URL]...
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
   http-gateway --dev [ADDR]
       development mode: seeded in-memory data and the published demo logins,
@@ -42,6 +43,10 @@ pub struct ServeArgs {
     /// The audit verifying key the ledger is checked under, kept outside the state
     /// directory. `None` pins the copy inside it. [MG-SEC-05]
     pub audit_pin: Option<String>,
+    /// A directory on another mount that every audit ledger checkpoint is also written
+    /// to, and that the ledger must not be behind at boot. `None` keeps the checkpoint
+    /// beside the ledger only. [MG-SEC-05]
+    pub checkpoint_mirror: Option<String>,
     /// The HTTP bind address.
     pub bind: String,
     /// The browser origins the CORS allowlist admits.
@@ -91,6 +96,7 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
     let mut serve = ServeArgs {
         state_dir: String::new(),
         audit_pin: None,
+        checkpoint_mirror: None,
         bind: DEFAULT_BIND.to_string(),
         origins: Vec::new(),
         mesh_bind: None,
@@ -108,6 +114,10 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
             "--state-dir" => return Err("--state-dir given twice".into()),
             "--audit-pin" if serve.audit_pin.is_none() => serve.audit_pin = Some(value.clone()),
             "--audit-pin" => return Err("--audit-pin given twice".into()),
+            "--checkpoint-mirror" if serve.checkpoint_mirror.is_none() => {
+                serve.checkpoint_mirror = Some(value.clone())
+            }
+            "--checkpoint-mirror" => return Err("--checkpoint-mirror given twice".into()),
             "--bind" => serve.bind = value.clone(),
             "--allow-origin" => serve.origins.push(value.clone()),
             "--mesh-bind" => serve.mesh_bind = Some(value.clone()),

@@ -343,3 +343,106 @@ fn audit_checkpoint_adopts_a_ledger_written_before_checkpoints_once() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn init_and_audit_checkpoint_keep_a_checkpoint_mirror() {
+    let root = scratch("mirror");
+    let dir = root.join("state");
+    let mirror = root.join("mirror");
+    std::fs::create_dir_all(&mirror).unwrap();
+    let dir_arg = dir.display().to_string();
+    let mirror_arg = mirror.display().to_string();
+    let mirrored = || {
+        audit_writer::CheckpointMirror::latest(
+            &audit_writer::FileCheckpointMirror::new(&mirror).unwrap(),
+            &LedgerId(LEDGER_ID.into()),
+        )
+        .unwrap()
+        .map(|c| c.count)
+    };
+
+    // A mirror directory that is not there is refused before anything is written.
+    let missing = root.join("not-mounted").display().to_string();
+    let o = mg_admin(
+        &[
+            "init",
+            "--state-dir",
+            &dir_arg,
+            "--checkpoint-mirror",
+            &missing,
+        ],
+        "",
+    );
+    assert!(!o.status.success(), "a missing mirror is refused");
+    assert!(!dir.exists(), "{}", stderr(&o));
+
+    // init mirrors the ledger's first, empty checkpoint. [MG-SEC-05]
+    let o = mg_admin(
+        &[
+            "init",
+            "--state-dir",
+            &dir_arg,
+            "--checkpoint-mirror",
+            &mirror_arg,
+        ],
+        "",
+    );
+    assert!(o.status.success(), "init: {}", stderr(&o));
+    assert_eq!(mirrored(), Some(0));
+    // A second enclosure does not share the mirror.
+    let other = root.join("other").display().to_string();
+    let o = mg_admin(
+        &[
+            "init",
+            "--state-dir",
+            &other,
+            "--checkpoint-mirror",
+            &mirror_arg,
+        ],
+        "",
+    );
+    assert!(!o.status.success(), "a mirror already in use is refused");
+    assert!(stderr(&o).contains("already holds"), "{}", stderr(&o));
+
+    // `user add` writes the ledger without the mirror: the mirror falls behind,
+    // which is not an error, and `audit checkpoint --checkpoint-mirror` catches it up.
+    let o = add_user(&dir, "alice", &[], PASSWORD);
+    assert!(o.status.success(), "user add: {}", stderr(&o));
+    assert_eq!(mirrored(), Some(0));
+    let pin = StateDir::new(&dir)
+        .audit_trust_anchor()
+        .display()
+        .to_string();
+    let reseed = || {
+        mg_admin(
+            &[
+                "audit",
+                "checkpoint",
+                "--state-dir",
+                &dir_arg,
+                "--audit-pin",
+                &pin,
+                "--checkpoint-mirror",
+                &mirror_arg,
+            ],
+            "",
+        )
+    };
+    let o = reseed();
+    assert!(o.status.success(), "audit checkpoint: {}", stderr(&o));
+    assert!(
+        stdout(&o).contains("vouches for 1 entries"),
+        "{}",
+        stdout(&o)
+    );
+    assert_eq!(mirrored(), Some(1));
+
+    // A lost mirror is re-seeded the same way.
+    std::fs::remove_dir_all(&mirror).unwrap();
+    std::fs::create_dir_all(&mirror).unwrap();
+    let o = reseed();
+    assert!(o.status.success(), "re-seed: {}", stderr(&o));
+    assert_eq!(mirrored(), Some(1));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
