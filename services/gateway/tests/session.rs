@@ -69,7 +69,19 @@ fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (IdentityCert, Si
         sig_alg: IDP_SIG_ALG,
         verifying_key: vk,
     };
-    (idp.certify(&identity).unwrap(), sk)
+    (
+        idp.certify(
+            &identity,
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
+        .unwrap(),
+        sk,
+    )
 }
 
 fn channel_resource() -> Resource {
@@ -216,6 +228,7 @@ impl Client {
             cert,
             sk,
             anchor,
+            pq_mtls::ServiceId("svc-gateway".into()),
             Purpose("investigation".into()),
             posture(),
             &mut rng,
@@ -237,12 +250,13 @@ impl Client {
     fn connect_resumed(
         addr: std::net::SocketAddr,
         ticket: &ClientTicket,
+        anchor: &pq_mtls::TrustAnchor,
         seed: u64,
     ) -> Result<Client, MtlsError> {
         let mut stream = TcpStream::connect(addr).unwrap();
         stream.write_all(&[MODE_RESUME]).unwrap();
         let mut rng = SeedRng(seed);
-        let session = run_resume_initiator(&mut stream, ticket, &mut rng)?;
+        let session = run_resume_initiator(&mut stream, ticket, anchor, 1_000, &mut rng)?;
         let (sealer, opener) = session.records(RecordRole::Initiator);
         Ok(Client {
             stream,
@@ -307,8 +321,8 @@ fn many_requests_share_one_handshake_and_route_correctly() {
     let addr = spawn(gateway);
 
     let provider = fips_provider();
-    let mut client =
-        Client::connect_full(&provider, cl_cert, &cl_sk, anchor, addr, 5).expect("full handshake");
+    let mut client = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
 
     // Routing: each method reaches its own handler.
     let (s, body) = client.call("fabric.get", b"object-7").unwrap();
@@ -345,20 +359,21 @@ fn a_second_connection_resumes_and_the_ticket_is_single_use() {
     let addr = spawn(gateway);
 
     let provider = fips_provider();
-    let mut full =
-        Client::connect_full(&provider, cl_cert, &cl_sk, anchor, addr, 5).expect("full handshake");
-    let ticket = full.ticket.clone().expect("gateway issued a ticket");
+    let mut full = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
+    let ticket = full.ticket.take().expect("gateway issued a ticket");
     // The full session still serves fine.
     assert_eq!(full.call("kms.seal", b"x").unwrap().0, status::OK);
 
     // Resume on a NEW connection — abbreviated handshake, no KEM/signatures.
-    let mut resumed = Client::connect_resumed(addr, &ticket, 11).expect("resumption succeeds");
+    let mut resumed =
+        Client::connect_resumed(addr, &ticket, &anchor, 11).expect("resumption succeeds");
     let (s, body) = resumed.call("fabric.get", b"post-resume").unwrap();
     assert_eq!(s, status::OK);
     assert_eq!(body, b"fabric:post-resume");
 
     // The ticket is single-use: a replay is rejected by the gateway.
-    let replay = Client::connect_resumed(addr, &ticket, 12);
+    let replay = Client::connect_resumed(addr, &ticket, &anchor, 12);
     assert!(replay.is_err(), "a replayed ticket must be refused");
 }
 
@@ -381,13 +396,13 @@ fn an_expired_ticket_is_refused() {
 
     let provider = fips_provider();
     // connect_full blocks until the ticket frame arrives, so it is issued at t=1000.
-    let full =
-        Client::connect_full(&provider, cl_cert, &cl_sk, anchor, addr, 5).expect("full handshake");
-    let ticket = full.ticket.clone().expect("ticket issued");
+    let mut full = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
+    let ticket = full.ticket.take().expect("ticket issued");
 
     // Age past the TTL, then resume → refused.
     now.store(2_000, Ordering::SeqCst);
-    let expired = Client::connect_resumed(addr, &ticket, 11);
+    let expired = Client::connect_resumed(addr, &ticket, &anchor, 11);
     assert!(expired.is_err(), "an expired ticket must be refused");
 }
 
@@ -404,8 +419,8 @@ fn an_abusive_client_is_rate_limited() {
     let addr = spawn(gateway);
 
     let provider = fips_provider();
-    let mut client =
-        Client::connect_full(&provider, cl_cert, &cl_sk, anchor, addr, 5).expect("full handshake");
+    let mut client = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
 
     // First three requests are served …
     assert!(client.try_call("kms.seal"), "request 1 served");

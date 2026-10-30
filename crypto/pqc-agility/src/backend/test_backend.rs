@@ -10,7 +10,7 @@
 use crate::algorithm::{KemId, KemSuiteId, SigId};
 use crate::error::CryptoError;
 use crate::hash::{ct_eq, Digest, Sha256};
-use crate::hybrid::combine_secrets;
+use crate::hybrid::combine_hybrid;
 use crate::kem::{Ciphertext, Kem, KemPublicKey, KemSecretKey, KemSizes, SharedSecret};
 use crate::registry::CryptoProvider;
 use crate::rng::Rng;
@@ -68,7 +68,7 @@ impl TestKem {
         if self.suite.is_hybrid() {
             let pq = h(&[&b"PQC-TEST-SSQ"[..], &pk_core[..], &e[..]]);
             let cl = h(&[&b"PQC-TEST-SSC"[..], &pk_core[..], &e[..]]);
-            combine_secrets(&pq, &cl, self.suite.as_str().as_bytes())
+            combine_hybrid(self.suite, &pq, &cl, e, pk_core)
         } else {
             SharedSecret::from_bytes(h(&[&b"PQC-TEST-SS"[..], &pk_core[..], &e[..]]))
         }

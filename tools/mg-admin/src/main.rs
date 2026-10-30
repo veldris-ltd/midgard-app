@@ -14,6 +14,10 @@
 //!   mg-admin admin add --state-dir <dir> --admin <name> --role <role> --keystore <path>
 //!   mg-admin enrol request|approve|list --gateway <url> --admin <name> --keystore <path> ..
 //!   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir>
+//!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>]
+//!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
 //!
 //! The password for `user add` is read from standard input, and only from a pipe or a
 //! file: std has no portable way to stop a terminal echoing it, so an interactive
@@ -67,7 +71,11 @@ USAGE:
                          --purposes <p,..> --justification <text> [--compartments <c,..>] [--totp]
   mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> --id <enrolment>
   mg-admin enrol list    --gateway <url> --admin <name> --keystore <path>
-  mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir>
+  mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
+                      [--days <n>] [--clearance <band>] [--compartments <c,..>]
+  mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>] \\
+                      [--days <n>] [--clearance <band>] [--compartments <c,..>]
+  mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
 
 COMMANDS:
   init       create <dir> with fresh issuer and audit keystores, their verifying keys
@@ -98,8 +106,18 @@ COMMANDS:
              the administrator's passkey.
   mesh issue give a service its mesh identity in --out: its own identity and audit-signing
              keystores (secrets, for that service alone), a certificate for --roles signed
-             by the enclosure's issuer, and mesh.anchor, the trust anchor every service
-             verifies its peers against. Never overwrites an existing service's identity.
+             by the enclosure's issuer, mesh.anchor, the trust anchor every service
+             verifies its peers against, and mesh.crl, the signed revocation list. The
+             certificate is valid for --days (default 30) and grants --clearance (a band
+             as for user add, default open) with --compartments. Never overwrites an
+             existing service's identity.
+  mesh renew give a service a fresh key and certificate in --out, keeping its roles.
+             With --within, does nothing until the certificate expires within that many
+             days, so it can run from a timer. Restart the service afterwards.
+  mesh revoke
+             revoke the certificate in --cert: sign the next revocation list and write it
+             as mesh.crl into each --out service directory. Running services pick it up
+             without a restart.
 
 init, user, import and admin add need the state directory's lock, which a running
 gateway holds: stop it first. The enrol commands talk to the running gateway instead.
@@ -188,9 +206,33 @@ fn run(argv: &[String]) -> Result<String, Failure> {
         }
         ["mesh", "issue", rest @ ..] => mesh::mesh_issue(&options(
             rest,
-            &["state-dir", "service", "roles", "out"],
+            &[
+                "state-dir",
+                "service",
+                "roles",
+                "out",
+                "days",
+                "clearance",
+                "compartments",
+            ],
             &[],
         )?),
+        ["mesh", "renew", rest @ ..] => mesh::mesh_renew(&options(
+            rest,
+            &[
+                "state-dir",
+                "service",
+                "out",
+                "within",
+                "days",
+                "clearance",
+                "compartments",
+            ],
+            &[],
+        )?),
+        ["mesh", "revoke", rest @ ..] => {
+            mesh::mesh_revoke(&options(rest, &["state-dir", "cert", "out"], &[])?)
+        }
         [] => Err(Failure::Usage("no command given".into())),
         _ => Err(Failure::Usage(format!(
             "unknown command '{}'",

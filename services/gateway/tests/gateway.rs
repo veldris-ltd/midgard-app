@@ -53,7 +53,19 @@ fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (pq_mtls::Identit
         sig_alg: IDP_SIG_ALG,
         verifying_key: vk,
     };
-    (idp.certify(&identity).unwrap(), sk)
+    (
+        idp.certify(
+            &identity,
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
+        .unwrap(),
+        sk,
+    )
 }
 
 fn channel_resource() -> Resource {
@@ -108,6 +120,7 @@ fn client_connect(
         cert,
         signing_key,
         anchor,
+        pq_mtls::ServiceId("svc-gateway".into()),
         Purpose("investigation".into()),
         posture(),
         &mut rng,
@@ -128,6 +141,7 @@ fn client_connect(
             &read_frame(&mut stream).map_err(MtlsError::Transport)?,
         )
         .ok();
+    gateway::close_stream(&mut stream, &mut seal)?;
     Ok((suite, peer, echoed))
 }
 

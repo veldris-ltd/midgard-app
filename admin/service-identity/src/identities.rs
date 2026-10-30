@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 
 use iam::{Idp, TokenError};
-use pq_mtls::{verify_cert, IdentityCert, ServiceId, TrustAnchor, WorkloadIdentity};
+use pq_mtls::{
+    verify_cert, CertTerms, IdentityCert, Posture, ServiceId, TrustAnchor, WorkloadIdentity,
+};
 use pqc_agility::backend::fips::FipsSig;
 use pqc_agility::{CryptoError, CryptoProvider, Rng, SigId, SignatureScheme};
 
@@ -68,7 +70,18 @@ impl AdminServiceIdentities {
                 sig_alg: ALG,
                 verifying_key,
             };
-            let cert = idp.certify(&identity).map_err(IdentityError::Certify)?;
+            // Short-lived and UNCLASSIFIED: the panel administers, it does not read
+            // marked data. [MG-SEC-02] [MG-SEC-04]
+            let now = unix_now();
+            let terms = CertTerms::new(
+                serial(sub),
+                now,
+                now + IDENTITY_LIFETIME_SECS,
+                Posture::unclassified(),
+            );
+            let cert = idp
+                .certify(&identity, terms)
+                .map_err(IdentityError::Certify)?;
             identities.push(SubsystemIdentity {
                 subsystem: (*sub).to_string(),
                 cert,
@@ -107,7 +120,7 @@ impl AdminServiceIdentities {
         subsystem: &str,
         provider: &CryptoProvider,
     ) -> bool {
-        verify_cert(cert, &self.anchor, provider).is_ok()
+        verify_cert(cert, &self.anchor, provider, unix_now()).is_ok()
             && cert.identity.roles.contains(&service_role(subsystem))
     }
 
@@ -123,6 +136,21 @@ impl AdminServiceIdentities {
                     .all(|r| !is_superuser_role(&r.0))
         })
     }
+}
+
+/// How long a panel service identity is valid: one day. [MG-SEC-02]
+pub const IDENTITY_LIFETIME_SECS: u64 = 24 * 60 * 60;
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// A stable serial per subsystem (the IdP keeps no registry for panel identities).
+fn serial(subsystem: &str) -> u64 {
+    let h = pqc_agility::sha256(subsystem.as_bytes());
+    u64::from_le_bytes(h[..8].try_into().expect("8 bytes"))
 }
 
 /// Whether a role name denotes an all-powerful / cross-cutting privilege.

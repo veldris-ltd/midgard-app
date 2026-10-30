@@ -84,7 +84,7 @@ mod client {
     use policy::Purpose;
     use pq_mtls::{
         read_frame, run_initiator, write_frame, IdentityCert, Initiator, Posture,
-        Role as RecordRole, TcpChannel, TrustAnchor,
+        Role as RecordRole, ServiceId, TcpChannel, TrustAnchor,
     };
     use pqc_agility::backend::fips::provider as fips_provider;
     use pqc_agility::{CryptoProvider, OsRng, SigningKey};
@@ -98,6 +98,9 @@ mod client {
     pub struct MimirEndpoint {
         /// `host:port` of the inference gateway.
         pub addr: String,
+        /// The mesh identity the gateway at `addr` must hold; any other certificate is
+        /// refused before the request is sent. [MG-SEC-01]
+        pub server: ServiceId,
         /// The mesh trust anchor (the IdP/CA public key).
         pub anchor: TrustAnchor,
         /// This consumer's certified identity (e.g. `svc-forge`).
@@ -147,6 +150,7 @@ mod client {
                 e.cert.clone(),
                 &e.signing_key,
                 e.anchor.clone(),
+                e.server.clone(),
                 Purpose(e.purpose.clone()),
                 e.posture.clone(),
                 &mut rng,
@@ -167,6 +171,13 @@ mod client {
             let raw = open
                 .open(RECORD_AAD, &frame)
                 .map_err(|_| BridgeError::Transport("record open/authentication failed".into()))?;
+            // End the stream explicitly, so the gateway can tell a finished call from a
+            // cut one. [MG-SEC-12]
+            let close = seal
+                .seal_close(RECORD_AAD)
+                .map_err(|err| BridgeError::Transport(format!("seal: {err:?}")))?;
+            write_frame(&mut stream, &close)
+                .map_err(|err| BridgeError::Transport(format!("write: {err:?}")))?;
 
             match InferenceResponse::decode(&raw).map_err(|m| BridgeError::Malformed(m.0))? {
                 InferenceResponse::Ok(completion) => Ok(completion),

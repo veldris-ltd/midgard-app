@@ -6,9 +6,11 @@ use std::collections::BTreeSet;
 use std::net::TcpStream;
 use std::time::Duration;
 
-use gateway::{decode_response, encode_request, status, RECORD_AAD};
+use gateway::{close_stream, decode_response, encode_request, status, RECORD_AAD};
 use policy::{ClassificationLevel, Purpose};
-use pq_mtls::{read_frame, run_initiator, write_frame, Initiator, Posture, Role, TcpChannel};
+use pq_mtls::{
+    read_frame, run_initiator, write_frame, Initiator, Posture, Role, ServiceId, TcpChannel,
+};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::OsRng;
 
@@ -17,13 +19,17 @@ use crate::ServiceIdentity;
 /// How long a call waits for the service to answer.
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Call `method` with `payload` on the service at `addr`, authenticated as `identity`
-/// and declaring `purpose`, and return the handler's response. A connection the service
-/// refuses — an identity it does not trust, or a channel its policy does not open — an
-/// unknown method and a malformed request are errors.
+/// Call `method` with `payload` on the service `server` at `addr`, authenticated as
+/// `identity` and declaring `purpose`, and return the handler's response. Whoever
+/// answers at `addr` must hold a certificate for `server`: any other mesh identity is
+/// refused before the request is sent. [MG-SEC-01] A connection the service refuses —
+/// an identity it does not trust, or a channel its policy does not open — an unknown
+/// method and a malformed request are errors. The call ends with the record layer's
+/// end-of-stream marker. [MG-SEC-12]
 pub fn call(
     identity: &ServiceIdentity,
     addr: &str,
+    server: &str,
     purpose: &str,
     method: &str,
     payload: &[u8],
@@ -39,6 +45,7 @@ pub fn call(
         identity.cert.clone(),
         &identity.signing_key,
         identity.anchor.clone(),
+        ServiceId(server.to_string()),
         Purpose(purpose.to_string()),
         Posture {
             level: ClassificationLevel::UNCLASSIFIED,
@@ -60,6 +67,8 @@ pub fn call(
     let response = open
         .open(RECORD_AAD, &frame)
         .map_err(|_| format!("the response from {addr} did not authenticate"))?;
+    close_stream(&mut stream, &mut seal)
+        .map_err(|e| format!("cannot close the channel to {addr}: {e:?}"))?;
 
     match decode_response(&response) {
         Some((status::OK, body)) => Ok(body.to_vec()),

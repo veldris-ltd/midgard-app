@@ -51,6 +51,7 @@ fn untrusted_server_cert_is_rejected() {
         client.cert.clone(),
         &client.signing_key,
         ca_b.anchor.clone(),
+        server.cert.identity.id.clone(),
         Purpose("investigation".into()),
         posture(),
         &mut crng,
@@ -78,6 +79,7 @@ fn missing_client_credential_is_rejected() {
         client.cert.clone(),
         &client.signing_key,
         ca.anchor.clone(),
+        server.cert.identity.id.clone(),
         Purpose("investigation".into()),
         posture(),
         &mut crng,
@@ -110,6 +112,7 @@ fn on_path_downgrade_breaks_authentication() {
         client.cert.clone(),
         &client.signing_key,
         ca.anchor.clone(),
+        server.cert.identity.id.clone(),
         Purpose("investigation".into()),
         posture(),
         &mut crng,
@@ -124,12 +127,31 @@ fn on_path_downgrade_breaks_authentication() {
         &mut srng,
     );
 
-    let mut ch = init.start();
-    // Attacker strips the hybrid suites from the ClientHello in flight.
-    ch.capabilities.kem_suites.retain(|s| !s.is_hybrid());
-    let sh = resp.on_client_hello(ch).unwrap();
-    // The initiator's transcript still reflects the original capabilities, so the
-    // server's signature no longer verifies.
+    let ch = init.start();
+
+    // Attacker strips the hybrid suites from the ClientHello in flight: with hybrid
+    // required by default [MG-SEC-12] the server has nothing it will accept.
+    let mut stripped = ch.clone();
+    stripped.capabilities.kem_suites.retain(|s| !s.is_hybrid());
+    assert!(resp.on_client_hello(stripped).is_err());
+
+    // A subtler edit — dropping the preferred suite so another is chosen — gets past
+    // the server, but the initiator's transcript still reflects the original
+    // capabilities, so the server's signature no longer verifies.
+    let mut srng = SeedRng::new(2);
+    let mut resp = Responder::new(
+        &provider,
+        server.cert.clone(),
+        &server.signing_key,
+        ca.anchor.clone(),
+        &pdp,
+        common::channel_resource(ClassificationLevel::UNCLASSIFIED, &["investigation"]),
+        &mut srng,
+    );
+    let mut edited = ch;
+    let preferred = edited.capabilities.kem_suites[0];
+    edited.capabilities.kem_suites.retain(|s| *s != preferred);
+    let sh = resp.on_client_hello(edited).unwrap();
     let err = init.on_server_hello(sh).unwrap_err();
     assert!(matches!(err, MtlsError::PeerSignatureInvalid), "{err:?}");
 }
@@ -144,6 +166,7 @@ fn tampered_ciphertext_is_rejected() {
         client.cert.clone(),
         &client.signing_key,
         ca.anchor.clone(),
+        server.cert.identity.id.clone(),
         Purpose("investigation".into()),
         posture(),
         &mut crng,
@@ -179,6 +202,7 @@ fn tampered_key_confirmation_is_rejected() {
         client.cert.clone(),
         &client.signing_key,
         ca.anchor.clone(),
+        server.cert.identity.id.clone(),
         Purpose("investigation".into()),
         posture(),
         &mut crng,

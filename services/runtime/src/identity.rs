@@ -1,17 +1,35 @@
 //! A service's mesh identity, loaded from the directory `mg-admin mesh issue` wrote:
-//! its certificate, the mesh trust anchor, its identity key, and its own durable,
-//! PQ-signed audit ledger. Loading fails closed. [NFR-SEC-1] [RC-35] [AC-M-4]
+//! its certificate, the mesh trust anchor, the CA-signed revocation list, its identity
+//! key, and its own durable, PQ-signed audit ledger. Loading fails closed.
+//! [NFR-SEC-1] [RC-35] [AC-M-4]
+//!
+//! The revocation list (`mesh.crl`) is required, and is re-read every
+//! [`CRL_RELOAD_INTERVAL`] for as long as the process runs: a newer list the operator
+//! drops in (`mg-admin mesh revoke`) takes effect on the next handshake, with no
+//! restart. A list that does not verify, or is older than the one in force, is refused
+//! and logged, and the one in force stays. [MG-SEC-03]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use attest::keystore::KeystoreRoot;
 use attest::Keystore;
 use audit_writer::{verify_chain, AuditWriter, FileLedger, LedgerId, Sealer};
 use kms::{Kms, KmsSealer};
-use pq_mtls::{decode_anchor, decode_cert, verify_cert, IdentityCert, TrustAnchor};
+use pq_mtls::{
+    decode_anchor, decode_cert, reload_crl_file, spawn_crl_reloader, verify_cert, IdentityCert,
+    TrustAnchor,
+};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{SecretBytes, SigId, SigningKey, VerifyingKey};
+use telemetry::{Logger, StdoutJsonSink};
+
+/// How often a running service re-reads its revocation list. [MG-SEC-03]
+pub const CRL_RELOAD_INTERVAL: Duration = Duration::from_secs(30);
+
+/// The revocation list file in a service's identity directory.
+pub const CRL_FILE: &str = "mesh.crl";
 
 /// Everything a service presents and verifies on the mesh.
 pub struct ServiceIdentity {
@@ -28,8 +46,9 @@ pub struct ServiceIdentity {
 
 impl ServiceIdentity {
     /// Load `service`'s identity from `dir`. Refuses a certificate that names another
-    /// service or does not verify against the anchor, and an identity keystore that
-    /// does not hold the certified key.
+    /// service, does not verify against the anchor, is outside its validity window or
+    /// is revoked; a missing or unsigned revocation list; and an identity keystore that
+    /// does not hold the certified key. Starts the revocation list reloader.
     pub fn load(dir: impl AsRef<Path>, service: &str) -> Result<Self, String> {
         let dir = dir.as_ref().to_path_buf();
         let cert_path = dir.join(format!("{service}.cert"));
@@ -46,7 +65,15 @@ impl ServiceIdentity {
                 cert.identity.id.0
             ));
         }
-        verify_cert(&cert, &anchor, &fips_provider()).map_err(|e| {
+        let crl_path = dir.join(CRL_FILE);
+        reload_crl_file(&anchor, &crl_path, &fips_provider()).map_err(|e| {
+            format!(
+                "{} is not a revocation list signed by {}: {e}",
+                crl_path.display(),
+                anchor_path.display()
+            )
+        })?;
+        verify_cert(&cert, &anchor, &fips_provider(), crate::unix_seconds()).map_err(|e| {
             format!(
                 "{} does not verify against {}: {e:?}",
                 cert_path.display(),
@@ -64,6 +91,21 @@ impl ServiceIdentity {
             ));
         }
 
+        let log_service = service.to_string();
+        spawn_crl_reloader(
+            anchor.clone(),
+            crl_path,
+            CRL_RELOAD_INTERVAL,
+            fips_provider(),
+            move |outcome| {
+                let logger = Logger::new(&log_service, &StdoutJsonSink);
+                match outcome {
+                    Ok(_) => logger.info("revocation list updated", &[]),
+                    Err(e) => logger.warn("revocation list refused", &[("reason", &e.to_string())]),
+                }
+            },
+        );
+
         Ok(Self {
             service: service.to_string(),
             cert,
@@ -71,6 +113,11 @@ impl ServiceIdentity {
             anchor,
             dir,
         })
+    }
+
+    /// When the service's certificate expires (Unix seconds). [MG-SEC-02]
+    pub fn not_after(&self) -> u64 {
+        self.cert.terms.not_after
     }
 
     /// The service's roles, as its certificate states them.

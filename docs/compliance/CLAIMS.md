@@ -77,14 +77,20 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
 
 A mesh certificate authority that issues, renews and revokes workload certificates, with a revocation honoured at the next handshake.
 
-**Until it is operable, say:** "Issue, renewal and revocation of workload certificates are implemented and tested as a library (services/iam/tests/rc_35.rs). The certificates deployments use today come from mg-admin mesh issue, which does not set an expiry and does not renew."
+**Until it is operable, say:** "Workload certificates carry an expiry and a clearance. mg-admin mesh issue, renew and revoke manage them, and services re-read a signed revocation list every 30 seconds. Renewal is an operator command; services do not renew themselves yet."
 
-**Milestone.** mg-admin mesh issue goes through the certificate authority and services renew automatically (RF-IAM-6).
+**Milestone.** Services renew their own certificates before expiry (RF-IAM-6).
 
 - Source:
-  - [`tools/mg-admin/src/mesh.rs:115`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:203`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:348`](../../tools/mg-admin/src/mesh.rs)
+  - [`crypto/pq-mtls/src/revocation.rs:1`](../../crypto/pq-mtls/src/revocation.rs)
+  - [`services/runtime/src/identity.rs:68`](../../services/runtime/src/identity.rs)
 - Tests:
   - [`services/iam/tests/rc_35.rs::renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake`](../../services/iam/tests/rc_35.rs)
+  - [`services/iam/tests/rc_35.rs::the_signed_list_carries_the_revocation_to_other_verifiers`](../../services/iam/tests/rc_35.rs)
+  - [`services/iam/tests/rc_35.rs::an_expired_certificate_no_longer_handshakes`](../../services/iam/tests/rc_35.rs)
+  - [`tools/mg-admin/tests/mesh.rs::mesh_certificates_expire_revoke_and_renew`](../../tools/mg-admin/tests/mesh.rs)
 
 ### `sealed-durable-state` (operable)
 

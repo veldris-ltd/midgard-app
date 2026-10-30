@@ -31,6 +31,38 @@ CONTRIBUTING.md for the version policy.
   publishes to be committed, so committing them failed. The anchors are now excepted;
   other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.
 
+### Security
+- **Services check who they connected to.** [MG-SEC-01] Every mesh client names the
+  service it means to call, and refuses any other before sending its key exchange.
+- **Mesh certificates expire.** [MG-SEC-02] Certificates hold a serial and a validity
+  window, checked at every handshake (format `MGCERT2`; v1 certificates and anchors
+  are refused). `mg-admin mesh issue` takes `--days` (default 30, at most 365) and
+  `mg-admin mesh renew` replaces a certificate that is due.
+- **Revocation works in practice.** [MG-SEC-03] Revocation is a list signed by the
+  mesh CA (`mesh.crl`): every service requires it at start, re-reads it every 30
+  seconds and refuses an older or forged one. `mg-admin mesh revoke` signs the next
+  version and writes it to each service directory named. A resumed session is
+  refused if either side's certificate was revoked or has expired since, and a
+  ticket never outlives the certificate.
+- **Clearance comes from the certificate.** [MG-SEC-04] A certificate carries the
+  clearance it grants (`mg-admin mesh issue --clearance`); the server authorizes the
+  lower of that and what the client asks for, and keeps it on the session.
+- **Keys are wiped from memory.** [MG-SEC-08] The X25519 and AES libraries are built
+  with their zeroize features, intermediate secrets are wiped, the ML-KEM secret-key
+  buffer is allocated at its final size, and a failure to lock memory is logged
+  (`pqc_agility::mlock_failures`).
+- **Standard hybrid key combination.** [MG-SEC-09] The hybrid secret uses the X-Wing
+  combiner (SHA3-256 over both secrets, the X25519 ciphertext and public key), and
+  an all-zero X25519 result is refused. This is protocol version 2.
+- **Hybrid required, rekeying and an end-of-stream marker.** [MG-SEC-12] Both sides
+  require a hybrid suite by default; the record layer rekeys after 2^24 records or
+  2^34 bytes; a close marker ends a stream, so a cut connection is reported as
+  truncated rather than finished.
+- **Server hardening.** [MG-SEC-13] The mesh gateway and services accept at most 512
+  connections at once, time out a handshake after 10 seconds and an idle stream
+  after 5 minutes, and cap a frame at 64 KiB during the handshake and 1 MiB after,
+  before reserving memory.
+
 ## [0.1.0-rc.1] — release candidate, not yet tagged
 
 The first release candidate: from verified libraries to a platform that can be

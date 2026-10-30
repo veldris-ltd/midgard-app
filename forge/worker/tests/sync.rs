@@ -114,12 +114,20 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
     let key = Keystore::generate(service, IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(&format!("{service}-audit"), IDP_SIG_ALG, &mut OsRng).unwrap();
     let cert = idp
-        .certify(&WorkloadIdentity {
-            id: ServiceId(service.into()),
-            roles: roles.iter().map(|r| Role(r.to_string())).collect(),
-            sig_alg: IDP_SIG_ALG,
-            verifying_key: key.verifying_key.clone(),
-        })
+        .certify(
+            &WorkloadIdentity {
+                id: ServiceId(service.into()),
+                roles: roles.iter().map(|r| Role(r.to_string())).collect(),
+                sig_alg: IDP_SIG_ALG,
+                verifying_key: key.verifying_key.clone(),
+            },
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
         .unwrap();
     key.write(&dir.join(format!("{service}.keystore"))).unwrap();
     audit
@@ -127,6 +135,8 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
+    let crl = idp.sign_crl(1, 0, Default::default()).unwrap();
+    std::fs::write(dir.join("mesh.crl"), pq_mtls::encode_crl(&crl)).unwrap();
 }
 
 fn worker(identities: &Path, service: &str, state: &Path, jobs: &Path, gateway: &str) -> Output {

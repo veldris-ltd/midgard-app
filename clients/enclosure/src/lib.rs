@@ -9,8 +9,9 @@
 //! the [`Initiator`] side of the suite-wide handshake (`crypto/pq-mtls`), which
 //! already refuses a classical-only or downgraded peer. This crate adds the
 //! client-shaped ergonomics: the **enclosure trust anchor is the certificate pin**,
-//! and an optional **peer-id pin** rejects any server other than the expected
-//! enclosure gateway after authentication.
+//! and the **gateway identity is pinned too**: a server holding a valid certificate
+//! for any other service is refused before the client sends its key exchange or its
+//! own certificate. [MG-SEC-01]
 //!
 //! The transport is a [`Channel`], so the same client runs over a TCP socket
 //! (native shells) or any other framed transport (a WASM bridge) without change.
@@ -31,37 +32,38 @@ pub use error::EnclosureError;
 ///
 /// Holds the client's own certificate and the connection's declared purpose and
 /// posture, plus the **pins**: the enclosure trust anchor (which certificate chain
-/// to trust) and, optionally, the exact gateway [`ServiceId`] to accept.
+/// to trust) and the exact gateway [`ServiceId`] to accept.
 pub struct EnclosureClient {
     cert: IdentityCert,
     trust_anchor: TrustAnchor,
+    gateway: ServiceId,
     purpose: Purpose,
     posture: Posture,
-    pinned_peer: Option<ServiceId>,
 }
 
 impl EnclosureClient {
     /// Build a client. `trust_anchor` is the certificate pin — only servers whose
-    /// cert chains to it are trusted.
+    /// cert chains to it are trusted — and `gateway` the identity pin: only that
+    /// service is accepted. [MG-SEC-01]
     pub fn new(
         cert: IdentityCert,
         trust_anchor: TrustAnchor,
+        gateway: ServiceId,
         purpose: Purpose,
         posture: Posture,
     ) -> Self {
         Self {
             cert,
             trust_anchor,
+            gateway,
             purpose,
             posture,
-            pinned_peer: None,
         }
     }
 
-    /// Additionally pin the exact gateway identity: after the handshake
-    /// authenticates the peer, reject any server other than `peer`.
+    /// Pin a different gateway identity than the one given to [`EnclosureClient::new`].
     pub fn pin_peer(mut self, peer: ServiceId) -> Self {
-        self.pinned_peer = Some(peer);
+        self.gateway = peer;
         self
     }
 
@@ -81,11 +83,18 @@ impl EnclosureClient {
             self.cert.clone(),
             signing_key,
             self.trust_anchor.clone(),
+            self.gateway.clone(),
             self.purpose.clone(),
             self.posture.clone(),
             rng,
         );
-        let session = run_initiator(init, channel).map_err(EnclosureError::Handshake)?;
+        let session = run_initiator(init, channel).map_err(|e| match e {
+            MtlsError::PeerIdentityMismatch { expected, got } => EnclosureError::PeerPinMismatch {
+                expected,
+                actual: got,
+            },
+            e => EnclosureError::Handshake(e),
+        })?;
 
         // Defence in depth: the Initiator already refuses a non-PQ suite, but the
         // client contract is explicit — a session is PQ or it is nothing.
@@ -93,14 +102,12 @@ impl EnclosureClient {
             return Err(EnclosureError::Handshake(MtlsError::DowngradeDetected));
         }
 
-        // Enforce the peer pin if configured.
-        if let Some(expected) = &self.pinned_peer {
-            if session.peer().id != *expected {
-                return Err(EnclosureError::PeerPinMismatch {
-                    expected: expected.0.clone(),
-                    actual: session.peer().id.0.clone(),
-                });
-            }
+        // Defence in depth: the Initiator already refused any other gateway.
+        if session.peer().id != self.gateway {
+            return Err(EnclosureError::PeerPinMismatch {
+                expected: self.gateway.0.clone(),
+                actual: session.peer().id.0.clone(),
+            });
         }
 
         Ok(session)

@@ -34,6 +34,7 @@ fn no_common_pq_suite_fails_closed() {
         client.cert.clone(),
         &client.signing_key,
         ca.anchor.clone(),
+        server.cert.identity.id.clone(),
         Purpose("investigation".into()),
         Posture::unclassified(),
         &mut crng,

@@ -26,6 +26,7 @@ fn successful_mutual_handshake() {
         client.cert.clone(),
         &client.signing_key,
         ca.anchor.clone(),
+        server.cert.identity.id.clone(),
         Purpose("investigation".into()),
         Posture {
             level: ClassificationLevel::SECRET,

@@ -17,6 +17,14 @@
 //! - Tickets are time-boxed (a TTL the responder enforces) and single-use when the
 //!   caller supplies a replay guard (see the gateway's session manager).
 //!
+//! - A resumption is **re-checked against the live revocation state and the
+//!   certificate's validity window**, on both sides: a ticket for a certificate that
+//!   has since been revoked or has expired does not resume, and a ticket never
+//!   outlives the certificate it was issued for. [MG-SEC-03] [MG-SEC-02]
+//! - The ticket carries the clearance and purpose the full handshake actually
+//!   authorised — the lower of the certificate's grant and the request — so a
+//!   resumed connection is re-authorised as the original was. [MG-SEC-04]
+//!
 //! Forward secrecy is reduced on a resumed leg (no fresh KEM), the standard PSK
 //! trade-off; the responder bounds exposure with a short ticket TTL and re-runs a
 //! full handshake once the ticket expires.
@@ -27,18 +35,20 @@ use std::collections::BTreeSet;
 
 use policy::{ClassificationLevel, Compartment, PolicyDecisionPoint, Purpose, Resource, Role};
 use pqc_agility::hash::{ct_eq, hkdf_sha256_32, hmac_sha256};
-use pqc_agility::{Aes256GcmAead, KemSuiteId, Rng, SigId, VerifyingKey, GCM_NONCE_LEN};
+use pqc_agility::{
+    Aes256GcmAead, KemSuiteId, Rng, SecretArray, SigId, VerifyingKey, GCM_NONCE_LEN,
+};
 
-use crate::error::{MtlsError, TransportError};
+use crate::error::{AuthzError, MtlsError, TransportError};
 use crate::handshake::authorize;
-use crate::identity::{ServiceId, WorkloadIdentity};
+use crate::identity::{ServiceId, TrustAnchor, WorkloadIdentity};
 use crate::posture::Posture;
-use crate::session::Session;
-use crate::wire::{read_frame, write_frame};
+use crate::session::{Authorization, PeerCert, Session};
+use crate::wire::{read_handshake_frame, write_frame};
 
-const TICKET_AAD: &[u8] = b"midgard-pqmtls-ticket-v1";
-const RESUME_INFO: &[u8] = b"midgard-pqmtls-resume-traffic-v1";
-const BINDER_INFO: &[u8] = b"midgard-pqmtls-resume-binder-v1";
+const TICKET_AAD: &[u8] = b"midgard-pqmtls-ticket-v2";
+const RESUME_INFO: &[u8] = b"midgard-pqmtls-resume-traffic-v2";
+const BINDER_INFO: &[u8] = b"midgard-pqmtls-resume-binder-v2";
 const BINDER_LABEL: &[u8] = b"resume-binder";
 const SERVER_FINISHED_LABEL: &[u8] = b"resume-server-finished";
 
@@ -50,36 +60,36 @@ pub const MODE_RESUME: u8 = 0x02;
 
 /// A responder-held secret that seals/opens session tickets. It never leaves the
 /// responder; the initiator only ever sees opaque sealed bytes.
-#[derive(Clone)]
-pub struct TicketKey([u8; 32]);
+pub struct TicketKey(SecretArray<32>);
 
 impl TicketKey {
     /// Wrap raw key bytes (e.g. from the KMS / a rotated ticket-key schedule).
     pub fn new(key: [u8; 32]) -> Self {
-        Self(key)
+        Self(SecretArray::new(key))
     }
 
     /// Generate a fresh random ticket key.
     pub fn generate(rng: &mut dyn Rng) -> Self {
-        let mut k = [0u8; 32];
-        rng.fill(&mut k);
+        let mut k = SecretArray::zeroed();
+        rng.fill(k.expose_mut());
         Self(k)
     }
 
     fn aead(&self) -> Aes256GcmAead {
-        Aes256GcmAead::new(&self.0)
+        Aes256GcmAead::new(self.0.expose())
     }
 }
 
 /// What the initiator keeps after a full handshake so it can resume later: the
 /// opaque ticket, the RMS (kept locally, never on the wire), and the authenticated
-/// server identity + suite to reconstruct the resumed [`Session`].
-#[derive(Clone)]
+/// server identity, certificate facts and suite to reconstruct the resumed
+/// [`Session`].
 pub struct ClientTicket {
     /// The opaque, responder-sealed ticket bytes.
     pub ticket: Vec<u8>,
-    rms: [u8; 32],
+    rms: SecretArray<32>,
     server: WorkloadIdentity,
+    server_cert: PeerCert,
     suite: KemSuiteId,
 }
 
@@ -91,8 +101,14 @@ impl ClientTicket {
             ticket,
             rms: session.resumption_secret(),
             server: session.peer().clone(),
+            server_cert: session.peer_cert(),
             suite: session.suite(),
         }
+    }
+
+    /// The server this ticket resumes a session with.
+    pub fn server(&self) -> &WorkloadIdentity {
+        &self.server
     }
 }
 
@@ -101,12 +117,14 @@ impl ClientTicket {
 /// The sealed contents of a ticket. Never exposed to the initiator.
 struct TicketBody {
     client: WorkloadIdentity,
+    client_fingerprint: [u8; 32],
+    client_not_after: u64,
     posture: Posture,
     purpose: Purpose,
     suite: KemSuiteId,
     issued_at: u64,
     ttl: u64,
-    rms: [u8; 32],
+    rms: SecretArray<32>,
 }
 
 // ---- small local codec (self-contained; does not touch the handshake enum) -
@@ -234,26 +252,32 @@ fn dec_posture(r: &mut Reader) -> Result<Posture, TransportError> {
 fn encode_ticket_body(b: &TicketBody) -> Vec<u8> {
     let mut o = Vec::new();
     enc_identity(&mut o, &b.client);
+    o.extend_from_slice(&b.client_fingerprint);
+    o.extend_from_slice(&b.client_not_after.to_le_bytes());
     enc_posture(&mut o, &b.posture);
     put_str(&mut o, &b.purpose.0);
     o.push(b.suite.as_u8());
     o.extend_from_slice(&b.issued_at.to_le_bytes());
     o.extend_from_slice(&b.ttl.to_le_bytes());
-    o.extend_from_slice(&b.rms);
+    o.extend_from_slice(b.rms.expose());
     o
 }
 fn decode_ticket_body(body: &[u8]) -> Result<TicketBody, TransportError> {
     let mut r = Reader::new(body);
     let client = dec_identity(&mut r)?;
+    let client_fingerprint = r.arr32()?;
+    let client_not_after = r.u64()?;
     let posture = dec_posture(&mut r)?;
     let purpose = Purpose(r.string()?);
     let suite = r.suite()?;
     let issued_at = r.u64()?;
     let ttl = r.u64()?;
-    let rms = r.arr32()?;
+    let rms = SecretArray::new(r.arr32()?);
     r.finish()?;
     Ok(TicketBody {
         client,
+        client_fingerprint,
+        client_not_after,
         posture,
         purpose,
         suite,
@@ -265,27 +289,33 @@ fn decode_ticket_body(body: &[u8]) -> Result<TicketBody, TransportError> {
 
 // ---- ticket issuance ------------------------------------------------------
 
-/// Issue a resumption ticket for a just-completed session. The responder calls
-/// this and sends the returned bytes to the initiator; it keeps no per-ticket
-/// state (the RMS lives inside the sealed ticket). `now`/`ttl` are seconds.
-#[allow(clippy::too_many_arguments)]
+/// Issue a resumption ticket for a just-completed **responder** session. The
+/// responder calls this and sends the returned bytes to the initiator; it keeps no
+/// per-ticket state (the RMS lives inside the sealed ticket). The ticket records the
+/// client, its certificate fingerprint and expiry, and what the handshake authorised
+/// it for; its lifetime is `ttl` seconds from `now`, cut short at the certificate's
+/// expiry. [MG-SEC-02] [MG-SEC-04]
 pub fn issue_ticket(
     key: &TicketKey,
     session: &Session,
-    client: &WorkloadIdentity,
-    posture: &Posture,
-    purpose: &Purpose,
     now: u64,
     ttl: u64,
     rng: &mut dyn Rng,
 ) -> Result<Vec<u8>, MtlsError> {
+    let Authorization { clearance, purpose } = session
+        .authorization()
+        .cloned()
+        .ok_or_else(|| MtlsError::Protocol("tickets are issued by the responder".into()))?;
+    let peer_cert = session.peer_cert();
     let body = TicketBody {
-        client: client.clone(),
-        posture: posture.clone(),
-        purpose: purpose.clone(),
+        client: session.peer().clone(),
+        client_fingerprint: peer_cert.fingerprint,
+        client_not_after: peer_cert.not_after,
+        posture: clearance,
+        purpose,
         suite: session.suite(),
         issued_at: now,
-        ttl,
+        ttl: ttl.min(peer_cert.not_after.saturating_sub(now)),
         rms: session.resumption_secret(),
     };
     let plaintext = encode_ticket_body(&body);
@@ -355,8 +385,8 @@ fn decode_resume_accept(body: &[u8]) -> Result<([u8; 32], [u8; 32]), TransportEr
 
 // ---- key schedule ---------------------------------------------------------
 
-fn binder_key(rms: &[u8; 32]) -> [u8; 32] {
-    hkdf_sha256_32(BINDER_INFO, rms, b"binder-key")
+fn binder_key(rms: &[u8; 32]) -> SecretArray<32> {
+    SecretArray::new(hkdf_sha256_32(BINDER_INFO, rms, b"binder-key"))
 }
 fn compute_binder(rms: &[u8; 32], ticket: &[u8], nonce_c: &[u8; 32]) -> [u8; 32] {
     let bk = binder_key(rms);
@@ -364,13 +394,13 @@ fn compute_binder(rms: &[u8; 32], ticket: &[u8], nonce_c: &[u8; 32]) -> [u8; 32]
     msg.extend_from_slice(BINDER_LABEL);
     msg.extend_from_slice(ticket);
     msg.extend_from_slice(nonce_c);
-    hmac_sha256(&bk, &msg)
+    hmac_sha256(bk.expose(), &msg)
 }
-fn resume_traffic(rms: &[u8; 32], nonce_c: &[u8; 32], nonce_s: &[u8; 32]) -> [u8; 32] {
+fn resume_traffic(rms: &[u8; 32], nonce_c: &[u8; 32], nonce_s: &[u8; 32]) -> SecretArray<32> {
     let mut ikm = [0u8; 64];
     ikm[..32].copy_from_slice(nonce_c);
     ikm[32..].copy_from_slice(nonce_s);
-    hkdf_sha256_32(rms, &ikm, RESUME_INFO)
+    SecretArray::new(hkdf_sha256_32(rms, &ikm, RESUME_INFO))
 }
 fn server_finished(traffic: &[u8; 32]) -> [u8; 32] {
     hmac_sha256(traffic, SERVER_FINISHED_LABEL)
@@ -378,27 +408,54 @@ fn server_finished(traffic: &[u8; 32]) -> [u8; 32] {
 
 // ---- drivers over a real stream -------------------------------------------
 
+/// Refuse to resume with a peer whose certificate has since been revoked or has
+/// expired. [MG-SEC-02] [MG-SEC-03]
+fn recheck_peer_cert(anchor: &TrustAnchor, cert: PeerCert, now: u64) -> Result<(), MtlsError> {
+    if anchor.is_revoked(&cert.fingerprint) {
+        return Err(MtlsError::PeerCertRevoked);
+    }
+    if now >= cert.not_after {
+        return Err(MtlsError::PeerCertExpired {
+            not_before: 0,
+            not_after: cert.not_after,
+            now,
+        });
+    }
+    Ok(())
+}
+
 /// Drive the initiator side of a resumption over `stream` (already carrying the
-/// [`MODE_RESUME`] byte written by the caller). Returns the resumed session.
+/// [`MODE_RESUME`] byte written by the caller). Before sending anything it re-checks
+/// the server's certificate against `anchor`'s current revocation state and its
+/// expiry at `now`. Returns the resumed session.
 pub fn run_resume_initiator<S: std::io::Read + std::io::Write>(
     stream: &mut S,
     ticket: &ClientTicket,
+    anchor: &TrustAnchor,
+    now: u64,
     rng: &mut dyn Rng,
 ) -> Result<Session, MtlsError> {
+    recheck_peer_cert(anchor, ticket.server_cert, now)?;
     let mut nonce_c = [0u8; 32];
     rng.fill(&mut nonce_c);
-    let binder = compute_binder(&ticket.rms, &ticket.ticket, &nonce_c);
+    let binder = compute_binder(ticket.rms.expose(), &ticket.ticket, &nonce_c);
     let hello = encode_resume_hello(&ticket.ticket, &nonce_c, &binder);
     write_frame(stream, &hello).map_err(MtlsError::Transport)?;
 
-    let accept = read_frame(stream).map_err(MtlsError::Transport)?;
+    let accept = read_handshake_frame(stream).map_err(MtlsError::Transport)?;
     let (nonce_s, finished_r) = decode_resume_accept(&accept).map_err(MtlsError::Transport)?;
 
-    let traffic = resume_traffic(&ticket.rms, &nonce_c, &nonce_s);
-    if !ct_eq(&server_finished(&traffic), &finished_r) {
+    let traffic = resume_traffic(ticket.rms.expose(), &nonce_c, &nonce_s);
+    if !ct_eq(&server_finished(traffic.expose()), &finished_r) {
         return Err(MtlsError::KeyConfirmationFailed);
     }
-    Ok(Session::new(ticket.server.clone(), ticket.suite, traffic))
+    Ok(Session::new(
+        ticket.server.clone(),
+        ticket.server_cert,
+        None,
+        ticket.suite,
+        traffic,
+    ))
 }
 
 /// The outcome of accepting a resumption: the resumed session plus the client
@@ -412,14 +469,16 @@ pub struct Resumed {
 }
 
 /// Drive the responder side of a resumption over `stream` (the [`MODE_RESUME`] byte
-/// has already been consumed by the caller). Re-checks the ticket TTL, verifies the
-/// initiator's binder (client authentication), re-authorizes the channel against
+/// has already been consumed by the caller). Re-checks the ticket TTL, the client
+/// certificate against `anchor`'s current revocation state and its expiry, verifies
+/// the initiator's binder (client authentication), re-authorizes the channel against
 /// the PDP, and returns the resumed session. `check_replay` returns `true` if the
 /// ticket is fresh (unseen) — supply a real single-use guard in production.
 #[allow(clippy::too_many_arguments)]
 pub fn run_resume_responder<S, F>(
     stream: &mut S,
     key: &TicketKey,
+    anchor: &TrustAnchor,
     pdp: &dyn PolicyDecisionPoint,
     resource: &Resource,
     now: u64,
@@ -430,21 +489,27 @@ where
     S: std::io::Read + std::io::Write,
     F: FnOnce(&[u8]) -> bool,
 {
-    let hello = read_frame(stream).map_err(MtlsError::Transport)?;
+    let hello = read_handshake_frame(stream).map_err(MtlsError::Transport)?;
     let (ticket, nonce_c, binder) = decode_resume_hello(&hello).map_err(MtlsError::Transport)?;
 
     let body = open_ticket(key, &ticket)?;
 
     // TTL check — an expired ticket forces a fresh full handshake.
     if now > body.issued_at.saturating_add(body.ttl) {
-        return Err(MtlsError::Authz(crate::error::AuthzError::Denied));
+        return Err(MtlsError::Authz(AuthzError::Denied));
     }
+    // The client's certificate must still be unrevoked and in date. [MG-SEC-03]
+    let client_cert = PeerCert {
+        fingerprint: body.client_fingerprint,
+        not_after: body.client_not_after,
+    };
+    recheck_peer_cert(anchor, client_cert, now)?;
     // Single-use: reject a replayed ticket.
     if !check_replay(&ticket) {
-        return Err(MtlsError::Authz(crate::error::AuthzError::Denied));
+        return Err(MtlsError::Authz(AuthzError::Denied));
     }
     // Binder proves the initiator holds the RMS → authenticates the client.
-    let expected = compute_binder(&body.rms, &ticket, &nonce_c);
+    let expected = compute_binder(body.rms.expose(), &ticket, &nonce_c);
     if !ct_eq(&expected, &binder) {
         return Err(MtlsError::KeyConfirmationFailed);
     }
@@ -453,12 +518,21 @@ where
 
     let mut nonce_s = [0u8; 32];
     rng.fill(&mut nonce_s);
-    let traffic = resume_traffic(&body.rms, &nonce_c, &nonce_s);
-    let finished_r = server_finished(&traffic);
+    let traffic = resume_traffic(body.rms.expose(), &nonce_c, &nonce_s);
+    let finished_r = server_finished(traffic.expose());
     write_frame(stream, &encode_resume_accept(&nonce_s, &finished_r))
         .map_err(MtlsError::Transport)?;
 
-    let session = Session::new(body.client.clone(), body.suite, traffic);
+    let session = Session::new(
+        body.client.clone(),
+        client_cert,
+        Some(Authorization {
+            clearance: body.posture,
+            purpose: body.purpose,
+        }),
+        body.suite,
+        traffic,
+    );
     Ok(Resumed {
         session,
         client: body.client,
@@ -474,6 +548,8 @@ mod tests {
     };
     use pqc_agility::backend::fips::provider as fips_provider;
     use pqc_agility::SigId;
+
+    const NOT_AFTER: u64 = 10_000;
 
     struct SeedRng(u64);
     impl pqc_agility::Rng for SeedRng {
@@ -493,32 +569,42 @@ mod tests {
         }
     }
 
-    fn client_identity() -> WorkloadIdentity {
+    fn identity(name: &str, role: &str, seed: u64) -> WorkloadIdentity {
         let (vk, _sk) = fips_provider()
             .sig_for(SigId::MlDsa65)
             .unwrap()
-            .keypair(&mut SeedRng(7))
+            .keypair(&mut SeedRng(seed))
             .unwrap();
         WorkloadIdentity {
-            id: ServiceId("svc-client".into()),
-            roles: [Role("analyst".into())].into_iter().collect(),
+            id: ServiceId(name.into()),
+            roles: [Role(role.into())].into_iter().collect(),
             sig_alg: SigId::MlDsa65,
             verifying_key: vk,
         }
     }
 
+    fn client_identity() -> WorkloadIdentity {
+        identity("svc-client", "analyst", 7)
+    }
+
     fn server_identity() -> WorkloadIdentity {
-        let (vk, _sk) = fips_provider()
+        identity("svc-gateway", "server", 9)
+    }
+
+    fn cert_of(id: &WorkloadIdentity) -> PeerCert {
+        PeerCert {
+            fingerprint: pqc_agility::sha256(id.verifying_key.as_bytes()),
+            not_after: NOT_AFTER,
+        }
+    }
+
+    fn anchor() -> TrustAnchor {
+        let (vk, _) = fips_provider()
             .sig_for(SigId::MlDsa65)
             .unwrap()
-            .keypair(&mut SeedRng(9))
+            .keypair(&mut SeedRng(99))
             .unwrap();
-        WorkloadIdentity {
-            id: ServiceId("svc-gateway".into()),
-            roles: [Role("server".into())].into_iter().collect(),
-            sig_alg: SigId::MlDsa65,
-            verifying_key: vk,
-        }
+        TrustAnchor::new(SigId::MlDsa65, vk)
     }
 
     fn resource() -> Resource {
@@ -553,128 +639,161 @@ mod tests {
         }
     }
 
-    /// A completed session (built directly for the resumption unit test — the full
-    /// handshake is covered by the gateway integration tests).
-    fn a_session() -> Session {
-        Session::new(
-            server_identity(),
+    /// The two ends of a completed session (built directly for the resumption unit
+    /// test — the full handshake is covered by the gateway integration tests).
+    fn sessions() -> (Session, Session) {
+        let responder = Session::new(
+            client_identity(),
+            cert_of(&client_identity()),
+            Some(Authorization {
+                clearance: posture(),
+                purpose: Purpose("investigation".into()),
+            }),
             KemSuiteId::HybridX25519MlKem768,
-            [0x42; 32],
-        )
+            SecretArray::new([0x42; 32]),
+        );
+        let initiator = Session::new(
+            server_identity(),
+            cert_of(&server_identity()),
+            None,
+            KemSuiteId::HybridX25519MlKem768,
+            SecretArray::new([0x42; 32]),
+        );
+        (initiator, responder)
     }
 
-    #[test]
-    fn round_trips_a_resumption_over_a_pipe() {
-        let mut rng = SeedRng(1);
-        let key = TicketKey::generate(&mut rng);
-        let full = a_session();
-        // Server issues a ticket for the client; client stores it.
-        let ticket_bytes = issue_ticket(
-            &key,
-            &full,
-            &client_identity(),
-            &posture(),
-            &Purpose("investigation".into()),
-            1_000,
-            3_600,
-            &mut rng,
-        )
-        .unwrap();
-        // On the initiator side, the RMS/server come from ITS copy of the session.
-        let client_ticket = ClientTicket {
-            ticket: ticket_bytes,
-            rms: full.resumption_secret(),
-            server: server_identity(),
-            suite: KemSuiteId::HybridX25519MlKem768,
-        };
-
-        // A byte pipe: initiator writes, responder reads, and vice versa. We run
-        // the responder first (it blocks on read), so use two threads.
+    /// Resume over a real socket; returns both outcomes.
+    fn resume(
+        ticket: &ClientTicket,
+        key: &TicketKey,
+        client_anchor: &TrustAnchor,
+        server_anchor: &TrustAnchor,
+        now: u64,
+    ) -> (Result<Session, MtlsError>, Result<Resumed, MtlsError>) {
         use std::io::{Read, Write};
         use std::net::{TcpListener, TcpStream};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-
         let pdp = permit_pdp();
         let res = resource();
         std::thread::scope(|s| {
             let server = s.spawn(|| {
                 let (mut sock, _) = listener.accept().unwrap();
-                let mode = {
-                    let mut b = [0u8; 1];
-                    sock.read_exact(&mut b).unwrap();
-                    b[0]
-                };
-                assert_eq!(mode, MODE_RESUME);
+                let mut b = [0u8; 1];
+                if sock.read_exact(&mut b).is_err() {
+                    return Err(MtlsError::Transport(TransportError::Closed));
+                }
+                assert_eq!(b[0], MODE_RESUME);
                 run_resume_responder(
                     &mut sock,
-                    &key,
+                    key,
+                    server_anchor,
                     &pdp,
                     &res,
-                    2_000,
+                    now,
                     |_t| true,
                     &mut SeedRng(2),
                 )
             });
-
             let mut client = TcpStream::connect(addr).unwrap();
-            client.write_all(&[MODE_RESUME]).unwrap();
-            let cs = run_resume_initiator(&mut client, &client_ticket, &mut SeedRng(3)).unwrap();
+            let cs = match client.write_all(&[MODE_RESUME]) {
+                Ok(()) => {
+                    run_resume_initiator(&mut client, ticket, client_anchor, now, &mut SeedRng(3))
+                }
+                Err(e) => Err(MtlsError::Transport(TransportError::Io(e.to_string()))),
+            };
+            drop(client);
+            (cs, server.join().unwrap())
+        })
+    }
 
-            let resumed = server.join().unwrap().unwrap();
-            // Both sides derived the SAME traffic secret (resumption succeeded) …
-            assert_eq!(cs.traffic_secret(), resumed.session.traffic_secret());
-            // … the server recovered the authenticated client identity …
-            assert_eq!(resumed.client.id, ServiceId("svc-client".into()));
-            // … and the client sees the server identity.
-            assert_eq!(cs.peer().id, ServiceId("svc-gateway".into()));
-        });
+    fn issued(key: &TicketKey, now: u64, ttl: u64) -> ClientTicket {
+        let (initiator, responder) = sessions();
+        let bytes = issue_ticket(key, &responder, now, ttl, &mut SeedRng(1)).unwrap();
+        ClientTicket::new(&initiator, bytes)
     }
 
     #[test]
-    fn expired_ticket_is_refused() {
-        let mut rng = SeedRng(1);
-        let key = TicketKey::generate(&mut rng);
-        let body = open_ticket(
-            &key,
-            &issue_ticket(
-                &key,
-                &a_session(),
-                &client_identity(),
-                &posture(),
-                &Purpose("investigation".into()),
-                1_000,
-                100,
-                &mut rng,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(body.issued_at, 1_000);
-        assert_eq!(body.ttl, 100);
-        // (End-to-end TTL refusal is asserted in the gateway integration test.)
+    fn round_trips_a_resumption_over_a_pipe() {
+        let key = TicketKey::generate(&mut SeedRng(1));
+        let ticket = issued(&key, 1_000, 3_600);
+        let (cs, ss) = resume(&ticket, &key, &anchor(), &anchor(), 2_000);
+        let (cs, resumed) = (cs.unwrap(), ss.unwrap());
+        // Both sides derived the SAME traffic secret (resumption succeeded) …
+        assert_eq!(cs.traffic_secret(), resumed.session.traffic_secret());
+        // … the server recovered the authenticated client identity and what it was
+        // authorised for …
+        assert_eq!(resumed.client.id, ServiceId("svc-client".into()));
+        assert_eq!(
+            resumed.session.authorization().unwrap().clearance,
+            posture()
+        );
+        // … and the client sees the server identity.
+        assert_eq!(cs.peer().id, ServiceId("svc-gateway".into()));
+    }
+
+    #[test]
+    fn a_ticket_never_outlives_the_client_certificate() {
+        let key = TicketKey::generate(&mut SeedRng(1));
+        let (_, responder) = sessions();
+        let bytes =
+            issue_ticket(&key, &responder, NOT_AFTER - 100, 3_600, &mut SeedRng(4)).unwrap();
+        let body = open_ticket(&key, &bytes).unwrap();
+        assert_eq!(body.ttl, 100, "TTL is cut at the certificate expiry");
+    }
+
+    /// MG-SEC-03: a client revoked after its ticket was issued cannot resume.
+    #[test]
+    fn a_revoked_client_cannot_resume() {
+        let key = TicketKey::generate(&mut SeedRng(1));
+        let ticket = issued(&key, 1_000, 3_600);
+        let server_anchor = anchor();
+        server_anchor.revoke(cert_of(&client_identity()).fingerprint);
+        let (_, ss) = resume(&ticket, &key, &anchor(), &server_anchor, 2_000);
+        assert!(matches!(ss, Err(MtlsError::PeerCertRevoked)));
+    }
+
+    /// MG-SEC-03: a client does not resume with a server revoked since, and sends
+    /// nothing to it.
+    #[test]
+    fn a_client_will_not_resume_with_a_revoked_server() {
+        let key = TicketKey::generate(&mut SeedRng(1));
+        let ticket = issued(&key, 1_000, 3_600);
+        let client_anchor = anchor();
+        client_anchor.revoke(cert_of(&server_identity()).fingerprint);
+        let (cs, _) = resume(&ticket, &key, &client_anchor, &anchor(), 2_000);
+        assert!(matches!(cs, Err(MtlsError::PeerCertRevoked)));
+    }
+
+    /// MG-SEC-02: past the certificate expiry the ticket is dead.
+    #[test]
+    fn an_expired_certificate_cannot_resume() {
+        let key = TicketKey::generate(&mut SeedRng(1));
+        let ticket = issued(&key, NOT_AFTER - 10, u64::MAX);
+        let (_, ss) = resume(&ticket, &key, &anchor(), &anchor(), NOT_AFTER - 5);
+        assert!(ss.is_ok());
+        let ticket = issued(&key, NOT_AFTER - 10, u64::MAX);
+        let (cs, _) = resume(&ticket, &key, &anchor(), &anchor(), NOT_AFTER + 1);
+        assert!(matches!(cs, Err(MtlsError::PeerCertExpired { .. })));
     }
 
     #[test]
     fn a_tampered_ticket_fails_to_open() {
-        let mut rng = SeedRng(5);
-        let key = TicketKey::generate(&mut rng);
-        let mut ticket = issue_ticket(
-            &key,
-            &a_session(),
-            &client_identity(),
-            &posture(),
-            &Purpose("investigation".into()),
-            1_000,
-            3_600,
-            &mut rng,
-        )
-        .unwrap();
+        let key = TicketKey::generate(&mut SeedRng(5));
+        let (_, responder) = sessions();
+        let mut ticket = issue_ticket(&key, &responder, 1_000, 3_600, &mut SeedRng(6)).unwrap();
         let last = ticket.len() - 1;
         ticket[last] ^= 0x01;
         assert!(
             open_ticket(&key, &ticket).is_err(),
             "AEAD tag must reject tamper"
         );
+    }
+
+    #[test]
+    fn only_the_responder_issues_tickets() {
+        let key = TicketKey::generate(&mut SeedRng(5));
+        let (initiator, _) = sessions();
+        assert!(issue_ticket(&key, &initiator, 1_000, 3_600, &mut SeedRng(6)).is_err());
     }
 }

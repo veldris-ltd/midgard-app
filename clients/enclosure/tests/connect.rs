@@ -49,6 +49,7 @@ fn connects_over_hybrid_pq_mtls_to_the_pinned_gateway() {
         let client_cfg = EnclosureClient::new(
             client.cert.clone(),
             ca.anchor.clone(),
+            ServiceId("enclosure-gateway".into()),
             Purpose("investigation".into()),
             Posture::unclassified(),
         )
@@ -103,6 +104,7 @@ fn no_common_pq_suite_fails_closed() {
         let client_cfg = EnclosureClient::new(
             client.cert.clone(),
             ca.anchor.clone(),
+            ServiceId("enclosure-gateway".into()),
             Purpose("investigation".into()),
             Posture::unclassified(),
         );
@@ -153,6 +155,7 @@ fn a_wrong_peer_is_rejected_by_the_pin() {
         let client_cfg = EnclosureClient::new(
             client.cert.clone(),
             ca.anchor.clone(),
+            ServiceId("enclosure-gateway".into()),
             Purpose("investigation".into()),
             Posture::unclassified(),
         )
@@ -168,6 +171,9 @@ fn a_wrong_peer_is_rejected_by_the_pin() {
             Err(EnclosureError::PeerPinMismatch { .. })
         ));
 
+        // The client refuses before sending its key exchange; closing the
+        // connection is what ends the server's wait for it.
+        drop(ch);
         server.join().unwrap();
     });
 }

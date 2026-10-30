@@ -7,7 +7,9 @@ use policy::{
     Action, ClassificationLevel, DefaultPdp, Effect, Marking, PolicySet, Purpose, Resource,
     ResourceId, Role, Rule, RuleId, Selector,
 };
-use pq_mtls::{canonical_identity, IdentityCert, ServiceId, TrustAnchor, WorkloadIdentity};
+use pq_mtls::{
+    certify, CertTerms, IdentityCert, Posture, ServiceId, TrustAnchor, WorkloadIdentity,
+};
 use pqc_agility::backend::test_backend::{provider as test_provider, TestSig};
 use pqc_agility::{CryptoProvider, SeedRng, SigId, SignatureScheme, SigningKey};
 
@@ -53,20 +55,26 @@ pub fn party(id: &str, roles: &[&str], seed: u64, ca: &Ca) -> Party {
         sig_alg: ALG,
         verifying_key: vk,
     };
-    let ca_scheme = TestSig::new(ALG);
-    let ca_sig = ca_scheme
-        .sign(&ca.signing_key, &canonical_identity(&identity))
-        .unwrap();
-    let cert = IdentityCert {
-        identity: identity.clone(),
-        ca_sig_alg: ALG,
-        ca_signature: ca_sig,
-    };
+    let cert = certify(&provider(), ALG, &ca.signing_key, &identity, terms(seed)).unwrap();
     Party {
         cert,
         signing_key: sk,
         identity,
     }
+}
+
+/// The terms test certificates are issued under: valid from the epoch to the end of
+/// time, granting TOP SECRET, so the clearance a test requests is what it gets.
+pub fn terms(serial: u64) -> CertTerms {
+    CertTerms::new(
+        serial,
+        0,
+        u64::MAX,
+        Posture {
+            level: ClassificationLevel::TOP_SECRET,
+            compartments: BTreeSet::new(),
+        },
+    )
 }
 
 /// A channel resource with the given marking level and allowed purposes.
