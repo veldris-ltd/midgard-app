@@ -17,6 +17,16 @@ CONTRIBUTING.md for the version policy.
   independent review before production reliance. [RT-35] [NFR-PQ-2]
 - `docs/ops/KEY_CEREMONY.md`: where the key ceremony is held, and what it leaves in
   this repository.
+- **An upgrade path for enclosures from an earlier build.** `mg-admin mesh upgrade`
+  reissues a service's certificate for the key it already holds and rewrites its trust
+  anchor and `mesh.crl`, keeping both keystores (a new audit keystore would lock the
+  service out of its ledger and sealed state). `mg-admin audit checkpoint` now adopts
+  the gateway's dual-control ledger as well as its governance ledger, is safe to run
+  again, and with `--identity-dir` adopts a mesh service's own ledger. Compose `init`
+  and `mg-install`'s repair run both, so re-running them is the upgrade; the installer
+  now stops every service, not only the gateway, before `init`. The kind identity
+  Secrets carry `mesh.crl`. `docs/ops/UPGRADING.md` has every step. [MG-SEC-02]
+  [MG-SEC-03] [MG-SEC-05]
 
 ### Changed
 - **The key ceremony is held with Dvalin**, a separate application

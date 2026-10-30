@@ -18,7 +18,11 @@
 //!   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>]
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
 //!   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
+//!   mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir>
+//!                         [--days <n>] [--clearance <band>] [--compartments <c,..>]
 //!   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
+//!   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file>
+//!                             --ledger-id <id> [--audit-pin <file>]
 //!
 //! The password for `user add` is read from standard input, and only from a pipe or a
 //! file: std has no portable way to stop a terminal echoing it, so an interactive
@@ -42,6 +46,7 @@ use audit_writer::{
 use fabric::{DurableObjectStore, ObjectStore};
 use http_gateway::boot::{
     checkpoint_legacy_ledger, init_audit_ledger_mirrored, mirror_audit_ledger, read_audit_pin,
+    Adoption,
 };
 use http_gateway::enclosure::{band, level_of};
 use http_gateway::import_file::parse_import;
@@ -58,6 +63,7 @@ use policy::{
 };
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
+use service_runtime::checkpoint_service_ledger;
 
 const USAGE: &str = "\
 mg-admin — create an enclosure's state directory and enrol its principals
@@ -80,7 +86,11 @@ USAGE:
   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>] \\
                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
+  mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
+                        [--days <n>] [--clearance <band>] [--compartments <c,..>]
   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
+  mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file> \\
+                            --ledger-id <id> [--audit-pin <file>]
 
 COMMANDS:
   init       create <dir> with fresh issuer and audit keystores, their verifying keys
@@ -125,10 +135,21 @@ COMMANDS:
              revoke the certificate in --cert: sign the next revocation list and write it
              as mesh.crl into each --out service directory. Running services pick it up
              without a restart.
+  mesh upgrade
+             bring a service issued by an earlier release up to date in place: reissue its
+             certificate for the key it already holds (with --roles, as at issue), and
+             rewrite mesh.anchor and mesh.crl in the current formats. Both keystores are
+             kept, so its audit ledger and sealed state still open. A current service is
+             left alone. Run it for every service directory after upgrading.
   audit checkpoint
-             once, on upgrade: verify a governance ledger written before ledgers had
-             checkpoints under the audit key pinned in --audit-pin, and record its first
-             signed checkpoint. The gateway refuses a ledger without one.
+             on upgrade: verify the governance and dual-control ledgers written before
+             ledgers had checkpoints under the audit key pinned in --audit-pin, and
+             record their first signed checkpoints. The gateway refuses a ledger
+             without one. A ledger that already has a checkpoint is left alone, so it
+             is safe to run again.
+             With --identity-dir: the same for one mesh service's own ledger
+             (--ledger, --ledger-id), under its audit keystore in that directory, and
+             under --audit-pin too when given. Stop the service first.
              With --checkpoint-mirror: verify the ledger under the pinned key and
              write its checkpoint to the mirror directory, adopting a ledger without
              a checkpoint at the same time. Enables a mirror for an existing ledger,
@@ -245,12 +266,33 @@ fn run(argv: &[String]) -> Result<String, Failure> {
             ],
             &[],
         )?),
+        ["mesh", "upgrade", rest @ ..] => mesh::mesh_upgrade(&options(
+            rest,
+            &[
+                "state-dir",
+                "service",
+                "roles",
+                "out",
+                "days",
+                "clearance",
+                "compartments",
+            ],
+            &[],
+        )?),
         ["mesh", "revoke", rest @ ..] => {
             mesh::mesh_revoke(&options(rest, &["state-dir", "cert", "out"], &[])?)
         }
         ["audit", "checkpoint", rest @ ..] => audit_checkpoint(&options(
             rest,
-            &["state-dir", "audit-pin", "checkpoint-mirror"],
+            &[
+                "state-dir",
+                "audit-pin",
+                "checkpoint-mirror",
+                "identity-dir",
+                "service",
+                "ledger",
+                "ledger-id",
+            ],
             &[],
         )?),
         [] => Err(Failure::Usage("no command given".into())),
@@ -340,21 +382,65 @@ fn init(o: &Options) -> Result<String, Failure> {
 /// `--checkpoint-mirror`, verify the ledger and (re-)seed its checkpoint mirror.
 /// [MG-SEC-05]
 fn audit_checkpoint(o: &Options) -> Result<String, Failure> {
+    if o.get("identity-dir").is_some() {
+        return service_ledger_checkpoint(o);
+    }
     let state = StateDir::new(o.require("state-dir")?);
     let pin = read_audit_pin(Path::new(o.require("audit-pin")?)).map_err(Failure::Run)?;
     let _lock = StateLock::acquire(&state, "mg-admin audit checkpoint").map_err(Failure::Run)?;
     if let Some(mirror) = o.get("checkpoint-mirror") {
         let entries = mirror_audit_ledger(&state, &pin, Path::new(mirror)).map_err(Failure::Run)?;
         return Ok(format!(
-            "the audit ledger verifies under the pinned key; its checkpoint, mirrored to \
-             {mirror}, vouches for {entries} entries"
+            "the audit ledger verifies under the pinned key; its checkpoint, mirrored to              {mirror}, vouches for {entries} entries"
         ));
     }
-    let entries = checkpoint_legacy_ledger(&state, &pin).map_err(Failure::Run)?;
-    Ok(format!(
-        "the audit ledger verifies under the pinned key; its checkpoint now vouches for \
-         {entries} entries"
-    ))
+    let done = checkpoint_legacy_ledger(&state, &pin).map_err(Failure::Run)?;
+    Ok(done
+        .iter()
+        .map(|(name, adoption)| adoption_line(name, adoption))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        ))
+}
+
+/// `audit checkpoint --identity-dir DIR --service NAME --ledger FILE --ledger-id ID`:
+/// adopt a mesh service's own ledger, written before ledgers had checkpoints, under
+/// its audit keystore (and `--audit-pin`, when given). Run it with the service
+/// stopped. [MG-SEC-05]
+fn service_ledger_checkpoint(o: &Options) -> Result<String, Failure> {
+    let identity_dir = Path::new(o.require("identity-dir")?);
+    let service = o.require("service")?;
+    let ledger = Path::new(o.require("ledger")?);
+    let ledger_id = o.require("ledger-id")?;
+    if o.get("state-dir").is_some() || o.get("checkpoint-mirror").is_some() {
+        return Err(Failure::Usage(
+            "--identity-dir adopts one service's ledger; it takes no --state-dir or              --checkpoint-mirror"
+                .into(),
+        ));
+    }
+    let pin = o
+        .get("audit-pin")
+        .map(|p| read_audit_pin(Path::new(p)))
+        .transpose()
+        .map_err(Failure::Run)?;
+    let adoption =
+        checkpoint_service_ledger(identity_dir, service, ledger, ledger_id, pin.as_ref())
+            .map_err(Failure::Run)?;
+    Ok(adoption_line(&format!("{service} ledger"), &adoption))
+}
+
+fn adoption_line(name: &str, adoption: &Adoption) -> String {
+    match adoption {
+        Adoption::Absent => format!("the {name} does not exist yet; nothing to do"),
+        Adoption::AlreadyCheckpointed => {
+            format!("the {name} already has a checkpoint; nothing changed")
+        }
+        Adoption::Adopted { entries } => {
+            format!("the {name} verifies; its checkpoint now vouches for {entries} entries")
+        }
+    }
 }
 
 fn user_add(o: &Options) -> Result<String, Failure> {

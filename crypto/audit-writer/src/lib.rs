@@ -17,6 +17,7 @@
 //! server, so the ledger and its checkpoint cannot be rolled back together.
 //! [MG-SEC-05]
 
+pub mod adopt;
 pub mod canonical;
 pub mod chain;
 pub mod checkpoint;
@@ -30,6 +31,7 @@ pub mod pin;
 pub mod record;
 pub mod verify;
 
+pub use adopt::{adopt_ledger, Adoption, AdoptionKeys};
 pub use canonical::canonical_record;
 pub use chain::{checkpoint_preimage, entry_hash, genesis_hash, signing_preimage};
 pub use checkpoint::LedgerCheckpoint;

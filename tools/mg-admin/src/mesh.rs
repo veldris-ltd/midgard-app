@@ -17,6 +17,13 @@
 //! running service picks a newer list up within seconds, without a restart. The list's
 //! master copy lives in the state directory's `trust/` and only ever moves forward.
 //! [MG-SEC-03]
+//!
+//! `mesh upgrade` brings a service issued before certificates carried terms up to date
+//! in place: it certifies the identity key the service already holds, and rewrites the
+//! trust anchor and revocation list in their current formats. It never touches the
+//! keystores — the audit keystore signs the service's ledger and seals its state, so a
+//! new one would lock the service out of both. A service that is already current is
+//! left alone, apart from a missing revocation list, which is written. [MG-SEC-02]
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -27,8 +34,8 @@ use http_gateway::state_dir::{StateDir, StateLock, IDP_KEY_ID};
 use iam::{Idp, IDP_SIG_ALG};
 use policy::{Compartment, Role};
 use pq_mtls::{
-    cert_fingerprint, decode_cert, decode_crl, encode_anchor, encode_cert, encode_crl, CertTerms,
-    Posture, RevocationList, ServiceId, WorkloadIdentity,
+    cert_fingerprint, decode_anchor, decode_cert, decode_crl, encode_anchor, encode_cert,
+    encode_crl, CertTerms, Posture, RevocationList, ServiceId, WorkloadIdentity,
 };
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
 
@@ -269,6 +276,98 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
         anchor_path.display(),
         crl_path.display(),
         crl.version,
+    ))
+}
+
+/// Upgrade a service whose certificate, trust anchor or revocation list predates the
+/// current formats, keeping both of its keystores. The certificate is reissued for the
+/// identity key already in `--out`, with `--roles` (an old certificate cannot be read
+/// for them) and the usual `--days` and `--clearance`. A certificate that is already
+/// current, issued to this service for this key by this enclosure, is kept; then only
+/// a trust anchor or revocation list that is missing or out of date is rewritten.
+/// [MG-SEC-02] [MG-SEC-03]
+pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
+    let state = StateDir::new(o.require("state-dir")?);
+    let service = o.require("service")?;
+    check_service_name(service)?;
+    let roles: BTreeSet<Role> = list(o.require("roles")?).into_iter().map(Role).collect();
+    if roles.is_empty() {
+        return Err(Failure::Usage("--roles needs at least one role".into()));
+    }
+    let days = lifetime_days(o)?;
+    let clearance = granted_clearance(o)?;
+    let out = Path::new(o.require("out")?);
+    let key_path = identity_keystore(out, service);
+    let audit_path = out.join(format!("{service}.audit.keystore"));
+    let cert_path = out.join(format!("{service}.cert"));
+    let anchor_path = out.join("mesh.anchor");
+    let crl_path = out.join(CRL_FILE);
+    for path in [&key_path, &audit_path] {
+        if !path.exists() {
+            return Err(Failure::Run(format!(
+                "{} is missing; mesh upgrade keeps a service's keys and cannot make them \
+                 (use mesh issue for a new service)",
+                path.display()
+            )));
+        }
+    }
+    let identity_key = Keystore::read(&key_path)
+        .map_err(|e| Failure::Run(format!("cannot read {}: {e}", key_path.display())))?;
+
+    let _lock = StateLock::acquire(&state, "mg-admin mesh upgrade").map_err(Failure::Run)?;
+    let idp = issuer(&state)?;
+    let anchor = idp.trust_anchor();
+    let crl = current_crl(&state, &idp)?;
+
+    let current = std::fs::read(&cert_path)
+        .ok()
+        .and_then(|bytes| decode_cert(&bytes).ok())
+        .filter(|cert| {
+            cert.identity.id.0 == service
+                && cert.identity.verifying_key == identity_key.verifying_key
+                && pq_mtls::verify_cert(cert, &anchor, idp.provider(), now_secs()).is_ok()
+        });
+    let mut done = Vec::new();
+    if current.is_none() {
+        let cert = certify_service(&idp, service, &roles, &identity_key, days, clearance)?;
+        let role_names: Vec<&str> = roles.iter().map(|r| r.0.as_str()).collect();
+        record_admin_event(
+            &state,
+            "UPGRADE workload certificate",
+            &format!("service:{service}:{}", role_names.join(",")),
+        )?;
+        replace(&cert_path, &encode_cert(&cert))?;
+        done.push(format!(
+            "reissued {} for its existing key, valid for {days} days",
+            cert_path.display()
+        ));
+    }
+    let anchor_current = std::fs::read(&anchor_path)
+        .ok()
+        .and_then(|bytes| decode_anchor(&bytes).ok())
+        .is_some_and(|a| a.ca_key == anchor.ca_key && a.ca_alg == anchor.ca_alg);
+    if !anchor_current {
+        replace(&anchor_path, &encode_anchor(&anchor))?;
+        done.push(format!("rewrote {}", anchor_path.display()));
+    }
+    let crl_current = std::fs::read(&crl_path)
+        .ok()
+        .and_then(|bytes| decode_crl(&bytes).ok())
+        .is_some_and(|c| c.version >= crl.version);
+    if !crl_current {
+        replace(&crl_path, &encode_crl(&crl))?;
+        done.push(format!(
+            "wrote {} (revocation list version {})",
+            crl_path.display(),
+            crl.version
+        ));
+    }
+    if done.is_empty() {
+        return Ok(format!("'{service}' is already current; nothing changed"));
+    }
+    Ok(format!(
+        "upgraded '{service}', keeping its keystores:\n  {}\nRestart the service to present it.",
+        done.join("\n  ")
     ))
 }
 

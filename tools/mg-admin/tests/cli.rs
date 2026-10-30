@@ -275,7 +275,7 @@ fn a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway() {
 }
 
 #[test]
-fn audit_checkpoint_adopts_a_ledger_written_before_checkpoints_once() {
+fn audit_checkpoint_adopts_a_ledger_written_before_checkpoints_and_is_safe_to_repeat() {
     let dir = scratch("checkpoint");
     init(&dir);
     let state = StateDir::new(&dir);
@@ -328,10 +328,13 @@ fn audit_checkpoint_adopts_a_ledger_written_before_checkpoints_once() {
         "{}",
         stdout(&o)
     );
+    // Running it again is safe: an already-checkpointed ledger is left alone.
     let o = adopt(&pin);
+    assert!(o.status.success(), "audit checkpoint again: {}", stderr(&o));
     assert!(
-        !o.status.success(),
-        "an already-checkpointed ledger is not re-adopted"
+        stdout(&o).contains("governance ledger already has a checkpoint"),
+        "{}",
+        stdout(&o)
     );
 
     let o = add_user(&dir, "bob", &[], PASSWORD);

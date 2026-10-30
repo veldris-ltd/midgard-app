@@ -15,7 +15,10 @@ use std::time::Duration;
 
 use attest::keystore::KeystoreRoot;
 use attest::Keystore;
-use audit_writer::{verify_chain, AuditWriter, FileLedger, LedgerId, Sealer};
+use audit_writer::{
+    adopt_ledger, verify_chain, Adoption, AdoptionKeys, AuditWriter, FileLedger, LedgerId,
+    PinnedKey, Sealer,
+};
 use kms::{Kms, KmsSealer};
 use pq_mtls::{
     decode_anchor, decode_cert, reload_crl_file, spawn_crl_reloader, verify_cert, IdentityCert,
@@ -184,6 +187,56 @@ impl ServiceIdentity {
             .map_err(|e| format!("cannot open the audit keystore {}: {e}", path.display()))?;
         Ok((keystore, path))
     }
+}
+
+/// Adopt a service's own audit ledger written before ledgers had checkpoints, the
+/// ledger [`ServiceIdentity::audit_writer`] opens: read it under the service's audit
+/// keystore in `identity_dir`, verify every entry, and record its first signed
+/// checkpoint, so the service starts again after an upgrade. The entries are verified
+/// under `pin` when one is given (a copy of the audit key kept apart from the
+/// keystore), else under the keystore's own key, which is what the service itself
+/// checked them under before. A ledger already checkpointed, or absent, is left alone.
+/// `mg-admin audit checkpoint --identity-dir` calls this. [MG-SEC-05]
+pub fn checkpoint_service_ledger(
+    identity_dir: &Path,
+    service: &str,
+    ledger: &Path,
+    ledger_id: &str,
+    pin: Option<&PinnedKey>,
+) -> Result<Adoption, String> {
+    // A service that has not run yet has no ledger, and may have no keystore either.
+    if !ledger.exists() && !audit_writer::checkpoint_path(ledger).exists() {
+        return Ok(Adoption::Absent);
+    }
+    let path = identity_dir.join(format!("{service}.audit.keystore"));
+    let keystore = Keystore::read(&path)
+        .map_err(|e| format!("cannot open the audit keystore {}: {e}", path.display()))?;
+    let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
+    let (verifying_key, signing_key, alg) = unseal_keystore(keystore, &path)?;
+    if let Some(pin) = pin {
+        pin.check(&verifying_key)
+            .map_err(|_| format!("{} does not hold the pinned audit key", path.display()))?;
+    }
+    let own = verifying_key.clone();
+    let verify_under = move |a: SigId| -> Option<VerifyingKey> {
+        match pin {
+            Some(pin) => pin.resolve(a),
+            None => (a == alg).then(|| own.clone()),
+        }
+    };
+    adopt_ledger(
+        ledger,
+        Box::new(sealer),
+        LedgerId(ledger_id.into()),
+        &fips_provider(),
+        AdoptionKeys {
+            scheme: Box::new(FipsSig::new(alg)),
+            signing_key,
+            verifying_key,
+            verify_under: &verify_under,
+        },
+    )
+    .map_err(|e| format!("cannot adopt the audit ledger {}: {e}", ledger.display()))
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, String> {

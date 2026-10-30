@@ -27,9 +27,11 @@ use std::path::Path;
 use admin_identity::{DurableAdminPasskeys, DurableIdentityDirectory, RoleCatalog};
 use admin_privilege::DurablePrivilege;
 use attest::Keystore;
+pub use audit_writer::Adoption;
 use audit_writer::{
-    checkpoint_path, verify_chain, verify_ledger, AuditError, AuditWriter, CheckpointMirror,
-    FileCheckpointMirror, FileLedger, LedgerId, LedgerStore, PinnedKey, Sealer,
+    adopt_ledger, checkpoint_path, verify_chain, verify_ledger, AdoptionKeys, AuditError,
+    AuditWriter, CheckpointMirror, FileCheckpointMirror, FileLedger, LedgerId, LedgerStore,
+    PinnedKey, Sealer,
 };
 use fabric::DurableObjectStore;
 use governance::Governance;
@@ -291,40 +293,57 @@ pub fn init_audit_ledger_mirrored(
     .map_err(|e| format!("cannot checkpoint the new audit ledger: {e}"))
 }
 
-/// Adopt a governance ledger written before checkpoints existed: verify its whole
-/// chain under the pinned key, then record its first signed checkpoint. Refuses an
-/// audit keystore that does not hold the pinned key, a ledger that does not verify,
-/// and a ledger that already has a checkpoint. Returns the number of entries vouched
-/// for. `mg-admin audit checkpoint` calls this once, on upgrade. [MG-SEC-05]
-pub fn checkpoint_legacy_ledger(state: &StateDir, audit_pin: &PinnedKey) -> Result<usize, String> {
-    let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
-    let ledger_sealer = sealer(&audit_keystore);
-    let audit_alg = audit_keystore.alg;
-    let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
-    audit_pin
-        .check(&audit_vk)
-        .map_err(|_| "the audit keystore does not hold the pinned audit key".to_string())?;
-    let ledger =
-        FileLedger::open_uncheckpointed(state.ledger(), ledger_sealer, LedgerId(LEDGER_ID.into()))
-            .map_err(|e| format!("cannot adopt the audit ledger: {e}"))?;
-    verify_chain(
-        ledger.entries(),
-        &fips_provider(),
-        &LedgerId(LEDGER_ID.into()),
-        &|alg| audit_pin.resolve(alg),
-    )
-    .map_err(|e| format!("the audit ledger does not verify under the pinned key: {e}"))?;
-    let mut writer = AuditWriter::new(
-        ledger,
-        Box::new(FipsSig::new(audit_alg)),
-        audit_sk,
-        audit_vk,
-        LedgerId(LEDGER_ID.into()),
-    );
-    writer
-        .seal_checkpoint()
-        .map_err(|e| format!("cannot checkpoint the audit ledger: {e}"))?;
-    Ok(writer.entries().len())
+/// Adopt the state directory's ledgers written before checkpoints existed — the
+/// governance ledger and the dual-control (privilege) ledger: verify each whole chain
+/// under the pinned key, then record its first signed checkpoint. A ledger that already
+/// has a checkpoint, or that does not exist yet, is left alone, so this is safe to run
+/// again. Refuses an audit keystore that does not hold the pinned key and a ledger that
+/// does not verify. Returns what was done to each, by name. `mg-admin audit checkpoint`
+/// calls this, on upgrade. [MG-SEC-05]
+pub fn checkpoint_legacy_ledger(
+    state: &StateDir,
+    audit_pin: &PinnedKey,
+) -> Result<Vec<(&'static str, Adoption)>, String> {
+    let ledgers = [
+        ("governance ledger", state.ledger(), LEDGER_ID),
+        (
+            "dual-control ledger",
+            state.admin_privilege().join(admin_privilege::LEDGER_FILE),
+            PRIVILEGE_LEDGER_ID,
+        ),
+    ];
+    let mut done = Vec::new();
+    for (name, path, ledger_id) in ledgers {
+        // A fresh read per ledger: an unsealed signing key is consumed by its writer.
+        let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+        let ledger_sealer = sealer(&audit_keystore);
+        let audit_alg = audit_keystore.alg;
+        let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+        audit_pin
+            .check(&audit_vk)
+            .map_err(|_| "the audit keystore does not hold the pinned audit key".to_string())?;
+        let adoption = adopt_ledger(
+            &path,
+            ledger_sealer,
+            LedgerId(ledger_id.into()),
+            &fips_provider(),
+            AdoptionKeys {
+                scheme: Box::new(FipsSig::new(audit_alg)),
+                signing_key: audit_sk,
+                verifying_key: audit_vk,
+                verify_under: &|alg| audit_pin.resolve(alg),
+            },
+        )
+        .map_err(|e| match e {
+            AuditError::SignatureInvalid { .. } => format!(
+                "the {name} ({}) does not verify under the pinned key: {e}",
+                path.display()
+            ),
+            e => format!("cannot adopt the {name} ({}): {e}", path.display()),
+        })?;
+        done.push((name, adoption));
+    }
+    Ok(done)
 }
 
 /// Verify the governance ledger under the pinned key and start mirroring its

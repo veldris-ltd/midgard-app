@@ -732,6 +732,7 @@ dependencies = [
  "policy",
  "pq-mtls",
  "pqc-agility",
+ "service-runtime",
 ]
 
 [[package]]
