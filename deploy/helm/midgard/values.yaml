@@ -53,7 +53,7 @@ services:
   - name: http-gateway
     enabled: true
     binary: http-gateway
-    args: ["--state-dir", "/state", "--bind", "0.0.0.0:7710",
+    args: ["--state-dir", "/state", "--bind", "0.0.0.0:7710", "--allow-non-loopback",
            "--mesh-bind", "0.0.0.0:7711", "--mesh-identity-dir", "/identity"]
     ports:
       - { name: http, port: 7710, from: [console-edge] }

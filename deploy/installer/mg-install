@@ -1001,7 +1001,7 @@ write_site() {
         echo "      - $SITE/ontology.json:/etc/midgard/core-ontology.json:ro"
         echo "      - $SITE/policy.json:/etc/midgard/core-policy.json:ro"
         echo "  gateway:"
-        echo "    entrypoint: [http-gateway, --state-dir, /state, --bind, \"0.0.0.0:7710\","
+        echo "    entrypoint: [http-gateway, --state-dir, /state, --bind, \"0.0.0.0:7710\", --allow-non-loopback,"
         echo "                 --mesh-bind, \"0.0.0.0:7711\", --mesh-identity-dir, /mesh-identity,"
         echo "                 --allow-origin, \"http://localhost:5173\", --allow-origin, \"http://127.0.0.1:5173\"]"
         if has forge; then

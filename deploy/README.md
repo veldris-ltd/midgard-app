@@ -89,6 +89,17 @@ service is ever started on a default address, and `http-gateway` in particular n
 `--state-dir`. The gateway's development mode (`--dev`) listens on loopback only, so it
 cannot be served from an image. [MG-SEC-06]
 
+The gateway edge speaks plaintext HTTP, so TLS termination off the host (PQ-mTLS or
+TLS 1.3) is mandatory for any route to it other than an SSH tunnel to loopback. The
+gateway refuses a bind address that is not loopback unless it is given
+`--allow-non-loopback`; compose, the Helm chart, the rendered `deploy/k8s/enclosure.yaml`
+and `mg-install` pass it after `--bind 0.0.0.0:7710`, because a container must listen
+on its own interface. Compose publishes that port on the host's loopback only. The
+console image (`deploy/installer/console.Dockerfile`) refuses to build against a
+`GATEWAY_URL` that is plaintext `http://` off loopback, and its nginx serves the same
+security headers on every location from `console.security-headers.conf`.
+[VLD-ANB-MIDGARD-0014] [VLD-ANB-MIDGARD-0032] [VLD-ANB-MIDGARD-0085]
+
 A real multi-node `kubectl apply` + cross-host PQ-mTLS smoke belongs to the
 **deployment-tier acceptance suite (RT-40)**, run on a staging cluster — it cannot
 run inside the offline unit harness.

@@ -111,7 +111,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/ontology_file.rs:144", "contracts/schema/ontology.v1.schema.json"]
 tests = ["services/http-gateway/tests/ontology_boot.rs::an_invalid_ontology_refuses_to_boot", "services/http-gateway/tests/contract_schemas.rs::ontology_fixtures_get_the_same_verdict_from_the_schema_and_the_parser", "services/http-gateway/tests/contract_schemas.rs::the_ontology_schema_allows_exactly_the_keys_the_parser_allows"]
 service_tests = ["deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:309", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:313", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "checked-import"
@@ -121,7 +121,7 @@ status = "operable"
 evidence = ["tools/mg-admin/src/main.rs:376", "services/http-gateway/src/import_file.rs:91", "contracts/schema/import-record.v1.schema.json", "services/http-gateway/src/mesh_sync.rs:258"]
 tests = ["services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it", "services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer", "services/http-gateway/tests/mesh_sync.rs::a_sync_that_lowers_a_marking_is_refused_and_changes_nothing", "services/http-gateway/tests/mesh_sync.rs::a_sync_may_raise_a_marking_and_narrow_purposes", "services/http-gateway/tests/mesh_sync.rs::a_sync_above_the_sync_clearance_is_refused", "services/http-gateway/tests/mesh_sync.rs::a_sync_never_touches_a_human_gated_target", "services/http-gateway/tests/mesh_sync.rs::an_unpermitted_peer_learns_nothing_from_a_malformed_sync", "services/http-gateway/tests/mesh_sync.rs::a_malformed_sync_from_a_permitted_peer_is_still_audited", "services/http-gateway/src/enclosure.rs::gated_targets_cover_live_and_redeemed_approvals"]
 service_tests = ["tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves"]
-stated_in = ["README.md:325", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:329", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "human-gated-actions"
@@ -144,6 +144,17 @@ tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_aut
 service_tests = ["tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway"]
 limit = "The console's login form has no field for the one-time code. Login fields are bounded and attempts are limited per name and per source; under compose every client shares the proxy's address, so the per-source limit is one for the whole site. Anyone who can reach the edge can lock any name for up to 15 minutes."
 stated_in = ["README.md:54", "docs/launch/pipeline/build-deck.js:447"]
+
+[[claim]]
+id = "plaintext-edge-guard"
+area = "Core: fabric, identity and governance"
+claim = "The gateway edge speaks plaintext HTTP and is kept off the network by default. It binds loopback only unless --allow-non-loopback is given with a state directory; development mode with its demo logins needs --dev and is loopback only with no override. The console refuses a plaintext gateway URL off loopback when it is built and when it starts, and its static server sends the same security headers on every location."
+status = "operable"
+limit = "TLS termination in front of the edge is a deployment responsibility. The code enforces it only by refusing non-loopback binds and URLs; style-src keeps unsafe-inline for the design system."
+evidence = ["services/http-gateway/src/cli.rs:1", "sdk/ts/src/http/baseUrl.ts:1", "deploy/installer/console.security-headers.conf:1"]
+tests = ["services/http-gateway/tests/cli_modes.rs::a_bare_address_or_no_arguments_is_a_usage_error", "services/http-gateway/tests/cli_modes.rs::non_loopback_binds_are_refused_unless_allowed", "services/http-gateway/src/lib.rs::check_bind_refuses_non_loopback_hosts_unless_allowed"]
+service_tests = ["services/http-gateway/tests/cli_modes.rs::dev_mode_serves_the_seeded_login_on_loopback"]
+stated_in = ["README.md:162", "deploy/README.md:92"]
 
 [[claim]]
 id = "webauthn-oidc-federation"
@@ -220,7 +231,7 @@ evidence = ["products/admin/ui/src/main.tsx:17"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
-stated_in = ["README.md:812", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544"]
+stated_in = ["README.md:816", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544"]
 
 # ---- Mimir -----------------------------------------------------------------------------
 
@@ -461,9 +472,9 @@ status = "operable"
 criteria = ["AC-M-6", "AC-B-1"]
 evidence = ["justfile:373", "tools/ci/release.sh:170", "tools/ci/pipelines.sh:52"]
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component"]
-service_tests = ["tools/ci/run.sh:320", "tools/ci/tests/pipelines.test.sh:73"]
+service_tests = ["tools/ci/run.sh:320", "tools/ci/tests/pipelines.test.sh:73", "tools/ci/run.sh:225"]
 limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them."
-stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402"]
+stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402", "README.md:746"]
 
 [[claim]]
 id = "offline-build"
@@ -485,7 +496,7 @@ criteria = ["AC-B-1"]
 evidence = ["deploy/images/entrypoint.sh:27", "deploy/images/service.Dockerfile"]
 service_tests = ["deploy/images/build.sh:103"]
 limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly."
-stated_in = ["README.md:756", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83"]
+stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83"]
 
 [[claim]]
 id = "acceptance-gate"
@@ -547,4 +558,4 @@ id = "likan"
 area = "Outside this repository"
 claim = "Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here."
 status = "external"
-stated_in = ["README.md:833"]
+stated_in = ["README.md:837"]

@@ -18,6 +18,11 @@
 //! `--login-burst` and `--login-per-sec` are how many login and administration attempts
 //! one source address may make at once, and how fast that allowance refills (a burst
 //! of 0 turns it off). [VLD-ANB-MIDGARD-0005]
+//!
+//! The edge speaks plaintext HTTP, so a state-directory gateway also listens on
+//! loopback only unless `--allow-non-loopback` says it sits behind PQ-mTLS or TLS 1.3
+//! termination, as a container does. Development mode has no such override.
+//! [RC-24] [VLD-ANB-MIDGARD-0032]
 
 use std::net::{SocketAddr, ToSocketAddrs};
 
@@ -26,7 +31,7 @@ use service_runtime::marking::{level_of, BANDS};
 use service_runtime::{mesh_limits_from_args, Args, MeshLimits};
 
 use crate::login_throttle::{LOGIN_SOURCE_BURST, LOGIN_SOURCE_PER_SEC};
-use crate::EdgeLimits;
+use crate::{check_bind, BindPolicy, EdgeLimits};
 
 /// Where the gateway listens unless told otherwise, in either mode.
 pub const DEFAULT_BIND: &str = "127.0.0.1:7710";
@@ -35,7 +40,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:7710";
 pub const USAGE: &str = "\
 usage:
   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
-               [--allow-origin URL]...
+               [--allow-non-loopback] [--allow-origin URL]...
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]
                 [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
                [--max-connections N] [--idle-timeout SECONDS] [--edge-rate-per-sec N]
@@ -52,7 +57,10 @@ usage:
       address
   http-gateway --dev [ADDR]
       development mode: seeded in-memory data and the published demo logins,
-      on a loopback ADDR only (default 127.0.0.1:7710)";
+      on a loopback ADDR only (default 127.0.0.1:7710)
+  --allow-non-loopback lets a state-directory gateway bind an address that is not
+      loopback; the plaintext edge must then sit behind PQ-mTLS or TLS 1.3 termination.
+      Development mode has no override.";
 
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +87,9 @@ pub struct ServeArgs {
     pub checkpoint_mirror: Option<String>,
     /// The HTTP bind address.
     pub bind: String,
+    /// Whether `bind` may be an address that is not loopback (`--allow-non-loopback`).
+    /// [RC-24] [VLD-ANB-MIDGARD-0032]
+    pub bind_policy: BindPolicy,
     /// The browser origins the CORS allowlist admits.
     pub origins: Vec<String>,
     /// The PQ-mTLS mesh door's bind address, if it is served.
@@ -128,6 +139,14 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         );
     };
     if argv.iter().any(|a| a == "--dev") {
+        if argv.iter().any(|a| a == "--allow-non-loopback") {
+            return Err(
+                "development mode listens on loopback only and has no --allow-non-loopback \
+                 override; to listen on another interface, serve a state directory \
+                 (--state-dir) behind PQ-mTLS or TLS 1.3 termination"
+                    .into(),
+            );
+        }
         if first != "--dev" || argv.len() > 2 || argv.get(1).is_some_and(|a| a.starts_with("--")) {
             return Err(
                 "--dev takes at most one argument, a loopback address, and no other option".into(),
@@ -150,6 +169,7 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         audit_pin: None,
         checkpoint_mirror: None,
         bind: DEFAULT_BIND.to_string(),
+        bind_policy: BindPolicy::LoopbackOnly,
         origins: Vec::new(),
         mesh_bind: None,
         mesh_identity_dir: None,
@@ -164,6 +184,10 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
     let mut limit_flags = Vec::new();
     let mut args = argv.iter();
     while let Some(flag) = args.next() {
+        if flag == "--allow-non-loopback" {
+            serve.bind_policy = BindPolicy::AllowNonLoopback;
+            continue;
+        }
         let Some(value) = args.next().filter(|v| !v.starts_with("--")) else {
             return Err(format!("{flag} requires a value"));
         };
@@ -199,6 +223,8 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
     if serve.mesh_bind.is_some() != serve.mesh_identity_dir.is_some() {
         return Err("--mesh-bind and --mesh-identity-dir go together".into());
     }
+    // Refused here, before the state directory is opened or locked, as a usage error.
+    check_bind(&serve.bind, serve.bind_policy)?;
     serve.state_dir = state_dir;
     (serve.edge, serve.mesh) = limits(&limit_flags)?;
     Ok(Command::Serve(Box::new(serve)))
@@ -279,8 +305,9 @@ pub fn loopback_addr(addr: &str) -> Result<SocketAddr, String> {
         .ok_or_else(|| format!("development mode cannot resolve {addr}"))?;
     if let Some(open) = resolved.iter().find(|a| !a.ip().is_loopback()) {
         return Err(format!(
-            "development mode listens on a loopback address only, and {addr} is {}; serve a \
-             state directory (--state-dir) to listen on another interface",
+            "development mode listens on a loopback address only, and {addr} is {}; it has \
+             no --allow-non-loopback override. To listen on another interface, serve a \
+             state directory (--state-dir) behind PQ-mTLS or TLS 1.3 termination",
             open.ip()
         ));
     }

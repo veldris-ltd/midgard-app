@@ -11,6 +11,7 @@ export type { MockGatewayOptions } from './mock/MockGateway';
 export { createHttpGateway } from './http/HttpGateway';
 export type { HttpGatewayOptions } from './http/HttpGateway';
 export { login, logout, whoami, sessionPolicy } from './http/login';
+export { assertSafeBaseUrl } from './http/baseUrl';
 export type { LoginCredentials, LoginResult, Session } from './http/login';
 
 // Per-product gateway slices (one interface + mock + fixtures each). All symbols

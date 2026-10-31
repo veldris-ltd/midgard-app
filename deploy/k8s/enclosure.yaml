@@ -467,7 +467,7 @@ spec:
           env:
             - name: MIDGARD_SERVICE
               value: http-gateway
-          args: ["--state-dir","/state","--bind","0.0.0.0:7710","--mesh-bind","0.0.0.0:7711","--mesh-identity-dir","/identity"]
+          args: ["--state-dir","/state","--bind","0.0.0.0:7710","--allow-non-loopback","--mesh-bind","0.0.0.0:7711","--mesh-identity-dir","/identity"]
           ports:
             - name: http
               containerPort: 7710

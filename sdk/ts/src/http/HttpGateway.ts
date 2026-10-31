@@ -19,6 +19,7 @@ import type {
   SloMetric,
 } from '../types';
 import { GatewayError, HumanGateRequiredError } from '../mock/MockGateway';
+import { assertSafeBaseUrl } from './baseUrl';
 
 /**
  * The real transport: talks HTTP/JSON to the `http-gateway` Rust service
@@ -34,7 +35,9 @@ import { GatewayError, HumanGateRequiredError } from '../mock/MockGateway';
  * from a state directory created by `mg-admin`.
  */
 export interface HttpGatewayOptions {
-  /** Base URL of the HTTP/JSON edge, e.g. http://127.0.0.1:7710/api/v1 */
+  /** Base URL of the HTTP/JSON edge, e.g. http://127.0.0.1:7710/api/v1. It must be
+   *  https://, or http:// on loopback; the constructor throws otherwise, since the
+   *  bearer token goes with every request. [VLD-ANB-MIDGARD-0014] */
   baseUrl: string;
   /** Bearer of a PQ-signed IdP token, when the edge terminates PQ-mTLS for the browser. */
   token?: string;
@@ -61,7 +64,7 @@ class HttpGateway implements GatewayClient {
   private readonly onUnauthorized?: () => void;
 
   constructor(opts: HttpGatewayOptions) {
-    this.base = opts.baseUrl.replace(/\/$/, '');
+    this.base = assertSafeBaseUrl(opts.baseUrl).replace(/\/$/, '');
     this.token = opts.token;
     this.ctx = opts.policy ?? NO_SESSION;
     this.onUnauthorized = opts.onUnauthorized;

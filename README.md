@@ -159,6 +159,8 @@ The Cargo workspace is pinned to Rust 1.82 (`rust-toolchain.toml`) with every de
    ssh -N -L 5173:127.0.0.1:5173 -L 7710:127.0.0.1:7710 you@your-server
    ```
 
+   The gateway edge speaks plaintext HTTP, and the console sends your password and its session token to it. That is safe only through this tunnel, or behind TLS termination off the host: terminating TLS is mandatory for any other route to the edge. The gateway refuses to bind an address that is not loopback unless it is started with `--allow-non-loopback` (as the shipped container manifests do, behind the host's loopback or a TLS terminator), and the console refuses a gateway URL that is plaintext `http://` to anything but `127.0.0.1`, `localhost` or `[::1]`. [VLD-ANB-MIDGARD-0014] [VLD-ANB-MIDGARD-0032]
+
 Run `deploy/installer/mg-install check` first to see whether a server is suitable, without changing anything.
 
 ### What the installer asks
@@ -296,7 +298,9 @@ docker run --rm -v "$PWD":/work -w /work midgard-acceptance:1.82.0 \
 just gateway-http                 # equivalent to: cargo run -p http-gateway -- --dev 127.0.0.1:7710
 ```
 
-Development mode needs the explicit `--dev` flag. Started with no arguments, or with only an address, the gateway refuses to start: it serves a state directory (`--state-dir`, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data)) or nothing. `--dev` listens on a loopback address only and refuses any other, such as `0.0.0.0`. [MG-SEC-06]
+Development mode needs the explicit `--dev` flag. Started with no arguments, or with only an address, the gateway refuses to start: it serves a state directory (`--state-dir`, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data)) or nothing. `--dev` listens on a loopback address only and refuses any other, such as `0.0.0.0`, with no override. [MG-SEC-06]
+
+A state-directory gateway also binds loopback only by default. Because the edge speaks plaintext HTTP, binding another interface needs `--allow-non-loopback`, and production must front it with PQ-mTLS or TLS 1.3 termination. The console likewise refuses `VITE_GATEWAY_URL` when it is plaintext `http://` to anything but loopback, both when it is built and when it starts: use `https://` for any other edge. [VLD-ANB-MIDGARD-0014] [VLD-ANB-MIDGARD-0032]
 
 It prints `http-gateway (secured) listening on http://127.0.0.1:7710`. Confirm it is up:
 

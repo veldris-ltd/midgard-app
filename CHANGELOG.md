@@ -98,6 +98,24 @@ CONTRIBUTING.md for the version policy.
   - The console holds the token in memory only, never in `sessionStorage`, so a
     reload returns to sign-in. **Account → Sign out** calls `logout` before clearing
     the session; the SDK gains `logout(baseUrl, token)`.
+- **The plaintext gateway edge stays off the network unless told otherwise, and the
+  console will not send credentials over plaintext to another host.** A
+  state-directory gateway now refuses a bind address that is not loopback (a usage
+  error, exit 2) unless it is given `--allow-non-loopback`; the old warning is gone.
+  Development mode has no such override. Compose, the Helm chart, the rendered
+  `deploy/k8s/enclosure.yaml` and `mg-install` pass the flag after
+  `--bind 0.0.0.0:7710`; a deployment with its own start command must add it. The SDK
+  (`assertSafeBaseUrl`, called by `login`, `whoami` and `createHttpGateway`), the
+  console at start-up, its Vite build and `console.Dockerfile` all refuse a gateway
+  URL that is plaintext `http://` to anything but `127.0.0.1`, `localhost` or `[::1]`.
+  The console's nginx sends its security headers from one shared file on every
+  location, so `/assets/` no longer drops Referrer-Policy, X-Frame-Options and COOP;
+  the CSP gains `form-action 'self'`, a Permissions-Policy denies camera, microphone,
+  geolocation, payment and USB, and `connect-src` admits the origin of the gateway URL
+  the console was built against. `style-src 'unsafe-inline'` stays, recorded in the
+  residual risk register. The explicit `--dev` flag and the fail-closed image
+  entrypoint landed earlier (MG-SEC-06). [RC-24] [VLD-ANB-MIDGARD-0014]
+  [VLD-ANB-MIDGARD-0032] [VLD-ANB-MIDGARD-0085]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

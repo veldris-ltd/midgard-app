@@ -68,6 +68,11 @@ const LOGIN_PURPOSE: &str = "operations";
 
 /// The dev gateway's demo operator credentials (dev/offline only — production wires a
 /// real IdP directory over the enclosure connection). [RC-37]
+///
+/// They stay compiled into every build but are reachable only through
+/// [`SecuredGateway::dev`], which only `http-gateway --dev` starts, on a loopback
+/// address and with no override. A gateway served from a state directory has no
+/// built-in login. [MG-SEC-06] [VLD-ANB-MIDGARD-0032]
 pub const DEMO_USERNAME: &str = "operator";
 pub const DEMO_PASSWORD: &str = "midgard-demo";
 /// The dev gateway's demo approver, the second person a human-gated action needs.
@@ -1193,44 +1198,84 @@ pub fn serve_dev(addr: SocketAddr) -> std::io::Result<()> {
     serve_listener(listener, Arc::new(SecuredGateway::dev()))
 }
 
-/// Bind `addr` (loopback-only in the interim, before PQ-mTLS/TLS termination fronts
-/// this) and serve `gateway` until the process is killed — a gateway opened over a
-/// state directory by [`boot::open_state_dir`]. [RC-24]
+/// Whether a state-directory gateway may listen on an address that is not loopback.
+/// [RC-24] [VLD-ANB-MIDGARD-0032]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindPolicy {
+    /// Loopback only: the edge is reached through an SSH tunnel, or through a TLS
+    /// terminator on the same host. The default.
+    LoopbackOnly,
+    /// Any interface: `--allow-non-loopback`, for a container behind PQ-mTLS or TLS 1.3
+    /// termination off the host. Development mode never has it.
+    AllowNonLoopback,
+}
+
+/// Check `addr` (`HOST:PORT`) against `policy` before anything binds it. Under
+/// [`BindPolicy::LoopbackOnly`] the host must be a loopback IP literal (`127.0.0.0/8`,
+/// `[::1]`) or the name `localhost`; any other address or host name is refused, with
+/// a message that says how to serve another interface safely. [RC-24]
+/// [VLD-ANB-MIDGARD-0032]
+pub fn check_bind(addr: &str, policy: BindPolicy) -> Result<(), String> {
+    if policy == BindPolicy::AllowNonLoopback {
+        return Ok(());
+    }
+    let loopback = match addr.parse::<SocketAddr>() {
+        Ok(sock) => sock.ip().is_loopback(),
+        Err(_) => addr
+            .rsplit_once(':')
+            .is_some_and(|(host, port)| host == "localhost" && port.parse::<u16>().is_ok()),
+    };
+    if loopback {
+        Ok(())
+    } else {
+        Err(format!(
+            "refusing to bind {addr}: it is not a loopback address, and the edge speaks \
+             plaintext HTTP. Production must front it with PQ-mTLS or TLS 1.3 termination; \
+             behind that, pass --allow-non-loopback with --state-dir. Development mode \
+             (--dev) has no override. [RC-24]"
+        ))
+    }
+}
+
+/// Bind `addr`, a loopback address ([`BindPolicy::LoopbackOnly`]), and serve `gateway`
+/// until the process is killed — a gateway opened over a state directory by
+/// [`boot::open_state_dir`]. [RC-24]
 pub fn serve_gateway<S, L>(addr: &str, gateway: SecuredGateway<S, L>) -> std::io::Result<()>
 where
     S: ObjectStore + Send + 'static,
     L: LedgerStore + Send + 'static,
 {
-    serve_shared(addr, Arc::new(gateway))
+    serve_shared(addr, Arc::new(gateway), BindPolicy::LoopbackOnly)
 }
 
-/// [`serve_gateway`] over a gateway another listener — the mesh door — also serves.
-pub fn serve_shared<S, L>(addr: &str, gw: Arc<SecuredGateway<S, L>>) -> std::io::Result<()>
+/// [`serve_gateway`] over a gateway another listener — the mesh door — also serves,
+/// under `policy`: an address it refuses is an [`std::io::ErrorKind::InvalidInput`]
+/// error and nothing is bound. [RC-24] [VLD-ANB-MIDGARD-0032]
+pub fn serve_shared<S, L>(
+    addr: &str,
+    gw: Arc<SecuredGateway<S, L>>,
+    policy: BindPolicy,
+) -> std::io::Result<()>
 where
     S: ObjectStore + Send + 'static,
     L: LedgerStore + Send + 'static,
 {
-    serve_shared_with(addr, gw, EdgeLimits::default())
+    serve_shared_with(addr, gw, policy, EdgeLimits::default())
 }
 
 /// [`serve_shared`] within `limits`. [VLD-ANB-MIDGARD-0004]
 pub fn serve_shared_with<S, L>(
     addr: &str,
     gw: Arc<SecuredGateway<S, L>>,
+    policy: BindPolicy,
     limits: EdgeLimits,
 ) -> std::io::Result<()>
 where
     S: ObjectStore + Send + 'static,
     L: LedgerStore + Send + 'static,
 {
-    if !(addr.starts_with("127.0.0.1")
-        || addr.starts_with("localhost")
-        || addr.starts_with("[::1]"))
-    {
-        eprintln!(
-            "http-gateway: WARNING binding non-loopback {addr}; production MUST front this with              PQ-mTLS/TLS-1.3 termination that forwards to the enclosure. [RC-24]"
-        );
-    }
+    check_bind(addr, policy)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
     serve_listener_with(TcpListener::bind(addr)?, gw, limits)
 }
 
@@ -1867,6 +1912,49 @@ mod tests {
         // Every entry in the served routes is labelled as its own path.
         for &(method, path) in ROUTES {
             assert_eq!(route_label(method, path), path);
+        }
+    }
+
+    /// Under the default policy only loopback hosts bind; `--allow-non-loopback`
+    /// admits any. The refusal names TLS termination and the override.
+    /// [RC-24] [NFR-SEC-1] [AC-13.2] [VLD-ANB-MIDGARD-0032]
+    #[test]
+    fn check_bind_refuses_non_loopback_hosts_unless_allowed() {
+        let loopback = ["127.0.0.1:7710", "localhost:7710", "[::1]:7710"];
+        let open = [
+            "0.0.0.0:7710",
+            "10.0.0.1:7710",
+            "edge.internal:7710",
+            "[::]:7710",
+        ];
+        for addr in loopback {
+            assert_eq!(check_bind(addr, BindPolicy::LoopbackOnly), Ok(()), "{addr}");
+            assert_eq!(
+                check_bind(addr, BindPolicy::AllowNonLoopback),
+                Ok(()),
+                "{addr}"
+            );
+        }
+        for addr in open {
+            let err = check_bind(addr, BindPolicy::LoopbackOnly).expect_err(addr);
+            assert!(err.contains("TLS"), "{addr}: {err}");
+            assert!(err.contains("--allow-non-loopback"), "{addr}: {err}");
+            assert_eq!(
+                check_bind(addr, BindPolicy::AllowNonLoopback),
+                Ok(()),
+                "{addr}"
+            );
+        }
+        // A look-alike prefix is not loopback, and neither is a name without a port.
+        for addr in [
+            "127.0.0.1.edge.internal:7710",
+            "localhost.edge.internal:7710",
+            "localhost",
+        ] {
+            assert!(
+                check_bind(addr, BindPolicy::LoopbackOnly).is_err(),
+                "{addr}"
+            );
         }
     }
 }
