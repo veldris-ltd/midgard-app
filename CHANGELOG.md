@@ -158,6 +158,30 @@ CONTRIBUTING.md for the version policy.
   ML-KEM and ML-DSA vectors run offline; the ledger tamper and truncation tests and the
   handshake downgrade tests also run on the FIPS backend; the whole crypto suites run
   there, not chosen files; and seven crates no recipe tested now are.
+- **Every listener is bounded, and the mesh rate limit is live.** The HTTP edge
+  spawned a thread for every connection with no cap and no read timeout, so anyone
+  who could open TCP connections could hold every thread and descriptor; and the
+  gateway's per-identity rate limit and per-connection quota existed but no service
+  binary turned them on. [VLD-ANB-MIDGARD-0004] [NFR-SEC-1]
+  - `service_runtime::BoundedListener` (`serve_bounded`) is the one accept loop and
+    the one connection cap: a slot before a thread, read and write timeouts set
+    before the first read, a named thread with a stated stack, a spawn failure logged
+    rather than fatal, and `{name}_connections_total{outcome}` counted. The mesh
+    services serve through it, counting against the gateway's own cap (MG-SEC-13), so
+    there is still one cap; `gateway::ConnectionGate` is that cap, shared.
+  - The edge serves at most 256 connections; the next is answered 503 with
+    `Retry-After: 1` without a thread. A request must arrive whole within a 30 s head
+    deadline however its bytes are spaced, and a source address opening more than
+    200 connections in a burst, 50 a second, is answered 429 with `Retry-After: 1`.
+    `--max-connections`, `--idle-timeout` and `--edge-rate-per-sec` tune it.
+  - `mimir-server`, `bifrost-fleet`, `heimdall-feed` and the gateway's mesh door
+    apply `MeshLimits`: 128 connections, a 30 s read timeout (an idle authenticated
+    connection is closed; every client opens one connection per call), a burst of
+    100 and 20 requests a second per identity, and 10,000 requests per connection.
+    `--max-connections`, `--idle-timeout`, `--rate-burst`, `--rate-per-sec` and
+    `--requests-per-conn` tune them; a value that is not a number is a usage error.
+  - The claims ledger's PQ-mTLS row and the residual-risk register's high-rate feed
+    load row now cite the limits in force and the tests that prove them.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

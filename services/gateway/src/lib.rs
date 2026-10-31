@@ -257,13 +257,67 @@ pub struct Gateway {
     ticket: Option<(Arc<TicketKey>, u64)>, // (key, ttl secs)
     seen_tickets: Arc<Mutex<HashSet<Vec<u8>>>>,
     clock: Clock,
-    max_connections: usize,
-    active: Arc<AtomicUsize>,
+    gate: ConnectionGate,
     handshake_timeout: Duration,
     idle_timeout: Duration,
 }
 
-/// A slot under the gateway's connection cap, released when dropped. [MG-SEC-13]
+/// A cap on concurrent connections: a counter of live ones, shared by every clone,
+/// and the most it lets in. The one connection cap in the workspace — the mesh gateway
+/// and the HTTP edge's bounded listener both count against one of these, rather than
+/// each keeping its own. [MG-SEC-13] [VLD-ANB-MIDGARD-0004]
+#[derive(Clone)]
+pub struct ConnectionGate {
+    max: usize,
+    active: Arc<AtomicUsize>,
+}
+
+impl ConnectionGate {
+    /// A gate letting in at most `max` connections at once.
+    pub fn new(max: usize) -> Self {
+        Self {
+            max,
+            active: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Take a slot, or `None` if the gate is full. Accept loops call this before
+    /// spending a thread on a connection.
+    pub fn admit(&self) -> Option<ConnectionPermit> {
+        let mut current = self.active.load(Ordering::Acquire);
+        loop {
+            if current >= self.max {
+                return None;
+            }
+            match self.active.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Some(ConnectionPermit {
+                        active: self.active.clone(),
+                    })
+                }
+                Err(seen) => current = seen,
+            }
+        }
+    }
+
+    /// Connections currently holding a slot.
+    pub fn live_connections(&self) -> usize {
+        self.active.load(Ordering::Acquire)
+    }
+
+    /// The most connections the gate lets in at once.
+    pub fn max_connections(&self) -> usize {
+        self.max
+    }
+}
+
+/// A slot under a [`ConnectionGate`], released when dropped — so a handler that
+/// panics still gives its slot back. [MG-SEC-13]
 pub struct ConnectionPermit {
     active: Arc<AtomicUsize>,
 }
@@ -285,6 +339,8 @@ impl Gateway {
     ///
     /// Rate limiting, request quotas, and resumption are opt-in via the builder
     /// methods; a bare `new` gateway keeps the original single-surface behaviour.
+    /// Every service binary turns them on through `service_runtime::apply_mesh_limits`.
+    /// [VLD-ANB-MIDGARD-0004]
     pub fn new(
         provider: Arc<CryptoProvider>,
         cert: IdentityCert,
@@ -307,8 +363,7 @@ impl Gateway {
             ticket: None,
             seen_tickets: Arc::new(Mutex::new(HashSet::new())),
             clock: system_clock(),
-            max_connections: DEFAULT_MAX_CONNECTIONS,
-            active: Arc::new(AtomicUsize::new(0)),
+            gate: ConnectionGate::new(DEFAULT_MAX_CONNECTIONS),
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
@@ -317,7 +372,7 @@ impl Gateway {
     /// Serve at most `max` connections at once; further ones are refused with
     /// [`MtlsError::Overloaded`] before any handshake work. [MG-SEC-13]
     pub fn with_max_connections(mut self, max: usize) -> Self {
-        self.max_connections = max;
+        self.gate = ConnectionGate::new(max);
         self
     }
 
@@ -336,30 +391,19 @@ impl Gateway {
     /// Take a slot under the connection cap, or `None` if the gateway is full. Accept
     /// loops call this before spending a thread on a connection. [MG-SEC-13]
     pub fn admit(&self) -> Option<ConnectionPermit> {
-        let mut current = self.active.load(Ordering::Acquire);
-        loop {
-            if current >= self.max_connections {
-                return None;
-            }
-            match self.active.compare_exchange_weak(
-                current,
-                current + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    return Some(ConnectionPermit {
-                        active: self.active.clone(),
-                    })
-                }
-                Err(seen) => current = seen,
-            }
-        }
+        self.gate.admit()
     }
 
     /// Connections currently being served.
     pub fn active_connections(&self) -> usize {
-        self.active.load(Ordering::Acquire)
+        self.gate.live_connections()
+    }
+
+    /// The gate this gateway's connections count against, for an accept loop that
+    /// takes slots itself before calling [`Gateway::handle_admitted`]. Clones share
+    /// the count. [VLD-ANB-MIDGARD-0004]
+    pub fn connection_gate(&self) -> ConnectionGate {
+        self.gate.clone()
     }
 
     /// Enforce a per-identity token-bucket rate limit.

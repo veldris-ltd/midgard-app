@@ -7,9 +7,11 @@
 //! - [`ServiceIdentity`] loads the identity `mg-admin mesh issue` wrote — certificate,
 //!   trust anchor, identity key — and opens the service's own durable audit ledger,
 //!   refusing anything that does not verify.
-//! - [`serve_mesh`] is the accept loop; [`spawn_health_port`] serves `/healthz`,
-//!   `/readyz` and `/metrics` on a separate plain-HTTP port. [`client::call`] is the
-//!   other end: one routed request to a service, as a certified workload.
+//! - [`serve_mesh`] is the accept loop, on the bounded listener every listener shares
+//!   ([`serve_bounded`]), with the [`MeshLimits`] every service applies;
+//!   [`spawn_health_port`] serves `/healthz`, `/readyz` and `/metrics` on a separate
+//!   plain-HTTP port. [`client::call`] is the other end: one routed request to a
+//!   service, as a certified workload.
 //! - [`Args`] parses options strictly; [`policy_file`] reads the rule set a service
 //!   enforces; [`DirLock`] keeps two processes from writing one ledger.
 //! - [`json`] and [`strict_json`] are the std-only JSON codec and strict readers the
@@ -32,7 +34,10 @@ pub use args::Args;
 pub use health_http::spawn_health_port;
 pub use identity::{checkpoint_service_ledger, ServiceIdentity};
 pub use lock::DirLock;
-pub use serve::serve_mesh;
+pub use serve::{
+    apply_mesh_limits, mesh_limits_from_args, serve_bounded, serve_mesh, serve_mesh_with,
+    BoundedListener, ConnectionGate, ListenerLimits, MeshLimits, CONNECTION_STACK,
+};
 
 /// Seconds since the Unix epoch by the system clock — what services stamp audit
 /// entries and records with.

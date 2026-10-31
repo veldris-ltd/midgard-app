@@ -8,8 +8,18 @@
 //! it is given. A bare address no longer starts development mode, so an image or a
 //! script that passes only `0.0.0.0:7710` is refused rather than serving the demo
 //! logins on every interface. [MG-SEC-06] [NFR-SEC-1]
+//!
+//! What each listener serves within can be tuned: `--max-connections` and
+//! `--idle-timeout` bound the edge and the mesh door alike, `--edge-rate-per-sec` is how
+//! fast one source address may open connections to the edge (0 turns that off), and
+//! `--rate-burst`, `--rate-per-sec` and `--requests-per-conn` are the mesh door's
+//! per-identity rate limit and request quota. [VLD-ANB-MIDGARD-0004]
 
 use std::net::{SocketAddr, ToSocketAddrs};
+
+use service_runtime::{mesh_limits_from_args, Args, MeshLimits};
+
+use crate::EdgeLimits;
 
 /// Where the gateway listens unless told otherwise, in either mode.
 pub const DEFAULT_BIND: &str = "127.0.0.1:7710";
@@ -20,23 +30,30 @@ usage:
   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
                [--allow-origin URL]...
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
+               [--max-connections N] [--idle-timeout SECONDS] [--edge-rate-per-sec N]
+               [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
+      --max-connections (edge default 256, mesh door 128) and --idle-timeout (default 30)
+      bound each listener; --edge-rate-per-sec (default 50, 0 is off) is how fast one
+      address may open connections to the edge; --rate-burst (default 100),
+      --rate-per-sec (default 20) and --requests-per-conn (default 10000) limit each
+      certified peer of the mesh door
   http-gateway --dev [ADDR]
       development mode: seeded in-memory data and the published demo logins,
       on a loopback ADDR only (default 127.0.0.1:7710)";
 
 /// What the command line asks for.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     /// Print the usage and exit.
     Help,
     /// The development gateway, on this loopback address. [MG-SEC-06]
     Dev(SocketAddr),
     /// Serve the enclosure in a state directory.
-    Serve(ServeArgs),
+    Serve(Box<ServeArgs>),
 }
 
 /// The options of [`Command::Serve`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ServeArgs {
     /// The state directory `mg-admin init` created.
     pub state_dir: String,
@@ -59,7 +76,21 @@ pub struct ServeArgs {
     pub mesh_service: String,
     /// The purpose mesh calls are made under.
     pub mesh_purpose: String,
+    /// What the HTTP edge serves within. [VLD-ANB-MIDGARD-0004]
+    pub edge: EdgeLimits,
+    /// What the mesh door serves within. [VLD-ANB-MIDGARD-0004]
+    pub mesh: MeshLimits,
 }
+
+/// The options that tune the listeners' limits, given to [`limits`].
+const LIMIT_OPTIONS: [&str; 6] = [
+    "max-connections",
+    "idle-timeout",
+    "rate-burst",
+    "rate-per-sec",
+    "requests-per-conn",
+    "edge-rate-per-sec",
+];
 
 /// Parse the arguments after the program name. An `Err` is a usage error: the caller
 /// prints it with [`USAGE`] and exits non-zero without serving anything.
@@ -103,7 +134,10 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         mesh_identity_dir: None,
         mesh_service: "http-gateway".to_string(),
         mesh_purpose: "data-integration".to_string(),
+        edge: EdgeLimits::default(),
+        mesh: MeshLimits::default(),
     };
+    let mut limit_flags = Vec::new();
     let mut args = argv.iter();
     while let Some(flag) = args.next() {
         let Some(value) = args.next().filter(|v| !v.starts_with("--")) else {
@@ -124,6 +158,9 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
             "--mesh-identity-dir" => serve.mesh_identity_dir = Some(value.clone()),
             "--mesh-service" => serve.mesh_service = value.clone(),
             "--mesh-purpose" => serve.mesh_purpose = value.clone(),
+            other if LIMIT_OPTIONS.contains(&other.trim_start_matches("--")) => {
+                limit_flags.extend([flag.clone(), value.clone()]);
+            }
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -134,7 +171,36 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         return Err("--mesh-bind and --mesh-identity-dir go together".into());
     }
     serve.state_dir = state_dir;
-    Ok(Command::Serve(serve))
+    (serve.edge, serve.mesh) = limits(&limit_flags)?;
+    Ok(Command::Serve(Box::new(serve)))
+}
+
+/// The edge's and the mesh door's limits, from the limit options given (`--key value`
+/// pairs): the defaults, with `--max-connections` and `--idle-timeout` applied to both.
+/// [VLD-ANB-MIDGARD-0004]
+fn limits(flags: &[String]) -> Result<(EdgeLimits, MeshLimits), String> {
+    let args = Args::parse(flags, &LIMIT_OPTIONS, &[])?;
+    let mesh = mesh_limits_from_args(&args)?;
+    let mut edge = EdgeLimits::default();
+    if args.get("max-connections").is_some() {
+        edge.listener.max_connections = mesh.listener.max_connections;
+    }
+    if args.get("idle-timeout").is_some() {
+        edge.listener.read_timeout = mesh.listener.read_timeout;
+        edge.listener.write_timeout = mesh.listener.write_timeout;
+    }
+    if let Some(v) = args.get("edge-rate-per-sec") {
+        match v.parse::<f64>() {
+            Ok(n) if n == 0.0 => (edge.source_burst, edge.source_per_sec) = (0.0, 0.0),
+            Ok(n) if n.is_finite() && n > 0.0 => edge.source_per_sec = n,
+            _ => {
+                return Err(format!(
+                    "--edge-rate-per-sec must be a number of at least 0, not '{v}'"
+                ))
+            }
+        }
+    }
+    Ok((edge, mesh))
 }
 
 /// Resolve `addr` for development mode, which listens on loopback only: every address

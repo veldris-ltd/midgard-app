@@ -11,6 +11,8 @@
 //!              [--service NAME] [--bind ADDR] [--health-bind ADDR]
 //!              [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE
 //!               --serve-dir DIR [--sidecar ADDR]]
+//!              [--max-connections N] [--idle-timeout SECONDS]
+//!              [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME
@@ -41,6 +43,14 @@
 //! before the model is verified, so a sidecar (re)started meanwhile waits. The service
 //! is ready only while the sidecar reports healthy and the staged file is still the one
 //! that was staged, so an orchestrator holds traffic while the sidecar loads. [MG-SEC-14]
+//!
+//! The mesh listener serves at most `--max-connections` connections at once (default
+//! 128), and closes one that sends nothing for `--idle-timeout` seconds (default 30).
+//! Each certified peer may make `--rate-burst` requests in a burst (default 100),
+//! refilled at `--rate-per-sec` a second (default 20; a burst and a rate of 0 turn the
+//! limit off), and a connection is closed after `--requests-per-conn` requests (default
+//! 10000; 0 is unlimited). A value that is not a number is a usage error.
+//! [VLD-ANB-MIDGARD-0004]
 
 use std::collections::BTreeSet;
 use std::net::{SocketAddr, TcpListener};
@@ -61,13 +71,18 @@ use policy::{
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use service_runtime::policy_file::parse_policy;
-use service_runtime::{serve_mesh, spawn_health_port, Args, DirLock, ServiceIdentity};
+use service_runtime::{
+    apply_mesh_limits, mesh_limits_from_args, serve_mesh_with, spawn_health_port, Args, DirLock,
+    MeshLimits, ServiceIdentity,
+};
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, ReadinessCheck, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: mimir-server --identity-dir DIR --state-dir DIR --purposes P[,P...] \
                      [--service NAME] [--bind ADDR] [--health-bind ADDR] \
                      [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE \
-                     --serve-dir DIR [--sidecar ADDR]]";
+                     --serve-dir DIR [--sidecar ADDR]] \
+                     [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
+                     [--rate-per-sec N] [--requests-per-conn N]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "mimir-inference";
@@ -180,6 +195,11 @@ fn main() {
             "service",
             "bind",
             "health-bind",
+            "max-connections",
+            "idle-timeout",
+            "rate-burst",
+            "rate-per-sec",
+            "requests-per-conn",
             "engine",
             "model-dir",
             "model-trust",
@@ -194,7 +214,14 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = run(&args) {
+    let limits = match mesh_limits_from_args(&args) {
+        Ok(limits) => limits,
+        Err(e) => {
+            eprintln!("mimir-server: {e}\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = run(&args, &limits) {
         eprintln!("mimir-server: {e}");
         std::process::exit(1);
     }
@@ -264,7 +291,7 @@ fn sidecar_backend(
     Ok((Arc::new(backend), staged, fields))
 }
 
-fn run(args: &Args) -> Result<(), String> {
+fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
     let service = args.get("service").unwrap_or("mimir-server");
     let identity_dir = args.require("identity-dir")?;
     let state_dir = Path::new(args.require("state-dir")?);
@@ -371,14 +398,17 @@ fn run(args: &Args) -> Result<(), String> {
         Arc::new(WallClock),
     ));
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
-    let gateway = Gateway::new(
-        Arc::new(fips_provider()),
-        identity.cert.clone(),
-        identity.signing_key.clone(),
-        identity.anchor.clone(),
-        channel_pdp,
-        resource("mimir-channel"),
-        handler,
+    let gateway = apply_mesh_limits(
+        Gateway::new(
+            Arc::new(fips_provider()),
+            identity.cert.clone(),
+            identity.signing_key.clone(),
+            identity.anchor.clone(),
+            channel_pdp,
+            resource("mimir-channel"),
+            handler,
+        ),
+        limits,
     );
 
     let listener = TcpListener::bind(args.get("bind").unwrap_or("0.0.0.0:7720"))
@@ -393,14 +423,16 @@ fn run(args: &Args) -> Result<(), String> {
         identity.roles().join(","),
         recovered.to_string(),
     );
+    let limits_text = limits.to_string();
     let mut fields: Vec<(&str, &str)> = vec![
         ("mesh", &mesh),
         ("health", &health_text),
         ("roles", &roles),
         ("recovered_audit_entries", &recovered),
         ("engine", &engine_id),
+        ("limits", &limits_text),
     ];
     fields.extend(model_fields.iter().map(|(k, v)| (*k, v.as_str())));
     logger.info("serving", &fields);
-    serve_mesh(service, listener, gateway, metrics)
+    serve_mesh_with(service, listener, gateway, metrics, limits.listener)
 }
