@@ -56,6 +56,11 @@ impl Engine {
     }
 }
 
+/// How long a completion may wait on the sidecar for its next read (or write) before
+/// it fails, unless [`SidecarBackend::with_timeouts`] says otherwise. A stuck
+/// completion then gives its admission slot back. [VLD-ANB-MIDGARD-0016]
+pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// A model served by an OpenAI-compatible sidecar on loopback.
 pub struct SidecarBackend {
     descriptor: BackendDescriptor,
@@ -96,7 +101,7 @@ impl SidecarBackend {
             model: model.into(),
             adapter: None,
             connect_timeout: Duration::from_millis(500),
-            read_timeout: Duration::from_secs(120),
+            read_timeout: DEFAULT_READ_TIMEOUT,
         })
     }
 
@@ -162,6 +167,11 @@ impl SidecarBackend {
         self
     }
 
+    /// The per-read timeout towards the sidecar.
+    pub fn read_timeout(&self) -> Duration {
+        self.read_timeout
+    }
+
     /// The engine.
     pub fn engine(&self) -> Engine {
         self.engine
@@ -194,7 +204,14 @@ impl SidecarBackend {
         probe() == Ok(200)
     }
 
-    /// Stream one completion from the sidecar.
+    /// Stream one completion from the sidecar. `max_tokens` is sent as prepared: the
+    /// inference handler has already clamped it to its ceiling.
+    ///
+    /// The synchronous client cannot cancel a completion the sidecar is generating.
+    /// Instead every read and write waits at most the read timeout (`--infer-timeout`
+    /// in mimir-server); when it fires the call fails, the connection is dropped (which
+    /// the sidecar sees as a closed client), and the handler's admission guard gives the
+    /// caller's slot back. [VLD-ANB-MIDGARD-0016]
     fn complete(&self, req: &PreparedRequest) -> Result<RawCompletion, String> {
         let prompt = match &self.adapter {
             Some(adapter) => adapter.render(&req.prompt),
@@ -878,6 +895,46 @@ mod tests {
         assert!(received.contains(r#""stream":true"#));
         assert!(received.contains(r#"<|start_of_role|>user<|end_of_role|>Say \"hi\"\nplease"#));
         assert!(received.contains(r#""stop":["#));
+    }
+
+    #[test]
+    fn max_tokens_is_sent_as_prepared_and_the_default_read_timeout_is_60_seconds() {
+        // [VLD-ANB-MIDGARD-0016]
+        let (addr, served) = sidecar(chunked_events(&[
+            r#"{"choices":[{"text":"ok"}]}"#,
+            "[DONE]",
+        ]));
+        let backend = granite(addr);
+        assert_eq!(backend.read_timeout(), Duration::from_secs(60));
+        assert_eq!(DEFAULT_READ_TIMEOUT, Duration::from_secs(60));
+        backend.infer_batch(&[request("x", 8)]).unwrap();
+        let received = served.join().unwrap();
+        assert!(received.contains(r#""max_tokens":8,"#), "{received}");
+    }
+
+    #[test]
+    fn a_sidecar_that_never_answers_fails_at_the_read_timeout() {
+        // [VLD-ANB-MIDGARD-0016]
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let holder = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            thread::sleep(Duration::from_secs(3));
+            drop(stream);
+        });
+        let backend =
+            granite(addr).with_timeouts(Duration::from_millis(500), Duration::from_millis(200));
+        let start = Instant::now();
+        assert!(matches!(
+            backend.infer_batch(&[request("x", 4)]),
+            Err(InferError::Unavailable(_))
+        ));
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            start.elapsed()
+        );
+        holder.join().unwrap();
     }
 
     #[test]

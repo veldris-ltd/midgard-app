@@ -271,6 +271,10 @@ impl RateLimiter {
 
 type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
+/// Told the identity of every request the rate limit refuses, for the service's
+/// metrics. [VLD-ANB-MIDGARD-0016]
+pub type ThrottleHook = Arc<dyn Fn(&WorkloadIdentity) + Send + Sync>;
+
 fn system_clock() -> Clock {
     Arc::new(|| {
         SystemTime::now()
@@ -292,6 +296,7 @@ pub struct Gateway {
     resource: Resource,
     handler: Arc<dyn RequestHandler>,
     rate_limiter: Option<Arc<RateLimiter>>,
+    on_throttle: Option<ThrottleHook>,
     max_requests_per_conn: usize,
     ticket: Option<(Arc<TicketKey>, u64)>, // (key, ttl secs)
     seen_tickets: Arc<Mutex<HashSet<Vec<u8>>>>,
@@ -398,6 +403,7 @@ impl Gateway {
             resource,
             handler,
             rate_limiter: None,
+            on_throttle: None,
             max_requests_per_conn: 0,
             ticket: None,
             seen_tickets: Arc::new(Mutex::new(HashSet::new())),
@@ -448,6 +454,13 @@ impl Gateway {
     /// Enforce a per-identity token-bucket rate limit.
     pub fn with_rate_limiter(mut self, limiter: RateLimiter) -> Self {
         self.rate_limiter = Some(Arc::new(limiter));
+        self
+    }
+
+    /// Call `hook` with the peer of every request the rate limit refuses, before its
+    /// connection is dropped. [VLD-ANB-MIDGARD-0016]
+    pub fn on_throttle(mut self, hook: ThrottleHook) -> Self {
+        self.on_throttle = Some(hook);
         self
     }
 
@@ -605,9 +618,18 @@ impl Gateway {
                 Ok(f) if !f.is_empty() => f,
                 _ => return Err(MtlsError::StreamTruncated),
             };
+            // The client's end-of-stream marker is not a request: it is neither
+            // rate-limited nor counted against the quota. [VLD-ANB-MIDGARD-0016]
+            let request = match opener.open_record(RECORD_AAD, &frame)? {
+                Record::Data(request) => request,
+                Record::Close => break,
+            };
             // Per-identity rate limit.
             if let Some(rl) = &self.rate_limiter {
                 if !rl.allow(&peer.id.0) {
+                    if let Some(hook) = &self.on_throttle {
+                        hook(peer);
+                    }
                     break; // throttled: drop the connection
                 }
             }
@@ -616,10 +638,6 @@ impl Gateway {
             if self.max_requests_per_conn != 0 && served > self.max_requests_per_conn {
                 break;
             }
-            let request = match opener.open_record(RECORD_AAD, &frame)? {
-                Record::Data(request) => request,
-                Record::Close => break,
-            };
             let response = self.handler.handle(peer, &request);
             write_frame(stream, &sealer.seal(RECORD_AAD, &response)?)
                 .map_err(MtlsError::Transport)?;

@@ -46,6 +46,10 @@ services:
       - /serve
       - --sidecar
       - 127.0.0.1:8080
+      # Twice llama.cpp's --parallel 2 slots below: a call over it is refused BUSY.
+      # [VLD-ANB-MIDGARD-0016]
+      - --max-concurrent
+      - "4"
     volumes:
       - mimir-models:/models:ro
       - mimir-serve:/serve

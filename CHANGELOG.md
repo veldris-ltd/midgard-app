@@ -325,6 +325,34 @@ CONTRIBUTING.md for the version policy.
     requests a second per identity (one check-in every 10 s) and 1,000 requests per
     connection; `--rate-burst`, `--rate-per-sec` and `--requests-per-conn` still tune
     them, through the same limiter.
+- **Inference is admitted against a budget.** `max_tokens` came from the wire and
+  reached the sidecar uncapped, the prompt was bounded only by the 1 MiB frame, and
+  nothing bounded calls in flight, so two callers with large budgets could hold the
+  llama.cpp sidecar's two slots for the whole 120 s read timeout. [VLD-ANB-MIDGARD-0016]
+  [AC-62.1] [AC-62.3] [FR-MI-8]
+  - `InferenceHandler::with_limits(InferenceLimits)`: after policy permits a call,
+    a prompt over `max_prompt_bytes` (default 256 KiB) is refused `PROMPT_TOO_LARGE`;
+    a call over `max_concurrent` in flight (default 4) or
+    `max_concurrent_per_identity` for its caller (default 2) is refused `BUSY`; and
+    `max_tokens` is clamped, not refused, to `max_tokens` (default 1024). Each refusal
+    is a `Denied` with its own audit entry (`Infer:PROMPT_TOO_LARGE`, `Infer:BUSY`)
+    after the call's decision. The slot is held until the engine returns.
+  - `mimir-server` takes `--max-tokens`, `--max-prompt-bytes`, `--max-concurrent`,
+    `--max-concurrent-per-identity` and `--infer-timeout` (seconds, default 60), logs
+    them as `inference_limits` on the serving line, and counts refusals as
+    `inference_refused_total{reason}` with `busy`, `prompt_too_large` and
+    `throttled` (a request over WP-31's per-identity rate limit, through the new
+    `Gateway::on_throttle`). A value that is not a whole number of at least 1 is a
+    usage error.
+  - The sidecar's read timeout defaults to 60 s instead of 120 s, and is
+    `--infer-timeout` in mimir-server: a stuck completion fails and frees its slot.
+    A completion is timed out, not cancelled.
+  - A client's end-of-stream marker no longer counts as a request against the rate
+    limit or the per-connection quota, so a one-call client spends one token.
+  - `compose.granite.yaml` passes `--max-concurrent 4` beside llama.cpp's
+    `--parallel 2`, and the Helm values give mimir-server every limit at its default.
+    Consumers that need more than 1024 completion tokens (Heimdall deep reasoning)
+    now need `--max-tokens` raised.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

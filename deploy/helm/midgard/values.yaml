@@ -63,12 +63,20 @@ services:
     seed: true
     storage: 256Mi
 
+  # Inference admission control, at its defaults: max_tokens is clamped to
+  # --max-tokens; a prompt over --max-prompt-bytes is refused PROMPT_TOO_LARGE; more
+  # than --max-concurrent calls in flight (twice the sidecar's two slots), or
+  # --max-concurrent-per-identity for one caller, are refused BUSY; a completion waits
+  # at most --infer-timeout seconds on the sidecar. [VLD-ANB-MIDGARD-0016]
   - name: mimir-server
     enabled: true
     binary: mimir-server
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
            "--purposes", "investigation", "--bind", "0.0.0.0:7720",
-           "--health-bind", "0.0.0.0:9090"]
+           "--health-bind", "0.0.0.0:9090",
+           "--max-tokens", "1024", "--max-prompt-bytes", "262144",
+           "--max-concurrent", "4", "--max-concurrent-per-identity", "2",
+           "--infer-timeout", "60"]
     ports:
       - { name: mesh, port: 7720, from: [mimir-probe] }
       - { name: health, port: 9090, from: ["*"] }
