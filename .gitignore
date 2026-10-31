@@ -1,6 +1,10 @@
 # --- Rust ---
 /target
 **/target
+# Fuzzer output and the fuzz crate's own lockfile (crypto/pq-mtls/fuzz/README.md).
+crypto/pq-mtls/fuzz/corpus
+crypto/pq-mtls/fuzz/artifacts
+crypto/pq-mtls/fuzz/Cargo.lock
 
 # --- Go ---
 /bin

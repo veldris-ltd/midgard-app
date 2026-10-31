@@ -290,13 +290,30 @@ fn enc_caps(o: &mut Vec<u8>, c: &Capabilities) {
         o.push(a.as_u8());
     }
 }
+/// The most KEM suites or signature algorithms a peer may advertise. pqc-agility
+/// defines four suites and four signature algorithms, so a longer list can only be
+/// hostile; it is refused before anything is reserved for it. [VLD-ANB-MIDGARD-0010]
+const MAX_CAPABILITY_ENTRIES: usize = 16;
+
+/// A capability list's length: bounded by the frame (one byte per entry) and by
+/// [`MAX_CAPABILITY_ENTRIES`].
+fn capability_count(r: &mut Reader) -> Result<usize, TransportError> {
+    let n = r.count(1)?;
+    if n > MAX_CAPABILITY_ENTRIES {
+        return Err(TransportError::Malformed(
+            "too many capability entries".into(),
+        ));
+    }
+    Ok(n)
+}
+
 fn dec_caps(r: &mut Reader) -> Result<Capabilities, TransportError> {
-    let nk = r.count(1)?;
+    let nk = capability_count(r)?;
     let mut kem_suites = Vec::with_capacity(nk);
     for _ in 0..nk {
         kem_suites.push(dec_suite(r)?);
     }
-    let ns = r.count(1)?;
+    let ns = capability_count(r)?;
     let mut sig_algs = Vec::with_capacity(ns);
     for _ in 0..ns {
         sig_algs.push(dec_sig_id(r)?);

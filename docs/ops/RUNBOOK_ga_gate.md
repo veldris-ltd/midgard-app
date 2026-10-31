@@ -24,6 +24,7 @@ that is a stop, not a warning.
 | Repo at the release ref | `git rev-parse HEAD` recorded; working tree clean (`git status --short` empty) |
 | Docker | Able to build once online, then run `--network none` |
 | Release ref for shells | A release string/tag (e.g. `1.4.0`) — step B keys on it |
+| Handshake fuzzing | Run the pq-mtls fuzz target for at least ten minutes on the release runner and attach the summary (`crypto/pq-mtls/fuzz/README.md`; needs nightly and network, so not part of the air-gapped steps) |
 | Signing key material | Step C. For a **real** release this is the **HSM-backed release key** (RT-28); a local `just keygen` keystore is **dry-run only** (see step C note) |
 
 The offline posture is already in place: deps resolve from vendored `/vendor`

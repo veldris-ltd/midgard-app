@@ -76,6 +76,8 @@ members = [
     "clients/delivery",
     "clients/core",
 ]
+# A developer tool on the nightly toolchain, never part of the offline build. [NFR-SEC-1]
+exclude = ["crypto/pq-mtls/fuzz"]
 
 [workspace.package]
 version = "0.1.0-rc.1"

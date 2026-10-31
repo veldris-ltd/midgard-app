@@ -44,6 +44,14 @@ pub const STREAMING_FORMAT_VERSION: u8 = 2;
 /// reader allocate.
 pub const MAX_CHUNK_SIZE: u32 = 256 * 1024 * 1024;
 
+/// The fewest bytes a manifest entry can occupy: three empty strings and two digests.
+const MIN_ENTRY_BYTES: usize = 3 * 4 + 32 + 32;
+
+/// The fewest bytes an artefact can occupy: an entry's worth, an empty SBOM, an empty
+/// payload (a version 2 chunk header is longer), a signature algorithm byte and an
+/// empty signature.
+const MIN_ARTEFACT_BYTES: usize = MIN_ENTRY_BYTES + 4 + 4 + 1 + 4;
+
 /// Serialize a bundle to its on-disk container bytes.
 pub fn to_bytes(bundle: &OfflineBundle) -> Vec<u8> {
     let mut o = Vec::new();
@@ -93,7 +101,7 @@ pub fn from_bytes(b: &[u8]) -> Result<OfflineBundle, BundleError> {
     let signature = r.signature()?;
     let bundle_id = r.string()?;
     let label = r.string()?;
-    let nentries = r.u32()?;
+    let nentries = r.count(MIN_ENTRY_BYTES)?;
     let mut entries = Vec::with_capacity(nentries);
     for _ in 0..nentries {
         entries.push(BundleEntry {
@@ -104,7 +112,7 @@ pub fn from_bytes(b: &[u8]) -> Result<OfflineBundle, BundleError> {
             sbom_sha256: r.arr32()?,
         });
     }
-    let nart = r.u32()?;
+    let nart = r.count(MIN_ARTEFACT_BYTES)?;
     let mut artefacts = Vec::with_capacity(nart);
     for index in 0..nart {
         let manifest = ArtefactManifest {
@@ -231,6 +239,16 @@ impl<'a> Reader<'a> {
         let mut a = [0u8; 32];
         a.copy_from_slice(self.take(32)?);
         Ok(a)
+    }
+    /// A count read from the file, refused if the bytes left cannot possibly hold that
+    /// many items of at least `min_item` bytes, so a hostile count in an unverified file
+    /// never sizes an allocation. [VLD-ANB-MIDGARD-0044]
+    fn count(&mut self, min_item: usize) -> Result<usize, BundleError> {
+        let n = self.u32()?;
+        if n > (self.b.len() - self.p) / min_item.max(1) {
+            return Err(BundleError::Io("truncated bundle".into()));
+        }
+        Ok(n)
     }
     fn bytes(&mut self) -> Result<Vec<u8>, BundleError> {
         let n = self.u32()?;
