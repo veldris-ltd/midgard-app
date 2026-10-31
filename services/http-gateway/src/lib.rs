@@ -282,6 +282,16 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         self
     }
 
+    /// The administration this gateway serves, if any, for in-process inspection
+    /// (outstanding challenges, the challenge ceiling). [VLD-ANB-MIDGARD-0020]
+    pub fn admin_control(&self) -> Option<std::sync::MutexGuard<'_, admin_api::AdminControl>> {
+        self.admin.as_ref().map(|admin| {
+            admin
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        })
+    }
+
     /// Check records synced over the mesh against `ontology` — the one registered at
     /// boot. Without it, nothing can be synced. [FR-F-4]
     pub fn with_ontology(mut self, ontology: ontology_file::Ontology) -> Self {
@@ -539,21 +549,19 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 error_json("administration is not served by this gateway").encode(),
             );
         };
-        let body = if req.path == "/api/v1/admin/challenge" {
-            Json::Null
-        } else {
-            match parse(&req.body) {
-                Ok(body) => body,
-                Err(_) => return Response::json(400, error_json("malformed body").encode()),
-            }
+        let body = match parse(&req.body) {
+            Ok(body) => body,
+            Err(_) => return Response::json(400, error_json("malformed body").encode()),
         };
+        if req.path == "/api/v1/admin/challenge" {
+            return self.handle_admin_challenge(control, &body, now);
+        }
 
         let outcome = {
             let mut admin = control
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             match req.path.as_str() {
-                "/api/v1/admin/challenge" => return Response::ok(admin.challenge(now).encode()),
                 "/api/v1/admin/enrolments" => {
                     let directory = self
                         .directory
@@ -625,6 +633,48 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     }
                 }
             }
+        }
+    }
+
+    /// `POST /api/v1/admin/challenge` — a challenge bound to the administrator `body`
+    /// names. The route is unauthenticated, so only a refusal at the global ceiling
+    /// reaches the ledger, and that at most once a minute with the count since.
+    /// [VLD-ANB-MIDGARD-0020]
+    fn handle_admin_challenge(
+        &self,
+        control: &Mutex<admin_api::AdminControl>,
+        body: &Json,
+        now: u64,
+    ) -> Response {
+        let (refusal, record) = {
+            let mut admin = control
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match admin.challenge(body, now) {
+                Ok(json) => return Response::ok(json.encode()),
+                Err(e) if e.status == 429 => {
+                    let record = admin.note_challenge_refusal(now);
+                    (e, record)
+                }
+                Err(e) => return Response::json(e.status, error_json(&e.message).encode()),
+            }
+        };
+        let response = Response::json(refusal.status, error_json(&refusal.message).encode());
+        let Some(suppressed) = record else {
+            return response;
+        };
+        let event = match suppressed {
+            0 => "ADMIN challenge refused".to_string(),
+            n => format!("ADMIN challenge refused, {n} refusals suppressed"),
+        };
+        match self.lock().governance_mut().record_event(
+            &audit_actor(body.str_field("admin").unwrap_or_default()),
+            &event,
+            "/api/v1/admin/challenge",
+            now,
+        ) {
+            Ok(_) => response,
+            Err(e) => Response::json(500, error_json(&format!("audit failure: {e}")).encode()),
         }
     }
 

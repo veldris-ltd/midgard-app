@@ -4,8 +4,8 @@
 //! post-quantum passkey in a sealed keystore **the administrator keeps** — never in the
 //! state directory — registers only its public half, and binds a standard role for a
 //! bounded time. The `enrol` commands run against a live gateway: each fetches a
-//! single-use challenge, answers it with the administrator's passkey, and sends the
-//! request. A requested enrolment waits until a second administrator approves it.
+//! single-use challenge issued to the administrator it names, answers it with the
+//! administrator's passkey, and sends the request. A requested enrolment waits until a second administrator approves it.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -182,14 +182,16 @@ fn device(o: &Options) -> Result<(String, SoftwareAdminAuthenticator), Failure> 
     Ok((admin, device))
 }
 
-/// A fresh challenge from `gateway`, answered with `device`: the fields every
-/// administration request starts with.
+/// A fresh challenge from `gateway`, issued to `admin` and answered with `device`: the
+/// fields every administration request starts with. The gateway binds the challenge to
+/// the administrator named, so only `admin` can answer it. [VLD-ANB-MIDGARD-0020]
 fn signed(
     gateway: &str,
     admin: &str,
     device: &SoftwareAdminAuthenticator,
 ) -> Result<Vec<(&'static str, Json)>, Failure> {
-    let reply = post_json(gateway, "/api/v1/admin/challenge", "")?;
+    let request = Json::obj(vec![("admin", Json::s(admin))]).encode();
+    let reply = post_json(gateway, "/api/v1/admin/challenge", &request)?;
     let challenge = reply
         .str_field("challenge")
         .ok_or_else(|| Failure::Run("the gateway sent no challenge".into()))?;

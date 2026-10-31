@@ -14,6 +14,14 @@
 //! it and sends the Argon2id hash, which is refused below the enforced cost floor. A
 //! parked enrolment — hash and any TOTP secret included — is sealed at rest, so it
 //! survives a restart until it is approved.
+//!
+//! A challenge is bound to the administrator who asked for it: the request names
+//! them, and only they can answer it. Each registered administrator holds at most
+//! [`MAX_CHALLENGES_PER_ADMIN`] at once, a fifth replacing their own oldest, so a flood
+//! naming one administrator cannot evict another's. A name with no passkey gets a nonce
+//! in the same shape but nothing is kept for it, and past a global ceiling a new
+//! administrator is refused rather than anyone's challenge dropped.
+//! [VLD-ANB-MIDGARD-0020]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,8 +46,16 @@ pub const CHALLENGE_TTL: u64 = 120;
 pub const STEP_UP_MAX_AGE: u64 = 300;
 /// How recent an approver's re-authentication must be, in seconds.
 pub const REAUTH_MAX_AGE: u64 = 120;
-/// The most challenges outstanding at once; the oldest is dropped past this.
-const MAX_CHALLENGES: usize = 256;
+/// The most challenges one administrator may hold at once; a further one replaces
+/// their own oldest. [VLD-ANB-MIDGARD-0020]
+pub const MAX_CHALLENGES_PER_ADMIN: usize = 4;
+/// The most challenges outstanding at once, across administrators. A ceiling only:
+/// past it a new administrator is refused, and no one's challenge is dropped.
+/// [VLD-ANB-MIDGARD-0020]
+pub const MAX_CHALLENGES: usize = 1_024;
+/// How often a refusal at the ceiling is recorded, in seconds; those between are
+/// counted onto the next record. [VLD-ANB-MIDGARD-0020]
+const REFUSAL_RECORD_INTERVAL: u64 = 60;
 /// The scope every principal enrolment is requested in.
 const IAM_SCOPE: &str = "iam";
 const PENDING_DOMAIN: &[u8] = b"midgard-admin-pending-enrolments-v1";
@@ -94,6 +110,13 @@ impl ParkedEnrolment {
     }
 }
 
+/// A challenge waiting to be answered, by the administrator it was issued to.
+#[derive(Debug, Clone)]
+struct Challenge {
+    admin: AdminId,
+    expires: u64,
+}
+
 /// Administration of a served enclosure: passkeys, role bindings, the dual-control
 /// service, and the enrolments it has parked.
 pub struct AdminControl {
@@ -102,7 +125,10 @@ pub struct AdminControl {
     privilege: DurablePrivilege,
     journal: SealedJournal,
     parked: BTreeMap<String, ParkedEnrolment>,
-    challenges: BTreeMap<[u8; 32], u64>,
+    challenges: BTreeMap<[u8; 32], Challenge>,
+    challenge_ceiling: usize,
+    /// When a refusal at the ceiling was last recorded, and how many since.
+    ceiling_refusals: (Option<u64>, u64),
 }
 
 impl AdminControl {
@@ -135,6 +161,8 @@ impl AdminControl {
             journal,
             parked,
             challenges: BTreeMap::new(),
+            challenge_ceiling: MAX_CHALLENGES,
+            ceiling_refusals: (None, 0),
         })
     }
 
@@ -148,29 +176,91 @@ impl AdminControl {
         self.parked.len()
     }
 
-    /// `POST /api/v1/admin/challenge` — a fresh, single-use challenge to sign.
-    pub fn challenge(&mut self, now: u64) -> Json {
-        self.challenges.retain(|_, expires| *expires > now);
-        while self.challenges.len() >= MAX_CHALLENGES {
-            let oldest = self
-                .challenges
-                .iter()
-                .min_by_key(|(_, expires)| **expires)
-                .map(|(nonce, _)| *nonce);
-            match oldest {
-                Some(nonce) => {
+    /// Hold at most `ceiling` challenges across administrators, in place of
+    /// [`MAX_CHALLENGES`]; at least one. [VLD-ANB-MIDGARD-0020]
+    pub fn set_challenge_ceiling(&mut self, ceiling: usize) {
+        self.challenge_ceiling = ceiling.max(1);
+    }
+
+    /// Challenges outstanding, across administrators.
+    pub fn outstanding(&self) -> usize {
+        self.challenges.len()
+    }
+
+    /// Challenges outstanding for `admin`.
+    pub fn outstanding_for(&self, admin: &AdminId) -> usize {
+        self.challenges
+            .values()
+            .filter(|c| c.admin == *admin)
+            .count()
+    }
+
+    /// `POST /api/v1/admin/challenge` — a fresh, single-use challenge to sign, bound to
+    /// the administrator the body `{"admin": ...}` names. [VLD-ANB-MIDGARD-0020]
+    pub fn challenge(&mut self, body: &Json, now: u64) -> Result<Json, AdminError> {
+        let at = "the challenge request";
+        only_keys(
+            object(body, at).map_err(|e| refuse(400, e))?,
+            at,
+            &["admin"],
+        )
+        .map_err(|e| refuse(400, e))?;
+        let admin = AdminId(
+            text(body, at, "admin")
+                .map_err(|e| refuse(400, e))?
+                .to_string(),
+        );
+
+        self.challenges.retain(|_, c| c.expires > now);
+        let challenge = AdminChallenge::sample(&mut OsRng);
+        // A name with no passkey could never answer; it gets a nonce all the same, so
+        // the reply does not say whether the name exists, but nothing is kept for it.
+        if self.passkeys.admins().contains(&admin) {
+            let held = self.outstanding_for(&admin);
+            if held == 0 && self.challenges.len() >= self.challenge_ceiling {
+                return Err(refuse(429, "too many outstanding challenges"));
+            }
+            // Make room from this administrator's own challenges, never another's.
+            if held >= MAX_CHALLENGES_PER_ADMIN || self.challenges.len() >= self.challenge_ceiling {
+                let oldest = self
+                    .challenges
+                    .iter()
+                    .filter(|(_, c)| c.admin == admin)
+                    .min_by_key(|(_, c)| c.expires)
+                    .map(|(nonce, _)| *nonce);
+                if let Some(nonce) = oldest {
                     self.challenges.remove(&nonce);
                 }
-                None => break,
             }
+            self.challenges.insert(
+                challenge.nonce,
+                Challenge {
+                    admin,
+                    expires: now.saturating_add(CHALLENGE_TTL),
+                },
+            );
         }
-        let challenge = AdminChallenge::sample(&mut OsRng);
-        self.challenges
-            .insert(challenge.nonce, now.saturating_add(CHALLENGE_TTL));
-        Json::obj(vec![
+        Ok(Json::obj(vec![
             ("challenge", Json::s(&hex_encode(&challenge.nonce))),
             ("expiresIn", Json::Int(CHALLENGE_TTL as i64)),
-        ])
+        ]))
+    }
+
+    /// Count a challenge refused at the ceiling. `Some(suppressed)` when it is to be
+    /// recorded — the first, or the first a minute after the last recorded — with the
+    /// refusals counted since; `None` within the minute. [VLD-ANB-MIDGARD-0020]
+    pub fn note_challenge_refusal(&mut self, now: u64) -> Option<u64> {
+        let (last, suppressed) = &mut self.ceiling_refusals;
+        match *last {
+            Some(at) if now < at.saturating_add(REFUSAL_RECORD_INTERVAL) => {
+                *suppressed += 1;
+                None
+            }
+            _ => {
+                *last = Some(now);
+                Some(std::mem::take(suppressed))
+            }
+        }
     }
 
     /// `POST /api/v1/admin/enrolments` — request that a principal be enrolled. The
@@ -374,7 +464,9 @@ impl AdminControl {
     }
 
     /// The admin, and the challenge and assertion they present, with the challenge
-    /// consumed so it can never be answered twice.
+    /// consumed so it can never be answered twice. A challenge issued to another
+    /// administrator is refused like an unknown one, and consumed all the same.
+    /// [VLD-ANB-MIDGARD-0020]
     fn proof(
         &mut self,
         body: &Json,
@@ -391,7 +483,7 @@ impl AdminControl {
                 .and_then(|b| b.try_into().ok())
                 .ok_or_else(|| refuse(400, "\"challenge\" must be 64 hex characters"))?;
         match self.challenges.remove(&nonce) {
-            Some(expires) if expires > now => {}
+            Some(c) if c.expires > now && c.admin == admin => {}
             _ => return Err(refuse(401, "the challenge is unknown, used or expired")),
         }
 
