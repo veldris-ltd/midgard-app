@@ -554,6 +554,16 @@ evidence = ["docs/compliance/COMPLIANCE_MATRIX.md:1"]
 fallback = "A mapping of platform controls to NIST SP 800-53, OWASP ASVS and ISO 27001 is written (docs/compliance/COMPLIANCE_MATRIX.md). No control has automated evidence and no assessment has been carried out."
 milestone = "Control mappings generate evidence from CI (RF-CMP-1)."
 
+[[claim]]
+id = "personal-data-erasure"
+area = "Deployment and operations"
+claim = "Personal data can be erased and exported per subject, and each durable store enforces a retention period: the directory, object and dataset journals seal each record under its own data key, erasure destroys the key and leaves a tombstone, and compaction drops shredded records."
+status = "spec"
+limit = "The audit ledger is immutable by design and is not subject to erasure."
+evidence = ["docs/compliance/RETENTION.md:1", "services/iam/src/directory.rs:67", "docs/compliance/DATA_RESIDENCY.md:57"]
+fallback = "Every durable store is an append-only sealed journal: access control, encryption at rest and in transit and an immutable audit trail are provided, but no record is deleted, compacted or exported, and a replaced record (such as an earlier password hash) stays in the journal. Retention targets are documented in docs/compliance/RETENTION.md and are not enforced; subject erasure and export are not implemented."
+milestone = "The follow-on to ANUBIS WP-29: per-record data keys with crypto-shred tombstones for the directory, object and dataset journals, then erasure, export and retention through mg-admin (VLD-ANB-MIDGARD-0070)."
+
 # ---- Outside this repository -----------------------------------------------------------
 
 [[claim]]

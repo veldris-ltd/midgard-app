@@ -61,8 +61,11 @@ MIDGARD_PROBE_IMAGE      the image carrying pqmtls-probe and mimir-probe, by dig
 Tools on PATH: `kubectl`, `pkcs11-tool` (opensc).
 
 In the namespace, the live inference check needs the Secret `mimir-probe-identity` (the
-mesh identity `mg-admin mesh issue --service mimir-probe` writes), and `mimir-server`
-serving a real model through the chart's `modelServing`.
+mesh identity `mg-admin mesh issue --service mimir-probe` writes), the Secret
+`mimir-probe-keystore-passphrase` (key `passphrase`, the passphrase that identity's
+keystores are wrapped under; the Job copies it into memory as an owner-only file), and
+`mimir-server` serving a real model through the chart's `modelServing`.
+[VLD-ANB-MIDGARD-0018]
 
 The `pqmtls-probe` image (`registry.enclosure.local/midgard/pqmtls-probe`)
 is built from the workspace with the probe binary baked in:

@@ -111,7 +111,7 @@ spec:
       affinity:
 {{ toYaml . | indent 8 }}
       {{- end }}
-      {{- if or .seed $broker }}
+      {{- if or .seed $broker .identity }}
       initContainers:
       {{- end }}
       {{- if $broker }}
@@ -174,6 +174,24 @@ spec:
             - { name: state, mountPath: /state }
             - { name: seed, mountPath: /seed, readOnly: true }
       {{- end }}
+      {{- if .identity }}
+        # The keystore passphrase, copied into memory as a file the service's own user
+        # owns, mode 0400: a secret or CSI volume reaches a non-root pod only as a
+        # root-owned, group-readable file, which the service refuses (a passphrase file
+        # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
+        # [VLD-ANB-MIDGARD-0018]
+        - name: keystore-passphrase
+          image: {{ $image }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          securityContext:
+{{ include "midgard.hardened" . | indent 12 }}
+          resources:
+{{ toYaml $.Values.defaultResources | indent 12 }}
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
+      {{- end }}
       containers:
         - name: {{ .name }}
           image: {{ $image }}
@@ -191,6 +209,10 @@ spec:
             - name: POD_IP
               valueFrom:
                 fieldRef: { fieldPath: status.podIP }
+            {{- if .identity }}
+            - name: MIDGARD_KEYSTORE_PASSPHRASE_FILE
+              value: /keystore-passphrase/passphrase
+            {{- end }}
           args: {{ toJson $args }}
           ports:
             {{- range .ports }}
@@ -219,6 +241,7 @@ spec:
             - { name: state, mountPath: /state }
             {{- if .identity }}
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
             {{- end }}
             {{- if .jobsConfigMap }}
             - { name: jobs, mountPath: /jobs, readOnly: true }
@@ -273,11 +296,16 @@ spec:
           emptyDir: {}
         {{- if .identity }}
         - name: identity
-          secret: { secretName: {{ .name }}-identity, defaultMode: 288 }
+          {{ include "midgard.secretSource" (list $ (printf "%s-identity" .name)) }}
+        - name: keystore-passphrase-source
+          {{ include "midgard.secretSource" (list $ (printf "%s-keystore-passphrase" .name)) }}
+        # Memory only, and only the passphrase init container writes it.
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
         {{- end }}
         {{- if .seed }}
         - name: seed
-          secret: { secretName: {{ .name }}-seed, defaultMode: 288 }
+          {{ include "midgard.secretSource" (list $ (printf "%s-seed" .name)) }}
         {{- end }}
         {{- if .jobsConfigMap }}
         - name: jobs

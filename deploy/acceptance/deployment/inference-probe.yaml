@@ -8,6 +8,11 @@
 # like any other; the runner reads the model, first-token latency and completion from
 # the probe's output. [FR-MI-8] [FR-MI-1] [NFR-PERF-1]
 #
+# Its keystores are wrapped under the passphrase in Secret
+# mimir-probe-keystore-passphrase (key `passphrase`), which an init container copies
+# into memory as an owner-only file: the probe refuses the group-readable file a secret
+# volume gives a non-root pod. [VLD-ANB-MIDGARD-0007] [VLD-ANB-MIDGARD-0018]
+#
 # The image must carry /usr/local/bin/mimir-probe. MIDGARD_PROBE_IMAGE substitutes one.
 ---
 apiVersion: batch/v1
@@ -35,12 +40,29 @@ spec:
         fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: keystore-passphrase
+          image: registry.enclosure.local/midgard/mimir-probe:0.0.0
+          command: ["/bin/sh", "-c", "umask 077 && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/passphrase && chmod 0400 /keystore-passphrase/passphrase"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: probe
           # A sentinel: run-deployment-tier.sh substitutes MIDGARD_PROBE_IMAGE, pinned by
           # digest, and refuses to apply this all-zero one. [VLD-ANB-MIDGARD-0012]
           image: registry.enclosure.local/midgard/mimir-probe@sha256:0000000000000000000000000000000000000000000000000000000000000000
           command: ["mimir-probe"]
+          env:
+            - { name: MIDGARD_KEYSTORE_PASSPHRASE_FILE, value: /keystore-passphrase/passphrase }
           args: ["--identity-dir", "/identity", "--addr", "mimir-server:7720",
                  "--purpose", "investigation", "--max-tokens", "32",
                  "--prompt", "In one sentence, what does an append-only audit ledger protect against?"]
@@ -54,6 +76,11 @@ spec:
             limits: { cpu: 500m, memory: 256Mi }
           volumeMounts:
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
       volumes:
         - name: identity
           secret: { secretName: mimir-probe-identity, defaultMode: 288 }
+        - name: keystore-passphrase-source
+          secret: { secretName: mimir-probe-keystore-passphrase, defaultMode: 288 }
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }

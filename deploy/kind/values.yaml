@@ -14,3 +14,11 @@ quota:
   limitsCpu: "12"
   limitsMemory: 12Gi
   pods: "40"
+
+# kind is a local throwaway: its Secrets (from deploy/kind/bootstrap-secrets.sh) hold
+# throwaway keys in the kind node's etcd, which is not encrypted. A real cluster uses
+# the csi or externalSecrets provider, or encrypts etcd before it sets this.
+# [VLD-ANB-MIDGARD-0018]
+secrets:
+  provider: kubernetes
+  acknowledgeEtcdEncryption: true

@@ -328,6 +328,32 @@ CONTRIBUTING.md for the version policy.
   `midgard-model-trust`, read by `compose.dev-model.yaml`, with a warning. Installs
   staged by an earlier release must stage again (`mg-install` does so itself).
   [VLD-ANB-MIDGARD-0028]
+- **Kubernetes custody path (WP-29).** `deploy/kind/bootstrap-secrets.sh` refuses any
+  kubectl context that is not `kind-*`, gives each keystore holder a
+  `<name>-keystore-passphrase` Secret of its own, and seeds only keys, trust anchors,
+  configuration and the gateway's governance ledger (which the gateway cannot start
+  without since MG-SEC-05), never the identity directory, object store, admin state or
+  other journals. The Helm chart gains `secrets.provider`: `kubernetes` (the default,
+  which fails to render outside the kind profile unless
+  `secrets.acknowledgeEtcdEncryption` records that etcd encrypts Secrets at rest),
+  `csi` (Secrets Store CSI driver volumes from operator-supplied SecretProviderClass
+  objects) or `externalSecrets` (ExternalSecret objects populating the Secret names the
+  chart mounts). Every workload now gets its keystore passphrase: an init container
+  copies it into a memory-backed volume as a file the service's user owns, mode 0400,
+  because a secret volume reaches a non-root pod only group-readable and the services
+  refuse a passphrase file wider than 0600; that rule is unchanged.
+  `deploy/k8s/enclosure.yaml` is rendered with the acknowledgement and says so; the
+  kind smoke and the deployment tier's inference probe use the passphrase Secrets.
+  `deploy/helm/midgard/README.md` documents the providers, mandatory etcd encryption,
+  RBAC and the kind-only script. The compose header no longer claims that no service
+  sees the enclosure's keys: the gateway mounts core-state, which holds `keys/`.
+  [VLD-ANB-MIDGARD-0018] [NFR-SEC-1]
+- **The compliance documents no longer claim deletion (WP-29).** DATA_RESIDENCY says
+  subject erasure and export are not implemented; `docs/compliance/RETENTION.md` lists
+  each durable store, the personal data it may hold, its retention target, the
+  crypto-shred mechanism planned for it and the controller's obligations;
+  BACKUP_RESTORE points at it; and the claims ledger records `personal-data-erasure`
+  as spec. Erasure itself is a follow-on work package. [VLD-ANB-MIDGARD-0070]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

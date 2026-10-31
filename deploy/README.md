@@ -53,10 +53,11 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   users, backups, removal). See [installer/README.md](installer/README.md). [RC-33]
 - **`kind/`** — Midgard on a local three-node Kubernetes cluster: `up.sh` creates
   the kind cluster, builds and loads the image, installs the chart and provisions
-  the secrets (`bootstrap-secrets.sh` mints the enclosure's keys and every mesh
-  identity with the same `init` compose uses); `smoke.sh` runs each mesh client as a
+  the secrets (`bootstrap-secrets.sh` mints the enclosure's keys, every mesh
+  identity and each keystore passphrase with the same `init` compose uses, and refuses
+  any kubectl context that is not `kind-*`); `smoke.sh` runs each mesh client as a
   Job through the NetworkPolicies. Built from source, not the signed release images.
-  [RC-33]
+  [RC-33] [VLD-ANB-MIDGARD-0018]
 - **`helm/midgard/`** — the Helm chart for the core services + product edges:
   a default-deny/egress-denied namespace, a `ResourceQuota`, the pinned trust-key
   `ConfigMap`, and one hardened `Deployment` + `Service` (+ ingress `NetworkPolicy`)
@@ -68,7 +69,10 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   pod's own address and admit only the scraper: label your Prometheus pod
   `app.kubernetes.io/name=metrics-scraper` (or set `scraper.podLabel`), and on a CNI
   that applies NetworkPolicy to the kubelet's probes list the node ranges in
-  `scraper.nodeCidrs`. [VLD-ANB-MIDGARD-0027]
+  `scraper.nodeCidrs`. [VLD-ANB-MIDGARD-0027] `secrets.provider` chooses where
+  identities, keystore passphrases and seeds come from: Kubernetes Secrets (only with
+  etcd encrypted at rest), the Secrets Store CSI driver, or external-secrets; see
+  [helm/midgard/README.md](helm/midgard/README.md).
 - **`k8s/enclosure.yaml`** — the chart rendered for a development cluster
   (`helm template` with `image.allowTag=true`), for `kubectl apply` without Helm.
   Generated: regenerate it when the chart changes.

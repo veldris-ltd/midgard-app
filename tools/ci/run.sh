@@ -47,7 +47,7 @@ claims|host|every row of the claims ledger cites files, lines and tests that exi
 gate-record|host|the committed gate record is what its logs give, and the status tables are what it gives
 numbers|host|docs/compliance/NUMBERS.md matches the tree, and no swept document quotes a figure that differs from it
 secrets|host|no credential is committed (gitleaks)
-k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders (needs helm)
+k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders, and each secrets provider renders as it should (needs helm)
 toolchain|host|build or restore the digest-pinned toolchain image (the only online step); inside it, check it is the pinned one
 toolchain-publish|host|push the toolchain image to the GitLab project registry; its digest must be the committed one
 fmt|toolchain|formatting
@@ -163,6 +163,7 @@ job_secrets() {
 job_k8s_render() {
     need "${HELM:-helm}" "k8s-render: helm is not on PATH"
     bash deploy/k8s/render.sh --check
+    bash deploy/helm/midgard/tests/render-providers.sh
 }
 
 # Restore the toolchain image from the cache directory when the CI system kept one for

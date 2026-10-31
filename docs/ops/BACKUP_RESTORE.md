@@ -43,6 +43,10 @@ log, which is always valid and re-verifiable).
      chain re-verify) on the backup host; a copy that does not re-verify is discarded
      and re-taken. **A backup is not "done" until it has been verified.**
 3. Retain snapshots per policy (e.g. 7 daily + 4 weekly); older snapshots are pruned.
+   Pruning removes whole snapshots; it is not erasure. The journals are append-only,
+   so a record stays in every later snapshot, and nothing yet removes one subject's
+   records: see the retention schedule, [RETENTION.md](../compliance/RETENTION.md).
+   [VLD-ANB-MIDGARD-0070]
 
 **Do not** back up decrypted state. In the software tier the custody root is inside
 each keystore file (`keys/*.keystore`, and each mesh service's identity directory),

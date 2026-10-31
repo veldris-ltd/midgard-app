@@ -25,8 +25,8 @@
 #      instead, and the images built here must have its digests: they are built
 #      reproducibly, so a difference means they are not the release's images.
 #
-# The enclosure's secrets — identities, seeds, forge-jobs — come from key custody, not
-# from a bundle; the services do not start until they exist.
+# The enclosure's secrets (identities, keystore passphrases, seeds, forge-jobs) come from
+# key custody through the chart's secrets.provider, never a bundle; services wait for them.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
@@ -130,6 +130,7 @@ $KUBECTL -n "$NS" create configmap midgard-release-trust \
     | $KUBECTL -n "$NS" apply -f - >/dev/null
 if ! $KUBECTL -n "$NS" get secret http-gateway-identity >/dev/null 2>&1; then
     echo ">>> NOTE: the enclosure's secrets are not provisioned in $NS; the services wait" \
-         "until they are (identities, seeds and forge-jobs, from key custody)."
+         "until they are (identities, keystore passphrases, seeds and forge-jobs, from key" \
+         "custody through the chart's secrets.provider: deploy/helm/midgard/README.md)."
 fi
 echo ">>> install complete: Midgard $version, from a verified bundle"

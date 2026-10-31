@@ -12,6 +12,7 @@ The short version, for each way of running Midgard:
 | `mg-install` on a server | Update the checkout, run `sudo deploy/installer/mg-install` and choose **Check and repair it**. It runs every step below. |
 | docker compose (`just compose-up`) | `just compose-down`, update the checkout, `just compose-up`. The `init` service runs every step below before anything starts. |
 | kind (`deploy/kind/up.sh`) | A local cluster is not upgraded in place: delete the namespace and run `deploy/kind/up.sh` again. |
+| The Helm chart on a real cluster | Choose `secrets.provider` (`csi` or `externalSecrets`, or `kubernetes` with etcd encrypted at rest and `secrets.acknowledgeEtcdEncryption: true`; the render fails otherwise) and add a `<name>-keystore-passphrase` for every workload: [deploy/helm/midgard/README.md](../../deploy/helm/midgard/README.md). Keystores are migrated as in [Keystores](#keystores-wrap-the-custody-root) before they are loaded into the store. [VLD-ANB-MIDGARD-0018] |
 | The binaries by hand | Follow the steps below. |
 
 ## What changes, and why it needs a step
