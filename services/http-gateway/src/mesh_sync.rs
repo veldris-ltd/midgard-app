@@ -4,16 +4,27 @@
 //! A sync carries import-format JSON Lines (see [`crate::import_file`]). It is:
 //!
 //! 1. authorised and audited as `SyncRecords` in the enclosure's one ledger, for the
-//!    workload's certified roles — a malformed sync is audited too;
+//!    workload's certified roles, before the records are read: a workload policy does
+//!    not permit learns nothing about the ontology from its reply;
 //! 2. checked against the ontology, all or nothing, and every link end must be in the
-//!    sync or already in the fabric;
-//! 3. recorded — how many objects it creates and updates and links it adds — before
+//!    sync or already in the fabric; a malformed sync from a permitted workload is
+//!    audited too, as `SYNC records: MALFORMED`;
+//! 3. checked against what it would write, all or nothing: every record's marking must
+//!    be within the gateway's sync clearance
+//!    ([`SecuredGateway::with_sync_clearance`]); a record for an object already in the
+//!    fabric may keep or raise its marking but not lower it, and may narrow its
+//!    purposes but not widen them; and no record may touch an object under a live or
+//!    redeemed human gate. A refusal is audited as `SYNC refused: <reason>` against the
+//!    object it names;
+//! 4. recorded — how many objects it creates and updates and links it adds — before
 //!    anything is written;
-//! 4. applied: objects are created or replaced, and a link already present is not
+//! 5. applied: objects are created or replaced, and a link already present is not
 //!    added again.
 //!
 //! Unlike an offline import, a sync replaces objects: it is how a source's changes reach
-//! the fabric, so syncing the same source twice leaves the fabric as it was.
+//! the fabric, so syncing the same source twice leaves the fabric as it was. Lowering a
+//! marking, or changing an object a named human approved a change to, is an operator
+//! action, not a sync. [VLD-ANB-MIDGARD-0001] [VLD-ANB-MIDGARD-0073]
 //!
 //! Responses are one outcome byte ([`outcome`]) followed by a UTF-8 message.
 
@@ -24,14 +35,15 @@ use std::sync::Arc;
 use fabric::{DurableObjectStore, LedgerStore, ObjectStore, PolicyContext};
 use gateway::{Gateway, RequestHandler, Router};
 use policy::{
-    ClassificationLevel, Clearance, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource,
-    ResourceId,
+    dominates, ClassificationLevel, Clearance, DefaultPdp, Marking, PolicyDecisionPoint, Purpose,
+    Resource, ResourceId,
 };
 use pq_mtls::WorkloadIdentity;
 use pqc_agility::backend::fips::provider as fips_provider;
 use service_runtime::{apply_mesh_limits, serve_mesh_with, MeshLimits, ServiceIdentity};
 
-use crate::import_file::parse_import;
+use crate::enclosure::Enclosure;
+use crate::import_file::{parse_import, Import};
 use crate::SecuredGateway;
 
 /// The method a workload syncs records with; its payload is import-format JSON Lines.
@@ -83,18 +95,8 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
             .enclosure
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let parsed = match (std::str::from_utf8(body), self.ontology.as_ref()) {
-            (Err(_), _) => Err("the records are not UTF-8".to_string()),
-            (_, None) => {
-                Err("this enclosure declares no ontology, so nothing can be synced".to_string())
-            }
-            (Ok(text), Some(ontology)) => parse_import(text, ontology),
-        };
-        let action = if parsed.is_ok() {
-            ACTION_SYNC_RECORDS
-        } else {
-            "SyncRecords:MALFORMED"
-        };
+        // Authorise before the records are read, so a workload policy does not permit
+        // learns nothing about the ontology from the reply. [VLD-ANB-MIDGARD-0073]
         let context = PolicyContext {
             subject: peer.id.0.clone(),
             roles: peer.roles.clone(),
@@ -107,15 +109,11 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
         let decision = match enclosure.governance_mut().authorize(
             &context,
             &sync_resource("fabric-sync", purpose),
-            action,
+            ACTION_SYNC_RECORDS,
             now,
         ) {
             Ok(decision) => decision,
             Err(_) => return reply(outcome::FAILED, "the sync could not be audited"),
-        };
-        let import = match parsed {
-            Ok(import) => import,
-            Err(e) => return reply(outcome::MALFORMED, &e),
         };
         if !decision.permitted {
             return reply(
@@ -123,8 +121,51 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
                 "policy does not permit this workload to sync records",
             );
         }
+        let parsed = match (std::str::from_utf8(body), self.ontology.as_ref()) {
+            (Err(_), _) => Err("the records are not UTF-8".to_string()),
+            (_, None) => {
+                Err("this enclosure declares no ontology, so nothing can be synced".to_string())
+            }
+            (Ok(text), Some(ontology)) => parse_import(text, ontology),
+        };
+        let import = match parsed {
+            Ok(import) => import,
+            Err(e) => {
+                // A malformed sync is audited too: the decision row says only that it
+                // was permitted.
+                let recorded = enclosure.governance_mut().record_event(
+                    &peer.id.0,
+                    "SYNC records: MALFORMED",
+                    "sync",
+                    now,
+                );
+                if recorded.is_err() {
+                    return reply(outcome::FAILED, "the sync could not be audited");
+                }
+                return reply(outcome::MALFORMED, &e);
+            }
+        };
         if import.objects.is_empty() && import.links.is_empty() {
             return reply(outcome::MALFORMED, "the sync holds no objects or links");
+        }
+
+        // What the sync would write, checked against what it would overwrite before
+        // anything is written: one refused record refuses the whole batch.
+        // [VLD-ANB-MIDGARD-0001]
+        if let Err((id, reason)) = self.check_sync_writes(&enclosure, &import, now) {
+            let recorded = enclosure.governance_mut().record_event(
+                &peer.id.0,
+                &format!("SYNC refused: {reason}"),
+                &format!("object:{id}"),
+                now,
+            );
+            if recorded.is_err() {
+                return reply(outcome::FAILED, "the refusal could not be audited");
+            }
+            return reply(
+                outcome::DENIED,
+                &format!("sync refused: {id} ({reason}); nothing was written"),
+            );
         }
 
         // What the sync will do, decided before anything is written.
@@ -206,6 +247,48 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
                 decision.audit_seq
             ),
         )
+    }
+
+    /// The first object in `import` this sync may not write, and why: its marking is
+    /// above the sync clearance, it would lower the marking or widen the purposes of
+    /// the object it replaces, or it names an object under a live or redeemed human
+    /// gate. The reasons are fixed codes and the id is one the workload sent, so a
+    /// refusal tells it nothing it did not already know. [VLD-ANB-MIDGARD-0001]
+    fn check_sync_writes(
+        &self,
+        enclosure: &Enclosure<DurableObjectStore, L>,
+        import: &Import,
+        now: u64,
+    ) -> Result<(), (String, &'static str)> {
+        let store = enclosure.fabric().store();
+        let gated = enclosure.gated_targets(now);
+        for object in &import.objects {
+            let refuse = |reason| Err((object.id.clone(), reason));
+            if !dominates(&self.sync_clearance, &object.marking) {
+                return refuse("marking-above-sync-clearance");
+            }
+            if let Some(existing) = store.get_object(&object.id) {
+                // The new marking must dominate the old: level not lower, compartments
+                // a superset.
+                let raised = Clearance {
+                    level: object.marking.level,
+                    compartments: object.marking.compartments.clone(),
+                };
+                if !dominates(&raised, &existing.marking) {
+                    return refuse("marking-downgrade");
+                }
+                if !object
+                    .allowed_purposes
+                    .is_subset(&existing.allowed_purposes)
+                {
+                    return refuse("purpose-widening");
+                }
+            }
+            if gated.contains(&object.id) {
+                return refuse("human-gated-target");
+            }
+        }
+        Ok(())
     }
 }
 

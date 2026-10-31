@@ -195,15 +195,23 @@ An enclosure's object types, link types and actions come from an ontology file w
 
 ### `checked-import` (operable)
 
-mg-admin import adds objects and links from a JSON Lines file with a published record schema. Every record is checked against the ontology and the store before anything is written, and one bad line refuses the whole file.
+mg-admin import adds objects and links from a JSON Lines file with a published record schema. Every record is checked against the ontology and the store before anything is written, and one bad line refuses the whole file. A mesh sync may raise but never lower an object's marking, never widen its purposes, and never touch an object under a human gate.
 
 - Source:
   - [`tools/mg-admin/src/main.rs:376`](../../tools/mg-admin/src/main.rs)
   - [`services/http-gateway/src/import_file.rs:91`](../../services/http-gateway/src/import_file.rs)
   - [`contracts/schema/import-record.v1.schema.json`](../../contracts/schema/import-record.v1.schema.json)
+  - [`services/http-gateway/src/mesh_sync.rs:258`](../../services/http-gateway/src/mesh_sync.rs)
 - Tests:
   - [`services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it`](../../services/http-gateway/tests/import_file.rs)
   - [`services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer`](../../services/http-gateway/tests/contract_schemas.rs)
+  - [`services/http-gateway/tests/mesh_sync.rs::a_sync_that_lowers_a_marking_is_refused_and_changes_nothing`](../../services/http-gateway/tests/mesh_sync.rs)
+  - [`services/http-gateway/tests/mesh_sync.rs::a_sync_may_raise_a_marking_and_narrow_purposes`](../../services/http-gateway/tests/mesh_sync.rs)
+  - [`services/http-gateway/tests/mesh_sync.rs::a_sync_above_the_sync_clearance_is_refused`](../../services/http-gateway/tests/mesh_sync.rs)
+  - [`services/http-gateway/tests/mesh_sync.rs::a_sync_never_touches_a_human_gated_target`](../../services/http-gateway/tests/mesh_sync.rs)
+  - [`services/http-gateway/tests/mesh_sync.rs::an_unpermitted_peer_learns_nothing_from_a_malformed_sync`](../../services/http-gateway/tests/mesh_sync.rs)
+  - [`services/http-gateway/tests/mesh_sync.rs::a_malformed_sync_from_a_permitted_peer_is_still_audited`](../../services/http-gateway/tests/mesh_sync.rs)
+  - [`services/http-gateway/src/enclosure.rs::gated_targets_cover_live_and_redeemed_approvals`](../../services/http-gateway/src/enclosure.rs)
 - Service tests:
   - [`tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves`](../../tools/mg-admin/tests/import.rs)
 - Stated at:

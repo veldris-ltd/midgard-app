@@ -21,6 +21,8 @@
 
 use std::net::{SocketAddr, ToSocketAddrs};
 
+use policy::{Clearance, Compartment};
+use service_runtime::marking::{level_of, BANDS};
 use service_runtime::{mesh_limits_from_args, Args, MeshLimits};
 
 use crate::login_throttle::{LOGIN_SOURCE_BURST, LOGIN_SOURCE_PER_SEC};
@@ -34,10 +36,13 @@ pub const USAGE: &str = "\
 usage:
   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
                [--allow-origin URL]...
-               [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
+               [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]
+                [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
                [--max-connections N] [--idle-timeout SECONDS] [--edge-rate-per-sec N]
                [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
                [--login-burst N] [--login-per-sec N]
+      --mesh-sync-clearance: the highest marking a mesh sync may write (default: the
+      highest band, no compartments)
       --max-connections (edge default 256, mesh door 128) and --idle-timeout (default 30)
       bound each listener; --edge-rate-per-sec (default 50, 0 is off) is how fast one
       address may open connections to the edge; --rate-burst (default 100),
@@ -93,6 +98,9 @@ pub struct ServeArgs {
     pub login_burst: f64,
     /// Attempts a second that allowance refills at. [VLD-ANB-MIDGARD-0005]
     pub login_per_sec: f64,
+    /// The highest marking a mesh sync may write. `None` keeps the gateway's default:
+    /// the highest band, no compartments. [VLD-ANB-MIDGARD-0001]
+    pub mesh_sync_clearance: Option<Clearance>,
 }
 
 /// The options that tune the listeners' limits, given to [`limits`].
@@ -151,6 +159,7 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         mesh: MeshLimits::default(),
         login_burst: LOGIN_SOURCE_BURST,
         login_per_sec: LOGIN_SOURCE_PER_SEC,
+        mesh_sync_clearance: None,
     };
     let mut limit_flags = Vec::new();
     let mut args = argv.iter();
@@ -177,6 +186,9 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
             "--login-per-sec" => serve.login_per_sec = non_negative(flag, value)?,
             other if LIMIT_OPTIONS.contains(&other.trim_start_matches("--")) => {
                 limit_flags.extend([flag.clone(), value.clone()]);
+            }
+            "--mesh-sync-clearance" => {
+                serve.mesh_sync_clearance = Some(parse_sync_clearance(value)?)
             }
             other => return Err(format!("unknown option {other}")),
         }
@@ -228,6 +240,29 @@ fn non_negative(flag: &str, value: &str) -> Result<f64, String> {
             "{flag} must be a number of at least 0, not '{value}'"
         )),
     }
+}
+
+/// Parse a sync clearance, `BAND[:COMPARTMENT,...]`: a marking band (`open`,
+/// `internal`, `restricted`, `confidential`) and the compartments a mesh sync may write.
+/// [VLD-ANB-MIDGARD-0001]
+pub fn parse_sync_clearance(value: &str) -> Result<Clearance, String> {
+    let (band, compartments) = value.split_once(':').unwrap_or((value, ""));
+    let level = level_of(band).ok_or_else(|| {
+        format!(
+            "--mesh-sync-clearance: {band} is not a marking band (one of {})",
+            BANDS.join(", ")
+        )
+    })?;
+    let compartments = compartments
+        .split(',')
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(|c| Compartment(c.to_string()))
+        .collect();
+    Ok(Clearance {
+        level,
+        compartments,
+    })
 }
 
 /// Resolve `addr` for development mode, which listens on loopback only: every address

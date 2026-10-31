@@ -122,6 +122,11 @@ enum ApprovalState {
 /// the requester can then redeem it — once, for that action on that object, before it
 /// expires. Approvals live in memory: a restart drops them, and the requester asks
 /// again.
+///
+/// While an approval is pending, approved and unexpired, or redeemed, its target is
+/// protected from mesh sync ([`Enclosure::gated_targets`]) until the approval is
+/// pruned, so a sync cannot overwrite a change a named human authorised.
+/// [VLD-ANB-MIDGARD-0001]
 #[derive(Debug, Clone)]
 struct Approval {
     id: String,
@@ -597,6 +602,22 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                 .map(|a| approval_json(a, now, &ctx.subject))
                 .collect(),
         )
+    }
+
+    /// The objects under a human gate at `now`: the target of every approval that is
+    /// pending, approved and unexpired, or redeemed. A mesh sync may not touch them.
+    /// A rejected or expired approval protects nothing. [NFR-AI-1]
+    /// [VLD-ANB-MIDGARD-0001]
+    pub fn gated_targets(&self, now: u64) -> BTreeSet<String> {
+        self.approvals
+            .iter()
+            .filter(|a| match &a.state {
+                ApprovalState::Pending | ApprovalState::Used { .. } => true,
+                ApprovalState::Approved { expires, .. } => now < *expires,
+                ApprovalState::Rejected { .. } => false,
+            })
+            .map(|a| a.target.clone())
+            .collect()
     }
 
     /// The index of approval `id` if the caller can redeem it now for `entry` on
@@ -1737,5 +1758,97 @@ impl ActionFunction for ScheduleMaintenance {
             }));
         }
         Ok(effects)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fabric::Governance;
+    use policy::{Clearance, DefaultPdp, Role};
+    use pqc_agility::OsRng;
+
+    const NOW: u64 = 1_800_000_000;
+    const PURPOSE: &str = "operations";
+
+    /// The development enclosure, with its human-gated actions and seeded aircraft.
+    fn dev_enclosure() -> Enclosure {
+        let governance =
+            Governance::new(DefaultPdp::new(crate::dev_login_policy()), &mut OsRng).unwrap();
+        let mut enclosure = Enclosure::new(governance);
+        enclosure.seed_dev(PURPOSE, NOW).unwrap();
+        enclosure
+    }
+
+    fn person(subject: &str, role: &str) -> PolicyContext {
+        PolicyContext {
+            subject: subject.into(),
+            roles: [Role(role.into())].into_iter().collect(),
+            clearance: Clearance {
+                level: level_of("confidential").unwrap(),
+                compartments: [Compartment("OPS-N".into())].into_iter().collect(),
+            },
+            purpose: Purpose(PURPOSE.into()),
+        }
+    }
+
+    fn approval_id(json: &Json) -> String {
+        json.str_field("id").expect("approval id").to_string()
+    }
+
+    /// A target is under a human gate while its approval is pending, approved and
+    /// unexpired, or redeemed, and not once it is rejected or expired. [NFR-AI-1]
+    /// [VLD-ANB-MIDGARD-0001] [AC-18.4]
+    #[test]
+    fn gated_targets_cover_live_and_redeemed_approvals() {
+        const TARGET: &str = "aircraft/AC-2214";
+        let operator = person("olivia", "operator");
+        let approver = person("victor", "approver");
+        let mut enclosure = dev_enclosure();
+        assert!(enclosure.gated_targets(NOW).is_empty());
+
+        // Pending, approved, then redeemed: protected throughout.
+        let pending = enclosure
+            .request_approval(&operator, "Ground aircraft", TARGET, NOW)
+            .map(|j| approval_id(&j))
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure.gated_targets(NOW).contains(TARGET), "pending");
+        enclosure
+            .decide_approval(&approver, &pending, true, NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure.gated_targets(NOW).contains(TARGET), "approved");
+        let params = [("target".to_string(), TARGET.to_string())].into();
+        enclosure
+            .apply_action(&operator, "Ground aircraft", params, Some(&pending), NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(
+            enclosure.gated_targets(NOW + APPROVAL_TTL).contains(TARGET),
+            "redeemed, whenever it was"
+        );
+
+        // Rejected, or approved and expired: not protected.
+        let mut enclosure = dev_enclosure();
+        let rejected = enclosure
+            .request_approval(&operator, "Ground aircraft", TARGET, NOW)
+            .map(|j| approval_id(&j))
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        enclosure
+            .decide_approval(&approver, &rejected, false, NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure.gated_targets(NOW).is_empty(), "rejected");
+        let expiring = enclosure
+            .request_approval(&operator, "Ground aircraft", TARGET, NOW)
+            .map(|j| approval_id(&j))
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        enclosure
+            .decide_approval(&approver, &expiring, true, NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure
+            .gated_targets(NOW + APPROVAL_TTL - 1)
+            .contains(TARGET));
+        assert!(
+            enclosure.gated_targets(NOW + APPROVAL_TTL).is_empty(),
+            "an approval past its time protects nothing"
+        );
     }
 }
