@@ -7,22 +7,31 @@
 //! [`get`]; [`spawn_dev_gateway_with`] starts one within chosen limits.
 //! [VLD-ANB-MIDGARD-0006] [VLD-ANB-MIDGARD-0004] [NFR-SEC-1] [AC-30.1] [AC-30.6]
 //! [AC-31.1] [AC-31.2] [VLD-ANB-MIDGARD-0005] [AC-11.1] [AC-11.2] [AC-11.3]
+//! [VLD-ANB-MIDGARD-0019] [AC-12.1] [AC-12.2] [AC-12.4]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use governance::Governance;
 use http_gateway::cli;
 use http_gateway::http::{Request, Response, MAX_BODY_BYTES};
 use http_gateway::json::{parse, Json};
 use http_gateway::login_throttle::{
-    LoginThrottle, LOGIN_SOURCE_BURST, LOGIN_SOURCE_PER_SEC, MAX_PASSWORD_BYTES, MAX_TOTP_CHARS,
-    MAX_TRACKED, MAX_USERNAME_BYTES,
+    LoginThrottle, FREE_FAILURES, LOGIN_SOURCE_BURST, LOGIN_SOURCE_PER_SEC, MAX_PASSWORD_BYTES,
+    MAX_TOTP_CHARS, MAX_TRACKED, MAX_USERNAME_BYTES,
 };
-use http_gateway::{EdgeLimits, ListenerLimits, SecuredGateway, DEMO_PASSWORD, DEMO_USERNAME};
+use http_gateway::{
+    demo_operator, dev_login_policy, EdgeLimits, ListenerLimits, SecuredGateway, DEMO_PASSWORD,
+    DEMO_USERNAME,
+};
+use iam::{Idp, Pbkdf2Hasher};
+use policy::DefaultPdp;
+use pqc_agility::backend::fips::provider as fips_provider;
+use pqc_agility::OsRng;
 
 /// A response: status, headers in order, body.
 pub type Reply = (u16, Vec<(String, String)>, String);
@@ -41,9 +50,14 @@ pub fn spawn_dev_gateway() -> SocketAddr {
 
 /// [`spawn_dev_gateway`] serving within `limits`.
 pub fn spawn_dev_gateway_with(limits: EdgeLimits) -> SocketAddr {
+    spawn_gateway_with(SecuredGateway::dev(), limits)
+}
+
+/// Serve `gw` within `limits` on a fresh loopback port, as [`spawn_dev_gateway`] does.
+pub fn spawn_gateway_with(gw: SecuredGateway, limits: EdgeLimits) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral port");
     let addr = listener.local_addr().expect("the bound address");
-    let gw = Arc::new(SecuredGateway::dev());
+    let gw = Arc::new(gw);
     thread::spawn(move || {
         let _ = http_gateway::serve_listener_with(listener, gw, limits);
     });
@@ -650,4 +664,166 @@ fn the_login_limit_flags_are_parsed() {
     assert_eq!((serve.login_burst, serve.login_per_sec), (50.0, 2.0));
     assert!(args(&["--login-burst", "many"]).is_err());
     assert!(args(&["--login-per-sec", "-1"]).is_err());
+}
+
+// ---- WP-12: the lockout reserves attempts, and a flood cannot clear it ------------
+
+/// A gateway with no per-source limit on connections or logins, so every refusal a
+/// test sees is the name's own.
+fn unlimited_edge() -> SocketAddr {
+    spawn_gateway_with(
+        SecuredGateway::dev().with_login_source_limit(0.0, 0.0),
+        EdgeLimits {
+            source_burst: 0.0,
+            source_per_sec: 0.0,
+            ..EdgeLimits::default()
+        },
+    )
+}
+
+fn demo_login(password: &str) -> String {
+    format!(r#"{{"username":"{DEMO_USERNAME}","password":"{password}"}}"#)
+}
+
+/// `n` wrong-password logins for the demo operator, all sent at the same moment, each
+/// on its own connection: every reply.
+fn simultaneous_wrong_logins(addr: SocketAddr, n: usize) -> Vec<Reply> {
+    let start = Arc::new(Barrier::new(n));
+    let threads: Vec<_> = (0..n)
+        .map(|_| {
+            let start = Arc::clone(&start);
+            thread::spawn(move || {
+                start.wait();
+                post_json(addr, "/api/v1/login", &demo_login("wrong"))
+            })
+        })
+        .collect();
+    threads.into_iter().map(|t| t.join().unwrap()).collect()
+}
+
+#[test]
+fn parallel_wrong_passwords_cannot_exceed_the_free_failures() {
+    // [VLD-ANB-MIDGARD-0019] [AC-12.1]
+    let addr = unlimited_edge();
+    let start = Arc::new(Barrier::new(32));
+    // Each client keeps trying while it is told the name is busy, as a console told to
+    // retry would, until its password is checked or the name is locked.
+    let threads: Vec<_> = (0..32)
+        .map(|_| {
+            let start = Arc::clone(&start);
+            thread::spawn(move || {
+                start.wait();
+                let mut busy = 0;
+                loop {
+                    let reply = post_json(addr, "/api/v1/login", &demo_login("wrong"));
+                    if reply.0 == 429 && reply.2.contains("already being checked") && busy < 500 {
+                        busy += 1;
+                        thread::sleep(Duration::from_millis(20));
+                        continue;
+                    }
+                    return (reply, busy);
+                }
+            })
+        })
+        .collect();
+    let replies: Vec<(Reply, u32)> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+
+    let unauthorized = replies.iter().filter(|(r, _)| r.0 == 401).count();
+    let locked = replies
+        .iter()
+        .filter(|(r, _)| r.0 == 429 && r.2.contains("too many failed logins"))
+        .count();
+    let busy: u32 = replies.iter().map(|(_, busy)| busy).sum();
+    eprintln!("32 clients: {unauthorized} x 401, {locked} x 429 locked, {busy} busy refusals");
+    assert!(
+        unauthorized <= FREE_FAILURES as usize,
+        "{unauthorized} passwords refused as wrong before the lock"
+    );
+    assert_eq!(
+        unauthorized + locked,
+        32,
+        "every other reply is the lock's 429"
+    );
+
+    let (status, headers, body) = post_json(addr, "/api/v1/login", &demo_login(DEMO_PASSWORD));
+    assert_eq!(status, 429, "the name is locked: {body}");
+    assert!(body.contains("too many failed logins"), "{body}");
+    assert!(headers.iter().any(|(k, _)| k == "Retry-After"));
+}
+
+#[test]
+fn a_busy_name_is_429_quickly() {
+    // [VLD-ANB-MIDGARD-0019] [AC-12.4] Logins share one directory lock, so attempts
+    // that arrive together wait on it holding their reservations: past MAX_IN_FLIGHT
+    // the rest are refused at once, before their passwords are checked.
+    let addr = unlimited_edge();
+    let replies = simultaneous_wrong_logins(addr, 8);
+    let busy: Vec<_> = replies
+        .iter()
+        .filter(|(status, _, body)| *status == 429 && body.contains("already being checked"))
+        .collect();
+    assert!(!busy.is_empty(), "{replies:?}");
+    for reply in &busy {
+        assert_eq!(header(reply, "Retry-After"), Some("1"));
+    }
+    let unauthorized = replies.iter().filter(|r| r.0 == 401).count();
+    assert!(unauthorized <= 4, "{unauthorized} checked at once");
+    assert_healthy(addr);
+}
+
+/// The demo operator's login on a gateway whose password hashing costs next to
+/// nothing, so a test can make more logins than a debug build checks at the
+/// development work factor in reasonable time.
+fn cheap_login_gateway() -> SecuredGateway {
+    let idp = Idp::generate("test-idp", &mut OsRng).expect("idp");
+    let issuer_vk = idp.verifying_key().clone();
+    let governance =
+        Governance::new(DefaultPdp::new(dev_login_policy()), &mut OsRng).expect("governance");
+    let mut gw = SecuredGateway::new(fips_provider(), issuer_vk, governance, Vec::new())
+        .with_idp(idp, Pbkdf2Hasher::new(1));
+    gw.provision_login(DEMO_USERNAME, DEMO_PASSWORD, demo_operator())
+        .expect("the operator provisions");
+    gw
+}
+
+// Every login through the edge writes a signed ledger row, about 35 ms in a debug
+// build, so twelve thousand take some seven minutes: run it with `--ignored`. The
+// throttle's own 20,000-name flood (login_throttle::tests::
+// a_locked_name_survives_a_flood_of_new_names) runs every time.
+#[test]
+#[ignore = "twelve thousand signed ledger rows: about seven minutes in a debug build"]
+fn a_flood_of_names_does_not_unlock_a_locked_operator() {
+    // [VLD-ANB-MIDGARD-0019] [AC-12.2] Lock the operator, then fail more distinct
+    // names than the throttle tracks, each from an address of its own so the
+    // per-source bucket lets every one through to a password check.
+    let gw = cheap_login_gateway();
+    let operator: SocketAddr = "10.255.255.1:5000".parse().unwrap();
+    for _ in 0..=FREE_FAILURES {
+        gw.handle_from(&login_request(DEMO_USERNAME, "wrong"), Some(operator), NOW);
+    }
+    let locked = gw.handle(&login_request(DEMO_USERNAME, DEMO_PASSWORD), NOW);
+    assert_eq!(locked.status, 429, "{}", locked.body);
+
+    for i in 0..MAX_TRACKED + 2_000 {
+        let peer = SocketAddr::from(([10, (i >> 16) as u8, (i >> 8) as u8, i as u8], 5000));
+        let reply = gw.handle_from(
+            &login_request(&format!("guess-{i}"), "wrong"),
+            Some(peer),
+            NOW,
+        );
+        assert_eq!(reply.status, 401, "guess {i}: {}", reply.body);
+    }
+    assert!(gw.login_throttle_stats().0 <= MAX_TRACKED);
+
+    let after = gw.handle(&login_request(DEMO_USERNAME, DEMO_PASSWORD), NOW + 1);
+    assert_eq!(
+        after.status, 429,
+        "the lock survived the flood: {}",
+        after.body
+    );
+    assert!(
+        after.body.contains("too many failed logins"),
+        "{}",
+        after.body
+    );
 }

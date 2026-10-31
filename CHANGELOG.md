@@ -207,6 +207,29 @@ CONTRIBUTING.md for the version policy.
   - `gateway::RateLimiter` drops buckets that have refilled to capacity once it
     holds 1,024 identities, so a limiter keyed by address holds the addresses seen
     within one refill period rather than every address ever seen.
+- **The login lockout can no longer be raced or flooded away.** The gateway read a
+  name's lock, released it, checked the password and only then counted the failure,
+  so 32 wrong passwords sent at once were all checked before the name locked; a
+  flood of made-up names evicted the oldest entry, which was the victim's lock; and
+  the failure count lapsed the moment the longest lock did.
+  [VLD-ANB-MIDGARD-0019] [NFR-SEC-1]
+  - Each attempt is reserved under the throttle's lock before its password is
+    checked, and attempts in flight count towards the five free failures, so no more
+    than six passwords are checked for a name before it locks however many arrive
+    together. No more than four are checked at once for one name; a fifth gets 429
+    `a login for this name is already being checked` with `Retry-After: 1`, counted
+    as `login_attempts_total{outcome="busy"}` and not as a failure. A console that
+    retries a login while the last is still being checked sees that 429 for a second.
+  - When the table of tracked names is full, lapsed entries go first, then the
+    unlocked entry idle longest; locked entries go last, soonest-expiring first, so a
+    flood of names cannot clear a chosen name's lock.
+  - The failure count now lasts 30 minutes without a failure (it was 15), longer
+    than the longest lock (asserted when the crate compiles), so a name whose lock
+    lapses locks again at its next failure. A user who fails five times and waits 16
+    minutes no longer has free failures back.
+  - Anyone who can reach the edge can still lock any name, an operator's included;
+    the per-source allowance is the compensating control, recorded in the
+    residual-risk register.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
