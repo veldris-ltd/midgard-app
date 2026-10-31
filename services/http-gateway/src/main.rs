@@ -1,9 +1,11 @@
 //! http-gateway binary — the browser-facing HTTP/JSON edge for the console UIs.
 //!
 //! Usage:
-//!   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
-//!                [--allow-non-loopback] [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
-//!                 [--mesh-purpose P] [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
+//!   http-gateway --state-dir DIR [--keystore-passphrase-file FILE] [--audit-pin FILE]
+//!                [--checkpoint-mirror DIR] [--bind ADDR] [--allow-non-loopback]
+//!                [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR
+//!                 [--mesh-service NAME] [--mesh-purpose P]
+//!                 [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
@@ -13,6 +15,13 @@
 //!       given: the edge speaks plaintext HTTP, so another interface is only for a
 //!       gateway behind PQ-mTLS or TLS 1.3 termination, as in a container. Any other
 //!       address is a usage error. [RC-24] [VLD-ANB-MIDGARD-0032]
+//!
+//!       --keystore-passphrase-file names the file holding the passphrase the
+//!       keystores' custody roots are wrapped under (the state directory's and the
+//!       mesh identity's); without it the gateway reads the file named by
+//!       MIDGARD_KEYSTORE_PASSPHRASE_FILE, and with neither it refuses to start. Keep
+//!       the file off the state directory's volume and out of its backups.
+//!       [VLD-ANB-MIDGARD-0007]
 //!
 //!       --audit-pin names the audit verifying key the ledger is checked under — a
 //!       copy of `trust/audit.pub` kept outside DIR (a read-only mount, a config
@@ -73,7 +82,7 @@ use http_gateway::mesh_sync::spawn_mesh_listener;
 use http_gateway::policy_file::parse_policy;
 use http_gateway::state_dir::StateDir;
 use policy::DefaultPdp;
-use service_runtime::{MeshLimits, ServiceIdentity};
+use service_runtime::{MeshLimits, RootWrap, ServiceIdentity};
 
 fn main() {
     service_runtime::harden_process("http-gateway");
@@ -99,6 +108,7 @@ fn main() {
     };
     let ServeArgs {
         state_dir,
+        keystore_passphrase_file,
         audit_pin,
         checkpoint_mirror,
         bind,
@@ -114,6 +124,19 @@ fn main() {
         login_per_sec,
         mesh_sync_clearance,
     } = args;
+
+    // Fail closed before touching anything: no passphrase, no keystore. [VLD-ANB-MIDGARD-0007]
+    let passphrase = match service_runtime::load_passphrase(
+        keystore_passphrase_file.as_deref(),
+        std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+    ) {
+        Ok(passphrase) => passphrase,
+        Err(e) => {
+            eprintln!("http-gateway: cannot serve {state_dir}: {e}");
+            exit(2);
+        }
+    };
+    let wrap = RootWrap::Passphrase(&passphrase);
 
     let state = StateDir::new(&state_dir);
     let pin_path = match audit_pin {
@@ -139,7 +162,7 @@ fn main() {
         }
     };
     let mirror = checkpoint_mirror.as_deref().map(std::path::Path::new);
-    let served = match open_state_dir_mirrored(&state, origins, &pin, mirror) {
+    let served = match open_state_dir_mirrored(&state, origins, &pin, mirror, &wrap) {
         Ok(served) => served,
         Err(e) => {
             eprintln!("http-gateway: cannot serve {state_dir}: {e}");
@@ -190,6 +213,7 @@ fn main() {
             &mesh_purpose,
             &mesh_bind,
             mesh,
+            &wrap,
         ) {
             Ok(addr) => eprintln!(
                 "http-gateway: serving SyncRecords over PQ-mTLS on {addr} as {mesh_service}"
@@ -215,8 +239,9 @@ fn start_mesh(
     purpose: &str,
     bind: &str,
     limits: MeshLimits,
+    wrap: &RootWrap,
 ) -> Result<SocketAddr, String> {
-    let identity = ServiceIdentity::load(identity_dir, service)?;
+    let identity = ServiceIdentity::load(identity_dir, service, wrap)?;
     let policy_path = StateDir::new(state_dir).policy();
     let text = std::fs::read_to_string(&policy_path)
         .map_err(|e| format!("cannot read {}: {e}", policy_path.display()))?;

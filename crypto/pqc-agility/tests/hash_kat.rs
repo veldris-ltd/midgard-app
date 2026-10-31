@@ -303,3 +303,21 @@ fn ct_eq_is_equality_and_refuses_different_lengths() {
     assert!(ct_eq(b"", b""));
     assert!(!ct_eq(b"", b"\0"));
 }
+
+// ---- PBKDF2-HMAC-SHA256, 32-byte form ----------------------------------------
+
+/// The keystore passphrase wrap derives its key with the 32-byte form; RFC 7914 §11's
+/// PBKDF2-HMAC-SHA256 vectors (c = 1 and c = 80000), first 32 bytes, pin it.
+/// [VLD-ANB-MIDGARD-0007]
+#[test]
+fn pbkdf2_hmac_sha256_rfc7914_style_vector() {
+    use pqc_agility::hash::pbkdf2_hmac_sha256_32;
+    assert_eq!(
+        pbkdf2_hmac_sha256_32(b"passwd", b"salt", 1).to_vec(),
+        unhex("55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc")
+    );
+    assert_eq!(
+        pbkdf2_hmac_sha256_32(b"Password", b"NaCl", 80_000).to_vec(),
+        unhex("4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56")
+    );
+}

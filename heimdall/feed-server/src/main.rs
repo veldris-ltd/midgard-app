@@ -78,7 +78,8 @@ use service_runtime::{
 };
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
-const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--service NAME] \
+const USAGE: &str = "usage: heimdall-feed --identity-dir DIR [--keystore-passphrase-file PATH] \
+                     --state-dir DIR [--service NAME] \
                      [--purpose P] [--resource-marking BAND[:COMPARTMENT,...]] [--bind ADDR] \
                      [--health-bind ADDR] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
@@ -86,7 +87,8 @@ const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--
                      [--max-entities-per-feed N] [--max-attrs N] [--max-attr-bytes N] \
                      [--evict-after SECONDS] [--max-observation-skew S] \
                      [--max-observation-age S] [--stale-after S]\n       \
-                     heimdall-feed --identity-dir DIR --state-dir DIR --compact [--service NAME]";
+                     heimdall-feed --identity-dir DIR [--keystore-passphrase-file PATH] \
+                     --state-dir DIR --compact [--service NAME]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "heimdall-feed-audit";
@@ -98,6 +100,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "state-dir",
             "service",
             "purpose",
@@ -187,7 +190,14 @@ fn compact(args: &Args) -> Result<(), String> {
     let service = args.get("service").unwrap_or("heimdall-feed");
     let state_dir = Path::new(args.require("state-dir")?);
     let _lock = DirLock::acquire(state_dir, "feed.lock", service)?;
-    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let identity = ServiceIdentity::load(
+        args.require("identity-dir")?,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
     let mut durable =
         DurablePicture::open(state_dir.join("picture.sealed"), identity.data_sealer()?)
             .map_err(|e| format!("the picture does not open: {e:?}"))?;
@@ -238,7 +248,14 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
         .map_err(|e| format!("cannot bind the health port: {e}"))?;
 
     let _lock = DirLock::acquire(state_dir, "feed.lock", service)?;
-    let identity = ServiceIdentity::load(identity_dir, service)?;
+    let identity = ServiceIdentity::load(
+        identity_dir,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
 
     let policy_path = state_dir.join("policy.json");
     let policy_text = std::fs::read_to_string(&policy_path)

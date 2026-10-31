@@ -27,11 +27,17 @@
 //! keystores — the audit keystore signs the service's ledger and seals its state, so a
 //! new one would lock the service out of both. A service that is already current is
 //! left alone, apart from a missing revocation list, which is written. [MG-SEC-02]
+//!
+//! The issuer keystore opens under the keystore passphrase; the service's own
+//! keystores are written (and, for `upgrade`, read) under `--identity-passphrase-file`,
+//! which defaults to it. The service directory is created owner-only (0700).
+//! [VLD-ANB-MIDGARD-0007]
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use attest::Keystore;
+use attest::keystore::create_private_dir;
+use attest::{Keystore, RootWrap};
 use http_gateway::enclosure::level_of;
 use http_gateway::state_dir::{StateDir, StateLock, IDP_KEY_ID};
 use iam::{Idp, IDP_SIG_ALG};
@@ -42,7 +48,10 @@ use pq_mtls::{
 };
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
 
-use crate::{list, record_admin_event, Failure, Options};
+use crate::{list, passphrase, passphrase_or_default, record_admin_event, Failure, Options};
+
+/// The option naming the passphrase for a service's own keystores.
+const IDENTITY_PASSPHRASE: &str = "identity-passphrase-file";
 
 /// Default certificate lifetime in days. [MG-SEC-02]
 pub(crate) const DEFAULT_DAYS: u64 = 30;
@@ -66,8 +75,8 @@ fn now_secs() -> u64 {
 }
 
 /// The enclosure issuer, unsealed from the state directory.
-fn issuer(state: &StateDir) -> Result<Idp, Failure> {
-    let issuer = Keystore::read(&state.idp_keystore()).map_err(|e| {
+fn issuer(state: &StateDir, wrap: &RootWrap) -> Result<Idp, Failure> {
+    let issuer = Keystore::read(&state.idp_keystore(), wrap).map_err(|e| {
         Failure::Run(format!(
             "cannot open the issuer keystore (has `mg-admin init` been run?): {e}"
         ))
@@ -276,8 +285,13 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
         }
     }
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let identity_passphrase = passphrase_or_default(o, IDENTITY_PASSPHRASE)?;
+    let identity_wrap = RootWrap::Passphrase(&identity_passphrase);
+
     let _lock = StateLock::acquire(&state, "mg-admin mesh issue").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let crl = current_crl(&state, &idp)?;
 
     let identity_key = Keystore::generate(service, IDP_SIG_ALG, &mut OsRng)
@@ -300,16 +314,16 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
     // Audit first: an identity the ledger cannot record is not issued.
     record_admin_event(
         &state,
+        &wrap,
         "ISSUE workload certificate",
         &format!("service:{service}:{role_names}"),
     )?;
-    std::fs::create_dir_all(out)
-        .map_err(|e| Failure::Run(format!("cannot create {}: {e}", out.display())))?;
+    create_private_dir(out).map_err(|e| Failure::Run(e.to_string()))?;
     identity_key
-        .write(&key_path)
+        .write(&key_path, &identity_wrap, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", key_path.display())))?;
     audit_key
-        .write(&audit_path)
+        .write(&audit_path, &identity_wrap, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", audit_path.display())))?;
     write(&cert_path, &encode_cert(&cert))?;
     write(&anchor_path, &encode_anchor(&idp.trust_anchor()))?;
@@ -366,11 +380,16 @@ pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
             )));
         }
     }
-    let identity_key = Keystore::read(&key_path)
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let identity_passphrase = passphrase_or_default(o, IDENTITY_PASSPHRASE)?;
+    // A version 1 keystore is refused here with the `keystore migrate` hint: migrate
+    // first, then upgrade. [VLD-ANB-MIDGARD-0007]
+    let identity_key = Keystore::read(&key_path, &RootWrap::Passphrase(&identity_passphrase))
         .map_err(|e| Failure::Run(format!("cannot read {}: {e}", key_path.display())))?;
 
     let _lock = StateLock::acquire(&state, "mg-admin mesh upgrade").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let anchor = idp.trust_anchor();
     let crl = current_crl(&state, &idp)?;
 
@@ -397,6 +416,7 @@ pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
         let role_names: Vec<&str> = roles.iter().map(|r| r.0.as_str()).collect();
         record_admin_event(
             &state,
+            &wrap,
             "UPGRADE workload certificate",
             &format!("service:{service}:{}", role_names.join(",")),
         )?;
@@ -476,8 +496,12 @@ pub(crate) fn mesh_renew(o: &Options) -> Result<String, Failure> {
         }
     }
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let identity_passphrase = passphrase_or_default(o, IDENTITY_PASSPHRASE)?;
+
     let _lock = StateLock::acquire(&state, "mg-admin mesh renew").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let identity_key = Keystore::generate(service, IDP_SIG_ALG, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot generate the identity key: {e}")))?;
     // A renewal keeps the purposes the old certificate bound unless told otherwise, so
@@ -495,12 +519,17 @@ pub(crate) fn mesh_renew(o: &Options) -> Result<String, Failure> {
     )?;
     record_admin_event(
         &state,
+        &wrap,
         "RENEW workload certificate",
         &format!("service:{service}"),
     )?;
     let tmp_key = key_path.with_extension("keystore.tmp");
     identity_key
-        .write(&tmp_key)
+        .write(
+            &tmp_key,
+            &RootWrap::Passphrase(&identity_passphrase),
+            &mut OsRng,
+        )
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", tmp_key.display())))?;
     replace(&cert_path, &encode_cert(&cert))?;
     std::fs::rename(&tmp_key, &key_path)
@@ -534,8 +563,10 @@ pub(crate) fn mesh_revoke(o: &Options) -> Result<String, Failure> {
     .map_err(|e| Failure::Run(format!("{} is not a certificate: {e}", cert_path.display())))?;
     let fingerprint = cert_fingerprint(&cert);
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
     let _lock = StateLock::acquire(&state, "mg-admin mesh revoke").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let current = current_crl(&state, &idp)?;
     let crl = if current.revoked.contains(&fingerprint) {
         current
@@ -545,6 +576,7 @@ pub(crate) fn mesh_revoke(o: &Options) -> Result<String, Failure> {
         // Audit first: a revocation the ledger cannot record is not made.
         record_admin_event(
             &state,
+            &wrap,
             "REVOKE workload certificate",
             &format!(
                 "service:{}:serial:{}",

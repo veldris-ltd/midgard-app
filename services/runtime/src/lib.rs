@@ -36,6 +36,11 @@ pub mod strict_json;
 pub mod sync;
 
 pub use args::Args;
+/// The keystore passphrase plumbing every service binary shares: the option, the
+/// environment variable the binary reads, and the fail-closed loader.
+/// [VLD-ANB-MIDGARD-0007]
+pub use attest::keystore::{load_passphrase, PASSPHRASE_ENV, PASSPHRASE_FLAG};
+pub use attest::RootWrap;
 pub use health_http::spawn_health_port;
 pub use identity::{checkpoint_service_ledger, ServiceIdentity};
 pub use lock::DirLock;

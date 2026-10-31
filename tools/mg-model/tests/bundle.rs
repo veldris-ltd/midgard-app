@@ -7,7 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use pqc_agility::{OsRng, SigId};
 
 fn scratch(tag: &str) -> PathBuf {
@@ -22,6 +24,10 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn mg_model(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mg-model"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .output()
         .unwrap()
@@ -78,7 +84,12 @@ fn admission(dir: &Path, name: &str) -> (PathBuf, PathBuf) {
     let key = Keystore::generate(name, SigId::MlDsa65, &mut OsRng).unwrap();
     let keystore = dir.join(format!("{name}.keystore"));
     let anchor = dir.join(format!("{name}.pub"));
-    key.write(&keystore).unwrap();
+    key.write(
+        &keystore,
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     std::fs::write(&anchor, key.export_verifying_key()).unwrap();
     (keystore, anchor)
 }

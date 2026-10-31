@@ -35,7 +35,8 @@ use pqc_agility::backend::fips::FipsSig;
 use service_runtime::json::{parse, Json};
 use service_runtime::{client, unix_seconds, Args, ServiceIdentity};
 
-const USAGE: &str = "usage: heimdall-source --identity-dir DIR --addr HOST:PORT \
+const USAGE: &str =
+    "usage: heimdall-source --identity-dir DIR [--keystore-passphrase-file PATH] --addr HOST:PORT \
                      (--kind K --entity KEY [--attrs k=v,...] [--observed-at T] \
                      [--observation-id ID] [--sequence N] [--feed-id FEED] | --picture \
                      [--page-size N] [--include-hidden]) \
@@ -47,6 +48,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "addr",
             "server",
             "service",
@@ -79,7 +81,14 @@ fn main() {
 
 fn run(args: &Args) -> Result<String, String> {
     let service = args.get("service").unwrap_or("feed-source");
-    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let identity = ServiceIdentity::load(
+        args.require("identity-dir")?,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
     let addr = args.require("addr")?;
     let purpose = args.get("purpose").unwrap_or("situational-awareness");
     let server = args.get("server").unwrap_or("heimdall-feed");

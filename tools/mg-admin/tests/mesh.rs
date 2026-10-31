@@ -8,7 +8,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use audit_writer::{FileLedger, LedgerId, LedgerStore};
 use http_gateway::state_dir::{StateDir, LEDGER_ID};
 use kms::{Kms, KmsSealer};
@@ -27,6 +29,10 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn mg_admin(args: &[&str]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_mg-admin"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -80,19 +86,30 @@ fn mesh_issue_writes_a_verifiable_identity_and_never_overwrites_one() {
         .contains(&Role("inference-server".into())));
     assert_eq!(cert.identity.roles.len(), 2);
 
-    let identity = Keystore::read(&out.join("mimir-server.keystore")).expect("identity keystore");
+    let identity = Keystore::read(
+        &out.join("mimir-server.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("identity keystore");
     assert_eq!(
         identity.verifying_key, cert.identity.verifying_key,
         "the certificate binds the service's own key"
     );
-    let audit_key =
-        Keystore::read(&out.join("mimir-server.audit.keystore")).expect("audit keystore");
+    let audit_key = Keystore::read(
+        &out.join("mimir-server.audit.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("audit keystore");
     assert_ne!(
         audit_key.verifying_key, identity.verifying_key,
         "audit signing uses a separate key"
     );
     let state = StateDir::new(&dir);
-    let issuer = Keystore::read(&state.idp_keystore()).unwrap();
+    let issuer = Keystore::read(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert_eq!(
         anchor.ca_key, issuer.verifying_key,
         "the anchor is the enclosure's issuer"
@@ -105,7 +122,11 @@ fn mesh_issue_writes_a_verifiable_identity_and_never_overwrites_one() {
     let bad = issue("mimir/server");
     assert_eq!(bad.status.code(), Some(2), "{}", stderr(&bad));
 
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let ledger = FileLedger::open(state.ledger(), Box::new(sealer), LedgerId(LEDGER_ID.into()))
         .expect("the ledger opens");
@@ -289,7 +310,11 @@ fn mesh_certificates_expire_revoke_and_renew() {
         cert_b.identity.verifying_key
     );
     assert_eq!(renewed.identity.roles, cert_b.identity.roles);
-    let key = Keystore::read(&out_b.join("svc-b.keystore")).unwrap();
+    let key = Keystore::read(
+        &out_b.join("svc-b.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert_eq!(key.verifying_key, renewed.identity.verifying_key);
     verify_cert(&renewed, &anchor, &fips_provider(), t).unwrap();
 
@@ -480,7 +505,11 @@ fn mesh_upgrade_recertifies_the_existing_keys_in_place() {
     let anchor = decode_anchor(&std::fs::read(out.join("mesh.anchor")).unwrap()).unwrap();
     let cert = decode_cert(&std::fs::read(out.join("svc-old.cert")).unwrap()).unwrap();
     verify_cert(&cert, &anchor, &fips_provider(), now()).expect("the new certificate verifies");
-    let key = Keystore::read(&out.join("svc-old.keystore")).unwrap();
+    let key = Keystore::read(
+        &out.join("svc-old.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert_eq!(
         cert.identity.verifying_key, key.verifying_key,
         "the key it already had"
@@ -556,14 +585,24 @@ fn audit_checkpoint_adopts_a_mesh_services_own_ledger() {
         context: Default::default(),
     };
     {
-        let identity = ServiceIdentity::load(&out, "mimir-server").expect("the identity loads");
+        let identity = ServiceIdentity::load(
+            &out,
+            "mimir-server",
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("the identity loads");
         let mut writer = identity.audit_writer(&ledger, "mimir-inference").unwrap();
         writer.append(record("r1")).unwrap();
         writer.append(record("r2")).unwrap();
     }
     // What an earlier release left: the same entries, no checkpoint.
     std::fs::remove_file(checkpoint_path(&ledger)).unwrap();
-    let identity = ServiceIdentity::load(&out, "mimir-server").unwrap();
+    let identity = ServiceIdentity::load(
+        &out,
+        "mimir-server",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert!(
         identity.audit_writer(&ledger, "mimir-inference").is_err(),
         "a ledger without its checkpoint stops the service"

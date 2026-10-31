@@ -21,7 +21,7 @@ use policy::ClassificationLevel;
 use pq_mtls::{Posture, ServiceId};
 use service_runtime::{Args, ServiceIdentity};
 
-const USAGE: &str = "usage: mimir-probe --identity-dir DIR --addr HOST:PORT --purpose P \
+const USAGE: &str = "usage: mimir-probe --identity-dir DIR [--keystore-passphrase-file PATH] --addr HOST:PORT --purpose P \
                      [--service NAME] [--server NAME] [--prompt TEXT] [--max-tokens N]";
 
 fn main() {
@@ -30,6 +30,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "addr",
             "purpose",
             "service",
@@ -62,7 +63,14 @@ fn run(args: &Args) -> Result<String, String> {
             .map_err(|_| format!("--max-tokens must be a whole number, not '{n}'"))?,
         None => 16,
     };
-    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let identity = ServiceIdentity::load(
+        args.require("identity-dir")?,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
     let purpose = args.require("purpose")?.to_string();
     let signing_key = Arc::try_unwrap(identity.signing_key)
         .map_err(|_| "the identity key is shared".to_string())?;

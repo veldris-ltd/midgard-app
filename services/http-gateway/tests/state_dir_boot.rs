@@ -9,7 +9,9 @@
 
 use std::path::{Path, PathBuf};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use http_gateway::boot::{open_state_dir, DurableGateway};
 use http_gateway::http::{Request, Response};
 use http_gateway::json::parse;
@@ -58,10 +60,22 @@ fn provision(dir: &Path) -> StateDir {
     std::fs::create_dir_all(state.trust()).unwrap();
     let idp = Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
-    idp.write(&state.idp_keystore()).unwrap();
-    audit.write(&state.audit_keystore()).unwrap();
+    idp.write(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
+    audit
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
+        .unwrap();
     // What `mg-admin init` also creates: the ledger and its signed checkpoint.
-    http_gateway::boot::init_audit_ledger(&state).unwrap();
+    http_gateway::boot::init_audit_ledger(&state, &RootWrap::Passphrase(&test_passphrase()))
+        .unwrap();
 
     let policy = PolicySet::new(vec![Rule {
         id: RuleId("operator-read".into()),
@@ -118,8 +132,13 @@ fn a_state_directory_serves_a_real_enclosure_across_restarts() {
     let state = provision(&dir);
 
     let (olivia_token, audited) = {
-        let served =
-            open_state_dir(&state, Vec::new(), &pin(&state)).expect("the state directory boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("the state directory boots");
         assert_eq!(served.principals, 2);
         assert_eq!(served.audit_entries, 0, "a fresh ledger");
         let gw = &served.gateway;
@@ -156,7 +175,12 @@ fn a_state_directory_serves_a_real_enclosure_across_restarts() {
         assert_eq!(query.status, 404, "{}", query.body);
 
         // Only one process serves a state directory.
-        let second = open_state_dir(&state, Vec::new(), &pin(&state));
+        let second = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        );
         assert!(
             matches!(&second, Err(e) if e.contains("in use")),
             "a second gateway is refused"
@@ -165,7 +189,13 @@ fn a_state_directory_serves_a_real_enclosure_across_restarts() {
         (olivia, gw.audit_len())
     }; // gateway and lock dropped: a restart
 
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("it boots again");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("it boots again");
     assert_eq!(
         served.audit_entries, audited,
         "every decision from the first run is recovered and re-verified"
@@ -192,7 +222,13 @@ fn a_tampered_ledger_refuses_to_boot() {
     let dir = scratch("tamper");
     let state = provision(&dir);
     {
-        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots");
         // The login is recorded in the ledger, and so is the authorised request.
         let token = login(&served.gateway, "olivia");
         assert_eq!(served.gateway.audit_len(), 1, "the login is audited");
@@ -212,7 +248,12 @@ fn a_tampered_ledger_refuses_to_boot() {
     bytes[last] ^= 0x01;
     std::fs::write(state.ledger(), bytes).unwrap();
 
-    match open_state_dir(&state, Vec::new(), &pin(&state)) {
+    match open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    ) {
         Ok(_) => panic!("a tampered ledger must not boot"),
         Err(e) => assert!(e.contains("audit ledger"), "{e}"),
     }
@@ -238,7 +279,12 @@ fn cut_last_entry(ledger: &Path) {
 }
 
 fn refused(state: &StateDir, pin: &audit_writer::PinnedKey) -> String {
-    match open_state_dir(state, Vec::new(), pin) {
+    match open_state_dir(
+        state,
+        Vec::new(),
+        pin,
+        &RootWrap::Passphrase(&test_passphrase()),
+    ) {
         Ok(_) => panic!("this enclosure must not boot"),
         Err(e) => e,
     }
@@ -249,7 +295,13 @@ fn a_shortened_or_deleted_ledger_refuses_to_boot() {
     let dir = scratch("shortened");
     let state = provision(&dir);
     {
-        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots");
         login(&served.gateway, "olivia");
         login(&served.gateway, "victor");
         assert!(served.gateway.audit_len() >= 2);
@@ -282,7 +334,15 @@ fn an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot() {
     let dir = scratch("unpinned");
     let state = provision(&dir);
     let genuine = pin(&state);
-    drop(open_state_dir(&state, Vec::new(), &genuine).expect("boots under its pin"));
+    drop(
+        open_state_dir(
+            &state,
+            Vec::new(),
+            &genuine,
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots under its pin"),
+    );
 
     // Checked against another key, the same enclosure does not boot.
     let other = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
@@ -292,10 +352,19 @@ fn an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot() {
 
     // A swapped-in audit keystore (with a ledger of its own making) does not get to
     // vouch for itself: the gateway still checks it against the operator's pin.
-    other.write(&state.audit_keystore()).unwrap();
+    // Keystores are never overwritten in place, so the swap removes the old file first.
+    std::fs::remove_file(state.audit_keystore()).unwrap();
+    other
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
+        .unwrap();
     std::fs::remove_file(state.ledger()).unwrap();
     std::fs::remove_file(audit_writer::checkpoint_path(&state.ledger())).unwrap();
-    http_gateway::boot::init_audit_ledger(&state).unwrap();
+    http_gateway::boot::init_audit_ledger(&state, &RootWrap::Passphrase(&test_passphrase()))
+        .unwrap();
     let e = refused(&state, &genuine);
     assert!(e.contains("pinned audit key"), "{e}");
 
@@ -306,8 +375,11 @@ fn an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot() {
 /// checks. [MG-SEC-05]
 fn pin(state: &StateDir) -> audit_writer::PinnedKey {
     audit_writer::PinnedKey::new(
-        attest::Keystore::read(&state.audit_keystore())
-            .unwrap()
-            .verifying_key,
+        attest::Keystore::read(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .verifying_key,
     )
 }

@@ -42,7 +42,7 @@ use policy::{DefaultPdp, PolicySet};
 use service_runtime::{client, spawn_health_port, unix_seconds, Args, DirLock, ServiceIdentity};
 use telemetry::{HealthRegistry, Level, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
-const USAGE: &str = "usage: forge-worker --identity-dir DIR --state-dir DIR --jobs FILE \
+const USAGE: &str = "usage: forge-worker --identity-dir DIR [--keystore-passphrase-file PATH] --state-dir DIR --jobs FILE \
                      --gateway HOST:PORT [--service NAME] [--gateway-service NAME] \
                      [--purpose P] [--secrets-dir DIR] \
                      [--egress-routes FILE] [--health-bind ADDR] [--once] [--diagnostics]";
@@ -63,6 +63,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "state-dir",
             "jobs",
             "gateway",
@@ -128,7 +129,14 @@ fn run(args: &Args) -> Result<(), String> {
     std::fs::create_dir_all(state_dir)
         .map_err(|e| format!("cannot create {}: {e}", state_dir.display()))?;
     let _lock = DirLock::acquire(state_dir, "worker.lock", service)?;
-    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let identity = ServiceIdentity::load(
+        args.require("identity-dir")?,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
     let writer = identity.audit_writer(state_dir.join("worker.ledger"), LEDGER_ID)?;
     // The worker decides nothing itself — the gateway authorises every sync — so its
     // governance holds no rules and is used only to record runs.

@@ -59,7 +59,8 @@ use service_runtime::{
 };
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
-const USAGE: &str = "usage: bifrost-fleet --identity-dir DIR --state-dir DIR [--service NAME] \
+const USAGE: &str = "usage: bifrost-fleet --identity-dir DIR [--keystore-passphrase-file PATH] \
+                     --state-dir DIR [--service NAME] \
                      [--purpose P] [--stale-after SECONDS] \
                      [--resource-marking BAND[:COMPARTMENT,...]] [--bind ADDR] [--health-bind ADDR] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
@@ -89,6 +90,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "state-dir",
             "service",
             "purpose",
@@ -166,7 +168,14 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
         .map_err(|e| format!("cannot bind the health port: {e}"))?;
 
     let _lock = DirLock::acquire(state_dir, "fleet.lock", service)?;
-    let identity = ServiceIdentity::load(identity_dir, service)?;
+    let identity = ServiceIdentity::load(
+        identity_dir,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
 
     let read = |name: &str| {
         let path = state_dir.join(name);

@@ -110,7 +110,7 @@ use service_runtime::{
 };
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, ReadinessCheck, StdoutJsonSink, Toggle};
 
-const USAGE: &str = "usage: mimir-server --identity-dir DIR --state-dir DIR --purposes P[,P...] \
+const USAGE: &str = "usage: mimir-server --identity-dir DIR [--keystore-passphrase-file PATH] --state-dir DIR --purposes P[,P...] \
                      [--service NAME] [--bind ADDR] [--health-bind ADDR] \
                      [--resource-marking BAND[:COMPARTMENT,...]] \
                      [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE \
@@ -427,6 +427,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "state-dir",
             "purposes",
             "resource-marking",
@@ -630,7 +631,14 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         .map_err(|e| format!("cannot bind the health port: {e}"))?;
 
     let _lock = DirLock::acquire(state_dir, "mimir.lock", service)?;
-    let identity = ServiceIdentity::load(identity_dir, service)?;
+    let identity = ServiceIdentity::load(
+        identity_dir,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
 
     let policy_path = state_dir.join("policy.json");
     let policy_text = std::fs::read_to_string(&policy_path)

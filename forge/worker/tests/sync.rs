@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Arc;
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use fabric::{DurableObjectStore, ObjectStore, Value};
 use forge_dataset_store::DurableDatasetStore;
 use http_gateway::boot::open_state_dir;
@@ -80,14 +82,23 @@ fn provision(dir: &Path) -> StateDir {
     std::fs::create_dir_all(state.trust()).unwrap();
     Keystore::generate(IDP_KEY_ID, IDP_SIG_ALG, &mut OsRng)
         .unwrap()
-        .write(&state.idp_keystore())
+        .write(
+            &state.idp_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng)
         .unwrap()
-        .write(&state.audit_keystore())
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     // What `mg-admin init` also creates: the ledger and its signed checkpoint.
-    http_gateway::boot::init_audit_ledger(&state).unwrap();
+    http_gateway::boot::init_audit_ledger(&state, &RootWrap::Passphrase(&test_passphrase()))
+        .unwrap();
     std::fs::write(state.policy(), render_policy(&policy()).unwrap()).unwrap();
     std::fs::write(state.ontology(), ONTOLOGY).unwrap();
     state
@@ -131,9 +142,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -143,6 +163,10 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
 
 fn worker(identities: &Path, service: &str, state: &Path, jobs: &Path, gateway: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_forge-worker"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &identities.display().to_string(),
@@ -176,7 +200,11 @@ fn run_line(stdout: &str, job: &str) -> String {
 }
 
 fn store(state: &StateDir) -> DurableObjectStore {
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap()
 }
@@ -206,12 +234,22 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
     let jobs = data.join("jobs.json");
     std::fs::write(&jobs, JOBS).unwrap();
 
-    let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-        .unwrap()
-        .into_parts();
+    let (gateway, _lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     let mesh = spawn_mesh_listener(
         Arc::new(gateway),
-        &ServiceIdentity::load(&identities, "http-gateway").unwrap(),
+        &ServiceIdentity::load(
+            &identities,
+            "http-gateway",
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap(),
         DefaultPdp::new(policy()),
         "127.0.0.1:0",
         PURPOSE,
@@ -288,7 +326,12 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
     assert_eq!(fabric.neighbors("aircraft/AC-1", "aircraft_base").len(), 1);
 
     // Every distinct version is kept: facilities once, aircraft before and after.
-    let worker_identity = ServiceIdentity::load(&identities, "forge-worker").unwrap();
+    let worker_identity = ServiceIdentity::load(
+        &identities,
+        "forge-worker",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let datasets = DurableDatasetStore::open(
         worker_state.join("datasets"),
         worker_identity.data_kms().unwrap(),
@@ -303,8 +346,11 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
 /// checks. [MG-SEC-05]
 fn pin(state: &StateDir) -> audit_writer::PinnedKey {
     audit_writer::PinnedKey::new(
-        attest::Keystore::read(&state.audit_keystore())
-            .unwrap()
-            .verifying_key,
+        attest::Keystore::read(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .verifying_key,
     )
 }

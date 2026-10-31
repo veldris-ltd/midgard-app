@@ -18,7 +18,9 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use iam::{Idp, IDP_SIG_ALG};
 use policy::Role;
 use pq_mtls::{encode_anchor, encode_cert, ServiceId, WorkloadIdentity};
@@ -63,9 +65,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -130,6 +141,10 @@ fn start(identity: &Path, state: &Path) -> Running {
 fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
     let (identity, state) = (identity.display().to_string(), state.display().to_string());
     let mut child = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity, &state))
         .args(extra)
         .stdout(Stdio::piped())
@@ -172,6 +187,10 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
 
 fn probe(identity: &Path, service: &str, addr: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mimir-probe"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &identity.display().to_string(),
@@ -273,6 +292,10 @@ fn inference_is_served_over_pqmtls_audited_and_survives_a_restart() {
         state.display().to_string(),
     );
     let second = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity_arg, &state_arg))
         .output()
         .unwrap();
@@ -504,6 +527,10 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
     );
     let args = engine(&sidecar);
     let tampered = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity_arg, &state_arg))
         .args(strs(&args))
         .output()
@@ -569,6 +596,10 @@ fn the_sidecar_loads_a_staged_copy_that_a_swap_in_the_model_directory_never_reac
     );
     let refused = |extra: &[String]| -> String {
         let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+            .env(
+                "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+                attest::keystore::test_support::shared_test_passphrase_file(),
+            )
             .args(server_args(&identity_arg, &state_arg))
             .args(extra)
             .output()

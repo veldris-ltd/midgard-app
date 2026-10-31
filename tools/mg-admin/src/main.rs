@@ -29,6 +29,17 @@
 //!   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
 //!   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file>
 //!                             --ledger-id <id> [--audit-pin <file>]
+//!   mg-admin keystore migrate --keystore <file> [--state-dir <dir>]
+//!   mg-admin keystore verify --keystore <file> [--state-dir <dir>]
+//!
+//! Every command opens keystores, and every keystore's custody root is wrapped under a
+//! passphrase read from `--keystore-passphrase-file <file>`, or from the file named by
+//! `MIDGARD_KEYSTORE_PASSPHRASE_FILE`; with neither, the command refuses. `mesh
+//! issue|renew|upgrade` take `--identity-passphrase-file` for the service's own
+//! keystores, and `admin add` and `enrol` take `--passkey-passphrase-file` for the
+//! administrator's passkey; each defaults to the keystore passphrase. Version 1
+//! keystores, which held the root in the clear, are refused until `keystore migrate`
+//! converts them. [VLD-ANB-MIDGARD-0007]
 //!
 //! The password for `user add` is read from standard input, and only from a pipe or a
 //! file: std has no portable way to stop a terminal echoing it, so an interactive
@@ -40,11 +51,15 @@ mod mesh;
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, IsTerminal};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use attest::Keystore;
+use attest::keystore::{
+    create_private_dir, format_version, migrate_v1, passphrase_file, write_restricted,
+    PASSPHRASE_ENV, PASSPHRASE_FLAG, VERSION as KEYSTORE_VERSION,
+};
+use attest::{Keystore, RootWrap};
 use audit_writer::{
     Action as AuditAction, Actor, AuditRecord, AuditWriter, CheckpointMirror, FileCheckpointMirror,
     FileLedger, LedgerId, RecordId, Resource as AuditResource, Timestamp,
@@ -104,6 +119,13 @@ USAGE:
   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file> \\
                             --ledger-id <id> [--audit-pin <file>]
+  mg-admin keystore migrate --keystore <file> [--state-dir <dir>]
+  mg-admin keystore verify --keystore <file> [--state-dir <dir>]
+
+  Every command also takes --keystore-passphrase-file <file> (default: the file named
+  by MIDGARD_KEYSTORE_PASSPHRASE_FILE; with neither it refuses). mesh issue, renew and
+  upgrade take --identity-passphrase-file for the service's keystores, and admin add and
+  enrol take --passkey-passphrase-file for the passkey; both default to it.
 
 COMMANDS:
   init       create <dir> with fresh issuer and audit keystores, their verifying keys
@@ -183,6 +205,17 @@ COMMANDS:
              write its checkpoint to the mirror directory, adopting a ledger without
              a checkpoint at the same time. Enables a mirror for an existing ledger,
              or re-seeds a lost one; a mirror ahead of the ledger is never moved back.
+  keystore migrate
+             convert a version 1 keystore, which held its custody root in the clear, to
+             version 2, the root wrapped under the keystore passphrase: the new file
+             must unseal the same signing key before it replaces the old one. The root
+             is kept, so destroy every other copy of the version 1 file (backups,
+             volumes, Secrets), and re-initialise instead where one may have leaked. A
+             version 2 file is checked and left alone. With --state-dir the migration
+             is recorded in that enclosure's audit ledger.
+  keystore verify
+             unlock a keystore with the passphrase and print its key id, algorithm and
+             format version. With --state-dir the check is recorded in the audit ledger.
 
 init, user, import, admin add and admin totp-reset need the state directory's lock, which a
 running gateway holds: stop it first. The enrol commands talk to the running gateway
@@ -339,6 +372,12 @@ fn run(argv: &[String]) -> Result<String, Failure> {
             ],
             &[],
         )?),
+        ["keystore", "migrate", rest @ ..] => {
+            keystore_migrate(&options(rest, &["keystore", "state-dir"], &[])?)
+        }
+        ["keystore", "verify", rest @ ..] => {
+            keystore_verify(&options(rest, &["keystore", "state-dir"], &[])?)
+        }
         [] => Err(Failure::Usage("no command given".into())),
         _ => Err(Failure::Usage(format!(
             "unknown command '{}'",
@@ -375,10 +414,14 @@ fn init(o: &Options) -> Result<String, Failure> {
             )));
         }
     }
-    for dir in [state.root().to_path_buf(), state.keys(), state.trust()] {
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    for dir in [state.root().to_path_buf(), state.trust()] {
         std::fs::create_dir_all(&dir)
             .map_err(|e| Failure::Run(format!("cannot create {}: {e}", dir.display())))?;
     }
+    // The keys directory is owner-only from the moment it exists. [VLD-ANB-MIDGARD-0007]
+    create_private_dir(&state.keys()).map_err(|e| Failure::Run(e.to_string()))?;
 
     let mut rng = OsRng;
     let idp = Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut rng)
@@ -390,7 +433,7 @@ fn init(o: &Options) -> Result<String, Failure> {
         (&audit, state.audit_keystore()),
     ] {
         keystore
-            .write(&path)
+            .write(&path, &wrap, &mut rng)
             .map_err(|e| Failure::Run(format!("cannot write {}: {e}", path.display())))?;
     }
     write_file(&state.idp_trust_anchor(), &idp.export_verifying_key())?;
@@ -398,7 +441,7 @@ fn init(o: &Options) -> Result<String, Failure> {
     // The governance ledger exists from the start, vouched for by a signed empty
     // checkpoint, so the gateway can refuse one that later goes missing; with a
     // mirror, a copy of it is kept off the server too. [MG-SEC-05]
-    init_audit_ledger_mirrored(&state, o.get("checkpoint-mirror").map(Path::new))
+    init_audit_ledger_mirrored(&state, o.get("checkpoint-mirror").map(Path::new), &wrap)
         .map_err(Failure::Run)?;
 
     let policy = starter_policy()
@@ -410,7 +453,9 @@ fn init(o: &Options) -> Result<String, Failure> {
 
     Ok(format!(
         "initialised {root}\n\
-         \x20 keys/        issuer and audit keystores — protect this directory as a secret\n\
+         \x20 keys/        issuer and audit keystores, roots wrapped under the keystore\n\
+         \x20              passphrase; keep the passphrase apart from this directory\n\
+         \x20              and its backups: it is the recovery secret\n\
          \x20 trust/       their verifying keys, safe to distribute; keep a copy of\n\
          \x20              trust/audit.pub outside {root} for http-gateway --audit-pin\n\
          \x20 governance.ledger  the audit ledger, vouched for by a signed checkpoint\n\
@@ -431,14 +476,17 @@ fn audit_checkpoint(o: &Options) -> Result<String, Failure> {
     }
     let state = StateDir::new(o.require("state-dir")?);
     let pin = read_audit_pin(Path::new(o.require("audit-pin")?)).map_err(Failure::Run)?;
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
     let _lock = StateLock::acquire(&state, "mg-admin audit checkpoint").map_err(Failure::Run)?;
     if let Some(mirror) = o.get("checkpoint-mirror") {
-        let entries = mirror_audit_ledger(&state, &pin, Path::new(mirror)).map_err(Failure::Run)?;
+        let entries =
+            mirror_audit_ledger(&state, &pin, Path::new(mirror), &wrap).map_err(Failure::Run)?;
         return Ok(format!(
             "the audit ledger verifies under the pinned key; its checkpoint, mirrored to              {mirror}, vouches for {entries} entries"
         ));
     }
-    let done = checkpoint_legacy_ledger(&state, &pin).map_err(Failure::Run)?;
+    let done = checkpoint_legacy_ledger(&state, &pin, &wrap).map_err(Failure::Run)?;
     Ok(done
         .iter()
         .map(|(name, adoption)| adoption_line(name, adoption))
@@ -469,10 +517,136 @@ fn service_ledger_checkpoint(o: &Options) -> Result<String, Failure> {
         .map(|p| read_audit_pin(Path::new(p)))
         .transpose()
         .map_err(Failure::Run)?;
-    let adoption =
-        checkpoint_service_ledger(identity_dir, service, ledger, ledger_id, pin.as_ref())
-            .map_err(Failure::Run)?;
+    let passphrase = passphrase(o)?;
+    let adoption = checkpoint_service_ledger(
+        identity_dir,
+        service,
+        ledger,
+        ledger_id,
+        pin.as_ref(),
+        &RootWrap::Passphrase(&passphrase),
+    )
+    .map_err(Failure::Run)?;
     Ok(adoption_line(&format!("{service} ledger"), &adoption))
+}
+
+/// `keystore migrate --keystore FILE`: convert a version 1 keystore (root in the
+/// clear) to version 2 under the keystore passphrase. The new file is written beside
+/// the old one as `FILE.v2`, owner-only, read back from disk with the passphrase and
+/// checked to unseal the same signing key, then renamed over `FILE`. A version 2 file
+/// is only checked, so the command is safe to repeat. [VLD-ANB-MIDGARD-0007]
+fn keystore_migrate(o: &Options) -> Result<String, Failure> {
+    let path = PathBuf::from(o.require("keystore")?);
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let bytes = std::fs::read(&path)
+        .map_err(|e| Failure::Run(format!("cannot read {}: {e}", path.display())))?;
+    match format_version(&bytes) {
+        Some(KEYSTORE_VERSION) => {
+            let keystore = Keystore::decode(&bytes, &wrap)
+                .map_err(|e| Failure::Run(format!("{}: {e}", path.display())))?;
+            return Ok(format!(
+                "{} ({}) is already keystore version {KEYSTORE_VERSION} and unlocks; nothing \
+                 changed",
+                path.display(),
+                keystore.key_id
+            ));
+        }
+        Some(1) => {}
+        _ => {
+            return Err(Failure::Run(format!(
+                "{} is not a keystore this tool can migrate",
+                path.display()
+            )))
+        }
+    }
+    use kms::SigningRoot as _;
+    // The original signing key, unsealed under the root the version 1 file holds.
+    let migrated = migrate_v1(&bytes, &wrap, &mut OsRng)
+        .map_err(|e| Failure::Run(format!("cannot migrate {}: {e}", path.display())))?;
+    let expected = Keystore::decode(&migrated, &wrap)
+        .and_then(|k| k.signing_root())
+        .map_err(|e| Failure::Run(format!("cannot migrate {}: {e}", path.display())))?;
+
+    let mut staged = path.as_os_str().to_os_string();
+    staged.push(".v2");
+    let staged = PathBuf::from(staged);
+    write_restricted(&staged, &migrated).map_err(|e| Failure::Run(e.to_string()))?;
+    // Prove the file on disk, not just the bytes in memory, before it takes the name.
+    let reread = Keystore::read(&staged, &wrap).and_then(|k| {
+        let root = k.signing_root()?;
+        Ok((k, root))
+    });
+    let keystore = match reread {
+        Ok((keystore, root))
+            if keystore.verifying_key == *expected.verifying_key()
+                && root.expose_signing_key().expose() == expected.expose_signing_key().expose() =>
+        {
+            keystore
+        }
+        _ => {
+            let _ = std::fs::remove_file(&staged);
+            return Err(Failure::Run(format!(
+                "{} does not read back to the original signing key; {} is unchanged",
+                staged.display(),
+                path.display()
+            )));
+        }
+    };
+    if let Some(state) = o.get("state-dir") {
+        let state = StateDir::new(state);
+        let recorded = StateLock::acquire(&state, "mg-admin keystore migrate")
+            .map_err(Failure::Run)
+            .and_then(|_lock| {
+                record_admin_event(
+                    &state,
+                    &wrap,
+                    "MIGRATE keystore",
+                    &format!("keystore:{}:v1-to-v{KEYSTORE_VERSION}", keystore.key_id),
+                )
+            });
+        if let Err(e) = recorded {
+            let _ = std::fs::remove_file(&staged);
+            return Err(e);
+        }
+    }
+    std::fs::rename(&staged, &path)
+        .map_err(|e| Failure::Run(format!("cannot replace {}: {e}", path.display())))?;
+    Ok(format!(
+        "migrated {} ({}, {}) to keystore version {KEYSTORE_VERSION}; destroy every other \
+         copy of the version 1 file (backups, volumes, Secrets): it holds the root in clear",
+        path.display(),
+        keystore.key_id,
+        keystore.alg.as_str()
+    ))
+}
+
+/// `keystore verify --keystore FILE`: unlock it with the passphrase, unseal its
+/// signing key, and say what it holds. [VLD-ANB-MIDGARD-0007]
+fn keystore_verify(o: &Options) -> Result<String, Failure> {
+    let path = PathBuf::from(o.require("keystore")?);
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let keystore = Keystore::read(&path, &wrap).map_err(|e| Failure::Run(e.to_string()))?;
+    keystore
+        .signing_root()
+        .map_err(|e| Failure::Run(format!("{}: {e}", path.display())))?;
+    if let Some(state) = o.get("state-dir") {
+        let state = StateDir::new(state);
+        let _lock = StateLock::acquire(&state, "mg-admin keystore verify").map_err(Failure::Run)?;
+        record_admin_event(
+            &state,
+            &wrap,
+            "VERIFY keystore",
+            &format!("keystore:{}", keystore.key_id),
+        )?;
+    }
+    Ok(format!(
+        "{}\n  key id: {}\n  algorithm: {}\n  format version: {KEYSTORE_VERSION}\n  unlocks: yes",
+        path.display(),
+        keystore.key_id,
+        keystore.alg.as_str()
+    ))
 }
 
 fn adoption_line(name: &str, adoption: &Adoption) -> String {
@@ -519,9 +693,11 @@ fn user_add(o: &Options) -> Result<String, Failure> {
         .map(Compartment)
         .collect();
     let password = read_password()?;
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
 
     let _lock = StateLock::acquire(&state, "mg-admin user add").map_err(Failure::Run)?;
-    let mut directory = open_directory(&state)?;
+    let mut directory = open_directory(&state, &wrap)?;
     if directory.get(subject).is_some() {
         return Err(Failure::Run(format!(
             "'{subject}' is already enrolled; enrolment never replaces a principal"
@@ -538,7 +714,12 @@ fn user_add(o: &Options) -> Result<String, Failure> {
         .map(|secret| secret.provisioning_uri(TOTP_ISSUER, subject));
 
     // Audit first: an enrolment the ledger cannot record does not happen.
-    record_admin_event(&state, "ENROLL principal", &format!("principal:{subject}"))?;
+    record_admin_event(
+        &state,
+        &wrap,
+        "ENROLL principal",
+        &format!("principal:{subject}"),
+    )?;
     directory
         .enroll(
             subject,
@@ -573,8 +754,9 @@ fn user_add(o: &Options) -> Result<String, Failure> {
 
 fn user_list(o: &Options) -> Result<String, Failure> {
     let state = StateDir::new(o.require("state-dir")?);
+    let passphrase = passphrase(o)?;
     let _lock = StateLock::acquire(&state, "mg-admin user list").map_err(Failure::Run)?;
-    let directory = open_directory(&state)?;
+    let directory = open_directory(&state, &RootWrap::Passphrase(&passphrase))?;
 
     let mut message = format!("{} principal(s)", directory.len());
     for subject in directory.subjects() {
@@ -626,7 +808,9 @@ fn import_data(o: &Options) -> Result<String, Failure> {
         return Err(Failure::Run(format!("{file} holds no objects or links")));
     }
 
-    let keystore = Keystore::read(&state.audit_keystore())
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let keystore = Keystore::read(&state.audit_keystore(), &wrap)
         .map_err(|e| Failure::Run(format!("cannot open the audit keystore: {e}")))?;
     let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
     let mut store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID)
@@ -639,6 +823,7 @@ fn import_data(o: &Options) -> Result<String, Failure> {
     let (objects, links) = (import.objects.len(), import.links.len());
     record_admin_event(
         &state,
+        &wrap,
         "IMPORT data",
         &format!("import:{objects}-objects:{links}-links"),
     )?;
@@ -697,8 +882,8 @@ fn starter_policy() -> Result<PolicySet, PolicyError> {
 }
 
 /// The identity directory, sealed under the issuer keystore's custody root.
-fn open_directory(state: &StateDir) -> Result<DurableDirectory, Failure> {
-    let keystore = Keystore::read(&state.idp_keystore()).map_err(|e| {
+fn open_directory(state: &StateDir, wrap: &RootWrap) -> Result<DurableDirectory, Failure> {
+    let keystore = Keystore::read(&state.idp_keystore(), wrap).map_err(|e| {
         Failure::Run(format!(
             "cannot open the issuer keystore (has `mg-admin init` been run?): {e}"
         ))
@@ -712,8 +897,13 @@ fn open_directory(state: &StateDir) -> Result<DurableDirectory, Failure> {
 /// ledger: the same PQ-signed chain the gateway writes every access decision to, under
 /// the same key and ledger id, so it appears in the audit view beside them.
 /// [AC-M-4] [RC-29]
-fn record_admin_event(state: &StateDir, action: &str, resource: &str) -> Result<u64, Failure> {
-    let keystore = Keystore::read(&state.audit_keystore())
+fn record_admin_event(
+    state: &StateDir,
+    wrap: &RootWrap,
+    action: &str,
+    resource: &str,
+) -> Result<u64, Failure> {
+    let keystore = Keystore::read(&state.audit_keystore(), wrap)
         .map_err(|e| Failure::Run(format!("cannot open the audit keystore: {e}")))?;
     let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
     let verifying_key = keystore.verifying_key.clone();
@@ -761,6 +951,26 @@ fn record_admin_event(state: &StateDir, action: &str, resource: &str) -> Result<
         .map_err(|e| Failure::Run(format!("cannot record {action} in the audit ledger: {e}")))
 }
 
+/// The keystore passphrase: from `--keystore-passphrase-file`, else the file
+/// `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names; with neither, a usage error naming both.
+/// [VLD-ANB-MIDGARD-0007]
+pub(crate) fn passphrase(o: &Options) -> Result<SecretBytes, Failure> {
+    let path = passphrase_file(o.get(PASSPHRASE_FLAG), std::env::var(PASSPHRASE_ENV).ok())
+        .map_err(Failure::Usage)?;
+    RootWrap::passphrase_from_file(&path).map_err(|e| Failure::Run(e.to_string()))
+}
+
+/// A passphrase with its own option (`--identity-passphrase-file`,
+/// `--passkey-passphrase-file`), falling back to [`passphrase`].
+pub(crate) fn passphrase_or_default(o: &Options, option: &str) -> Result<SecretBytes, Failure> {
+    match o.get(option) {
+        Some(path) => {
+            RootWrap::passphrase_from_file(Path::new(path)).map_err(|e| Failure::Run(e.to_string()))
+        }
+        None => passphrase(o),
+    }
+}
+
 /// One password line from standard input, refused from an echoing terminal.
 fn read_password() -> Result<String, Failure> {
     let stdin = std::io::stdin();
@@ -801,6 +1011,13 @@ fn list(value: &str) -> Vec<String> {
 }
 
 // ---- argument parsing ----------------------------------------------------------------
+
+/// Passphrase options every command accepts. [VLD-ANB-MIDGARD-0007]
+const PASSPHRASE_OPTIONS: [&str; 3] = [
+    PASSPHRASE_FLAG,
+    "identity-passphrase-file",
+    "passkey-passphrase-file",
+];
 
 /// Parsed `--key value` options and bare `--flag`s.
 struct Options {
@@ -846,7 +1063,7 @@ fn options(argv: &[&str], valued: &[&str], flags: &[&str]) -> Result<Options, Fa
             i += 1;
             continue;
         }
-        if !valued.contains(&key) {
+        if !valued.contains(&key) && !PASSPHRASE_OPTIONS.contains(&key) {
             return Err(Failure::Usage(format!("unknown option '--{key}'")));
         }
         let value = argv

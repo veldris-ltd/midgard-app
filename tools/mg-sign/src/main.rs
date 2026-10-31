@@ -28,21 +28,25 @@ use std::process::ExitCode;
 
 use attest::{
     json::Json, keystore::DevKeyFile, sign_artefact, FileSigner, Keystore, KmsSigner, Provenance,
-    ReproEntry, SignError,
+    ReproEntry, RootWrap, SignError,
 };
 use pqc_agility::SigId;
 
 const USAGE: &str = "\
 usage:
   mg-sign keygen --keystore <path> [--key-id <id>] [--alg <name>]
-                 [--export-verifying-key <path>]
+                 [--export-verifying-key <path>] [--keystore-passphrase-file <path>]
   mg-sign sign   (--keystore <path> | --key-file <path>) [--sbom <path>]
+                 [--keystore-passphrase-file <path>]
                  [--source-revision <rev>] [--rustc-version <v>]
                  [--toolchain-sha256 <hex>] [--repro <path>] <artefact>
 
 Key sources are explicit and mandatory. mg-sign never searches for a key.
   --keystore   a sealed keystore (mg-sign keygen). The signing key is unsealed
-               inside the KMS custodian; this is the production path.
+               inside the KMS custodian; this is the production path. Its custody
+               root is wrapped under the passphrase in --keystore-passphrase-file,
+               or in the file MIDGARD_KEYSTORE_PASSPHRASE_FILE names; keygen never
+               overwrites an existing keystore.
   --key-file   a plaintext development key. REFUSED unless
                MIDGARD_ALLOW_FILE_SIGNING_KEY=1.
 ";
@@ -171,10 +175,31 @@ fn parse_alg(s: &str) -> Result<SigId, Failure> {
         })
 }
 
+/// The keystore passphrase: `--keystore-passphrase-file`, else the file
+/// `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names; with neither, a usage error naming both.
+/// [VLD-ANB-MIDGARD-0007]
+fn keystore_passphrase(args: &Args) -> Result<pqc_agility::SecretBytes, Failure> {
+    let path = attest::keystore::passphrase_file(
+        args.get("keystore-passphrase-file"),
+        std::env::var(attest::keystore::PASSPHRASE_ENV).ok(),
+    )
+    .map_err(Failure::Usage)?;
+    Ok(RootWrap::passphrase_from_file(&path)?)
+}
+
 // --- keygen ------------------------------------------------------------------
 
 fn keygen(argv: &[String]) -> Result<(), Failure> {
-    let args = Args::parse(argv, &["keystore", "key-id", "alg", "export-verifying-key"])?;
+    let args = Args::parse(
+        argv,
+        &[
+            "keystore",
+            "key-id",
+            "alg",
+            "export-verifying-key",
+            "keystore-passphrase-file",
+        ],
+    )?;
     let keystore_path = args
         .get("keystore")
         .ok_or_else(|| Failure::Usage("keygen requires --keystore <path>".into()))?;
@@ -184,9 +209,14 @@ fn keygen(argv: &[String]) -> Result<(), Failure> {
         None => kms::RELEASE_SIG_ALG,
     };
 
+    let passphrase = keystore_passphrase(&args)?;
     let mut rng = pqc_agility::OsRng;
     let ks = Keystore::generate(key_id, alg, &mut rng)?;
-    ks.write(Path::new(keystore_path))?;
+    ks.write(
+        Path::new(keystore_path),
+        &RootWrap::Passphrase(&passphrase),
+        &mut rng,
+    )?;
 
     if let Some(p) = args.get("export-verifying-key") {
         std::fs::write(p, ks.export_verifying_key())
@@ -198,7 +228,10 @@ fn keygen(argv: &[String]) -> Result<(), Failure> {
         "mg-sign: wrote keystore {keystore_path} (key id {key_id}, {})",
         alg.as_str()
     );
-    eprintln!("  the signing key is sealed under an ML-KEM-1024 root; protect this file as a custody device.");
+    eprintln!(
+        "  the signing key is sealed under an ML-KEM-1024 root, wrapped under the keystore \
+         passphrase; keep the passphrase apart from this file."
+    );
     Ok(())
 }
 
@@ -215,6 +248,7 @@ fn sign(argv: &[String]) -> Result<(), Failure> {
             "rustc-version",
             "toolchain-sha256",
             "repro",
+            "keystore-passphrase-file",
         ],
     )?;
 
@@ -238,7 +272,8 @@ fn sign(argv: &[String]) -> Result<(), Failure> {
             ))
         }
         (Some(p), None) => {
-            let ks = Keystore::read(Path::new(p))?;
+            let passphrase = keystore_passphrase(&args)?;
+            let ks = Keystore::read(Path::new(p), &RootWrap::Passphrase(&passphrase))?;
             Box::new(KmsSigner::new(ks.into_signing_root()?))
         }
         (None, Some(p)) => {
