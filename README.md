@@ -518,21 +518,33 @@ Roles are `IAM-Admin`, `Security-Officer`, `Model-Steward`, `Release-Manager` an
 Then, with the gateway running, alice requests and bob approves:
 
 ```bash
-read -rs PASSWORD
-printf '%s\n' "$PASSWORD" | ./target/release/mg-admin enrol request \
+./target/release/mg-admin enrol request \
   --gateway http://127.0.0.1:7710 --admin alice --keystore ./alice.passkey \
   --subject olivia --roles operator --clearance internal --purposes operations \
   --justification "new duty operator"
-unset PASSWORD
 
 ./target/release/mg-admin enrol list    --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey
-./target/release/mg-admin enrol approve --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey --id <enrolment id>
+./target/release/mg-admin enrol approve --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey \
+  --id <enrolment id> --subject olivia
 ```
 
-- Until the approval, olivia cannot log in.
-- alice cannot approve her own request, and an administrator without the IAM user capability cannot approve it.
-- A waiting request survives a gateway restart.
-- The password is hashed on alice's machine, and only the hash is sent. Each command signs a fresh single-use challenge, issued to the administrator it names and answerable by no one else.
+The approval prints a single-use activation code. bob hands it to olivia himself, out of band, and discards it. olivia then chooses her password and receives her TOTP second factor:
+
+```bash
+read -rs PASSWORD
+curl -s -X POST http://127.0.0.1:7710/api/v1/activate -H 'content-type: application/json' \
+  -d "{\"username\":\"olivia\",\"activationCode\":\"<code>\",\"password\":\"$PASSWORD\"}"
+unset PASSWORD
+```
+
+The reply's `otpauth` URI goes into her authenticator app; she logs in with her password and its code.
+
+- Until the approval, and then until she activates, olivia cannot log in.
+- No password or second factor passes through either administrator. The request names only who olivia is and what she may do, with roles and purposes the served `policy.json` names; the gateway creates her credentials at approval.
+- The code works once, and expires 72 hours after the approval. A password must be at least 12 characters.
+- alice cannot approve her own request, and an administrator without the IAM user capability cannot approve it. `enrol list` shows each waiting request in full, and `enrol approve` names the subject being approved.
+- `enrol reject --id <enrolment id> --reason <text>` discards a waiting request. If the approval cannot be written, the same approver runs `enrol approve` again.
+- A waiting request survives a gateway restart. Each command signs a fresh single-use challenge, issued to the administrator it names and answerable by no one else.
 - Requests, approvals and refusals all appear in the audit ledger.
 - `--gateway` must be a loopback address, because administration runs over plain HTTP.
 

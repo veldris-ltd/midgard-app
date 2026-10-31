@@ -3,6 +3,15 @@
 //! through the KMS-sealed append-only [`SealedJournal`] and **replayed on boot**. It
 //! survives a restart with every enrollment intact and encrypted at rest; a tampered
 //! record fails closed on load. [RC-29] [AC-M-4]
+//!
+//! ## Record format
+//! Every record written now is **tagged and versioned**: `0xFF, version, kind, body`.
+//! Version 2, kind 0 is a full enrollment followed by its pending activation, if any
+//! (a tag, then the code hash, the expiry and whether the TOTP factor is confirmed).
+//! A record that does not start with `0xFF` is the original, untagged version 1 and
+//! is read unchanged, so a directory written by an earlier build still opens; its
+//! entries have no pending activation. Later fields extend the tagged form rather
+//! than breaking it again. [VLD-ANB-MIDGARD-0002]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -15,6 +24,28 @@ use crate::mfa::{TotpSecret, WebAuthnCredential};
 use crate::store::UserRecord;
 
 const DOMAIN: &[u8] = b"iam-directory-v1";
+/// The first byte of a tagged record. An untagged (version 1) record starts with
+/// the little-endian length of its subject instead.
+const TAGGED: u8 = 0xFF;
+/// The tagged record version written now.
+const RECORD_VERSION: u8 = 2;
+/// A tagged record holding a full enrollment.
+const KIND_ENROLLMENT: u8 = 0;
+
+/// A principal approved under dual control who has not yet activated their account.
+/// The gateway mints the credentials at approval and hands the approver a single-use
+/// activation code for the principal; only its hash is stored. Until the principal
+/// presents it, sets their password and takes their TOTP secret, the record cannot
+/// log in. [VLD-ANB-MIDGARD-0002]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Activation {
+    /// PHC-encoded hash of the activation code, from the gateway's password hasher.
+    pub code_hash: String,
+    /// Unix time after which the code no longer activates anything.
+    pub expires_at: u64,
+    /// Whether the principal has confirmed their TOTP factor with a code.
+    pub totp_confirmed: bool,
+}
 
 /// A principal's credentials: a password hash and enrolled MFA factors.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -25,6 +56,9 @@ pub struct Credentials {
     pub totp: Option<TotpSecret>,
     /// Enrolled passkeys.
     pub passkeys: Vec<WebAuthnCredential>,
+    /// A pending activation: present from approval until the principal activates the
+    /// account, during which no login succeeds. [VLD-ANB-MIDGARD-0002]
+    pub activation: Option<Activation>,
 }
 
 impl Credentials {
@@ -69,6 +103,24 @@ impl DurableDirectory {
         self.journal.append(&record)?;
         self.entries.insert(subject.to_string(), enrollment);
         Ok(())
+    }
+
+    /// Replace the credentials of an enrolled principal, keeping its attributes:
+    /// append a full record and update memory. `Ok(false)` if `subject` is not
+    /// enrolled. [VLD-ANB-MIDGARD-0002]
+    pub fn update_credentials(
+        &mut self,
+        subject: &str,
+        credentials: Credentials,
+    ) -> Result<bool, AuditError> {
+        let Some(entry) = self.entries.get(subject) else {
+            return Ok(false);
+        };
+        let updated = Enrollment {
+            user: entry.user.clone(),
+            credentials,
+        };
+        self.enroll(subject, updated).map(|()| true)
     }
 
     /// Look up an enrollment.
@@ -175,6 +227,18 @@ impl InMemoryDirectory {
         self.entries.remove(subject)
     }
 
+    /// Replace the credentials of an enrolled principal, keeping its attributes.
+    /// `false` if `subject` is not enrolled. [VLD-ANB-MIDGARD-0002]
+    pub fn update_credentials(&mut self, subject: &str, credentials: Credentials) -> bool {
+        match self.entries.get_mut(subject) {
+            Some(entry) => {
+                entry.credentials = credentials;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// The number of enrolled principals.
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -220,7 +284,25 @@ fn put_str(o: &mut Vec<u8>, s: &str) {
     put_bytes(o, s.as_bytes());
 }
 
+/// A tagged version-2 record: the enrollment, then its pending activation.
 fn encode_entry(subject: &str, e: &Enrollment) -> Vec<u8> {
+    let mut o = vec![TAGGED, RECORD_VERSION, KIND_ENROLLMENT];
+    o.extend_from_slice(&encode_body(subject, e));
+    match &e.credentials.activation {
+        None => o.push(0),
+        Some(a) => {
+            o.push(1);
+            put_str(&mut o, &a.code_hash);
+            o.extend_from_slice(&a.expires_at.to_le_bytes());
+            o.push(u8::from(a.totp_confirmed));
+        }
+    }
+    o
+}
+
+/// The version-1 body, which a tagged record carries unchanged: subject, attributes
+/// and credentials, with no activation.
+fn encode_body(subject: &str, e: &Enrollment) -> Vec<u8> {
     let mut o = Vec::new();
     put_str(&mut o, subject);
     // UserRecord
@@ -285,10 +367,59 @@ impl<'a> Reader<'a> {
     fn string(&mut self) -> Result<String, String> {
         String::from_utf8(self.bytes()?).map_err(|_| "utf8".into())
     }
+    fn u64(&mut self) -> Result<u64, String> {
+        let s = self.take(8)?;
+        Ok(u64::from_le_bytes(s.try_into().expect("eight bytes")))
+    }
 }
 
+/// Decode a record of either version. A tagged record that does not decode is tried
+/// as version 1, since an untagged record whose subject length has `0xFF` as its low
+/// byte also starts with the tag.
 fn decode_entry(b: &[u8]) -> Result<(String, Enrollment), String> {
+    if b.first() == Some(&TAGGED) {
+        return decode_tagged(b).or_else(|tagged| decode_v1(b).map_err(|_| tagged));
+    }
+    decode_v1(b)
+}
+
+fn decode_tagged(b: &[u8]) -> Result<(String, Enrollment), String> {
+    let mut r = Reader { b, pos: 1 };
+    match (r.u8()?, r.u8()?) {
+        (RECORD_VERSION, KIND_ENROLLMENT) => {}
+        (version, kind) => return Err(format!("unknown record version {version} kind {kind}")),
+    }
+    let (subject, mut enrollment) = decode_body(&mut r)?;
+    enrollment.credentials.activation = match r.u8()? {
+        0 => None,
+        1 => Some(Activation {
+            code_hash: r.string()?,
+            expires_at: r.u64()?,
+            totp_confirmed: match r.u8()? {
+                0 => false,
+                1 => true,
+                _ => return Err("bad totp-confirmed flag".into()),
+            },
+        }),
+        _ => return Err("bad activation tag".into()),
+    };
+    if r.pos != b.len() {
+        return Err("trailing bytes".into());
+    }
+    Ok((subject, enrollment))
+}
+
+fn decode_v1(b: &[u8]) -> Result<(String, Enrollment), String> {
     let mut r = Reader { b, pos: 0 };
+    let entry = decode_body(&mut r)?;
+    if r.pos != b.len() {
+        return Err("trailing bytes".into());
+    }
+    Ok(entry)
+}
+
+/// The version-1 body both versions share, leaving the reader after the passkeys.
+fn decode_body(r: &mut Reader<'_>) -> Result<(String, Enrollment), String> {
     let subject = r.string()?;
     let mut roles = std::collections::BTreeSet::new();
     for _ in 0..r.u32()? {
@@ -321,9 +452,6 @@ fn decode_entry(b: &[u8]) -> Result<(String, Enrollment), String> {
             rp_id,
         });
     }
-    if r.pos != b.len() {
-        return Err("trailing bytes".into());
-    }
     Ok((
         subject,
         Enrollment {
@@ -339,6 +467,7 @@ fn decode_entry(b: &[u8]) -> Result<(String, Enrollment), String> {
                 password_hash,
                 totp,
                 passkeys,
+                activation: None,
             },
         },
     ))

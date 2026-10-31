@@ -75,6 +75,7 @@ fn analyst(password_hash: String, totp: Option<TotpSecret>) -> Enrollment {
             password_hash,
             totp,
             passkeys: vec![],
+            activation: None,
         },
     }
 }

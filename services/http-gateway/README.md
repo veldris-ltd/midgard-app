@@ -40,12 +40,15 @@ There are two startup modes:
   comes from `ontology.json` (`ontology_file`), registered on every boot. Data is added
   offline with `mg-admin import`, checked against the ontology by `import_file`.
   Principals can also be enrolled online under dual control (`admin_api`):
-  `POST /api/v1/admin/challenge`, `enrolments`, `enrolments/approve` and
-  `enrolments/list` are authenticated by administrators' ML-DSA-65 passkey
-  assertions rather than bearer tokens, and a request waits for a second, distinct
-  administrator. A challenge request names its administrator (`{"admin": ...}`); the
-  challenge is theirs alone, each holds at most four, and a flood naming one cannot
-  evict another's.
+  `POST /api/v1/admin/challenge`, `enrolments`, `enrolments/approve`,
+  `enrolments/reject` and `enrolments/list` are authenticated by administrators'
+  ML-DSA-65 passkey assertions rather than bearer tokens, and a request waits for a
+  second, distinct administrator. The approval creates the principal's credentials
+  and returns a single-use activation code; the principal presents it to
+  `POST /api/v1/activate` (`activation`) to set their password and receive their TOTP
+  secret. A challenge request names its
+  administrator (`{"admin": ...}`); the challenge is theirs alone, each holds at most
+  four, and a flood naming one cannot evict another's.
 - **Mesh door** (`mesh_sync`, `--mesh-bind` with `--mesh-identity-dir`): certified
   workloads — the Forge worker — sync objects and links into the fabric over PQ-mTLS.
   Each `SyncRecords` call is authorised by `policy.json` and audited in the one ledger.
