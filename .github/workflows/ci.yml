@@ -36,6 +36,9 @@ jobs:
         with:
           fetch-depth: 0
       - run: bash tools/ci/run.sh selftest
+      # GitLab publishes the toolchain image its merge-request jobs run in; GitHub builds
+      # it per run, so here this only says so.
+      - run: bash tools/ci/run.sh toolchain-publish
       - run: bash tools/ci/run.sh provenance
       - run: bash tools/ci/run.sh vendor
       - run: bash tools/ci/run.sh claims

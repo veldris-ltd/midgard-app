@@ -686,17 +686,19 @@ Native applications for iOS, Android and Linux, a Tauri desktop application, a w
 
 Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified.
 
-**Limit.** The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner.
+**Limit.** The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them.
 
 - Criteria: AC-M-6, AC-B-1
 - Source:
   - [`justfile:373`](../../justfile)
   - [`tools/ci/release.sh:170`](../../tools/ci/release.sh)
+  - [`tools/ci/pipelines.sh:52`](../../tools/ci/pipelines.sh)
 - Tests:
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
   - [`tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component`](../../tools/mg-scan/tests/cli.rs)
 - Service tests:
-  - [`tools/ci/run.sh:225`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:320`](../../tools/ci/run.sh)
+  - [`tools/ci/tests/pipelines.test.sh:73`](../../tools/ci/tests/pipelines.test.sh)
 - Stated at:
   - [`README.md:742`](../../README.md)
   - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
@@ -704,17 +706,20 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
 
 ### `offline-build` (operable)
 
-The workspace builds and its tests run with no network: every dependency is vendored, Cargo is pinned to the vendored directory, and the CI jobs run in a container started with no network.
+The workspace builds and its tests run with no network: every dependency is vendored, Cargo is pinned to the vendored directory, and the CI jobs run in a container started with no network, except GitLab merge-request jobs, which run unprivileged inside the digest-pinned toolchain image with Cargo forced offline.
 
-**Limit.** The recorded gate run covers the one commit named in docs/compliance/gate-runs/CURRENT. Later commits are not covered until the gate is recorded again.
+**Limit.** The recorded gate run covers the one commit named in docs/compliance/gate-runs/CURRENT. Later commits are not covered until the gate is recorded again. On GitLab merge requests the offline property rests on Cargo (vendored sources, CARGO_NET_OFFLINE) rather than a network sandbox, and those runs cannot be recorded as the gate; the unprivileged and protected runner configuration is the owner's and is not yet evidenced.
 
 - Criteria: AC-M-5
 - Source:
   - [`.cargo/config.toml:18`](../../.cargo/config.toml)
   - [`tools/ci/in-toolchain.sh:12`](../../tools/ci/in-toolchain.sh)
+  - [`tools/ci/in-toolchain.sh:60`](../../tools/ci/in-toolchain.sh)
   - [`tools/ci/vendor-check.sh`](../../tools/ci/vendor-check.sh)
+  - [`.gitlab-ci.yml:114`](../../.gitlab-ci.yml)
 - Service tests:
-  - [`tools/ci/run.sh:208`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:306`](../../tools/ci/run.sh)
+  - [`tools/ci/tests/in-toolchain.test.sh:43`](../../tools/ci/tests/in-toolchain.test.sh)
 - Stated at:
   - [`README.md:130`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:508`](../../docs/launch/pipeline/build-deck.js)
@@ -741,12 +746,13 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 
 Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network.
 
-**Limit.** Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again.
+**Limit.** Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again. On GitLab the suite runs only on protected branches, on the privileged runner tagged protected; merge-request jobs run unprivileged and never start it.
 
 - Source:
   - [`deploy/acceptance/run-airgapped.sh:10`](../../deploy/acceptance/run-airgapped.sh)
+  - [`.gitlab-ci.yml:236`](../../.gitlab-ci.yml)
 - Service tests:
-  - [`tools/ci/run.sh:208`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:313`](../../tools/ci/run.sh)
 - Stated at:
   - [`GETTING_STARTED.md:5`](../../GETTING_STARTED.md)
 

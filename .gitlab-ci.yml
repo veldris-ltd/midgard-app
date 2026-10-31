@@ -6,12 +6,23 @@
 # forges, if the two ever call different sets of jobs — so a mirror of this repository
 # needs no remodelling, here or there. To run a job locally: `just ci <job>`.
 #
-# What a GitLab instance has to provide:
-#   - a Docker executor with Docker-in-Docker allowed (privileged), for every job that
-#     `extends: .toolchain` or `.docker`. The Rust jobs run inside the digest-pinned
-#     toolchain image with no network; the `toolchain` job builds that image, the only
-#     step that goes online, and it is restored from the cache when its Dockerfile has
-#     not changed;
+# What a GitLab instance has to provide (docs/dev/CI.md, "What a GitLab instance
+# needs"): [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
+#   - an UNPRIVILEGED Docker executor for every merge-request job. The Rust jobs
+#     (`extends: .toolchain`) run directly inside the published toolchain image,
+#     $CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST, with no Docker service;
+#     their first step fails unless that digest is the one in tools/ci/toolchain.digest.
+#     They stay offline through `cargo --offline` and the vendor check, not a network
+#     sandbox;
+#   - a PRIVILEGED Docker executor with Docker-in-Docker, tagged `protected` and
+#     assigned to protected branches and tags only, for the two jobs that `extends:
+#     .docker`: `toolchain-publish`, which builds and pushes the toolchain image (run
+#     it by hand on main or dev, with MIDGARD_RELEASE_MODE empty, then commit the
+#     digest it prints), and `acceptance`, which runs the suite under --network none on
+#     pushes to main and dev;
+#   - the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST (protected), set from
+#     tools/ci/toolchain.digest, and "pipelines for fork merge requests" requiring a
+#     maintainer's approval;
 #   - for a release: a runner tagged `kms`, provisioned as docs/ops/PKI.md describes,
 #     with a shell executor, docker, node and pnpm, and the CI/CD variables
 #     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH and
@@ -49,11 +60,24 @@ default:
   interruptible: true
 
 # --- shared shapes -------------------------------------------------------------------
+#
+# Every image and service is pinned by digest, the multi-arch index digest the registry
+# served for the tag on the date beside it; `tools/ci/pipelines.sh --check` refuses one
+# that is not. Refresh a pin deliberately, with
+# `docker buildx imagetools inspect <name:tag> --format '{{json .Manifest.Digest}}'`,
+# and record the new date. [VLD-ANB-MIDGARD-0022]
+# TODO(owner): mirror these images into the project registry and refer to them as
+# $CI_REGISTRY_IMAGE/mirror/<name>:<tag>@sha256:<digest> (docs/dev/CI.md).
 
+# Privileged Docker-in-Docker, on the runner tagged `protected` only: for
+# toolchain-publish and acceptance, which run on protected refs and never for a merge
+# request. [VLD-ANB-MIDGARD-0043]
 .docker:
-  image: docker:27-cli
+  image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c # docker:27-cli resolved 2026-10-31
   services:
-    - name: docker:27-dind
+    - name: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce # docker:27-dind resolved 2026-10-31
+  tags:
+    - protected
   variables:
     DOCKER_HOST: tcp://docker:2376
     DOCKER_TLS_CERTDIR: "/certs"
@@ -62,7 +86,9 @@ default:
   before_script:
     - apk add --no-cache bash git curl coreutils
 
-.toolchain:
+# The toolchain image built on the privileged runner, restored from the cache when its
+# Dockerfile has not changed: for the acceptance suite, which starts its own containers.
+.dind-toolchain:
   extends: .docker
   cache:
     key:
@@ -72,6 +98,21 @@ default:
       - .ci-cache/
   before_script:
     - apk add --no-cache bash git curl coreutils
+    - bash tools/ci/run.sh toolchain
+
+# Merge-request jobs: run directly inside the published toolchain image, unprivileged,
+# with no Docker service. tools/ci/in-toolchain.sh sees MIDGARD_IN_TOOLCHAIN and runs
+# each command in place. Inside the image the `toolchain` job builds nothing: it fails
+# closed unless MIDGARD_TOOLCHAIN_DIGEST is the digest tools/ci/toolchain.digest pins.
+.toolchain:
+  image: $CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST
+  variables:
+    MIDGARD_IN_TOOLCHAIN: "1"
+    # `--offline` for every cargo invocation: with no network sandbox here, a step that
+    # reached for the network fails instead of fetching. The vendor job (hygiene)
+    # checks Cargo is pinned to /vendor.
+    CARGO_NET_OFFLINE: "true"
+  before_script:
     - bash tools/ci/run.sh toolchain
 
 .signing:
@@ -143,7 +184,7 @@ default:
 hygiene:
   stage: hygiene
   extends: .not-manual
-  image: alpine:3.20
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # alpine:3.20 resolved 2026-10-31
   before_script:
     - apk add --no-cache bash git curl coreutils sed gawk grep findutils helm
   script:
@@ -192,8 +233,9 @@ scan:
 
 acceptance:
   stage: verify
-  extends: .toolchain
-  # The whole suite is long; it runs on the protected branches, not on every MR.
+  extends: .dind-toolchain
+  # The whole suite is long; it runs on the protected branches, not on every MR. It
+  # starts its own containers under --network none, so it needs the privileged runner.
   rules:
     - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev")
   script:
@@ -203,6 +245,21 @@ acceptance:
     paths:
       - target/gate/
 
+# --- the toolchain image merge-request jobs run in --------------------------------------
+
+# Run by hand from "Run pipeline" on main or dev, with MIDGARD_RELEASE_MODE empty. It
+# builds deploy/acceptance/Dockerfile, pushes it to $CI_REGISTRY_IMAGE/toolchain, and
+# fails, printing the digest, until that digest is committed to tools/ci/toolchain.digest
+# and set as MIDGARD_TOOLCHAIN_DIGEST. The only job that needs a Docker daemon to build.
+toolchain-publish:
+  stage: hygiene
+  extends: .docker
+  interruptible: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev") && $MIDGARD_RELEASE_MODE == ""
+  script:
+    - bash tools/ci/run.sh toolchain-publish
+
 # --- the release gate, without publishing ----------------------------------------------
 
 # The JavaScript artefacts are built where node is — the Rust toolchain image has none —
@@ -210,7 +267,7 @@ acceptance:
 js-build:
   stage: hygiene
   extends: .on-dry-run
-  image: node:22-bookworm
+  image: node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd # node:22-bookworm resolved 2026-10-31
   script:
     - bash tools/ci/run.sh js-build
   artifacts:
@@ -243,37 +300,37 @@ shell-audit-apple:
 
 shell-audit-android:
   extends: .shell-audit
-  image: eclipse-temurin:17-jdk
+  image: eclipse-temurin:17-jdk@sha256:91011320978c10ec51d2cde1eb6f616db6d2a739a0e521096c343dd3fed9abe6 # eclipse-temurin:17-jdk resolved 2026-10-31
   script:
     - bash tools/ci/run.sh shell-audit android
 
 shell-audit-linux-gtk:
   extends: .shell-audit
-  image: rust:1.82-bookworm
+  image: rust:1.82-bookworm@sha256:d9c3c6f1264a547d84560e06ffd79ed7a799ce0bff0980b26cf10d29af888377 # rust:1.82-bookworm resolved 2026-10-31
   script:
     - bash tools/ci/run.sh shell-audit linux-gtk
 
 shell-audit-desktop-tauri:
   extends: .shell-audit
-  image: rust:1.82-bookworm
+  image: rust:1.82-bookworm@sha256:d9c3c6f1264a547d84560e06ffd79ed7a799ce0bff0980b26cf10d29af888377 # rust:1.82-bookworm resolved 2026-10-31
   script:
     - bash tools/ci/run.sh shell-audit desktop-tauri
 
 shell-audit-web:
   extends: .shell-audit
-  image: node:22-bookworm
+  image: node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd # node:22-bookworm resolved 2026-10-31
   script:
     - bash tools/ci/run.sh shell-audit web
 
 shell-audit-extension:
   extends: .shell-audit
-  image: node:22-bookworm
+  image: node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd # node:22-bookworm resolved 2026-10-31
   script:
     - bash tools/ci/run.sh shell-audit extension
 
 shell-audit-gate:
   stage: audit
-  image: alpine:3.20
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # alpine:3.20 resolved 2026-10-31
   # Runs even when an audit failed, so the gate reports every missing record at once.
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/
@@ -330,7 +387,7 @@ release:
 # under the tag, and creating the release entry is left to a person.
 release-publish:
   stage: publish
-  image: alpine:3.20
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # alpine:3.20 resolved 2026-10-31
   rules:
     - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release" && $MIDGARD_PUBLISH_TAG != ""
   needs:
