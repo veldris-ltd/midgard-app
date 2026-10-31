@@ -6,10 +6,24 @@ namespace: midgard-enclosure
 createNamespace: true
 
 image:
-  # Release: "<registry>/<service>:<tag>", each image re-verifying its binary's signature
-  # before it runs (deploy/images/entrypoint.sh).
+  # Release: "<registry>/<service>@<digest>", each image re-verifying its binary's
+  # signature before it runs (deploy/images/entrypoint.sh). The verifier, its key and
+  # the entrypoint travel inside the image, so only the digest binds a pod to the signed
+  # build: a release chart pins every image by digest, and does not render while a
+  # service's digest is empty. deploy/helm/set-digests.sh writes them from the signed
+  # images.lock of a release. [VLD-ANB-MIDGARD-0012]
   registry: registry.enclosure.local/midgard
+  digests:
+    http-gateway: ""
+    mimir-server: ""
+    bifrost-fleet: ""
+    heimdall-feed: ""
+    forge-worker: ""
+  # true renders "<registry>/<service>:<tag>" for a service with no digest, with
+  # imagePullPolicy Always: for development clusters only, never a release.
+  allowTag: false
   tag: "0.1.0-rc.1"
+  # Used for image.single only: a digest pulls IfNotPresent, a tag Always.
   pullPolicy: IfNotPresent
   # Set to one image holding every binary (the compose image) to run each service's
   # binary directly instead — for development clusters only; nothing is verified.

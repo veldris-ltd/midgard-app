@@ -1,8 +1,14 @@
-# Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default,
-# release values: a default-deny, egress-denied namespace (NFR-PRV-1), a resource
-# quota, and one hardened, verify-before-run StatefulSet per service — non-root,
-# read-only rootfs, dropped capabilities, probes, resource limits, its own volume —
-# with per-port ingress and egress NetworkPolicies. [NFR-SEC-1] [AC-B-1] [RC-18]
+# Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default
+# values and image.allowTag=true: a default-deny, egress-denied namespace
+# (NFR-PRV-1), a resource quota, and one hardened, verify-before-run StatefulSet per
+# service — non-root, read-only rootfs, dropped capabilities, probes, resource limits,
+# its own volume — with per-port ingress and egress NetworkPolicies. [NFR-SEC-1]
+# [AC-B-1] [RC-18]
+#
+# This is a development rendering: images are referenced by tag with pullPolicy
+# Always because no release has produced digests yet; the signed release rendering
+# is target/release-out/chart/enclosure.yaml, pinned by digest.
+# [VLD-ANB-MIDGARD-0012]
 #
 # Every service expects Secrets "<service>-identity" (and "<service>-seed" where it
 # seeds state) and the forge-jobs ConfigMap to exist; provision them from your key
@@ -428,6 +434,10 @@ spec:
       labels:
         app.kubernetes.io/name: http-gateway
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -442,7 +452,7 @@ spec:
         # volume. Later starts keep what the service has written.
         - name: seed
           image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           # The volume's root belongs to the node, so leave its own mode and times alone.
           command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
@@ -463,7 +473,7 @@ spec:
       containers:
         - name: http-gateway
           image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: http-gateway
@@ -538,6 +548,10 @@ spec:
       labels:
         app.kubernetes.io/name: mimir-server
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -552,7 +566,7 @@ spec:
         # volume. Later starts keep what the service has written.
         - name: seed
           image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           # The volume's root belongs to the node, so leave its own mode and times alone.
           command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
@@ -573,7 +587,7 @@ spec:
       containers:
         - name: mimir-server
           image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: mimir-server
@@ -648,6 +662,10 @@ spec:
       labels:
         app.kubernetes.io/name: bifrost-fleet
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -662,7 +680,7 @@ spec:
         # volume. Later starts keep what the service has written.
         - name: seed
           image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           # The volume's root belongs to the node, so leave its own mode and times alone.
           command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
@@ -683,7 +701,7 @@ spec:
       containers:
         - name: bifrost-fleet
           image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: bifrost-fleet
@@ -758,6 +776,10 @@ spec:
       labels:
         app.kubernetes.io/name: heimdall-feed
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -772,7 +794,7 @@ spec:
         # volume. Later starts keep what the service has written.
         - name: seed
           image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           # The volume's root belongs to the node, so leave its own mode and times alone.
           command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
@@ -793,7 +815,7 @@ spec:
       containers:
         - name: heimdall-feed
           image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: heimdall-feed
@@ -868,6 +890,10 @@ spec:
       labels:
         app.kubernetes.io/name: forge-worker
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -880,7 +906,7 @@ spec:
       containers:
         - name: forge-worker
           image: registry.enclosure.local/midgard/forge-worker:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: forge-worker

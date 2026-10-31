@@ -766,10 +766,10 @@ The deployment-tier acceptance suite runs its checks against this deployment:
 The HSM check skips too, so the best result on kind is a partial pass, never a promotion:
 
 ```bash
-ALLOW_SKIP=1 MIDGARD_PROBE_IMAGE=midgard/dev:local just deploy-accept
+ALLOW_SKIP=1 MIDGARD_PROBE_IMAGE=<registry>/midgard/dev@sha256:<digest> just deploy-accept
 ```
 
-`deploy/k8s/enclosure.yaml` is the chart rendered with its release values, for `kubectl apply` without Helm. `just render-k8s` regenerates it, and CI fails if it is not exactly what the chart renders. Those values expect signed per-service images, which are not built yet.
+`deploy/k8s/enclosure.yaml` is the chart rendered for development, for `kubectl apply` without Helm: no release has produced image digests yet, so its images are referenced by tag and pulled every time (`image.allowTag=true`). `just render-k8s` regenerates it, and CI fails if it is not exactly what the chart renders. The release chart pins each signed per-service image by digest and does not render without them; the release outputs carry that rendering, signed. The probe image is given by digest too.
 
 ### Reach sources outside the enclosure
 

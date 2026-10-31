@@ -342,6 +342,9 @@ job_release() {
 
 # The images are built on the host (the toolchain container has no docker), from the
 # gated binaries; the lock file naming them is then signed like any other artefact.
+# The chart is rendered from the lock's digests, also on the host (helm), and the
+# values file and the rendering are signed beside it, so a release deploys each
+# service's signed image by digest and never by a tag. [VLD-ANB-MIDGARD-0012]
 job_release_images() {
     local version out=target/release-out mounts
     version="$(release_name)"
@@ -349,13 +352,20 @@ job_release_images() {
         ci_error "release-images: $out holds no completed release; run the release job first"
         exit 1
     }
+    need "${HELM:-helm}" "release-images: helm is not on PATH; it renders the release chart"
     bash deploy/images/build.sh --version "$version" --verified "$out" \
         --trust "${MIDGARD_TRUST_ANCHORS:-deploy/trust/release-trust.pub}" --out "$out/images"
+    bash deploy/helm/set-digests.sh "$out/images/images.lock" deploy/helm/midgard/values.yaml \
+        --out "$out/chart/values.yaml"
+    "${HELM:-helm}" template midgard deploy/helm/midgard -f "$out/chart/values.yaml" \
+        --namespace default | tr -d '\r' > "$out/chart/enclosure.yaml"
     signing_mounts mounts
     in_toolchain "${mounts[@]}" \
         --env "MIDGARD_TRUST_ANCHORS=${MIDGARD_TRUST_ANCHORS:-deploy/trust/release-trust.pub}" -- \
         bash -c "just sbom $out/images/images.lock && just scan $out/images/images.lock \
-                 && just sign $out/images/images.lock && just verify $out/images/images.lock"
+                 && just sign $out/images/images.lock && just verify $out/images/images.lock \
+                 && for f in $out/chart/values.yaml $out/chart/enclosure.yaml; do \
+                        just sbom \$f && just sign \$f && just verify \$f || exit 1; done"
 }
 
 # Every gated binary with its signature and provenance, packed and signed for import
@@ -402,7 +412,8 @@ job_release_publish() {
     while IFS= read -r f; do files+=("$f"); done < <(
         find "$out" -maxdepth 2 -type f \
             \( -name '*.sig' -o -name '*.att' -o -name '*.sbom.cdx.json' -o -name '*.repro.json' \
-               -o -name '*.mgbundle' -o -name 'images.lock' -o -name 'release-manifest.txt' \) | sort
+               -o -name '*.mgbundle' -o -name 'images.lock' -o -name 'release-manifest.txt' \
+               -o -path "$out/chart/*.yaml" \) | sort
         awk 'NF { print $4 }' "$out/artefacts.txt" | while read -r file; do echo "$out/$file"; done
     )
     # The gate run the release rests on, with its raw logs, and the numbers sheet: what a

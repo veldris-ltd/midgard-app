@@ -496,8 +496,8 @@ status = "operable"
 criteria = ["AC-B-1"]
 evidence = ["deploy/images/entrypoint.sh:27", "deploy/images/service.Dockerfile"]
 service_tests = ["deploy/images/build.sh:103"]
-limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly."
-stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83"]
+limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly. The release chart binds each pod to the signed image by digest (deploy/helm/set-digests.sh), so a tag moved in the registry cannot substitute an image that skips the check."
+stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83", "README.md:756"]
 
 [[claim]]
 id = "acceptance-gate"
@@ -517,9 +517,9 @@ area = "Deployment and operations"
 claim = "Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-worker) deploy with Docker compose, or with a Helm chart that runs one replica of each as a hardened StatefulSet behind default-deny network policies."
 status = "operable"
 criteria = ["RC-40.1"]
-evidence = ["deploy/compose/compose.yaml", "deploy/kind/values.yaml:4"]
+evidence = ["deploy/compose/compose.yaml", "deploy/kind/values.yaml:4", "deploy/helm/midgard/templates/workload.yaml:18"]
 service_tests = ["deploy/compose/smoke.sh:13", "deploy/kind/smoke.sh:73"]
-limit = "The chart has run on a three-node kind cluster, not on a production cluster."
+limit = "The chart has run on a three-node kind cluster, not on a production cluster. The committed development rendering uses tags; release renderings are digest pinned and signed."
 stated_in = ["CHANGELOG.md:63", "docs/releases/v0.1.0-rc.1.md:18", "docs/launch/pipeline/build-deck.js:323"]
 
 [[claim]]

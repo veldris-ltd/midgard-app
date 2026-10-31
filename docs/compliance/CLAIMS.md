@@ -738,7 +738,7 @@ The workspace builds and its tests run with no network: every dependency is vend
 
 Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails.
 
-**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly.
+**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly. The release chart binds each pod to the signed image by digest (deploy/helm/set-digests.sh), so a tag moved in the registry cannot substitute an image that skips the check.
 
 - Criteria: AC-B-1
 - Source:
@@ -772,12 +772,13 @@ Each of the 72 acceptance criteria maps to a test, and one script runs them all 
 
 Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-worker) deploy with Docker compose, or with a Helm chart that runs one replica of each as a hardened StatefulSet behind default-deny network policies.
 
-**Limit.** The chart has run on a three-node kind cluster, not on a production cluster.
+**Limit.** The chart has run on a three-node kind cluster, not on a production cluster. The committed development rendering uses tags; release renderings are digest pinned and signed.
 
 - Criteria: RC-40.1
 - Source:
   - [`deploy/compose/compose.yaml`](../../deploy/compose/compose.yaml)
   - [`deploy/kind/values.yaml:4`](../../deploy/kind/values.yaml)
+  - [`deploy/helm/midgard/templates/workload.yaml:18`](../../deploy/helm/midgard/templates/workload.yaml)
 - Service tests:
   - [`deploy/compose/smoke.sh:13`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
