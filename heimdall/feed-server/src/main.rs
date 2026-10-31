@@ -6,12 +6,16 @@
 //!               [--service NAME] [--purpose P] [--bind ADDR] [--health-bind ADDR]
 //!               [--max-connections N] [--idle-timeout SECONDS]
 //!               [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
+//!               [--max-entities N] [--max-entities-per-feed N] [--max-attrs N]
+//!               [--max-attr-bytes N] [--evict-after SECONDS]
+//! heimdall-feed --identity-dir DIR --state-dir DIR --compact [--service NAME]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
 //! to `heimdall-feed`). `--state-dir` holds `policy.json` — the rules for `OpenChannel`,
-//! `Ingest` and `ReadPicture` — and the service's sealed `picture.sealed` and
-//! `feed.ledger`; it is locked while the service runs. Requests are audited under
+//! `Ingest` and `ReadPicture` — and the service's sealed picture (the snapshot
+//! `picture.sealed` and the journal of changes since, `picture.journal`; back up both)
+//! and `feed.ledger`; it is locked while the service runs. Requests are audited under
 //! `--purpose` (default `situational-awareness`), the one purpose the channel opens
 //! for. PQ-mTLS is served on `--bind` (default `0.0.0.0:7730`); `/healthz`, `/readyz`
 //! and `/metrics` on `--health-bind` (default `0.0.0.0:9090`).
@@ -22,7 +26,20 @@
 //! refilled at `--rate-per-sec` a second (default 20; a burst and a rate of 0 turn the
 //! limit off), and a connection is closed after `--requests-per-conn` requests (default
 //! 10000; 0 is unlimited). A value that is not a number is a usage error.
-//! [VLD-ANB-MIDGARD-0004]
+//! [VLD-ANB-MIDGARD-0004] These are the Ingest quota: every submission is a request
+//! from the source's identity, so one source cannot flood the picture.
+//!
+//! The picture holds at most `--max-entities` entities (default 50000), and at most
+//! `--max-entities-per-feed` (default 10000) that one feed has contributed to. An
+//! observation may carry `--max-attrs` attributes (default 64) of at most
+//! `--max-attr-bytes` bytes each (default 4096); one with more is malformed. A new
+//! entity past a cap first evicts entities not seen for `--evict-after` seconds
+//! (default 604800, 7 days); if none is that old it is refused as `picture-full` and
+//! audited. [VLD-ANB-MIDGARD-0017]
+//!
+//! `--compact` folds `picture.journal` into `picture.sealed` and exits, so the snapshot
+//! alone holds the picture: run it, with the service stopped, before rolling back to a
+//! build that reads only `picture.sealed`.
 
 use std::collections::BTreeSet;
 use std::net::TcpListener;
@@ -32,6 +49,7 @@ use std::sync::{Arc, RwLock};
 use gateway::Gateway;
 use governance::Governance;
 use heimdall_feed_server::{FeedService, PictureState};
+use heimdall_picture::PictureLimits;
 use heimdall_store::DurablePicture;
 use policy::{
     ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
@@ -47,7 +65,10 @@ use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle}
 const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--service NAME] \
                      [--purpose P] [--bind ADDR] [--health-bind ADDR] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
-                     [--rate-per-sec N] [--requests-per-conn N]";
+                     [--rate-per-sec N] [--requests-per-conn N] [--max-entities N] \
+                     [--max-entities-per-feed N] [--max-attrs N] [--max-attr-bytes N] \
+                     [--evict-after SECONDS]\n       \
+                     heimdall-feed --identity-dir DIR --state-dir DIR --compact [--service NAME]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "heimdall-feed-audit";
@@ -68,8 +89,13 @@ fn main() {
             "rate-burst",
             "rate-per-sec",
             "requests-per-conn",
+            "max-entities",
+            "max-entities-per-feed",
+            "max-attrs",
+            "max-attr-bytes",
+            "evict-after",
         ],
-        &[],
+        &["compact"],
     ) {
         Ok(args) => args,
         Err(e) => {
@@ -84,13 +110,76 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = run(&args, &limits) {
+    let picture_limits = match picture_limits_from_args(&args) {
+        Ok(limits) => limits,
+        Err(e) => {
+            eprintln!("heimdall-feed: {e}\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    let result = if args.flag("compact") {
+        compact(&args)
+    } else {
+        run(&args, &limits, picture_limits)
+    };
+    if let Err(e) = result {
         eprintln!("heimdall-feed: {e}");
         std::process::exit(1);
     }
 }
 
-fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
+/// [`PictureLimits::default`] with what `--max-entities`, `--max-entities-per-feed`,
+/// `--max-attrs`, `--max-attr-bytes` and `--evict-after` say instead. A cap of 0 is
+/// refused: it would refuse every observation.
+fn picture_limits_from_args(args: &Args) -> Result<PictureLimits, String> {
+    let whole = |key: &str| -> Result<Option<u64>, String> {
+        args.get(key)
+            .map(|v| {
+                v.parse::<u64>()
+                    .map_err(|_| format!("--{key} must be a whole number, not '{v}'"))
+            })
+            .transpose()
+    };
+    let cap = |key: &str, default: usize| -> Result<usize, String> {
+        match whole(key)? {
+            None => Ok(default),
+            Some(0) => Err(format!("--{key} must be at least 1")),
+            Some(n) => Ok(usize::try_from(n).unwrap_or(usize::MAX)),
+        }
+    };
+    let defaults = PictureLimits::default();
+    Ok(PictureLimits {
+        max_entities: cap("max-entities", defaults.max_entities)?,
+        max_entities_per_feed: cap("max-entities-per-feed", defaults.max_entities_per_feed)?,
+        max_attrs_per_entity: cap("max-attrs", defaults.max_attrs_per_entity)?,
+        max_attr_bytes: cap("max-attr-bytes", defaults.max_attr_bytes)?,
+        evict_after: whole("evict-after")?.unwrap_or(defaults.evict_after),
+    })
+}
+
+/// `--compact`: fold `picture.journal` into `picture.sealed` and exit, with the state
+/// directory locked, so the snapshot alone holds the whole picture (before a backup of
+/// one file, or a rollback to a build that reads only the snapshot).
+fn compact(args: &Args) -> Result<(), String> {
+    let service = args.get("service").unwrap_or("heimdall-feed");
+    let state_dir = Path::new(args.require("state-dir")?);
+    let _lock = DirLock::acquire(state_dir, "feed.lock", service)?;
+    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let mut durable =
+        DurablePicture::open(state_dir.join("picture.sealed"), identity.data_sealer()?)
+            .map_err(|e| format!("the picture does not open: {e:?}"))?;
+    durable
+        .compact()
+        .map_err(|e| format!("the picture was not compacted: {e:?}"))?;
+    println!(
+        "compacted {} entities into {}",
+        durable.picture().entity_count(),
+        state_dir.join("picture.sealed").display()
+    );
+    Ok(())
+}
+
+fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Result<(), String> {
     let service = args.get("service").unwrap_or("heimdall-feed");
     let identity_dir = args.require("identity-dir")?;
     let state_dir = Path::new(args.require("state-dir")?);
@@ -128,7 +217,7 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
 
     let durable = DurablePicture::open(state_dir.join("picture.sealed"), identity.data_sealer()?)
         .map_err(|e| format!("the picture does not open: {e:?}"))?;
-    let state = PictureState::recover(durable);
+    let state = PictureState::recover(durable).with_limits(picture_limits);
     let entities = state.picture().entity_count();
     state_ready.set(true);
 
@@ -176,6 +265,18 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
             ("health", &health_addr.to_string()),
             ("roles", &identity.roles().join(",")),
             ("limits", &limits.to_string()),
+            (
+                "picture_limits",
+                &format!(
+                    "max-entities {}, max-entities-per-feed {}, max-attrs {}, \
+                     max-attr-bytes {}, evict-after {}s",
+                    picture_limits.max_entities,
+                    picture_limits.max_entities_per_feed,
+                    picture_limits.max_attrs_per_entity,
+                    picture_limits.max_attr_bytes,
+                    picture_limits.evict_after
+                ),
+            ),
             ("recovered_audit_entries", &recovered.to_string()),
             ("entities", &entities.to_string()),
         ],

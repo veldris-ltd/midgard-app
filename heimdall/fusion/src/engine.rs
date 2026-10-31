@@ -97,6 +97,33 @@ impl FusionEngine {
         entity_id
     }
 
+    /// Remove an entity from the picture, returning it if it was held.
+    /// [VLD-ANB-MIDGARD-0017]
+    pub fn remove(&mut self, id: &EntityId) -> Option<TrackedEntity> {
+        self.picture.remove_entity(id)
+    }
+
+    /// Evict every entity not seen for at least `evict_after` seconds before `now`,
+    /// returning their ids, oldest first. A picture fed over the network stays
+    /// bounded by making room this way before a new entity is refused.
+    /// [VLD-ANB-MIDGARD-0017]
+    pub fn evict_stale(&mut self, now: u64, evict_after: u64) -> Vec<EntityId> {
+        let stale: Vec<EntityId> = self
+            .picture
+            .stalest(self.picture.entity_count())
+            .into_iter()
+            .take_while(|id| {
+                self.picture
+                    .entity(id)
+                    .is_some_and(|e| now.saturating_sub(e.last_seen()) >= evict_after)
+            })
+            .collect();
+        for id in &stale {
+            self.picture.remove_entity(id);
+        }
+        stale
+    }
+
     /// Fuse a batch of verified observations in order.
     pub fn ingest_all<'a, I>(&mut self, observations: I)
     where

@@ -270,6 +270,35 @@ CONTRIBUTING.md for the version policy.
     anything, and the gateway describes its request families and the dropped counter.
   - `/metrics` on the edge stays unauthenticated, now bounded; the residual-risk
     register records it, with network restriction as the compensating control.
+- **The Heimdall picture is bounded, journalled and read in pages.** Every admitted
+  observation resealed and `fsync`ed the whole picture under the state lock, nothing
+  capped or evicted entities, and `ReadPicture` answered with every entity in one
+  frame, so past a few thousand entities every analyst read failed at the 1 MiB frame
+  cap until the sealed picture was deleted. [VLD-ANB-MIDGARD-0017] [FR-H-1] [RC-13]
+  - `heimdall_picture::PictureLimits`: at most 50,000 entities, 10,000 that one feed
+    has contributed to, 64 attributes an observation, 4,096 bytes an attribute (and
+    an entity key or kind). An observation past the attribute caps is `MALFORMED`. A
+    new entity past an entity cap first evicts tracks not seen for 7 days; if none is
+    that old it is refused `DENIED` with `picture-full` and audited. `heimdall-feed`
+    takes `--max-entities`, `--max-entities-per-feed`, `--max-attrs`,
+    `--max-attr-bytes` and `--evict-after`; metrics `picture_entities` and
+    `picture_evictions_total`.
+  - New state file `picture.journal` beside `picture.sealed`: each change appends one
+    sealed frame (`audit_writer::SealedJournal`, domain `heimdall-picture-v1`), and
+    the journal is compacted into `picture.sealed` once it holds more than twice the
+    entity count plus 1,000 frames. A picture written by an earlier build opens as the
+    snapshot; back up both files. To roll back, stop the service and run
+    `heimdall-feed --compact` first, so `picture.sealed` holds the whole picture.
+  - `ReadPicture` is paged: an empty body is the first page; a JSON body
+    `{"offset", "limit", "includeHidden"}` asks for another (limit 500 by default,
+    2,000 at most). The response adds `total`, `offset`, `limit` and `truncated`, the
+    limit is halved until the body is under 900 KiB, and entities on hidden layers are
+    left out unless asked for. `heimdall-source --picture` follows the pages
+    (`--page-size`, `--include-hidden`). A consumer that read the whole picture in one
+    call now gets the first page.
+  - Ingest is rate limited per identity by the mesh limits `heimdall-feed` already
+    applies (`--rate-burst`, `--rate-per-sec`, `--requests-per-conn`); no second
+    limiter is added.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

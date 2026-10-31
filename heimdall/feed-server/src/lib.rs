@@ -12,12 +12,22 @@
 //! 4. its signature verifies against the key that certificate binds, through the
 //!    feed gateway's admission check — the only way to a `VerifiedObservation`.
 //!
-//! A refusal at 3 or 4 is audited too. Admitted observations are fused and the
-//! picture is sealed at rest after each one, so a restart recovers it. [RC-13]
+//! A refusal at 3 or 4 is audited too. Admitted observations are fused and each
+//! changed entity is appended to the sealed picture journal, so a restart recovers
+//! it. [RC-13]
+//!
+//! The picture is bounded by [`PictureLimits`]: an observation with too many or too
+//! large attributes is malformed, and a new entity that would pass the entity cap,
+//! overall or for its feed, first evicts tracks quiet for longer than `evict_after`
+//! and is otherwise refused as `picture-full` and audited. Ingest is rate limited per
+//! identity by the gateway's limiter, which the binary turns on. A picture read is
+//! paged and never answers with more than [`MAX_PAGE_BODY`] bytes, so the analyst
+//! client's frame cap is never reached. [VLD-ANB-MIDGARD-0017]
 //!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
-//! [`READ_PICTURE`] the picture as JSON.
+//! [`READ_PICTURE`] a page of the picture as JSON.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::LedgerStore;
@@ -28,23 +38,34 @@ use heimdall_feed_gateway::{
 };
 use heimdall_fusion::FusionEngine;
 use heimdall_picture::{
-    Attr, ClassificationSource, EntityId, FeedId, Picture, PictureDelta, TrackedEntity,
+    Attr, ClassificationSource, EntityId, FeedId, LayerId, Picture, PictureDelta, PictureLimits,
+    TrackedEntity,
 };
 use heimdall_store::{DurablePicture, StoreError};
 use policy::{ClassificationLevel, Clearance, Purpose, Resource};
 use pq_mtls::WorkloadIdentity;
 use pqc_agility::SharedProvider;
-use service_runtime::json::Json;
+use service_runtime::json::{self, Json};
 use telemetry::MetricsRegistry;
 
 /// The method a source submits one encoded signed observation with.
 pub const INGEST: &str = "Ingest";
-/// The method an analyst reads the picture with; its payload is empty.
+/// The method an analyst reads the picture with. Its payload is empty for the first
+/// page, or a JSON object `{"offset": n, "limit": m, "includeHidden": bool}`, every
+/// field optional.
 pub const READ_PICTURE: &str = "ReadPicture";
 /// The policy action a submission is authorised as.
 pub const ACTION_INGEST: &str = "Ingest";
 /// The policy action a picture read is authorised as.
 pub const ACTION_READ_PICTURE: &str = "ReadPicture";
+
+/// Entities a picture page holds when the request does not say.
+pub const DEFAULT_PAGE_LIMIT: usize = 500;
+/// Entities a picture page holds at most, whatever the request says.
+pub const MAX_PAGE_LIMIT: usize = 2_000;
+/// The most bytes a picture page's body may take: well under the mesh record frame
+/// cap (`pq_mtls::MAX_RECORD_FRAME`, 1 MiB) once the record is sealed and framed.
+pub const MAX_PAGE_BODY: usize = 900 * 1024;
 
 /// The first byte of every feed response.
 pub mod outcome {
@@ -58,15 +79,37 @@ pub mod outcome {
     pub const FAILED: u8 = 3;
 }
 
-/// The fused picture and its sealed, durable copy, kept in step.
+/// What fusing an observation did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FuseOutcome {
+    /// Fused into `entity`, after evicting `evicted` stale entities to make room.
+    Fused {
+        /// The entity the observation updated or opened.
+        entity: EntityId,
+        /// Stale entities evicted to make room for it.
+        evicted: usize,
+    },
+    /// Refused: the observation would open a new entity past a cap, and evicting
+    /// `evicted` stale entities did not make room.
+    Full {
+        /// Stale entities evicted before it was refused.
+        evicted: usize,
+    },
+}
+
+/// The fused picture and its sealed, durable copy, kept in step, within its limits.
 pub struct PictureState {
     engine: FusionEngine,
     durable: DurablePicture,
+    limits: PictureLimits,
+    /// Entities each feed has contributed to, kept in step with the picture.
+    per_feed: BTreeMap<String, usize>,
 }
 
 impl PictureState {
     /// Resume fusion over a recovered picture: the engine starts from everything the
-    /// durable picture holds, so later observations extend the recovered tracks.
+    /// durable picture holds, so later observations extend the recovered tracks. The
+    /// limits are [`PictureLimits::default`] until [`PictureState::with_limits`].
     pub fn recover(durable: DurablePicture) -> Self {
         let mut engine = FusionEngine::new();
         PictureDelta::snapshot(durable.picture()).merge_into(engine.picture_mut());
@@ -75,7 +118,30 @@ impl PictureState {
                 engine.picture_mut().set_layer_visible(&layer.id, false);
             }
         }
-        Self { engine, durable }
+        let per_feed = engine.picture().entities_by_feed_count();
+        Self {
+            engine,
+            durable,
+            limits: PictureLimits::default(),
+            per_feed,
+        }
+    }
+
+    /// The same state held to `limits`.
+    pub fn with_limits(mut self, limits: PictureLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    /// Hold the picture to `limits` from now on. Entities already held past a lower
+    /// cap stay until they are evicted.
+    pub fn set_limits(&mut self, limits: PictureLimits) {
+        self.limits = limits;
+    }
+
+    /// The limits the picture is held to.
+    pub fn limits(&self) -> PictureLimits {
+        self.limits
     }
 
     /// The current picture.
@@ -83,12 +149,48 @@ impl PictureState {
         self.engine.picture()
     }
 
-    /// Fuse a verified observation and seal the entity it changed.
-    pub fn fuse(&mut self, observation: &VerifiedObservation) -> Result<EntityId, StoreError> {
+    /// Show or hide a layer, durably: entities on a hidden layer are left out of a
+    /// picture read unless it asks for them.
+    pub fn set_layer_visible(&mut self, layer: &LayerId, visible: bool) -> Result<(), StoreError> {
+        self.durable.set_layer_visible(layer, visible)?;
+        self.engine.picture_mut().set_layer_visible(layer, visible);
+        Ok(())
+    }
+
+    /// Fuse a verified observation received at `now` and journal the entity it
+    /// changed. An observation that would open a new entity past the overall or its
+    /// feed's cap first evicts every entity not seen for `evict_after`, removing each
+    /// from the journal too; if that makes no room it is [`FuseOutcome::Full`] and
+    /// the observation is not fused. [VLD-ANB-MIDGARD-0017]
+    pub fn fuse(
+        &mut self,
+        observation: &VerifiedObservation,
+        now: u64,
+    ) -> Result<FuseOutcome, StoreError> {
+        let o = observation.observation();
+        let before = self
+            .engine
+            .picture()
+            .entity(&EntityId(o.entity_key.clone()))
+            .map(|e| e.sources.clone());
+        let mut evicted = 0;
+        if before.is_none() && self.at_cap(&o.feed_id.0) {
+            evicted = self.evict_stale(now)?;
+            if self.at_cap(&o.feed_id.0) {
+                return Ok(FuseOutcome::Full { evicted });
+            }
+        }
+
         let id = self.engine.ingest(observation);
         let Some(entity) = self.engine.picture().entity(&id).cloned() else {
-            return Ok(id);
+            return Ok(FuseOutcome::Fused {
+                entity: id,
+                evicted,
+            });
         };
+        for feed in entity.sources.difference(&before.unwrap_or_default()) {
+            *self.per_feed.entry(feed.clone()).or_insert(0) += 1;
+        }
         if !self
             .durable
             .picture()
@@ -106,7 +208,38 @@ impl PictureState {
             }
         }
         self.durable.upsert_entity(entity)?;
-        Ok(id)
+        Ok(FuseOutcome::Fused {
+            entity: id,
+            evicted,
+        })
+    }
+
+    /// Whether a new entity from `feed` would pass a cap.
+    fn at_cap(&self, feed: &str) -> bool {
+        self.engine.picture().entity_count() >= self.limits.max_entities
+            || self.per_feed.get(feed).copied().unwrap_or(0) >= self.limits.max_entities_per_feed
+    }
+
+    /// Evict every stale entity from the engine and the journal; how many went.
+    fn evict_stale(&mut self, now: u64) -> Result<usize, StoreError> {
+        let stale = self.engine.evict_stale(now, self.limits.evict_after);
+        for id in &stale {
+            if let Some(entity) = self.durable.remove_entity(id)? {
+                self.forget_sources(&entity.sources);
+            }
+        }
+        Ok(stale.len())
+    }
+
+    fn forget_sources(&mut self, sources: &BTreeSet<String>) {
+        for feed in sources {
+            if let Some(n) = self.per_feed.get_mut(feed) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    self.per_feed.remove(feed);
+                }
+            }
+        }
     }
 }
 
@@ -138,6 +271,16 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             "feed_requests_total",
             "Feed requests, by method and outcome.",
         );
+        metrics.describe("picture_entities", "Entities the picture holds.");
+        metrics.describe(
+            "picture_evictions_total",
+            "Stale entities evicted to keep the picture within its caps.",
+        );
+        metrics.set_gauge(
+            "picture_entities",
+            &[],
+            state.picture().entity_count() as f64,
+        );
         Arc::new(Self {
             state: Mutex::new(state),
             governance: Mutex::new(governance),
@@ -156,7 +299,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.ingest(peer, body));
         let service = self.clone();
         let read: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, _: &[u8]| service.read_picture(peer));
+            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.read_picture(peer, body));
         Router::new()
             .route(INGEST, ingest)
             .route(READ_PICTURE, read)
@@ -225,15 +368,41 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             }
         };
 
-        match lock(&self.state).fuse(&verified) {
-            Ok(entity) => self.reply(
-                INGEST,
-                outcome::ACCEPTED,
-                &format!(
-                    "fused into entity {} at audit sequence {}",
-                    entity.0, decision.audit_seq
-                ),
-            ),
+        let limits = lock(&self.state).limits();
+        if let Err(e) = limits.check_observation(verified.observation()) {
+            return self.reply(INGEST, outcome::MALFORMED, &e);
+        }
+
+        let (fused, entities) = {
+            let mut state = lock(&self.state);
+            let fused = state.fuse(&verified, now);
+            (fused, state.picture().entity_count())
+        };
+        self.metrics
+            .set_gauge("picture_entities", &[], entities as f64);
+        match fused {
+            Ok(FuseOutcome::Fused { entity, evicted }) => {
+                self.count_evictions(evicted);
+                self.reply(
+                    INGEST,
+                    outcome::ACCEPTED,
+                    &format!(
+                        "fused into entity {} at audit sequence {}",
+                        entity.0, decision.audit_seq
+                    ),
+                )
+            }
+            Ok(FuseOutcome::Full { evicted }) => {
+                self.count_evictions(evicted);
+                self.refuse(
+                    peer,
+                    now,
+                    "Ingest refused: picture full",
+                    &feed,
+                    "picture-full: the picture holds as many entities as it may and none \
+                     is stale enough to evict",
+                )
+            }
             Err(e) => self.reply(
                 INGEST,
                 outcome::FAILED,
@@ -242,8 +411,39 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
     }
 
-    /// The picture as JSON: layers with visibility, and every tracked entity.
-    pub fn read_picture(&self, peer: &WorkloadIdentity) -> Vec<u8> {
+    /// Hold the picture to `limits` from now on.
+    pub fn set_picture_limits(&self, limits: PictureLimits) {
+        lock(&self.state).set_limits(limits);
+    }
+
+    /// Show or hide a layer of the picture, durably.
+    pub fn set_layer_visible(&self, layer: &LayerId, visible: bool) -> Result<(), StoreError> {
+        lock(&self.state).set_layer_visible(layer, visible)
+    }
+
+    /// The action of every audit entry so far, oldest first.
+    pub fn audited_actions(&self) -> Vec<String> {
+        lock(&self.governance)
+            .audit_entries()
+            .iter()
+            .map(|e| e.record.action.0.clone())
+            .collect()
+    }
+
+    fn count_evictions(&self, evicted: usize) {
+        if evicted > 0 {
+            self.metrics
+                .inc_by("picture_evictions_total", &[], evicted as u64);
+        }
+    }
+
+    /// A page of the picture as JSON: layers with visibility, and the tracked
+    /// entities from `offset` in id order, at most `limit` of them (default
+    /// [`DEFAULT_PAGE_LIMIT`], at most [`MAX_PAGE_LIMIT`]), leaving out entities on
+    /// hidden layers unless `includeHidden`. The limit is halved until the body fits
+    /// in [`MAX_PAGE_BODY`]; the page says `total`, `offset`, the `limit` it used and
+    /// whether it is `truncated` (more follow). [VLD-ANB-MIDGARD-0017]
+    pub fn read_picture(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
         let now = (self.clock)();
         match lock(&self.governance).authorize(
             &self.context(peer),
@@ -268,24 +468,12 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             }
         }
 
-        let state = lock(&self.state);
-        let picture = state.picture();
-        let layers = picture
-            .layers()
-            .map(|layer| {
-                Json::obj(vec![
-                    ("id", Json::s(&layer.id.0)),
-                    ("name", Json::s(&layer.name)),
-                    ("visible", Json::Bool(picture.is_layer_visible(&layer.id))),
-                ])
-            })
-            .collect();
-        let entities = picture.entities().map(entity_json).collect();
-        let body = Json::obj(vec![
-            ("layers", Json::Arr(layers)),
-            ("entities", Json::Arr(entities)),
-        ]);
-        self.reply(READ_PICTURE, outcome::ACCEPTED, &body.encode())
+        let page = match PageRequest::parse(request) {
+            Ok(page) => page,
+            Err(e) => return self.reply(READ_PICTURE, outcome::MALFORMED, &e),
+        };
+        let body = picture_page(lock(&self.state).picture(), &page);
+        self.reply(READ_PICTURE, outcome::ACCEPTED, &body)
     }
 
     fn refuse(
@@ -345,7 +533,7 @@ fn count(value: u64) -> Json {
     Json::Int(i64::try_from(value).unwrap_or(i64::MAX))
 }
 
-fn entity_json(entity: &TrackedEntity) -> Json {
+fn entity_json(entity: &TrackedEntity, omit_attributes: bool) -> Json {
     let classification = entity.classification.as_ref().map_or(Json::Null, |c| {
         Json::obj(vec![
             ("label", Json::s(&c.label)),
@@ -362,6 +550,7 @@ fn entity_json(entity: &TrackedEntity) -> Json {
     let attributes = entity
         .latest_attrs
         .iter()
+        .filter(|_| !omit_attributes)
         .map(|(key, value)| {
             let value = match value {
                 Attr::Text(t) => Json::Str(t.clone()),
@@ -372,7 +561,7 @@ fn entity_json(entity: &TrackedEntity) -> Json {
             (key.clone(), value)
         })
         .collect();
-    Json::obj(vec![
+    let mut fields = vec![
         ("id", Json::s(&entity.id.0)),
         ("kind", Json::s(&entity.kind)),
         ("layer", Json::s(&entity.layer.0)),
@@ -385,7 +574,133 @@ fn entity_json(entity: &TrackedEntity) -> Json {
         ("observations", count(entity.track.observation_count)),
         ("classification", classification),
         ("attributes", Json::Obj(attributes)),
-    ])
+    ];
+    if omit_attributes {
+        fields.push(("attributesOmitted", Json::Bool(true)));
+    }
+    Json::obj(fields)
+}
+
+/// What a [`READ_PICTURE`] request asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageRequest {
+    /// Entities to skip, in id order.
+    pub offset: usize,
+    /// Entities to return at most, within `1..=MAX_PAGE_LIMIT`.
+    pub limit: usize,
+    /// Whether entities on hidden layers are included.
+    pub include_hidden: bool,
+}
+
+impl Default for PageRequest {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            limit: DEFAULT_PAGE_LIMIT,
+            include_hidden: false,
+        }
+    }
+}
+
+impl PageRequest {
+    /// Parse a request body: empty is the first page with the defaults; otherwise a
+    /// JSON object whose `offset`, `limit` and `includeHidden` are each optional. A
+    /// limit is clamped to `1..=MAX_PAGE_LIMIT`; a negative or mistyped field is an
+    /// error.
+    pub fn parse(body: &[u8]) -> Result<Self, String> {
+        let mut page = Self::default();
+        if body.iter().all(u8::is_ascii_whitespace) {
+            return Ok(page);
+        }
+        let text = std::str::from_utf8(body).map_err(|_| "the page request is not UTF-8")?;
+        let request = json::parse(text).map_err(|e| format!("the page request: {e}"))?;
+        if !matches!(request, Json::Obj(_)) {
+            return Err("the page request is not a JSON object".into());
+        }
+        let whole = |key: &str| -> Result<Option<usize>, String> {
+            match request.get(key) {
+                None | Some(Json::Null) => Ok(None),
+                Some(v) => v
+                    .as_i64()
+                    .and_then(|n| usize::try_from(n).ok())
+                    .map(Some)
+                    .ok_or_else(|| format!("'{key}' must be a whole number")),
+            }
+        };
+        if let Some(offset) = whole("offset")? {
+            page.offset = offset;
+        }
+        if let Some(limit) = whole("limit")? {
+            page.limit = limit.clamp(1, MAX_PAGE_LIMIT);
+        }
+        match request.get("includeHidden") {
+            None | Some(Json::Null) => {}
+            Some(Json::Bool(b)) => page.include_hidden = *b,
+            Some(_) => return Err("'includeHidden' must be true or false".into()),
+        }
+        Ok(page)
+    }
+
+    /// The request as a [`READ_PICTURE`] payload.
+    pub fn encode(&self) -> Vec<u8> {
+        Json::obj(vec![
+            ("offset", count(self.offset as u64)),
+            ("limit", count(self.limit as u64)),
+            ("includeHidden", Json::Bool(self.include_hidden)),
+        ])
+        .encode()
+        .into_bytes()
+    }
+}
+
+/// The JSON body of one picture page, at most [`MAX_PAGE_BODY`] bytes: the limit is
+/// halved until it fits. An entity too large to fit on a page by itself is sent
+/// with its attributes left out and `attributesOmitted` set.
+fn picture_page(picture: &Picture, page: &PageRequest) -> String {
+    let layers: Vec<Json> = picture
+        .layers()
+        .map(|layer| {
+            Json::obj(vec![
+                ("id", Json::s(&layer.id.0)),
+                ("name", Json::s(&layer.name)),
+                ("visible", Json::Bool(picture.is_layer_visible(&layer.id))),
+            ])
+        })
+        .collect();
+    let shown = |e: &&TrackedEntity| page.include_hidden || picture.is_layer_visible(&e.layer);
+    let total = picture.entities().filter(shown).count();
+    let encode = |limit: usize, omit_attributes: bool| {
+        let entities: Vec<Json> = picture
+            .entities()
+            .filter(shown)
+            .skip(page.offset)
+            .take(limit)
+            .map(|e| entity_json(e, omit_attributes))
+            .collect();
+        let returned = entities.len();
+        Json::obj(vec![
+            ("layers", Json::Arr(layers.clone())),
+            ("entities", Json::Arr(entities)),
+            ("total", count(total as u64)),
+            ("offset", count(page.offset as u64)),
+            ("limit", count(limit as u64)),
+            (
+                "truncated",
+                Json::Bool(page.offset.saturating_add(returned) < total),
+            ),
+        ])
+        .encode()
+    };
+    let mut limit = page.limit;
+    let mut body = encode(limit, false);
+    while body.len() > MAX_PAGE_BODY && limit > 1 {
+        limit /= 2;
+        body = encode(limit, false);
+    }
+    if body.len() > MAX_PAGE_BODY {
+        body = encode(1, true);
+    }
+    body
 }
 
 /// Parse `key=value,key=value` observation attributes: `true`/`false` are booleans, a
