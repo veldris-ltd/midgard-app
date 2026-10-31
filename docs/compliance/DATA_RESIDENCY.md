@@ -10,7 +10,7 @@ the platform, enforced and testable in code.
 | Data class | Where it lives | Leaves the enclosure? |
 |------------|----------------|-----------------------|
 | Object fabric / datasets / operating picture | In-enclosure KMS-sealed stores | **No** |
-| Long-lived secrets (KMS root, CA/IdP keys, workload keys) | HSM/TPM or in-enclosure sealed storage | **No** |
+| Long-lived secrets (KMS root, CA/IdP keys, workload keys) | In-enclosure keystore files: the ML-DSA keys sealed under an ML-KEM-1024 root, the root wrapped under an operator passphrase (PBKDF2-HMAC-SHA256, 600,000 iterations, AES-256-GCM). An HSM/TPM root (`RootWrap::External`) is supported by the format but not yet wired to a device. | **No** |
 | Audit chain, config history | In-enclosure append-only sealed journals | **No** |
 | Credentials / MFA enrolments | In-enclosure durable directory (encrypted) | **No** |
 | Telemetry (logs, metrics, traces) | In-enclosure; **pull-only** collector | **No** |
@@ -24,8 +24,9 @@ the platform, enforced and testable in code.
 - **Pull, don't push.** Observability is scraped by an in-enclosure collector
   (`/metrics`, `/health`, `/ready`); nothing is exported.
 - **Encrypted at rest, in place.** Every durable store is sealed under a KMS-wrapped
-  key that never leaves the enclosure (and, with a hardware root, never leaves the
-  device).
+  key that never leaves the enclosure. In the software tier its custody root is held in
+  a keystore file only wrapped under an operator passphrase kept apart from the data;
+  with a hardware root, the root would never leave the device. [VLD-ANB-MIDGARD-0007]
 - **Encrypted in transit, internally.** Service-to-service is PQ-mTLS; there is no
   external transit to reside anywhere else.
 - **Sandboxed ingress.** Connectors that would reach out enforce `SandboxPolicy`

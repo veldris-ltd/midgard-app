@@ -343,6 +343,8 @@ js-build *only:
 # The signing key is named explicitly and is never searched for: set
 # MIDGARD_SIGNING_KEYSTORE to a keystore produced by `just keygen`. Unset means
 # the stage fails, which is the point — a release that cannot sign must not pass.
+# Its root is wrapped under the passphrase in MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE
+# (else the file MIDGARD_KEYSTORE_PASSPHRASE_FILE names). [VLD-ANB-MIDGARD-0007]
 sign path:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -351,10 +353,13 @@ sign path:
     # artefacts were proven bit-reproducible for this build.
     repro=()
     [ -n "${MIDGARD_REPRO_REPORT:-}" ] && [ -f "${MIDGARD_REPRO_REPORT}" ] && repro=(--repro "${MIDGARD_REPRO_REPORT}")
-    cargo run -q --release -p mg-sign -- sign --keystore "$MIDGARD_SIGNING_KEYSTORE" "${repro[@]}" "{{path}}"
+    pass=()
+    [ -n "${MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE:-}" ] && pass=(--keystore-passphrase-file "${MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE}")
+    cargo run -q --release -p mg-sign -- sign --keystore "$MIDGARD_SIGNING_KEYSTORE" "${pass[@]}" "${repro[@]}" "{{path}}"
 
 # Generate a signing keystore and export its trust anchor. Local/dev use; real
-# key ceremonies, rotation and distribution are RF-SC-8.
+# key ceremonies, rotation and distribution are RF-SC-8. The keystore's root is wrapped
+# under the passphrase in the file MIDGARD_KEYSTORE_PASSPHRASE_FILE names.
 keygen keystore="mg.keystore" anchor="mg.pub":
     cargo run -q --release -p mg-sign -- keygen --keystore "{{keystore}}" --export-verifying-key "{{anchor}}"
 

@@ -40,8 +40,12 @@ This is the exact sequence the tested drill follows. Time it; it is the RTO cloc
    node cannot serve stale state.
 3. **Provision** a replacement node from the signed air-gap bundle (RT-19); verify the
    image signature before boot.
-4. **Recover the trust root**: bring up the HSM/TPM (or restore escrowed root material)
-   and confirm root **attestation** verifies (RT-28) before touching data.
+4. **Recover the trust root**: in the software tier, retrieve each keystore's
+   passphrase from the secret store (held apart from the data backup) and confirm each
+   restored keystore unlocks (`mg-admin keystore verify --keystore FILE`); with a
+   hardware root, bring up the HSM/TPM and confirm root **attestation** verifies
+   (RT-28). Do this before touching data. A lost passphrase is a lost enclosure.
+   [VLD-ANB-MIDGARD-0007]
 5. **Retrieve backups**: copy each store's latest sealed-journal snapshot from the
    backup vault to the replacement node's data directory (see BACKUP_RESTORE.md for the
    store→path map).

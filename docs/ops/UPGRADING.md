@@ -27,13 +27,16 @@ The short version, for each way of running Midgard:
 | Break-glass needs two people holding the right roles. | MG-SEC-07 | The requester needs `breakglass.request` and the approver `breakglass.approve` (the Security-Officer role), each signed in with their own passkey. Check your role bindings before you need it. |
 | Model manifests are format 2, signed over their own bytes; a model sidecar loads a staged copy of the verified weights. | MG-SEC-14 | A format-1 manifest is refused, and `mimir-server` with `--engine llama-cpp` or `vllm` needs `--serve-dir`. → [Step 6](#6--re-sign-models-and-give-the-sidecar-a-serve-directory). |
 | The image no longer reads `MIDGARD_RELEASE_TRUST_KEY`. | MG-SEC-14 | Verification always uses `/trust/release-trust.pub`. Remove the variable from your environment; it has no effect. |
+| Keystores are format version 2: the custody root is wrapped under a passphrase, and every program that opens one needs `--keystore-passphrase-file` or `MIDGARD_KEYSTORE_PASSPHRASE_FILE`. | VLD-ANB-MIDGARD-0007 | A version 1 keystore (root in the clear) is refused everywhere. → [Keystores](#keystores-wrap-the-custody-root). |
 
 ## 1 — Back up
 
 Take the backup in [BACKUP_RESTORE.md](BACKUP_RESTORE.md) of the gateway's state
 directory, every service's state directory, and every identity directory. The steps below
-write new certificates and checkpoints; they never delete or replace a keystore, but a
-backup is how you go back.
+write new certificates and checkpoints and rewrite each keystore once, wrapped (the keys
+inside are kept), but a backup is how you go back. Keep the pre-migration keystores in
+the secret store, not on the host, until the release has soaked, then destroy them: they
+hold the custody root in the clear.
 
 ## 2 — Stop everything, then install the new build
 
@@ -41,6 +44,30 @@ Stop the gateway and every mesh service (`mimir-server`, `bifrost-fleet`, `heimd
 `forge-worker`, and any agents, sources or probes). The steps below take the state
 directory's lock, which a running gateway holds, and a service must not be appending to a
 ledger while it is adopted. Then install the new binaries or images.
+
+### Keystores: wrap the custody root
+
+Before anything opens a keystore, give each keystore holder a passphrase and migrate its
+keystores. Compose `init` and `mg-install`'s repair do this themselves: each holder gets a
+random passphrase in a volume of its own (`<holder>-passphrase`), and every version 1
+keystore is migrated under it. By hand, for each holder (the state directory's `keys/`
+and the gateway's mesh identity share one; each other service directory has its own):
+
+```bash
+umask 077; head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n' > /secrets/mimir.passphrase
+mg-admin keystore migrate --keystore DIR/mimir-server.keystore --keystore-passphrase-file /secrets/mimir.passphrase
+mg-admin keystore migrate --keystore DIR/mimir-server.audit.keystore --keystore-passphrase-file /secrets/mimir.passphrase
+mg-admin keystore verify --keystore DIR/mimir-server.keystore --keystore-passphrase-file /secrets/mimir.passphrase
+```
+
+Then pass each service `--keystore-passphrase-file FILE` (or set
+`MIDGARD_KEYSTORE_PASSPHRASE_FILE`). Keep the passphrase off the keystore's volume and out
+of its backups: it is the recovery secret, and a lost passphrase is a lost enclosure.
+Migration keeps the same root, so destroy every other copy of each version 1 file
+(backups, volumes, Secrets); where one may have been exposed, re-initialise that
+enclosure instead of migrating it. Release and admission keystores on the signing runner,
+and Dvalin's ceremony output, are migrated the same way ([PKI.md](PKI.md),
+[KEY_CEREMONY.md](KEY_CEREMONY.md)). [VLD-ANB-MIDGARD-0007]
 
 ## 3 — Adopt the audit ledgers
 

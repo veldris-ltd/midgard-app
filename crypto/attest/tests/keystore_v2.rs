@@ -1,4 +1,4 @@
-//! WP-50 — keystore format version 2: the ML-KEM-1024 custody root is wrapped under
+//! WP-50: keystore format version 2: the ML-KEM-1024 custody root is wrapped under
 //! an operator passphrase or an external trust root, version 1 (root in the clear) is
 //! refused by every reader and migrated once, and key files and directories are
 //! private from creation. Acceptance criteria AC-50.1 … AC-50.5.

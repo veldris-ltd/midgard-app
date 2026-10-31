@@ -292,6 +292,25 @@ CONTRIBUTING.md for the version policy.
     root with mode 0600 or 0400, as `answers.example` always said.
   - The installer can be sourced without running, and
     `tools/ci/tests/mg-install.test.sh` tests these checks unprivileged.
+- **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
+  version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
+  identity directory, the audit ledger and the object store: under an operator
+  passphrase (PBKDF2-HMAC-SHA256 at 600,000 iterations with a fresh 32-byte salt,
+  AES-256-GCM bound to the key id), or sealed to an external `kms::TrustRoot`, the HSM
+  or TPM seam (tested against the SoftHSM stand-in). A wrong passphrase is reported as
+  locked, never as corruption. Every program that opens a keystore reads the passphrase
+  from `--keystore-passphrase-file` or the file `MIDGARD_KEYSTORE_PASSPHRASE_FILE`
+  names, and refuses to start with neither. Version 1 keystores are refused by every
+  reader; `mg-admin keystore migrate` converts one in place after proving the new file
+  unseals the same key, and `mg-admin keystore verify` checks one unlocks. Key files are
+  created 0600 with `create_new` and renamed into place, never overwritten (so `mg-sign
+  keygen` refuses an existing keystore), and `keys/` and mesh `--out` directories are
+  created 0700. Compose `init` gives each keystore holder a random passphrase in a
+  volume of its own and migrates existing keystores, so re-running it is the upgrade;
+  the release jobs need `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+  `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`. The README, BACKUP_RESTORE, DR_PLAN, PKI,
+  KEY_CEREMONY, UPGRADING and DATA_RESIDENCY documents now describe the custody the
+  software delivers. [VLD-ANB-MIDGARD-0007] [NFR-PQ-2]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

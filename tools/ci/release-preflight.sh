@@ -8,6 +8,8 @@
 #
 # Environment (the workflow maps runner secrets onto these; none has a default):
 #   MIDGARD_SIGNING_KEYSTORE   the release signing keystore (ML-DSA-87)
+#   MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE, MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE
+#                              the passphrases those keystores' roots are wrapped under
 #   MIDGARD_BIFROST_KEYSTORE   the Bifrost admission keystore (ML-DSA-65): registry
 #                              admission and the air-gap bundle
 #   MIDGARD_BIFROST_REGISTRY   the Bifrost artefact registry directory
@@ -103,7 +105,10 @@ else
 fi
 
 # 3. Key material: named explicitly, readable, and never inside the checkout.
-for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE; do
+# Each keystore's passphrase is a separate secret, mounted read-only like the keystore;
+# without it the keystore does not open. [VLD-ANB-MIDGARD-0007]
+for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE \
+    MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
     path="${!var:-}"
     if [ -z "$path" ]; then
         bad "$var is not configured (runner secret ${var}_PATH)"

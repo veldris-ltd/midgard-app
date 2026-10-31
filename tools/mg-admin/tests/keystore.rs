@@ -1,4 +1,4 @@
-//! WP-50 — `mg-admin keystore migrate|verify`, driving the real binary. A version 1
+//! WP-50: `mg-admin keystore migrate|verify`, driving the real binary. A version 1
 //! keystore (custody root in the clear), as an earlier release wrote, is refused by
 //! every reader with the migrate hint; `keystore migrate` converts it in place to
 //! version 2 under the passphrase, keeping the key, and `keystore verify` then unlocks

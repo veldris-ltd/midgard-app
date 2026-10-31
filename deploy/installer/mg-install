@@ -1428,10 +1428,12 @@ issue_feed_identities() {
             if [ -f "/vol/heimdall-clients/$feed.keystore" ]; then
                 # Kept keys, current certificate: a no-op unless an earlier
                 # release issued it. [MG-SEC-02]
-                mg-admin mesh upgrade --state-dir /vol/core-state --service "$feed"                     --roles feed-source --out /vol/heimdall-clients
+                mg-admin mesh upgrade --state-dir /vol/core-state --service "$feed"                     --roles feed-source --out /vol/heimdall-clients \
+                    --identity-passphrase-file /vol/heimdall-clients-passphrase/passphrase
             else
                 mg-admin mesh issue --state-dir /vol/core-state --service "$feed" \
-                    --roles feed-source --out /vol/heimdall-clients
+                    --roles feed-source --out /vol/heimdall-clients \
+                    --identity-passphrase-file /vol/heimdall-clients-passphrase/passphrase
             fi
         done' sh $feeds
 }
@@ -1944,7 +1946,7 @@ cmd_backup() {
     note "  sealed keys. Protect the backup as you would the server itself."
     echo
     dc stop >/dev/null 2>&1
-    for v in $(docker volume ls -q --filter label=com.docker.compose.project=midgard) midgard-models midgard-model-signing; do
+    for v in $(docker volume ls -q --filter label=com.docker.compose.project=midgard) midgard-models midgard-model-signing midgard-model-signing-passphrase; do
         docker volume inspect "$v" >/dev/null 2>&1 || continue
         docker run --rm --network none -u 0 -v "$v:/v:ro" -v "$dest:/b" "$DEV_IMAGE" \
             tar -C /v -czf "/b/$v.tar.gz" . && ok "$v" && n=$((n + 1))
