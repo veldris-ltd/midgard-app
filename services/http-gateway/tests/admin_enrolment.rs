@@ -24,7 +24,9 @@ use admin_identity::{
 use admin_privilege::{ActionState, DurablePrivilege};
 use attest::Keystore;
 use audit_writer::{LedgerId, Sealer};
-use http_gateway::admin_api::{AdminControl, RoleCatalogue, ACTIVATION_TTL, MAX_CHALLENGES_PER_ADMIN};
+use http_gateway::admin_api::{
+    AdminControl, RoleCatalogue, ACTIVATION_TTL, MAX_CHALLENGES_PER_ADMIN,
+};
 use http_gateway::boot::{open_state_dir, DurableGateway};
 use http_gateway::http::{Request, Response};
 use http_gateway::json::parse;
@@ -323,7 +325,12 @@ fn enrol(gw: &DurableGateway, devices: &Devices, subject: &str) -> Response {
     let r = post(
         gw,
         "/api/v1/admin/enrolments/approve",
-        &approve_body("bob", &proof(gw, "bob", device(devices, "bob")), &id, subject),
+        &approve_body(
+            "bob",
+            &proof(gw, "bob", device(devices, "bob")),
+            &id,
+            subject,
+        ),
         None,
     );
     assert_eq!(r.status, 200, "{}", r.body);
@@ -543,7 +550,11 @@ fn a_requester_cannot_supply_credential_material() {
             let r = post(
                 gw,
                 "/api/v1/admin/enrolments",
-                &request_with("alice", &proof(gw, "alice", device(&devices, "alice")), &carrying),
+                &request_with(
+                    "alice",
+                    &proof(gw, "alice", device(&devices, "alice")),
+                    &carrying,
+                ),
                 None,
             );
             assert_eq!(r.status, 400, "{extra}: {}", r.body);
@@ -596,7 +607,12 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
         let r = post(
             gw,
             "/api/v1/admin/enrolments/approve",
-            &approve_body("bob", &proof(gw, "bob", device(&devices, "bob")), &id, "mallory"),
+            &approve_body(
+                "bob",
+                &proof(gw, "bob", device(&devices, "bob")),
+                &id,
+                "mallory",
+            ),
             None,
         );
         assert_eq!(r.status, 409, "{}", r.body);
@@ -604,7 +620,12 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
         let approved = post(
             gw,
             "/api/v1/admin/enrolments/approve",
-            &approve_body("bob", &proof(gw, "bob", device(&devices, "bob")), &id, "olivia"),
+            &approve_body(
+                "bob",
+                &proof(gw, "bob", device(&devices, "bob")),
+                &id,
+                "olivia",
+            ),
             None,
         );
         assert_eq!(approved.status, 200, "{}", approved.body);
@@ -715,7 +736,11 @@ fn roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_f
         let r = post(
             gw,
             "/api/v1/admin/enrolments",
-            &request_with("alice", &proof(gw, "alice", device(&devices, "alice")), &body),
+            &request_with(
+                "alice",
+                &proof(gw, "alice", device(&devices, "alice")),
+                &body,
+            ),
             None,
         );
         assert_eq!(r.status, 400, "{}", r.body);
@@ -735,7 +760,11 @@ fn roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_f
     let r = post(
         gw,
         "/api/v1/admin/enrolments",
-        &request_with("alice", &proof(gw, "alice", device(&devices, "alice")), &valid),
+        &request_with(
+            "alice",
+            &proof(gw, "alice", device(&devices, "alice")),
+            &valid,
+        ),
         None,
     );
     assert_eq!(r.status, 200, "{}", r.body);
