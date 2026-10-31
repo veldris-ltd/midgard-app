@@ -2,6 +2,11 @@
 //! signature over a domain-separated preimage — the post-quantum analogue of a
 //! signed JWT, but self-contained (no JOSE, no external libs). Verification is
 //! fully offline: it needs only the issuer's verifying key. [NFR-SEC-2] [NFR-PRV-1]
+//!
+//! Every token carries a random 128-bit id, so one session can be revoked without
+//! touching any other: a consumer that keeps a deny list (see
+//! [`crate::revocation::RevocationList`]) refuses a revoked id after the signature
+//! and window checks pass. [VLD-ANB-MIDGARD-0021]
 
 use std::collections::BTreeSet;
 
@@ -9,8 +14,10 @@ use policy::{ClassificationLevel, Clearance, Compartment, Purpose, Role, Subject
 use pqc_agility::{CryptoProvider, SigId, Signature, SigningKey, VerifyingKey};
 
 /// Domain separator so a token signature can never be confused with any other
-/// ML-DSA signature the platform produces (certs, artefacts, audit entries).
-const TOKEN_DOMAIN: &[u8] = b"midgard-token-v1";
+/// ML-DSA signature the platform produces (certs, artefacts, audit entries). It is
+/// in the signed preimage, so a token minted under an earlier format (v1 carried no
+/// token id) can never verify under this one. [VLD-ANB-MIDGARD-0021]
+const TOKEN_DOMAIN: &[u8] = b"midgard-token-v2";
 
 /// The asserted claims. Times are Unix seconds; the clock is injected so signing
 /// and verification are deterministic and testable.
@@ -32,6 +39,9 @@ pub struct TokenClaims {
     pub issued_at: u64,
     /// Expiry (Unix seconds, exclusive).
     pub expires_at: u64,
+    /// A random id naming this one token, the key a revocation is recorded under.
+    /// [VLD-ANB-MIDGARD-0021]
+    pub token_id: [u8; 16],
 }
 
 impl TokenClaims {
@@ -48,6 +58,18 @@ impl TokenClaims {
             },
             purposes,
         }
+    }
+
+    /// The token id as lowercase hex, for logs and audit rows. It names the token
+    /// without being a credential: the signature is what authenticates.
+    pub fn token_id_hex(&self) -> String {
+        use std::fmt::Write as _;
+        self.token_id
+            .iter()
+            .fold(String::with_capacity(32), |mut s, b| {
+                let _ = write!(s, "{b:02x}");
+                s
+            })
     }
 }
 
@@ -146,6 +168,7 @@ fn encode_claims(c: &TokenClaims) -> Vec<u8> {
     put_str(&mut o, &c.purpose.0);
     put_u64(&mut o, c.issued_at);
     put_u64(&mut o, c.expires_at);
+    o.extend_from_slice(&c.token_id);
     o
 }
 
@@ -167,6 +190,8 @@ fn decode_claims(b: &[u8]) -> Result<TokenClaims, TokenError> {
     let purpose = Purpose(r.string()?);
     let issued_at = r.u64()?;
     let expires_at = r.u64()?;
+    let mut token_id = [0u8; 16];
+    token_id.copy_from_slice(r.take(16)?);
     if r.pos != r.b.len() {
         return Err(TokenError::Malformed);
     }
@@ -179,6 +204,7 @@ fn decode_claims(b: &[u8]) -> Result<TokenClaims, TokenError> {
         purpose,
         issued_at,
         expires_at,
+        token_id,
     })
 }
 
