@@ -250,17 +250,23 @@ A principal logs in at the edge with a password, and a time-based one-time code 
 
 ### `webauthn-oidc-federation` (reference)
 
-WebAuthn assertion verification, a JWKS endpoint and federation with an enterprise identity provider.
+WebAuthn assertion verification, a JWKS endpoint and federation with an enterprise identity provider. Federation assertions carry an issuer, an audience, a validity window of at most five minutes and a single-use nonce, and the bridge refuses one that is mis-scoped, stale, not yet valid or replayed.
 
-**Until it is operable, say:** "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them."
+**Until it is operable, say:** "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them. Federation assertions carry an issuer, an audience, a validity window and a single-use nonce, and the replay cache is per process."
 
 **Milestone.** The second-factor decision is recorded and the console login uses it (RF-IAM-1, RF-UI-1).
 
 - Source:
   - [`admin/identity/src/webauthn.rs:1`](../../admin/identity/src/webauthn.rs)
   - [`services/iam/src/directory.rs:1`](../../services/iam/src/directory.rs)
+  - [`services/iam/src/federation.rs:1`](../../services/iam/src/federation.rs)
 - Tests:
   - [`admin/identity/tests/passkeys.rs::a_registered_passkey_signs_in_after_a_restart`](../../admin/identity/tests/passkeys.rs)
+  - [`services/iam/tests/federation.rs::a_fresh_assertion_mints_a_local_token`](../../services/iam/tests/federation.rs)
+  - [`services/iam/tests/federation.rs::expired_and_future_assertions_are_refused`](../../services/iam/tests/federation.rs)
+  - [`services/iam/tests/federation.rs::a_replayed_assertion_is_refused_and_the_cache_is_bounded`](../../services/iam/tests/federation.rs)
+  - [`services/iam/tests/federation.rs::audience_and_issuer_mismatches_are_refused`](../../services/iam/tests/federation.rs)
+  - [`services/iam/tests/federation.rs::overlong_lifetime_and_v1_payloads_are_refused`](../../services/iam/tests/federation.rs)
 
 ### `policy-decisions` (operable)
 

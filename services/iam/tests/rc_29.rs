@@ -207,10 +207,21 @@ fn federation_mints_a_local_token_from_a_verified_upstream_assertion() {
         .unwrap();
 
     let idp = Idp::generate("enclave-idp", &mut SeedRng(1)).unwrap();
-    let federation = PqFederation::new(fips_provider(), up_vk.clone(), SigId::MlDsa65);
+    let mut federation = PqFederation::new(
+        fips_provider(),
+        up_vk.clone(),
+        SigId::MlDsa65,
+        "upstream-corp",
+        "midgard-idp",
+    );
 
-    // The upstream vouches for a federated analyst.
+    // The upstream vouches for a federated analyst, scoped to this bridge and fresh.
     let claims = iam::FederatedClaims {
+        issuer: "upstream-corp".into(),
+        audience: "midgard-idp".into(),
+        issued_at: NOW,
+        expires_at: NOW + 120,
+        nonce: [7u8; 16],
         subject: "carol@partner.example".into(),
         user: analyst_user(),
     };
@@ -225,7 +236,7 @@ fn federation_mints_a_local_token_from_a_verified_upstream_assertion() {
     // Federated login mints a local PQ token.
     let token = federated_login(
         &idp,
-        &federation,
+        &mut federation,
         &assertion,
         Purpose("investigation".into()),
         NOW,
@@ -241,7 +252,7 @@ fn federation_mints_a_local_token_from_a_verified_upstream_assertion() {
     bad[8] ^= 0xFF;
     assert!(federated_login(
         &idp,
-        &federation,
+        &mut federation,
         &bad,
         Purpose("investigation".into()),
         NOW,
@@ -263,7 +274,7 @@ fn federation_mints_a_local_token_from_a_verified_upstream_assertion() {
     let assertion2 = PqFederation::encode_assertion(&claims, &sig2);
     assert!(federated_login(
         &idp,
-        &federation,
+        &mut federation,
         &assertion2,
         Purpose("investigation".into()),
         NOW,

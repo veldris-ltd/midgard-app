@@ -159,11 +159,11 @@ stated_in = ["README.md:162", "deploy/README.md:92"]
 [[claim]]
 id = "webauthn-oidc-federation"
 area = "Core: fabric, identity and governance"
-claim = "WebAuthn assertion verification, a JWKS endpoint and federation with an enterprise identity provider."
+claim = "WebAuthn assertion verification, a JWKS endpoint and federation with an enterprise identity provider. Federation assertions carry an issuer, an audience, a validity window of at most five minutes and a single-use nonce, and the bridge refuses one that is mis-scoped, stale, not yet valid or replayed."
 status = "reference"
-evidence = ["admin/identity/src/webauthn.rs:1", "services/iam/src/directory.rs:1"]
-tests = ["admin/identity/tests/passkeys.rs::a_registered_passkey_signs_in_after_a_restart"]
-fallback = "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them."
+evidence = ["admin/identity/src/webauthn.rs:1", "services/iam/src/directory.rs:1", "services/iam/src/federation.rs:1"]
+tests = ["admin/identity/tests/passkeys.rs::a_registered_passkey_signs_in_after_a_restart", "services/iam/tests/federation.rs::a_fresh_assertion_mints_a_local_token", "services/iam/tests/federation.rs::expired_and_future_assertions_are_refused", "services/iam/tests/federation.rs::a_replayed_assertion_is_refused_and_the_cache_is_bounded", "services/iam/tests/federation.rs::audience_and_issuer_mismatches_are_refused", "services/iam/tests/federation.rs::overlong_lifetime_and_v1_payloads_are_refused"]
+fallback = "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them. Federation assertions carry an issuer, an audience, a validity window and a single-use nonce, and the replay cache is per process."
 milestone = "The second-factor decision is recorded and the console login uses it (RF-IAM-1, RF-UI-1)."
 
 [[claim]]
