@@ -502,8 +502,16 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
 - Source:
   - [`forge/worker/src/lib.rs:10`](../../forge/worker/src/lib.rs)
   - [`forge/connector-sdk/src/connector.rs:84`](../../forge/connector-sdk/src/connector.rs)
+  - [`forge/connector-sdk/src/http.rs:127`](../../forge/connector-sdk/src/http.rs)
+  - [`forge/connector-sdk/src/wire.rs:80`](../../forge/connector-sdk/src/wire.rs)
 - Tests:
   - [`forge/engine/tests/rc_27.rs::rc_27_egress_violating_connector_is_blocked`](../../forge/engine/tests/rc_27.rs)
+  - [`forge/connector-sdk/tests/security_wire.rs::a_chunk_size_that_wraps_usize_is_refused_as_data`](../../forge/connector-sdk/tests/security_wire.rs)
+  - [`forge/connector-sdk/tests/security_wire.rs::a_chunk_size_beyond_u64_is_malformed`](../../forge/connector-sdk/tests/security_wire.rs)
+  - [`forge/connector-sdk/tests/security_wire.rs::a_chunk_larger_than_the_remaining_budget_is_refused`](../../forge/connector-sdk/tests/security_wire.rs)
+  - [`forge/connector-sdk/tests/security_wire.rs::two_legitimate_chunks_reassemble_exactly`](../../forge/connector-sdk/tests/security_wire.rs)
+  - [`forge/connector-sdk/src/wire.rs::scram_refuses_an_iteration_count_above_the_ceiling`](../../forge/connector-sdk/src/wire.rs)
+  - [`forge/connector-sdk/src/wire.rs::scram_boundary_counts`](../../forge/connector-sdk/src/wire.rs)
 - Service tests:
   - [`forge/worker/tests/sync.rs::the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh`](../../forge/worker/tests/sync.rs)
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)

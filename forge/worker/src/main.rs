@@ -168,13 +168,23 @@ fn run(args: &Args) -> Result<(), String> {
     loop {
         for (i, job) in jobs.iter().enumerate() {
             if unix_seconds() >= due[i] {
-                let ok = worker.run(
-                    job,
-                    &mut store,
-                    &mut audit,
-                    &mut synced[i],
-                    &mut checkpoints,
-                );
+                // A panic in one job's connector is a failed run, retried like any other,
+                // not the end of the scheduler and every other job with it.
+                // [NFR-SEC-1] [VLD-ANB-MIDGARD-0009]
+                let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    worker.run(
+                        job,
+                        &mut store,
+                        &mut audit,
+                        &mut synced[i],
+                        &mut checkpoints,
+                    )
+                }))
+                .unwrap_or_else(|_| {
+                    Logger::new(service, &StdoutJsonSink)
+                        .error("job run panicked", &[("job", &job.id)]);
+                    false
+                });
                 // A failed run — the gateway not reachable yet, or a link to an object
                 // another job has not synced yet — is retried soon, not a whole
                 // interval later.

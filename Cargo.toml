@@ -91,3 +91,8 @@ publish = false
 # Supports bit-reproducible builds. [AC-M-6] [NFR-OSS-1]
 incremental = false
 codegen-units = 1
+# Wrapping arithmetic on a network-supplied length must panic, not wrap, in every
+# hand-rolled parser in the workspace. Defence in depth: the parsers check their own
+# lengths. The flag is deterministic, so reproducibility is unaffected.
+# [NFR-SEC-1] [VLD-ANB-MIDGARD-0009] (ANUBIS WP-34)
+overflow-checks = true
