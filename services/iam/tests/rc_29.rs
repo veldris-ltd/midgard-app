@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use iam::{
-    federated_login, verify_token, Activation, AuthError, Authenticator, Credentials,
+    federated_login, verify_token, Activation, AuthError, Authenticator, Credentials, Directory,
     DurableDirectory, Enrollment, Idp, InMemoryDirectory, MfaProof, PasswordHasher, Pbkdf2Hasher,
     PqFederation, TotpSecret, UserRecord,
 };
@@ -74,6 +74,7 @@ fn credentials_and_mfa_are_verified_before_a_token_is_minted() {
                 totp: Some(totp.clone()),
                 passkeys: vec![],
                 activation: None,
+                totp_last_step: None,
             },
         },
     )
@@ -168,6 +169,7 @@ fn the_directory_survives_a_restart() {
                     totp: None,
                     passkeys: vec![],
                     activation: None,
+                    totp_last_step: None,
                 },
             },
         )
@@ -300,6 +302,7 @@ fn unactivated(hasher: &Pbkdf2Hasher) -> Enrollment {
                 expires_at: NOW + 72 * 3600,
                 totp_confirmed: false,
             }),
+            totp_last_step: None,
         },
     }
 }
@@ -382,7 +385,7 @@ fn encode_v1(subject: &str, e: &Enrollment) -> Vec<u8> {
 
 /// [AC-15.2] [VLD-ANB-MIDGARD-0002] A directory written by an earlier build opens,
 /// its entries without a pending activation; what is written now is the tagged
-/// version-2 record, carrying the activation across a restart.
+/// record (version 3 since WP-57), carrying the activation across a restart.
 #[test]
 fn the_directory_reads_v1_records_and_writes_v2() {
     let dir_path = std::env::temp_dir().join(format!("iam-rc29-v1v2-{}.log", std::process::id()));
@@ -395,6 +398,7 @@ fn the_directory_reads_v1_records_and_writes_v2() {
             totp: Some(TotpSecret::new(vec![9u8; 20])),
             passkeys: vec![],
             activation: None,
+            totp_last_step: None,
         },
     };
     {
@@ -424,8 +428,8 @@ fn the_directory_reads_v1_records_and_writes_v2() {
     assert_ne!(records[0][0], 0xFF, "the earlier record is untagged");
     assert_eq!(
         &records[1][..3],
-        &[0xFF, 2, 0],
-        "the new record is tagged v2"
+        &[0xFF, 3, 0],
+        "the new record is tagged v3"
     );
 
     let dir = DurableDirectory::open(&dir_path, sealer(5)).unwrap();
@@ -451,4 +455,152 @@ fn unactivated_with(hasher: &Pbkdf2Hasher, read: Option<&Enrollment>) -> Enrollm
         .map(|a| a.code_hash.clone())
         .unwrap_or_default();
     expected
+}
+
+/// An analyst with a password and a TOTP factor, nothing yet accepted.
+fn with_totp(hasher: &Pbkdf2Hasher, totp: &TotpSecret) -> Enrollment {
+    Enrollment {
+        user: analyst_user(),
+        credentials: Credentials {
+            password_hash: hasher.hash(b"correct horse battery staple"),
+            totp: Some(totp.clone()),
+            ..Credentials::default()
+        },
+    }
+}
+
+/// [AC-57.4] [VLD-ANB-MIDGARD-0026] A login refused for its password never consumes
+/// the TOTP step it carried: the same code then logs in with the right password.
+#[test]
+fn a_wrong_password_does_not_consume_the_totp_step() {
+    let idp = Idp::generate("enclave-idp", &mut SeedRng(1)).unwrap();
+    let hasher = Pbkdf2Hasher::new(1000);
+    let totp = TotpSecret::new(b"a-shared-totp-secret-32-bytes-xx".to_vec());
+    let mut dir = InMemoryDirectory::new();
+    dir.enroll("frank", with_totp(&hasher, &totp));
+
+    let attempt = |dir: &InMemoryDirectory, password: &[u8]| {
+        Authenticator::new(&idp, dir, &hasher).authenticate_full(
+            "frank",
+            password,
+            MfaProof::Totp(totp.code_at(NOW)),
+            Purpose("investigation".into()),
+            NOW,
+            TTL,
+        )
+    };
+    assert_eq!(attempt(&dir, b"wrong"), Err(AuthError::BadPassword));
+    let entry = dir.enrollment("frank").unwrap();
+    assert_eq!(
+        entry.credentials.totp_last_step, None,
+        "nothing was accepted"
+    );
+
+    let outcome = attempt(&dir, b"correct horse battery staple").expect("the code still logs in");
+    assert_eq!(outcome.totp_step, Some(NOW / 30));
+    assert!(verify_token(idp.provider(), idp.verifying_key(), &outcome.token, NOW).is_ok());
+}
+
+/// [AC-57.1] [VLD-ANB-MIDGARD-0026] Once the step a code matched is recorded, the
+/// authenticator refuses that code as a bad second factor, and the next step's code
+/// logs in and reports the next step.
+#[test]
+fn a_reused_code_is_refused_by_the_authenticator() {
+    let idp = Idp::generate("enclave-idp", &mut SeedRng(1)).unwrap();
+    let hasher = Pbkdf2Hasher::new(1000);
+    let totp = TotpSecret::new(b"a-shared-totp-secret-32-bytes-xx".to_vec());
+    let mut dir = InMemoryDirectory::new();
+    dir.enroll("frank", with_totp(&hasher, &totp));
+
+    let attempt = |dir: &InMemoryDirectory, code: String, now: u64| {
+        Authenticator::new(&idp, dir, &hasher).authenticate_full(
+            "frank",
+            b"correct horse battery staple",
+            MfaProof::Totp(code),
+            Purpose("investigation".into()),
+            now,
+            TTL,
+        )
+    };
+    let first = attempt(&dir, totp.code_at(NOW), NOW).expect("the first use logs in");
+    let step = first.totp_step.expect("a TOTP login reports its step");
+    assert_eq!(step, NOW / 30);
+    assert!(dir.record_totp_step("frank", step));
+
+    assert_eq!(
+        attempt(&dir, totp.code_at(NOW), NOW + 5),
+        Err(AuthError::BadMfa),
+        "the same code is refused"
+    );
+    let next = attempt(&dir, totp.code_at(NOW + 30), NOW + 5).expect("the next code logs in");
+    assert_eq!(next.totp_step, Some(step + 1));
+}
+
+/// [AC-57.2] [VLD-ANB-MIDGARD-0026] A directory written by the previous build (tagged
+/// version 2) opens with no last accepted step. A recorded step is a small tagged
+/// record that survives a restart; an older step writes nothing, and replacing the
+/// credentials keeps the step.
+#[test]
+fn the_directory_reads_v2_records_and_replays_totp_steps() {
+    let dir_path = std::env::temp_dir().join(format!("iam-rc29-v2v3-{}.log", std::process::id()));
+    let _ = std::fs::remove_file(&dir_path);
+    let hasher = Pbkdf2Hasher::new(1000);
+    let totp = TotpSecret::new(vec![9u8; 20]);
+    let legacy = with_totp(&hasher, &totp);
+    let records = || {
+        let (_, records) =
+            audit_writer::SealedJournal::open(&dir_path, sealer(6), b"iam-directory-v1").unwrap();
+        records
+    };
+    {
+        // The previous build's record: tagged version 2, no pending activation.
+        let (mut journal, _) =
+            audit_writer::SealedJournal::open(&dir_path, sealer(6), b"iam-directory-v1").unwrap();
+        let mut v2 = vec![0xFF, 2, 0];
+        v2.extend_from_slice(&encode_v1("erin", &legacy));
+        v2.push(0);
+        journal.append(&v2).unwrap();
+    }
+
+    {
+        let mut dir = DurableDirectory::open(&dir_path, sealer(6)).expect("a v2 directory opens");
+        assert_eq!(dir.get("erin"), Some(&legacy), "every v2 field survives");
+        assert!(dir.record_totp_step("erin", NOW / 30).unwrap());
+        assert!(dir.record_totp_step("erin", NOW / 30 - 1).unwrap());
+        assert!(!dir.record_totp_step("nobody", NOW / 30).unwrap());
+    }
+    let written = records();
+    assert_eq!(written.len(), 2, "an older step writes nothing");
+    assert_eq!(
+        &written[1][..3],
+        &[0xFF, 3, 1],
+        "a step record is tagged v3 kind 1"
+    );
+
+    {
+        let mut dir = DurableDirectory::open(&dir_path, sealer(6)).unwrap();
+        let entry = dir.get("erin").unwrap();
+        assert_eq!(entry.credentials.totp_last_step, Some(NOW / 30));
+        let mut credentials = legacy.credentials.clone();
+        credentials.password_hash = hasher.hash(b"a new password");
+        assert!(dir.update_credentials("erin", credentials).unwrap());
+        assert_eq!(
+            dir.get("erin").unwrap().credentials.totp_last_step,
+            Some(NOW / 30)
+        );
+    }
+    let written = records();
+    assert_eq!(written.len(), 3);
+    assert_eq!(
+        &written[2][..3],
+        &[0xFF, 3, 0],
+        "a full record is tagged v3"
+    );
+
+    let dir = DurableDirectory::open(&dir_path, sealer(6)).unwrap();
+    let entry = dir.get("erin").unwrap();
+    assert_eq!(entry.credentials.totp_last_step, Some(NOW / 30));
+    assert!(hasher.verify(b"a new password", &entry.credentials.password_hash));
+
+    let _ = std::fs::remove_file(&dir_path);
 }

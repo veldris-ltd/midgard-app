@@ -24,7 +24,7 @@ pub mod store;
 pub mod token;
 
 pub use auth::{
-    AuthError, Authenticator, Login, MfaProof, PasswordUpgrade, UpgradingAuthenticator,
+    AuthError, AuthOutcome, Authenticator, Login, MfaProof, PasswordUpgrade, UpgradingAuthenticator,
 };
 pub use directory::{
     Activation, Credentials, Directory, DurableDirectory, Enrollment, InMemoryDirectory,

@@ -56,6 +56,18 @@ impl std::fmt::Display for AuthError {
 }
 impl std::error::Error for AuthError {}
 
+/// A successful authentication: the minted token and, when a TOTP code was the
+/// second factor, the time step it matched. The caller persists that step with the
+/// directory's `record_totp_step` before releasing the token, under the same lock as
+/// the check, so the code cannot be used again. [VLD-ANB-MIDGARD-0026]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthOutcome {
+    /// The PQ-signed access token.
+    pub token: Vec<u8>,
+    /// The TOTP step accepted, if the second factor was a TOTP code.
+    pub totp_step: Option<u64>,
+}
+
 /// The authenticator ties an IdP (token minting), a directory (attributes +
 /// credentials), and a password hasher together. The directory is the durable one by
 /// default; any [`Directory`] authenticates through the same checks, and both the
@@ -91,8 +103,25 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
         now: u64,
         ttl_secs: u64,
     ) -> Result<Vec<u8>, AuthError> {
+        self.authenticate_full(subject, password, mfa, purpose, now, ttl_secs)
+            .map(|outcome| outcome.token)
+    }
+
+    /// Authenticate exactly as [`Self::authenticate`] does and also return the TOTP
+    /// step accepted, which the caller must persist before the token leaves so the code
+    /// is single use. A code for the principal's last accepted step, or an earlier
+    /// one, is refused as [`AuthError::BadMfa`]. [VLD-ANB-MIDGARD-0026] [RC-29]
+    pub fn authenticate_full(
+        &self,
+        subject: &str,
+        password: &[u8],
+        mfa: MfaProof,
+        purpose: Purpose,
+        now: u64,
+        ttl_secs: u64,
+    ) -> Result<AuthOutcome, AuthError> {
         self.check(subject, password, mfa, purpose, now, ttl_secs)
-            .map(|(token, _)| token)
+            .map(|(outcome, _)| outcome)
     }
 
     /// The whole check. On success, also the stored password hash when the hasher
@@ -105,7 +134,7 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
         purpose: Purpose,
         now: u64,
         ttl_secs: u64,
-    ) -> Result<(Vec<u8>, Option<String>), AuthError> {
+    ) -> Result<(AuthOutcome, Option<String>), AuthError> {
         let Some(entry) = self.directory.enrollment(subject) else {
             // Do the password work anyway: an unknown principal must not be refused
             // measurably faster than a known one with a wrong password.
@@ -130,7 +159,10 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
             return Err(AuthError::BadPassword);
         }
 
-        // 2. MFA — mandatory whenever the principal has a factor enrolled.
+        // 2. MFA — mandatory whenever the principal has a factor enrolled. A TOTP code
+        // is accepted once: its step must be later than the last one accepted.
+        // [VLD-ANB-MIDGARD-0026]
+        let mut totp_step = None;
         if entry.credentials.has_mfa() {
             match mfa {
                 MfaProof::Totp(code) => {
@@ -139,9 +171,10 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
                         .totp
                         .as_ref()
                         .ok_or(AuthError::MfaRequired)?;
-                    if !secret.verify(&code, now) {
-                        return Err(AuthError::BadMfa);
-                    }
+                    let step = secret
+                        .verify_step(&code, now, entry.credentials.totp_last_step)
+                        .ok_or(AuthError::BadMfa)?;
+                    totp_step = Some(step);
                 }
                 MfaProof::WebAuthn {
                     assertion,
@@ -167,7 +200,7 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
             .map_err(AuthError::Issue)?;
         let stale = &entry.credentials.password_hash;
         let stale = self.hasher.needs_rehash(stale).then(|| stale.clone());
-        Ok((token, stale))
+        Ok((AuthOutcome { token, totp_step }, stale))
     }
 }
 
@@ -188,13 +221,18 @@ pub enum PasswordUpgrade {
     NotRecorded(String),
 }
 
-/// A successful sign-in: the minted token and what became of the password hash.
+/// A successful sign-in: the minted token, what became of the password hash and the
+/// TOTP step accepted, which the caller persists before releasing the token, as for
+/// [`AuthOutcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Login {
     /// The PQ-signed access token.
     pub token: Vec<u8>,
     /// Whether the stored password hash was upgraded.
     pub upgrade: PasswordUpgrade,
+    /// The TOTP step accepted, if the second factor was a TOTP code.
+    /// [VLD-ANB-MIDGARD-0026]
+    pub totp_step: Option<u64>,
 }
 
 /// The authenticator with **rehash on sign-in**: the same checks as
@@ -232,7 +270,7 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> UpgradingAuthenticat
         now: u64,
         ttl_secs: u64,
     ) -> Result<Login, AuthError> {
-        let (token, stale) = Authenticator::new(self.idp, &*self.directory, self.hasher)
+        let (outcome, stale) = Authenticator::new(self.idp, &*self.directory, self.hasher)
             .check(subject, password, mfa, purpose, now, ttl_secs)?;
         let upgrade = match stale {
             None => PasswordUpgrade::Current,
@@ -248,6 +286,10 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> UpgradingAuthenticat
                 }
             }
         };
-        Ok(Login { token, upgrade })
+        Ok(Login {
+            token: outcome.token,
+            upgrade,
+            totp_step: outcome.totp_step,
+        })
     }
 }

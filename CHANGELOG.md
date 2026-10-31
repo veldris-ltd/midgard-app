@@ -902,6 +902,21 @@ CONTRIBUTING.md for the version policy.
     open, but one written by this version does not open on an older build, so back up
     the state directory before upgrading. Waiting enrolments from an earlier build are
     kept without their credentials and are rewritten on first boot.
+- **A one-time code logs in once.** [VLD-ANB-MIDGARD-0026] A TOTP code was accepted
+  for any of three adjacent 30-second steps and nothing recorded its use, so an
+  observed code could be replayed for up to 90 seconds to mint further one-hour
+  tokens (RFC 6238 section 5.2). The identity directory now keeps, per principal, the
+  step of the last code accepted, and a login refuses a code for that step or an
+  earlier one with the same 401 as any other refusal. The step is written, as a small
+  sealed record, before the directory lock is released and before the token leaves,
+  so two concurrent logins with one code cannot both succeed; if it cannot be written
+  the login fails with 500 and no token. A wrong password never consumes a code. The
+  30-second step, six digits and one step of clock skew are unchanged. Someone who
+  logs in twice within one step (two consoles, say) now waits for the next code.
+  Directory records are now tagged version 3; version 1 and 2 records still open, but
+  a directory written by this version does not open on an older build, so back up the
+  state directory before upgrading. `iam::TotpSecret::verify_step` and
+  `iam::Authenticator::authenticate_full` return the step; `verify` is unchanged.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

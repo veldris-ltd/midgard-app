@@ -150,6 +150,17 @@ impl Logins {
                 .map_err(|e| e.to_string()),
         }
     }
+
+    /// Record the TOTP step `subject` has just logged in with, so the code is not
+    /// accepted again. `Ok(false)` if `subject` is not enrolled. [VLD-ANB-MIDGARD-0026]
+    fn record_totp_step(&mut self, subject: &str, step: u64) -> Result<bool, String> {
+        match self {
+            Logins::InMemory(directory) => Ok(directory.record_totp_step(subject, step)),
+            Logins::Durable(directory) => directory
+                .record_totp_step(subject, step)
+                .map_err(|e| e.to_string()),
+        }
+    }
 }
 
 /// The **secured** HTTP/JSON edge: it verifies the PQ-signed IdP bearer token on
@@ -575,17 +586,28 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // Password, then any enrolled second factor, then the PQ-signed token bound to
         // the principal's attributes — one path, every check fail-closed. [RC-29] A
         // legacy or weaker password hash is replaced with Argon2id once every check has
-        // passed. [MG-SEC-11]
-        let outcome = {
+        // passed. [MG-SEC-11] The TOTP step accepted is recorded before the directory
+        // lock is released, so two logins with one code cannot both succeed; if it
+        // cannot be recorded, no token leaves. [VLD-ANB-MIDGARD-0026]
+        let (outcome, step_not_recorded) = {
             let mut directory = self.recover(&self.directory, "directory");
-            UpgradingAuthenticator::new(idp, &mut *directory, &self.hasher).authenticate(
-                username,
-                password.as_bytes(),
-                mfa,
-                Purpose(LOGIN_PURPOSE.into()),
-                now,
-                TOKEN_TTL,
-            )
+            let outcome = UpgradingAuthenticator::new(idp, &mut *directory, &self.hasher)
+                .authenticate(
+                    username,
+                    password.as_bytes(),
+                    mfa,
+                    Purpose(LOGIN_PURPOSE.into()),
+                    now,
+                    TOKEN_TTL,
+                );
+            let step = outcome.as_ref().ok().and_then(|login| login.totp_step);
+            let not_recorded =
+                step.and_then(|step| match directory.record_totp_step(username, step) {
+                    Ok(true) => None,
+                    Ok(false) => Some("the principal is no longer enrolled".to_string()),
+                    Err(e) => Some(e),
+                });
+            (outcome, not_recorded)
         };
         let upgrade = match &outcome {
             Ok(login) => match &login.upgrade {
@@ -601,8 +623,17 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // on this, its next recorded event; taken before a success clears the name.
         // [VLD-ANB-MIDGARD-0005]
         let suppressed = self.throttle().take_suppressed(username);
-        let (event, response) = match outcome.map(|login| login.token) {
-            Ok(token) => {
+        let (event, response) = match (outcome.map(|login| login.token), step_not_recorded) {
+            // The one-time code could not be recorded, so no token leaves; not a failure
+            // of the credentials: the slot is released, nothing counted.
+            (Ok(_), Some(e)) => {
+                attempt.finish_attempt(Outcome::Error);
+                (
+                    "LOGIN failed",
+                    Response::internal(format!("the one-time code was not recorded: {e}")),
+                )
+            }
+            (Ok(token), None) => {
                 attempt.finish_attempt(Outcome::Success);
                 (
                     "LOGIN succeeded",
@@ -621,7 +652,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 )
             }
             // Not a failure of the credentials: the slot is released, nothing counted.
-            Err(AuthError::Issue(IssueError::Token(e))) => {
+            (Err(AuthError::Issue(IssueError::Token(e))), _) => {
                 attempt.finish_attempt(Outcome::Error);
                 (
                     "LOGIN failed",
@@ -631,7 +662,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             // An unknown principal, a wrong password, a missing or wrong second factor,
             // or a purpose the principal does not hold: one uniform 401, so a caller
             // cannot tell which check refused them. The failure counts towards a lock.
-            Err(_) => match attempt.finish_attempt(Outcome::Failure) {
+            (Err(_), _) => match attempt.finish_attempt(Outcome::Failure) {
                 Some(seconds) => ("LOGIN refused, locked", name_locked(seconds)),
                 None => ("LOGIN refused", unauthorized()),
             },

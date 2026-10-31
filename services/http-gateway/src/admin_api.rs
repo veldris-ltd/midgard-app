@@ -185,6 +185,7 @@ impl ParkedEnrolment {
                     expires_at: now.saturating_add(ACTIVATION_TTL),
                     totp_confirmed: false,
                 }),
+                totp_last_step: None,
             },
         };
         (enrollment, code)
