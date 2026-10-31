@@ -231,6 +231,9 @@ fn main() {
     }
 }
 
+// The mesh door needs everything the serve options name for it, the limits (WP-11)
+// and the keystore passphrase (WP-50) among them.
+#[allow(clippy::too_many_arguments)]
 fn start_mesh(
     gateway: &Arc<DurableGateway>,
     state_dir: &str,

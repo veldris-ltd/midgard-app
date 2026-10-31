@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::Duration;
 
-use attest::Keystore;
+use attest::keystore::test_support::test_passphrase;
+use attest::{Keystore, RootWrap};
 use http_gateway::policy_file::render_policy;
 use http_gateway::state_dir::{StateDir, AUDIT_KEY_ID, IDP_KEY_ID};
 use http_gateway::{DEMO_PASSWORD, DEMO_USERNAME};
@@ -30,6 +31,10 @@ const BIN: &str = env!("CARGO_BIN_EXE_http-gateway");
 /// blocks; a run that did start would hang the test, which is itself a failure.
 fn run(args: &[&str]) -> Output {
     Command::new(BIN)
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::null())
         .output()
@@ -77,10 +82,22 @@ fn provision(tag: &str) -> Scratch {
     std::fs::create_dir_all(state.trust()).unwrap();
     let idp = Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
-    idp.write(&state.idp_keystore()).unwrap();
-    audit.write(&state.audit_keystore()).unwrap();
+    idp.write(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
+    audit
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
+        .unwrap();
     std::fs::write(state.audit_trust_anchor(), audit.export_verifying_key()).unwrap();
-    http_gateway::boot::init_audit_ledger(&state).unwrap();
+    http_gateway::boot::init_audit_ledger(&state, &RootWrap::Passphrase(&test_passphrase()))
+        .unwrap();
     let policy = PolicySet::new(vec![Rule {
         id: RuleId("operator-read".into()),
         role: Role("operator".into()),
@@ -128,6 +145,10 @@ impl Drop for Running {
 
 fn start(args: &[&str]) -> (Running, String, String) {
     let mut child = Command::new(BIN)
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

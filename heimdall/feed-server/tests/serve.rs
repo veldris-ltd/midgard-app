@@ -466,7 +466,12 @@ fn replay_state_persists_across_requests() {
     std::fs::create_dir_all(&state).unwrap();
     std::fs::write(state.join("policy.json"), POLICY).unwrap();
 
-    let radar_1 = ServiceIdentity::load(&clients, "radar-1").unwrap();
+    let radar_1 = ServiceIdentity::load(
+        &clients,
+        "radar-1",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let signed = sign_observation(
         &FipsSig::new(radar_1.cert.identity.sig_alg),
         &radar_1.signing_key,

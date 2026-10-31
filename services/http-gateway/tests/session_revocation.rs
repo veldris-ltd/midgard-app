@@ -9,7 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use attest::Keystore;
+use attest::keystore::test_support::test_passphrase;
+use attest::{Keystore, RootWrap};
 use http_gateway::boot::{open_state_dir, DurableGateway};
 use http_gateway::http::{Request, Response};
 use http_gateway::json::parse;
@@ -198,9 +199,21 @@ fn provision(dir: &Path) -> StateDir {
     std::fs::create_dir_all(state.trust()).unwrap();
     let idp = Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
-    idp.write(&state.idp_keystore()).unwrap();
-    audit.write(&state.audit_keystore()).unwrap();
-    http_gateway::boot::init_audit_ledger(&state).unwrap();
+    idp.write(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
+    audit
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
+        .unwrap();
+    http_gateway::boot::init_audit_ledger(&state, &RootWrap::Passphrase(&test_passphrase()))
+        .unwrap();
 
     let policy = PolicySet::new(vec![Rule {
         id: RuleId("operator-read".into()),
@@ -232,16 +245,24 @@ fn provision(dir: &Path) -> StateDir {
 
 fn pin(state: &StateDir) -> audit_writer::PinnedKey {
     audit_writer::PinnedKey::new(
-        Keystore::read(&state.audit_keystore())
-            .unwrap()
-            .verifying_key,
+        Keystore::read(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .verifying_key,
     )
 }
 
 fn open(state: &StateDir) -> (DurableGateway, http_gateway::state_dir::StateLock) {
-    open_state_dir(state, vec![], &pin(state))
-        .expect("the state directory opens")
-        .into_parts()
+    open_state_dir(
+        state,
+        vec![],
+        &pin(state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("the state directory opens")
+    .into_parts()
 }
 
 /// AC-14.2: a sign-out survives a restart of a durable gateway, and the revocation is

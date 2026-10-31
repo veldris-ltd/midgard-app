@@ -277,9 +277,14 @@ fn a_worker_cannot_sync_above_its_certified_clearance() {
     let internal = certified(ClassificationLevel::CONFIDENTIAL);
     let restricted_facility = r#"{"object":"facility","key":"FAC-R","marking":"restricted","purposes":["operations"],"properties":{"name":"Restricted base"}}"#;
     {
-        let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-            .unwrap()
-            .into_parts();
+        let (gateway, _lock) = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .into_parts();
 
         // A record above the certified clearance refuses the whole sync.
         let batch = [aircraft("AC-1", 100), restricted_facility.to_string()].join("\n");
@@ -313,7 +318,11 @@ fn a_worker_cannot_sync_above_its_certified_clearance() {
         assert_eq!(code, outcome::ACCEPTED, "{message}");
     }
 
-    let audit = Keystore::read(&state.audit_keystore(), &RootWrap::Passphrase(&test_passphrase())).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     {
         let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
@@ -359,7 +368,11 @@ fn level(band: &str) -> ClassificationLevel {
 /// Every governance ledger row, as (action, resource), read from the file the gateway
 /// writes.
 fn ledger_rows(state: &StateDir) -> Vec<(String, String)> {
-    let audit = Keystore::read(&state.audit_keystore(), &RootWrap::Passphrase(&test_passphrase())).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let ledger =
         FileLedger::open(state.ledger(), Box::new(sealer), LedgerId(LEDGER_ID.into())).unwrap();
@@ -387,7 +400,11 @@ fn stored(
     id: &str,
 ) -> Option<ObjectInstance> {
     drop((gateway, lock));
-    let audit = Keystore::read(&state.audit_keystore(), &RootWrap::Passphrase(&test_passphrase())).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
     store.get_object(id).cloned()
@@ -401,9 +418,14 @@ fn a_sync_that_lowers_a_marking_is_refused_and_changes_nothing() {
     let dir = scratch("downgrade");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     let sync = |records: &str| {
         split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW))
     };
@@ -432,7 +454,11 @@ fn a_sync_that_lowers_a_marking_is_refused_and_changes_nothing() {
         "the decision and the refusal, and no record of the batch"
     );
 
-    let audit = Keystore::read(&state.audit_keystore(), &RootWrap::Passphrase(&test_passphrase())).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     drop((gateway, lock));
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
@@ -456,9 +482,14 @@ fn a_sync_may_raise_a_marking_and_narrow_purposes() {
     let dir = scratch("narrow");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     let sync = |records: &str| {
         split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW))
     };
@@ -502,9 +533,14 @@ fn a_sync_above_the_sync_clearance_is_refused() {
     let record = marked("AC-1", "confidential", &["OPS-N"], &["operations"]);
 
     {
-        let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-            .unwrap()
-            .into_parts();
+        let (gateway, _lock) = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .into_parts();
         let before = ledger_rows(&state).len();
         let (code, message) =
             split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
@@ -535,9 +571,14 @@ fn a_sync_above_the_sync_clearance_is_refused() {
         parse_sync_clearance("secret").is_err(),
         "not a marking band"
     );
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     let gateway = gateway.with_sync_clearance(granted);
     let (code, message) =
         split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
@@ -554,9 +595,14 @@ fn an_unpermitted_peer_learns_nothing_from_a_malformed_sync() {
     let dir = scratch("oracle");
     let state = provision(&dir);
     let analyst = workload("analyst-tool", "analyst");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
 
     let before = ledger_rows(&state).len();
     let (code, message) =
@@ -583,9 +629,14 @@ fn a_malformed_sync_from_a_permitted_peer_is_still_audited() {
     let dir = scratch("malformed");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
 
     let before = ledger_rows(&state).len();
     let (code, message) =
@@ -611,9 +662,14 @@ fn a_sync_never_touches_a_human_gated_target() {
     let dir = scratch("gated");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (mut gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state), &RootWrap::Passphrase(&test_passphrase()))
-        .unwrap()
-        .into_parts();
+    let (mut gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     gateway
         .provision_login(
             "olivia",
