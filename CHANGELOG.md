@@ -160,6 +160,18 @@ CONTRIBUTING.md for the version policy.
   there, not chosen files; and seven crates no recipe tested now are.
 
 ### Fixed
+- **A deeply nested JSON body no longer takes the gateway down.** The request parser
+  in `services/runtime` recursed once per nesting level with no bound, and the edge
+  parses bodies of up to 1 MiB with it before authentication, so one unauthenticated
+  login body of brackets overflowed a connection thread's stack and aborted the
+  whole process, mesh door included. Nesting is now bounded at 64 levels
+  (`json::MAX_DEPTH`); a deeper body is a 400, and an import line deeper than that
+  refuses the file. The four other hand-rolled parsers (admin and forge ai-assist,
+  bifrost risk, heimdall decision-support) carry the same bound. Connection threads
+  are spawned with an explicit stack, and one that cannot be created is logged and
+  its connection dropped instead of panicking the accept loop.
+  `services/http-gateway/tests/security_edge.rs` is the shared socket harness for
+  edge security regressions. [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
 - `.gitignore` ignored every `*.pub`, including the two trust anchors the ceremony
   publishes to be committed, so committing them failed. The anchors are now excepted;
   other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.

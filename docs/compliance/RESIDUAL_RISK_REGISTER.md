@@ -44,6 +44,7 @@ is gated by the deployment-tier suite (RT-40), in which RC-40.3 (HSM) and RC-40.
 | Open-core boundary drift | Low | **MITIGATED** | Licence allow-list gate over the SBOM, run in CI and in the per-artefact release gate (`mg-scan`, RT-06). Residual: the provenance-tag lint (RT-48) governs only `services`, `mimir`, `products` and `clients` (RF-SC-6). |
 | CI runner compromise | Med | **PARTIAL** | *Exists:* every GitLab job image and service is pinned by digest, and `tools/ci/pipelines.sh --check` refuses one that is not, as it refuses a GitHub action not pinned to a commit. GitLab merge-request jobs run unprivileged inside the digest-pinned toolchain image, whose first step checks `MIDGARD_TOOLCHAIN_DIGEST` against `tools/ci/toolchain.digest` and fails closed; only `toolchain-publish` and `acceptance` use privileged Docker-in-Docker, on protected refs (VLD-ANB-MIDGARD-0022, VLD-ANB-MIDGARD-0043). Signing keys stay on the separate `kms` shell runners. *Missing:* the runner configuration is the owner's and is not evidenced: the privileged runner assigned to protected refs only, an unprivileged executor for merge requests, approval for fork merge-request pipelines, the `MIDGARD_TOOLCHAIN_DIGEST` variable, and their export to `docs/compliance/evidence/gitlab-ci-settings-<date>.md` (docs/dev/CI.md, "Owner actions"); the base images are not yet mirrored into the project registry. PARTIAL until the owner confirms. Residual: merge-request jobs rely on `--offline` (vendored sources, `CARGO_NET_OFFLINE`) rather than a network sandbox, so a script that opens a socket itself is not stopped. |
 | **FIPS KAT certification before GA** | n/a | **OPEN** | The ACVP KATs run in-repo (`fips_backend`, `aead_kat`, `agility_fips`); **formal FIPS 140-3 module certification is an external lab activity** and is SAD_00's explicit GA bar. GA blocker. |
+| Hand-rolled JSON parsers (six copies) | Med | **MITIGATED** | Six recursive-descent JSON parsers exist, each its crate's own: `services/runtime` (the gateway's request bodies and the deployment files), `crypto/attest`, `admin/ai-assist`, `bifrost/risk`, `forge/ai-assist` and `heimdall/decision-support`. Unbounded recursion let one unauthenticated request body abort the gateway (VLD-ANB-MIDGARD-0006); all six now refuse nesting deeper than 64 levels (`MAX_DEPTH`), each with a test, and `services/http-gateway/tests/security_edge.rs` proves the edge answers 400 and stays up. Residual: six copies can drift apart; consolidating them into one crate is deferred, since it touches six crates and their deployment-file loaders. [VLD-ANB-MIDGARD-0006] |
 
 ## SAD_01: Forge
 
@@ -120,6 +121,8 @@ exercised by tests, and the Admin console renders fixtures (RF-AD-1).
 |--------|------|
 | MITIGATED | 5 |
 | PARTIAL | 16 |
+| MITIGATED | 6 |
+| PARTIAL | 15 |
 | ACCEPTED | 17 |
 | OPEN | 1 |
 | **Total** | **39** |
