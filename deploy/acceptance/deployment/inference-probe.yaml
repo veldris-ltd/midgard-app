@@ -42,7 +42,8 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: keystore-passphrase
-          image: registry.enclosure.local/midgard/mimir-probe:0.0.0
+          # The same sentinel as the probe below, substituted with it. [VLD-ANB-MIDGARD-0012]
+          image: registry.enclosure.local/midgard/mimir-probe@sha256:0000000000000000000000000000000000000000000000000000000000000000
           command: ["/bin/sh", "-c", "umask 077 && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/passphrase && chmod 0400 /keystore-passphrase/passphrase"]
           securityContext:
             allowPrivilegeEscalation: false
