@@ -147,6 +147,14 @@ fn start(args: &[&str]) -> (Running, String, String) {
             .trim()
             .strip_prefix("http-gateway (secured) listening on http://")
         {
+            // Keep reading what the gateway logs after the banner (its limits, then
+            // per-request lines): a closed pipe would make its next eprintln panic.
+            std::thread::spawn(move || {
+                let mut sink = String::new();
+                while stderr.read_line(&mut sink).unwrap_or(0) > 0 {
+                    sink.clear();
+                }
+            });
             return (running, rest.to_string(), seen);
         }
     }
