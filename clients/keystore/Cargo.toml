@@ -12,6 +12,11 @@ description = "Client key-custody abstraction: one API over Keychain/Keystore/TP
 # every at-rest store in the suite.
 default = ["backend-fips"]
 backend-fips = ["kms/backend-fips", "pqc-agility/backend-fips"]
+# Exposes `SoftwareKeystore::generate_at_floor`, which lets a test declare a floor
+# above NonExtractable to exercise floor enforcement. Enabled only from the
+# dev-dependencies of the crates that test the gate (clients/store, clients/core);
+# never in a release build. [VLD-ANB-MIDGARD-0056]
+test-floors = []
 
 [dependencies]
 # The keystore-held root wraps data keys at rest via the same KEM-DEM envelope the

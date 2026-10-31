@@ -192,13 +192,7 @@ mod tests {
 
     fn store(seed: u64, clearance: Clearance) -> LocalStore<SoftwareKeystore> {
         let provider = fips_provider();
-        let ks = SoftwareKeystore::generate(
-            &provider,
-            "device-root",
-            SecurityFloor::HardwareBacked,
-            &mut SeedRng(seed),
-        )
-        .unwrap();
+        let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(seed)).unwrap();
         LocalStore::open(provider, ks, clearance, SecurityFloor::NonExtractable).unwrap()
     }
 

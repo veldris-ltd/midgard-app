@@ -123,7 +123,10 @@ pub enum Admission {
     },
     /// Over the free remainder but within quota: parked in the priority queue.
     Queued,
-    /// The request alone exceeds the whole quota; it can never fit.
+    /// Refused outright: the request alone exceeds the whole quota (it can never
+    /// fit), or its workload id is already running or queued. A duplicate id is
+    /// refused rather than deduplicated, so the caller learns of it and `used` is
+    /// unchanged. [VLD-ANB-MIDGARD-0051]
     Rejected {
         /// Human-readable reason.
         reason: String,
@@ -181,7 +184,18 @@ impl QuotaScheduler {
     }
 
     /// Submit a workload for admission. See [`Admission`] for the outcomes.
+    ///
+    /// A workload whose id is already running or queued is [`Admission::Rejected`]
+    /// and changes nothing: admitting it again would reserve its request a second
+    /// time while [`complete`](Self::complete) releases it only once, leaking
+    /// quota. Complete the first, or use a distinct id. [VLD-ANB-MIDGARD-0051]
     pub fn submit(&mut self, workload: Workload) -> Admission {
+        if self.is_known(&workload.id) {
+            return Admission::Rejected {
+                reason: format!("workload {} is already running or queued", workload.id.0),
+            };
+        }
+
         let seq = self.next_seq();
 
         // A request larger than the whole quota can never run — fail fast.
@@ -228,6 +242,11 @@ impl QuotaScheduler {
     }
 
     // --- internals ----------------------------------------------------------
+
+    /// Whether `id` is running or waiting in the queue. [VLD-ANB-MIDGARD-0051]
+    fn is_known(&self, id: &WorkloadId) -> bool {
+        self.running.contains_key(id) || self.queue.iter().any(|p| &p.workload.id == id)
+    }
 
     fn next_seq(&mut self) -> u64 {
         let s = self.seq;

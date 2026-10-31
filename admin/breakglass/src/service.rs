@@ -14,6 +14,11 @@ pub const CAP_REQUEST: &str = "breakglass.request";
 /// officer's). `[MG-SEC-07]`
 pub const CAP_APPROVE: &str = "breakglass.approve";
 
+/// The longest time-box a grant may carry: four hours. Emergency access that is
+/// needed for longer is granted again, with a fresh justification and approval, so
+/// no grant outlives a shift unreviewed. [FR-AD-8] [VLD-ANB-MIDGARD-0055]
+pub const MAX_TTL_SECS: u64 = 4 * 3600;
+
 /// Manages break-glass grants over an injected clock and alert sink.
 pub struct BreakGlassService<A: Alerter> {
     grants: BTreeMap<String, BreakGlassGrant>,
@@ -29,8 +34,9 @@ impl<A: Alerter> BreakGlassService<A> {
         }
     }
 
-    /// Open a break-glass grant. Requires a justification and a non-zero time-box;
-    /// raises a real-time `Granted` alert. `[FR-AD-8]`
+    /// Open a break-glass grant. Requires a justification and a non-zero time-box of
+    /// at most [`MAX_TTL_SECS`]; raises a real-time `Granted` alert. `[FR-AD-8]`
+    /// `[VLD-ANB-MIDGARD-0055]`
     ///
     /// Two people, both authenticated: `requester` must be the session of the
     /// principal being elevated, and `approver` the session of a *different*
@@ -78,6 +84,9 @@ impl<A: Alerter> BreakGlassService<A> {
         }
         if req.ttl_secs == 0 {
             return Err(BreakGlassError::InvalidTtl);
+        }
+        if req.ttl_secs > MAX_TTL_SECS {
+            return Err(BreakGlassError::TtlTooLong { max: MAX_TTL_SECS });
         }
         if self.grants.contains_key(&req.id) {
             return Err(BreakGlassError::DuplicateGrant(req.id));
@@ -181,6 +190,22 @@ impl<A: Alerter> BreakGlassService<A> {
             at: now,
             note: note.to_string(),
         });
+        Ok(g)
+    }
+
+    /// End a grant early: its time-box is cut to `now`, so it stops conferring
+    /// access and joins the review backlog straight away. Closing an already-expired
+    /// grant leaves its expiry as it was; a reviewed grant cannot be closed.
+    /// `[FR-AD-8]` `[VLD-ANB-MIDGARD-0055]`
+    pub fn close(&mut self, id: &str, now: u64) -> Result<&BreakGlassGrant, BreakGlassError> {
+        let g = self
+            .grants
+            .get_mut(id)
+            .ok_or_else(|| BreakGlassError::UnknownGrant(id.to_string()))?;
+        if g.review.is_some() {
+            return Err(BreakGlassError::AlreadyReviewed(id.to_string()));
+        }
+        g.expires_at = g.expires_at.min(now);
         Ok(g)
     }
 

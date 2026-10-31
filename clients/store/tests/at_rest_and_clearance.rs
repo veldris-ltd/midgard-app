@@ -33,13 +33,7 @@ fn marking(level: ClassificationLevel, comps: &[&str]) -> Marking {
 
 fn open_store(clearance: Clearance) -> LocalStore<SoftwareKeystore> {
     let provider = fips_provider();
-    let ks = SoftwareKeystore::generate(
-        &provider,
-        "device-root",
-        SecurityFloor::HardwareBacked,
-        &mut SeedRng(1),
-    )
-    .unwrap();
+    let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(1)).unwrap();
     LocalStore::open(provider, ks, clearance, SecurityFloor::NonExtractable).unwrap()
 }
 
@@ -138,13 +132,8 @@ fn dominated_objects_are_visible() {
 #[test]
 fn a_too_weak_floor_fails_closed() {
     let provider = fips_provider();
-    let ks = SoftwareKeystore::generate(
-        &provider,
-        "web-root",
-        SecurityFloor::NonExtractable, // a web-app-class key …
-        &mut SeedRng(2),
-    )
-    .unwrap();
+    // A web-app-class key …
+    let ks = SoftwareKeystore::generate(&provider, "web-root", &mut SeedRng(2)).unwrap();
     // … cannot back a store that demands hardware custody.
     let err = LocalStore::open(
         provider,
@@ -167,4 +156,48 @@ fn brokered_custody_holds_no_local_key() {
     assert!(!bk.holds_key());
     assert_eq!(bk.floor(), SecurityFloor::Brokered);
     let _ = &bk; // LocalStore::open(_, bk, ..) would not compile: bk is not a TrustRoot.
+}
+
+/// The software keystore holds its secret in process memory, so it reports the
+/// NonExtractable floor and cannot back a store that demands hardware custody; a
+/// keystore that does meet the floor opens, so the gate itself works. [FR-C-2]
+/// [AC-C-2] [VLD-ANB-MIDGARD-0056]
+#[test]
+fn the_software_keystore_cannot_claim_a_hardware_floor() {
+    let provider = fips_provider();
+    let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(3)).unwrap();
+    assert_eq!(ks.floor(), SecurityFloor::NonExtractable);
+
+    let err = LocalStore::open(
+        provider,
+        ks,
+        clearance(ClassificationLevel::UNCLASSIFIED, &[]),
+        SecurityFloor::HardwareBacked,
+    )
+    .err()
+    .expect("the software floor must not satisfy a hardware requirement");
+    assert!(matches!(
+        err,
+        StoreError::FloorNotMet {
+            required: SecurityFloor::HardwareBacked,
+            actual: SecurityFloor::NonExtractable,
+        }
+    ));
+
+    // The gate admits custody that meets it (test-only constructor).
+    let provider = fips_provider();
+    let hw = SoftwareKeystore::generate_at_floor(
+        &provider,
+        "device-root",
+        SecurityFloor::HardwareBacked,
+        &mut SeedRng(4),
+    )
+    .unwrap();
+    assert!(LocalStore::open(
+        provider,
+        hw,
+        clearance(ClassificationLevel::UNCLASSIFIED, &[]),
+        SecurityFloor::HardwareBacked,
+    )
+    .is_ok());
 }

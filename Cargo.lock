@@ -821,6 +821,7 @@ dependencies = [
 name = "midgard-client-core"
 version = "0.1.0-rc.1"
 dependencies = [
+ "kms",
  "midgard-client-enclosure",
  "midgard-client-keystore",
  "midgard-client-store",

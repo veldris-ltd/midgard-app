@@ -27,7 +27,7 @@ pub use midgard_client_keystore as keystore;
 pub use midgard_client_store as store;
 pub use midgard_client_sync as sync;
 
-use keystore::{SecurityFloor, SoftwareKeystore};
+use keystore::{Keystore, SecurityFloor, TrustRoot};
 use policy::{dominates, Clearance, Marking};
 use pqc_agility::{CryptoProvider, Rng};
 use store::LocalStore;
@@ -45,17 +45,22 @@ pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The composed client core: one CRDT replica over one encrypted, clearance-scoped
 /// local cache. Constructed from a key-holding keystore; the extension's brokered
 /// path uses the broker layer (Phase 8.d), not this façade.
-pub struct ClientCore {
-    store: LocalStore<SoftwareKeystore>,
+///
+/// Generic over the keystore, so a platform keystore (Secure Enclave, StrongBox,
+/// TPM) whose floor derives from the platform plugs in with no change here; the
+/// in-memory [`SoftwareKeystore`](keystore::SoftwareKeystore) reports only the
+/// NonExtractable floor. `[FR-C-2]` `[VLD-ANB-MIDGARD-0056]`
+pub struct ClientCore<K: Keystore + TrustRoot> {
+    store: LocalStore<K>,
     replica: Replica,
 }
 
-impl ClientCore {
+impl<K: Keystore + TrustRoot> ClientCore<K> {
     /// Open a core over a device keystore and a session clearance. Fails closed if
     /// custody is below `min_floor`.
     pub fn open(
         provider: CryptoProvider,
-        keystore: SoftwareKeystore,
+        keystore: K,
         clearance: Clearance,
         min_floor: SecurityFloor,
         replica_id: impl Into<String>,

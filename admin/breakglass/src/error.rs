@@ -26,6 +26,12 @@ pub enum BreakGlassError {
     ApproverNotAuthorised,
     /// The time-box duration was zero.
     InvalidTtl,
+    /// The time-box exceeds the ceiling, [`MAX_TTL_SECS`](crate::service::MAX_TTL_SECS).
+    /// `[VLD-ANB-MIDGARD-0055]`
+    TtlTooLong {
+        /// The ceiling, in seconds.
+        max: u64,
+    },
     /// The grant id was reused.
     DuplicateGrant(String),
     /// No such grant.
@@ -65,6 +71,9 @@ impl std::fmt::Display for BreakGlassError {
                 write!(f, "the approver may not approve break-glass in this scope")
             }
             BreakGlassError::InvalidTtl => write!(f, "break-glass time-box must be non-zero"),
+            BreakGlassError::TtlTooLong { max } => {
+                write!(f, "break-glass time-box must be at most {max} seconds")
+            }
             BreakGlassError::DuplicateGrant(id) => write!(f, "duplicate break-glass grant {id}"),
             BreakGlassError::UnknownGrant(id) => write!(f, "unknown break-glass grant {id}"),
             BreakGlassError::AlreadyReviewed(id) => {

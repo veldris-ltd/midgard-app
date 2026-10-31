@@ -2,11 +2,12 @@
 //! linked crate and exercised through one façade, with no per-shell reimplementation.
 #![cfg(feature = "backend-fips")]
 
-use midgard_client_core::keystore::{SecurityFloor, SoftwareKeystore};
+use kms::{KmsError, TrustRoot};
+use midgard_client_core::keystore::{Keystore, SecurityFloor, SoftwareKeystore};
 use midgard_client_core::{ClientCore, CoreError, CORE_VERSION};
 use policy::{ClassificationLevel, Clearance, Compartment, Marking};
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::Rng;
+use pqc_agility::{Ciphertext, Kem, KemPublicKey, Rng, SharedSecret};
 
 struct SeedRng(u64);
 impl Rng for SeedRng {
@@ -31,15 +32,9 @@ fn marking(level: ClassificationLevel, comps: &[&str]) -> Marking {
     }
 }
 
-fn core(clearance: Clearance, id: &str, seed: u64) -> ClientCore {
+fn core(clearance: Clearance, id: &str, seed: u64) -> ClientCore<SoftwareKeystore> {
     let provider = fips_provider();
-    let ks = SoftwareKeystore::generate(
-        &provider,
-        "device-root",
-        SecurityFloor::HardwareBacked,
-        &mut SeedRng(seed),
-    )
-    .unwrap();
+    let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(seed)).unwrap();
     ClientCore::open(provider, ks, clearance, SecurityFloor::NonExtractable, id).unwrap()
 }
 
@@ -192,4 +187,78 @@ fn binding_surface_converges_over_opaque_blobs() {
         matches!(bad, Err(CoreError::MalformedOp(_))),
         "a malformed op blob fails closed"
     );
+}
+
+/// A stand-in for a platform keystore (a TPM-sealed Windows root): its own type,
+/// reporting the floor its platform would vouch for, and unwrapping inside custody.
+struct FakePlatformKeystore {
+    root: SoftwareKeystore,
+}
+
+impl Keystore for FakePlatformKeystore {
+    fn floor(&self) -> SecurityFloor {
+        SecurityFloor::TpmSealed
+    }
+    fn holds_key(&self) -> bool {
+        true
+    }
+    fn key_id(&self) -> &str {
+        Keystore::key_id(&self.root)
+    }
+}
+
+impl TrustRoot for FakePlatformKeystore {
+    fn key_id(&self) -> &str {
+        TrustRoot::key_id(&self.root)
+    }
+    fn public_key(&self) -> &KemPublicKey {
+        self.root.public_key()
+    }
+    fn unwrap(&self, kem: &dyn Kem, wrapped: &Ciphertext) -> Result<SharedSecret, KmsError> {
+        self.root.unwrap(kem, wrapped)
+    }
+}
+
+/// The core takes any key-holding keystore, so a platform keystore at TpmSealed
+/// opens a core that demands TpmSealed, which the software keystore cannot.
+/// [FR-C-2] [AC-C-1] [VLD-ANB-MIDGARD-0056]
+#[test]
+fn the_core_is_generic_over_the_keystore() {
+    let provider = fips_provider();
+    let root = SoftwareKeystore::generate(&provider, "tpm-root", &mut SeedRng(21)).unwrap();
+    let mut c: ClientCore<FakePlatformKeystore> = ClientCore::open(
+        provider,
+        FakePlatformKeystore { root },
+        clearance(ClassificationLevel::SECRET, &[]),
+        SecurityFloor::TpmSealed,
+        "device-w",
+    )
+    .expect("a TPM-sealed platform keystore meets a TpmSealed floor");
+
+    // The whole façade works over it: edit, seal under its key, reload.
+    c.edit_field(
+        "case:7",
+        "title",
+        b"Operation Mjolnir".to_vec(),
+        marking(ClassificationLevel::SECRET, &[]),
+        &mut SeedRng(22),
+    )
+    .unwrap();
+    assert!(c
+        .load_cached("case:7")
+        .unwrap()
+        .windows(b"Operation Mjolnir".len())
+        .any(|w| w == b"Operation Mjolnir"));
+
+    // The software keystore cannot open the same core.
+    let provider = fips_provider();
+    let soft = SoftwareKeystore::generate(&provider, "soft-root", &mut SeedRng(23)).unwrap();
+    let refused = ClientCore::open(
+        provider,
+        soft,
+        clearance(ClassificationLevel::SECRET, &[]),
+        SecurityFloor::TpmSealed,
+        "device-s",
+    );
+    assert!(matches!(refused, Err(CoreError::Store(_))));
 }
