@@ -7,10 +7,10 @@ use std::cmp::Ordering;
 
 use audit_writer::LedgerStore;
 use governance::{GovContext, Governance};
-use policy::{Resource, ResourceId};
 
 use crate::error::FabricError;
 use crate::object::ObjectInstance;
+use crate::resource::can_read_object;
 use crate::store::ObjectStore;
 use crate::types::TypeRegistry;
 use crate::value::{Value, ValueType};
@@ -146,12 +146,7 @@ pub fn check(registry: &TypeRegistry, s: &Search) -> Result<(), SearchProblem> {
 }
 
 fn can_read<L: LedgerStore>(gov: &Governance<L>, ctx: &GovContext, obj: &ObjectInstance) -> bool {
-    let resource = Resource {
-        id: ResourceId(obj.id.clone()),
-        marking: obj.marking.clone(),
-        allowed_purposes: obj.allowed_purposes.clone(),
-    };
-    gov.permits(ctx, &resource, "Read")
+    can_read_object(gov, ctx, obj)
 }
 
 /// Order two values of one property: numbers numerically, text and the rest by their

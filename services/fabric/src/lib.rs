@@ -24,6 +24,7 @@ pub mod fabric;
 pub mod inference;
 pub mod object;
 pub mod query;
+pub mod resource;
 pub mod search;
 pub mod store;
 pub mod types;
@@ -42,6 +43,10 @@ pub use governance::{GovContext as PolicyContext, Governance, GOV_SIG_ALG as FAB
 pub use inference::Inference;
 pub use object::{LinkInstance, ObjectInstance};
 pub use query::Query;
+pub use resource::{
+    can_read_object, object_resource, object_resource_id, type_resource, type_resource_id,
+    OBJECT_PREFIX, TYPE_PREFIX,
+};
 pub use search::{CompareOp, Condition, Search, SearchPage, SearchProblem, ANY_TEXT};
 pub use store::{InMemoryStore, ObjectStore};
 pub use types::{

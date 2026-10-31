@@ -116,6 +116,20 @@ CONTRIBUTING.md for the version policy.
   residual risk register. The explicit `--dev` flag and the fail-closed image
   entrypoint landed earlier (MG-SEC-06). [RC-24] [VLD-ANB-MIDGARD-0014]
   [VLD-ANB-MIDGARD-0032] [VLD-ANB-MIDGARD-0085]
+- **A type-scoped policy rule holds on every route.** Resource ids for fabric data were
+  built differently per route: `/query` named `object-type:<type>`, search-around
+  named `object-type:` (its body has no `objectType`), the enclosure and the fabric
+  used the bare type, and per-object checks the raw object id. A deny on
+  `object-type:aircraft` therefore held on `/query` and was bypassed through
+  search-around. The scheme now lives once in `fabric::resource`:
+  `object-type:<type>` for a type and `object:<type>/<key>` for one object. The edge
+  takes a search-around's type from its seed, and the per-object check behind query
+  and search results, search-around nodes and action targets consults both the
+  object's id and its type's, so a type deny hides every object of the type and an
+  `object:` deny hides that one object everywhere. Route resources are unchanged.
+  Hand-written rules on bare type ids or raw object ids stop matching, and audit
+  consumers keyed on the old search-around resource need updating; the shipped
+  policies use `*`. [VLD-ANB-MIDGARD-0023]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry
