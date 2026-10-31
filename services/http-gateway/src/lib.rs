@@ -132,6 +132,10 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     directory: Mutex<Logins>,
     /// Failed logins per username, and the lockouts they earn. [NFR-SEC-1]
     login_throttle: Mutex<login_throttle::LoginThrottle>,
+    /// Login and administration attempts per source address, refused past their
+    /// allowance before any credential is checked; `None` when turned off.
+    /// [VLD-ANB-MIDGARD-0005]
+    login_sources: Option<RateLimiter>,
     /// Administration — dual-controlled enrolment — where a durable directory is served.
     admin: Option<Mutex<admin_api::AdminControl>>,
     /// The ontology records synced over the mesh are checked against, where a state
@@ -187,6 +191,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             idp: None,
             directory: Mutex::new(Logins::InMemory(InMemoryDirectory::new())),
             login_throttle: Mutex::new(login_throttle::LoginThrottle::new()),
+            login_sources: Some(RateLimiter::new(
+                login_throttle::LOGIN_SOURCE_BURST,
+                login_throttle::LOGIN_SOURCE_PER_SEC,
+            )),
             admin: None,
             ontology: None,
             hasher: Pbkdf2Hasher::production(),
@@ -207,6 +215,22 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         self.idp = Some(idp);
         self.hasher = hasher;
         self
+    }
+
+    /// Allow each source address `burst` login and administration attempts at once,
+    /// refilling at `per_sec` a second, in place of [`login_throttle::LOGIN_SOURCE_BURST`]
+    /// and [`login_throttle::LOGIN_SOURCE_PER_SEC`]. A burst of 0 turns the per-source
+    /// limit off. [VLD-ANB-MIDGARD-0005]
+    pub fn with_login_source_limit(mut self, burst: f64, per_sec: f64) -> Self {
+        self.login_sources = (burst > 0.0).then(|| RateLimiter::new(burst, per_sec));
+        self
+    }
+
+    /// The failed-login throttle's size: the names it tracks and the bytes their keys
+    /// hold. [VLD-ANB-MIDGARD-0005]
+    pub fn login_throttle_stats(&self) -> (usize, usize) {
+        let throttle = self.throttle();
+        (throttle.tracked(), throttle.key_bytes())
     }
 
     /// Provision a login principal (username + password + token attributes) with no
@@ -268,7 +292,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// the password (constant-time) and mints a token via the IdP; a wrong credential
     /// yields a uniform 401 (no user enumeration). The returned `token` is the hex
     /// bearer the console sends on subsequent requests. [RC-37] [RC-29]
-    fn handle_login(&self, req: &Request, now: u64) -> Response {
+    ///
+    /// Fields over their limits are refused before anything is kept or recorded, and a
+    /// source address past its allowance is refused before any password is checked.
+    /// Throttled attempts are coalesced on the ledger. [VLD-ANB-MIDGARD-0005]
+    fn handle_login(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
         let idp = match &self.idp {
             Some(i) => i,
             None => {
@@ -284,8 +312,34 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         };
         let username = body.str_field("username").unwrap_or_default();
         let password = body.str_field("password").unwrap_or_default();
+        let totp = body.str_field("totp");
 
-        let mfa = match body.str_field("totp") {
+        // Every field is bounded before the throttle, the directory or the ledger sees
+        // it, so no login can make the edge keep or record more than these limits.
+        // [VLD-ANB-MIDGARD-0005]
+        if username.len() > login_throttle::MAX_USERNAME_BYTES
+            || username.chars().any(char::is_control)
+            || password.len() > login_throttle::MAX_PASSWORD_BYTES
+            || totp.is_some_and(|code| code.chars().count() > login_throttle::MAX_TOTP_CHARS)
+        {
+            return Response::json(400, error_json("login fields exceed their limits").encode());
+        }
+        // A source past its allowance is refused before any password is checked; the
+        // ledger hears of it at most once a minute, with the count since.
+        if let Some(source) = self.over_source_allowance(peer) {
+            self.count_login("source_throttled");
+            let refused = source_refused();
+            let record = self.throttle().note_source_throttled(&source, now);
+            let event = match record {
+                None => return refused,
+                Some(0) => "LOGIN source throttled".to_string(),
+                Some(n) => format!("LOGIN source throttled, {n} attempts suppressed"),
+            };
+            let resource = format!("source:{source}");
+            return self.record_login_at(username, &event, &resource, refused, now);
+        }
+
+        let mfa = match totp {
             Some(code) => MfaProof::Totp(code.to_string()),
             None => MfaProof::None,
         };
@@ -302,9 +356,16 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             .with_retry_after(seconds)
         };
         // A name locked by repeated failures is refused before its password is
-        // checked, so guessing gains nothing while the lock holds. [NFR-SEC-1]
+        // checked, so guessing gains nothing while the lock holds. [NFR-SEC-1] Only the
+        // lock's first such attempt is recorded; the rest are counted onto the name's
+        // next recorded event. [VLD-ANB-MIDGARD-0005]
         let locked = self.throttle().retry_after(username, now);
         if let Some(seconds) = locked {
+            self.count_login("throttled");
+            let first = self.throttle().note_throttled(username);
+            if !first {
+                return throttled(seconds);
+            }
             return self.record_login(username, "LOGIN throttled", throttled(seconds), now);
         }
 
@@ -367,6 +428,19 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 None => ("LOGIN refused", unauthorized()),
             },
         };
+        self.count_login(match event {
+            "LOGIN succeeded" => "succeeded",
+            "LOGIN refused, locked" => "locked",
+            "LOGIN refused" => "refused",
+            _ => "failed",
+        });
+        // The throttled attempts kept off the ledger while the name was locked are named
+        // on this, its next recorded event. [VLD-ANB-MIDGARD-0005]
+        let suppressed = self.throttle().take_suppressed(username);
+        let event = match suppressed {
+            0 => event.to_string(),
+            n => format!("{event}, {n} throttled attempts suppressed"),
+        };
         if response.status == 200 {
             self.throttle().record_success(username);
         }
@@ -374,17 +448,48 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             Some(upgrade) => self.record_login(username, &upgrade, response, now),
             None => response,
         };
-        self.record_login(username, event, response, now)
+        self.record_login(username, &event, response, now)
+    }
+
+    /// Count a login attempt by its outcome in `login_attempts_total`.
+    /// [VLD-ANB-MIDGARD-0005]
+    fn count_login(&self, outcome: &str) {
+        self.metrics
+            .inc("login_attempts_total", &[("outcome", outcome)]);
+    }
+
+    /// Take one login or administration attempt from `peer`'s source allowance: the
+    /// source address if it is past it, to be refused with [`source_refused`]; `None`
+    /// if it is within it, or the source is unknown (an in-process caller) or the
+    /// limit off. [VLD-ANB-MIDGARD-0005]
+    fn over_source_allowance(&self, peer: Option<SocketAddr>) -> Option<String> {
+        let (Some(sources), Some(peer)) = (&self.login_sources, peer) else {
+            return None;
+        };
+        let source = peer.ip().to_string();
+        (!sources.allow(&source)).then_some(source)
     }
 
     /// Every attempt is recorded in the same ledger as every access decision, so a
     /// password spray or a stolen credential leaves lineage. A login the ledger cannot
     /// record does not complete: no token leaves. [AC-M-4] [RC-29]
     fn record_login(&self, username: &str, event: &str, response: Response, now: u64) -> Response {
+        self.record_login_at(username, event, "session", response, now)
+    }
+
+    /// [`Self::record_login`] against `resource`.
+    fn record_login_at(
+        &self,
+        username: &str,
+        event: &str,
+        resource: &str,
+        response: Response,
+        now: u64,
+    ) -> Response {
         match self.lock().governance_mut().record_event(
             &audit_actor(username),
             event,
-            "session",
+            resource,
             now,
         ) {
             Ok(_) => response,
@@ -404,7 +509,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// every refusal, is recorded in the governance ledger beside the privilege
     /// service's own. Locks are taken administration → directory → enclosure.
     /// [FR-AD-5] [RC-29] [AC-M-4]
-    fn handle_admin(&self, req: &Request, now: u64) -> Response {
+    ///
+    /// Each source address draws on the same allowance as its logins, so a refused
+    /// address cannot turn to the administration routes. [VLD-ANB-MIDGARD-0005]
+    fn handle_admin(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
+        if self.over_source_allowance(peer).is_some() {
+            return source_refused();
+        }
         let Some(control) = &self.admin else {
             return Response::json(
                 404,
@@ -597,14 +708,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     }
 
     /// [`SecuredGateway::handle`] for a request that arrived from `peer`, the client's
-    /// address where it is known. Nothing is kept from it yet; it is here so a route
-    /// can see where a request came from without a change to [`Request`].
-    /// [VLD-ANB-MIDGARD-0004]
+    /// address where it is known, without a change to [`Request`]. The login and
+    /// administration routes limit attempts by it; with `None` that limit is skipped.
+    /// [VLD-ANB-MIDGARD-0004] [VLD-ANB-MIDGARD-0005]
     pub fn handle_from(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
-        let _ = peer;
         let start = Instant::now();
         let cors = self.cors_origin(req);
-        let resp = self.handle_inner(req, now).with_allow_origin(cors);
+        let resp = self.handle_inner(req, peer, now).with_allow_origin(cors);
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         let status = resp.status.to_string();
@@ -638,7 +748,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             .map(str::to_string)
     }
 
-    fn handle_inner(&self, req: &Request, now: u64) -> Response {
+    fn handle_inner(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
         // CORS preflight.
         if req.method == "OPTIONS" {
             return Response::json(204, String::new());
@@ -668,10 +778,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // it is how a browser session obtains its bearer). [RC-37]
         // Administration: authenticated by passkey assertions, not a bearer token.
         if req.method == "POST" && req.path.starts_with("/api/v1/admin/") {
-            return self.handle_admin(req, now);
+            return self.handle_admin(req, peer, now);
         }
         if req.method == "POST" && req.path == "/api/v1/login" {
-            return self.handle_login(req, now);
+            return self.handle_login(req, peer, now);
         }
 
         // 1. Authenticate: verify the PQ-signed IdP token or reject.
@@ -1049,6 +1159,16 @@ fn handle_connection<S: ObjectStore, L: LedgerStore>(
         }
         None => Ok(()),
     }
+}
+
+/// The 429 for a login or administration attempt from a source past its allowance.
+/// [VLD-ANB-MIDGARD-0005]
+fn source_refused() -> Response {
+    Response::json(
+        429,
+        error_json("too many login attempts from this address").encode(),
+    )
+    .with_retry_after(2)
 }
 
 /// A caller-supplied username as a ledger actor. It is recorded as given, so repeated

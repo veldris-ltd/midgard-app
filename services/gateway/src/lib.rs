@@ -190,10 +190,24 @@ struct Bucket {
 /// cannot escape its limit by reconnecting). `capacity` is the burst size;
 /// `refill_per_sec` the sustained rate (0.0 makes it a pure hard quota of
 /// `capacity` requests). [RT-25]
+///
+/// A bucket that has refilled to `capacity` is the same as no bucket, so once the map
+/// reaches [`RATE_LIMITER_PRUNE_AT`] identities (and each time it doubles from what a
+/// prune left) such buckets are dropped: the map holds only the identities seen within
+/// one refill period, not every identity ever seen. [VLD-ANB-MIDGARD-0005]
 pub struct RateLimiter {
     capacity: f64,
     refill_per_sec: f64,
-    buckets: Mutex<HashMap<String, Bucket>>,
+    buckets: Mutex<Buckets>,
+}
+
+/// How many identities a [`RateLimiter`] holds before it first drops refilled buckets.
+pub const RATE_LIMITER_PRUNE_AT: usize = 1024;
+
+struct Buckets {
+    map: HashMap<String, Bucket>,
+    /// The size at which the next new identity prunes the map first.
+    prune_at: usize,
 }
 
 impl RateLimiter {
@@ -202,15 +216,23 @@ impl RateLimiter {
         Self {
             capacity,
             refill_per_sec,
-            buckets: Mutex::new(HashMap::new()),
+            buckets: Mutex::new(Buckets {
+                map: HashMap::new(),
+                prune_at: RATE_LIMITER_PRUNE_AT,
+            }),
         }
     }
 
     /// Consume one token for `id`. Returns `false` (throttle) if the bucket is dry.
     pub fn allow(&self, id: &str) -> bool {
         let now = Instant::now();
-        let mut m = self.buckets.lock().expect("rate-limiter lock");
-        let b = m.entry(id.to_string()).or_insert(Bucket {
+        let mut guard = self.buckets.lock().expect("rate-limiter lock");
+        let buckets = &mut *guard;
+        if buckets.map.len() >= buckets.prune_at && !buckets.map.contains_key(id) {
+            self.prune(&mut buckets.map, now);
+            buckets.prune_at = (2 * buckets.map.len()).max(RATE_LIMITER_PRUNE_AT);
+        }
+        let b = buckets.map.entry(id.to_string()).or_insert(Bucket {
             tokens: self.capacity,
             last: now,
         });
@@ -225,6 +247,23 @@ impl RateLimiter {
         } else {
             false
         }
+    }
+
+    /// How many identities the limiter holds a bucket for.
+    pub fn tracked(&self) -> usize {
+        self.buckets.lock().expect("rate-limiter lock").map.len()
+    }
+
+    /// Drop every bucket that has refilled to capacity by `now`. A hard quota (no
+    /// refill) never refills, so it keeps every bucket.
+    fn prune(&self, map: &mut HashMap<String, Bucket>, now: Instant) {
+        if self.refill_per_sec <= 0.0 {
+            return;
+        }
+        map.retain(|_, b| {
+            let dt = now.duration_since(b.last).as_secs_f64();
+            b.tokens + dt * self.refill_per_sec < self.capacity
+        });
     }
 }
 
@@ -616,5 +655,32 @@ impl Gateway {
                 Err(_) => break,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rate_limiter_drops_refilled_buckets_rather_than_growing() {
+        // [VLD-ANB-MIDGARD-0005]
+        let limiter = RateLimiter::new(1.0, 1_000.0);
+        for i in 0..RATE_LIMITER_PRUNE_AT {
+            assert!(limiter.allow(&format!("10.0.{}.{}", i / 256, i % 256)));
+        }
+        assert_eq!(limiter.tracked(), RATE_LIMITER_PRUNE_AT);
+        // Every bucket refills within a millisecond; the next new identity prunes them.
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(limiter.allow("10.9.9.9"));
+        assert_eq!(limiter.tracked(), 1, "only the new identity is held");
+
+        // A hard quota never refills, so its buckets are kept and still refuse.
+        let quota = RateLimiter::new(1.0, 0.0);
+        for i in 0..=RATE_LIMITER_PRUNE_AT {
+            assert!(quota.allow(&format!("peer-{i}")));
+        }
+        assert_eq!(quota.tracked(), RATE_LIMITER_PRUNE_AT + 1);
+        assert!(!quota.allow("peer-0"), "a spent quota stays spent");
     }
 }

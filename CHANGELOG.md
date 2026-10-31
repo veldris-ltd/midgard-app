@@ -182,6 +182,31 @@ CONTRIBUTING.md for the version policy.
     `--requests-per-conn` tune them; a value that is not a number is a usage error.
   - The claims ledger's PQ-mTLS row and the residual-risk register's high-rate feed
     load row now cite the limits in force and the tests that prove them.
+- **A login can no longer exhaust the gateway's memory or buy a ledger write per
+  probe.** A username of up to 1 MiB was kept verbatim as a throttle key, so ten
+  thousand made-up names outgrew the container and the restart discarded every
+  token; and every attempt, throttled ones included, wrote a signed, fsynced ledger
+  row under the enclosure lock. [VLD-ANB-MIDGARD-0005] [NFR-SEC-1]
+  - Login fields are bounded before anything is kept or recorded: a username of at
+    most 128 bytes with no control character, a password of at most 1,024 bytes and
+    a one-time code of at most 16 characters, or a 400. Ten thousand tracked names
+    now hold at most about 1.3 MB of keys.
+  - Each source address may make 20 login and administration attempts in a burst,
+    refilling at 0.5 a second; past that the edge answers 429 with `Retry-After: 2`
+    before checking any password. `--login-burst` (0 is off) and `--login-per-sec`
+    tune it. Under compose every client shares the proxy's address, so there it is
+    one allowance for the whole site (recorded in the residual-risk register).
+  - Throttled attempts are coalesced on the ledger: a locked name's first throttled
+    attempt is recorded and later ones are counted onto its next recorded event
+    (`LOGIN succeeded, 5 throttled attempts suppressed`); a throttled source is
+    recorded at most once a minute with the count since. Ledger consumers that
+    counted one row per throttled attempt see the count instead. Per-entry fsync is
+    unchanged.
+  - `login_attempts_total{outcome}` counts logins by outcome (`succeeded`,
+    `refused`, `locked`, `throttled`, `source_throttled`, `failed`).
+  - `gateway::RateLimiter` drops buckets that have refilled to capacity once it
+    holds 1,024 identities, so a limiter keyed by address holds the addresses seen
+    within one refill period rather than every address ever seen.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

@@ -34,6 +34,12 @@
 //!       --rate-burst (default 100), --rate-per-sec (default 20) and
 //!       --requests-per-conn (default 10000) limit each certified peer of the mesh
 //!       door. A value that is not a number is a usage error. [VLD-ANB-MIDGARD-0004]
+//!
+//!       --login-burst (default 20; 0 is off) and --login-per-sec (default 0.5) limit
+//!       login and administration attempts from one source address; past them the edge
+//!       answers 429 before checking any password. Under compose every client shares
+//!       the proxy's address, so this is one allowance for the whole site there.
+//!       [VLD-ANB-MIDGARD-0005]
 //!   http-gateway --dev [ADDR]
 //!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
 //!       into an in-memory fabric, the published demo logins, an ephemeral issuer key.
@@ -90,6 +96,8 @@ fn main() {
         mesh_purpose,
         edge,
         mesh,
+        login_burst,
+        login_per_sec,
     } = args;
 
     let state = StateDir::new(&state_dir);
@@ -142,7 +150,7 @@ fn main() {
     // The lock lives as long as the process serves: no second gateway or mg-admin can
     // write this directory meanwhile.
     let (gateway, _lock) = served.into_parts();
-    let gateway = Arc::new(gateway);
+    let gateway = Arc::new(gateway.with_login_source_limit(login_burst, login_per_sec));
 
     if let (Some(mesh_bind), Some(identity_dir)) = (mesh_bind, mesh_identity_dir) {
         match start_mesh(

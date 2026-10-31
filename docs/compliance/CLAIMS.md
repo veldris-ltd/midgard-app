@@ -229,13 +229,17 @@ An action the ontology marks as human-gated is refused at the edge unless the re
 
 A principal logs in at the edge with a password, and a time-based one-time code when enrolled with one, and receives an ML-DSA-signed session token. Principals are held in a durable directory.
 
-**Limit.** The console's login form has no field for the one-time code.
+**Limit.** The console's login form has no field for the one-time code. Login fields are bounded and attempts are limited per name and per source; under compose every client shares the proxy's address, so the per-source limit is one for the whole site.
 
 - Source:
   - [`services/iam/src/auth.rs:1`](../../services/iam/src/auth.rs)
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
   - [`services/http-gateway/tests/login_directory.rs::a_durable_principal_needs_both_factors_and_survives_a_restart`](../../services/http-gateway/tests/login_directory.rs)
+  - [`services/http-gateway/tests/security_edge.rs::a_one_mib_username_is_refused_before_any_state_is_touched`](../../services/http-gateway/tests/security_edge.rs)
+  - [`services/http-gateway/tests/security_edge.rs::a_flooding_source_is_refused_before_verification`](../../services/http-gateway/tests/security_edge.rs)
+  - [`services/http-gateway/tests/security_edge.rs::a_source_throttle_is_recorded_once_per_minute`](../../services/http-gateway/tests/security_edge.rs)
+  - [`services/http-gateway/tests/edge_limits.rs::the_first_throttled_attempt_is_on_the_ledger_and_later_ones_are_coalesced`](../../services/http-gateway/tests/edge_limits.rs)
 - Service tests:
   - [`tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway`](../../tools/mg-admin/tests/cli.rs)
 - Stated at:
