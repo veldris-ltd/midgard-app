@@ -20,7 +20,7 @@
 set -Eeuo pipefail
 
 MG_INSTALL_VERSION=0.1.0
-HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 DEFAULT_DIR=/opt/midgard
 TOOLCHAIN_IMAGE=midgard-acceptance:1.82.0
@@ -32,6 +32,12 @@ PROFILES=(legal medical military utilities)
 FEED_FAMILIES=(aviation maritime energy water transport communications hazards information)
 PICTURE_BUDGET_KB=1100
 COMPONENTS_ALL=(forge mimir bifrost heimdall)
+# The fingerprint of Docker's apt signing key, as Docker publishes it in the install
+# guides at docs.docker.com/engine/install/ubuntu/ and .../debian/ ("9DC8 5822 9FC7
+# DD38 854A E2D8 8D81 803C 0EBF CD88"). The key is installed only if the download has
+# this fingerprint. Should Docker rotate the key, check the new one on those pages and
+# change it here. [VLD-ANB-MIDGARD-0048]
+DOCKER_APT_KEY_FPR=9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 
 # ---- theme -----------------------------------------------------------------------------
 # The suite's palette (ui/design-system/src/tokens/colors.css): one accent per product,
@@ -367,7 +373,71 @@ PROFILE="" COMPONENTS="" MODEL=reference CONSOLE=yes SAMPLES_ZIP="" FEEDS="" OPE
 ADMIN_1="" ADMIN_2="" STATUS="" SOURCE_COMMIT="" INSTALLED_AT=""
 STATE_KEYS="INSTALL_DIR PROFILE COMPONENTS MODEL CONSOLE SAMPLES_ZIP FEEDS OPERATOR OPERATOR_TOTP ADMIN_1 ADMIN_2 STATUS SOURCE_COMMIT INSTALLED_AT"
 
+# validate_install_dir DIR: whether DIR may be the install folder, which the installer
+# fills as root and `uninstall --purge` deletes. Returns 0, or prints one reason to
+# stderr and returns 1; it changes nothing, so the tests call it unprivileged. DIR must
+# be absolute, at least two levels deep once canonical (so /, /home, /usr, /opt and
+# every other top-level folder are refused), free of `..` and newlines, not a symlink,
+# and must not be, hold, or sit inside the installer or the repository it runs from.
+# The one exception is the installed layout itself: run from /usr/local/bin/mg-install,
+# the repository is DIR/src. A DIR that exists must be a folder whose parent is owned
+# by root (or by whoever runs this) and not writable by others. [VLD-ANB-MIDGARD-0048]
+validate_install_dir() {
+    local dir="$1" canon parent own perms
+    [ -n "$dir" ] || { echo "no folder was given" >&2; return 1; }
+    [[ "$dir" == /* ]] || { echo "$dir is not an absolute path" >&2; return 1; }
+    [[ "$dir" != *$'\n'* ]] || { echo "the folder name contains a newline" >&2; return 1; }
+    [[ "/$dir/" != */../* ]] || { echo "$dir contains a '..' segment" >&2; return 1; }
+    while [[ "$dir" == */ && "$dir" != / ]]; do dir="${dir%/}"; done
+    canon="$(readlink -m -- "$dir")"
+    [[ "$canon" =~ ^/[^/]+/. ]] ||
+        { echo "$dir is a top-level folder; use a dedicated folder at least two levels deep, such as $DEFAULT_DIR" >&2; return 1; }
+    if [ "$(readlink -m -- "$REPO")" != "$canon/src" ]; then
+        for own in "$HERE" "$REPO"; do
+            own="$(readlink -m -- "$own")"
+            case "$own/" in "$canon"/*)
+                echo "$dir is or holds the installer or its repository ($own)" >&2; return 1 ;;
+            esac
+            case "$canon/" in "$own"/*)
+                echo "$dir is inside the installer's repository ($own)" >&2; return 1 ;;
+            esac
+        done
+    fi
+    if [ -L "$dir" ]; then echo "$dir is a symbolic link" >&2; return 1; fi
+    if [ -e "$dir" ]; then
+        [ -d "$dir" ] || { echo "$dir exists and is not a folder" >&2; return 1; }
+        parent="$(dirname -- "$canon")"
+        read -r own perms < <(stat -c '%u %A' -- "$parent")
+        [ "$own" = 0 ] || [ "$own" = "$(id -u)" ] ||
+            { echo "$parent, which holds $dir, is owned by uid $own, not root" >&2; return 1; }
+        [ "${perms:8:1}" != w ] ||
+            { echo "$parent, which holds $dir, is writable by everyone" >&2; return 1; }
+    fi
+    return 0
+}
+
+# purge_dir_is_safe DIR: whether `uninstall --purge` may delete DIR: a valid install
+# folder that holds the installer's marker install.env, as a regular file, and is owned
+# by root. Unprivileged (the tests), the owner check is skipped and says so on stderr.
+# [VLD-ANB-MIDGARD-0048]
+purge_dir_is_safe() {
+    local dir="$1"
+    validate_install_dir "$dir" || return 1
+    [ -d "$dir" ] || { echo "$dir is not a folder" >&2; return 1; }
+    [ -f "$dir/install.env" ] && [ ! -L "$dir/install.env" ] ||
+        { echo "$dir holds no install.env, so it is not a Midgard install folder" >&2; return 1; }
+    if [ "$(id -u)" = 0 ]; then
+        [ "$(stat -c %u -- "$dir")" = 0 ] || { echo "$dir is not owned by root" >&2; return 1; }
+    else
+        echo "not running as root, so the check that $dir is owned by root was skipped" >&2
+    fi
+    return 0
+}
+
 set_dirs() {
+    local reason
+    reason="$(validate_install_dir "$1" 2>&1)" ||
+        die "The install folder '$1' cannot be used: $reason. Set MG_INSTALL_DIR (or INSTALL_DIR in the answers file) to a dedicated folder."
     INSTALL_DIR="$1"
     SRC="$INSTALL_DIR/src"
     SITE="$INSTALL_DIR/site"
@@ -465,17 +535,45 @@ run() {
 
 # ---- docker ----------------------------------------------------------------------------
 
+# docker_key_fingerprint_matches FILE [FPR]: whether FILE holds exactly one public key
+# and its fingerprint is FPR (default DOCKER_APT_KEY_FPR). Otherwise prints what it
+# found to stderr and returns 1. gpg reads the file in a throwaway home, so no keyring
+# on the server changes. [VLD-ANB-MIDGARD-0048]
+docker_key_fingerprint_matches() {
+    local file="$1" want="${2:-$DOCKER_APT_KEY_FPR}" home listing keys got
+    home="$(mktemp -d)"
+    listing="$(GNUPGHOME="$home" gpg --batch --show-keys --with-colons --with-fingerprint -- "$file" 2>/dev/null)" || true
+    rm -rf "$home"
+    keys="$(grep -c '^pub:' <<<"$listing")" || true
+    got="$(awk -F: '/^fpr:/ {print $10; exit}' <<<"$listing")"
+    if [ "$keys" != 1 ]; then
+        echo "$file holds $keys public keys, not one" >&2; return 1
+    fi
+    if [ "$got" != "$want" ]; then
+        echo "the key's fingerprint is $got, not $want" >&2; return 1
+    fi
+    return 0
+}
+
 install_docker() {
-    local family="$OS_ID"
+    local family="$OS_ID" key reason
     [ "$family" = linuxmint ] && family=ubuntu
     case "$family" in
         ubuntu | debian)
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
-            apt-get install -y ca-certificates curl
+            apt-get install -y ca-certificates curl gnupg
             install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL "https://download.docker.com/linux/$family/gpg" -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
+            # Only TLS protects the download, so the key is installed only if it is the
+            # one Docker publishes the fingerprint of.
+            key="$(mktemp)"
+            curl -fsSL "https://download.docker.com/linux/$family/gpg" -o "$key"
+            if ! reason="$(docker_key_fingerprint_matches "$key" 2>&1)"; then
+                rm -f "$key"
+                die "Docker's apt signing key did not verify, so it was not installed: $reason. Expected fingerprint $DOCKER_APT_KEY_FPR."
+            fi
+            install -m 0644 "$key" /etc/apt/keyrings/docker.asc
+            rm -f "$key"
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$family $OS_CODENAME stable" \
                 >/etc/apt/sources.list.d/docker.list
             apt-get update
@@ -488,6 +586,12 @@ install_docker() {
             dnf -y install dnf-plugins-core
             dnf config-manager --add-repo "https://download.docker.com/linux/$repo/docker-ce.repo" ||
                 dnf config-manager addrepo --from-repofile="https://download.docker.com/linux/$repo/docker-ce.repo"
+            # The repository file names Docker's key (gpgkey=) and, with gpgcheck=1, dnf
+            # refuses any package not signed by it, so no key is fetched or trusted here.
+            # Make sure the file that was installed keeps that check on.
+            grep -qE '^[[:space:]]*gpgcheck[[:space:]]*=[[:space:]]*1' /etc/yum.repos.d/docker-ce.repo &&
+                ! grep -qE '^[[:space:]]*gpgcheck[[:space:]]*=[[:space:]]*0' /etc/yum.repos.d/docker-ce.repo ||
+                die "/etc/yum.repos.d/docker-ce.repo does not set gpgcheck=1, so Docker's packages would not be checked. Nothing was installed from it."
             dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
             ;;
         *)
@@ -1026,6 +1130,11 @@ copy_source() {
         echo "running from the installed source; nothing to copy"
         return 0
     fi
+    # Only ever below the install folder set_dirs validated. [VLD-ANB-MIDGARD-0048]
+    case "$SRC" in
+        "$INSTALL_DIR"/?*) ;;
+        *) die "Refusing to replace $SRC: it is not inside the install folder '$INSTALL_DIR'." ;;
+    esac
     rm -rf "$SRC.new" "$SRC.old"
     mkdir -p "$SRC.new"
     tar -C "$REPO" --exclude=./.git --exclude=./target --exclude=node_modules \
@@ -1186,13 +1295,29 @@ EOF
 
 enrolled() { dc run --rm --no-deps -T --entrypoint mg-admin init user list --state-dir /vol/core-state 2>/dev/null | grep -qw -- "$1"; }
 
+# require_private_file FILE [UID]: whether FILE is a regular file, not a symlink, owned
+# by UID (default 0, root) with mode 0600 or 0400. Otherwise prints why to stderr and
+# returns 1. The tests pass their own uid. [VLD-ANB-MIDGARD-0048]
+require_private_file() {
+    local file="$1" uid="${2:-0}" got
+    [ -n "$file" ] || { echo "no file was given" >&2; return 1; }
+    [ -f "$file" ] && [ ! -L "$file" ] || { echo "$file is not a regular file" >&2; return 1; }
+    got="$(stat -c '%u %a' -- "$file")"
+    case "$got" in
+        "$uid 600" | "$uid 400") return 0 ;;
+        *) echo "$file is owned by uid ${got% *} with mode 0${got#* }, not uid $uid with mode 0600 or 0400" >&2
+           return 1 ;;
+    esac
+}
+
 enrol_operator() {
     # shellcheck disable=SC1090
     . "$HERE/profiles/$PROFILE/profile.env"
-    local out flags=() password
+    local out flags=() password reason
     if enrolled "$OPERATOR"; then ok "$OPERATOR is already enrolled."; return 0; fi
     if [ "$UNATTENDED" = 1 ]; then
-        [ -r "${ANSWER[OPERATOR_PASSWORD_FILE]:-}" ] || die "OPERATOR_PASSWORD_FILE is not a readable file"
+        reason="$(require_private_file "${ANSWER[OPERATOR_PASSWORD_FILE]:-}" 2>&1)" ||
+            die "OPERATOR_PASSWORD_FILE must be a regular file owned by root with mode 0600 (chown root:root FILE; chmod 0600 FILE): $reason"
         password="$(head -n 1 "${ANSWER[OPERATOR_PASSWORD_FILE]}")"
         [ "${#password}" -ge 12 ] || die "the operator's password must have at least 12 characters"
     else
@@ -1837,7 +1962,11 @@ cmd_uninstall() {
     need_root
     find_install
     banner
+    local reason
     if [ "${1:-}" = --purge ]; then
+        # Checked before anything is deleted, volumes included. [VLD-ANB-MIDGARD-0048]
+        reason="$(purge_dir_is_safe "$INSTALL_DIR" 2>&1)" ||
+            die "Refusing to delete $INSTALL_DIR: $reason. Nothing was deleted."
         warn "This deletes Midgard and ALL its data: keys, users, ledgers, datasets, models."
         say "There is no undo. Take a backup first (sudo mg-install backup) if in doubt."
         ask PURGE "Type DELETE to confirm:" ""
@@ -1918,4 +2047,5 @@ main() {
     esac
 }
 
-main "$@"
+# Run when executed; when sourced (tools/ci/tests/mg-install.test.sh), only define.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

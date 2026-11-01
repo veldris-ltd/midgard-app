@@ -303,6 +303,8 @@ sudo deploy/installer/mg-install --answers /root/midgard.answers
 shred -u /root/operator.pw
 ```
 
+The password file must be a regular file, not a symbolic link, owned by root with mode 0600 (or 0400), as the `install -m 0600` line above makes it; the installer refuses anything else and says how to fix it (`chown root:root FILE; chmod 0600 FILE`).
+
 [`answers.example`](answers.example) lists every key. The file is read as `KEY=VALUE` lines and never executed. An unattended install changes nothing unless the file says `CONFIRM=yes`. It prints the first user's authenticator key once, in its output: if you capture that output to a file, treat the file as a secret and delete it once the key is in the app.
 
 ## Servers running Plesk
@@ -339,6 +341,10 @@ So you know exactly what it did, and what to remove by hand if you ever need to:
 | Listening ports | `127.0.0.1:7710` (gateway) and `127.0.0.1:5173` (console) only |
 
 It changes no other firewall rule, no web server, no system service other than Docker and its own, and no user account. `sudo mg-install uninstall` removes the firewall rules and the service.
+
+**The install folder.** `MG_INSTALL_DIR` (or `INSTALL_DIR` in an answers file) must be a folder of Midgard's own: an absolute path at least two levels deep, such as `/opt/midgard` or `/srv/midgard`, with no `..`, that is not a symbolic link, is not the repository you run the installer from or inside it, and whose parent is owned by root and not writable by everyone. Every command refuses anything else before it touches the folder, so a typo such as `/` or `/srv` cannot become the folder that is filled, or deleted, as root. `uninstall --purge` also requires the folder to hold the installer's `install.env` and to be owned by root, and checks this before it deletes anything. An install made in a one-level folder such as `/midgard` is refused until it is moved to, say, `/opt/midgard`.
+
+**Docker's package key.** When the installer adds Docker's apt repository it downloads Docker's signing key and installs it only if its fingerprint is `9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`, the one Docker publishes in its install guides. It installs `gnupg` to check it. On Red Hat family servers Docker's repository file names the key itself and `dnf` checks every package against it; the installer refuses a repository file that turns `gpgcheck` off.
 
 ## Security model
 
