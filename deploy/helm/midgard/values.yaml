@@ -65,13 +65,26 @@ defaultResources:
   requests: { cpu: 100m, memory: 64Mi }
   limits: { cpu: "1", memory: 512Mi }
 
+# Who may reach the health ports (/healthz, /readyz, /metrics on 9090), which carry no
+# identity check of their own. [VLD-ANB-MIDGARD-0027]
+#   podLabel   the app.kubernetes.io/name of the scraper pod: a port whose from: lists
+#              "metrics-scraper" admits pods with this label. Label your Prometheus pod
+#              app.kubernetes.io/name=metrics-scraper, or set this to its name.
+#   nodeCidrs  node address ranges admitted to those ports too, for CNIs that apply
+#              NetworkPolicy to the kubelet's probes; empty admits no node range.
+scraper:
+  podLabel: metrics-scraper
+  nodeCidrs: []
+
 # The services. Each holds a single-writer state directory (sealed journals and a
 # PQ-signed ledger, locked while it runs), so each is a one-replica StatefulSet with
 # its own volume: a second replica would be refused the lock, not share the load.
 #
 # Per service:
 #   args            the binary's options (/identity, /state and /jobs are the mounts)
-#   ports           each port, and the app names allowed to reach it ("*" = any pod)
+#   ports           each port, and the app names allowed to reach it. Name workloads:
+#                   "*" (any pod) refuses to render. "metrics-scraper" stands for the
+#                   scraper above, and also admits scraper.nodeCidrs.
 #   probe           the HTTP readiness/liveness endpoint
 #   identity        mount Secret "<name>-identity" (what `mg-admin mesh issue` wrote)
 #   seed            on first start, unpack Secret "<name>-seed" (seed.tar) into /state
@@ -111,13 +124,13 @@ services:
     binary: mimir-server
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
            "--purposes", "investigation", "--bind", "0.0.0.0:7720",
-           "--health-bind", "0.0.0.0:9090",
+           "--health-bind", "$(POD_IP):9090",
            "--max-tokens", "1024", "--max-prompt-bytes", "262144",
            "--max-concurrent", "4", "--max-concurrent-per-identity", "2",
            "--infer-timeout", "60", "--reload-interval", "60"]
     ports:
       - { name: mesh, port: 7720, from: [mimir-probe] }
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     seed: true
@@ -127,10 +140,10 @@ services:
     enabled: true
     binary: bifrost-fleet
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
-           "--bind", "0.0.0.0:7740", "--health-bind", "0.0.0.0:9090"]
+           "--bind", "0.0.0.0:7740", "--health-bind", "$(POD_IP):9090"]
     ports:
       - { name: mesh, port: 7740, from: [fleet-agent, fleet-operator] }
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     seed: true
@@ -140,10 +153,10 @@ services:
     enabled: true
     binary: heimdall-feed
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
-           "--bind", "0.0.0.0:7730", "--health-bind", "0.0.0.0:9090"]
+           "--bind", "0.0.0.0:7730", "--health-bind", "$(POD_IP):9090"]
     ports:
       - { name: mesh, port: 7730, from: [feed-source, picture-analyst] }
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     seed: true
@@ -154,9 +167,9 @@ services:
     binary: forge-worker
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
            "--jobs", "/jobs/jobs.json", "--gateway", "http-gateway:7711",
-           "--health-bind", "0.0.0.0:9090"]
+           "--health-bind", "$(POD_IP):9090"]
     ports:
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     storage: 128Mi

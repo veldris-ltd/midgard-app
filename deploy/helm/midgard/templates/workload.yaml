@@ -10,6 +10,20 @@ readOnlyRootFilesystem: true
 capabilities:
   drop: ["ALL"]
 {{- end -}}
+{{- /*
+Every port names who may reach it: "*" (any pod in the cluster) refuses to render,
+enabled or not, before anything else is read. [VLD-ANB-MIDGARD-0027]
+*/ -}}
+{{- range .Values.services }}
+{{- if kindIs "map" . }}
+{{- $service := . }}
+{{- range (.ports | default list) }}
+{{- if and (kindIs "map" .) (has "*" (.from | default list)) }}
+{{- fail (printf "service %v port %v: from must name workloads, not \"*\"" $service.name .name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- range .Values.services }}
 {{- if .enabled }}
 {{- /* The image: image.single as given (kind, development); else pinned by digest; else,
@@ -166,11 +180,17 @@ spec:
           imagePullPolicy: {{ $pullPolicy }}
           {{- if $.Values.image.single }}
           command: [{{ .binary | quote }}]
-          {{- else }}
+          {{- end }}
           env:
+            {{- if not $.Values.image.single }}
             - name: MIDGARD_SERVICE
               value: {{ .name }}
-          {{- end }}
+            {{- end }}
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
           args: {{ toJson $args }}
           ports:
             {{- range .ports }}
@@ -327,15 +347,25 @@ spec:
   policyTypes: [Ingress]
   ingress:
     {{- range .ports }}
+    {{- /* "metrics-scraper" names the scraper: scraper.podLabel, and scraper.nodeCidrs for
+    the kubelet's probes. [VLD-ANB-MIDGARD-0027] */}}
+    {{- $scraper := has "metrics-scraper" .from }}
+    {{- $from := list }}
+    {{- range .from }}
+    {{- $from = append $from (ternary $.Values.scraper.podLabel . (eq . "metrics-scraper")) }}
+    {{- end }}
     - ports:
         - { protocol: TCP, port: {{ .port }} }
-      {{- if not (has "*" .from) }}
       from:
         - podSelector:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: {{ toJson .from }}
+                values: {{ toJson $from }}
+      {{- if $scraper }}
+      {{- range $.Values.scraper.nodeCidrs }}
+        - ipBlock: { cidr: {{ . }} }
+      {{- end }}
       {{- end }}
     {{- end }}
 {{- if or .talksTo $broker }}

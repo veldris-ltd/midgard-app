@@ -62,7 +62,13 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   `ConfigMap`, and one hardened `Deployment` + `Service` (+ ingress `NetworkPolicy`)
   per enabled service — non-root, read-only rootfs, dropped capabilities,
   readiness/liveness probes, resource requests/limits, and a zero-downtime rolling
-  strategy (`maxUnavailable: 0`).
+  strategy (`maxUnavailable: 0`). Every ingress rule names the workloads that may
+  reach its port; a port open to any pod (`from: ["*"]`) refuses to render. The
+  mesh services' health ports (`/healthz`, `/readyz`, `/metrics` on 9090) bind the
+  pod's own address and admit only the scraper: label your Prometheus pod
+  `app.kubernetes.io/name=metrics-scraper` (or set `scraper.podLabel`), and on a CNI
+  that applies NetworkPolicy to the kubelet's probes list the node ranges in
+  `scraper.nodeCidrs`. [VLD-ANB-MIDGARD-0027]
 - **`k8s/enclosure.yaml`** — the chart rendered for a development cluster
   (`helm template` with `image.allowTag=true`), for `kubectl apply` without Helm.
   Generated: regenerate it when the chart changes.

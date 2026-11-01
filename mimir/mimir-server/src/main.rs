@@ -608,12 +608,15 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         health.register(Box::new(WeightsUnchanged(weights_cell.clone())));
     }
     let metrics = Arc::new(MetricsRegistry::new());
-    let health_addr = spawn_health_port(
-        args.get("health-bind").unwrap_or("0.0.0.0:9090"),
-        Arc::new(health),
-        metrics.clone(),
-    )
-    .map_err(|e| format!("cannot bind the health port: {e}"))?;
+    let health_bind = args.get("health-bind").unwrap_or("0.0.0.0:9090");
+    if health_bind.starts_with("0.0.0.0") || health_bind.starts_with("[::]") {
+        eprintln!(
+            "mimir-server: WARNING health port binds every interface ({health_bind}); restrict \
+             it with NetworkPolicy or a pod address. [VLD-ANB-MIDGARD-0027]"
+        );
+    }
+    let health_addr = spawn_health_port(health_bind, Arc::new(health), metrics.clone())
+        .map_err(|e| format!("cannot bind the health port: {e}"))?;
 
     let _lock = DirLock::acquire(state_dir, "mimir.lock", service)?;
     let identity = ServiceIdentity::load(identity_dir, service)?;
