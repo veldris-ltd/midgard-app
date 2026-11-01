@@ -67,6 +67,7 @@ impl Server {
             prompt: req.prompt.clone(),
             max_tokens: req.max_tokens,
             quant,
+            marking: req.marking.clone(),
         }
     }
 

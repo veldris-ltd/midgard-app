@@ -107,7 +107,7 @@ $KUBECTL -n "$NS" rollout restart statefulset/mimir-server >/dev/null
 $KUBECTL -n "$NS" rollout status statefulset/mimir-server --timeout=180s
 second="$(job mimir-probe mimir-probe mimir-probe-identity "$probe")"
 echo "$second"
-grep -q "audit_seq=$((seq_before + 1))" <<<"$second"
+grep -q "audit_seq=$((seq_before + 2))" <<<"$second"  # a served call is its decision and its Infer:COMPLETE entry
 
 echo "--- an installation checks in with the fleet manager"
 job fleet-agent fleet-agent fleet-clients-identity \

@@ -280,6 +280,7 @@ impl Router {
             prompt: templated,
             max_tokens: req.max_tokens,
             quant,
+            marking: req.marking.clone(),
         };
         let mut raw = engine
             .infer_batch(std::slice::from_ref(&prepared))

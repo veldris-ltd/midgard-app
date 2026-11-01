@@ -23,6 +23,9 @@
 pub use model_server::{
     Completion, InferenceRequest, InferenceResponse, Locality, Quant, WorkloadClass,
 };
+/// The marking a request declares for the data in its prompt, re-exported with the
+/// contract. [VLD-ANB-MIDGARD-0034]
+pub use policy::{ClassificationLevel, Compartment, Marking};
 
 /// Wrap advisory `text` as a [`Completion`] carrying placeholder serving metadata.
 /// Convenient for callers/tests that only care about the model's text (the real

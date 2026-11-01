@@ -823,6 +823,7 @@ mod tests {
             prompt: prompt.into(),
             max_tokens,
             quant: Quant::Gguf,
+            marking: crate::marking::unclassified(),
         }
     }
 

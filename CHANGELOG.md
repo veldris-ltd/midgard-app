@@ -1170,6 +1170,35 @@ CONTRIBUTING.md for the version policy.
     sent to the engine are the template's own. Text that legitimately holds a token
     shows the backslash. The reference engine, and a sidecar with no adapter, read
     the system text and the prompt as one, as before.
+- **The marking of a prompt reaches the policy decision, and every served completion
+  leaves its prompt and completion digests in the ledger.** `mimir-server` decided
+  `Infer` with a fixed UNCLASSIFIED clearance against an UNCLASSIFIED resource, so a
+  prompt holding marked or compartmented grounding could not be refused, and neither
+  prompt nor completion left any trace. [VLD-ANB-MIDGARD-0034] [FR-MI-8]
+  - `InferenceRequest` carries `marking`, the marking of the data in its prompt: on
+    the wire after `max_tokens`, a level byte, a `u32` count and each compartment as
+    a length-prefixed string in ascending order. An unknown level, a repeated or
+    unsorted compartment, or a compartment name outside `[A-Za-z0-9._-]{1,64}` is
+    malformed, and a frame from an older consumer, without the marking, is refused.
+  - The handler authorises each call against the inference resource with its
+    marking raised to the request's, and the model's accreditation as the clearance:
+    `mimir-server --model-marking LEVEL[:COMPARTMENT,...]` (levels `UNCLASSIFIED`,
+    `CONFIDENTIAL`, `SECRET`, `TOP_SECRET`), default `UNCLASSIFIED`, which refuses
+    every marked prompt. The refusal is the call's `DENY Infer` entry. The serving
+    log line names `model_marking`; compose and the Helm chart pass
+    `--model-marking UNCLASSIFIED` (`modelServing.modelMarking`).
+  - After a served completion the handler writes a second entry, `Infer:COMPLETE
+    decision_seq=… marking=… model=… prompt_sha256=… completion_sha256=…
+    prompt_tokens=… completion_tokens=…`, where the prompt digest is over the system
+    text, a blank line and the body. If that entry cannot be written the caller gets
+    `AUDIT_FAILURE`, not the completion. A served call is now two ledger entries.
+  - The agent runtime marks its request with the highest level among the included
+    grounding facts (`AssembledPrompt::max_marking_level`) and the caller's
+    compartments; the Heimdall, Forge, Bifrost and admin bridges take the caller's
+    posture through `with_marking` (default UNCLASSIFIED). `mimir-probe --marking`
+    sets it.
+  - The prompt still crosses the loopback to llama.cpp in clear inside the network
+    namespace mimir-server shares with it; that is now a recorded trust assumption.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

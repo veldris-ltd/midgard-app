@@ -111,6 +111,7 @@ fn request(workload: WorkloadClass) -> InferenceRequest {
         quant_pref: None,
         backend_override: None,
         max_tokens: 16,
+        marking: model_server::marking::unclassified(),
         prompt: NEUTRAL_PROMPT.into(),
     }
 }

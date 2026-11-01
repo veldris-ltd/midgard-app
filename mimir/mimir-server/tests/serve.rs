@@ -2,8 +2,9 @@
 //! certified consumer's call is served over PQ-mTLS and audited; a consumer whose roles
 //! policy does not permit, and one certified by another issuer, are refused and counted;
 //! the service reports ready and holds its state directory; and after a hard kill it
-//! restarts on the same ledger, recovering and continuing its audit sequence.
-//! [FR-MI-8] [NFR-SEC-1] [RC-33] [RC-09] [AC-MI-8]
+//! restarts on the same ledger, recovering and continuing its audit sequence. A prompt
+//! marked above the model's accreditation is refused, and the refusal audited.
+//! [FR-MI-8] [NFR-SEC-1] [RC-33] [RC-09] [AC-MI-8] [VLD-ANB-MIDGARD-0034]
 //!
 //! While it serves, a revoked model id, an operator's stop file or a withdrawn model
 //! trust key stops inference within the reload interval, after the completions in
@@ -186,6 +187,10 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
 }
 
 fn probe(identity: &Path, service: &str, addr: &str) -> Output {
+    probe_with(identity, service, addr, &[])
+}
+
+fn probe_with(identity: &Path, service: &str, addr: &str, extra: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mimir-probe"))
         .env(
             "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
@@ -205,6 +210,7 @@ fn probe(identity: &Path, service: &str, addr: &str) -> Output {
             "--prompt",
             "who is assigned to case 42?",
         ])
+        .args(extra)
         .output()
         .expect("mimir-probe runs")
 }
@@ -309,15 +315,90 @@ fn inference_is_served_over_pqmtls_audited_and_survives_a_restart() {
     );
 
     // A hard kill leaves the lock behind; the restart takes it over and recovers the
-    // ledger — only the served call was audited, the refused channels never reached it.
+    // ledger — only the served call was audited (its decision and its completion
+    // digests), the refused channels never reached it. [VLD-ANB-MIDGARD-0034]
     drop(server);
     let server = start(&server_identity, &state);
-    assert_eq!(server.recovered, "1");
+    assert_eq!(server.recovered, "2");
     let again = probe(&consumers, "forge-worker", &server.mesh);
     assert!(again.status.success(), "{}", text(&again.stderr));
-    assert!(text(&again.stdout).contains("audit_seq=1"));
+    assert!(text(&again.stdout).contains("audit_seq=2"));
 
     drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// [VLD-ANB-MIDGARD-0034] [AC-65.5]
+#[test]
+fn a_prompt_marked_above_the_model_accreditation_is_refused_and_audited() {
+    let root = scratch("marking");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let consumers = root.join("consumers");
+    let state = root.join("state");
+    issue(
+        &idp,
+        &server_identity,
+        "mimir-server",
+        &["inference-server"],
+    );
+    issue(&idp, &consumers, "forge-worker", &["inference-consumer"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+
+    // The book's OFFICIAL-SENSITIVE accreditation, in the policy lattice's names.
+    let server = start_with(&server_identity, &state, &["--model-marking", "SECRET"]);
+
+    // An unmarked prompt is within the accreditation: served (decision + completion).
+    let served = probe(&consumers, "forge-worker", &server.mesh);
+    assert!(served.status.success(), "{}", text(&served.stderr));
+    assert!(text(&served.stdout).contains("audit_seq=0"));
+
+    // A prompt marked above it is refused by policy, on the decision entry after the
+    // completion entry.
+    let marked = probe_with(
+        &consumers,
+        "forge-worker",
+        &server.mesh,
+        &["--marking", "TOP_SECRET"],
+    );
+    assert_eq!(marked.status.code(), Some(1));
+    let err = text(&marked.stderr);
+    assert!(err.contains("POLICY_DENIED"), "{err}");
+
+    // So is a compartment the model does not hold.
+    let compartmented = probe_with(
+        &consumers,
+        "forge-worker",
+        &server.mesh,
+        &["--marking", "SECRET:ALPHA"],
+    );
+    assert_eq!(compartmented.status.code(), Some(1));
+
+    // Both refusals were audited: the restart recovers the served call's two entries
+    // and one DENY entry for each refusal.
+    drop(server);
+    let server = start_with(&server_identity, &state, &["--model-marking", "SECRET"]);
+    assert_eq!(server.recovered, "4");
+
+    // An unknown level is refused at startup.
+    drop(server);
+    let (identity_arg, state_arg) = (
+        server_identity.display().to_string(),
+        state.display().to_string(),
+    );
+    let bad = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .args(server_args(&identity_arg, &state_arg))
+        .args(["--model-marking", "OFFICIAL-SENSITIVE"])
+        .output()
+        .unwrap();
+    assert_eq!(bad.status.code(), Some(1));
+    assert!(
+        text(&bad.stderr).contains("--model-marking"),
+        "{}",
+        text(&bad.stderr)
+    );
+
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -902,10 +983,11 @@ fn a_revoked_model_stops_serving_within_the_interval() {
     assert!(served.status.success(), "{}", text(&served.stderr));
     drop(server);
 
-    // The refusal is in the ledger: a served call, the refused call's decision and its
-    // refusal, and the call after the resume.
+    // The refusal is in the ledger: a served call and its Infer:COMPLETE entry, the
+    // refused call's decision and its refusal, and the call after the resume and its
+    // Infer:COMPLETE entry. [VLD-ANB-MIDGARD-0034]
     let server = fx.start();
-    assert_eq!(server.recovered, "4");
+    assert_eq!(server.recovered, "6");
     drop(server);
     let _ = std::fs::remove_dir_all(&fx.root);
 }

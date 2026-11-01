@@ -1,11 +1,19 @@
 //! The inference gateway handler: it plugs into the proven PQ-mTLS termination
 //! ([`gateway::Gateway`]) and makes inference reachable **only** over that
-//! channel, writing one PQ-signed audit entry for **every** call through the
-//! governance spine. [FR-MI-8] [NFR-SEC-1] [AC-MI-8]
+//! channel, writing one PQ-signed audit decision entry for **every** call through
+//! the governance spine. [FR-MI-8] [NFR-SEC-1] [AC-MI-8]
 //!
 //! The gateway has already mutually authenticated the peer and authorised the
 //! channel before [`InferenceHandler::handle`] runs; this layer adds the
 //! per-call authorisation-and-audit envelope and the actual serving.
+//!
+//! The call is authorised against a resource carrying the request's marking (the
+//! marking of the data in the prompt), at the lower of the clearance the caller's
+//! certificate grants and the model's accreditation, so the PDP's dominance check
+//! refuses a prompt the model is not accredited for, or the caller not cleared to send. A served completion writes a second ledger entry,
+//! `Infer:COMPLETE`, naming the decision entry and carrying the SHA-256 of the
+//! prompt and of the completion, so what the model was given and produced can be
+//! traced. [VLD-ANB-MIDGARD-0034]
 //!
 //! Every permitted call is also admitted against an [`InferenceLimits`] budget: a
 //! prompt over the byte bound is refused `PROMPT_TOO_LARGE`, a call over the global or
@@ -27,12 +35,15 @@ use std::sync::{Mutex, MutexGuard};
 use audit_writer::{InMemoryLedger, LedgerStore};
 use gateway::RequestHandler;
 use governance::Governance;
-use policy::{Purpose, Resource};
+use policy::{Clearance, Marking, Purpose, Resource};
 use pq_mtls::{Authorization, WorkloadIdentity};
+use pqc_agility::hash::{Digest, Sha256};
 use service_runtime::mesh_context;
 use telemetry::{Logger, StdoutJsonSink};
 
-use crate::api::{InferenceRequest, InferenceResponse};
+use crate::api::{Completion, InferenceRequest, InferenceResponse};
+use crate::artifact::hex;
+use crate::marking::{accreditation, marking_label, unclassified};
 use crate::serve::Server;
 
 /// A monotonic source of audit timestamps. Injected so tests are deterministic
@@ -273,11 +284,50 @@ pub struct InferenceHandler<S: LedgerStore = InMemoryLedger> {
     server: Arc<Server>,
     governance: Mutex<Governance<S>>,
     resource: Resource,
+    model_clearance: Clearance,
     clock: Arc<dyn Clock>,
     limits: InferenceLimits,
     admission: Arc<Admission>,
     serving: Arc<ServingState>,
     on_refusal: Option<RefusalHook>,
+}
+
+/// The SHA-256 (lowercase hex) of a request's prompt as the ledger records it: the
+/// system text, a blank line, then the prompt body, always joined, so a verifier
+/// recomputes it from the request alone. [VLD-ANB-MIDGARD-0034]
+pub fn prompt_sha256(req: &InferenceRequest) -> String {
+    let mut h = Sha256::new();
+    h.update(req.system_prompt.as_bytes());
+    h.update(b"\n\n");
+    h.update(req.prompt.as_bytes());
+    hex(&h.finalize())
+}
+
+/// The SHA-256 (lowercase hex) of a completion's text as the ledger records it.
+/// [VLD-ANB-MIDGARD-0034]
+pub fn completion_sha256(text: &str) -> String {
+    hex(&pqc_agility::hash::sha256(text.as_bytes()))
+}
+
+/// The action text of the `Infer:COMPLETE` entry written after a served completion.
+/// The marking label and model id hold no spaces, so every field reads back as one
+/// `key=value` token. [VLD-ANB-MIDGARD-0034]
+fn completion_action(
+    decision_seq: u64,
+    marking: &Marking,
+    req: &InferenceRequest,
+    c: &Completion,
+) -> String {
+    format!(
+        "Infer:COMPLETE decision_seq={decision_seq} marking={} model={} prompt_sha256={} \
+         completion_sha256={} prompt_tokens={} completion_tokens={}",
+        marking_label(marking),
+        c.model_id.replace(char::is_whitespace, "_"),
+        prompt_sha256(req),
+        completion_sha256(&c.text),
+        c.prompt_tokens,
+        c.completion_tokens,
+    )
 }
 
 impl<S: LedgerStore> InferenceHandler<S> {
@@ -286,8 +336,14 @@ impl<S: LedgerStore> InferenceHandler<S> {
     /// - `server`: the serving core (already bound to an autonomously-selected
     ///   engine).
     /// - `governance`: the enforcement + PQ-signed audit spine.
-    /// - `resource`: the policy resource inference is authorised against.
+    /// - `resource`: the policy resource inference is authorised against: its id
+    ///   and purposes, and its marking as the floor every request is raised to (a
+    ///   malformed request is authorised against it as it is).
     /// - `clock`: the audit timestamp source.
+    ///
+    /// The model is accredited UNCLASSIFIED with no compartments until
+    /// [`with_model_clearance`](Self::with_model_clearance) says otherwise, so a
+    /// marked prompt is refused (fail closed). [VLD-ANB-MIDGARD-0034]
     pub fn new(
         server: Arc<Server>,
         governance: Governance<S>,
@@ -301,6 +357,7 @@ impl<S: LedgerStore> InferenceHandler<S> {
             server,
             governance: Mutex::new(governance),
             resource,
+            model_clearance: accreditation(&unclassified()),
             clock,
             limits: InferenceLimits::default(),
             admission,
@@ -374,6 +431,41 @@ impl<S: LedgerStore> InferenceHandler<S> {
         self.refuse(subject, &reason, now)
     }
 
+    /// Accredit the model to `clearance`: the clearance every call is authorised
+    /// with, which must dominate the request's marking. [VLD-ANB-MIDGARD-0034]
+    pub fn with_model_clearance(mut self, clearance: Clearance) -> Self {
+        self.model_clearance = clearance;
+        self
+    }
+
+    /// The action text of every audit entry so far, in order (test/inspection).
+    pub fn audit_actions(&self) -> Vec<String> {
+        self.governance()
+            .audit_entries()
+            .iter()
+            .map(|e| e.record.action.0.clone())
+            .collect()
+    }
+
+    /// The resource a request is authorised against: the configured resource with
+    /// its marking raised to the request's (the higher level, and every compartment
+    /// of either). [VLD-ANB-MIDGARD-0034]
+    fn resource_for(&self, marking: &Marking) -> Resource {
+        let floor = &self.resource.marking;
+        Resource {
+            id: self.resource.id.clone(),
+            marking: Marking {
+                level: floor.level.max(marking.level),
+                compartments: floor
+                    .compartments
+                    .union(&marking.compartments)
+                    .cloned()
+                    .collect(),
+            },
+            allowed_purposes: self.resource.allowed_purposes.clone(),
+        }
+    }
+
     /// Number of audit entries written so far (test/inspection).
     pub fn audit_len(&self) -> usize {
         self.governance().audit_entries().len()
@@ -407,6 +499,21 @@ impl<S: LedgerStore> InferenceHandler<S> {
             }
         }
     }
+
+    /// The clearance a call is authorised at: the lower of what the channel authorised
+    /// the caller at and the model's accreditation, so a prompt is served only if the
+    /// caller may send it and the model may see it. Level the lower of the two,
+    /// compartments those both hold. [VLD-ANB-MIDGARD-0063] [VLD-ANB-MIDGARD-0034]
+    fn call_clearance(&self, certified: &Clearance) -> Clearance {
+        Clearance {
+            level: certified.level.min(self.model_clearance.level),
+            compartments: certified
+                .compartments
+                .intersection(&self.model_clearance.compartments)
+                .cloned()
+                .collect(),
+        }
+    }
 }
 
 impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
@@ -425,14 +532,21 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
             Ok(req) => (req.purpose.clone(), "Infer"),
             Err(_) => ("inference".to_string(), "Infer:MALFORMED"),
         };
-        // The per-call context: the peer's certified roles, the clearance the channel
-        // authorised it at, and the request's declared purpose. [VLD-ANB-MIDGARD-0063]
-        let ctx = mesh_context(peer, authorization, &Purpose(purpose));
+        // The per-call context: the peer's certified roles and the request's declared
+        // purpose, at the lower of its certified clearance and the model's
+        // accreditation. [VLD-ANB-MIDGARD-0063] [VLD-ANB-MIDGARD-0034]
+        let mut ctx = mesh_context(peer, authorization, &Purpose(purpose));
+        ctx.clearance = self.call_clearance(&ctx.clearance);
+        // The data in the prompt carries its marking into the decision.
+        let resource = match &decoded {
+            Ok(req) => self.resource_for(&req.marking),
+            Err(_) => self.resource.clone(),
+        };
 
         // Decide AND audit — one PQ-signed lineage entry per call, permit or deny.
         let decision = {
             let mut gov = self.governance();
-            gov.authorize(&ctx, &self.resource, action, now)
+            gov.authorize(&ctx, &resource, action, now)
         };
         let decision = match decision {
             Ok(d) => d,
@@ -492,6 +606,23 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
         match self.server.infer(prepared) {
             Ok(mut c) => {
                 c.audit_seq = decision.audit_seq;
+                // Record what the model was given and produced, linked to the
+                // decision; a completion that cannot be recorded is never served.
+                // [VLD-ANB-MIDGARD-0034]
+                let action = completion_action(decision.audit_seq, &resource.marking, &req, &c);
+                let recorded = self.governance().record_event(
+                    &ctx.subject,
+                    &action,
+                    &resource.id.0,
+                    self.clock.now(),
+                );
+                if recorded.is_err() {
+                    return InferenceResponse::Denied {
+                        reason: "AUDIT_FAILURE".to_string(),
+                        audit_seq: decision.audit_seq,
+                    }
+                    .encode();
+                }
                 InferenceResponse::Ok(c).encode()
             }
             Err(e) => InferenceResponse::Denied {
