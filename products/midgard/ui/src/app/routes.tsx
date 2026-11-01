@@ -1,4 +1,4 @@
-import { createHashRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router'; // v7, one router package [AC-P4.2]
 import { ObjectFabricScreen } from '../screens/ObjectFabricScreen';
 import { SearchAroundScreen } from '../screens/SearchAroundScreen';
 import { DataSearchScreen } from '../screens/DataSearchScreen';

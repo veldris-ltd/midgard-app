@@ -28,6 +28,7 @@ on:
       - 'bifrost/bundle/**'
       - 'supply-chain/**'
       - 'vendor/advisory-db/snapshot.toml'
+      - 'vendor/advisory-db-npm/snapshot.toml'
       - 'deploy/images/**'
       - 'deploy/air-gap-bundle/**'
       - 'deploy/acceptance/Dockerfile'

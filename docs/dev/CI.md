@@ -36,6 +36,7 @@ out which system it is running under from the variables that system always sets
 | `tools/ci/release-preflight.sh` | asserts a signing runner is provisioned |
 | `tools/ci/vendor-check.sh` | checks `/vendor` is exactly what `Cargo.lock` names, and that Cargo is pinned to it |
 | `tools/ci/claims.sh` | renders the claims ledger and checks every row against the files, lines and tests it cites |
+| `renovate.json` | the weekly dependency updates for both ecosystems (see [Dependency updates](#dependency-updates)) |
 | `tools/ci/tests/*.test.sh` | tests for the scripts above |
 
 ### Keeping the two in step
@@ -97,6 +98,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `check-backends` | toolchain | `just check-backends`: neither the workspace build nor any package in the release matrix resolves the insecure `test-backend`, a release build with it fails on the compile guard, and the FIPS release build succeeds |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
+| `advisory-refresh` | host | weekly: both advisory snapshots refreshed, every SBOM re-scanned, and a pull or merge request opened with the scan diff when a snapshot moved |
 | `acceptance` | host | the full acceptance suite under a genuine air gap, its log kept in `target/gate` |
 | `js-build` | host | every UI bundle and npm package built twice, bit-identical |
 | `release-dry-run` | toolchain | the whole release gate, throwaway keys, nothing published |
@@ -116,8 +118,92 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | …that touches release machinery or a UI | `release.yml`: `js-build`, `release-dry-run` | `js-build`, `release-dry-run` |
 | a push to `main` or `dev` | `ci.yml`, plus `acceptance` | the same, plus `acceptance` |
 | a `v*` tag | `release.yml`: the release | the release |
+| weekly, Mondays 03:17 UTC | `advisory-refresh.yml`: `advisory-refresh` | a pipeline schedule: `advisory-refresh`, and nothing else |
 | by hand | *Run workflow* → `mode`: `dry-run` or `release` | *Run pipeline* → `MIDGARD_RELEASE_MODE`: `dry-run`, `release` or `audit` |
 | by hand on `main` or `dev`, no mode | — (the toolchain image is built per run) | `toolchain-publish` |
+
+## Dependency updates
+
+`[AC-P4.4]` `[AC-P4.5]` (VLD-ANB-MIDGARD-0076)
+
+Dependencies and the two advisory snapshots move every week, each as a pull or merge
+request a person reviews. Nothing floats: every update lands in a pinned file (the
+lockfiles, `Cargo.lock` with `/vendor`, an action's commit SHA, an image digest), and
+nothing merges itself.
+
+**Renovate** ([`renovate.json`](../../renovate.json)) runs on Monday mornings, at most
+three open at a time, labelled `dependencies`, and only for releases at least 14 days
+old (the same rule the lockfiles were built to). Its managers:
+
+| Manager | Covers |
+|---|---|
+| `npm` | the pnpm workspace (`pnpm-lock.yaml`), and `docs/launch/pipeline` with its own `package-lock.json`, grouped as "launch pipeline" |
+| `cargo` | every `Cargo.toml` in the workspace, re-vendored as described below |
+| `github-actions` | the actions in `.github/workflows/`, kept pinned to a full commit SHA (`pinDigests`) |
+| `gitlabci` | the images and services in `.gitlab-ci.yml`, kept pinned by digest (`pinDigests`) |
+| `custom.regex` | the digest-pinned base images of the Dockerfiles under `deploy/`: digest refreshes of the tag they name; a new Rust or Node line stays a deliberate change |
+
+Commits are made through the forge API (`platformCommit`), so they carry the forge's
+signature. `tools/ci/tests/renovate.test.sh` (part of `selftest`) checks this shape.
+The forge setup is the owner's: install the Renovate app on the GitHub repository, or
+run a self-hosted Renovate against both forges.
+
+**A Cargo update** cannot be finished by Renovate in place: crates are vendored, and
+`.cargo/config.toml` points Cargo at `/vendor`, so `Cargo.lock` cannot be resolved
+against the registry and `/vendor` would not match it anyway. On a **self-hosted**
+Renovate whose global `allowedCommands` admits them, the cargo rule's
+`postUpgradeTasks` do it: set the source replacement aside, `cargo update --package
+<crate> --precise <version>`, `cargo vendor --versioned-dirs vendor`, restore the
+replacement, run `tools/ci/vendor-check.sh`, and commit `Cargo.lock` and `/vendor`
+to the pull request. **Hosted** Renovate cannot run commands, so its pull request
+carries the manifest change only and the `vendor` job fails it, which is correct: it
+is not mergeable yet. A maintainer finishes it on the branch, online:
+
+```bash
+git switch <renovate-branch>
+# comment out the [source] block in .cargo/config.toml
+cargo update --package <crate> --precise <version>
+cargo vendor --versioned-dirs vendor > /dev/null
+# restore the [source] block
+bash tools/ci/vendor-check.sh
+git add Cargo.lock vendor && git commit -S -m "chore(vendor): vendor <crate> <version>"
+git push
+```
+
+Then let CI build and test it offline as usual. `zeroize` and `base64ct` are held below
+1.9 and 1.7 for Rust 1.82 ([BUILD_ENV.md](BUILD_ENV.md)); the toolchain build catches
+any other crate that needs a newer compiler.
+
+**An npm update that adds a package** passes CI but is refused by the release gate
+(`advisory-uncovered`): the npm advisory snapshot is filtered to the packages the
+lockfile named when it was made. Run `just advisory-db-npm-refresh` (online) on the
+branch and commit `vendor/advisory-db-npm` with it.
+
+**The advisory snapshots** are refreshed by the `advisory-refresh` job, every Monday at
+03:17 UTC: `.github/workflows/advisory-refresh.yml` on GitHub, and on GitLab a pipeline
+schedule on the default branch, which runs that job and nothing else. The job clones the
+RustSec database and downloads the OSV npm export on the runner, runs
+`just advisory-db-refresh` and `just advisory-db-npm-refresh` from those inside the
+offline toolchain image, scans the Rust workspace and every JavaScript artefact before
+and after, and, when either snapshot moved, commits them to
+`deps/advisory-refresh-<date>` as "chore(advisories): refresh snapshots <date>" and opens
+a pull or merge request whose body is the scan diff. When nothing moved it says so and
+opens nothing (`tools/ci/tests/advisory-refresh.test.sh`).
+
+Both snapshots warn at 30 days and the scan refuses them past 45
+(`fail_after_days` in each `snapshot.toml`), so a release attempted after six weeks
+without a refresh fails closed until someone runs one.
+
+The write access is the scheduled job's alone. On GitHub the workflow grants
+`contents: write` and `pull-requests: write` to that job, and passes the workflow
+token to it through the environment, never persisted in the checkout; a pull request
+opened with that token does not start other workflows, so close and reopen it (or push
+to it) to run CI. On GitLab `CI_JOB_TOKEN` can neither push nor open a merge request:
+the owner creates a project access token with `api` scope, stores it as the protected,
+masked CI/CD variable `MIDGARD_MR_TOKEN`, and creates the weekly pipeline schedule. The
+token reaches `git` through a credential helper and `curl` through a header file, never
+a command line. The bot's commit is unsigned; squash-merge it through the forge (which
+signs the result) or re-sign it before merging into a branch that requires signatures.
 
 ## The gate record
 
@@ -326,6 +412,10 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
   host, not a `dind` service.
 - A `macos`-tagged runner for the `apple` shell audit. Without one that job waits, and
   the release with it.
+- For the weekly `advisory-refresh`: a pipeline schedule on the default branch and the
+  `MIDGARD_MR_TOKEN` variable ([Dependency updates](#dependency-updates)). The job uses
+  the Docker-in-Docker executor and needs to reach github.com and
+  osv-vulnerabilities.storage.googleapis.com.
 
 ### Publishing the toolchain image
 

@@ -353,6 +353,7 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 
 - Source:
   - [`products/admin/ui/src/main.tsx:17`](../../products/admin/ui/src/main.tsx)
+  - [`products/admin/ui/src/app/routes.tsx:1`](../../products/admin/ui/src/app/routes.tsx)
   - [`tools/ci/tests/js-toolchain.test.sh`](../../tools/ci/tests/js-toolchain.test.sh)
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
@@ -701,12 +702,13 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
 
 - Criteria: AC-M-6, AC-B-1
 - Source:
-  - [`justfile:373`](../../justfile)
+  - [`justfile:389`](../../justfile)
   - [`tools/ci/release.sh:170`](../../tools/ci/release.sh)
   - [`tools/ci/pipelines.sh:52`](../../tools/ci/pipelines.sh)
 - Tests:
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
   - [`tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component`](../../tools/mg-scan/tests/cli.rs)
+  - [`tools/mg-scan/tests/cli.rs::snapshot_older_than_fail_after_days_fails`](../../tools/mg-scan/tests/cli.rs)
 - Service tests:
   - [`tools/ci/run.sh:320`](../../tools/ci/run.sh)
   - [`tools/ci/tests/pipelines.test.sh:73`](../../tools/ci/tests/pipelines.test.sh)

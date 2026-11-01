@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router'; // v7, one router package [AC-P4.2]
 import {
   Badge,
   Button,

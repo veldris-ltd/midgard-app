@@ -24,4 +24,4 @@ license = "CC0-1.0"
 
 [staleness]
 warn_after_days = 30
-fail_after_days = 180
+fail_after_days = 45

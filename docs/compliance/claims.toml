@@ -229,7 +229,7 @@ id = "consoles"
 area = "Admin"
 claim = "Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin and Clients."
 status = "reference"
-evidence = ["products/admin/ui/src/main.tsx:33:new AdminMock", "tools/ci/tests/js-toolchain.test.sh"]
+evidence = ["products/admin/ui/src/main.tsx:33:new AdminMock", "products/admin/ui/src/main.tsx:17", "products/admin/ui/src/app/routes.tsx:1", "tools/ci/tests/js-toolchain.test.sh"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data under a demonstration banner, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
@@ -473,10 +473,10 @@ area = "Supply chain and release"
 claim = "Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified."
 status = "operable"
 criteria = ["AC-M-6", "AC-B-1"]
-evidence = ["justfile:373", "tools/ci/release.sh:170", "tools/ci/pipelines.sh:52", "tools/ci/release.sh:182", "justfile:389", "tools/ci/tests/js-toolchain.test.sh"]
-tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component"]
-service_tests = ["tools/ci/run.sh:320", "tools/ci/tests/pipelines.test.sh:73", "tools/ci/run.sh:225", "tools/ci/run.sh:232", "tools/ci/run.sh:344"]
-limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them."
+evidence = ["justfile:373", "tools/ci/release.sh:170", "tools/ci/pipelines.sh:52", "tools/ci/release.sh:182", "justfile:389", "tools/ci/tests/js-toolchain.test.sh", "vendor/advisory-db/snapshot.toml:27", "vendor/advisory-db-npm/snapshot.toml:15", "renovate.json", ".github/workflows/advisory-refresh.yml", "tools/ci/tests/advisory-refresh.test.sh"]
+tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component", "tools/mg-scan/tests/cli.rs::snapshot_older_than_fail_after_days_fails"]
+service_tests = ["tools/ci/run.sh:320", "tools/ci/tests/pipelines.test.sh:73", "tools/ci/run.sh:225", "tools/ci/run.sh:232", "tools/ci/run.sh:344", "tools/ci/run.sh:369"]
+limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them. The advisory scan refuses a snapshot more than 45 days old; the weekly advisory-refresh job and Renovate are configured on both forges but have not yet run on either."
 stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402", "README.md:746", "README.md:754", "README.md:744"]
 
 [[claim]]
@@ -486,7 +486,7 @@ claim = "The workspace builds and its tests run with no network: every dependenc
 status = "operable"
 criteria = ["AC-M-5"]
 evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/in-toolchain.sh:60", "tools/ci/vendor-check.sh", ".gitlab-ci.yml:114"]
-service_tests = ["tools/ci/run.sh:306", "tools/ci/tests/in-toolchain.test.sh:43", "tools/ci/run.sh:215", "tools/ci/run.sh:221"]
+service_tests = ["tools/ci/run.sh:306", "tools/ci/tests/in-toolchain.test.sh:43", "tools/ci/run.sh:215", "tools/ci/run.sh:221", "tools/ci/run.sh:209"]
 limit = "The recorded gate run covers the one commit named in docs/compliance/gate-runs/CURRENT. Later commits are not covered until the gate is recorded again. On GitLab merge requests the offline property rests on Cargo (vendored sources, CARGO_NET_OFFLINE) rather than a network sandbox, and those runs cannot be recorded as the gate; the unprivileged and protected runner configuration is the owner's and is not yet evidenced."
 stated_in = ["README.md:130", "docs/launch/pipeline/build-deck.js:508"]
 
@@ -508,7 +508,7 @@ area = "Supply chain and release"
 claim = "Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network."
 status = "operable"
 evidence = ["deploy/acceptance/run-airgapped.sh:10", ".gitlab-ci.yml:236"]
-service_tests = ["tools/ci/run.sh:313", "tools/ci/run.sh:215", "tools/ci/run.sh:221"]
+service_tests = ["tools/ci/run.sh:313", "tools/ci/run.sh:215", "tools/ci/run.sh:221", "tools/ci/run.sh:209"]
 limit = "Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again. On GitLab the suite runs only on protected branches, on the privileged runner tagged protected; merge-request jobs run unprivileged and never start it."
 stated_in = ["GETTING_STARTED.md:5"]
 

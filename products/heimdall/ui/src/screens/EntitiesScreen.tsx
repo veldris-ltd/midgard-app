@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router'; // v7, one router package [AC-P4.2]
 import {
   Button,
   Card,

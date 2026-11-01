@@ -471,6 +471,42 @@ CONTRIBUTING.md for the version policy.
   release dry run sets it up on the hosted runner. [VLD-ANB-MIDGARD-0047]
   [VLD-ANB-MIDGARD-0095] [VLD-ANB-MIDGARD-0096] [VLD-ANB-MIDGARD-0097]
   [VLD-ANB-MIDGARD-0098] [VLD-ANB-MIDGARD-0099] [VLD-ANB-MIDGARD-0100]
+- **The consoles route with react-router 7.** Every `products/*/ui` replaces
+  `react-router-dom` ^6.28.0 (resolved 6.30.4, with `react-router` 6.30.4 and
+  `@remix-run/router` 1.23.3 under it) with `react-router` ^7.18.4, resolved 7.18.4,
+  which brings `cookie` 1.1.1 and `set-cookie-parser` 2.7.2; each was published at
+  least two weeks ago, and no `pnpm.overrides` entry is needed. This closes the
+  open-redirect XSS advisory on react-router-dom 6.30.4 and the SSR-disclosure and
+  backslash open-redirect advisories on react-router 6.30.4, none of whose
+  preconditions the consoles met. The 26 imports change from `react-router-dom` to
+  `react-router` and nothing else: the consoles use `createHashRouter`,
+  `RouterProvider`, `useNavigate`, `useSearchParams`, `useLocation` and `Link`, with
+  flat routes, no splat routes, no loaders, actions, forms or fetchers, so none of
+  the v7 behaviour changes applies. `tools/ci/tests/js-toolchain.test.sh` fails if
+  react-router resolves below 7.18.0 or react-router-dom is resolved at all. Every
+  bundle hash changes; `just js-build` still proves them bit-identical.
+  [VLD-ANB-MIDGARD-0082] [VLD-ANB-MIDGARD-0083]
+- **The launch-media tooling is off its vulnerable image libraries.**
+  `docs/launch/pipeline` moves sharp from 0.34.5 to 0.35.5 (libvips 1.3.4, lifting the
+  libvips, libheif and librsvg advisories) and, through an `overrides` entry, image-size
+  from 1.2.1 to 2.0.4 (pptxgenjs 4.0.1, the latest, still asks for 1.x but never calls
+  it). `npm audit` reports no advisories. The pipeline stays a maintainer-workstation
+  tool outside the workspace and the release gate; its README says so and installs it
+  with `npm ci --ignore-scripts`, and `js-toolchain.test.sh` holds its lockfile to both
+  floors. [VLD-ANB-MIDGARD-0050] [VLD-ANB-MIDGARD-0062]
+- **Advisory data can no longer quietly age for six months.** Both vendored snapshots
+  now fail the scan past 45 days (was 180), and `mg-scan import-osv` writes that limit;
+  `snapshot_older_than_fail_after_days_fails` proves a 46-day-old snapshot is refused.
+  The RustSec snapshot is refreshed to upstream `2295466` of 2026-10-30 (1,375
+  advisories, was 1,279 of 2026-10-12). A new `advisory-refresh` job, run weekly on both
+  forges (`.github/workflows/advisory-refresh.yml`, a GitLab pipeline schedule),
+  refreshes both snapshots, re-scans every SBOM, and opens a pull or merge request with
+  the scan diff when either moved; the two refresh recipes take an already fetched
+  input so the offline toolchain can run them. `renovate.json` proposes weekly,
+  reviewable updates for the pnpm workspace, `docs/launch/pipeline`, the Cargo
+  manifests (re-vendored by a self-hosted Renovate, by a maintainer otherwise), the
+  GitHub Actions SHAs and the GitLab image digests. docs/dev/CI.md, "Dependency
+  updates", has the workflow. [VLD-ANB-MIDGARD-0076]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

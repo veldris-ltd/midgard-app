@@ -58,7 +58,7 @@ check-backends|toolchain|no release binary can carry the insecure test backend; 
 test|toolchain|the test suite, both crypto backends; its log is kept in target/gate
 repro|toolchain|two normalised builds of the workspace are bit-identical
 scan|toolchain|advisory and licence scan of the dependency graph, PR mode
-dependency-review|host|monthly: refresh both advisory snapshots, scan, and propose the change when they moved
+advisory-refresh|host|weekly: refresh both advisory snapshots, re-scan, and propose the change when they moved
 acceptance|host|the full acceptance suite under a genuine air gap; its log is kept in target/gate
 js-build|host|install the JS workspace and build every JavaScript artefact twice, bit-identical
 release-dry-run|toolchain|the whole release gate with throwaway keys, publishing nothing
@@ -329,23 +329,49 @@ job_scan() {
     in_toolchain bash -c 'mkdir -p target/ci && just sbom target/ci/workspace && just scan-advisory target/ci/workspace'
 }
 
-# --- the monthly dependency review [AC-25.6] (VLD-ANB-MIDGARD-0090) -------------------
-# The vendored advisory snapshots are refreshed on a schedule, not only by hand. The
-# downloads happen here on the runner, which has the network; the offline toolchain then
-# rewrites vendor/advisory-db and vendor/advisory-db-npm from them with the same just
-# recipes a maintainer runs, and the scan runs against the result. If either snapshot
-# moved, the change goes to chore/advisory-refresh-<date> and is proposed as a pull or
-# merge request for a person to review; nothing is merged here.
+# --- the weekly advisory refresh [AC-P4.5] (VLD-ANB-MIDGARD-0076) --------------------
+# The vendored snapshots are only as good as their last refresh, so a schedule runs
+# this every week on both forges. The two downloads happen here on the runner; the
+# offline toolchain then rewrites vendor/advisory-db and vendor/advisory-db-npm from
+# them (the same just recipes a maintainer runs). If either snapshot moved, the change
+# is committed to deps/advisory-refresh-<date> and proposed as a pull or merge request
+# whose body carries the scan diff. Nothing is merged here: a person reviews it.
 RUSTSEC_REPO=https://github.com/rustsec/advisory-db.git
 NPM_OSV_EXPORT=https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip
 
-job_dependency_review() {
-    local work=target/dependency-review date branch base remote user token scan=passed
-    need git "dependency-review: git is needed"
-    need curl "dependency-review: curl is needed"
-    need unzip "dependency-review: unzip is needed"
+# What the scan says about every workspace SBOM against the snapshots as they stand:
+# the Rust workspace (the scan job, PR mode) and each JavaScript artefact's production
+# closure. Findings and summaries only, so two runs compare line by line; a scan that
+# fails still has a result.
+advisory_scan_result() {
+    local js
+    js="$(bash tools/ci/js-artefacts.sh --rows | awk 'NF { print $2, $3 }')"
+    {
+        echo "== workspace (Cargo.lock)"
+        job_scan 2>&1 || true
+        in_toolchain bash -c '
+            while read -r id dir; do
+                [ -n "$id" ] || continue
+                echo "== $id ($dir)"
+                cargo run -q --release -p mg-sbom -- --pnpm-lock pnpm-lock.yaml --importer "$dir" \
+                    --out "target/ci/$id.sbom.cdx.json" "$id" >/dev/null 2>&1
+                cargo run -q --release -p mg-scan -- "target/ci/$id.sbom.cdx.json" --advisory-only 2>&1
+            done <<<"$1"
+            true' _ "$js"
+    } | tr -d '\r' | grep -E '^(== |BLOCK|note |mg-scan: )' | grep -v '^mg-scan: wrote ' || true
+}
+
+# A git credential helper that answers with a token read from the environment when
+# git asks, so the token is never on a command line or in .git/config.
+token_helper() { echo "!f() { echo username=$1; echo \"password=\$$2\"; }; f"; }
+
+job_advisory_refresh() {
+    local work=target/advisory-refresh date branch base remote user token
+    need git "advisory-refresh: git is needed"
+    need curl "advisory-refresh: curl is needed"
+    need unzip "advisory-refresh: unzip is needed"
     date="$(date -u +%F)"
-    branch="chore/advisory-refresh-$date"
+    branch="deps/advisory-refresh-$date"
     rm -rf "$work"
     mkdir -p "$work/osv"
 
@@ -355,24 +381,28 @@ job_dependency_review() {
     unzip -q "$work/npm.zip" -d "$work/osv"
     rm -f "$work/npm.zip"
     ci_endgroup
+
+    ci_group "scan against the committed snapshots"
+    advisory_scan_result > "$work/scan-before.txt"
+    ci_endgroup
     ci_group "refresh both snapshots, offline"
     in_toolchain just advisory-db-refresh "$work/rustsec"
     in_toolchain just advisory-db-npm-refresh "$work/osv"
     ci_endgroup
     ci_group "scan against the refreshed snapshots"
-    job_scan || scan=failed
+    advisory_scan_result > "$work/scan-after.txt"
     ci_endgroup
 
+    # The scan reads nothing but the snapshots and the lockfiles, so a scan result that
+    # moved without a snapshot moving cannot happen within one run: the snapshot
+    # directories decide.
     if [ -z "$(git status --porcelain -- vendor/advisory-db vendor/advisory-db-npm)" ]; then
-        echo "dependency-review: both snapshots are current; no change to propose"
-        if [ "$scan" != passed ]; then
-            ci_error "dependency-review: the advisory scan fails against the committed snapshots"
-            exit 1
-        fi
+        echo "advisory-refresh: both snapshots are already current; no change to propose"
         return 0
     fi
+
     {
-        echo "Monthly refresh of the vendored advisory snapshots (\`tools/ci/run.sh dependency-review\`)."
+        echo "Weekly refresh of the vendored advisory snapshots (\`tools/ci/run.sh advisory-refresh\`)."
         echo
         echo "| Snapshot | Date | Advisories |"
         echo "|---|---|---|"
@@ -380,40 +410,46 @@ job_dependency_review() {
             echo "| \`$db\` | $(sed -n 's/^date = "\(.*\)"/\1/p' "$db/snapshot.toml" | head -1) | $(sed -n 's/^advisory_count = //p' "$db/snapshot.toml" | head -1) |"
         done
         echo
-        echo "The advisory scan of the workspace against these snapshots $scan on the runner."
+        echo "Scan result before and after (the Rust workspace and every JavaScript artefact):"
+        echo
+        echo '```diff'
+        diff -u --label before --label after "$work/scan-before.txt" "$work/scan-after.txt" | head -c 60000 \
+            || true
+        echo '```'
+        echo
         echo "Review the snapshot diff: a shrinking advisory count means something went wrong."
     } > "$work/body.md"
 
     case "$(ci_platform)" in
         github)
-            : "${GH_TOKEN:?dependency-review: GH_TOKEN is not set}" "${GITHUB_REPOSITORY:?}"
+            : "${GH_TOKEN:?advisory-refresh: GH_TOKEN is not set}" "${GITHUB_REPOSITORY:?}"
             remote="${GITHUB_SERVER_URL:-https://github.com}/$GITHUB_REPOSITORY.git"
-            base="${GITHUB_REF_NAME:?}" user=x-access-token token=GH_TOKEN
+            base="${GITHUB_REF_NAME:?}"
+            user=x-access-token token=GH_TOKEN
             ;;
         gitlab)
             # CI_JOB_TOKEN can neither push nor open a merge request: a project access
             # token with api scope, given only to the scheduled pipeline, does both.
-            : "${MIDGARD_MR_TOKEN:?dependency-review: MIDGARD_MR_TOKEN is not set (docs/dev/BUILD_ENV.md)}"
+            : "${MIDGARD_MR_TOKEN:?advisory-refresh: MIDGARD_MR_TOKEN is not set (docs/dev/CI.md)}"
             : "${CI_SERVER_URL:?}" "${CI_PROJECT_PATH:?}" "${CI_API_V4_URL:?}" "${CI_PROJECT_ID:?}"
             remote="$CI_SERVER_URL/$CI_PROJECT_PATH.git"
-            base="${CI_COMMIT_BRANCH:?}" user=oauth2 token=MIDGARD_MR_TOKEN
+            base="${CI_COMMIT_BRANCH:?}"
+            user=oauth2 token=MIDGARD_MR_TOKEN
             ;;
         *)
-            ci_error "dependency-review: the snapshots changed; review and commit vendor/advisory-db and vendor/advisory-db-npm"
+            ci_error "advisory-refresh: the snapshots changed; commit vendor/advisory-db and vendor/advisory-db-npm (the scan diff is in $work/body.md)"
             exit 1
             ;;
     esac
 
     git checkout -q -B "$branch"
     git add -A -- vendor/advisory-db vendor/advisory-db-npm
-    git -c user.name="${MIDGARD_BOT_NAME:-midgard-dependency-review}" \
-        -c user.email="${MIDGARD_BOT_EMAIL:-dependency-review@users.noreply.invalid}" \
+    git -c user.name="${MIDGARD_BOT_NAME:-midgard-advisory-refresh}" \
+        -c user.email="${MIDGARD_BOT_EMAIL:-advisory-refresh@users.noreply.invalid}" \
         commit -q -m "chore(advisories): refresh snapshots $date"
-    # The token reaches git through a credential helper that reads it from the
-    # environment when asked, never through a command line or .git/config.
-    git -c credential.helper= \
-        -c credential.helper="!f() { echo username=$user; echo \"password=\$$token\"; }; f" \
+    git -c credential.helper= -c credential.helper="$(token_helper "$user" "$token")" \
         push -q --force "$remote" "HEAD:refs/heads/$branch"
+
     case "$(ci_platform)" in
         github)
             gh pr create --repo "$GITHUB_REPOSITORY" --base "$base" --head "$branch" \
@@ -427,10 +463,11 @@ job_dependency_review() {
                 --data-urlencode "target_branch=$base" \
                 --data-urlencode "title=chore(advisories): refresh snapshots $date" \
                 --data-urlencode "description@$work/body.md" \
+                --data-urlencode "labels=dependencies" \
                 --data-urlencode "remove_source_branch=true" \
                 "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests" >/dev/null
             rm -f "$header"
-            echo "dependency-review: merge request opened from $branch into $base"
+            echo "advisory-refresh: merge request opened from $branch into $base"
             ;;
     esac
 }

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Dependency updates for both ecosystems, weekly and reviewable (VLD-ANB-MIDGARD-0076). See docs/dev/CI.md, \"Dependency updates\".",
+    "Every update is a pull or merge request against a pinned file: the pnpm and npm lockfiles, Cargo.lock with /vendor, action commit SHAs, image digests. Nothing floats and nothing merges itself."
+  ],
+  "extends": ["config:recommended"],
+  "enabledManagers": ["npm", "cargo", "github-actions", "gitlabci", "custom.regex"],
+  "timezone": "Etc/UTC",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 3,
+  "labels": ["dependencies"],
+  "semanticCommits": "disabled",
+  "platformCommit": "enabled",
+  "automerge": false,
+  "minimumReleaseAge": "14 days",
+  "internalChecksFilter": "strict",
+  "github-actions": {
+    "description": "Actions stay pinned to a full commit SHA, with the release named in a trailing comment.",
+    "pinDigests": true
+  },
+  "gitlabci": {
+    "description": "GitLab job images and services stay pinned by digest.",
+    "pinDigests": true
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The digest-pinned base images of the Dockerfiles under deploy/ (FROM name:tag@sha256:... or ARG NAME=name:tag@sha256:...).",
+      "managerFilePatterns": ["/^deploy/.+Dockerfile$/"],
+      "matchStrings": [
+        "(?:FROM|ARG [A-Z_]+=)\\s*(?<depName>[a-z0-9][a-z0-9./_-]*):(?<currentValue>[A-Za-z0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The launch-media tooling: a maintainer-workstation tool outside the pnpm workspace and the release gate, kept current all the same (VLD-ANB-MIDGARD-0050, 0062).",
+      "matchFileNames": ["docs/launch/pipeline/**"],
+      "groupName": "launch pipeline",
+      "addLabels": ["launch-tooling"]
+    },
+    {
+      "description": "The base images under deploy/ take digest refreshes of the tag they already name; a new tag (a new Rust or Node line) is a deliberate change, not a weekly one.",
+      "matchManagers": ["custom.regex"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
+    },
+    {
+      "description": "Crates are vendored and the build is offline, so Cargo.lock cannot be updated against the registry in place. These tasks run ONLY on a self-hosted Renovate whose global allowedCommands admits them; hosted Renovate opens the pull request with the manifest change, and a maintainer finishes it by hand (docs/dev/CI.md, \"Dependency updates\"). Until /vendor matches Cargo.lock, the vendor job fails the pull request.",
+      "matchManagers": ["cargo"],
+      "updateLockFiles": false,
+      "postUpgradeTasks": {
+        "commands": [
+          "mv .cargo/config.toml .cargo/config.toml.renovate",
+          "cargo update --package {{{depName}}} --precise {{{newVersion}}}",
+          "cargo vendor --versioned-dirs vendor > /dev/null",
+          "mv .cargo/config.toml.renovate .cargo/config.toml",
+          "bash tools/ci/vendor-check.sh"
+        ],
+        "fileFilters": ["Cargo.lock", "vendor/**"],
+        "executionMode": "update"
+      }
+    },
+    {
+      "description": "Held for Rust 1.82: zeroize 1.9 and base64ct 1.7 need edition 2024 (docs/dev/BUILD_ENV.md).",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["zeroize"],
+      "allowedVersions": "<1.9.0"
+    },
+    {
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["base64ct"],
+      "allowedVersions": "<1.7.0"
+    }
+  ]
+}
