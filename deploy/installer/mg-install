@@ -965,6 +965,30 @@ build_toolchain() {
     fi
 }
 
+# service_limits SERVICE: its cgroup limits on this server, as compose keys at service
+# depth. compose.yaml ships evaluation-sized limits; these replace them with ones sized
+# from the cores and memory found by facts(): the gateway min(1 GB, RAM/8); Mimir half
+# the memory with Granite (and llama.cpp the same), a quarter without, and every core
+# but two; everything else 512 MB and one core. No service gets less than 256 MB.
+# The descriptor limits stay compose.yaml's. [VLD-ANB-MIDGARD-0029]
+service_limits() {
+    local mem=512 cpus=1 pids=256 heavy=$((CPUS > 2 ? CPUS - 2 : 1))
+    case "$1" in
+        gateway)
+            mem=$((RAM_MB / 8)); [ "$mem" -gt 1024 ] && mem=1024
+            pids=512 ;;
+        mimir-server)
+            if [ "$MODEL" = granite ]; then mem=$((RAM_MB / 2)); else mem=$((RAM_MB / 4)); fi
+            cpus=$heavy ;;
+        mimir-llamacpp) mem=$((RAM_MB / 2)); cpus=$heavy ;;
+    esac
+    [ "$mem" -lt 256 ] && mem=256
+    echo "    mem_limit: ${mem}m"
+    echo "    memswap_limit: ${mem}m"
+    echo "    cpus: $cpus"
+    echo "    pids_limit: $pids"
+}
+
 write_site() {
     # shellcheck disable=SC1090
     . "$HERE/profiles/$PROFILE/profile.env"
@@ -1000,15 +1024,24 @@ write_site() {
         echo "    volumes:"
         echo "      - $SITE/ontology.json:/etc/midgard/core-ontology.json:ro"
         echo "      - $SITE/policy.json:/etc/midgard/core-policy.json:ro"
+        service_limits init
         echo "  gateway:"
         echo "    entrypoint: [http-gateway, --state-dir, /state, --bind, \"0.0.0.0:7710\", --allow-non-loopback,"
         echo "                 --mesh-bind, \"0.0.0.0:7711\", --mesh-identity-dir, /mesh-identity,"
         echo "                 --allow-origin, \"http://localhost:5173\", --allow-origin, \"http://127.0.0.1:5173\"]"
+        service_limits gateway
         if has forge; then
             echo "  forge-worker:"
             echo "    volumes:"
             echo "      - $SITE/forge:/etc/midgard/forge:ro"
+            service_limits forge-worker
         fi
+        local svc
+        for svc in mimir-server mimir-llamacpp bifrost-fleet heimdall-feed; do
+            [[ " $(services_of) " == *" $svc "* ]] || continue
+            echo "  $svc:"
+            service_limits "$svc"
+        done
         if [ "$CONSOLE" = yes ]; then
             cat <<EOF
   console:
@@ -1020,6 +1053,8 @@ write_site() {
     tmpfs: ["/tmp", "/var/cache/nginx"]
     environment:
       NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    ulimits:
+      nofile: { soft: 4096, hard: 4096 }
     networks: [edge]
     ports:
       - "127.0.0.1:5173:8080"
@@ -1030,6 +1065,7 @@ write_site() {
       timeout: 3s
       retries: 6
 EOF
+            service_limits console
         fi
     } >"$SITE/compose.site.yaml"
     dc config --quiet

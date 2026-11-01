@@ -59,6 +59,8 @@ The installer measures the server and places it in a sizing tier. Each use-case 
 | **M**, team server | 8+ cores | 32+ GB | 250 GB NVMe, mirrored | a team's real work: legal, healthcare, utilities |
 | **G**, GPU server | 16+ cores | 128+ GB | 2 × 960 GB or larger NVMe, mirrored | military, and AI-heavy work as GPU serving lands |
 
+Each service runs under a memory, processor, process and open-file limit, so one busy or misbehaving service cannot take the whole server down. The installer sizes them from the server and writes them into `/opt/midgard/site/compose.site.yaml`: the gateway an eighth of the memory, at most 1 GB, and 512 processes; Mimir half the memory with the Granite model (llama.cpp the same) or a quarter without, and every core but two; every other service 512 MB and one core. Without the installer, `deploy/compose/compose.yaml` ships smaller evaluation sizes. To give a service more, put the keys (`mem_limit` and `memswap_limit` together, `cpus`, `pids_limit`, `ulimits`) in a compose file of your own and add it after the others with `-f`; the site file is rewritten on every run of the installer. `docker stats` shows how close each service is to its limit. [VLD-ANB-MIDGARD-0029]
+
 The disk figures come from the build: the toolchain and service images and their build cache take about 6 GB, and the Granite model about 3 GB while it is staged. Everything else is headroom for your data, backups and logs.
 
 ### Worked example: Hetzner GEX131
@@ -331,7 +333,7 @@ So you know exactly what it did, and what to remove by hand if you ever need to:
 | The command `mg-install` | a link at `/usr/local/bin/mg-install` |
 | Images | `midgard-acceptance:1.82.0`, `midgard/dev:local`, `midgard/console:local`, and the pinned llama.cpp image with Granite |
 | Volumes | `midgard_*` (one per service's state and identity), `midgard-models`, `midgard-model-signing` |
-| Containers and networks | the `midgard` Compose project; networks `midgard_edge` and `midgard_mesh` (internal) |
+| Containers and networks | the `midgard` Compose project; networks `midgard_edge` (no masquerade) and `midgard_mesh` (internal) |
 | Listening ports | `127.0.0.1:7710` (gateway) and `127.0.0.1:5173` (console) only |
 
 It changes no firewall rule, no web server, no system service other than Docker, and no user account.
@@ -340,8 +342,8 @@ It changes no firewall rule, no web server, no system service other than Docker,
 
 What the install protects, and what it does not yet:
 
-- **Nothing is exposed.** Only loopback ports are published. The services talk to one another on an internal Docker network with no route out, over post-quantum mutual TLS, each with its own certificate from the enclosure's issuer.
-- **Hardened containers.** Every Midgard container runs as a non-root user, with a read-only root filesystem, no Linux capabilities and `no-new-privileges`, and mounts only its own volumes. No service sees the enclosure's keys except the gateway's state.
+- **Nothing is exposed.** Only loopback ports are published. The services talk to one another on an internal Docker network with no route out, over post-quantum mutual TLS, each with its own certificate from the enclosure's issuer. The gateway and console are also on `midgard_edge`, only so their loopback ports can be published: it does no masquerade and no container-to-container traffic, so nothing on it is routed out of the server. [VLD-ANB-MIDGARD-0061]
+- **Hardened containers.** Every Midgard container runs as a non-root user, with a read-only root filesystem, no Linux capabilities and `no-new-privileges`, under memory, processor, process and open-file limits, and mounts only its own volumes. No service sees the enclosure's keys except the gateway's state.
 - **Encrypted, signed state.** Stores are sealed at rest (AES-256-GCM under ML-KEM-1024-wrapped keys) and every audit ledger is signed with ML-DSA and re-verified at start.
 - **Secrets stay out of files.** Passwords are typed when used and never stored or logged; the authenticator key is shown once; the install log and report hold no secrets.
 - **Verified model.** The model is checked against the upstream SHA-256, signed into a manifest and re-verified by Mimir before every start.

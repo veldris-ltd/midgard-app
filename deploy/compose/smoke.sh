@@ -59,4 +59,32 @@ done
 echo "$synced" | head -1
 grep -q '3 created, 0 updated, 3 link(s) added' <<<"$synced"
 
+# Every container runs under its memory, PID and descriptor limits, and the gateway
+# cannot open a connection out of the host. [VLD-ANB-MIDGARD-0029]
+# [VLD-ANB-MIDGARD-0061] [AC-38.2] [AC-38.3]
+positive() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
+
+echo "--- every service runs under limits"
+for id in $(compose ps -q); do
+    limits="$(docker inspect -f '{{.Name}} {{.HostConfig.Memory}} {{.HostConfig.PidsLimit}} {{range .HostConfig.Ulimits}}{{if eq .Name "nofile"}}{{.Hard}}{{end}}{{end}}' "$id")"
+    echo "$limits"
+    read -r name memory pids nofile <<<"$limits"
+    if ! positive "$memory" || ! positive "$pids" || ! positive "${nofile:-}"; then
+        echo "$name runs without a memory, PID or descriptor limit" >&2
+        exit 1
+    fi
+done
+
+echo "--- the gateway has no route out of the host"
+# The control: the same probe, from the gateway's image and networks, reaches the
+# gateway itself over the mesh, so a failure below is the network's and not the probe's.
+compose run --rm --no-deps -T --entrypoint timeout gateway 10 \
+    bash -c 'exec 3<>/dev/tcp/gateway/7710'
+if compose run --rm --no-deps -T --entrypoint timeout gateway 10 \
+    bash -c 'exec 3<>/dev/tcp/1.1.1.1/443'; then
+    echo "the gateway opened a connection to 1.1.1.1:443" >&2
+    exit 1
+fi
+echo "no connection out"
+
 echo "compose smoke: PASS"
