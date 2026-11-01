@@ -5,12 +5,19 @@
 //! state directory — registers only its public half, and binds a standard role for a
 //! bounded time. The `enrol` commands run against a live gateway: each fetches a
 //! single-use challenge issued to the administrator it names, answers it with the
-//! administrator's passkey, and sends the request. A requested enrolment waits until a
-//! second administrator approves it, and carries no credentials: the gateway creates
-//! them at approval and returns a single-use activation code, which the approver hands
-//! to the principal out of band. [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
+//! administrator's passkey, and sends the request. A requested enrolment waits until a second administrator approves it, and
+//! carries no credentials: the gateway creates them at approval and returns a
+//! single-use activation code, which the approver hands to the principal out of band.
+//! [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
+//!
+//! An administrator proves two factors on every request: the passkey, and a one-time
+//! code from the TOTP secret `admin add` enrols in the state directory and prints once
+//! (`admin totp-reset` replaces a lost one). The gateway checks the code and accepts
+//! it once; the passkey assertion's user-verification flag is signed truthfully, and
+//! the gateway relies on it for nothing. [VLD-ANB-MIDGARD-0008]
 
 use std::fmt::Write as _;
+use std::io::{BufRead, IsTerminal, Write as _};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,17 +26,29 @@ use admin_identity::{
     ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, PASSKEY_SIG_ALG,
 };
 use attest::Keystore;
+use http_gateway::admin_totp::DurableAdminTotp;
 use http_gateway::json::Json;
 use http_gateway::state_dir::{StateDir, StateLock};
+use iam::TotpSecret;
 use kms::{Kms, KmsSealer};
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::{OsRng, SecretBytes, SigningKey};
+use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
 
 use crate::http_client::post_json;
-use crate::{list, record_admin_event, Failure, Options};
+use crate::{list, record_admin_event, Failure, Options, TOTP_ISSUER, TOTP_SECRET_LEN};
 
 /// The longest an administrator's role binding may run, in days.
 const MAX_BINDING_DAYS: u64 = 3_650;
+/// Whether opening the passkey keystore passes a local knowledge gate: what the
+/// assertion's user-verification flag reports. A keystore of the current format holds
+/// the passkey with no gate, so the flag is signed false. Once the passkey keystore is
+/// wrapped under its holder's passphrase (keystore format version 2, WP-50), a passkey
+/// that opens at all was unlocked with that passphrase, and this becomes true:
+/// completes on merge with WP-50. The gateway never relies on the flag either way.
+/// [VLD-ANB-MIDGARD-0008]
+const PASSKEY_OPENS_UNDER_A_PASSPHRASE: bool = false;
+/// Digits in a one-time code.
+const TOTP_DIGITS: usize = 6;
 
 fn now_secs() -> u64 {
     SystemTime::now()
@@ -114,9 +133,12 @@ pub(crate) fn admin_add(o: &Options) -> Result<String, Failure> {
     }
     let mut roles = DurableIdentityDirectory::open(state.admin_roles(), sealer(), catalog)
         .map_err(|e| Failure::Run(format!("administrator roles do not open: {e}")))?;
+    let mut totp = open_totp(&state, sealer())?;
 
     let passkey = Keystore::generate(admin, PASSKEY_SIG_ALG, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot generate the passkey: {e}")))?;
+    let secret = fresh_totp_secret();
+    let enrolment_uri = secret.provisioning_uri(TOTP_ISSUER, admin);
     let now = now_secs();
 
     // Audit first: a grant the ledger cannot record does not happen.
@@ -146,19 +168,103 @@ pub(crate) fn admin_add(o: &Options) -> Result<String, Failure> {
             not_after: now.saturating_add(days * 86_400),
         })
         .map_err(|e| Failure::Run(format!("cannot bind the role: {e}")))?;
+    totp.enrol(admin, secret).map_err(|e| {
+        Failure::Run(format!(
+            "cannot record the one-time-code secret: {e}; run `mg-admin admin totp-reset` \
+             for '{admin}'"
+        ))
+    })?;
 
     Ok(format!(
         "'{admin}' is an administrator: {role} in scope {scope} for {days} day(s)\n\
          passkey: {} — this file is their credential. Keep it with them, never in the \
-         state directory, and never copy it to anyone else.",
-        keystore_path.display()
+         state directory, and never copy it to anyone else.\n{}",
+        keystore_path.display(),
+        totp_message(&enrolment_uri)
     ))
+}
+
+// ---- admin totp-reset (offline) --------------------------------------------------------
+
+/// `admin totp-reset`: give an administrator who lost their authenticator a new TOTP
+/// secret, printed once. The old secret stops working; codes already accepted stay
+/// spent. [VLD-ANB-MIDGARD-0008]
+pub(crate) fn admin_totp_reset(o: &Options) -> Result<String, Failure> {
+    let state = StateDir::new(o.require("state-dir")?);
+    let admin = o.require("admin")?;
+
+    let _lock = StateLock::acquire(&state, "mg-admin admin totp-reset").map_err(Failure::Run)?;
+    let idp = Keystore::read(&state.idp_keystore()).map_err(|e| {
+        Failure::Run(format!(
+            "cannot open the issuer keystore (has `mg-admin init` been run?): {e}"
+        ))
+    })?;
+    let sealer = || Box::new(KmsSealer::new(Kms::new(fips_provider(), idp.trust_root())));
+    let passkeys = DurableAdminPasskeys::open(state.admin_passkeys(), sealer(), fips_provider())
+        .map_err(|e| Failure::Run(format!("administrator passkeys do not open: {e}")))?;
+    if !passkeys.is_registered(&AdminId(admin.to_string())) {
+        return Err(Failure::Run(format!(
+            "'{admin}' is not an administrator; `mg-admin admin add` makes one"
+        )));
+    }
+    let mut totp = open_totp(&state, sealer())?;
+    let secret = fresh_totp_secret();
+    let enrolment_uri = secret.provisioning_uri(TOTP_ISSUER, admin);
+
+    // Audit first: a reset the ledger cannot record does not happen.
+    record_admin_event(
+        &state,
+        "ROTATE administrator totp",
+        &format!("admin:{admin}"),
+    )?;
+    totp.enrol(admin, secret)
+        .map_err(|e| Failure::Run(format!("cannot record the one-time-code secret: {e}")))?;
+    Ok(format!(
+        "'{admin}' has a new one-time-code secret; the old one no longer works\n{}",
+        totp_message(&enrolment_uri)
+    ))
+}
+
+/// The administrators' TOTP journal in `state`, sealed by `sealer`.
+fn open_totp(
+    state: &StateDir,
+    sealer: Box<dyn audit_writer::Sealer>,
+) -> Result<DurableAdminTotp, Failure> {
+    DurableAdminTotp::open(state.admin_totp(), sealer).map_err(|e| {
+        Failure::Run(format!(
+            "administrator one-time-code secrets do not open: {e}"
+        ))
+    })
+}
+
+fn fresh_totp_secret() -> TotpSecret {
+    let mut secret = vec![0u8; TOTP_SECRET_LEN];
+    OsRng.fill(&mut secret);
+    TotpSecret::new(secret)
+}
+
+/// What an administrator is told about their new TOTP secret: `user add`'s wording.
+fn totp_message(uri: &str) -> String {
+    format!(
+        "TOTP second factor — add this to the administrator's authenticator app, then \
+         discard it; it is not shown again. Every enrol command needs a code from it:\n  {uri}"
+    )
 }
 
 // ---- enrol request | approve | reject | list (online) ----------------------------------
 
-/// The administrator named by `--admin`, and their passkey from `--keystore`.
-fn device(o: &Options) -> Result<(String, SoftwareAdminAuthenticator), Failure> {
+/// An administrator ready to sign: who they are, their passkey, whether opening it
+/// verified them locally, and the one-time code they gave.
+struct Signer {
+    admin: String,
+    device: SoftwareAdminAuthenticator,
+    user_verified: bool,
+    totp: String,
+}
+
+/// The administrator named by `--admin`, their passkey from `--keystore` and their
+/// one-time code, all gathered before anything is sent to the gateway.
+fn device(o: &Options) -> Result<Signer, Failure> {
     let admin = o.require("admin")?.to_string();
     let path = o.require("keystore")?;
     let keystore = Keystore::read(Path::new(path))
@@ -180,18 +286,50 @@ fn device(o: &Options) -> Result<(String, SoftwareAdminAuthenticator), Failure> 
         signing_key,
     )
     .map_err(|e| Failure::Run(format!("{path} does not hold a usable passkey: {e}")))?;
-    Ok((admin, device))
+    let totp = one_time_code(o, &admin)?;
+    Ok(Signer {
+        admin,
+        device,
+        user_verified: PASSKEY_OPENS_UNDER_A_PASSPHRASE,
+        totp,
+    })
 }
 
-/// A fresh challenge from `gateway`, issued to `admin` and answered with `device`: the
-/// fields every administration request starts with. The gateway binds the challenge to
-/// the administrator named, so only `admin` can answer it. [VLD-ANB-MIDGARD-0020]
-fn signed(
-    gateway: &str,
-    admin: &str,
-    device: &SoftwareAdminAuthenticator,
-) -> Result<Vec<(&'static str, Json)>, Failure> {
-    let request = Json::obj(vec![("admin", Json::s(admin))]).encode();
+/// The administrator's one-time code: `--totp`, else a line from standard input (with
+/// a prompt when that is a terminal). Six digits, or a usage error before the gateway
+/// is contacted. [VLD-ANB-MIDGARD-0008]
+fn one_time_code(o: &Options, admin: &str) -> Result<String, Failure> {
+    let code = match o.get("totp") {
+        Some(code) => code.to_string(),
+        None => {
+            let stdin = std::io::stdin();
+            if stdin.is_terminal() {
+                eprint!("one-time code for '{admin}': ");
+                let _ = std::io::stderr().flush();
+            }
+            let mut line = String::new();
+            stdin
+                .lock()
+                .read_line(&mut line)
+                .map_err(|e| Failure::Run(format!("cannot read the one-time code: {e}")))?;
+            line.trim().to_string()
+        }
+    };
+    if code.len() != TOTP_DIGITS || !code.chars().all(|c| c.is_ascii_digit()) {
+        return Err(Failure::Usage(format!(
+            "a {TOTP_DIGITS}-digit one-time code from the administrator's authenticator app \
+             is required: give --totp <code> or type it when asked"
+        )));
+    }
+    Ok(code)
+}
+
+/// A fresh challenge from `gateway`, issued to `signer`'s administrator and answered by
+/// `signer`: the fields every administration request starts with, the one-time code
+/// among them. The gateway binds the challenge to the administrator named, so only
+/// they can answer it. [VLD-ANB-MIDGARD-0020]
+fn signed(gateway: &str, signer: &Signer) -> Result<Vec<(&'static str, Json)>, Failure> {
+    let request = Json::obj(vec![("admin", Json::s(&signer.admin))]).encode();
     let reply = post_json(gateway, "/api/v1/admin/challenge", &request)?;
     let challenge = reply
         .str_field("challenge")
@@ -199,23 +337,30 @@ fn signed(
     let nonce: [u8; 32] = unhex(challenge)
         .and_then(|b| b.try_into().ok())
         .ok_or_else(|| Failure::Run("the gateway sent a malformed challenge".into()))?;
-    let assertion = device
-        .authenticate(&fips_provider(), &AdminChallenge::new(nonce), true)
+    // The flag is signed with the nonce, and says only what opening the passkey proved.
+    let assertion = signer
+        .device
+        .authenticate(
+            &fips_provider(),
+            &AdminChallenge::new(nonce),
+            signer.user_verified,
+        )
         .map_err(|e| Failure::Run(format!("the passkey could not sign the challenge: {e}")))?;
     Ok(vec![
-        ("admin", Json::s(admin)),
+        ("admin", Json::s(&signer.admin)),
         ("challenge", Json::s(challenge)),
         (
             "assertion",
             Json::obj(vec![
                 ("credentialId", Json::s(&assertion.credential_id)),
-                ("userVerified", Json::Bool(true)),
+                ("userVerified", Json::Bool(assertion.user_verified)),
                 (
                     "signature",
                     Json::s(&hex_of(assertion.signature.as_bytes())),
                 ),
             ]),
         ),
+        ("totp", Json::s(&signer.totp)),
     ])
 }
 
@@ -236,7 +381,7 @@ pub(crate) fn enrol_request(o: &Options) -> Result<String, Failure> {
     let compartments = o.get("compartments").map(list).unwrap_or_default();
     let clearance = o.require("clearance")?;
     let justification = o.require("justification")?;
-    let (admin, device) = device(o)?;
+    let signer = device(o)?;
 
     // Who the principal is and what they may do; how they authenticate is set by the
     // gateway at approval and by the principal at activation.
@@ -248,7 +393,7 @@ pub(crate) fn enrol_request(o: &Options) -> Result<String, Failure> {
         ("purposes", strings(&purposes)),
     ];
 
-    let mut body = signed(gateway, &admin, &device)?;
+    let mut body = signed(gateway, &signer)?;
     body.push(("justification", Json::s(justification)));
     body.push(("principal", Json::obj(principal)));
     let reply = post_json(
@@ -267,8 +412,8 @@ pub(crate) fn enrol_approve(o: &Options) -> Result<String, Failure> {
     let gateway = o.require("gateway")?;
     let id = o.require("id")?;
     let subject = o.require("subject")?;
-    let (admin, device) = device(o)?;
-    let mut body = signed(gateway, &admin, &device)?;
+    let signer = device(o)?;
+    let mut body = signed(gateway, &signer)?;
     body.push(("id", Json::s(id)));
     body.push(("subject", Json::s(subject)));
     let reply = post_json(
@@ -298,8 +443,8 @@ pub(crate) fn enrol_reject(o: &Options) -> Result<String, Failure> {
     let gateway = o.require("gateway")?;
     let id = o.require("id")?;
     let reason = o.require("reason")?;
-    let (admin, device) = device(o)?;
-    let mut body = signed(gateway, &admin, &device)?;
+    let signer = device(o)?;
+    let mut body = signed(gateway, &signer)?;
     body.push(("id", Json::s(id)));
     body.push(("reason", Json::s(reason)));
     let reply = post_json(
@@ -315,8 +460,8 @@ pub(crate) fn enrol_reject(o: &Options) -> Result<String, Failure> {
 
 pub(crate) fn enrol_list(o: &Options) -> Result<String, Failure> {
     let gateway = o.require("gateway")?;
-    let (admin, device) = device(o)?;
-    let body = signed(gateway, &admin, &device)?;
+    let signer = device(o)?;
+    let body = signed(gateway, &signer)?;
     let reply = post_json(
         gateway,
         "/api/v1/admin/enrolments/list",

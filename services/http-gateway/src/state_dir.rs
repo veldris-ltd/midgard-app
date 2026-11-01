@@ -21,6 +21,7 @@
 //!   admin/roles.journal    administrators' role bindings (sealed, append-only)
 //!   admin/privilege/       the dual-control service's ledger and in-flight approvals
 //!   admin/pending.journal  enrolments waiting for a second administrator (sealed)
+//!   admin/totp.journal     administrators' TOTP secrets and last accepted steps (sealed)
 //!   midgard.lock           present while a gateway or mg-admin holds the directory
 //! ```
 //!
@@ -160,6 +161,12 @@ impl StateDir {
     /// Enrolments waiting for a second administrator.
     pub fn admin_pending(&self) -> PathBuf {
         self.admin().join("pending.journal")
+    }
+
+    /// Administrators' TOTP secrets and last accepted steps: their second factor.
+    /// [VLD-ANB-MIDGARD-0008]
+    pub fn admin_totp(&self) -> PathBuf {
+        self.admin().join("totp.journal")
     }
 
     /// The lock file.

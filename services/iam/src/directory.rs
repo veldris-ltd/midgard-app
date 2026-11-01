@@ -99,7 +99,20 @@ impl DurableDirectory {
     /// Open (creating if absent) the directory at `path`, sealed by `sealer`,
     /// replaying every persisted enrollment into memory. [RC-29]
     pub fn open(path: impl AsRef<Path>, sealer: Box<dyn Sealer>) -> Result<Self, AuditError> {
-        let (journal, records) = SealedJournal::open(path, sealer, DOMAIN)?;
+        Self::open_in_domain(path, sealer, DOMAIN)
+    }
+
+    /// [`Self::open`] for a directory of another concern, its records sealed under
+    /// `domain` so they can never be replayed into the identity directory or out of
+    /// it. The administrators' one-time-code store is one: it keeps a TOTP secret and
+    /// the last accepted step per administrator with exactly this record format and
+    /// single-use step tracking. [VLD-ANB-MIDGARD-0008] [VLD-ANB-MIDGARD-0026]
+    pub fn open_in_domain(
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+        domain: &[u8],
+    ) -> Result<Self, AuditError> {
+        let (journal, records) = SealedJournal::open(path, sealer, domain)?;
         let mut entries = BTreeMap::new();
         for rec in records {
             match decode_record(&rec)

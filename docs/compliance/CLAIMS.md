@@ -254,7 +254,7 @@ A principal logs in at the edge with a password, and a time-based one-time code 
 
 WebAuthn assertion verification, a JWKS endpoint and federation with an enterprise identity provider.
 
-**Until it is operable, say:** "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them."
+**Until it is operable, say:** "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files and prove a second factor, a one-time code the gateway checks and accepts once, on every administration request; the passkey alone is not MFA. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them."
 
 **Milestone.** The second-factor decision is recorded and the console login uses it (RF-IAM-1, RF-UI-1).
 
@@ -281,11 +281,13 @@ Access is denied unless a written rule grants it: role, marking and purpose must
 
 ### `dual-control-enrolment` (operable)
 
-Enrolling a principal online needs two different administrators, each proving possession of a post-quantum passkey, and the enrolment is audited. Neither administrator holds the principal's credentials: they are generated at approval and activated by the principal with a single-use code that sets their password and gives them their TOTP factor. Roles and purposes are limited to those the served policy names, the approver sees the full record, and a failed approval can be retried or the enrolment rejected.
+Enrolling a principal online needs two different administrators, each proving possession of a post-quantum passkey and a one-time code the gateway checks and accepts once, and the enrolment is audited with the factors verified. Neither administrator holds the principal's credentials: they are generated at approval and activated by the principal with a single-use code that sets their password and gives them their TOTP factor. Roles and purposes are limited to those the served policy names, the approver sees the full record, and a failed approval can be retried or the enrolment rejected.
 
 - Criteria: AC-AD-3, AC-AD-4
 - Source:
   - [`services/http-gateway/src/admin_api.rs:360`](../../services/http-gateway/src/admin_api.rs)
+  - [`services/http-gateway/src/admin_totp.rs:1`](../../services/http-gateway/src/admin_totp.rs)
+  - [`admin/identity/src/session.rs:1`](../../admin/identity/src/session.rs)
   - [`services/http-gateway/src/activation.rs:27`](../../services/http-gateway/src/activation.rs)
   - [`services/iam/src/auth.rs:120`](../../services/iam/src/auth.rs)
 - Tests:
@@ -295,11 +297,17 @@ Enrolling a principal online needs two different administrators, each proving po
   - [`services/http-gateway/tests/admin_enrolment.rs::activation_is_single_use_and_first_login_needs_both_factors`](../../services/http-gateway/tests/admin_enrolment.rs)
   - [`services/http-gateway/tests/admin_enrolment.rs::roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_full_record`](../../services/http-gateway/tests/admin_enrolment.rs)
   - [`services/http-gateway/tests/admin_enrolment.rs::a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::a_passkey_without_a_second_factor_is_refused`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::an_administrator_totp_code_is_single_use`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`admin/identity/tests/ac_ad_1_2.rs::ac_ad_1_a_passkey_alone_does_not_satisfy_mfa`](../../admin/identity/tests/ac_ad_1_2.rs)
+  - [`admin/identity/tests/ac_ad_1_2.rs::ac_ad_1_a_second_factor_not_the_uv_flag_grants_mfa`](../../admin/identity/tests/ac_ad_1_2.rs)
+  - [`admin/privilege/tests/ac_ad_3_4_13.rs::ac_ad_1_a_passkey_alone_cannot_request_or_approve`](../../admin/privilege/tests/ac_ad_3_4_13.rs)
   - [`services/iam/tests/rc_29.rs::an_unactivated_record_refuses_login_with_the_same_401`](../../services/iam/tests/rc_29.rs)
   - [`services/iam/tests/rc_29.rs::the_directory_reads_v1_records_and_writes_v2`](../../services/iam/tests/rc_29.rs)
 - Service tests:
   - [`tools/mg-admin/tests/enrol.rs::two_administrators_enrol_a_principal_through_a_running_gateway`](../../tools/mg-admin/tests/enrol.rs)
   - [`tools/mg-admin/tests/enrol.rs::enrol_reject_removes_a_parked_enrolment`](../../tools/mg-admin/tests/enrol.rs)
+  - [`tools/mg-admin/tests/enrol.rs::administration_needs_the_passphrase_and_a_one_time_code`](../../tools/mg-admin/tests/enrol.rs)
 - Stated at:
   - [`CHANGELOG.md:56`](../../CHANGELOG.md)
   - [`CHANGELOG.md:138`](../../CHANGELOG.md)

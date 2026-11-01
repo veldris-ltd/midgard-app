@@ -917,6 +917,28 @@ CONTRIBUTING.md for the version policy.
   a directory written by this version does not open on an older build, so back up the
   state directory before upgrading. `iam::TotpSecret::verify_step` and
   `iam::Authenticator::authenticate_full` return the step; `verify` is unchanged.
+- **Administrator MFA is two factors the gateway verifies.** [VLD-ANB-MIDGARD-0008]
+  An administrator session counted as multi-factor whenever the passkey assertion's
+  `userVerified` flag was true, a flag the client chooses and `mg-admin` always set,
+  so possession of one passkey keystore file was enough to request, list and (with a
+  second file) approve enrolments. The flag is now recorded for audit and trusted for
+  nothing: a session satisfies MFA only with two distinct factors, one of them
+  phishing-resistant, and every administration request (`enrolments`, `approve`,
+  `reject`, `list`) must also carry `totp`, a one-time code the gateway checks against
+  the administrator's secret in the new sealed `admin/totp.journal` and accepts once
+  (the single-use step tracking above). A missing, wrong or reused code is 401
+  "second factor required", audited as `ADMIN refused (401)`; enrolment events name
+  the factors verified, as in `principal:olivia factors=totp+webauthn
+  uv-claimed=false`. `mg-admin admin add` enrols the administrator's TOTP secret and
+  prints its `otpauth://` URI once; `mg-admin admin totp-reset` replaces a lost one,
+  audited as `ROTATE administrator totp`; the enrol commands take `--totp <code>` or
+  read the code from standard input, and sign `userVerified` truthfully (false until
+  the passkey keystore is wrapped under a passphrase). **Upgrading:** every existing
+  administrator needs a secret before the upgraded gateway accepts their requests:
+  stop the gateway and run `mg-admin admin totp-reset --state-dir <dir> --admin
+  <name>` for each; the gateway's start-up line says how many have none.
+  `AdminSession::record_factor`, `factor_names` and `uv_claimed` are new, and
+  `AdminControl::open` takes the TOTP store.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

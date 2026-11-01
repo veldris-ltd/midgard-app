@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod activation;
 pub mod admin_api;
 pub mod approval_journal;
+pub mod admin_totp;
 pub mod boot;
 pub mod cli;
 pub mod data;
@@ -818,10 +819,12 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     }
 
     /// `POST /api/v1/admin/*` — administration, authenticated by an administrator's
-    /// passkey assertion rather than a bearer token. Every request and approval, and
-    /// every refusal, is recorded in the governance ledger beside the privilege
-    /// service's own. Locks are taken administration → directory → enclosure.
-    /// [FR-AD-5] [RC-29] [AC-M-4]
+    /// passkey assertion and one-time code rather than a bearer token. Every request
+    /// and approval, and every refusal, is recorded in the governance ledger beside the
+    /// privilege service's own; an enrolment event names the factors verified, as in
+    /// `principal:olivia factors=totp+webauthn uv-claimed=false`. Locks are taken
+    /// administration → directory → enclosure. [FR-AD-5] [RC-29] [AC-M-4]
+    /// [VLD-ANB-MIDGARD-0008]
     ///
     /// Each source address draws on the same allowance as its logins, so a refused
     /// address cannot turn to the administration routes. [VLD-ANB-MIDGARD-0005]
@@ -912,12 +915,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         let (response, event) = match outcome {
             Ok((json, event)) => (
                 Response::ok(json.encode()),
-                event.map(|(actor, action, subject)| {
-                    (
-                        actor,
-                        action.to_string(),
-                        audit_resource(&format!("principal:{subject}")),
-                    )
+                event.map(|(actor, action, subject): (admin_api::AdminActor, _, _)| {
+                    let resource =
+                        audit_resource(&format!("principal:{subject} {}", actor.evidence()));
+                    (actor.admin, action.to_string(), resource)
                 }),
             ),
             Err(e) => (

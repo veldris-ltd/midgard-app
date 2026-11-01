@@ -13,7 +13,9 @@
 //!   mg-admin user list --state-dir <dir>
 //!   mg-admin import --state-dir <dir> --file <objects.jsonl>
 //!   mg-admin admin add --state-dir <dir> --admin <name> --role <role> --keystore <path>
-//!   mg-admin enrol request|approve|reject|list --gateway <url> --admin <name> --keystore <path> ..
+//!   mg-admin admin totp-reset --state-dir <dir> --admin <name>
+//!   mg-admin enrol request|approve|reject|list --gateway <url> --admin <name> --keystore <path>
+//!                [--totp <code>] ..
 //!   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir>
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
 //!                       [--purposes <p,..>]
@@ -80,14 +82,15 @@ USAGE:
   mg-admin import --state-dir <dir> --file <objects.jsonl>
   mg-admin admin add --state-dir <dir> --admin <name> --role <role> --keystore <path> \\
                      [--scope <subsystem>] [--days <n>]
-  mg-admin enrol request --gateway <url> --admin <name> --keystore <path> \\
+  mg-admin admin totp-reset --state-dir <dir> --admin <name>
+  mg-admin enrol request --gateway <url> --admin <name> --keystore <path> [--totp <code>] \\
                          --subject <name> --roles <r,..> --clearance <band> \\
                          --purposes <p,..> --justification <text> [--compartments <c,..>]
-  mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> --id <enrolment> \\
-                         --subject <name>
-  mg-admin enrol reject  --gateway <url> --admin <name> --keystore <path> --id <enrolment> \\
-                         --reason <text>
-  mg-admin enrol list    --gateway <url> --admin <name> --keystore <path>
+  mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> [--totp <code>] \\
+                         --id <enrolment> --subject <name>
+  mg-admin enrol reject  --gateway <url> --admin <name> --keystore <path> [--totp <code>] \\
+                         --id <enrolment> --reason <text>
+  mg-admin enrol list    --gateway <url> --admin <name> --keystore <path> [--totp <code>]
   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
                       [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
                       [--purposes <p,..>]
@@ -124,7 +127,11 @@ COMMANDS:
              sealed keystore at --keystore (theirs to keep, never in the state
              directory), and bind a standard role — IAM-Admin, Security-Officer,
              Model-Steward, Release-Manager or Auditor — in --scope (default iam) for
-             --days (default 365). Recorded in the audit ledger.
+             --days (default 365). Also enrols their TOTP second factor and prints its
+             otpauth:// URI once. Recorded in the audit ledger.
+  admin totp-reset
+             give an administrator who lost their authenticator a new TOTP secret,
+             printed once; the old one stops working. Recorded in the audit ledger.
   enrol      enrol a principal while the gateway runs, under dual control. `request`
              asks the gateway at --gateway, a loopback URL such as
              http://127.0.0.1:7710, to enrol them with roles and purposes the served
@@ -136,8 +143,10 @@ COMMANDS:
              POST /api/v1/activate with the password they choose, and receives their
              TOTP second factor; until then they cannot log in. `reject` discards a
              waiting request with a --reason. `list` shows each waiting request in
-             full. Each command signs a fresh challenge, issued to that administrator
-             alone, with the administrator's passkey.
+             full. Each command signs a fresh challenge, issued to that
+             administrator alone, with the administrator's passkey and sends a
+             one-time code from their authenticator app, from --totp or typed when
+             asked; each code is accepted once.
   mesh issue give a service its mesh identity in --out: its own identity and audit-signing
              keystores (secrets, for that service alone), a certificate for --roles signed
              by the enclosure's issuer, mesh.anchor, the trust anchor every service
@@ -175,8 +184,9 @@ COMMANDS:
              a checkpoint at the same time. Enables a mirror for an existing ledger,
              or re-seeds a lost one; a mirror ahead of the ledger is never moved back.
 
-init, user, import and admin add need the state directory's lock, which a running
-gateway holds: stop it first. The enrol commands talk to the running gateway instead.
+init, user, import, admin add and admin totp-reset need the state directory's lock, which a
+running gateway holds: stop it first. The enrol commands talk to the running gateway
+instead.
 ";
 
 /// The shortest password `user add` accepts.
@@ -237,12 +247,16 @@ fn run(argv: &[String]) -> Result<String, Failure> {
             &["state-dir", "admin", "role", "scope", "days", "keystore"],
             &[],
         )?),
+        ["admin", "totp-reset", rest @ ..] => {
+            admin::admin_totp_reset(&options(rest, &["state-dir", "admin"], &[])?)
+        }
         ["enrol", "request", rest @ ..] => admin::enrol_request(&options(
             rest,
             &[
                 "gateway",
                 "admin",
                 "keystore",
+                "totp",
                 "subject",
                 "roles",
                 "clearance",
@@ -254,17 +268,19 @@ fn run(argv: &[String]) -> Result<String, Failure> {
         )?),
         ["enrol", "approve", rest @ ..] => admin::enrol_approve(&options(
             rest,
-            &["gateway", "admin", "keystore", "id", "subject"],
+            &["gateway", "admin", "keystore", "totp", "id", "subject"],
             &[],
         )?),
         ["enrol", "reject", rest @ ..] => admin::enrol_reject(&options(
             rest,
-            &["gateway", "admin", "keystore", "id", "reason"],
+            &["gateway", "admin", "keystore", "totp", "id", "reason"],
             &[],
         )?),
-        ["enrol", "list", rest @ ..] => {
-            admin::enrol_list(&options(rest, &["gateway", "admin", "keystore"], &[])?)
-        }
+        ["enrol", "list", rest @ ..] => admin::enrol_list(&options(
+            rest,
+            &["gateway", "admin", "keystore", "totp"],
+            &[],
+        )?),
         ["mesh", "issue", rest @ ..] => mesh::mesh_issue(&options(
             rest,
             &[

@@ -9,8 +9,9 @@
 #![cfg(feature = "backend-fips")]
 
 use admin_identity::{
-    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, IdentityDirectory, ResourceScope,
-    RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER,
+    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, AuthFactor, IdentityDirectory,
+    ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_IAM_ADMIN,
+    ROLE_SECURITY_OFFICER,
 };
 use admin_privilege::{
     ActionClass, ActionState, AdminActionRequest, Disposition, PrivError, PrivilegeService,
@@ -99,6 +100,9 @@ fn ready_session(admin: &str, scope: &ResourceScope) -> AdminSession {
     let mut s = authr
         .sign_in(&AdminId(admin.into()), &ch, &asr, NOW)
         .unwrap();
+    // The relying party verified a one-time code: the second factor. A passkey alone
+    // is not MFA. [AC-10.2] [VLD-ANB-MIDGARD-0008]
+    s.record_factor(AuthFactor::Totp);
     let (ch2, asr2) = sign(2);
     authr
         .step_up(&mut s, scope.clone(), &ch2, &asr2, NOW)
@@ -131,6 +135,68 @@ fn request(
         scope: scope.clone(),
         justification: "test".into(),
     }
+}
+
+// --- AC-10.1: a passkey alone is not MFA ---------------------------------------
+
+/// [AC-10.1] [AC-AD-1] [VLD-ANB-MIDGARD-0008] A session opened by a passkey assertion
+/// claiming user verification, with no second factor recorded, can neither request
+/// nor approve: the privilege service sees one factor.
+#[test]
+fn ac_ad_1_a_passkey_alone_cannot_request_or_approve() {
+    let kms = ResourceScope::all("kms");
+    let mut dir = IdentityDirectory::new(RoleCatalog::standard());
+    bind(&mut dir, "alice", ROLE_SECURITY_OFFICER, &kms);
+    bind(&mut dir, "bob", ROLE_SECURITY_OFFICER, &kms);
+    let passkey_only = |admin: &str| {
+        let device =
+            SoftwareAdminAuthenticator::enrol(&fips_provider(), "k", &mut SeedRng(9)).unwrap();
+        let mut authr = AdminAuthenticator::new(fips_provider());
+        authr.register(AdminId(admin.into()), device.credential().clone());
+        let ch = AdminChallenge::sample(&mut SeedRng(1));
+        let asr = device.authenticate(authr.provider(), &ch, true).unwrap();
+        authr
+            .sign_in(&AdminId(admin.into()), &ch, &asr, NOW)
+            .unwrap()
+    };
+
+    let (mut svc, _) = service();
+    let alice = passkey_only("alice");
+    assert!(alice.uv_claimed() && !alice.has_mfa());
+    assert_eq!(
+        svc.submit(
+            &dir,
+            &alice,
+            request("act-1", "alice", ActionClass::KeyRotation, &kms),
+            NOW,
+            STEP_UP_MAX_AGE,
+            "t0",
+        ),
+        Err(PrivError::MfaRequired)
+    );
+
+    // Parked by a session with both factors, it still cannot be approved by a passkey.
+    svc.submit(
+        &dir,
+        &ready_session("alice", &kms),
+        request("act-2", "alice", ActionClass::KeyRotation, &kms),
+        NOW,
+        STEP_UP_MAX_AGE,
+        "t1",
+    )
+    .unwrap();
+    assert_eq!(
+        svc.approve(
+            &dir,
+            &passkey_only("bob"),
+            "act-2",
+            NOW,
+            REAUTH_MAX_AGE,
+            "t2"
+        ),
+        Err(PrivError::MfaRequired)
+    );
+    assert!(!svc.is_authorised("act-2"));
 }
 
 // --- AC-AD-3 ------------------------------------------------------------------

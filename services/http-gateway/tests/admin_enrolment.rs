@@ -13,8 +13,15 @@
 //! and a failed approval can be retried or the enrolment rejected.
 //! [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066] [AC-15.1] [AC-15.2] [AC-15.3]
 //! [AC-15.4] [AC-15.5] [AC-15.6]
+//!
+//! Every administration request carries two factors: the passkey assertion and a
+//! one-time code the gateway checks against the administrator's TOTP secret and
+//! accepts once. Each test runs on its own clock, which moves on one 30 s step before
+//! each administrator proof, so every proof has a code nobody has used.
+//! [VLD-ANB-MIDGARD-0008] [AC-10.1] [AC-10.3]
 #![cfg(feature = "backend-fips")]
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 use admin_identity::{
@@ -27,6 +34,7 @@ use audit_writer::{LedgerId, Sealer};
 use http_gateway::admin_api::{
     AdminControl, RoleCatalogue, ACTIVATION_TTL, MAX_CHALLENGES_PER_ADMIN,
 };
+use http_gateway::admin_totp::DurableAdminTotp;
 use http_gateway::boot::{open_state_dir, DurableGateway};
 use http_gateway::http::{Request, Response};
 use http_gateway::json::parse;
@@ -37,10 +45,35 @@ use iam::{DurableDirectory, Enrollment, Pbkdf2Hasher, TotpSecret};
 use kms::{Kms, KmsSealer};
 use policy::{Action, Effect, PolicySet, ResourceId, Role, Rule, RuleId, Selector};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
-use pqc_agility::{OsRng, SecretBytes, SigningKey};
+use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
 
 const NOW: u64 = 1_800_000_000;
 const PASSWORD: &str = "correct horse battery staple";
+/// The TOTP time step, in seconds.
+const STEP: u64 = 30;
+
+thread_local! {
+    /// This test's clock: it starts at [`NOW`] and only moves forward.
+    static CLOCK: Cell<u64> = const { Cell::new(NOW) };
+}
+
+/// The time on this test's clock.
+fn now() -> u64 {
+    CLOCK.with(Cell::get)
+}
+
+/// Move this test's clock on one TOTP step, so the next administrator proof carries a
+/// code for a step nobody has used.
+fn next_step() -> u64 {
+    CLOCK.with(|c| c.set(c.get() + STEP));
+    now()
+}
+
+/// An administrator the test holds: their passkey and their TOTP secret.
+struct Admin {
+    device: SoftwareAdminAuthenticator,
+    totp: TotpSecret,
+}
 
 fn scratch(tag: &str) -> PathBuf {
     let uniq = Box::into_raw(Box::new(0u8)) as usize;
@@ -68,9 +101,9 @@ fn unhex(s: &str) -> Vec<u8> {
 }
 
 /// A state directory with a policy letting operators read and see the ledger view, and
-/// three administrators: two IAM administrators and an auditor, each with a passkey the
-/// test holds.
-fn provision(dir: &Path) -> (StateDir, Vec<(&'static str, SoftwareAdminAuthenticator)>) {
+/// three administrators: two IAM administrators and an auditor, each with a passkey and
+/// a TOTP secret the test holds.
+fn provision(dir: &Path) -> (StateDir, Devices) {
     let state = StateDir::new(dir);
     std::fs::create_dir_all(state.keys()).unwrap();
     std::fs::create_dir_all(state.trust()).unwrap();
@@ -106,6 +139,7 @@ fn provision(dir: &Path) -> (StateDir, Vec<(&'static str, SoftwareAdminAuthentic
     let mut roles =
         DurableIdentityDirectory::open(state.admin_roles(), sealer(), RoleCatalog::standard())
             .unwrap();
+    let mut totp = DurableAdminTotp::open(state.admin_totp(), sealer()).unwrap();
     let mut devices = Vec::new();
     for (admin, role) in [
         ("alice", ROLE_IAM_ADMIN),
@@ -130,13 +164,23 @@ fn provision(dir: &Path) -> (StateDir, Vec<(&'static str, SoftwareAdminAuthentic
                 not_after: u64::MAX,
             })
             .unwrap();
-        devices.push((admin, device));
+        let mut secret = vec![0u8; 20];
+        OsRng.fill(&mut secret);
+        totp.enrol(admin, TotpSecret::new(secret.clone())).unwrap();
+        devices.push((
+            admin,
+            Admin {
+                device,
+                totp: TotpSecret::new(secret),
+            },
+        ));
     }
+    assert_eq!(totp.administrators_with_totp(), 3);
     (state, devices)
 }
 
 fn post(gw: &DurableGateway, path: &str, body: &str, token: Option<&str>) -> Response {
-    post_at(gw, path, body, token, NOW)
+    post_at(gw, path, body, token, now())
 }
 
 fn post_at(gw: &DurableGateway, path: &str, body: &str, token: Option<&str>, now: u64) -> Response {
@@ -161,7 +205,37 @@ fn post_at(gw: &DurableGateway, path: &str, body: &str, token: Option<&str>, now
     )
 }
 
-/// Fetch a challenge for `admin`: the nonce, as hex.
+/// What an administration request proves itself with: the `challenge` it answers, the
+/// passkey `assertion`, and the fields after them (`"totp":"…"`, or nothing).
+type Proof = (String, String, String);
+
+/// The `challenge`, `assertion` and `totp` fields for `admin`, answering `challenge`
+/// with their passkey (claiming user verification as `user_verified` says) and the
+/// code for the current step.
+fn answer(admin: &Admin, challenge: String, user_verified: bool) -> Proof {
+    let nonce: [u8; 32] = unhex(&challenge).try_into().unwrap();
+    let assertion = admin
+        .device
+        .authenticate(&fips_provider(), &AdminChallenge::new(nonce), user_verified)
+        .unwrap();
+    (
+        challenge,
+        format!(
+            r#"{{"credentialId":"{}","userVerified":{user_verified},"signature":"{}"}}"#,
+            assertion.credential_id,
+            hex(assertion.signature.as_bytes())
+        ),
+        format!(r#","totp":"{}""#, admin.totp.code_at(now())),
+    )
+}
+
+/// A fresh challenge issued to `name`, answered by `admin` at the current step.
+fn proof_now(gw: &DurableGateway, name: &str, admin: &Admin, user_verified: bool) -> Proof {
+    answer(admin, fetch_challenge(gw, name), user_verified)
+}
+
+/// Fetch a challenge for `admin`: the nonce, as hex. The gateway binds it to the
+/// administrator named. [VLD-ANB-MIDGARD-0020]
 fn fetch_challenge(gw: &DurableGateway, admin: &str) -> String {
     let r = post(
         gw,
@@ -177,30 +251,16 @@ fn fetch_challenge(gw: &DurableGateway, admin: &str) -> String {
         .to_string()
 }
 
-/// Answer `challenge` with `device`: the `challenge` and `assertion` fields an
-/// administration request carries.
-fn answer(challenge: String, device: &SoftwareAdminAuthenticator) -> (String, String) {
-    let nonce: [u8; 32] = unhex(&challenge).try_into().unwrap();
-    let assertion = device
-        .authenticate(&fips_provider(), &AdminChallenge::new(nonce), true)
-        .unwrap();
-    (
-        challenge,
-        format!(
-            r#"{{"credentialId":"{}","userVerified":true,"signature":"{}"}}"#,
-            assertion.credential_id,
-            hex(assertion.signature.as_bytes())
-        ),
-    )
+/// Move to the next step, fetch a challenge and answer it with `admin`'s passkey and
+/// one-time code: the fields an administration request carries.
+fn proof(gw: &DurableGateway, name: &str, admin: &Admin) -> Proof {
+    next_step();
+    proof_now(gw, name, admin, true)
 }
 
-/// Fetch a challenge for `admin` and answer it with `device`.
-fn proof(
-    gw: &DurableGateway,
-    admin: &str,
-    device: &SoftwareAdminAuthenticator,
-) -> (String, String) {
-    answer(fetch_challenge(gw, admin), device)
+/// `proof` without its one-time code: the passkey alone.
+fn passkey_only(proof: Proof) -> Proof {
+    (proof.0, proof.1, String::new())
 }
 
 /// The principal every test enrols unless it says otherwise: who they are and what
@@ -211,35 +271,35 @@ fn principal(subject: &str) -> String {
     )
 }
 
-fn request_with(admin: &str, proof: &(String, String), principal: &str) -> String {
+fn request_with(admin: &str, proof: &Proof, principal: &str) -> String {
     format!(
-        r#"{{"admin":"{admin}","challenge":"{}","assertion":{},"justification":"new operator","principal":{principal}}}"#,
-        proof.0, proof.1
+        r#"{{"admin":"{admin}","challenge":"{}","assertion":{}{},"justification":"new operator","principal":{principal}}}"#,
+        proof.0, proof.1, proof.2
     )
 }
 
-fn request_body(admin: &str, proof: &(String, String)) -> String {
+fn request_body(admin: &str, proof: &Proof) -> String {
     request_with(admin, proof, &principal("olivia"))
 }
 
-fn approve_body(admin: &str, proof: &(String, String), id: &str, subject: &str) -> String {
+fn approve_body(admin: &str, proof: &Proof, id: &str, subject: &str) -> String {
     format!(
-        r#"{{"admin":"{admin}","challenge":"{}","assertion":{},"id":"{id}","subject":"{subject}"}}"#,
-        proof.0, proof.1
+        r#"{{"admin":"{admin}","challenge":"{}","assertion":{}{},"id":"{id}","subject":"{subject}"}}"#,
+        proof.0, proof.1, proof.2
     )
 }
 
-fn reject_body(admin: &str, proof: &(String, String), id: &str) -> String {
+fn reject_body(admin: &str, proof: &Proof, id: &str) -> String {
     format!(
-        r#"{{"admin":"{admin}","challenge":"{}","assertion":{},"id":"{id}","reason":"not a known starter"}}"#,
-        proof.0, proof.1
+        r#"{{"admin":"{admin}","challenge":"{}","assertion":{}{},"id":"{id}","reason":"not a known starter"}}"#,
+        proof.0, proof.1, proof.2
     )
 }
 
-fn list_body(admin: &str, proof: &(String, String)) -> String {
+fn list_body(admin: &str, proof: &Proof) -> String {
     format!(
-        r#"{{"admin":"{admin}","challenge":"{}","assertion":{}}}"#,
-        proof.0, proof.1
+        r#"{{"admin":"{admin}","challenge":"{}","assertion":{}{}}}"#,
+        proof.0, proof.1, proof.2
     )
 }
 
@@ -297,9 +357,9 @@ fn totp_of(uri: &str) -> TotpSecret {
     TotpSecret::new(out)
 }
 
-type Devices = Vec<(&'static str, SoftwareAdminAuthenticator)>;
+type Devices = Vec<(&'static str, Admin)>;
 
-fn device<'a>(devices: &'a Devices, name: &str) -> &'a SoftwareAdminAuthenticator {
+fn device<'a>(devices: &'a Devices, name: &str) -> &'a Admin {
     &devices.iter().find(|(n, _)| *n == name).unwrap().1
 }
 
@@ -377,6 +437,7 @@ fn admin_control(state: &StateDir) -> AdminControl {
         fips_provider(),
     )
     .unwrap();
+    let totp = DurableAdminTotp::open(state.admin_totp(), sealer(&state.idp_keystore())).unwrap();
     let roles = DurableIdentityDirectory::open(
         state.admin_roles(),
         sealer(&state.idp_keystore()),
@@ -385,6 +446,7 @@ fn admin_control(state: &StateDir) -> AdminControl {
     .unwrap();
     AdminControl::open(
         passkeys,
+        totp,
         roles,
         privilege(state),
         state.admin_pending(),
@@ -393,31 +455,17 @@ fn admin_control(state: &StateDir) -> AdminControl {
     .unwrap()
 }
 
-/// A challenge from `control` for the administrator `name`, answered with `device`.
-fn direct_proof(
-    control: &mut AdminControl,
-    name: &str,
-    device: &SoftwareAdminAuthenticator,
-) -> (String, String) {
+/// A challenge from `control` at the next step, issued to `name` and answered by
+/// `admin`.
+fn direct_proof(control: &mut AdminControl, name: &str, admin: &Admin) -> Proof {
     let body = parse(&format!(r#"{{"admin":"{name}"}}"#)).unwrap();
     let challenge = control
-        .challenge(&body, NOW)
+        .challenge(&body, next_step())
         .expect("a challenge")
         .str_field("challenge")
         .unwrap()
         .to_string();
-    let nonce: [u8; 32] = unhex(&challenge).try_into().unwrap();
-    let assertion = device
-        .authenticate(&fips_provider(), &AdminChallenge::new(nonce), true)
-        .unwrap();
-    (
-        challenge,
-        format!(
-            r#"{{"credentialId":"{}","userVerified":true,"signature":"{}"}}"#,
-            assertion.credential_id,
-            hex(assertion.signature.as_bytes())
-        ),
-    )
+    answer(admin, challenge, true)
 }
 
 #[test]
@@ -429,6 +477,7 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
     let id = {
         let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
         assert_eq!(served.administrators, 3);
+        assert_eq!(served.administrators_with_totp, 3);
         let gw = &served.gateway;
 
         // Alice requests; the enrolment is parked and olivia cannot log in.
@@ -479,10 +528,7 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
     let listed = post(
         gw,
         "/api/v1/admin/enrolments/list",
-        &format!(
-            r#"{{"admin":"bob","challenge":"{}","assertion":{}}}"#,
-            bob.0, bob.1
-        ),
+        &list_body("bob", &bob),
         None,
     );
     assert_eq!(listed.status, 200, "{}", listed.body);
@@ -501,9 +547,9 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
     );
     assert_eq!(r.status, 200, "{}", r.body);
     assert_eq!(login(gw).status, 401, "not until olivia activates");
-    let activated = activate_at(gw, "olivia", &field(&r, "activationCode"), NOW);
+    let activated = activate_at(gw, "olivia", &field(&r, "activationCode"), now());
     assert_eq!(activated.status, 200, "{}", activated.body);
-    let totp = totp_of(&field(&activated, "otpauth")).code_at(NOW);
+    let totp = totp_of(&field(&activated, "otpauth")).code_at(now());
     let ok = login_as(gw, "olivia", Some(&totp));
     assert_eq!(ok.status, 200, "olivia logs in once activated: {}", ok.body);
 
@@ -637,7 +683,7 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
         assert!(
             approved.body.contains(&format!(
                 r#""activationExpiresAt":{}"#,
-                NOW + ACTIVATION_TTL
+                now() + ACTIVATION_TTL
             )),
             "{}",
             approved.body
@@ -646,6 +692,7 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
         assert!(!approved.body.contains("totpSecret"), "{}", approved.body);
         assert_eq!(login(gw).status, 401, "nothing logs in before activation");
     }
+    let approved_at = now();
 
     let directory = DurableDirectory::open(state.directory(), sealer(&state.idp_keystore()))
         .expect("the directory opens");
@@ -657,7 +704,7 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
     assert!(entry.credentials.totp.is_some(), "a TOTP factor was minted");
     let activation = entry.credentials.activation.as_ref().expect("pending");
     assert!(!activation.totp_confirmed);
-    assert_eq!(activation.expires_at, NOW + ACTIVATION_TTL);
+    assert_eq!(activation.expires_at, approved_at + ACTIVATION_TTL);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -681,25 +728,25 @@ fn activation_is_single_use_and_first_login_needs_both_factors() {
     );
     assert_eq!(short.status, 400, "{}", short.body);
     // A wrong code is the uniform refusal.
-    let wrong = activate_at(gw, "olivia", &"0".repeat(32), NOW);
+    let wrong = activate_at(gw, "olivia", &"0".repeat(32), now());
     assert_eq!(wrong.status, 401, "{}", wrong.body);
 
-    let first = activate_at(gw, "olivia", &code, NOW);
+    let first = activate_at(gw, "olivia", &code, now());
     assert_eq!(first.status, 200, "{}", first.body);
     let uri = field(&first, "otpauth");
     assert!(uri.starts_with("otpauth://totp/Midgard:olivia?"), "{uri}");
-    let again = activate_at(gw, "olivia", &code, NOW);
+    let again = activate_at(gw, "olivia", &code, now());
     assert_eq!(again.status, 401, "single use: {}", again.body);
     assert!(again.body.contains("invalid activation"), "{}", again.body);
 
     assert_eq!(login(gw).status, 401, "the password alone is not enough");
-    let totp = totp_of(&uri).code_at(NOW);
+    let totp = totp_of(&uri).code_at(now());
     let ok = login_as(gw, "olivia", Some(&totp));
     assert_eq!(ok.status, 200, "{}", ok.body);
 
     // A fresh approval, its code presented a second after its 72 hours.
     let late = field(&enrol(gw, &devices, "oscar"), "activationCode");
-    let expired = activate_at(gw, "oscar", &late, NOW + 72 * 3600 + 1);
+    let expired = activate_at(gw, "oscar", &late, now() + 72 * 3600 + 1);
     assert_eq!(expired.status, 401, "{}", expired.body);
     drop(served);
     let _ = std::fs::remove_dir_all(&dir);
@@ -814,7 +861,7 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
                 &parse(&request_body("alice", &alice)).unwrap(),
                 &catalogue,
                 &|_| false,
-                NOW,
+                now(),
             )
             .expect("requested");
         let id = requested.str_field("id").unwrap().to_string();
@@ -836,13 +883,13 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
 
         let body = approve(&mut control, "bob");
         let failed = control
-            .approve_enrolment(&body, &hasher, &mut enrol, NOW)
+            .approve_enrolment(&body, &hasher, &mut enrol, now())
             .expect_err("the write failed");
         assert_eq!(failed.status, 500, "{failed:?}");
         assert_eq!(control.parked(), 1, "the enrolment stays parked");
         let bob = direct_proof(&mut control, "bob", device(&devices, "bob"));
         let listing = control
-            .list_enrolments(&parse(&list_body("bob", &bob)).unwrap(), NOW)
+            .list_enrolments(&parse(&list_body("bob", &bob)).unwrap(), now())
             .unwrap()
             .encode();
         assert!(
@@ -853,13 +900,13 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
         // Only the administrator who approved it may complete it.
         let body = approve(&mut control, "audra");
         let other = control
-            .approve_enrolment(&body, &hasher, &mut enrol, NOW)
+            .approve_enrolment(&body, &hasher, &mut enrol, now())
             .expect_err("not the approver");
         assert_eq!(other.status, 403, "{other:?}");
 
         let body = approve(&mut control, "bob");
         let (retried, _, subject) = control
-            .approve_enrolment(&body, &hasher, &mut enrol, NOW)
+            .approve_enrolment(&body, &hasher, &mut enrol, now())
             .expect("the retry completes it");
         assert_eq!(subject, "olivia");
         assert!(retried.str_field("activationCode").is_some());
@@ -916,8 +963,8 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
 
         let ok = {
             let code = field(&enrol(gw, &devices, "olivia2"), "activationCode");
-            let a = activate_at(gw, "olivia2", &code, NOW);
-            let totp = totp_of(&field(&a, "otpauth")).code_at(NOW);
+            let a = activate_at(gw, "olivia2", &code, now());
+            let totp = totp_of(&field(&a, "otpauth")).code_at(now());
             login_as(gw, "olivia2", Some(&totp))
         };
         assert_eq!(ok.status, 200, "{}", ok.body);
@@ -961,29 +1008,177 @@ fn a_gateway_without_a_durable_directory_parks_nothing() {
                 authorization: None,
                 origin: None,
             },
-            NOW,
+            now(),
         )
     };
+    next_step();
     let challenge = field(
         &call("/api/v1/admin/challenge", r#"{"admin":"alice"}"#.into()),
         "challenge",
     );
-    let nonce: [u8; 32] = unhex(&challenge).try_into().unwrap();
-    let assertion = device(&devices, "alice")
-        .authenticate(&fips_provider(), &AdminChallenge::new(nonce), true)
-        .unwrap();
-    let proof = (
-        challenge,
-        format!(
-            r#"{{"credentialId":"{}","userVerified":true,"signature":"{}"}}"#,
-            assertion.credential_id,
-            hex(assertion.signature.as_bytes())
-        ),
-    );
+    let proof = answer(device(&devices, "alice"), challenge, true);
     let r = call("/api/v1/admin/enrolments", request_body("alice", &proof));
     assert_eq!(r.status, 501, "{}", r.body);
     drop(gw);
     assert_eq!(admin_control(&state).parked(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// [AC-10.1] [VLD-ANB-MIDGARD-0008] A registered administrator whose passkey signs a
+/// fresh challenge claiming user verification, with no one-time code, is refused with
+/// 401 on every route, and each refusal is in the ledger as ADMIN refused (401); a
+/// wrong code is the same refusal. The user-verification flag is a hint: with the
+/// right code an assertion claiming none is accepted, and enrolment events record the
+/// factors verified. [AC-10.2]
+#[test]
+fn a_passkey_without_a_second_factor_is_refused() {
+    let dir = scratch("passkey-alone");
+    let (state, devices) = provision(&dir);
+    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let gw = &served.gateway;
+    let alice = device(&devices, "alice");
+    let bob = device(&devices, "bob");
+    let id = request(gw, &devices, "olivia");
+
+    for (path, body) in [
+        (
+            "/api/v1/admin/enrolments",
+            request_with(
+                "alice",
+                &passkey_only(proof(gw, "alice", alice)),
+                &principal("oscar"),
+            ),
+        ),
+        (
+            "/api/v1/admin/enrolments/approve",
+            approve_body("bob", &passkey_only(proof(gw, "bob", bob)), &id, "olivia"),
+        ),
+        (
+            "/api/v1/admin/enrolments/list",
+            list_body("bob", &passkey_only(proof(gw, "bob", bob))),
+        ),
+    ] {
+        let r = post(gw, path, &body, None);
+        assert_eq!(r.status, 401, "{path}: {}", r.body);
+        // The client reads `unauthorised`; "second factor required" is logged.
+        // [VLD-ANB-MIDGARD-0053]
+        assert_eq!(r.body, r#"{"error":"unauthorised"}"#, "{}", r.body);
+    }
+    // A wrong code is refused the same way, and a malformed one too.
+    for code in ["000000", "12345"] {
+        let (challenge, assertion, _) = proof(gw, "bob", bob);
+        let wrong = (challenge, assertion, format!(r#","totp":"{code}""#));
+        let r = post(
+            gw,
+            "/api/v1/admin/enrolments/list",
+            &list_body("bob", &wrong),
+            None,
+        );
+        assert_eq!(r.status, 401, "{}", r.body);
+        // The client reads `unauthorised`; "second factor required" is logged.
+        // [VLD-ANB-MIDGARD-0053]
+        assert_eq!(r.body, r#"{"error":"unauthorised"}"#, "{}", r.body);
+    }
+    assert_eq!(admin_control_parked(gw, bob), 1, "nothing more was parked");
+
+    // The user-verification flag is not a factor either way: with the right code an
+    // assertion claiming none is accepted.
+    next_step();
+    let r = post(
+        gw,
+        "/api/v1/admin/enrolments/approve",
+        &approve_body("bob", &proof_now(gw, "bob", bob, false), &id, "olivia"),
+        None,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let activated = activate_at(gw, "olivia", &field(&r, "activationCode"), now());
+    let totp = totp_of(&field(&activated, "otpauth")).code_at(now());
+    let ok = login_as(gw, "olivia", Some(&totp));
+    assert_eq!(ok.status, 200, "{}", ok.body);
+    let audit = post(gw, "/api/v1/audit", "", Some(&field(&ok, "token")));
+    assert_eq!(audit.status, 200, "{}", audit.body);
+    for actor in ["alice", "bob"] {
+        assert!(
+            audit.body.contains(&format!(
+                r#""actor":"{actor}","action":"ADMIN refused (401)""#
+            )),
+            "{actor}'s refusal is audited: {}",
+            audit.body
+        );
+    }
+    for evidence in [
+        "principal:olivia factors=totp+webauthn uv-claimed=true",
+        "principal:olivia factors=totp+webauthn uv-claimed=false",
+    ] {
+        assert!(audit.body.contains(evidence), "{evidence}: {}", audit.body);
+    }
+    drop(served);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// How many enrolments are parked, as bob lists them.
+fn admin_control_parked(gw: &DurableGateway, bob: &Admin) -> usize {
+    let listed = post(
+        gw,
+        "/api/v1/admin/enrolments/list",
+        &list_body("bob", &proof(gw, "bob", bob)),
+        None,
+    );
+    assert_eq!(listed.status, 200, "{}", listed.body);
+    listed.body.matches(r#""subject":"#).count()
+}
+
+/// [AC-10.3] [VLD-ANB-MIDGARD-0008] [VLD-ANB-MIDGARD-0026] An administrator's one-time
+/// code is accepted once: the same code on a second fresh challenge within its step is
+/// refused, after a restart too, and the next step's code is accepted.
+#[test]
+fn an_administrator_totp_code_is_single_use() {
+    let dir = scratch("admin-totp-once");
+    let (state, devices) = provision(&dir);
+    let bob = device(&devices, "bob");
+    next_step();
+    {
+        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let gw = &served.gateway;
+        let list = |proof: &Proof| {
+            post(
+                gw,
+                "/api/v1/admin/enrolments/list",
+                &list_body("bob", proof),
+                None,
+            )
+        };
+        let first = proof_now(gw, "bob", bob, true);
+        let second = proof_now(gw, "bob", bob, true);
+        assert_ne!(first.0, second.0, "two fresh challenges");
+        assert_eq!(first.2, second.2, "one code");
+        let r = list(&first);
+        assert_eq!(r.status, 200, "{}", r.body);
+        let r = list(&second);
+        assert_eq!(r.status, 401, "the code is spent: {}", r.body);
+        // The client reads `unauthorised`; "second factor required" is logged.
+        // [VLD-ANB-MIDGARD-0053]
+        assert_eq!(r.body, r#"{"error":"unauthorised"}"#, "{}", r.body);
+    } // restart
+
+    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots again");
+    let gw = &served.gateway;
+    let r = post(
+        gw,
+        "/api/v1/admin/enrolments/list",
+        &list_body("bob", &proof_now(gw, "bob", bob, true)),
+        None,
+    );
+    assert_eq!(r.status, 401, "still spent after a restart: {}", r.body);
+    let r = post(
+        gw,
+        "/api/v1/admin/enrolments/list",
+        &list_body("bob", &proof(gw, "bob", bob)),
+        None,
+    );
+    assert_eq!(r.status, 200, "the next step's code: {}", r.body);
+    drop(served);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1006,17 +1201,19 @@ fn a_development_gateway_serves_no_administration() {
 
 // ---- WP-16: challenges bound to the administrator who asked ---------------------
 
-/// Whether `admin` answering `challenge` with `device` signs in.
-fn verifies(
-    gw: &DurableGateway,
-    admin: &str,
-    challenge: String,
-    device: &SoftwareAdminAuthenticator,
-) -> Response {
+/// Whether `admin` answering `challenge` with `device` (and its one-time code for a
+/// fresh step, so only the challenge decides) signs in.
+fn verifies(gw: &DurableGateway, admin: &str, challenge: String, device: &Admin) -> Response {
+    next_step();
+    verifies_now(gw, admin, challenge, device)
+}
+
+/// [`verifies`] with the code for the current step.
+fn verifies_now(gw: &DurableGateway, admin: &str, challenge: String, device: &Admin) -> Response {
     post(
         gw,
         "/api/v1/admin/enrolments/list",
-        &list_body(admin, &answer(challenge, device)),
+        &list_body(admin, &answer(device, challenge, true)),
         None,
     )
 }
@@ -1149,10 +1346,18 @@ fn the_global_ceiling_refuses_rather_than_evicts() {
         "a minute on, the next record carries the count"
     );
 
-    // Neither earlier administrator lost a challenge.
-    for (admin, challenge) in held {
-        let r = verifies(gw, admin, challenge, device(admin));
-        assert_eq!(r.status, 200, "{admin}: {}", r.body);
+    // Neither earlier administrator lost a challenge. Each code is accepted once, so
+    // alice and bob answer one each per step, within the challenges' lifetime.
+    // [VLD-ANB-MIDGARD-0008]
+    let (alices, bobs): (Vec<_>, Vec<_>) = held.into_iter().partition(|(a, _)| *a == "alice");
+    for (i, pair) in alices.into_iter().zip(bobs).enumerate() {
+        if i > 0 {
+            next_step();
+        }
+        for (admin, challenge) in [pair.0, pair.1] {
+            let r = verifies_now(gw, admin, challenge, device(admin));
+            assert_eq!(r.status, 200, "{admin}: {}", r.body);
+        }
     }
     drop(served);
     let _ = std::fs::remove_dir_all(&dir);

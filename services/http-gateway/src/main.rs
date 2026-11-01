@@ -148,14 +148,25 @@ fn main() {
     };
     eprintln!(
         "http-gateway: serving the enclosure in {state_dir} — {} principal(s) enrolled, {} \
-         administrator(s), {} object type(s) and {} action(s) registered, {} audit entries \
-         recovered and re-verified",
+         administrator(s) ({} with a one-time-code secret), {} object type(s) and {} \
+         action(s) registered, {} audit entries recovered and re-verified",
         served.principals,
         served.administrators,
+        served.administrators_with_totp,
         served.object_types,
         served.actions,
         served.audit_entries
     );
+    if served.administrators_with_totp < served.administrators {
+        eprintln!(
+            "http-gateway: {} administrator(s) have no one-time-code secret and cannot \
+             administer; stop the gateway and run `mg-admin admin totp-reset --state-dir \
+             {state_dir} --admin <name>` for each",
+            served
+                .administrators
+                .saturating_sub(served.administrators_with_totp)
+        );
+    }
     if served.principals == 0 {
         eprintln!(
             "http-gateway: no principals are enrolled, so nobody can log in; stop the gateway \
