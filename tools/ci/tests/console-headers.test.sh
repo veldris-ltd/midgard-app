@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the web console's nginx configuration: every location serves the full set
-# of security headers from the one shared file. [VLD-ANB-MIDGARD-0085] [AC-13.5]
+# of security headers from the one shared file, and mg-install checks that it does.
+# [VLD-ANB-MIDGARD-0085] [AC-13.5] [VLD-ANB-MIDGARD-0064] [AC-39.1] [AC-39.2] [AC-39.5]
 #
 #   bash tools/ci/tests/console-headers.test.sh
 #
@@ -8,7 +9,9 @@
 # script hash and gateway origin. nginx drops a server block's add_header directives
 # in a location that adds its own, so the claim under test is that each location that
 # adds a header includes the shared file again. With nginx on PATH the rendered
-# configuration is also checked with `nginx -t`.
+# configuration is also checked with `nginx -t`. mg-install's check_console_headers is
+# run against canned responses and, when docker holds the image midgard/console:local,
+# against the running console.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -126,6 +129,79 @@ CONF
     fi
 else
     echo "skip  nginx is not on PATH; the grep checks above stand in for nginx -t"
+fi
+
+# 6. mg-install checks every header on the page and on an asset after an install, and
+#    fails when one is missing. The function is lifted out of mg-install and run with
+#    curl answering from canned responses.
+mg_install="$installer/mg-install"
+if grep -q 'run "Checking the web console sends its security headers" check_console_headers' "$mg_install"; then
+    pass "mg-install runs check_console_headers after installing the console"
+else
+    fail "mg-install does not run check_console_headers"
+fi
+sed -n '/^check_console_headers() {/,/^}/p' "$mg_install" > "$work/check.sh"
+names="$(sed -n 's/^add_header \([A-Za-z-]*\) .*/\1/p' "$installer/console.security-headers.conf")"
+# run_check DROP: run the lifted check against a page carrying every shared header and
+# an asset carrying every shared header and Cache-Control, less DROP.
+run_check() (
+    drop="$1"
+    # shellcheck disable=SC2034 # read by the lifted function
+    SRC="$installer/../.."
+    curl() {
+        local url="${*: -1}" name
+        case " $* " in
+            *" -fsSI "*)
+                printf 'HTTP/1.1 200 OK\r\n'
+                for name in $names Cache-Control; do
+                    case "$url" in
+                        */assets/*) [ "$name" = "$drop" ] && continue ;;
+                        *) [ "$name" = Cache-Control ] && continue ;;
+                    esac
+                    printf '%s: x\r\n' "$name"
+                done
+                ;;
+            *) echo '<script type="module" crossorigin src="/assets/index-AbC123.js"></script>' ;;
+        esac
+    }
+    # shellcheck source=/dev/null
+    . "$work/check.sh"
+    check_console_headers http://console.test
+)
+if out="$(run_check "" 2>&1)"; then
+    pass "check_console_headers passes when / and the asset carry every header ($out)"
+else
+    fail "check_console_headers fails with every header present: $out"
+fi
+for name in $names Cache-Control; do
+    if out="$(run_check "$name" 2>&1)"; then
+        fail "check_console_headers passes with $name missing from the asset: $out"
+    else
+        case "$out" in
+            *"$name (/assets/"*) pass "check_console_headers fails and names $name when the asset lacks it" ;;
+            *) fail "check_console_headers fails without naming $name: $out" ;;
+        esac
+    fi
+done
+
+# 7. The built console image itself, when docker holds it: the same check, run against
+#    the container on an ephemeral loopback port.
+if command -v docker >/dev/null 2>&1 && docker image inspect midgard/console:local >/dev/null 2>&1; then
+    cid="$(docker run -d --rm -p 127.0.0.1::8080 midgard/console:local)"
+    trap 'docker stop "$cid" >/dev/null 2>&1; rm -rf "$work"' EXIT
+    port="$(docker port "$cid" 8080/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | sed -n 1p)"
+    for _ in $(seq 1 20); do
+        command curl -fsS -o /dev/null "http://127.0.0.1:$port/" 2>/dev/null && break
+        sleep 0.5
+    done
+    # shellcheck source=/dev/null
+    if out="$(SRC="$installer/../.." && . "$work/check.sh" && check_console_headers "http://127.0.0.1:$port" 2>&1)"; then
+        pass "the running console image sends every header on / and an asset ($out)"
+    else
+        fail "the running console image: $out"
+    fi
+else
+    echo "skip  docker or the image midgard/console:local is absent; the canned check above stands in"
 fi
 
 if [ "$failures" -gt 0 ]; then

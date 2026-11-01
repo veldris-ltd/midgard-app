@@ -435,6 +435,17 @@ CONTRIBUTING.md for the version policy.
     state directory are the switch. `docs/ops/RUNBOOKS.md` gains RB-8, disengage
     Mimir inference, and RB-9, rotate or withdraw the model trust anchor; the compose
     file and Helm values pass `--reload-interval 60`.
+- **The installer checks the console's security headers, and the deployment tier's
+  PQ-mTLS probe no longer runs with group 0 or a published CA seed.** `mg-install`
+  gains the step "Checking the web console sends its security headers", which fails
+  unless the page and a static asset both carry every header in
+  `console.security-headers.conf`, and the asset its Cache-Control. Both
+  `pqmtls-probe.yaml` pods set `runAsGroup` and `fsGroup` 10001; the manifest holds
+  `__CA_SEED__` in place of the constant seed, and `run-deployment-tier.sh` draws a
+  seed for each run, logs it and refuses a manifest that still holds the placeholder.
+  `tools/ci/tests/console-headers.test.sh` covers the step, and the running console
+  image when docker has it; `tools/ci/tests/probe-manifests.test.sh` covers the probe.
+  [VLD-ANB-MIDGARD-0064] [VLD-ANB-MIDGARD-0075]
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
