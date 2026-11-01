@@ -5,6 +5,9 @@
     { "id": "operator-apply", "role": "operator", "action": "Apply", "resource": "*", "effect": "permit" },
     { "id": "approver-read", "role": "approver", "action": "Read", "resource": "*", "effect": "permit" },
     { "id": "approver-approve", "role": "approver", "action": "Approve", "resource": "*", "effect": "permit" },
+    { "id": "operator-audit", "role": "operator", "action": "ReadAudit", "resource": "audit-ledger", "effect": "permit" },
+    { "id": "operator-audit-sessions", "role": "operator", "action": "ReadAudit", "resource": "audit-ledger:sessions", "effect": "permit" },
+    { "id": "approver-audit", "role": "approver", "action": "ReadAudit", "resource": "audit-ledger", "effect": "permit" },
     { "id": "operator-flag", "role": "operator", "action": "flagTransformer", "resource": "*", "effect": "permit" },
     { "id": "operator-isolate", "role": "operator", "action": "isolateSubstation", "resource": "*", "effect": "permit" }
   ]

@@ -814,14 +814,31 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     /// previous entry checked, and its ML-DSA signature verified — and marked `✓` only
     /// if all three hold. The cost is per row served, not per ledger entry, so a
     /// console polling this view does not pay for the whole chain on every poll.
-    pub fn audit(&self, provider: &CryptoProvider, limit: usize) -> Json {
+    ///
+    /// The view is scoped to the caller (see [`Self::audit_row_visible`]). Rows the
+    /// caller may not see are omitted, not redacted, and are dropped before `limit` is
+    /// applied, so up to `limit` visible rows come back. The response stays a bare
+    /// array; the second value says whether any row was omitted, which the edge sends
+    /// as the `X-Audit-Filtered` header. [VLD-ANB-MIDGARD-0031]
+    pub fn audit(
+        &self,
+        ctx: &PolicyContext,
+        provider: &CryptoProvider,
+        limit: usize,
+    ) -> (Json, bool) {
         let entries = self.fabric.audit_entries();
         let key = self.fabric.audit_verifying_key();
         let genesis = genesis_hash(self.fabric.audit_ledger_id());
-        Json::Arr(
+        let mut filtered = false;
+        let rows = Json::Arr(
             entries
                 .iter()
                 .rev()
+                .filter(|e| {
+                    let visible = self.audit_row_visible(ctx, e);
+                    filtered |= !visible;
+                    visible
+                })
                 .take(limit.clamp(1, 500))
                 .map(|e| {
                     let linked = match e.seq.checked_sub(1) {
@@ -847,7 +864,36 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                     ])
                 })
                 .collect(),
-        )
+        );
+        (rows, filtered)
+    }
+
+    /// Whether the caller may see ledger row `entry`. A row about an object is shown
+    /// only if the caller may read that object now (the same non-auditing check that
+    /// filters query results), so the view is not an oracle for hidden objects. A login
+    /// row about another principal needs `ReadAudit` on `audit-ledger:sessions`. Every
+    /// other row (route admissions, dry-runs, the caller's own logins) is shown to any
+    /// caller the edge admitted. [VLD-ANB-MIDGARD-0031]
+    fn audit_row_visible(&self, ctx: &PolicyContext, entry: &SealedEntry) -> bool {
+        let resource = entry.record.resource.0.as_str();
+        if let Some(id) = resource.strip_prefix(fabric::OBJECT_PREFIX) {
+            return self.can_read_id(ctx, id);
+        }
+        if resource == "session" && entry.record.actor.0 != ctx.subject {
+            let sessions = Resource {
+                id: ResourceId(crate::AUDIT_SESSIONS_RESOURCE.into()),
+                marking: Marking {
+                    level: ClassificationLevel::UNCLASSIFIED,
+                    compartments: BTreeSet::new(),
+                },
+                allowed_purposes: [ctx.purpose.clone()].into_iter().collect(),
+            };
+            return self
+                .fabric
+                .governance()
+                .permits(ctx, &sessions, crate::ACTION_READ_AUDIT);
+        }
+        true
     }
 
     /// `GET /policies`: the rule set the PDP enforces.

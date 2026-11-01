@@ -23,7 +23,7 @@ use http_gateway::state_dir::{StateDir, AUDIT_KEY_ID, IDP_KEY_ID};
 use http_gateway::SecuredGateway;
 use iam::{PasswordHasher, Pbkdf2Hasher};
 use kms::{Kms, KmsSealer};
-use policy::{Action, Effect, PolicySet, Role, Rule, RuleId, Selector};
+use policy::{Action, Effect, PolicySet, ResourceId, Role, Rule, RuleId, Selector};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::OsRng;
 
@@ -55,8 +55,9 @@ fn unhex(s: &str) -> Vec<u8> {
         .collect()
 }
 
-/// A state directory with a policy letting operators read, and three administrators:
-/// two IAM administrators and an auditor, each with a passkey the test holds.
+/// A state directory with a policy letting operators read and see the ledger view, and
+/// three administrators: two IAM administrators and an auditor, each with a passkey the
+/// test holds.
 fn provision(dir: &Path) -> (StateDir, Vec<(&'static str, SoftwareAdminAuthenticator)>) {
     let state = StateDir::new(dir);
     std::fs::create_dir_all(state.keys()).unwrap();
@@ -69,15 +70,22 @@ fn provision(dir: &Path) -> (StateDir, Vec<(&'static str, SoftwareAdminAuthentic
     // What `mg-admin init` also creates: the ledger and its signed checkpoint.
     http_gateway::boot::init_audit_ledger(&state).unwrap();
 
-    let policy = PolicySet::new(vec![Rule {
+    let read = Rule {
         id: RuleId("operator-read".into()),
         role: Role("operator".into()),
         action: Action("Read".into()),
         purpose: None,
         selector: Selector::Any,
         effect: Effect::Permit,
-    }])
-    .unwrap();
+    };
+    // Reading the ledger view is its own permission. [VLD-ANB-MIDGARD-0031]
+    let audit = Rule {
+        id: RuleId("operator-audit".into()),
+        action: Action("ReadAudit".into()),
+        selector: Selector::Resource(ResourceId("audit-ledger".into())),
+        ..read.clone()
+    };
+    let policy = PolicySet::new(vec![read, audit]).unwrap();
     std::fs::write(state.policy(), render_policy(&policy).unwrap()).unwrap();
 
     let sealer = || Box::new(KmsSealer::new(Kms::new(fips_provider(), idp.trust_root())));
