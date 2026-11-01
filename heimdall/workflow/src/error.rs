@@ -1,6 +1,7 @@
-//! Workflow errors. Execution fails closed: a consequential action can never run
-//! from an unauthorised state, and a denied or already-executed action cannot run at
-//! all. [FR-H-5]
+//! Workflow errors. Execution fails closed: no action can run from an unauthorised
+//! state, a denied or already-executed action cannot run at all, and an action type
+//! the deployment's catalogue does not list cannot even be proposed. [FR-H-5]
+//! [VLD-ANB-MIDGARD-0045]
 
 /// A workflow transition failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,7 +12,8 @@ pub enum WorkflowError {
     DuplicateAction(String),
     /// Authorisation was attempted on an action not awaiting a decision.
     NotPending(String),
-    /// A consequential action was executed without human authorisation. [NFR-AI-1]
+    /// An action was executed without a recorded human authorisation. Every
+    /// execution needs one, whatever the action's class. [NFR-AI-1]
     NotAuthorised(String),
     /// Execution was attempted on an action a human denied.
     Denied(String),
@@ -22,6 +24,11 @@ pub enum WorkflowError {
     /// The actuator could not be invoked for an authorised action; the attempt was
     /// audited and the action remains authorised (retryable). [RT-44]
     Actuation(String),
+    /// The action type is not in the deployment's action-type catalogue; nothing
+    /// was audited. [VLD-ANB-MIDGARD-0045]
+    UnknownActionType(String),
+    /// An action-type catalogue file could not be parsed (carries the reason).
+    Catalogue(String),
 }
 
 impl std::fmt::Display for WorkflowError {
@@ -32,14 +39,17 @@ impl std::fmt::Display for WorkflowError {
             WorkflowError::NotPending(id) => {
                 write!(f, "action '{id}' is not awaiting authorisation")
             }
-            WorkflowError::NotAuthorised(id) => write!(
-                f,
-                "action '{id}' is consequential and was not authorised by a human"
-            ),
+            WorkflowError::NotAuthorised(id) => {
+                write!(f, "action '{id}' was not authorised by a human")
+            }
             WorkflowError::Denied(id) => write!(f, "action '{id}' was denied"),
             WorkflowError::AlreadyExecuted(id) => write!(f, "action '{id}' already executed"),
             WorkflowError::Audit(m) => write!(f, "audit error: {m}"),
             WorkflowError::Actuation(m) => write!(f, "actuation error: {m}"),
+            WorkflowError::UnknownActionType(t) => {
+                write!(f, "action type '{t}' is not in the action-type catalogue")
+            }
+            WorkflowError::Catalogue(m) => write!(f, "action-type catalogue error: {m}"),
         }
     }
 }

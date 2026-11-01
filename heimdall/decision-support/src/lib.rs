@@ -18,7 +18,11 @@
 //! Every option's citations are resolved against the picture: `entity:`/`track:`
 //! tokens must name a tracked entity, `feed:` tokens must name a feed that actually
 //! contributed to it. An option that cites nothing, or cites invented evidence, is
-//! reported ungrounded — which is exactly what the EV-A8 evals assert. [FR-H-4]
+//! rejected: it is left out of the offered option set and returned separately with
+//! its unresolved citations, which is exactly what the EV-A8 evals assert. Only a
+//! [`GroundedOption`] can become a workflow action, so invented evidence cannot
+//! reach the audit lineage. A response with duplicate or gapped ranks fails to
+//! parse. [FR-H-4] [VLD-ANB-MIDGARD-0079]
 
 pub mod adapter;
 pub mod error;
@@ -29,13 +33,13 @@ pub mod options;
 pub mod prompt;
 pub mod provider;
 
-pub use adapter::{request_options, AdvisoryOptions, OptionGrounding};
+pub use adapter::{request_options, AdvisoryOptions, RejectedOption};
 pub use error::DecisionError;
 pub use evals::{
     ev_a8_advisory, ev_a8_cited, ev_a8_grounded, ev_a8_insuff, ev_a8_neutral, ev_a8_ranked,
     EvalResult, EvalScore,
 };
 pub use mimir_bridge::MimirOptionProvider;
-pub use options::{Citation, CitationKind, CourseOfAction, OptionSet};
+pub use options::{Citation, CitationKind, CourseOfAction, GroundedOption, OptionSet};
 pub use prompt::{assemble, render_picture, AssembledPrompt};
 pub use provider::{MockOptionProvider, OptionProvider, UnavailableOptionProvider};

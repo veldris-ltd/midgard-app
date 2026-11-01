@@ -3,9 +3,18 @@
 //! the PQ-signed audit chain with the real FIPS backend, and the end-to-end lineage
 //! from an advisory A.8 option → proposed action → human authorisation → audited
 //! execution. [FR-H-5] [NFR-AI-1]
+//!
+//! WP-64: an action's class comes from the deployment's catalogue, never the
+//! proposer; an unknown type is refused before anything is audited; every
+//! execution, informational included, needs a recorded human decision; the
+//! actuator re-checks the catalogue; and only a grounded option can become an
+//! action. [AC-64.1] [AC-64.2] [AC-64.3] [AC-64.4] [AC-64.5]
+//! [VLD-ANB-MIDGARD-0045] [VLD-ANB-MIDGARD-0079]
 #![cfg(feature = "backend-fips")]
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use audit_writer::{verify_chain, AuditWriter, InMemoryLedger, LedgerId};
 use pqc_agility::backend::fips::FipsSig;
@@ -17,7 +26,8 @@ use heimdall_picture::{
     Classification, ClassificationSource, EntityId, LayerId, Picture, Track, TrackedEntity,
 };
 use heimdall_workflow::{
-    DispatchActuator, Effector, ProposedAction, WorkflowEngine, WorkflowError, WorkflowState,
+    ActionClass, ActionTypeCatalog, Actuator, ActuatorError, DispatchActuator, Effector,
+    ProposedAction, WorkflowEngine, WorkflowError, WorkflowState,
 };
 
 const ALG: SigId = SigId::MlDsa65;
@@ -30,12 +40,33 @@ impl Effector for OkEffector {
     }
 }
 
-/// A dispatcher wired for the action types these tests use.
+/// The deployment's action-type catalogue for these tests.
+fn catalog() -> ActionTypeCatalog {
+    ActionTypeCatalog::new()
+        .with("dispatch-asset", ActionClass::Consequential)
+        .with("cue-sensor", ActionClass::Consequential)
+        .with("annotate-track", ActionClass::Informational)
+}
+
+/// A dispatcher wired for the action types these tests use, re-checking against
+/// the same catalogue as the engine.
 fn actuator() -> DispatchActuator {
-    let mut a = DispatchActuator::new();
+    let mut a = DispatchActuator::new().with_catalog(catalog());
     a.register("dispatch-asset", Box::new(OkEffector));
     a.register("cue-sensor", Box::new(OkEffector));
+    a.register("annotate-track", Box::new(OkEffector));
     a
+}
+
+/// An effector that records every action it was invoked for.
+struct RecordingEffector {
+    log: Rc<RefCell<Vec<String>>>,
+}
+impl Effector for RecordingEffector {
+    fn effect(&mut self, action: &ProposedAction) -> Result<String, String> {
+        self.log.borrow_mut().push(action.id.clone());
+        Ok("done".into())
+    }
 }
 
 struct SeedRng(u64);
@@ -77,7 +108,7 @@ fn engine() -> (WorkflowEngine<InMemoryLedger>, VerifyingKey) {
         vk.clone(),
         LedgerId("heimdall-workflow".into()),
     );
-    (WorkflowEngine::new(writer), vk)
+    (WorkflowEngine::new(writer).with_catalog(catalog()), vk)
 }
 
 /// The audit chain verifies against the engine's key.
@@ -189,20 +220,28 @@ fn ac_h_4_tampering_with_the_audit_chain_is_detected() {
 #[test]
 fn ac_h_3_and_4_option_to_audited_action_lineage() {
     // The full "AI proposes, human disposes" path: advisory options → the operator
-    // turns the chosen option into a proposed action carrying its cited evidence →
-    // human authorises → audited execution.
+    // turns the chosen grounded option into a proposed action carrying its cited
+    // evidence → human authorises → audited execution. [AC-64.5]
     let mut picture = Picture::new();
     picture.upsert_entity(tracked("A123", "radar"));
 
-    let a8 = r#"{"options":[{"rank":1,"title":"Cue radar on A123",
+    // Rank 1 invents its evidence; rank 2 is grounded. Only rank 2 is offered, and
+    // it is re-ranked to 1.
+    let a8 = r#"{"options":[{"rank":1,"title":"Strike GHOST","summary":"act on a phantom",
+        "citations":["entity:GHOST"],"expected_effect":"","risks":["cost"]},
+        {"rank":2,"title":"Cue radar on A123",
         "summary":"Task the radar for a closer look.","citations":["entity:A123","feed:radar"],
         "expected_effect":"tighter track","risks":["cost"]}],"unsupported":null}"#;
     let advisory = request_options(&picture, "handle A123", &MockOptionProvider::new(a8)).unwrap();
-    assert!(advisory.all_grounded());
+    assert_eq!(advisory.grounded.len(), 1);
+    assert_eq!(advisory.rejected.len(), 1);
 
-    // Operator selects rank-1 and proposes an action from it — the option is
-    // advisory; this proposal still requires explicit authorisation.
-    let chosen = &advisory.option_set.options[0];
+    // Operator selects rank-1 of the grounded set and proposes an action from it —
+    // the option is advisory; this proposal still requires explicit authorisation.
+    // `from_course_of_action` takes only a GroundedOption, which only the adapter
+    // makes. [VLD-ANB-MIDGARD-0079]
+    let chosen = advisory.grounding_for(1).expect("grounded rank 1");
+    assert_eq!(chosen.title(), "Cue radar on A123");
     let action = ProposedAction::from_course_of_action("act-42", "cue-sensor", chosen);
     assert_eq!(action.citations, vec!["entity:A123", "feed:radar"]);
 
@@ -223,8 +262,230 @@ fn ac_h_3_and_4_option_to_audited_action_lineage() {
         wf.record("act-42").unwrap().action.citations,
         vec!["entity:A123", "feed:radar"]
     );
+    // Every citation in the audited action resolves against the picture.
+    for c in &wf.record("act-42").unwrap().action.citations {
+        assert!(resolves(&picture, c), "unresolved citation {c} in lineage");
+    }
     assert_eq!(wf.audit_entries().len(), 4);
     assert!(chain_ok(&wf, &vk));
+}
+
+/// Whether a raw citation token names an entity in `picture`, or a feed that
+/// contributed to one.
+fn resolves(picture: &Picture, token: &str) -> bool {
+    match token.split_once(':') {
+        Some(("entity", id)) | Some(("track", id)) => picture.entities().any(|e| e.id.0 == id),
+        Some(("feed", id)) => picture.entities().any(|e| e.sources.contains(id)),
+        _ => false,
+    }
+}
+
+#[test]
+fn unknown_action_type_is_refused_at_proposal() {
+    // [AC-64.2] [VLD-ANB-MIDGARD-0045]
+    let (mut wf, _vk) = engine();
+    assert_eq!(
+        wf.propose(
+            "analyst",
+            ProposedAction::new("act-x", "self-destruct", "no reason"),
+            "t0"
+        ),
+        Err(WorkflowError::UnknownActionType("self-destruct".into()))
+    );
+    // Nothing was audited and no workflow exists.
+    assert!(wf.audit_entries().is_empty());
+    assert!(wf.record("act-x").is_none());
+
+    // An engine with no catalogue at all refuses everything (fail closed).
+    let (vk, sk) = keypair(2);
+    let writer = AuditWriter::new(
+        InMemoryLedger::new(),
+        Box::new(FipsSig::new(ALG)),
+        sk,
+        vk,
+        LedgerId("heimdall-workflow".into()),
+    );
+    let mut bare = WorkflowEngine::new(writer);
+    assert_eq!(
+        bare.propose(
+            "analyst",
+            ProposedAction::new("act-y", "cue-sensor", "look"),
+            "t0"
+        ),
+        Err(WorkflowError::UnknownActionType("cue-sensor".into()))
+    );
+    assert!(bare.audit_entries().is_empty());
+}
+
+#[test]
+fn informational_action_still_needs_a_recorded_human_decision() {
+    // [AC-64.3] [VLD-ANB-MIDGARD-0045]
+    let (mut wf, vk) = engine();
+    wf.propose(
+        "analyst",
+        ProposedAction::new("note-1", "annotate-track", "mark A123 as of interest"),
+        "t0",
+    )
+    .unwrap();
+    assert_eq!(
+        wf.record("note-1").unwrap().action.class(),
+        ActionClass::Informational
+    );
+
+    // Informational is not a shortcut round the gate.
+    assert_eq!(
+        wf.execute("system", "note-1", &mut actuator(), "t1"),
+        Err(WorkflowError::NotAuthorised("note-1".into()))
+    );
+    assert_eq!(wf.state_of("note-1"), Some(&WorkflowState::Proposed));
+    assert_eq!(
+        wf.audit_entries().len(),
+        1,
+        "the refused attempt ran nothing"
+    );
+
+    // A human acknowledges it; only then does it execute.
+    wf.authorise("note-1", "cdr-jones", true, "t2").unwrap();
+    wf.execute("system", "note-1", &mut actuator(), "t3")
+        .unwrap();
+    let actions: Vec<&str> = wf
+        .audit_entries()
+        .iter()
+        .map(|e| e.record.action.0.as_str())
+        .collect();
+    assert_eq!(
+        actions,
+        vec![
+            "propose-action",
+            "authorise-action",
+            "execute-action",
+            "actuation-succeeded"
+        ]
+    );
+    assert_eq!(wf.audit_entries()[1].record.actor.0, "cdr-jones");
+    assert!(chain_ok(&wf, &vk));
+}
+
+#[test]
+fn proposer_cannot_assert_the_class() {
+    // [AC-64.1] [VLD-ANB-MIDGARD-0045]
+    // By API shape: `ProposedAction` has no public class setter and its class field
+    // is private (the compile_fail doctest on `ProposedAction` proves the field
+    // cannot be written). The only way a class is set is the engine's catalogue
+    // lookup at proposal.
+    let (mut wf, _vk) = engine();
+
+    // Built through the public constructor, a dispatch-asset action is recorded with
+    // the catalogue's class.
+    wf.propose(
+        "analyst",
+        ProposedAction::new("act-5", "dispatch-asset", "intercept"),
+        "t0",
+    )
+    .unwrap();
+    let rec = wf.record("act-5").unwrap();
+    assert_eq!(
+        rec.action.class(),
+        catalog().class_of("dispatch-asset").unwrap()
+    );
+    assert!(rec.action.is_consequential());
+
+    // And the class really is derived, not defaulted: a fresh action starts
+    // consequential, and the engine records annotate-track as the catalogue says.
+    let fresh = ProposedAction::new("note-5", "annotate-track", "note");
+    assert_eq!(fresh.class(), ActionClass::Consequential);
+    wf.propose("analyst", fresh, "t1").unwrap();
+    assert_eq!(
+        wf.record("note-5").unwrap().action.class(),
+        ActionClass::Informational
+    );
+}
+
+#[test]
+fn actuator_refuses_a_type_outside_the_catalogue() {
+    // [AC-64.4] [VLD-ANB-MIDGARD-0045]
+    let (mut wf, _vk) = engine();
+    wf.propose(
+        "analyst",
+        ProposedAction::new("act-6", "cue-sensor", "look closer"),
+        "t0",
+    )
+    .unwrap();
+    wf.authorise("act-6", "cdr-jones", true, "t1").unwrap();
+
+    // The actuator's catalogue does not list cue-sensor, although an effector is
+    // registered for it.
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut narrow = DispatchActuator::new()
+        .with_catalog(ActionTypeCatalog::new().with("dispatch-asset", ActionClass::Consequential));
+    narrow.register(
+        "cue-sensor",
+        Box::new(RecordingEffector { log: log.clone() }),
+    );
+
+    let action = wf.record("act-6").unwrap().action.clone();
+    assert_eq!(
+        narrow.actuate(&action),
+        Err(ActuatorError::Unsupported("cue-sensor".into()))
+    );
+    let err = wf
+        .execute("operator", "act-6", &mut narrow, "t2")
+        .unwrap_err();
+    assert!(
+        matches!(&err, WorkflowError::Actuation(m) if m.contains("not in the actuator's catalogue")),
+        "{err:?}"
+    );
+    assert!(log.borrow().is_empty(), "the effector was never invoked");
+    // Fails closed: still authorised, with the attempt audited.
+    assert!(matches!(
+        wf.state_of("act-6"),
+        Some(WorkflowState::Authorised { .. })
+    ));
+    assert_eq!(
+        wf.audit_entries().last().unwrap().record.action.0,
+        "actuation-error"
+    );
+}
+
+#[test]
+fn actuator_refuses_a_class_mismatch() {
+    // [AC-64.4] [VLD-ANB-MIDGARD-0045]
+    // The engine classified annotate-track as informational; an actuator holding a
+    // second catalogue that calls it consequential refuses to run it.
+    let (mut wf, _vk) = engine();
+    wf.propose(
+        "analyst",
+        ProposedAction::new("note-7", "annotate-track", "note"),
+        "t0",
+    )
+    .unwrap();
+    wf.authorise("note-7", "cdr-jones", true, "t1").unwrap();
+
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut other = DispatchActuator::new()
+        .with_catalog(ActionTypeCatalog::new().with("annotate-track", ActionClass::Consequential));
+    other.register(
+        "annotate-track",
+        Box::new(RecordingEffector { log: log.clone() }),
+    );
+
+    let action = wf.record("note-7").unwrap().action.clone();
+    assert_eq!(
+        other.actuate(&action),
+        Err(ActuatorError::ClassMismatch {
+            action_type: "annotate-track".into(),
+            catalogued: ActionClass::Consequential,
+            recorded: ActionClass::Informational,
+        })
+    );
+    let err = wf
+        .execute("operator", "note-7", &mut other, "t2")
+        .unwrap_err();
+    assert!(
+        matches!(&err, WorkflowError::Actuation(m) if m.contains("recorded as informational")),
+        "{err:?}"
+    );
+    assert!(log.borrow().is_empty(), "the effector was never invoked");
 }
 
 fn tracked(id: &str, feed: &str) -> TrackedEntity {
