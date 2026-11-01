@@ -356,7 +356,14 @@ pub fn apply_mesh_limits(gateway: Gateway, limits: &MeshLimits) -> Gateway {
 /// `--requests-per-conn` say instead. A value that is not a number, or is out of
 /// range, is an error for the binary to report as a usage error.
 pub fn mesh_limits_from_args(args: &Args) -> Result<MeshLimits, String> {
-    let mut limits = MeshLimits::default();
+    mesh_limits_from_args_over(args, MeshLimits::default())
+}
+
+/// [`mesh_limits_from_args`] over a service's own defaults `base` rather than
+/// [`MeshLimits::default`]: still the one limiter and the same flags.
+/// [VLD-ANB-MIDGARD-0042]
+pub fn mesh_limits_from_args_over(args: &Args, base: MeshLimits) -> Result<MeshLimits, String> {
+    let mut limits = base;
     if let Some(n) = whole(args, "max-connections")? {
         if n == 0 {
             return Err("--max-connections must be at least 1".into());

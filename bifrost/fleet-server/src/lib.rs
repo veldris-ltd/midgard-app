@@ -11,13 +11,25 @@
 //! names. Accepted check-ins are journalled in a sealed [`DurableFleet`], so a restart
 //! recovers them. [RC-12]
 //!
+//! A check-in must name a channel the fleet declares (`channels.json`), and an
+//! installation's channel is the one it registered on (first sight registers it on the
+//! channel it reports); a report naming another is refused with [`outcome::DENIED`],
+//! and the refusal is audited as `CheckIn refused: unknown channel` or `CheckIn
+//! refused: channel mismatch`. Moving an installation is an operator action: the
+//! [`SET_CHANNEL`] method (policy action `SetChannel`), whose payload is an encoded
+//! [`ChannelAssignment`]; `bifrost-agent --set-channel` sends it. It is a mesh route
+//! rather than an `mg-admin` command because the state directory is locked while the
+//! service runs. [VLD-ANB-MIDGARD-0042]
+//!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
 //! [`FLEET_STATUS`] the fleet as JSON.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::LedgerStore;
-use bifrost_fleet::{AgentReport, DurableFleet, NodeStatus};
+use bifrost_fleet::{
+    AgentReport, ChannelAssignment, DurableFleet, DurableFleetError, FleetError, NodeStatus,
+};
 use bifrost_rollout::VersionId;
 use gateway::{RequestHandler, Router};
 use governance::{GovContext, Governance};
@@ -35,6 +47,11 @@ pub const FLEET_STATUS: &str = "FleetStatus";
 pub const ACTION_CHECK_IN: &str = "CheckIn";
 /// The policy action a fleet read is authorised as.
 pub const ACTION_READ_FLEET: &str = "ReadFleet";
+/// The method an operator moves an installation to another channel with; its payload
+/// is an encoded [`ChannelAssignment`]. [VLD-ANB-MIDGARD-0042]
+pub const SET_CHANNEL: &str = "SetChannel";
+/// The policy action a channel assignment is authorised as.
+pub const ACTION_SET_CHANNEL: &str = "SetChannel";
 
 /// The first byte of every fleet response.
 pub mod outcome {
@@ -87,7 +104,8 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         })
     }
 
-    /// The router the PQ-mTLS gateway serves: [`CHECK_IN`] and [`FLEET_STATUS`].
+    /// The router the PQ-mTLS gateway serves: [`CHECK_IN`], [`FLEET_STATUS`] and
+    /// [`SET_CHANNEL`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
         let check_in: Arc<dyn RequestHandler> =
@@ -95,9 +113,13 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         let service = self.clone();
         let status: Arc<dyn RequestHandler> =
             Arc::new(move |peer: &WorkloadIdentity, _: &[u8]| service.status(peer));
+        let service = self.clone();
+        let set_channel: Arc<dyn RequestHandler> =
+            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.set_channel(peer, body));
         Router::new()
             .route(CHECK_IN, check_in)
             .route(FLEET_STATUS, status)
+            .route(SET_CHANNEL, set_channel)
     }
 
     /// Record an agent's check-in.
@@ -149,16 +171,112 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             };
             return self.reply(CHECK_IN, outcome::DENIED, message);
         }
-        match lock(&self.fleet).check_in(report, now) {
+        let install_id = report.install_id.clone();
+        let result = lock(&self.fleet).check_in(report, now);
+        match result {
             Ok(()) => self.reply(
                 CHECK_IN,
                 outcome::ACCEPTED,
                 &format!("recorded at audit sequence {}", decision.audit_seq),
             ),
-            Err(e) => self.reply(
+            Err(DurableFleetError::Refused(refusal)) => {
+                let (action, message) = match refusal {
+                    FleetError::ChannelMismatch { .. } => (
+                        "CheckIn refused: channel mismatch",
+                        "an installation checks in only on the channel it is registered on",
+                    ),
+                    _ => (
+                        "CheckIn refused: unknown channel",
+                        "the check-in names a channel this fleet does not serve",
+                    ),
+                };
+                let recorded = lock(&self.governance).record_event(
+                    &peer.id.0,
+                    action,
+                    &format!("installation:{install_id}"),
+                    now,
+                );
+                let message = match recorded {
+                    Ok(_) => message.to_string(),
+                    Err(_) => format!("{message} (not audited)"),
+                };
+                self.reply(CHECK_IN, outcome::DENIED, &message)
+            }
+            Err(DurableFleetError::Io(e)) => self.reply(
                 CHECK_IN,
                 outcome::FAILED,
                 &format!("the check-in was not recorded: {e}"),
+            ),
+        }
+    }
+
+    /// Move an installation to another configured channel: the operator's action, and
+    /// the only way an installation's channel changes after it registers. The move is
+    /// audited against the installation. [VLD-ANB-MIDGARD-0042]
+    pub fn set_channel(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+        let now = (self.clock)();
+        let assignment = ChannelAssignment::decode(body);
+        let action = if assignment.is_ok() {
+            ACTION_SET_CHANNEL
+        } else {
+            "SetChannel:MALFORMED"
+        };
+        let decision = match lock(&self.governance).authorize(
+            &self.context(peer),
+            &self.resource,
+            action,
+            now,
+        ) {
+            Ok(decision) => decision,
+            Err(_) => {
+                return self.reply(
+                    SET_CHANNEL,
+                    outcome::FAILED,
+                    "the channel assignment could not be audited",
+                )
+            }
+        };
+        let assignment = match assignment {
+            Ok(assignment) => assignment,
+            Err(e) => return self.reply(SET_CHANNEL, outcome::MALFORMED, e),
+        };
+        if !decision.permitted {
+            return self.reply(
+                SET_CHANNEL,
+                outcome::DENIED,
+                "policy does not permit this identity to move an installation",
+            );
+        }
+        let result = lock(&self.fleet).assign_channel(&assignment.install_id, &assignment.channel);
+        match result {
+            Ok(()) => {
+                let recorded = lock(&self.governance).record_event(
+                    &peer.id.0,
+                    &format!("SetChannel: moved to {}", assignment.channel),
+                    &format!("installation:{}", assignment.install_id),
+                    now,
+                );
+                let audited = if recorded.is_ok() {
+                    ""
+                } else {
+                    " (not audited)"
+                };
+                self.reply(
+                    SET_CHANNEL,
+                    outcome::ACCEPTED,
+                    &format!(
+                        "{} moved to {} at audit sequence {}{audited}",
+                        assignment.install_id, assignment.channel, decision.audit_seq
+                    ),
+                )
+            }
+            Err(DurableFleetError::Refused(e)) => {
+                self.reply(SET_CHANNEL, outcome::DENIED, &e.to_string())
+            }
+            Err(DurableFleetError::Io(e)) => self.reply(
+                SET_CHANNEL,
+                outcome::FAILED,
+                &format!("the channel assignment was not recorded: {e}"),
             ),
         }
     }

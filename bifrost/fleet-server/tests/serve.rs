@@ -3,7 +3,10 @@
 //! another installation, an agent reading the fleet and an operator checking in are
 //! refused; the operator sees each installation's version and liveness, the drift and
 //! convergence; and after a hard kill the service recovers its check-ins and ledger.
-//! [FR-B-3] [RC-12] [RC-17] [NFR-SEC-1]
+//! A check-in on an unconfigured channel, or on another channel than the
+//! installation registered on, is refused and audited until an operator moves it; and
+//! one identity checking in in a burst is throttled while others are served.
+//! [FR-B-3] [RC-12] [RC-17] [NFR-SEC-1] [VLD-ANB-MIDGARD-0042]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -28,11 +31,13 @@ const POLICY: &str = r#"{
     { "id": "operator-channel", "role": "fleet-operator", "action": "OpenChannel",
       "resource": "*", "effect": "permit" },
     { "id": "operator-read", "role": "fleet-operator", "action": "ReadFleet",
+      "resource": "*", "effect": "permit" },
+    { "id": "operator-set-channel", "role": "fleet-operator", "action": "SetChannel",
       "resource": "*", "effect": "permit" }
   ]
 }"#;
 
-const CHANNELS: &str = r#"{ "version": 1, "channels": { "stable": "1.5.0" } }"#;
+const CHANNELS: &str = r#"{ "version": 1, "channels": { "stable": "1.5.0", "canary": "1.6.0" } }"#;
 
 fn scratch(tag: &str) -> PathBuf {
     let uniq = Box::into_raw(Box::new(0u8)) as usize;
@@ -198,6 +203,7 @@ fn agents_check_in_operators_read_the_fleet_and_it_survives_a_restart() {
     issue(&idp, &server_identity, "bifrost-fleet", &["fleet-manager"]);
     issue(&idp, &clients, "host-a", &["fleet-agent"]);
     issue(&idp, &clients, "host-b", &["fleet-agent"]);
+    issue(&idp, &clients, "host-c", &["fleet-agent"]);
     issue(&idp, &clients, "ops-console", &["fleet-operator"]);
     std::fs::create_dir_all(&state).unwrap();
     std::fs::write(state.join("policy.json"), POLICY).unwrap();
@@ -246,6 +252,20 @@ fn agents_check_in_operators_read_the_fleet_and_it_survives_a_restart() {
         "{}",
         text(&impersonation.stderr)
     );
+    // [VLD-ANB-MIDGARD-0042] [AC-45.2] A channel the fleet does not serve is refused,
+    // and the refusal is audited (counted in the recovered ledger below).
+    let unconfigured = agent(
+        &clients,
+        "host-a",
+        &server.mesh,
+        &["--channel", "edge", "--version", "1.5.0"],
+    );
+    assert_eq!(unconfigured.status.code(), Some(1));
+    assert!(
+        text(&unconfigured.stderr).contains("denied: the check-in names a channel"),
+        "{}",
+        text(&unconfigured.stderr)
+    );
     let agent_read = agent(&clients, "host-a", &server.mesh, &["--status"]);
     assert_eq!(
         agent_read.status.code(),
@@ -287,10 +307,11 @@ fn agents_check_in_operators_read_the_fleet_and_it_survives_a_restart() {
     assert!(metrics.contains("outcome=\"denied\""), "{metrics}");
 
     // A hard kill. Audited so far: two check-ins, the impersonation (its decision and
-    // its refusal), the agent's read, the operator's check-in and the operator's read.
+    // its refusal), the unconfigured channel (its decision and its refusal), the
+    // agent's read, the operator's check-in and the operator's read.
     drop(server);
     let server = start(&server_identity, &state);
-    assert_eq!(server.recovered, "7");
+    assert_eq!(server.recovered, "9");
     assert_eq!(server.installations, "2");
     let fleet = fleet_status(&clients, &server.mesh);
     assert_eq!(
@@ -306,8 +327,98 @@ fn agents_check_in_operators_read_the_fleet_and_it_survives_a_restart() {
         &["--channel", "stable", "--version", "1.5.0"],
     );
     assert!(upgraded.status.success(), "{}", text(&upgraded.stderr));
-    assert!(text(&upgraded.stdout).contains("recorded at audit sequence 8"));
+    assert!(text(&upgraded.stdout).contains("recorded at audit sequence 10"));
     let fleet = fleet_status(&clients, &server.mesh);
+    assert_eq!(fleet.get("converged"), Some(&Json::Bool(true)));
+
+    // [VLD-ANB-MIDGARD-0042] [AC-45.2] host-b registered on stable: a report on canary
+    // (configured) is refused and audited, and host-b stays on stable.
+    let mismatch = agent(
+        &clients,
+        "host-b",
+        &server.mesh,
+        &["--channel", "canary", "--version", "1.6.0"],
+    );
+    assert_eq!(mismatch.status.code(), Some(1));
+    assert!(
+        text(&mismatch.stderr).contains("only on the channel it is registered on"),
+        "{}",
+        text(&mismatch.stderr)
+    );
+    // An agent cannot move an installation; the operator can.
+    let agent_move = agent(
+        &clients,
+        "host-a",
+        &server.mesh,
+        &["--set-channel", "host-b", "--channel", "canary"],
+    );
+    assert_eq!(agent_move.status.code(), Some(1));
+    assert!(text(&agent_move.stderr).contains("denied"));
+    let moved = agent(
+        &clients,
+        "ops-console",
+        &server.mesh,
+        &["--set-channel", "host-b", "--channel", "canary"],
+    );
+    assert!(moved.status.success(), "{}", text(&moved.stderr));
+    assert!(text(&moved.stdout).contains("host-b moved to canary"));
+    let on_canary = agent(
+        &clients,
+        "host-b",
+        &server.mesh,
+        &["--channel", "canary", "--version", "1.6.0"],
+    );
+    assert!(on_canary.status.success(), "{}", text(&on_canary.stderr));
+
+    // [VLD-ANB-MIDGARD-0042] [AC-45.5] host-c checks in 20 times at once. The fleet's
+    // default limit is a burst of 10 per identity, refilled at one every 10 s, so at
+    // most 10 are served (each call spends at least one); the rest are dropped by the
+    // gateway before the service sees them.
+    let burst: Vec<_> = (0..20)
+        .map(|_| {
+            let clients = clients.clone();
+            let mesh = server.mesh.clone();
+            std::thread::spawn(move || {
+                agent(
+                    &clients,
+                    "host-c",
+                    &mesh,
+                    &["--channel", "stable", "--version", "1.5.0"],
+                )
+                .status
+                .success()
+            })
+        })
+        .collect();
+    let served = burst
+        .into_iter()
+        .map(|t| t.join().unwrap())
+        .filter(|ok| *ok)
+        .count();
+    assert!(served >= 1, "the first of the burst is served");
+    assert!(
+        served <= 10,
+        "{served} of 20 served: the burst is throttled"
+    );
+    // Another agent, at its normal rate, is served meanwhile.
+    let other = agent(
+        &clients,
+        "host-b",
+        &server.mesh,
+        &["--channel", "canary", "--version", "1.6.0"],
+    );
+    assert!(other.status.success(), "{}", text(&other.stderr));
+    // The operator still sees the right fleet: host-b on canary, nothing drifted.
+    let fleet = fleet_status(&clients, &server.mesh);
+    assert_eq!(
+        installation(&fleet, "host-b").str_field("channel"),
+        Some("canary")
+    );
+    assert_eq!(
+        installation(&fleet, "host-c").str_field("version"),
+        Some("1.5.0")
+    );
+    assert_eq!(fleet.get("drift"), Some(&Json::Arr(vec![])));
     assert_eq!(fleet.get("converged"), Some(&Json::Bool(true)));
 
     drop(server);

@@ -360,10 +360,10 @@ milestone = "RF-CA-12: a SAD change first, then the implementation."
 [[claim]]
 id = "bifrost-fleet"
 area = "Bifrost"
-claim = "bifrost-fleet records each installation's version, liveness and drift from its channel. An agent checks in over PQ-mTLS, every request is authorised and audited, and fleet state survives a restart."
+claim = "bifrost-fleet records each installation's version, liveness and drift from its channel. An agent checks in over PQ-mTLS, every request is authorised and audited, and fleet state survives a restart. A check-in must name a configured channel and the installation's registered channel (only an operator moves it), report fields are bounded, check-ins are rate limited per identity, and the journal records changes and is compacted."
 status = "operable"
-evidence = ["bifrost/fleet-server/src/lib.rs:104"]
-tests = ["bifrost/fleet/tests/durable_restart.rs::fleet_state_survives_restart"]
+evidence = ["bifrost/fleet-server/src/lib.rs:126", "bifrost/fleet/src/lib.rs:191", "bifrost/fleet/src/agent.rs:19", "bifrost/fleet/src/durable.rs:231", "bifrost/fleet-server/src/main.rs:75"]
+tests = ["bifrost/fleet/tests/durable_restart.rs::fleet_state_survives_restart", "bifrost/fleet/tests/security_checkin.rs::oversized_and_control_fields_are_refused_by_the_decoder", "bifrost/fleet/tests/security_checkin.rs::a_check_in_on_an_unconfigured_channel_is_refused", "bifrost/fleet/tests/security_checkin.rs::an_installation_keeps_its_registered_channel", "bifrost/fleet/tests/security_checkin.rs::unchanged_check_ins_do_not_grow_the_journal", "bifrost/fleet/tests/security_checkin.rs::compaction_bounds_the_journal_and_state_survives"]
 service_tests = ["bifrost/fleet-server/tests/serve.rs::agents_check_in_operators_read_the_fleet_and_it_survives_a_restart", "deploy/compose/smoke.sh:31", "deploy/kind/smoke.sh:87"]
 limit = "The agent reports a version and a health flag. It does not install, verify or roll back anything."
 stated_in = ["docs/launch/pipeline/build-deck.js:405"]

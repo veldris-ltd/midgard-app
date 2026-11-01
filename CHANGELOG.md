@@ -299,6 +299,32 @@ CONTRIBUTING.md for the version policy.
   - Ingest is rate limited per identity by the mesh limits `heimdall-feed` already
     applies (`--rate-burst`, `--rate-per-sec`, `--requests-per-conn`); no second
     limiter is added.
+- **A fleet check-in is bounded.** `bifrost-fleet` took any channel name and strings
+  as long as the 1 MiB frame, let an agent's report overwrite its installation's
+  channel, and appended a sealed, fsynced journal frame for every check-in with no
+  compaction, so one agent identity could grow `fleet.journal` without bound, slow
+  every restart and misreport its channel. [VLD-ANB-MIDGARD-0042]
+  - `AgentReport::decode` refuses an install id over 128 bytes, a channel or version
+    over 64, an empty field and a control character, each with a fixed message.
+  - A check-in must name a channel in `channels.json`, and an installation's channel
+    is the one it first registered on: anything else is refused and audited as
+    `CheckIn refused: unknown channel` or `CheckIn refused: channel mismatch`.
+    Moving an installation is an operator action: the new `SetChannel` mesh method
+    (policy action `SetChannel`, granted to `fleet-operator` in the compose policy),
+    sent by `bifrost-agent --set-channel ID --channel C`. `Fleet::check_in` now
+    returns `Result<bool, FleetError>`.
+  - The journal records changes, not calls: an unchanged check-in journals a
+    `Heartbeat` at most once per `--heartbeat-journal-interval` seconds per
+    installation (default `--stale-after`), so after a restart last-seen is known to
+    within that interval. Past `4 x installations + 1,000` frames, on open or after a
+    write, the journal is rewritten as one `Snapshot` frame (`fleet.journal.tmp`,
+    fsynced, renamed). A journal from an earlier build still loads, and is compacted
+    when it is past the threshold; a journal that starts with a snapshot is not
+    readable by an earlier build.
+  - `bifrost-fleet` defaults the shared mesh limits to a burst of 10 and 0.1
+    requests a second per identity (one check-in every 10 s) and 1,000 requests per
+    connection; `--rate-burst`, `--rate-per-sec` and `--requests-per-conn` still tune
+    them, through the same limiter.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

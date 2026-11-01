@@ -7,6 +7,7 @@
 //!               [--bind ADDR] [--health-bind ADDR]
 //!               [--max-connections N] [--idle-timeout SECONDS]
 //!               [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
+//!               [--heartbeat-journal-interval SECONDS]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -21,11 +22,19 @@
 //!
 //! The mesh listener serves at most `--max-connections` connections at once (default
 //! 128), and closes one that sends nothing for `--idle-timeout` seconds (default 30).
-//! Each certified peer may make `--rate-burst` requests in a burst (default 100),
-//! refilled at `--rate-per-sec` a second (default 20; a burst and a rate of 0 turn the
-//! limit off), and a connection is closed after `--requests-per-conn` requests (default
-//! 10000; 0 is unlimited). A value that is not a number is a usage error.
-//! [VLD-ANB-MIDGARD-0004]
+//! Each certified peer may make `--rate-burst` requests in a burst (default 10),
+//! refilled at `--rate-per-sec` a second (default 0.1, one check-in every 10 s; a
+//! burst and a rate of 0 turn the limit off), and a connection is closed after
+//! `--requests-per-conn` requests (default 1000; 0 is unlimited). These are the
+//! shared mesh limits with the fleet's own defaults: a fleet agent checks in rarely,
+//! so one identity cannot grow the journal and ledger faster than that. Raise
+//! `--rate-per-sec` for a dense fleet. A value that is not a number is a usage error.
+//! [VLD-ANB-MIDGARD-0004] [VLD-ANB-MIDGARD-0042]
+//!
+//! A check-in that changes nothing is journalled as a heartbeat at most once every
+//! `--heartbeat-journal-interval` seconds per installation (default `--stale-after`),
+//! so after a restart a node's last-seen time is known to within that interval.
+//! [VLD-ANB-MIDGARD-0042]
 
 use std::collections::BTreeSet;
 use std::net::TcpListener;
@@ -42,20 +51,32 @@ use policy::{
 use pqc_agility::backend::fips::provider as fips_provider;
 use service_runtime::policy_file::parse_policy;
 use service_runtime::{
-    apply_mesh_limits, mesh_limits_from_args, serve_mesh_with, spawn_health_port, unix_seconds,
-    Args, DirLock, MeshLimits, ServiceIdentity,
+    apply_mesh_limits, mesh_limits_from_args_over, serve_mesh_with, spawn_health_port,
+    unix_seconds, Args, DirLock, MeshLimits, ServiceIdentity,
 };
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: bifrost-fleet --identity-dir DIR --state-dir DIR [--service NAME] \
                      [--purpose P] [--stale-after SECONDS] [--bind ADDR] [--health-bind ADDR] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
-                     [--rate-per-sec N] [--requests-per-conn N]";
+                     [--rate-per-sec N] [--requests-per-conn N] \
+                     [--heartbeat-journal-interval SECONDS]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "bifrost-fleet-audit";
 /// The id the fleet journal is sealed under.
 const FLEET_ID: &str = "bifrost-fleet";
+
+/// The fleet's defaults for the shared mesh limits: a burst of 10 and one request
+/// every 10 s per identity, and 1,000 requests a connection. [VLD-ANB-MIDGARD-0042]
+fn fleet_limits() -> MeshLimits {
+    MeshLimits {
+        rate_burst: 10.0,
+        rate_per_sec: 0.1,
+        requests_per_conn: 1_000,
+        ..MeshLimits::default()
+    }
+}
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -74,6 +95,7 @@ fn main() {
             "rate-burst",
             "rate-per-sec",
             "requests-per-conn",
+            "heartbeat-journal-interval",
         ],
         &[],
     ) {
@@ -83,7 +105,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let limits = match mesh_limits_from_args(&args) {
+    let limits = match mesh_limits_from_args_over(&args, fleet_limits()) {
         Ok(limits) => limits,
         Err(e) => {
             eprintln!("bifrost-fleet: {e}\n{USAGE}");
@@ -106,6 +128,12 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
             .parse::<u64>()
             .map_err(|_| format!("--stale-after must be a whole number of seconds, not '{s}'"))?,
         None => 300,
+    };
+    let heartbeat = match args.get("heartbeat-journal-interval") {
+        Some(s) => s.parse::<u64>().map_err(|_| {
+            format!("--heartbeat-journal-interval must be a whole number of seconds, not '{s}'")
+        })?,
+        None => stale_after,
     };
     let logger = Logger::new(service, &StdoutJsonSink);
 
@@ -149,7 +177,8 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
         identity.data_sealer()?,
         FLEET_ID,
     )
-    .map_err(|e| format!("the fleet journal does not open: {e}"))?;
+    .map_err(|e| format!("the fleet journal does not open: {e}"))?
+    .with_heartbeat_interval(heartbeat);
     for (name, desired) in channels {
         if fleet.fleet().channel_desired(&name) != Some(&desired) {
             fleet
