@@ -927,6 +927,7 @@ dependencies = [
  "policy",
  "pq-mtls",
  "pqc-agility",
+ "telemetry",
 ]
 
 [[package]]

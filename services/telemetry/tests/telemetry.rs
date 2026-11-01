@@ -324,3 +324,26 @@ fn metric_labels_never_contain_raw_controls() {
     }
     assert!(text.contains("route=\"/b\\\"\\\\\""), "{text}");
 }
+
+// A panic while the metrics lock is held no longer makes every later instrumented
+// call panic: the registry recovers, keeps counting, and says so in the exposition.
+// [VLD-ANB-MIDGARD-0030] [AC-28.4]
+#[test]
+fn a_poisoned_metrics_lock_recovers_and_reports() {
+    let m = MetricsRegistry::new();
+    m.inc("http_requests_total", &[("code", "200")]);
+    assert!(!m.render().contains("metrics_lock_poisoned"));
+
+    m.poison_for_tests();
+    m.inc("http_requests_total", &[("code", "200")]);
+    assert_eq!(
+        m.counter_value("http_requests_total", &[("code", "200")]),
+        2
+    );
+    let text = m.render();
+    assert!(
+        text.contains("# TYPE metrics_lock_poisoned gauge"),
+        "{text}"
+    );
+    assert!(text.contains("\nmetrics_lock_poisoned 1\n"), "{text}");
+}

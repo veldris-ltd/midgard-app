@@ -37,7 +37,8 @@ use policy::{ClassificationLevel, Clearance, Purpose, Resource};
 use pq_mtls::WorkloadIdentity;
 use service_runtime::json::{parse, Json};
 use service_runtime::strict_json::{no_repeated_keys, object, only_keys};
-use telemetry::MetricsRegistry;
+use service_runtime::sync::{lock_resource, recover_noting, RECOVERED_POISONED_LOCK};
+use telemetry::{Logger, MetricsRegistry, StdoutJsonSink};
 
 /// The method an agent checks in with; its payload is an encoded [`AgentReport`].
 pub const CHECK_IN: &str = "CheckIn";
@@ -132,21 +133,20 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         } else {
             "CheckIn:MALFORMED"
         };
-        let decision = match lock(&self.governance).authorize(
-            &self.context(peer),
-            &self.resource,
-            action,
-            now,
-        ) {
-            Ok(decision) => decision,
-            Err(_) => {
-                return self.reply(
-                    CHECK_IN,
-                    outcome::FAILED,
-                    "the check-in could not be audited",
-                )
-            }
-        };
+        let decision =
+            match self
+                .governance()
+                .authorize(&self.context(peer), &self.resource, action, now)
+            {
+                Ok(decision) => decision,
+                Err(_) => {
+                    return self.reply(
+                        CHECK_IN,
+                        outcome::FAILED,
+                        "the check-in could not be audited",
+                    )
+                }
+            };
         let report = match report {
             Ok(report) => report,
             Err(e) => return self.reply(CHECK_IN, outcome::MALFORMED, e),
@@ -159,7 +159,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             );
         }
         if report.install_id != peer.id.0 {
-            let recorded = lock(&self.governance).record_event(
+            let recorded = self.governance().record_event(
                 &peer.id.0,
                 "CheckIn refused: reported for another installation",
                 &format!("installation:{}", report.install_id),
@@ -172,7 +172,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             return self.reply(CHECK_IN, outcome::DENIED, message);
         }
         let install_id = report.install_id.clone();
-        let result = lock(&self.fleet).check_in(report, now);
+        let result = self.fleet().check_in(report, now);
         match result {
             Ok(()) => self.reply(
                 CHECK_IN,
@@ -190,7 +190,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                         "the check-in names a channel this fleet does not serve",
                     ),
                 };
-                let recorded = lock(&self.governance).record_event(
+                let recorded = self.governance().record_event(
                     &peer.id.0,
                     action,
                     &format!("installation:{install_id}"),
@@ -221,7 +221,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         } else {
             "SetChannel:MALFORMED"
         };
-        let decision = match lock(&self.governance).authorize(
+        let decision = match self.governance().authorize(
             &self.context(peer),
             &self.resource,
             action,
@@ -247,10 +247,10 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                 "policy does not permit this identity to move an installation",
             );
         }
-        let result = lock(&self.fleet).assign_channel(&assignment.install_id, &assignment.channel);
+        let result = self.fleet().assign_channel(&assignment.install_id, &assignment.channel);
         match result {
             Ok(()) => {
-                let recorded = lock(&self.governance).record_event(
+                let recorded = self.governance().record_event(
                     &peer.id.0,
                     &format!("SetChannel: moved to {}", assignment.channel),
                     &format!("installation:{}", assignment.install_id),
@@ -284,7 +284,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
     /// The fleet as JSON: channels, installations with liveness, drift, convergence.
     pub fn status(&self, peer: &WorkloadIdentity) -> Vec<u8> {
         let now = (self.clock)();
-        let decision = lock(&self.governance).authorize(
+        let decision = self.governance().authorize(
             &self.context(peer),
             &self.resource,
             ACTION_READ_FLEET,
@@ -308,7 +308,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             }
         }
 
-        let durable = lock(&self.fleet);
+        let durable = self.fleet();
         let fleet = durable.fleet();
         let channels = fleet
             .channels()
@@ -374,6 +374,35 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         }
     }
 
+    /// The governance spine, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded through the recovered guard.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn governance(&self) -> MutexGuard<'_, Governance<S>> {
+        let (mut governance, poisoned) = recover_noting(
+            &self.governance,
+            "fleet-governance",
+            &self.metrics,
+            &logger(),
+        );
+        if poisoned {
+            record_recovery(&mut governance, "fleet-governance", (self.clock)());
+        }
+        governance
+    }
+
+    /// The fleet state, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded in the ledger. Every write is
+    /// journalled before memory changes, so the state behind a poisoned lock is still
+    /// the journalled state.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn fleet(&self) -> MutexGuard<'_, DurableFleet> {
+        let (state, poisoned) = recover_noting(&self.fleet, "fleet", &self.metrics, &logger());
+        if poisoned {
+            record_recovery(&mut self.governance(), "fleet", (self.clock)());
+        }
+        state
+    }
+
     fn reply(&self, method: &str, code: u8, message: &str) -> Vec<u8> {
         let label = match code {
             outcome::ACCEPTED => "accepted",
@@ -391,12 +420,9 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
     }
 }
 
-/// A lock that stays usable after a panic elsewhere: every write is journalled before
-/// memory changes, so the state behind a poisoned lock is still the journalled state.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// The service's structured log, on stdout for the in-enclosure collector.
+fn logger() -> Logger<'static> {
+    Logger::new("bifrost-fleet", &StdoutJsonSink)
 }
 
 fn status_name(status: NodeStatus) -> &'static str {
@@ -454,6 +480,20 @@ pub fn parse_channels(text: &str) -> Result<Vec<(String, VersionId)>, String> {
             }
         })
         .collect()
+}
+
+/// Record in the ledger that the lock `name` was recovered after a panic poisoned it.
+/// A ledger that cannot take the entry is logged; the recovery is already counted and
+/// logged. [VLD-ANB-MIDGARD-0030]
+fn record_recovery<S: LedgerStore>(governance: &mut Governance<S>, name: &str, now: u64) {
+    if let Err(e) =
+        governance.record_event("system", RECOVERED_POISONED_LOCK, &lock_resource(name), now)
+    {
+        logger().error(
+            "poisoned lock recovery not recorded",
+            &[("lock", name), ("reason", &e.to_string())],
+        );
+    }
 }
 
 #[cfg(test)]

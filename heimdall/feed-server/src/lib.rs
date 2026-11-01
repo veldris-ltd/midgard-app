@@ -60,7 +60,8 @@ use policy::{ClassificationLevel, Clearance, Purpose, Resource};
 use pq_mtls::WorkloadIdentity;
 use pqc_agility::SharedProvider;
 use service_runtime::json::{self, Json};
-use telemetry::MetricsRegistry;
+use service_runtime::sync::{lock_resource, recover_noting, RECOVERED_POISONED_LOCK};
+use telemetry::{Logger, MetricsRegistry, StdoutJsonSink};
 
 pub mod sequences;
 pub use sequences::SequenceFile;
@@ -411,7 +412,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
 
     /// The audit ledger's sealed entries, oldest first (for verification and tests).
     pub fn audit_entries(&self) -> Vec<SealedEntry> {
-        lock(&self.governance).audit_entries().to_vec()
+        self.governance().audit_entries().to_vec()
     }
 
     /// The router the PQ-mTLS gateway serves: [`INGEST`] and [`READ_PICTURE`].
@@ -437,21 +438,20 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         } else {
             "Ingest:MALFORMED"
         };
-        let decision = match lock(&self.governance).authorize(
-            &self.context(peer),
-            &self.resource,
-            action,
-            now,
-        ) {
-            Ok(decision) => decision,
-            Err(_) => {
-                return self.reply(
-                    INGEST,
-                    outcome::FAILED,
-                    "the observation could not be audited",
-                )
-            }
-        };
+        let decision =
+            match self
+                .governance()
+                .authorize(&self.context(peer), &self.resource, action, now)
+            {
+                Ok(decision) => decision,
+                Err(_) => {
+                    return self.reply(
+                        INGEST,
+                        outcome::FAILED,
+                        "the observation could not be audited",
+                    )
+                }
+            };
         let signed = match signed {
             Ok(signed) => signed,
             Err(e) => return self.reply(INGEST, outcome::MALFORMED, &e.to_string()),
@@ -537,7 +537,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             }
         };
 
-        let limits = lock(&self.state).limits();
+        let limits = self.state().limits();
         if let Err(e) = limits.check_observation(verified.observation()) {
             return self.reply(INGEST, outcome::MALFORMED, &e);
         }
@@ -545,7 +545,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         // The feed's new sequence is saved before the observation is fused: after a
         // crash it is never admitted twice.
         let (fused, entities) = {
-            let mut state = lock(&self.state);
+            let mut state = self.state();
             if let Err(e) = state.save_sequences() {
                 return self.reply(
                     INGEST,
@@ -591,17 +591,17 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
 
     /// Hold the picture to `limits` from now on.
     pub fn set_picture_limits(&self, limits: PictureLimits) {
-        lock(&self.state).set_limits(limits);
+        self.state().set_limits(limits);
     }
 
     /// Show or hide a layer of the picture, durably.
     pub fn set_layer_visible(&self, layer: &LayerId, visible: bool) -> Result<(), StoreError> {
-        lock(&self.state).set_layer_visible(layer, visible)
+        self.state().set_layer_visible(layer, visible)
     }
 
     /// The action of every audit entry so far, oldest first.
     pub fn audited_actions(&self) -> Vec<String> {
-        lock(&self.governance)
+        self.governance()
             .audit_entries()
             .iter()
             .map(|e| e.record.action.0.clone())
@@ -623,7 +623,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     /// whether it is `truncated` (more follow). [VLD-ANB-MIDGARD-0017]
     pub fn read_picture(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
         let now = (self.clock)();
-        match lock(&self.governance).authorize(
+        match self.governance().authorize(
             &self.context(peer),
             &self.resource,
             ACTION_READ_PICTURE,
@@ -650,7 +650,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Ok(page) => page,
             Err(e) => return self.reply(READ_PICTURE, outcome::MALFORMED, &e),
         };
-        let body = picture_page(lock(&self.state).picture(), &page, now, &self.limits);
+        let body = picture_page(self.state().picture(), &page, now, &self.limits);
         self.reply(READ_PICTURE, outcome::ACCEPTED, &body)
     }
 
@@ -663,7 +663,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         message: &str,
         audit: AuditContext,
     ) -> Vec<u8> {
-        let recorded = lock(&self.governance).record_event_with(
+        let recorded = self.governance().record_event_with(
             &peer.id.0,
             action,
             &format!("feed:{feed}"),
@@ -689,6 +689,34 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
     }
 
+    /// The governance spine, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded through the recovered guard.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn governance(&self) -> MutexGuard<'_, Governance<S>> {
+        let (mut governance, poisoned) = recover_noting(
+            &self.governance,
+            "feed-governance",
+            &self.metrics,
+            &logger(),
+        );
+        if poisoned {
+            record_recovery(&mut governance, "feed-governance", (self.clock)());
+        }
+        governance
+    }
+
+    /// The picture state, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded in the ledger.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn state(&self) -> MutexGuard<'_, PictureState> {
+        let (state, poisoned) =
+            recover_noting(&self.state, "picture-state", &self.metrics, &logger());
+        if poisoned {
+            record_recovery(&mut self.governance(), "picture-state", (self.clock)());
+        }
+        state
+    }
+
     fn reply(&self, method: &str, code: u8, message: &str) -> Vec<u8> {
         let label = match code {
             outcome::ACCEPTED => "accepted",
@@ -706,11 +734,9 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     }
 }
 
-/// A lock that stays usable after a panic elsewhere.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// The service's structured log, on stdout for the in-enclosure collector.
+fn logger() -> Logger<'static> {
+    Logger::new("heimdall-feed", &StdoutJsonSink)
 }
 
 /// The audit context of an ingest refusal: outcome, reason code and the entity key
@@ -943,6 +969,20 @@ pub fn parse_attrs(text: &str) -> Result<Vec<(String, Attr)>, String> {
             Ok((key.to_string(), attr))
         })
         .collect()
+}
+
+/// Record in the ledger that the lock `name` was recovered after a panic poisoned it.
+/// A ledger that cannot take the entry is logged; the recovery is already counted and
+/// logged. [VLD-ANB-MIDGARD-0030]
+fn record_recovery<S: LedgerStore>(governance: &mut Governance<S>, name: &str, now: u64) {
+    if let Err(e) =
+        governance.record_event("system", RECOVERED_POISONED_LOCK, &lock_resource(name), now)
+    {
+        logger().error(
+            "poisoned lock recovery not recorded",
+            &[("lock", name), ("reason", &e.to_string())],
+        );
+    }
 }
 
 #[cfg(test)]

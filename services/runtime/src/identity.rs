@@ -162,7 +162,7 @@ impl ServiceIdentity {
         let ledger =
             FileLedger::open_or_create(path.as_ref(), Box::new(sealer), LedgerId(ledger_id.into()))
                 .map_err(|e| format!("the audit ledger does not open: {e}"))?;
-        let writer = AuditWriter::new(
+        let mut writer = AuditWriter::new(
             ledger,
             Box::new(FipsSig::new(alg)),
             signing_key,
@@ -178,6 +178,18 @@ impl ServiceIdentity {
             &resolver,
         )
         .map_err(|e| format!("the audit ledger does not re-verify: {e:?}"))?;
+        // A partial final frame a crash left was cut off when the ledger opened; the
+        // repair is recorded before anything else is. [VLD-ANB-MIDGARD-0040]
+        if writer
+            .record_recovery(&crate::unix_seconds().to_string())
+            .map_err(|e| format!("the audit ledger repair cannot be recorded: {e}"))?
+            .is_some()
+        {
+            Logger::new(&self.service, &StdoutJsonSink).warn(
+                "audit ledger repaired: a partial final frame left by a crash was cut off",
+                &[("ledger", ledger_id)],
+            );
+        }
         Ok(writer)
     }
 

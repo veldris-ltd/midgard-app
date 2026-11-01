@@ -80,3 +80,83 @@ fn service_exposes_liveness_readiness_metrics_and_an_observable_slo_breach() {
         .body
         .contains("http_requests_total{path=\"/api/v1/ready\",status=\"503\"}"));
 }
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+fn call(
+    gw: &SecuredGateway,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &str,
+    token: Option<&str>,
+) -> http_gateway::http::Response {
+    gw.handle(
+        &Request {
+            method: method.into(),
+            path: path.into(),
+            query: query.into(),
+            body: body.into(),
+            authorization: token.map(|t| format!("Bearer {t}")),
+            origin: None,
+        },
+        now(),
+    )
+}
+
+// A panic while the SLO lock is held no longer makes every later request panic after
+// its ledger row is written: the lock is recovered, the response goes out, and the
+// recovery is counted in /metrics once. [VLD-ANB-MIDGARD-0030] [AC-28.4]
+#[test]
+fn a_poisoned_slo_lock_does_not_drop_responses() {
+    let gw = SecuredGateway::dev();
+    gw.poison_availability_for_tests();
+
+    assert_eq!(get(&gw, "/api/v1/health").status, 200);
+    let metrics = get(&gw, "/metrics");
+    assert_eq!(metrics.status, 200);
+    assert!(
+        metrics
+            .body
+            .contains("lock_poison_recoveries_total{lock=\"availability\"} 1\n"),
+        "{}",
+        metrics.body
+    );
+}
+
+// A panic while the enclosure lock is held is recovered for the next request, which
+// is served, and the recovery is recorded in the governance ledger.
+// [VLD-ANB-MIDGARD-0030] [AC-28.5]
+#[test]
+fn a_poisoned_enclosure_lock_is_recovered_logged_and_audited() {
+    use http_gateway::{DEMO_PASSWORD, DEMO_USERNAME};
+
+    let gw = SecuredGateway::dev();
+    gw.poison_enclosure_for_tests();
+
+    let login = format!(r#"{{"username":"{DEMO_USERNAME}","password":"{DEMO_PASSWORD}"}}"#);
+    let resp = call(&gw, "POST", "/api/v1/login", "", &login, None);
+    assert_eq!(resp.status, 200, "{}", resp.body);
+    let token = http_gateway::json::parse(&resp.body)
+        .ok()
+        .and_then(|j| j.str_field("token").map(str::to_string))
+        .expect("login returns a token");
+
+    let audit = call(&gw, "GET", "/api/v1/audit", "limit=500", "", Some(&token));
+    assert_eq!(audit.status, 200, "{}", audit.body);
+    assert!(
+        audit.body.contains(
+            r#""actor":"system","action":"RECOVERED poisoned lock","resource":"lock:enclosure""#
+        ),
+        "{}",
+        audit.body
+    );
+    assert!(get(&gw, "/metrics")
+        .body
+        .contains("lock_poison_recoveries_total{lock=\"enclosure\"} 1\n"));
+}

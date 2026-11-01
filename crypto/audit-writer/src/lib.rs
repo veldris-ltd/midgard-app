@@ -37,7 +37,7 @@ pub use chain::{checkpoint_preimage, entry_hash, genesis_hash, signing_preimage}
 pub use checkpoint::LedgerCheckpoint;
 pub use codec::{decode_sealed_entry, encode_sealed_entry};
 pub use error::AuditError;
-pub use file::{checkpoint_path, FileLedger, Sealer};
+pub use file::{checkpoint_path, FileLedger, Recovered, Sealer, LEDGER_REPAIRED_TORN_TAIL};
 pub use journal::SealedJournal;
 pub use ledger::{AuditWriter, InMemoryLedger, LedgerStore};
 pub use mirror::{CheckpointMirror, FileCheckpointMirror};

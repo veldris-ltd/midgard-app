@@ -22,13 +22,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use audit_writer::{InMemoryLedger, LedgerStore};
 use gateway::RequestHandler;
 use governance::{GovContext, Governance};
 use policy::{ClassificationLevel, Clearance, Purpose, Resource};
 use pq_mtls::WorkloadIdentity;
+use telemetry::{Logger, StdoutJsonSink};
 
 use crate::api::{InferenceRequest, InferenceResponse};
 use crate::serve::Server;
@@ -127,7 +128,10 @@ impl Admission {
     /// A slot for `subject`, or `None` when the global or the subject's bound is
     /// reached.
     fn try_acquire(self: &Arc<Self>, subject: &str) -> Option<AdmissionGuard> {
-        let mut in_flight = self.in_flight.lock().expect("admission poisoned");
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let held = in_flight.by_subject.get(subject).copied().unwrap_or(0);
         if in_flight.total >= self.max_concurrent || held >= self.max_per_subject {
             return None;
@@ -259,6 +263,9 @@ impl ServingState {
 /// [VLD-ANB-MIDGARD-0016] [VLD-ANB-MIDGARD-0057]
 pub type RefusalHook = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The name the inference handler's governance lock is logged and audited under.
+const GOVERNANCE_LOCK: &str = "inference-governance";
+
 /// The audited inference handler, over any audit ledger — in memory by default, or a
 /// durable `FileLedger` for a running service. [RC-09]
 pub struct InferenceHandler<S: LedgerStore = InMemoryLedger> {
@@ -337,7 +344,7 @@ impl<S: LedgerStore> InferenceHandler<S> {
         if let Some(hook) = &self.on_refusal {
             hook(reason);
         }
-        let recorded = self.governance.lock().expect("gov poisoned").record_event(
+        let recorded = self.governance().record_event(
             subject,
             &format!("Infer:{reason}"),
             &self.resource.id.0,
@@ -368,11 +375,36 @@ impl<S: LedgerStore> InferenceHandler<S> {
 
     /// Number of audit entries written so far (test/inspection).
     pub fn audit_len(&self) -> usize {
-        self.governance
-            .lock()
-            .expect("gov poisoned")
-            .audit_entries()
-            .len()
+        self.governance().audit_entries().len()
+    }
+
+    /// The governance spine, recovering from poisoning rather than failing every later
+    /// `Infer`: a recovery is logged at error level, recorded in the ledger through the
+    /// recovered guard, and the poison cleared so it is reported once.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn governance(&self) -> MutexGuard<'_, Governance<S>> {
+        match self.governance.lock() {
+            Ok(governance) => governance,
+            Err(poisoned) => {
+                let logger = Logger::new("model-server", &StdoutJsonSink);
+                logger.error("poisoned lock recovered", &[("lock", GOVERNANCE_LOCK)]);
+                let mut governance = poisoned.into_inner();
+                self.governance.clear_poison();
+                let resource = format!("lock:{GOVERNANCE_LOCK}");
+                if let Err(e) = governance.record_event(
+                    "system",
+                    "RECOVERED poisoned lock",
+                    &resource,
+                    self.clock.now(),
+                ) {
+                    logger.error(
+                        "poisoned lock recovery not recorded",
+                        &[("lock", GOVERNANCE_LOCK), ("reason", &e.to_string())],
+                    );
+                }
+                governance
+            }
+        }
     }
 
     /// Build the per-call governance context from the authenticated peer and the
@@ -408,7 +440,7 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
 
         // Decide AND audit — one PQ-signed lineage entry per call, permit or deny.
         let decision = {
-            let mut gov = self.governance.lock().expect("gov poisoned");
+            let mut gov = self.governance();
             gov.authorize(&ctx, &self.resource, action, now)
         };
         let decision = match decision {

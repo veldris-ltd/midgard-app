@@ -154,6 +154,26 @@ CONTRIBUTING.md for the version policy.
   profiles, the sample configuration and `mg-admin init`'s starter policy grant it on
   `audit-ledger` to `operator` and `approver`, and on `audit-ledger:sessions` to
   `operator`. [VLD-ANB-MIDGARD-0031]
+- **A poisoned lock is recovered observably, everywhere.** A panic while a lock was
+  held left security state to be used silently by later requests in some places
+  (the gateway's enclosure, directory, login throttle and administration locks, the
+  feed and fleet services' state and governance locks) and failed every later
+  request in others (the gateway's SLO lock, the metrics registry, the inference
+  handler's governance lock). Every one now recovers through one policy,
+  `service_runtime::sync::recover`: the recovery is counted in the new
+  `lock_poison_recoveries_total{lock}` metric, logged at error level, and, for
+  security state, recorded in the ledger as `RECOVERED poisoned lock` on
+  `lock:<name>`. The metrics registry, which cannot count itself, renders
+  `metrics_lock_poisoned 1` once its lock has been recovered. [VLD-ANB-MIDGARD-0030]
+- **A crash part-way through an audit append no longer stops the service starting.**
+  An append now writes its whole frame or none of it (a failed write is cut back
+  off). A partial final frame that a crash leaves is cut off when the ledger opens,
+  and recorded in it as `LEDGER repaired: torn tail`, but only when it follows
+  exactly the entries the signed checkpoint vouches for, the one frame a crash can
+  tear; any other partial frame still fails closed, so the repair cannot drop a
+  complete entry. The rest of the finding, an undetectably shortened ledger, was
+  closed by the signed checkpoint and its mirror under MG-SEC-05; no other head file
+  or option is added. [VLD-ANB-MIDGARD-0040]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry
