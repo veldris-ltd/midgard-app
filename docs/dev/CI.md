@@ -97,7 +97,6 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `check-backends` | toolchain | `just check-backends`: neither the workspace build nor any package in the release matrix resolves the insecure `test-backend`, a release build with it fails on the compile guard, and the FIPS release build succeeds |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
-| `dependency-review` | host | monthly: both advisory snapshots refreshed, scanned, and proposed as a pull or merge request when they moved ([BUILD_ENV.md](BUILD_ENV.md), "The monthly dependency review") |
 | `acceptance` | host | the full acceptance suite under a genuine air gap, its log kept in `target/gate` |
 | `js-build` | host | every UI bundle and npm package built twice, bit-identical |
 | `release-dry-run` | toolchain | the whole release gate, throwaway keys, nothing published |
@@ -117,7 +116,6 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | …that touches release machinery or a UI | `release.yml`: `js-build`, `release-dry-run` | `js-build`, `release-dry-run` |
 | a push to `main` or `dev` | `ci.yml`, plus `acceptance` | the same, plus `acceptance` |
 | a `v*` tag | `release.yml`: the release | the release |
-| monthly (1st, 04:17 UTC) | `dependency-review.yml` | a pipeline schedule: `dependency-review` |
 | by hand | *Run workflow* → `mode`: `dry-run` or `release` | *Run pipeline* → `MIDGARD_RELEASE_MODE`: `dry-run`, `release` or `audit` |
 | by hand on `main` or `dev`, no mode | — (the toolchain image is built per run) | `toolchain-publish` |
 
@@ -323,7 +321,7 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
 - **Pipelines for fork merge requests require a maintainer's approval** (Settings →
   CI/CD → General pipelines), so code from a fork runs only once a maintainer has read
   it.
-- A `kms`-tagged shell-executor runner with Docker, node and pnpm, for releases. The
+- A `kms`-tagged shell-executor runner with Docker, node 22.12 or later and pnpm, for releases. The
   release jobs (`release`, `release-images`, `release-bundle`) use the Docker on that
   host, not a `dind` service.
 - A `macos`-tagged runner for the `apple` shell audit. Without one that job waits, and

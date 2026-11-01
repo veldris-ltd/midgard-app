@@ -9,6 +9,9 @@ two supported ways to get that toolchain; both build the *same* vendored sources
 - No C toolchain, CMake, or system libraries are required: the post-quantum
   backend is **pure-Rust** (FIPS 203/204/205 + X25519). This is why liboqs was
   dropped in Phase 1.
+- **Node `22.12` or later** and **pnpm `9.12.0`**, for the consoles and the TypeScript
+  SDK only — pinned in the root [`package.json`](../../package.json) (`engines`,
+  `packageManager`); Vite 7 needs that Node or later.
 
 ## Offline / vendored dependencies (sovereign posture) [NFR-PRV-1] [NFR-OSS-1]
 
