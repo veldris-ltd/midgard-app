@@ -94,6 +94,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `toolchain-publish` | host | GitLab only: pushes the toolchain image to the project registry; fails until its digest is committed. On GitHub, a no-op |
 | `fmt`, `lint` | toolchain | formatting; clippy at deny-warnings |
 | `build`, `test` | toolchain | the release build; the test suite on both crypto backends, its log kept in `target/gate` |
+| `check-backends` | toolchain | `just check-backends`: neither the workspace build nor any package in the release matrix resolves the insecure `test-backend`, a release build with it fails on the compile guard, and the FIPS release build succeeds |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
 | `dependency-review` | host | monthly: both advisory snapshots refreshed, scanned, and proposed as a pull or merge request when they moved ([BUILD_ENV.md](BUILD_ENV.md), "The monthly dependency review") |

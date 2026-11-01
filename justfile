@@ -147,6 +147,65 @@ lint:
     cargo clippy -p telemetry --all-targets -- -D warnings
     cargo clippy -p heimdall-store -p mimir-bridge -p admin-orchestrator -p mg-model --features backend-fips --all-targets -- -D warnings
 
+# The insecure test backend cannot reach a release binary, and the compile guard that
+# stops it still fires. pqc-agility's `test-backend` is a seeded, forgeable RNG for
+# `cargo test` only; its release guard is keyed on the `midgard_release` cfg its
+# build.rs sets for release-profile builds. CI runs this as the `check-backends` job.
+# [RT-08] [NFR-PQ-3] [VLD-ANB-MIDGARD-0067]
+check-backends:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Each package with the features Cargo resolved for it, one per line ("name
+    # version (path) feat,feat"), over normal and build edges and every target. Read
+    # from `{p} {f}` rather than from the feature-edge graph, whose forward walk does
+    # not show a feature the root package's own [features] turn on in a dependency.
+    resolved() { cargo tree "$@" --offline --locked --target all -e normal,build -f '{p} {f}' --prefix none; }
+    insecure() { grep -E '^[a-z0-9_-]+ v[^ ]+ .*(^| |,)test-backend(,| |$)' | sed 's/ (\*)$//' | sort -u; }
+    # (a) The workspace build graph, features unified as `cargo build --workspace`
+    # would, selects backend-fips and never test-backend, in any crate. The
+    # feature-graph form of this check runs too.
+    bash tools/ci/no-test-backend.sh
+    tree="$(resolved --workspace)"
+    grep -qE '^pqc-agility v[^ ]+ .*backend-fips' <<<"$tree" || {
+        echo "check-backends: the workspace build does not resolve pqc-agility with backend-fips" >&2
+        exit 1
+    }
+    if insecure <<<"$tree" | grep .; then
+        echo "check-backends: the workspace build resolves the INSECURE test backend (above)" >&2
+        exit 1
+    fi
+    echo "check-backends: the workspace build resolves pqc-agility with backend-fips and never test-backend"
+    # (b) Each package the release builds a binary from, resolved on its own as the
+    # release gate builds it, enables test-backend nowhere in its graph.
+    pkgs="$(bash tools/ci/release-artefacts.sh --rows | awk '{ print $1 }' | sort -u)"
+    [ -n "$pkgs" ] || { echo "check-backends: the release matrix names no package" >&2; exit 1; }
+    bad=0
+    for pkg in $pkgs; do
+        if resolved -p "$pkg" | insecure | grep .; then
+            echo "check-backends: release package $pkg resolves the INSECURE test backend (above); see what enables it with:" >&2
+            echo "  cargo tree -p $pkg -e normal,build,features -i pqc-agility" >&2
+            bad=1
+        fi
+    done
+    [ "$bad" -eq 0 ] || exit 1
+    echo "check-backends: no release package ($(wc -w <<<"$pkgs") of them) resolves test-backend"
+    # (c) Negative control: a release build with test-backend must fail on the guard.
+    log="$(mktemp)"
+    trap 'rm -f "$log"' EXIT
+    if cargo build -p pqc-agility --release --offline --locked --features test-backend >"$log" 2>&1; then
+        echo "check-backends: a release build with test-backend SUCCEEDED; the compile guard is gone" >&2
+        exit 1
+    fi
+    grep -q 'INSECURE (seeded, forgeable RNG)' "$log" || {
+        echo "check-backends: the release build with test-backend failed, but not on the INSECURE guard:" >&2
+        cat "$log" >&2
+        exit 1
+    }
+    echo "check-backends: a release build with test-backend fails on the INSECURE guard"
+    # (d) Positive control: the release build with the FIPS backend succeeds.
+    cargo build -p pqc-agility --release --offline --locked --features backend-fips
+    echo "check-backends: the release build with backend-fips succeeds"
+
 # Run all tests.
 # IMPORTANT: the crypto crates gate their backend tests behind a feature; running
 # `cargo test --workspace` with no features would compile those tests out (a green

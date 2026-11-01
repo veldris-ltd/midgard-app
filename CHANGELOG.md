@@ -444,6 +444,18 @@ CONTRIBUTING.md for the version policy.
     removed. `OptionSet::parse` refuses duplicate or gapped ranks.
     `ProposedAction::from_course_of_action` takes a `&GroundedOption`, which only
     the adapter can make.
+- **The insecure test backend is kept out of release builds by a guard a profile
+  setting cannot switch off, and by the CI gate its documentation promised.**
+  pqc-agility's release guard on `test-backend` was keyed on `debug_assertions`, which
+  `debug-assertions = true` in a release profile defeats; it is now keyed on a
+  `midgard_release` cfg that the crate's new build.rs sets from Cargo's `PROFILE` for
+  the release profile and every profile inheriting from it. `just check-backends`, the
+  `check-backends` CI job on both pipelines, fails if the workspace build or any
+  package in the release matrix resolves `test-backend`, proves a release build with
+  it fails on the guard, and builds the FIPS backend in release. It reads resolved
+  features, so it also catches a binary whose own default features enable the test
+  backend, which the feature-graph walk of `tools/ci/no-test-backend.sh` does not
+  show. [VLD-ANB-MIDGARD-0067] [RT-08]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

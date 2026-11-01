@@ -39,14 +39,19 @@ No document is listed as wording a capability above its status.
 
 ### `pq-crypto-core` (operable)
 
-ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorithm-agility layer. The FIPS backend passes the ACVP known-answer tests held in the repository, and the test backend cannot be compiled together with it.
+ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorithm-agility layer. The FIPS backend passes the ACVP known-answer tests held in the repository, and the test backend cannot be compiled together with it or into a release build.
 
 **Limit.** The module has no FIPS 140-3 certificate; that is an external laboratory activity and a GA blocker.
 
 - Source:
-  - [`crypto/pqc-agility/src/backend/mod.rs:14`](../../crypto/pqc-agility/src/backend/mod.rs)
+  - [`crypto/pqc-agility/src/backend/mod.rs:16`](../../crypto/pqc-agility/src/backend/mod.rs)
+  - [`crypto/pqc-agility/src/backend/mod.rs:28`](../../crypto/pqc-agility/src/backend/mod.rs)
+  - [`crypto/pqc-agility/build.rs:19`](../../crypto/pqc-agility/build.rs)
+  - [`justfile:150`](../../justfile)
 - Tests:
   - [`crypto/pqc-agility/tests/fips_backend.rs::kem_roundtrip_every_suite`](../../crypto/pqc-agility/tests/fips_backend.rs)
+  - [`crypto/pqc-agility/tests/backend_guard.rs::release_guard_is_keyed_on_the_build_script_cfg`](../../crypto/pqc-agility/tests/backend_guard.rs)
+  - [`crypto/pqc-agility/tests/backend_guard.rs::build_script_registers_and_emits_the_release_cfg`](../../crypto/pqc-agility/tests/backend_guard.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
 - Stated at:

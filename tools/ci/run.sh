@@ -54,6 +54,7 @@ toolchain-publish|host|push the toolchain image to the GitLab project registry; 
 fmt|toolchain|formatting
 lint|toolchain|clippy at deny-warnings
 build|toolchain|release build of the workspace, whose graph never enables the test backend
+check-backends|toolchain|no release binary can carry the insecure test backend; the compile guard fires
 test|toolchain|the test suite, both crypto backends; its log is kept in target/gate
 repro|toolchain|two normalised builds of the workspace are bit-identical
 scan|toolchain|advisory and licence scan of the dependency graph, PR mode
@@ -310,6 +311,10 @@ job_build() {
     in_toolchain just build-rust
     in_toolchain bash tools/ci/no-test-backend.sh
 }
+# Every package in the release matrix resolves without the test backend, a release
+# build with it fails on the compile guard, and the FIPS release build succeeds.
+# [RT-08] [VLD-ANB-MIDGARD-0067]
+job_check_backends() { in_toolchain just check-backends; }
 # The two parts of the acceptance gate go through gate-run.sh, which runs them exactly
 # as before and keeps the log and its metadata in target/gate. The pipelines keep that
 # directory; tools/ci/gate-record.sh makes the gate record from it.

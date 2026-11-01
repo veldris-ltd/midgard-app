@@ -214,6 +214,7 @@ test:
   extends: [.toolchain, .not-manual]
   script:
     - bash tools/ci/run.sh build
+    - bash tools/ci/run.sh check-backends
     - bash tools/ci/run.sh test
   artifacts:
     when: always
