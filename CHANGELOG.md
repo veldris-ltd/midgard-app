@@ -939,6 +939,25 @@ CONTRIBUTING.md for the version policy.
   <name>` for each; the gateway's start-up line says how many have none.
   `AdminSession::record_factor`, `factor_names` and `uv_claimed` are new, and
   `AdminControl::open` takes the TOTP store.
+- **The principal passkey verifier checks origin, user verification and the
+  signature counter.** [VLD-ANB-MIDGARD-0084] `iam`'s WebAuthn assertion verifier read
+  the client-data type and challenge by substring and did not check the origin, the
+  user-verified flag or the signature counter (WebAuthn Level 2 section 7.2), so, once
+  wired to a browser, it would have accepted a phished assertion from another origin
+  or one from a cloned authenticator. Client data is now parsed at the edge
+  (`http_gateway::webauthn_client_data::parse_client_data`, over the shared JSON
+  parser) into `iam::ClientData`; `verify_assertion` takes a `WebAuthnPolicy` (exact
+  origins, whether user verification is required) and returns the signature counter,
+  which must increase unless the authenticator keeps none. The counter is persisted
+  per passkey like the TOTP step, before the token leaves. The default policy names no
+  origin and requires user verification, so no assertion verifies until a relying
+  party configures one; user verification is never counted as a factor of its own. No
+  browser flow uses the verifier yet, so nothing user-facing changes. Directory
+  records are now tagged version 4; version 1 to 3 records still open, but a directory
+  written by this version does not open on an older build, so back up the state
+  directory before upgrading. `AuthAssertion` carries `client_data`,
+  `WebAuthnCredential` carries `sign_count`, and `AuthOutcome` and `Login` carry
+  `passkey_count`.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

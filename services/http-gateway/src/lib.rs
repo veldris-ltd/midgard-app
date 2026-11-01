@@ -33,6 +33,7 @@ pub mod mesh_sync;
 pub mod ontology_file;
 pub mod revocations;
 pub mod state_dir;
+pub mod webauthn_client_data;
 /// The JSON codec and the policy file, shared with the mesh services.
 pub use service_runtime::{json, policy_file, ListenerLimits, CONNECTION_STACK};
 use service_runtime::{strict_json, BoundedListener};
@@ -159,6 +160,25 @@ impl Logins {
             Logins::InMemory(directory) => Ok(directory.record_totp_step(subject, step)),
             Logins::Durable(directory) => directory
                 .record_totp_step(subject, step)
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Record the signature counter `subject`'s passkey has just logged in with, so
+    /// that assertion is not accepted again. `Ok(false)` if `subject` or the passkey
+    /// is not enrolled. [VLD-ANB-MIDGARD-0084]
+    fn record_passkey_count(
+        &mut self,
+        subject: &str,
+        credential_id: &[u8],
+        count: u32,
+    ) -> Result<bool, String> {
+        match self {
+            Logins::InMemory(directory) => {
+                Ok(directory.record_passkey_count(subject, credential_id, count))
+            }
+            Logins::Durable(directory) => directory
+                .record_passkey_count(subject, credential_id, count)
                 .map_err(|e| e.to_string()),
         }
     }
@@ -589,8 +609,9 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // legacy or weaker password hash is replaced with Argon2id once every check has
         // passed. [MG-SEC-11] The TOTP step accepted is recorded before the directory
         // lock is released, so two logins with one code cannot both succeed; if it
-        // cannot be recorded, no token leaves. [VLD-ANB-MIDGARD-0026]
-        let (outcome, step_not_recorded) = {
+        // cannot be recorded, no token leaves. [VLD-ANB-MIDGARD-0026] A passkey's
+        // signature counter is recorded the same way. [VLD-ANB-MIDGARD-0084]
+        let (outcome, factor_not_recorded) = {
             let mut directory = self.recover(&self.directory, "directory");
             let outcome = UpgradingAuthenticator::new(idp, &mut *directory, &self.hasher)
                 .authenticate(
@@ -602,12 +623,28 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     TOKEN_TTL,
                 );
             let step = outcome.as_ref().ok().and_then(|login| login.totp_step);
-            let not_recorded =
+            let gone = || "the principal is no longer enrolled".to_string();
+            let mut not_recorded =
                 step.and_then(|step| match directory.record_totp_step(username, step) {
                     Ok(true) => None,
-                    Ok(false) => Some("the principal is no longer enrolled".to_string()),
-                    Err(e) => Some(e),
+                    Ok(false) => Some(format!("the one-time code was not recorded: {}", gone())),
+                    Err(e) => Some(format!("the one-time code was not recorded: {e}")),
                 });
+            if let Some((credential_id, count)) = outcome
+                .as_ref()
+                .ok()
+                .and_then(|login| login.passkey_count.as_ref())
+            {
+                not_recorded = not_recorded.or_else(|| {
+                    match directory.record_passkey_count(username, credential_id, *count) {
+                        Ok(true) => None,
+                        Ok(false) => {
+                            Some(format!("the passkey counter was not recorded: {}", gone()))
+                        }
+                        Err(e) => Some(format!("the passkey counter was not recorded: {e}")),
+                    }
+                });
+            }
             (outcome, not_recorded)
         };
         let upgrade = match &outcome {
@@ -624,15 +661,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // on this, its next recorded event; taken before a success clears the name.
         // [VLD-ANB-MIDGARD-0005]
         let suppressed = self.throttle().take_suppressed(username);
-        let (event, response) = match (outcome.map(|login| login.token), step_not_recorded) {
-            // The one-time code could not be recorded, so no token leaves; not a failure
-            // of the credentials: the slot is released, nothing counted.
+        let (event, response) = match (outcome.map(|login| login.token), factor_not_recorded) {
+            // A one-time code or passkey counter could not be recorded, so no token
+            // leaves; not a failure of the credentials: the slot is released, nothing
+            // counted.
             (Ok(_), Some(e)) => {
                 attempt.finish_attempt(Outcome::Error);
-                (
-                    "LOGIN failed",
-                    Response::internal(format!("the one-time code was not recorded: {e}")),
-                )
+                ("LOGIN failed", Response::internal(e))
             }
             (Ok(token), None) => {
                 attempt.finish_attempt(Outcome::Success);

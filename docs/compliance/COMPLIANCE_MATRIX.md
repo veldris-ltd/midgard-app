@@ -62,6 +62,8 @@ organisational and out of repo scope; these controls are the evidence base.
   certification, real HSM/GPU/cluster) are *controls implemented in code* here; the
   formal certification runs on a deployed system (see RT-40 for the deployment-tier
   acceptance plan).
-- Where a standard is approximated offline (the WebAuthn assertion core without
-  full COSE/CBOR parsing), the seam is designed for
-  the certified implementation to drop in — documented at the call site.
+- Where a standard is approximated offline (the WebAuthn assertion core, which
+  checks the client-data type, challenge and origin, the RP id, user presence, user
+  verification by policy and the signature counter, without COSE/CBOR registration
+  parsing), the seam is designed for the certified implementation to drop in —
+  documented at the call site.

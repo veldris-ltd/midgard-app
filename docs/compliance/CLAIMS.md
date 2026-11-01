@@ -250,17 +250,26 @@ A principal logs in at the edge with a password, and a time-based one-time code 
 
 ### `webauthn-oidc-federation` (reference)
 
-WebAuthn assertion verification, a JWKS endpoint and federation with an enterprise identity provider.
+WebAuthn assertion verification, a JWKS endpoint and federation with an enterprise identity provider. The principal assertion verifier checks the type, challenge and origin of client data parsed at the edge, the RP id, user presence, user verification by policy and the signature counter, which the directory persists per passkey.
 
-**Until it is operable, say:** "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them."
+**Until it is operable, say:** "Users sign in with a password and an optional one-time code. Administrators hold ML-DSA passkeys in keystore files. WebAuthn verification and federation are implemented and tested as libraries; no browser flow uses them. The principal verifier checks type, challenge, origin, RP id, user presence, user verification by policy and the signature counter, and accepts no origin until one is configured; passkey registration (COSE/CBOR attestation) is out of scope."
 
 **Milestone.** The second-factor decision is recorded and the console login uses it (RF-IAM-1, RF-UI-1).
 
 - Source:
   - [`admin/identity/src/webauthn.rs:1`](../../admin/identity/src/webauthn.rs)
+  - [`services/iam/src/mfa.rs:1`](../../services/iam/src/mfa.rs)
   - [`services/iam/src/directory.rs:1`](../../services/iam/src/directory.rs)
+  - [`services/http-gateway/src/webauthn_client_data.rs:1`](../../services/http-gateway/src/webauthn_client_data.rs)
 - Tests:
   - [`admin/identity/tests/passkeys.rs::a_registered_passkey_signs_in_after_a_restart`](../../admin/identity/tests/passkeys.rs)
+  - [`services/iam/tests/primitives.rs::webauthn_assertion_verifies_and_fails_closed`](../../services/iam/tests/primitives.rs)
+  - [`services/iam/tests/primitives.rs::webauthn_origin_mismatch_is_refused`](../../services/iam/tests/primitives.rs)
+  - [`services/iam/tests/primitives.rs::webauthn_uv_is_required_by_policy`](../../services/iam/tests/primitives.rs)
+  - [`services/iam/tests/primitives.rs::webauthn_sign_count_must_increase`](../../services/iam/tests/primitives.rs)
+  - [`services/http-gateway/tests/webauthn_client_data.rs::client_data_type_and_challenge_are_read_from_parsed_json`](../../services/http-gateway/tests/webauthn_client_data.rs)
+  - [`services/iam/tests/rc_29.rs::a_passkey_sign_count_survives_a_restart`](../../services/iam/tests/rc_29.rs)
+  - [`services/iam/tests/rc_29.rs::a_passkey_login_through_the_authenticator_records_the_counter`](../../services/iam/tests/rc_29.rs)
 
 ### `policy-decisions` (operable)
 
