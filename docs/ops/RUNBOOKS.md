@@ -14,6 +14,7 @@ Index:
 - [RB-7: Verify the audit chain](#rb-7-verify-audit)
 - [RB-8: Disengage Mimir inference](#rb-8-disengage-mimir-inference)
 - [RB-9: Rotate or withdraw the model trust anchor](#rb-9-rotate-or-withdraw-the-model-trust-anchor)
+- [RB-8: Heimdall feed observations refused as stale or replayed](#rb-8-heimdall-feed-observations-refused-as-stale-or-replayed)
 
 Release engineering (not an in-enclosure operational task):
 - [Execute the GA gate — readiness §4 A–C](RUNBOOK_ga_gate.md)
@@ -134,3 +135,33 @@ endpoint for it.
    serving everywhere it is mounted.
 4. **Verify:** the restarted service logs `serving` with the expected `model` and
    `model_version`, `/readyz` returns 200 and `mimir-probe` is served.
+## RB-8: Heimdall feed observations refused as stale or replayed
+**Trigger:** a feed source reports `denied` from `heimdall-feed`, or the feed ledger
+shows `Ingest refused` rows with reason `observed-at-out-of-window`, `replay` or
+`sequence-unset`. [VLD-ANB-MIDGARD-0041]
+1. Read the refusal's message and reason. The feed gateway's checks are, in order:
+   - **SequenceUnset** (reason `sequence-unset`): the source sent sequence 0. It was
+     built against observation format version 1 or does not number its observations;
+     upgrade it (version 1 observations are refused at decode as malformed).
+   - **SequenceNotMonotonic** (reason `replay`, message "is not after the last
+     admitted sequence"): either a replay of an observation already admitted, or a
+     feed that restarted its sequence counter. A restarted feed must continue its
+     sequence above the last one it sent (`heimdall-source` numbers by the clock in
+     nanoseconds, so this means its clock stepped back), or be re-registered under a
+     new feed identity. The service keeps each feed's last sequence in
+     `feed-sequences.sealed` in its state directory, so restarting `heimdall-feed`
+     does not clear it; removing that file while the service is stopped resets every
+     feed, and reopens replay of anything still inside the freshness window.
+   - **Stale** (reason `observed-at-out-of-window`): the feed's clock and the
+     server's differ by more than `--max-observation-skew` (ahead) or the observation
+     is older than `--max-observation-age`. Check both clocks; widen the age only for
+     a deliberate backfill (as `mg-install`'s sample replay does), then restore it.
+   - **Replayed** (reason `replay`, message "already been received"): the same
+     observation id arrived again under a new sequence. The gateway remembers the last
+     4,096 ids per feed in memory; the window restarts empty after a gateway restart,
+     when the persisted sequence alone refuses earlier observations.
+2. A run of `replay` refusals from one feed that is not explained by a restart or a
+   clock change is a possible capture-and-replay attempt: treat it as a security
+   event, preserve the ledger and check who holds that feed's certificate.
+3. **Verify:** the source's next observation is `accepted`, and the ledger shows no
+   further refusals for it.

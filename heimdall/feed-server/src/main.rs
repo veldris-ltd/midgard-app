@@ -48,6 +48,11 @@
 //! other is refused and audited. The picture marks an entity stale once nothing has
 //! been received for it for `--stale-after` seconds (default 900).
 //! [VLD-ANB-MIDGARD-0015]
+//!
+//! Each feed's observations carry a monotonic sequence; one not above the feed's last
+//! admitted sequence is refused as a replay. The last sequence per feed is sealed in
+//! `--state-dir`'s `feed-sequences.sealed`, so a restart keeps refusing replays.
+//! [VLD-ANB-MIDGARD-0041]
 
 use std::collections::BTreeSet;
 use std::net::TcpListener;
@@ -56,7 +61,7 @@ use std::sync::{Arc, RwLock};
 
 use gateway::Gateway;
 use governance::Governance;
-use heimdall_feed_server::{FeedService, IngestLimits, PictureState};
+use heimdall_feed_server::{FeedService, IngestLimits, PictureState, SequenceFile};
 use heimdall_picture::PictureLimits;
 use heimdall_store::DurablePicture;
 use policy::{
@@ -75,8 +80,8 @@ const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
                      [--rate-per-sec N] [--requests-per-conn N] [--max-entities N] \
                      [--max-entities-per-feed N] [--max-attrs N] [--max-attr-bytes N] \
-                     [--evict-after SECONDS] \
-                     [--max-observation-skew S] [--max-observation-age S] [--stale-after S]\n       \
+                     [--evict-after SECONDS] [--max-observation-skew S] \
+                     [--max-observation-age S] [--stale-after S]\n       \
                      heimdall-feed --identity-dir DIR --state-dir DIR --compact [--service NAME]";
 
 /// The id of the service's audit ledger.
@@ -235,7 +240,14 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
 
     let durable = DurablePicture::open(state_dir.join("picture.sealed"), identity.data_sealer()?)
         .map_err(|e| format!("the picture does not open: {e:?}"))?;
-    let state = PictureState::recover(durable).with_limits(picture_limits);
+    let (sequence_file, sequences) = SequenceFile::open(
+        state_dir.join("feed-sequences.sealed"),
+        identity.data_sealer()?,
+    )
+    .map_err(|e| format!("the feed sequences do not open: {e:?}"))?;
+    let state = PictureState::recover(durable)
+        .with_limits(picture_limits)
+        .with_sequences(sequence_file, sequences);
     let entities = state.picture().entity_count();
     state_ready.set(true);
 

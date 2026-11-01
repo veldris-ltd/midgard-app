@@ -7,7 +7,10 @@
 //!   concretely. [NFR-PRV-1]
 //!
 //! The whole path uses the real FIPS backend for feed signatures, so this is not a
-//! mock: unauthenticated observations could not have reached fusion.
+//! mock: unauthenticated observations could not have reached fusion. Each feed's
+//! observations are numbered by a feed sequencer and the gateway's clock is fixed in
+//! the tests' logical time, so the replay checks admit them. [VLD-ANB-MIDGARD-0041]
+//! [AC-59.6]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
@@ -20,7 +23,9 @@ use fabric::store::{InMemoryStore, ObjectStore};
 use policy::{ClassificationLevel, Marking, Purpose};
 
 use heimdall_classify::RulesClassifier;
-use heimdall_feed_gateway::{sign_observation, FeedGateway, FeedRegistry, VerifiedObservation};
+use heimdall_feed_gateway::{
+    sign_observation, FeedGateway, FeedRegistry, FeedSequencer, VerifiedObservation,
+};
 use heimdall_fusion::{sync_to_fabric, FusionEngine, ENTITY_TYPE_ID};
 use heimdall_picture::{Attr, EntityId, FeedId, LayerId, Observation};
 
@@ -59,6 +64,7 @@ struct Harness {
     gateway: FeedGateway,
     radar_sk: SigningKey,
     sonar_sk: SigningKey,
+    sequencer: FeedSequencer,
 }
 
 impl Harness {
@@ -69,9 +75,10 @@ impl Harness {
         registry.register(FeedId("radar".into()), radar_vk);
         registry.register(FeedId("sonar".into()), sonar_vk);
         Self {
-            gateway: FeedGateway::new(registry, provider()),
+            gateway: FeedGateway::new(registry, provider()).with_clock(|| 100),
             radar_sk,
             sonar_sk,
+            sequencer: FeedSequencer::new(),
         }
     }
 
@@ -81,6 +88,7 @@ impl Harness {
         } else {
             &self.sonar_sk
         };
+        let obs = obs.with_sequence(self.sequencer.next());
         let signed = sign_observation(&FipsSig::new(ALG), sk, obs).unwrap();
         self.gateway
             .authenticate(&signed)

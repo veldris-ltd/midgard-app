@@ -590,6 +590,37 @@ CONTRIBUTING.md for the version policy.
     `heimdall-feed` with `--max-observation-age` wide enough for the oldest sample for
     the replay only, then restarting it with the default, whether or not the replay
     succeeded.
+- **A captured Heimdall feed observation can no longer be replayed, and one feed can
+  no longer submit another's.** [VLD-ANB-MIDGARD-0041]
+  - Observations carry their feed's monotonic `sequence` (`Observation::with_sequence`)
+    inside the signed bytes: the observation format is version 2, and a version 1
+    observation is refused at decode ("unsupported observation format version 1 (no
+    sequence)"). Every feed source must be rebuilt; Heimdall workloads and feed clients
+    are deployed together. Pictures and deltas are not affected.
+  - `heimdall-feed-gateway` gains `ReplayGuard` and `FreshnessPolicy`. After the
+    signature verifies, and only then, `FeedGateway::authenticate` refuses sequence 0
+    (`SequenceUnset`), a sequence not above the feed's last admitted one
+    (`SequenceNotMonotonic`), an `observed_at` outside the window (`Stale`) and an id
+    among the feed's last 4,096 (`Replayed`); a failed signature consumes no state.
+    The window is WP-23's (`--max-observation-skew` 300 s, `--max-observation-age`
+    seven days), now enforced through the gateway; `FeedGateway::with_replay_guard`,
+    `with_clock` and `with_freshness` configure it.
+  - `FeedGateway::authenticate_from` binds the observation's feed to the PQ-mTLS peer
+    (its service id, or a peer `FeedRegistry::delegate` names, refused otherwise as
+    `NotFromPeer`); `serve_feed_connection` uses it for every record.
+  - `heimdall-feed` holds one guard across requests (it replaces WP-23's in-memory id
+    ring) and seals each feed's last sequence in `feed-sequences.sealed` in its state
+    directory before fusing, so a replay is refused after a restart too. A sequence
+    refusal is audited as `Ingest refused: replayed observation`, reason `replay`; an
+    unnumbered observation as `Ingest refused: observation has no sequence`, reason
+    `sequence-unset`. `PictureState::with_sequences` and `SequenceFile` are new.
+  - Feed sources number observations with `FeedSequencer` (from 1, after a saved
+    value, or from the clock). `heimdall-source` takes `--sequence N` and otherwise
+    numbers by the clock in nanoseconds, so `mg-install`'s sample replay and the
+    compose and kind smoke tests, which run it once per observation, need no change.
+    A feed that restarts its sequence below its last is refused until it continues
+    above it or is re-registered; `docs/ops/RUNBOOKS.md` RB-8 says what each refusal
+    means.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

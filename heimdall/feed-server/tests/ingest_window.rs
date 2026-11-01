@@ -4,6 +4,11 @@
 //! near-future observation does not freeze its track, a replayed observation id is
 //! refused, and the picture reports when each entity was last received and whether it
 //! has gone stale. [VLD-ANB-MIDGARD-0015] [FR-H-1] [FR-H-3] [NFR-SEC-1]
+//!
+//! radar-1 numbers its observations with a feed sequencer; resubmitting the same
+//! signed bytes meets the sequence check, an observation with no sequence is refused,
+//! and each feed's last sequence is saved so a restarted service still refuses a
+//! replay. [VLD-ANB-MIDGARD-0041] [AC-59.5]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
@@ -13,9 +18,10 @@ use std::sync::{Arc, RwLock};
 
 use audit_writer::{AuditError, Outcome, Sealer};
 use governance::Governance;
-use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
+use heimdall_feed_gateway::{encode_signed_observation, sign_observation, FeedSequencer};
 use heimdall_feed_server::{
-    outcome, FeedService, IngestLimits, PictureState, REASON_OUT_OF_WINDOW, REASON_REPLAY,
+    outcome, FeedService, IngestLimits, PictureState, SequenceFile, REASON_OUT_OF_WINDOW,
+    REASON_REPLAY, REASON_SEQUENCE_UNSET,
 };
 use heimdall_picture::{Attr, FeedId, Observation};
 use heimdall_store::DurablePicture;
@@ -76,6 +82,7 @@ struct Fixture {
     clock: Arc<AtomicU64>,
     radar: WorkloadIdentity,
     radar_key: SigningKey,
+    radar_sequence: FeedSequencer,
     analyst: WorkloadIdentity,
     dir: PathBuf,
 }
@@ -106,13 +113,21 @@ fn fixture(tag: &str) -> Fixture {
         std::process::id()
     ));
     std::fs::create_dir_all(&dir).unwrap();
+    let (radar, radar_key) = identity("radar-1", "feed-source");
+    fixture_in(dir, radar, radar_key)
+}
+
+/// A service over the picture and sequence file in `dir`, as if (re)started there.
+fn fixture_in(dir: PathBuf, radar: WorkloadIdentity, radar_key: SigningKey) -> Fixture {
     let durable = DurablePicture::open(dir.join("picture.sealed"), Box::new(AadSealer)).unwrap();
+    let (file, sequences) =
+        SequenceFile::open(dir.join("feed-sequences.sealed"), Box::new(AadSealer)).unwrap();
     let governance =
         Governance::new(DefaultPdp::new(parse_policy(POLICY).unwrap()), &mut OsRng).unwrap();
     let clock = Arc::new(AtomicU64::new(NOW));
     let reading = clock.clone();
     let service = FeedService::new(
-        PictureState::recover(durable),
+        PictureState::recover(durable).with_sequences(file, sequences),
         governance,
         Arc::new(RwLock::new(fips_provider())),
         Resource {
@@ -128,21 +143,27 @@ fn fixture(tag: &str) -> Fixture {
         Arc::new(MetricsRegistry::new()),
         IngestLimits::default(),
     );
-    let (radar, radar_key) = identity("radar-1", "feed-source");
     let (analyst, _) = identity("analyst", "picture-reader");
     Fixture {
         service,
         clock,
         radar,
         radar_key,
+        radar_sequence: FeedSequencer::new(),
         analyst,
         dir,
     }
 }
 
 impl Fixture {
-    /// The encoded signed observation radar-1 submits for the entity at `observed_at`.
+    /// The encoded signed observation radar-1 submits for the entity at `observed_at`,
+    /// with radar-1's next sequence.
     fn signed(&self, id: &str, observed_at: u64, speed: i64) -> Vec<u8> {
+        self.signed_with(id, observed_at, speed, self.radar_sequence.next())
+    }
+
+    /// As [`Fixture::signed`], with the sequence given.
+    fn signed_with(&self, id: &str, observed_at: u64, speed: i64, sequence: u64) -> Vec<u8> {
         let observation = Observation::new(
             id,
             FeedId("radar-1".into()),
@@ -150,7 +171,8 @@ impl Fixture {
             ENTITY,
             observed_at,
         )
-        .with_attr("speed", Attr::Int(speed));
+        .with_attr("speed", Attr::Int(speed))
+        .with_sequence(sequence);
         encode_signed_observation(
             &sign_observation(&FipsSig::new(IDP_SIG_ALG), &self.radar_key, observation).unwrap(),
         )
@@ -262,8 +284,10 @@ fn a_near_future_observation_does_not_freeze_the_track() {
     assert_eq!(entity.get("observations"), Some(&Json::Int(2)));
 }
 
-/// The same signed bytes submitted twice: the second is refused as a replay, audited
-/// with reason `replay`, and the track counts the observation once. [AC-23.3]
+/// The same signed bytes submitted twice: the second is refused as a replay (its
+/// sequence is not above the last), audited with reason `replay`, and the track counts
+/// the observation once. An id repeated under a new sequence is refused the same way.
+/// [AC-23.3] [AC-59.1]
 #[test]
 fn a_replayed_observation_id_is_refused_once_per_feed_ring() {
     let f = fixture("replay");
@@ -281,6 +305,13 @@ fn a_replayed_observation_id_is_refused_once_per_feed_ring() {
             Some(REASON_REPLAY.to_string()),
             Some(ENTITY.to_string()),
         )
+    );
+    assert!(message.contains("sequence 1"), "{message}");
+    let (code, message) = f.ingest(&f.signed("obs-1", NOW, 420));
+    assert_eq!(code, outcome::DENIED, "{message}");
+    assert_eq!(
+        message,
+        "this observation has already been received from this feed"
     );
     let entity = f.entity().expect("the entity is tracked");
     assert_eq!(entity.get("observations"), Some(&Json::Int(1)));
@@ -306,4 +337,45 @@ fn read_picture_exposes_staleness() {
     let stale = f.entity().expect("the entity is tracked");
     assert_eq!(stale.get("stale"), Some(&Json::Bool(true)));
     assert_eq!(stale.get("lastReceived"), Some(&Json::Int(NOW as i64)));
+}
+
+/// An observation built without a sequence (0) is refused and audited with reason
+/// `sequence-unset`. [AC-59.1]
+#[test]
+fn an_observation_without_a_sequence_is_refused() {
+    let f = fixture("unset");
+    let (code, message) = f.ingest(&f.signed_with("obs-1", NOW, 420, 0));
+    assert_eq!(code, outcome::DENIED, "{message}");
+    assert_eq!(
+        f.last_row(),
+        (
+            "Ingest refused: observation has no sequence".to_string(),
+            Outcome::Refused,
+            Some(REASON_SEQUENCE_UNSET.to_string()),
+            Some(ENTITY.to_string()),
+        )
+    );
+    assert!(f.entity().is_none(), "nothing was fused");
+}
+
+/// Each feed's last sequence is sealed before the observation is fused: a service
+/// restarted over the same state directory still refuses the observation it admitted
+/// before, while the feed's next sequence is accepted. [AC-59.5]
+#[test]
+fn replay_protection_survives_a_restart() {
+    let f = fixture("restart");
+    let body = f.signed_with("obs-1", NOW, 420, 7);
+    let (code, message) = f.ingest(&body);
+    assert_eq!(code, outcome::ACCEPTED, "{message}");
+
+    let next = f.signed_with("obs-2", NOW, 430, 8);
+
+    // Restart: a new service over the same directory, for the same radar-1 identity.
+    let (_, unused_key) = identity("unused", "feed-source");
+    let restarted = fixture_in(f.dir.clone(), f.radar.clone(), unused_key);
+    let (code, message) = restarted.ingest(&body);
+    assert_eq!(code, outcome::DENIED, "{message}");
+    assert!(message.contains("sequence 7"), "{message}");
+    let (code, message) = restarted.ingest(&next);
+    assert_eq!(code, outcome::ACCEPTED, "{message}");
 }

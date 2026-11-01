@@ -39,6 +39,11 @@ pub struct Observation {
     pub attrs: BTreeMap<String, Attr>,
     /// Caller-supplied logical observation time.
     pub observed_at: u64,
+    /// The feed's monotonic sequence number for this observation, part of the signed
+    /// bytes so a captured observation cannot be replayed: a gateway admits each feed's
+    /// sequences only in increasing order. `0` means unset, and is refused at
+    /// admission. [VLD-ANB-MIDGARD-0041]
+    pub sequence: u64,
 }
 
 impl Observation {
@@ -57,7 +62,15 @@ impl Observation {
             entity_key: entity_key.into(),
             attrs: BTreeMap::new(),
             observed_at,
+            sequence: 0,
         }
+    }
+
+    /// Builder: set the feed's sequence number for this observation (from a feed
+    /// sequencer; see `heimdall_feed_gateway::FeedSequencer`). [VLD-ANB-MIDGARD-0041]
+    pub fn with_sequence(mut self, sequence: u64) -> Self {
+        self.sequence = sequence;
+        self
     }
 
     /// Builder: set one attribute.

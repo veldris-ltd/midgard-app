@@ -561,6 +561,8 @@ name = "heimdall-feed-gateway"
 version = "0.1.0-rc.1"
 dependencies = [
  "heimdall-picture",
+ "iam",
+ "policy",
  "pq-mtls",
  "pqc-agility",
 ]

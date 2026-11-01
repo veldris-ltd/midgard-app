@@ -12,9 +12,13 @@ use crate::id::{EntityId, LayerId};
 use crate::layer::Layer;
 use crate::observation::{Attr, Observation};
 
-/// Format version — bump only on a breaking encoding change. Observations (the bytes
-/// a feed signs) are still at version 1.
-const FORMAT_VERSION: u8 = 0x01;
+/// Observation format version: bump only on a breaking encoding change. Version 2
+/// adds the feed's monotonic `sequence` after `observed_at`, inside the bytes a feed
+/// signs. Version 1 carried no sequence, so a replayed version-1 observation could not
+/// be told from a fresh one; it is refused, not upgraded. [VLD-ANB-MIDGARD-0041]
+const FORMAT_VERSION: u8 = 0x02;
+/// The observation layout before the sequence: refused at decode.
+const FORMAT_VERSION_V1: u8 = 0x01;
 
 /// The delta (and sealed picture) layout: version 2 adds each track's
 /// `last_received`. Version 1 still decodes, with `last_received` taken as
@@ -80,6 +84,7 @@ pub(crate) fn encode_observation(o: &Observation) -> Vec<u8> {
     put_str(&mut out, &o.kind);
     put_str(&mut out, &o.entity_key);
     put_u64(&mut out, o.observed_at);
+    put_u64(&mut out, o.sequence);
     put_attrs(&mut out, &o.attrs);
     out
 }
@@ -318,17 +323,25 @@ pub(crate) fn decode_observation(buf: &[u8]) -> Result<Observation, PictureError
     use crate::id::{FeedId, ObservationId};
 
     let mut r = Reader::new(buf);
-    let version = r.u8()?;
-    if version != FORMAT_VERSION {
-        return Err(PictureError::Decode(format!(
-            "unsupported observation format version {version}"
-        )));
+    match r.u8()? {
+        FORMAT_VERSION => {}
+        FORMAT_VERSION_V1 => {
+            return Err(PictureError::Decode(
+                "unsupported observation format version 1 (no sequence)".into(),
+            ))
+        }
+        version => {
+            return Err(PictureError::Decode(format!(
+                "unsupported observation format version {version}"
+            )))
+        }
     }
     let feed_id = FeedId(r.string()?);
     let id = ObservationId(r.string()?);
     let kind = r.string()?;
     let entity_key = r.string()?;
     let observed_at = r.u64()?;
+    let sequence = r.u64()?;
     let attrs = r.attrs()?;
     if r.pos != buf.len() {
         return Err(PictureError::Decode(
@@ -342,6 +355,7 @@ pub(crate) fn decode_observation(buf: &[u8]) -> Result<Observation, PictureError
         entity_key,
         attrs,
         observed_at,
+        sequence,
     })
 }
 
@@ -429,7 +443,8 @@ mod tests {
         .with_attr("speed", Attr::Float(500.0))
         .with_attr("callsign", Attr::Text("VIPER1".into()))
         .with_attr("hostile", Attr::Bool(true))
-        .with_attr("count", Attr::Int(-7));
+        .with_attr("count", Attr::Int(-7))
+        .with_sequence(9);
         let bytes = o.canonical_bytes();
         let back = Observation::from_canonical_bytes(&bytes).expect("decodes");
         assert_eq!(o, back);
@@ -476,6 +491,45 @@ mod tests {
         // An unknown version still fails closed.
         old[0] = 0x03;
         assert!(PictureDelta::from_canonical_bytes(&old).is_err());
+    }
+
+    /// The sequence is inside the signed bytes, right after `observed_at`: two
+    /// observations that differ only in sequence encode differently, so a signature
+    /// over one does not cover the other. [VLD-ANB-MIDGARD-0041] [AC-59.6]
+    #[test]
+    fn canonical_bytes_include_sequence() {
+        let o = Observation::new("o1", crate::id::FeedId("radar-1".into()), "air", "k", 42);
+        let first = o.clone().with_sequence(1).canonical_bytes();
+        let second = o.with_sequence(2).canonical_bytes();
+        assert_ne!(first, second);
+        assert_eq!(first[0], FORMAT_VERSION);
+        // version, then four length-prefixed strings, then observed_at, then sequence.
+        let at = 1 + (8 + 7) + (8 + 2) + (8 + 3) + (8 + 1);
+        assert_eq!(&first[at..at + 8], &42u64.to_le_bytes());
+        assert_eq!(&first[at + 8..at + 16], &1u64.to_le_bytes());
+        assert_eq!(&second[at + 8..at + 16], &2u64.to_le_bytes());
+    }
+
+    /// A version-1 observation, written as the previous encoder did (no sequence), is
+    /// refused at decode with a reason that names the missing sequence.
+    /// [VLD-ANB-MIDGARD-0041] [AC-59.6]
+    #[test]
+    fn observation_format_v1_is_refused() {
+        let mut old = vec![FORMAT_VERSION_V1];
+        put_str(&mut old, "radar-1");
+        put_str(&mut old, "o1");
+        put_str(&mut old, "air");
+        put_str(&mut old, "k");
+        put_u64(&mut old, 42);
+        put_attrs(&mut old, &BTreeMap::new());
+        let err = Observation::from_canonical_bytes(&old).expect_err("version 1 is refused");
+        assert_eq!(
+            err,
+            PictureError::Decode("unsupported observation format version 1 (no sequence)".into())
+        );
+        // An unknown version still fails closed.
+        old[0] = 0x07;
+        assert!(Observation::from_canonical_bytes(&old).is_err());
     }
 
     #[test]

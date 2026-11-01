@@ -3,7 +3,13 @@
 //! exchange PQ-signed deltas over the transport seam, verify each other's
 //! signatures, and converge. An unverified (tampered or wrong-key) delta is
 //! rejected and mutates nothing. [FR-H-6] [NFR-PQ-3]
+//!
+//! The feed's observations are numbered and the gateway's clock is fixed in the
+//! tests' logical time, so the replay checks admit them. [VLD-ANB-MIDGARD-0041]
+//! [AC-59.6]
 #![cfg(feature = "backend-fips")]
+
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use pqc_agility::backend::fips::FipsSig;
 use pqc_agility::registry::{shared, CryptoProvider};
@@ -15,6 +21,9 @@ use heimdall_picture::{Attr, EntityId, FeedId, Observation};
 use heimdall_picture_sync::{loopback_link, DeltaLink, Replicator, SyncError};
 
 const ALG: SigId = SigId::MlDsa65;
+
+/// The feed's sequence counter, shared by every test's gateway (each sees it rise).
+static SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 struct SeedRng(u64);
 impl Rng for SeedRng {
@@ -49,7 +58,10 @@ fn feed_gateway() -> (FeedGateway, SigningKey) {
     let (vk, sk) = keypair(1);
     let mut registry = FeedRegistry::new();
     registry.register(FeedId("radar".into()), vk);
-    (FeedGateway::new(registry, provider()), sk)
+    (
+        FeedGateway::new(registry, provider()).with_clock(|| 100),
+        sk,
+    )
 }
 
 fn verified(
@@ -66,7 +78,8 @@ fn verified(
         key,
         t,
     )
-    .with_attr("speed", Attr::Float(speed));
+    .with_attr("speed", Attr::Float(speed))
+    .with_sequence(SEQUENCE.fetch_add(1, Ordering::SeqCst));
     gateway
         .authenticate(&sign_observation(&FipsSig::new(ALG), sk, obs).unwrap())
         .expect("authenticates")

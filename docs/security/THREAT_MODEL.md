@@ -60,6 +60,20 @@ the trust boundaries, with each threat mapped to the implemented, tested control
   into a directory only `mimir-server` writes, never the model directory; and the
   release image verifies against the pinned `/trust/release-trust.pub` only, with no
   environment override. [MG-SEC-14]
+- *Threat:* replaying a captured signed Heimdall feed observation, or one certified
+  feed submitting another feed's observations, to regress or inflate a track.
+  *Controls:* each observation carries its feed's monotonic sequence inside the
+  signed bytes (observation format version 2; version 1 is refused at decode). After
+  the signature verifies, and only then, the feed gateway's `ReplayGuard` refuses a
+  sequence of 0 (`SequenceUnset`), a sequence not above the feed's last admitted one
+  (`SequenceNotMonotonic`), an `observed_at` outside the freshness window around the
+  server's clock (`Stale`; `heimdall-feed --max-observation-skew`, default 300 s, and
+  `--max-observation-age`, default seven days) and an id among the feed's last 4,096
+  (`Replayed`). `heimdall-feed` holds one guard across requests and seals each feed's
+  last sequence in `feed-sequences.sealed` before fusing, so a restart does not reopen
+  replay; the feed named must be the PQ-mTLS peer's own service, or delegated to it in
+  the feed registry (`NotFromPeer`). Every refusal is audited with a reason code.
+  [VLD-ANB-MIDGARD-0041] [VLD-ANB-MIDGARD-0015]
 
 ### Repudiation
 - *Threat:* denying an action was taken.
