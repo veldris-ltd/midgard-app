@@ -1,9 +1,12 @@
-//! Unit coverage for the credential primitives: PBKDF2 password hashing, TOTP, and
-//! WebAuthn assertion verification. [RC-29]
+//! Unit coverage for the credential primitives: password hashing (Argon2id, and
+//! legacy PBKDF2 within its cost bounds), TOTP, and WebAuthn assertion verification.
+//! [RC-29] [NFR-SEC-2] [MG-SEC-11] [VLD-ANB-MIDGARD-0025]
 #![cfg(feature = "backend-fips")]
 
 use iam::mfa::{AuthAssertion, WebAuthnCredential, PASSKEY_SIG_ALG};
-use iam::{PasswordHasher, Pbkdf2Hasher, TotpSecret};
+use std::time::{Duration, Instant};
+
+use iam::{Argon2idHasher, PasswordHasher, Pbkdf2Hasher, TotpSecret, MIN_PBKDF2_ITERATIONS};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::Rng;
 
@@ -37,6 +40,57 @@ fn pbkdf2_hash_verifies_and_rejects_wrong_password() {
     assert_ne!(enc, h.hash(b"s3cret-pass"));
     // A malformed encoding fails closed.
     assert!(!h.verify(b"s3cret-pass", "not-a-hash"));
+}
+
+/// AC-56.1: the production hasher writes Argon2id at the OWASP minimum, with a fresh
+/// salt each time, and fails closed on a wrong password or a malformed entry.
+#[test]
+fn argon2id_hashes_verify_and_fail_closed() {
+    let h = Argon2idHasher::production();
+    let enc = h.hash(b"s3cret-pass");
+    assert!(enc.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"), "{enc}");
+    assert!(h.verify(b"s3cret-pass", &enc));
+    assert!(!h.verify(b"s3cret-Pass", &enc));
+    assert!(!h.verify(b"", &enc));
+    assert_ne!(enc, h.hash(b"s3cret-pass"), "two hashes share a salt");
+    for bad in ["not-a-hash", "$argon2id$", &enc[..enc.len() - 4]] {
+        assert!(!h.verify(b"s3cret-pass", bad), "{bad:?}");
+    }
+}
+
+/// AC-56.3: a stored PBKDF2 iteration count outside the bounds is refused before any
+/// work is done, whichever way it was tampered with; the legacy cost still verifies;
+/// and the debug-build cost knob holds its own count as the floor.
+#[test]
+fn pbkdf2_iteration_floor_and_ceiling_are_enforced() {
+    let production = Pbkdf2Hasher::production();
+    // Inert literals: an all-zero 16-byte salt and 32-byte hash.
+    let zeros = |n: usize| "0".repeat(n * 2);
+    for iterations in [1u32, u32::MAX] {
+        let tampered = format!("pbkdf2-sha256$i={iterations}${}${}", zeros(16), zeros(32));
+        let started = Instant::now();
+        assert!(
+            !production.verify(b"s3cret-pass", &tampered),
+            "i={iterations}"
+        );
+        let took = started.elapsed();
+        assert!(
+            took < Duration::from_millis(50),
+            "i={iterations} took {took:?}: the bound must be checked before the work"
+        );
+    }
+
+    let legacy = Pbkdf2Hasher::new(MIN_PBKDF2_ITERATIONS).hash(b"s3cret-pass");
+    assert!(legacy.starts_with("pbkdf2-sha256$i=210000$"), "{legacy}");
+    assert!(production.verify(b"s3cret-pass", &legacy));
+
+    let knob = Pbkdf2Hasher::new(1_000);
+    assert!(knob.verify(b"s3cret-pass", &knob.hash(b"s3cret-pass")));
+    let below = Pbkdf2Hasher::new(999).hash(b"s3cret-pass");
+    assert!(
+        !knob.verify(b"s3cret-pass", &below),
+        "999 is below the floor of 1,000"
+    );
 }
 
 #[test]
