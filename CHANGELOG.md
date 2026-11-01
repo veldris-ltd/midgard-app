@@ -484,6 +484,38 @@ CONTRIBUTING.md for the version policy.
   `tools/ci/tests/console-headers.test.sh` covers the step, and the running console
   image when docker has it; `tools/ci/tests/probe-manifests.test.sh` covers the probe.
   [VLD-ANB-MIDGARD-0064] [VLD-ANB-MIDGARD-0075]
+- **The audit record says where a request came from, how it ended and why, and
+  refusals are recorded.** [VLD-ANB-MIDGARD-0052] [VLD-ANB-MIDGARD-0053]
+  [VLD-ANB-MIDGARD-0054] [VLD-ANB-MIDGARD-0072]
+  - `AuditRecord` carries an `AuditContext`: source address, session, outcome
+    (`Permit`, `Deny`, `Refused`, `Failed`, `Info`), reason code, and for a human gate
+    the approval, approver and target. Ledger entries are written as entry schema 2,
+    and a record with a context is hashed under its own canonical layout
+    (`midgard-audit-record-v2`). Schema 1 ledgers still open and verify: their entries
+    decode with an empty context, and an empty context hashes exactly as before, so
+    every stored entry hash and checkpoint still holds. A binary from before this
+    change cannot open a ledger holding schema 2 entries.
+  - Governance row ids are the ledger position, `AUD-<seq>`, unique even within a
+    second; `authorize` records the decision as the outcome, and `authorize_with` and
+    `record_event_with` take a context.
+  - The gateway takes each request's source from the accepted socket, gives it a
+    16-hex reference, and writes one JSON log line per request (method, path, status,
+    latency, source, reference, subject). Edge admission rows carry the source and
+    session.
+  - A missing or rejected bearer token is answered `{"error":"token rejected"}`
+    whatever failed, counted in `http_auth_rejections_total{class}`, logged with its
+    class and source, and written to the ledger as `AUTH rejected (<class>)` at most
+    once a minute per source address.
+  - Server errors read `{"error":"internal error","reference":"..."}`; the store,
+    journal or crypto detail is logged under that reference. An administration
+    privilege refusal reads `refused` and a failed administrator sign-in
+    `unauthorised`.
+  - A missing or invalid human gate, a self-approval and a decision on an approval
+    that is not pending are written as `REFUSED Apply` or `REFUSED Approve`, with the
+    reason code and target, after the edge's PERMIT row.
+  - The Forge worker no longer ignores a failed run's audit write: the row carries
+    outcome Failed and a sanitised error class, and a row the ledger refuses is
+    logged as not audited.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

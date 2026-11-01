@@ -23,7 +23,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use audit_writer::{entry_hash, genesis_hash, signing_preimage, SealedEntry};
+use audit_writer::{
+    entry_hash, genesis_hash, signing_preimage, AuditContext, Outcome, SealedEntry,
+};
 use fabric::{
     ActionFunction, ActionType, Cardinality, Effect, Fabric, FabricError, FunctionRuntime,
     Governance, InMemoryLedger, InMemoryStore, LedgerStore, LinkInstance, LinkType, ObjectInstance,
@@ -62,6 +64,9 @@ pub struct EdgeError {
     pub status: u16,
     /// JSON error body.
     pub body: Json,
+    /// What went wrong, for the gateway's log only; never sent to the client.
+    /// [VLD-ANB-MIDGARD-0053]
+    pub detail: Option<String>,
 }
 
 impl EdgeError {
@@ -69,6 +74,17 @@ impl EdgeError {
         Self {
             status,
             body: Json::obj(vec![("error", Json::s(message))]),
+            detail: None,
+        }
+    }
+
+    /// A server error: the client reads `internal error` and the request's reference,
+    /// which the gateway adds, and `detail` goes to the gateway's log under that
+    /// reference. [VLD-ANB-MIDGARD-0053]
+    pub fn internal(detail: impl Into<String>) -> Self {
+        Self {
+            detail: Some(detail.into()),
+            ..Self::new(500, "internal error")
         }
     }
 
@@ -84,6 +100,7 @@ impl EdgeError {
                 ("error", Json::s("denied by policy")),
                 ("auditSeq", Json::s(&audit_seq.to_string())),
             ]),
+            detail: None,
         }
     }
 }
@@ -443,15 +460,38 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         let entry = self.catalog_action(action_type)?;
         let gate = human_gate_token.map(str::trim).filter(|t| !t.is_empty());
         if entry.human_gated && gate.is_none() {
-            return Err(EdgeError::new(
+            let target = params.get("target").map(String::as_str).unwrap_or_default();
+            let refused = EdgeError::new(
                 403,
                 &format!("Human gate required for action \"{}\"", entry.title),
+            );
+            return Err(self.refused(
+                ctx,
+                "Apply",
+                "human-gate-missing",
+                None,
+                target,
+                now,
+                refused,
             ));
         }
         let target = params.remove("target").unwrap_or_default();
         let target = self.readable_target(ctx, &entry.object_type, &target)?;
         let approval = match gate {
-            Some(id) if entry.human_gated => Some(self.redeemable(ctx, &entry, &target, id, now)?),
+            Some(id) if entry.human_gated => match self.redeemable(ctx, &entry, &target, id, now) {
+                Ok(i) => Some(i),
+                Err(refused) => {
+                    return Err(self.refused(
+                        ctx,
+                        "Apply",
+                        "human-gate-invalid",
+                        Some(id),
+                        &target,
+                        now,
+                        refused,
+                    ))
+                }
+            },
             _ => None,
         };
         params.insert("targets".into(), target);
@@ -566,19 +606,39 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         if !self.can_read_id(ctx, &self.approvals[i].target) {
             return Err(unknown());
         }
-        let a = &mut self.approvals[i];
+        let a = &self.approvals[i];
+        let target = a.target.clone();
         if a.state != ApprovalState::Pending {
-            return Err(EdgeError::new(
+            let refused = EdgeError::new(
                 409,
                 &format!("approval {id} is already {}", approval_status(a, now)),
+            );
+            return Err(self.refused(
+                ctx,
+                "Approve",
+                "approval-not-pending",
+                Some(id),
+                &target,
+                now,
+                refused,
             ));
         }
         if a.requester == ctx.subject {
-            return Err(EdgeError::new(
+            let refused = EdgeError::new(
                 403,
                 "an approval must be decided by someone other than its requester",
+            );
+            return Err(self.refused(
+                ctx,
+                "Approve",
+                "self-approval",
+                Some(id),
+                &target,
+                now,
+                refused,
             ));
         }
+        let a = &mut self.approvals[i];
         let approver = ctx.subject.clone();
         a.state = if approve {
             ApprovalState::Approved {
@@ -589,6 +649,55 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             ApprovalState::Rejected { approver }
         };
         Ok(approval_json(a, now, &ctx.subject))
+    }
+
+    /// Record a refusal in the ledger before it is returned: the edge has already
+    /// written its PERMIT row for the request, so without this the ledger would show a
+    /// permit and nothing of the refusal. The row is `REFUSED <verb> (<reason>)` on
+    /// the target, with the reason code, approval and target in its context. A
+    /// refusal the ledger cannot record is a server error. [NFR-AI-1] [AC-M-4]
+    /// [VLD-ANB-MIDGARD-0054]
+    #[allow(clippy::too_many_arguments)]
+    fn refused(
+        &mut self,
+        ctx: &PolicyContext,
+        verb: &str,
+        reason: &str,
+        approval_id: Option<&str>,
+        target: &str,
+        now: u64,
+        refusal: EdgeError,
+    ) -> EdgeError {
+        // A target the caller named but that was not resolved is recorded as given,
+        // stripped of control characters and capped.
+        let target: String = target
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(128)
+            .collect();
+        let resource = if target.is_empty() {
+            "/api/v1/actions".to_string()
+        } else {
+            target.clone()
+        };
+        let context = AuditContext {
+            outcome: Outcome::Refused,
+            reason: Some(reason.to_string()),
+            approval_id: approval_id
+                .map(|id| id.chars().filter(|c| !c.is_control()).take(64).collect()),
+            target: (!target.is_empty()).then_some(target),
+            ..AuditContext::default()
+        };
+        match self.fabric.governance_mut().record_event_with(
+            &ctx.subject,
+            &format!("REFUSED {verb} ({reason})"),
+            &resource,
+            now,
+            context,
+        ) {
+            Ok(_) => refusal,
+            Err(e) => EdgeError::internal(format!("refusal not audited: {e}")),
+        }
     }
 
     /// `GET /approvals`: every approval whose target the caller may read, newest first;
@@ -693,7 +802,7 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             .fabric
             .governance_mut()
             .authorize(ctx, &resource, "Read", now)
-            .map_err(|e| EdgeError::new(500, &format!("audit failure: {e}")))?;
+            .map_err(|e| EdgeError::internal(format!("audit failure: {e}")))?;
         if !decision.permitted {
             return Err(EdgeError::denied(decision.audit_seq));
         }
@@ -947,7 +1056,7 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             FabricError::MissingRequiredParam(_) | FabricError::BadParamType { .. } => {
                 EdgeError::new(400, &e.to_string())
             }
-            _ => EdgeError::new(500, &e.to_string()),
+            _ => EdgeError::internal(e.to_string()),
         }
     }
 

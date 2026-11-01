@@ -130,6 +130,7 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
             action: Action(action.to_string()),
             resource: Resource(grant_id.to_string()),
             ts: Timestamp(ts.to_string()),
+            context: Default::default(),
         };
         self.audit
             .append(record)

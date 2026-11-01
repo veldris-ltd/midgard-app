@@ -34,7 +34,7 @@ pub mod state_dir;
 pub use service_runtime::{json, policy_file, ListenerLimits, CONNECTION_STACK};
 use service_runtime::{strict_json, BoundedListener};
 
-use audit_writer::Sealer;
+use audit_writer::{AuditContext, Outcome as AuditOutcome, Sealer};
 use data::State;
 use enclosure::{EdgeError, Enclosure};
 use fabric::{InMemoryLedger, InMemoryStore, LedgerStore, ObjectStore};
@@ -53,10 +53,12 @@ use policy::{
     Purpose, Resource, ResourceId, Role, Rule, RuleId, Selector,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::{CryptoProvider, OsRng, VerifyingKey};
+use pqc_agility::{CryptoProvider, OsRng, Rng, VerifyingKey};
 use revocations::Revocations;
 use std::time::Instant;
-use telemetry::{AvailabilitySlo, HealthRegistry, MetricsRegistry, Toggle};
+use telemetry::{
+    AvailabilitySlo, HealthRegistry, LogSink, Logger, MetricsRegistry, StdoutJsonSink, Toggle,
+};
 
 /// The availability objective the gateway is instrumented against (99.9%).
 const AVAILABILITY_OBJECTIVE: f64 = 0.999;
@@ -65,6 +67,12 @@ const AVAILABILITY_OBJECTIVE: f64 = 0.999;
 const TOKEN_TTL: u64 = 3_600;
 /// The declared purpose stamped on a login-issued token.
 const LOGIN_PURPOSE: &str = "operations";
+/// A rejected bearer token is written to the ledger at most once per source address
+/// in this many seconds; every rejection is still counted and logged.
+/// [VLD-ANB-MIDGARD-0054]
+const AUTH_AUDIT_INTERVAL: u64 = 60;
+/// Most source addresses the rejected-token bound tracks before it is pruned.
+const AUTH_AUDIT_SOURCES: usize = 10_000;
 
 /// The dev gateway's demo operator credentials (dev/offline only — production wires a
 /// real IdP directory over the enclosure connection). [RC-37]
@@ -176,6 +184,34 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     health: HealthRegistry,
     readiness: Arc<Toggle>,
     availability: Mutex<AvailabilitySlo>,
+    /// Where the structured request log goes: stdout as JSON lines unless a test
+    /// injects a buffer. [VLD-ANB-MIDGARD-0052]
+    log_sink: Arc<dyn LogSink>,
+    /// When each source address last had a rejected token written to the ledger.
+    /// [VLD-ANB-MIDGARD-0054]
+    auth_audited: Mutex<BTreeMap<String, u64>>,
+}
+
+/// What the gateway knows about the request it is handling, beyond the request
+/// itself: where it came from, the reference its log lines and any server error carry,
+/// and, once authenticated, who made it and under which session.
+/// [VLD-ANB-MIDGARD-0052]
+struct RequestContext {
+    source: Option<String>,
+    request_id: String,
+    subject: Option<String>,
+    session: Option<String>,
+}
+
+impl RequestContext {
+    /// The source and session as a ledger row's context.
+    fn audit(&self) -> AuditContext {
+        AuditContext {
+            source: self.source.clone(),
+            session: self.session.clone(),
+            ..AuditContext::default()
+        }
+    }
 }
 
 impl<L: LedgerStore> SecuredGateway<InMemoryStore, L> {
@@ -253,7 +289,21 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 "gateway_availability",
                 AVAILABILITY_OBJECTIVE,
             )),
+            log_sink: Arc::new(StdoutJsonSink),
+            auth_audited: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Send the structured request log to `sink` instead of stdout (tests read it
+    /// back from a `telemetry::BufferSink`). [VLD-ANB-MIDGARD-0052]
+    pub fn with_log_sink(mut self, sink: Arc<dyn LogSink>) -> Self {
+        self.log_sink = sink;
+        self
+    }
+
+    /// The gateway's structured logger.
+    fn logger(&self) -> Logger<'_> {
+        Logger::new("http-gateway", self.log_sink.as_ref())
     }
 
     /// Enable the `/api/v1/login` endpoint on this gateway: hold the token-minting IdP
@@ -543,10 +593,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 attempt.finish_attempt(Outcome::Error);
                 (
                     "LOGIN failed",
-                    Response::json(
-                        500,
-                        error_json(&format!("token issuance failed: {e}")).encode(),
-                    ),
+                    Response::internal(format!("token issuance failed: {e}")),
                 )
             }
             // An unknown principal, a wrong password, a missing or wrong second factor,
@@ -617,7 +664,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             now,
         ) {
             Ok(_) => response,
-            Err(e) => Response::json(500, error_json(&format!("audit failure: {e}")).encode()),
+            Err(e) => Response::internal(format!("audit failure: {e}")),
         }
     }
 
@@ -628,8 +675,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// revocation the journal cannot record is a 500 and the token stays valid; a
     /// sign-out is recorded in the ledger as `LOGOUT`, naming the token id.
     /// [VLD-ANB-MIDGARD-0021] [AC-M-4]
-    fn handle_logout(&self, req: &Request, now: u64) -> Response {
-        let claims = match self.authenticate(req, now) {
+    fn handle_logout(&self, req: &Request, rc: &RequestContext, now: u64) -> Response {
+        let claims = match self.authenticate(req, rc, now) {
             Ok(claims) => claims,
             Err(resp) => return resp,
         };
@@ -745,7 +792,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 }),
             ),
             Err(e) => (
-                Response::json(e.status, error_json(&e.message).encode()),
+                admin_refusal(e.status, &e.message),
                 Some((
                     audit_actor(body.str_field("admin").unwrap_or_default()),
                     format!("ADMIN refused ({})", e.status),
@@ -762,9 +809,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     .record_event(&actor, &action, &resource, now)
                 {
                     Ok(_) => response,
-                    Err(e) => {
-                        Response::json(500, error_json(&format!("audit failure: {e}")).encode())
-                    }
+                    Err(e) => Response::internal(format!("audit failure: {e}")),
                 }
             }
         }
@@ -909,14 +954,27 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         self.handle_from(req, None, now)
     }
 
-    /// [`SecuredGateway::handle`] for a request that arrived from `peer`, the client's
-    /// address where it is known, without a change to [`Request`]. The login and
-    /// administration routes limit attempts by it; with `None` that limit is skipped.
-    /// [VLD-ANB-MIDGARD-0004] [VLD-ANB-MIDGARD-0005]
+    /// [`handle`](Self::handle) a request that arrived from `peer`, the address of
+    /// the accepted socket, where it is known, without a change to [`Request`]. The
+    /// login and administration routes limit attempts by it; with `None` that limit is
+    /// skipped. Every request gets a reference (16 hex characters) and leaves one JSON
+    /// log line: method, path, status, latency, source, reference and, once
+    /// authenticated, subject. A server error's body is replaced by
+    /// `{"error":"internal error","reference":...}` and its detail logged under the
+    /// same reference, so no store, journal or crypto text reaches a client.
+    /// [VLD-ANB-MIDGARD-0004] [VLD-ANB-MIDGARD-0005] [RC-33] [VLD-ANB-MIDGARD-0052]
+    /// [VLD-ANB-MIDGARD-0053]
     pub fn handle_from(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
         let start = Instant::now();
+        let mut rc = RequestContext {
+            source: peer.map(|p| p.ip().to_string()),
+            request_id: request_id(),
+            subject: None,
+            session: None,
+        };
         let cors = self.cors_origin(req);
-        let resp = self.handle_inner(req, peer, now).with_allow_origin(cors);
+        let resp = self.handle_inner(req, peer, &mut rc, now);
+        let mut resp = self.disclose(resp, &rc).with_allow_origin(cors);
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         let status = resp.status.to_string();
@@ -934,6 +992,49 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             .lock()
             .expect("slo lock")
             .record(served_ok);
+        let latency = format!("{elapsed_ms:.3}");
+        let mut fields = vec![
+            ("method", req.method.as_str()),
+            ("path", req.path.as_str()),
+            ("status", status.as_str()),
+            ("latency_ms", latency.as_str()),
+            ("source", rc.source.as_deref().unwrap_or("")),
+            ("request_id", rc.request_id.as_str()),
+        ];
+        if let Some(subject) = &rc.subject {
+            fields.push(("subject", subject));
+        }
+        self.logger().info("request", &fields);
+        resp.detail = None;
+        resp
+    }
+
+    /// What of `resp` the client may read: a server error becomes the fixed body and
+    /// the request's reference, and any detail is logged under that reference.
+    /// [VLD-ANB-MIDGARD-0053]
+    fn disclose(&self, mut resp: Response, rc: &RequestContext) -> Response {
+        if resp.status == 500 {
+            let detail = resp.detail.take().unwrap_or_else(|| resp.body.clone());
+            self.logger().error(
+                "internal error",
+                &[("request_id", &rc.request_id), ("detail", &detail)],
+            );
+            resp.body = Json::obj(vec![
+                ("error", Json::s("internal error")),
+                ("reference", Json::s(&rc.request_id)),
+            ])
+            .encode();
+        } else if let Some(detail) = &resp.detail {
+            let status = resp.status.to_string();
+            self.logger().warn(
+                "request refused",
+                &[
+                    ("request_id", &rc.request_id),
+                    ("status", &status),
+                    ("detail", detail),
+                ],
+            );
+        }
         resp
     }
 
@@ -948,7 +1049,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             .map(str::to_string)
     }
 
-    fn handle_inner(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
+    fn handle_inner(
+        &self,
+        req: &Request,
+        peer: Option<SocketAddr>,
+        rc: &mut RequestContext,
+        now: u64,
+    ) -> Response {
         // CORS preflight.
         if req.method == "OPTIONS" {
             return Response::json(204, String::new());
@@ -985,18 +1092,21 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
         // Sign-out: authenticated by the very token it revokes. [VLD-ANB-MIDGARD-0021]
         if req.method == "POST" && req.path == "/api/v1/logout" {
-            return self.handle_logout(req, now);
+            return self.handle_logout(req, rc, now);
         }
 
         // 1. Authenticate: verify the PQ-signed IdP token or reject.
-        let claims = match self.authenticate(req, now) {
+        let claims = match self.authenticate(req, rc, now) {
             Ok(c) => c,
             Err(resp) => return resp, // 401
         };
+        rc.subject = Some(claims.subject.clone());
+        // The token carries no id of its own; its subject and issue time name it.
+        rc.session = Some(format!("{}:{}", claims.subject, claims.issued_at));
 
         // 2. Authorise + audit the request against the resource it targets.
         let (id, level, action) = self.resource_action(req);
-        match self.authorize(&claims, &id, level, action, now) {
+        match self.authorize(&claims, &id, level, action, rc, now) {
             Ok(audit_seq) => self.serve(req, &claims, audit_seq, now), // permitted → serve
             Err(resp) => resp,                                         // 403, already audited
         }
@@ -1068,26 +1178,36 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         };
         match result {
             Ok(json) => Response::ok(json.encode()),
-            Err(e) => Response::json(e.status, e.body.encode()),
+            Err(e) => {
+                let resp = Response::json(e.status, e.body.encode());
+                match e.detail {
+                    Some(detail) => resp.with_detail(detail),
+                    None => resp,
+                }
+            }
         }
     }
 
-    /// The verified claims of the request's bearer token, or a 401. Past the signature
-    /// and validity window, a token signed out is refused, and so is one whose subject
-    /// is no longer enrolled on a gateway that issues its own tokens and so holds the
+    /// The verified claims of the request's bearer token, or a 401. A missing or
+    /// unverifiable token is answered by [`Self::reject_token`]. Past the signature and
+    /// validity window, a token signed out is refused, and so is one whose subject is
+    /// no longer enrolled on a gateway that issues its own tokens and so holds the
     /// directory they come from (a verify-only edge has none to consult). Each lock is
-    /// released before the next is taken, and none is held while serving. Neither
-    /// refusal writes a ledger row, so an unauthenticated caller cannot make the
-    /// ledger grow; both are counted in `/metrics`. [VLD-ANB-MIDGARD-0021] [NFR-SEC-1]
-    fn authenticate(&self, req: &Request, now: u64) -> Result<TokenClaims, Response> {
+    /// released before the next is taken, and none is held while serving. Neither of
+    /// those two refusals writes a ledger row; both are counted in `/metrics`.
+    /// [VLD-ANB-MIDGARD-0021] [NFR-SEC-1]
+    fn authenticate(
+        &self,
+        req: &Request,
+        rc: &RequestContext,
+        now: u64,
+    ) -> Result<TokenClaims, Response> {
         let token = req
             .bearer()
-            .ok_or_else(|| Response::json(401, error_json("missing bearer token").encode()))?;
-        let bytes = hex_decode(token)
-            .map_err(|_| Response::json(401, error_json("malformed bearer token").encode()))?;
-        let claims = verify_token(&self.provider, &self.issuer_vk, &bytes, now).map_err(|e| {
-            Response::json(401, error_json(&format!("token rejected: {e:?}")).encode())
-        })?;
+            .ok_or_else(|| self.reject_token(req, rc, "missing", now))?;
+        let bytes = hex_decode(token).map_err(|_| self.reject_token(req, rc, "malformed", now))?;
+        let claims = verify_token(&self.provider, &self.issuer_vk, &bytes, now)
+            .map_err(|e| self.reject_token(req, rc, token_rejection_class(&e), now))?;
         let revoked = self.revocations().is_revoked(&claims.token_id, now);
         if revoked {
             return Err(self.refuse_session("token revoked"));
@@ -1111,6 +1231,70 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         self.metrics
             .inc("http_session_refusals_total", &[("reason", reason)]);
         Response::json(401, error_json(reason).encode())
+    }
+
+    /// Answer a missing or rejected bearer token. The body is the same whatever was
+    /// wrong, so it says nothing about which check failed; the class is counted in
+    /// `http_auth_rejections_total`, logged with the source and reference, and
+    /// written to the ledger as `AUTH rejected (<class>)`, at most once per source
+    /// address a minute, so a flood of bad tokens cannot be turned into a flood of
+    /// signed ledger rows. [NFR-SEC-1] [VLD-ANB-MIDGARD-0053] [VLD-ANB-MIDGARD-0054]
+    fn reject_token(&self, req: &Request, rc: &RequestContext, class: &str, now: u64) -> Response {
+        self.metrics
+            .inc("http_auth_rejections_total", &[("class", class)]);
+        let source = rc.source.as_deref().unwrap_or("");
+        self.logger().warn(
+            "token rejected",
+            &[
+                ("class", class),
+                ("source", source),
+                ("request_id", &rc.request_id),
+            ],
+        );
+        if self.first_rejection_this_minute(source, now) {
+            let recorded = self.lock().governance_mut().record_event_with(
+                "(unauthenticated)",
+                &format!("AUTH rejected ({class})"),
+                &req.path,
+                now,
+                AuditContext {
+                    outcome: AuditOutcome::Refused,
+                    reason: Some(class.to_string()),
+                    ..rc.audit()
+                },
+            );
+            if let Err(e) = recorded {
+                self.logger().error(
+                    "token rejection not audited",
+                    &[("request_id", &rc.request_id), ("detail", &e.to_string())],
+                );
+            }
+        }
+        Response::json(401, error_json("token rejected").encode())
+    }
+
+    /// Whether `source` has had no rejected token written to the ledger in the last
+    /// [`AUTH_AUDIT_INTERVAL`] seconds; if so, it now has. The table is pruned of
+    /// stale sources once it tracks [`AUTH_AUDIT_SOURCES`].
+    fn first_rejection_this_minute(&self, source: &str, now: u64) -> bool {
+        let mut audited = self
+            .auth_audited
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if audited
+            .get(source)
+            .is_some_and(|&at| now < at.saturating_add(AUTH_AUDIT_INTERVAL))
+        {
+            return false;
+        }
+        if audited.len() >= AUTH_AUDIT_SOURCES {
+            audited.retain(|_, at| now < at.saturating_add(AUTH_AUDIT_INTERVAL));
+            if audited.len() >= AUTH_AUDIT_SOURCES {
+                audited.clear();
+            }
+        }
+        audited.insert(source.to_string(), now);
+        true
     }
 
     /// The (resource id, marking level, action) a request targets.
@@ -1172,6 +1356,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         id: &str,
         level: ClassificationLevel,
         action: &str,
+        rc: &RequestContext,
         now: u64,
     ) -> Result<u64, Response> {
         let ctx = gov_context(claims);
@@ -1188,7 +1373,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         let mut enclosure = self.lock();
         match enclosure
             .governance_mut()
-            .authorize(&ctx, &resource, action, now)
+            .authorize_with(&ctx, &resource, action, now, rc.audit())
         {
             Ok(d) if d.permitted => Ok(d.audit_seq),
             Ok(d) => Err(Response::json(
@@ -1199,10 +1384,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 ])
                 .encode(),
             )),
-            Err(e) => Err(Response::json(
-                500,
-                error_json(&format!("audit failure: {e}")).encode(),
-            )),
+            Err(e) => Err(Response::internal(format!("audit failure: {e}"))),
         }
     }
 
@@ -1385,10 +1567,12 @@ where
     S: ObjectStore + Send + 'static,
     L: LedgerStore + Send + 'static,
 {
-    eprintln!(
-        "http-gateway (secured) listening on http://{}",
-        listener.local_addr()?
-    );
+    let local = listener.local_addr()?.to_string();
+    // The operator's start-up banner stays on stderr (the README and the safe-default
+    // test read it); the structured log carries the same event.
+    eprintln!("http-gateway (secured) listening on http://{local}");
+    gw.logger()
+        .info("http-gateway (secured) listening", &[("addr", &local)]);
     eprintln!(
         "http-gateway: at most {} connections, a {}s read timeout, a {}s head deadline, {} \
          new connections a second from one address",
@@ -1422,7 +1606,8 @@ where
         listener,
         Arc::new(move |stream, _permit| {
             if let Err(e) = handle_connection(stream, &gw, head_deadline) {
-                eprintln!("http-gateway: connection error: {e}");
+                gw.logger()
+                    .warn("connection error", &[("detail", &e.to_string())]);
             }
         }),
         Arc::new(|stream| {
@@ -1448,9 +1633,12 @@ fn handle_connection<S: ObjectStore, L: LedgerStore>(
     head_deadline: Duration,
 ) -> std::io::Result<()> {
     match read_request_within(&stream, head_deadline)? {
-        Some(Incoming::Request(req)) => gw
-            .handle_from(&req, stream.peer_addr().ok(), now_secs())
-            .write(&mut stream),
+        Some(Incoming::Request(req)) => {
+            // The source is the accepted socket's peer, never a header.
+            // [VLD-ANB-MIDGARD-0052]
+            let peer = stream.peer_addr().ok();
+            gw.handle_from(&req, peer, now_secs()).write(&mut stream)
+        }
         // Too large or unframed: refused before the body is read, and not admitted, so
         // it reaches neither authentication nor the ledger. [NFR-SEC-1]
         Some(Incoming::Refused { response, origin }) => {
@@ -1544,6 +1732,41 @@ fn audit_actor(username: &str) -> String {
         "(no username)".to_string()
     } else {
         name
+    }
+}
+
+/// A fresh request reference: 16 lowercase hex characters from the OS RNG. It is
+/// returned with a server error and keys the log lines that hold the detail.
+/// [VLD-ANB-MIDGARD-0053]
+fn request_id() -> String {
+    let mut bytes = [0u8; 8];
+    OsRng.fill(&mut bytes);
+    hex_encode(&bytes)
+}
+
+/// The class a rejected token is counted, logged and audited under. Only the class
+/// is recorded; the body the client reads is the same for all of them.
+/// [VLD-ANB-MIDGARD-0054]
+fn token_rejection_class(e: &iam::TokenError) -> &'static str {
+    match e {
+        iam::TokenError::Malformed => "malformed",
+        iam::TokenError::Expired => "expired",
+        iam::TokenError::BadSignature => "signature",
+        _ => "other",
+    }
+}
+
+/// An administration refusal as the client reads it: a server error is reported only
+/// by reference, a refused privilege as `refused` and a failed sign-in as
+/// `unauthorised`, each with its detail kept for the log. A refusal of the caller's
+/// own input (a malformed body, an unknown enrolment) says what was wrong.
+/// [VLD-ANB-MIDGARD-0053]
+fn admin_refusal(status: u16, message: &str) -> Response {
+    match status {
+        500.. => Response::internal(message),
+        403 => Response::json(403, error_json("refused").encode()).with_detail(message),
+        401 => Response::json(401, error_json("unauthorised").encode()).with_detail(message),
+        _ => Response::json(status, error_json(message).encode()),
     }
 }
 
@@ -2010,5 +2233,46 @@ mod tests {
                 "{addr}"
             );
         }
+    }
+
+    /// An administration refusal says only `refused` or `unauthorised`, and a server
+    /// error only `internal error` and a reference; each detail is logged under the
+    /// request's reference. A refusal of the caller's own input still says what was
+    /// wrong. [VLD-ANB-MIDGARD-0053] [AC-26.5]
+    #[test]
+    fn an_admin_refusal_keeps_its_detail_for_the_log() {
+        let sink = Arc::new(telemetry::BufferSink::new());
+        let gw = SecuredGateway::dev().with_log_sink(sink.clone());
+        let rc = |id: &str| RequestContext {
+            source: None,
+            request_id: id.to_string(),
+            subject: None,
+            session: None,
+        };
+
+        let refused = gw.disclose(admin_refusal(403, "SelfApprovalDenied"), &rc("aaaa"));
+        assert_eq!(refused.body, r#"{"error":"refused"}"#);
+        let unsigned = gw.disclose(admin_refusal(401, "bad assertion"), &rc("bbbb"));
+        assert_eq!(unsigned.body, r#"{"error":"unauthorised"}"#);
+        let failed = gw.disclose(
+            admin_refusal(500, "enrolled, but not marked settled: journal"),
+            &rc("cccc"),
+        );
+        assert_eq!(
+            failed.body,
+            r#"{"error":"internal error","reference":"cccc"}"#
+        );
+        let input = gw.disclose(admin_refusal(404, "no enrolment x is waiting"), &rc("dddd"));
+        assert_eq!(input.body, r#"{"error":"no enrolment x is waiting"}"#);
+
+        let logged = |id: &str, detail: &str| {
+            sink.records().iter().any(|r| {
+                r.fields.contains(&("request_id".into(), id.into()))
+                    && r.fields.contains(&("detail".into(), detail.into()))
+            })
+        };
+        assert!(logged("aaaa", "SelfApprovalDenied"));
+        assert!(logged("bbbb", "bad assertion"));
+        assert!(logged("cccc", "enrolled, but not marked settled: journal"));
     }
 }

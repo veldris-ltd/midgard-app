@@ -39,6 +39,7 @@ impl<S: LedgerStore> AdminAuditLog<S> {
             action: Action(event.what.clone()),
             resource: Resource(detail),
             ts: Timestamp(ts.to_string()),
+            context: Default::default(),
         };
         let seq = self
             .writer

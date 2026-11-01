@@ -261,7 +261,8 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
             None,
         );
         assert_eq!(r.status, 403, "{}", r.body);
-        assert!(r.body.contains("SelfApprovalDenied"), "{}", r.body);
+        // The privilege service's reason stays in the gateway's log. [VLD-ANB-MIDGARD-0053]
+        assert_eq!(r.body, r#"{"error":"refused"}"#);
         let r = post(
             gw,
             "/api/v1/admin/enrolments/approve",

@@ -32,7 +32,7 @@ use std::time::Duration;
 use fabric::LedgerStore;
 use forge_connector_sdk::{CredentialResolver, NoCredentials};
 use forge_dataset_store::DurableDatasetStore;
-use forge_worker::{parse_jobs, run_job, Checkpoints, Job, SecretsDir};
+use forge_worker::{parse_jobs, record_failed_run, run_job, Checkpoints, Job, SecretsDir};
 use governance::Governance;
 use kms::TrustRoot;
 use policy::{DefaultPdp, PolicySet};
@@ -280,17 +280,20 @@ impl Worker<'_> {
                 true
             }
             Err(reason) => {
-                let _ = audit.record_event(
-                    self.service,
-                    "RUN forge job failed",
-                    &format!("job:{}", job.id),
-                    now,
-                );
+                let recorded = record_failed_run(audit, self.service, &job.id, &reason, now);
                 self.metrics.inc(
                     "forge_job_runs_total",
                     &[("job", &job.id), ("outcome", "failed")],
                 );
                 logger.error("job run failed", &[("job", &job.id), ("reason", &reason)]);
+                // As on success: a failure the ledger did not record is said so.
+                // [VLD-ANB-MIDGARD-0072]
+                if let Err(e) = recorded {
+                    logger.error(
+                        "job run not audited",
+                        &[("job", &job.id), ("reason", &format!("{e:?}"))],
+                    );
+                }
                 false
             }
         }
