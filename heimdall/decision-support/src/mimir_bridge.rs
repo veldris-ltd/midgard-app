@@ -87,6 +87,7 @@ mod tests {
             system: "A8".into(),
             picture_text: "entity:A123".into(),
             decision_point: "decide".into(),
+            boundary: mimir_prompts::delimit::Boundary::fixed("b"),
         }
     }
 

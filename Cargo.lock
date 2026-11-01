@@ -555,6 +555,7 @@ dependencies = [
  "heimdall-picture",
  "mimir-bridge",
  "mimir-prompts",
+ "pqc-agility",
 ]
 
 [[package]]

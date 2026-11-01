@@ -29,7 +29,8 @@ pub use agent::{
     ReferenceAgent, RefusalCode,
 };
 pub use assembly::{
-    AssembledPrompt, AssemblyConfig, AssemblyError, Layers, Pipeline, TokenCounter, WordCounter,
+    random_boundary, AssembledPrompt, AssemblyConfig, AssemblyError, Boundary, Layers, Pipeline,
+    TokenCounter, WordCounter,
 };
 pub use defend::{
     Classifier, DefenseCategory, DefenseVerdict, ModelBackedGuardrail, SelfDefending, Severity,

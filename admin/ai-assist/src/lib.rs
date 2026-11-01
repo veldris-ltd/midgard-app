@@ -21,6 +21,11 @@
 //! PQ-mTLS; tests use a deterministic mock), the model's JSON is parsed by a small
 //! dependency-free reader, and an **EV-AD** eval suite scores the behaviour — each
 //! eval both passing on correct output and catching the corresponding violation.
+//!
+//! A.AD1 and A.AD3 place untrusted text (state, ledger rows, the administrator's
+//! words) in their prompts only as provenance-tagged DATA blocks
+//! (`mimir_prompts::delimit`), each prompt under a fresh boundary from
+//! [`request_boundary`]. [VLD-ANB-MIDGARD-0080] [FR-MI-7]
 
 pub mod audit_assistant;
 pub mod copilot;
@@ -31,12 +36,14 @@ pub mod mimir_bridge;
 pub mod sim_explainer;
 
 pub use audit_assistant::{
-    assemble_audit, investigate_audit, AssembledAuditPrompt, AuditAnswer, AuditAssistant,
-    AuditContext, Finding, MockAuditAssistant, TimelineEntry, UnavailableAuditAssistant,
+    assemble_audit, assemble_audit_with_boundary, investigate_audit, AssembledAuditPrompt,
+    AuditAnswer, AuditAssistant, AuditContext, Finding, MockAuditAssistant, TimelineEntry,
+    UnavailableAuditAssistant,
 };
 pub use copilot::{
-    assemble_copilot, request_copilot, AssembledCopilotPrompt, CopilotAdvisor, CopilotContext,
-    CopilotResponse, MockCopilot, ProposedChange, Refusal, RefusalCode, UnavailableCopilot,
+    assemble_copilot, assemble_copilot_with_boundary, request_copilot, AssembledCopilotPrompt,
+    CopilotAdvisor, CopilotContext, CopilotResponse, MockCopilot, ProposedChange, Refusal,
+    RefusalCode, UnavailableCopilot,
 };
 pub use error::AdviceError;
 pub use evals::{
@@ -44,6 +51,21 @@ pub use evals::{
     ev_ad3_cited, ev_ad3_pattern, ev_ad3_readonly, EvalResult, EvalScore,
 };
 pub use mimir_bridge::MimirCopilot;
+
+use mimir_prompts::delimit::Boundary;
+use pqc_agility::{OsRng, Rng};
+
+/// Labels and sources are constants and a [`Boundary`] is always a token, so a
+/// prompt's DATA block cannot be refused.
+const VALID_BLOCK: &str = "constant label and source, and a Boundary is a token";
+
+/// A fresh random DATA boundary for one prompt, from `pqc_agility::OsRng`.
+/// [VLD-ANB-MIDGARD-0080]
+pub fn request_boundary() -> Boundary {
+    let mut bytes = [0u8; 8];
+    OsRng.fill(&mut bytes);
+    Boundary::from_random_bytes(bytes)
+}
 pub use sim_explainer::{
     assemble_sim, explain_simulation, AssembledSimPrompt, MockSimExplainer, SimExplainer,
     SimExplainerContext, SimulationImpact, UnavailableSimExplainer,

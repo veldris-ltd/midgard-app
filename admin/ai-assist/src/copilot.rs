@@ -2,8 +2,16 @@
 //! explains state, but never executes. To act, the administrator submits the
 //! proposal through the guarded, dual-controlled path (`admin-privilege`).
 //! `[FR-AD-10]` `[AC-AD-11]`
+//!
+//! The state and the administrator's message are untrusted (state strings come
+//! from configuration other principals wrote), so they reach the model only as
+//! provenance-tagged DATA blocks (sources `admin-state` and `admin`,
+//! [`mimir_prompts::delimit`]) under a fresh per-request boundary. The role, the
+//! policy and the output contract are the product's own and stay with the system
+//! prompt and the data-handling rule. [VLD-ANB-MIDGARD-0080]
 
-use mimir_prompts::{A_AD1_ADMIN_COPILOT, A_AD1_DEFAULT_OUTPUT_CONTRACT};
+use mimir_prompts::delimit::{self, Boundary};
+use mimir_prompts::{A_AD1_ADMIN_COPILOT, A_AD1_DEFAULT_OUTPUT_CONTRACT, DATA_HANDLING_RULE};
 
 use crate::error::AdviceError;
 use crate::json::{self, string_array, JsonValue};
@@ -93,20 +101,50 @@ pub struct AssembledCopilotPrompt {
     pub output_contract: String,
     /// Rendered `{{ADMIN_MESSAGE}}`.
     pub admin_message: String,
+    /// The boundary this prompt's DATA blocks carry, fresh per assembly.
+    pub boundary: Boundary,
 }
 
 impl AssembledCopilotPrompt {
+    /// The system-authority text: the verbatim A.AD1 prompt, the (trusted) role,
+    /// policy and output contract, and the data-handling rule.
+    pub fn system_text(&self) -> String {
+        format!(
+            "{}\n\nADMIN_ROLE:\n{}\n\nPOLICY:\n{}\n\nOUTPUT_CONTRACT:\n{}\n\n{DATA_HANDLING_RULE}",
+            self.system, self.admin_role, self.policy, self.output_contract
+        )
+    }
+
+    /// The untrusted body: the state (one bounded item per line) and the
+    /// administrator's message, each as a DATA block.
+    pub fn body_text(&self) -> String {
+        let b = self.boundary.as_str();
+        let state: Vec<&str> = self.state.lines().collect();
+        format!(
+            "STATE:\n{}\n\nADMIN_MESSAGE:\n{}",
+            delimit::render_items("STATE", "admin-state", b, &state).expect(crate::VALID_BLOCK),
+            delimit::render_block("ADMIN_MESSAGE", "admin", b, &self.admin_message)
+                .expect(crate::VALID_BLOCK),
+        )
+    }
+
     /// The full text the adapter sends to the model.
     pub fn full_text(&self) -> String {
-        format!(
-            "{}\n\nADMIN_ROLE:\n{}\n\nSTATE:\n{}\n\nPOLICY:\n{}\n\nOUTPUT_CONTRACT:\n{}\n\nADMIN_MESSAGE:\n{}\n",
-            self.system, self.admin_role, self.state, self.policy, self.output_contract, self.admin_message
-        )
+        format!("{}\n\n{}\n", self.system_text(), self.body_text())
     }
 }
 
-/// Assemble the A.AD1 prompt for a context.
+/// Assemble the A.AD1 prompt for a context, under a fresh random boundary.
 pub fn assemble_copilot(ctx: &CopilotContext) -> AssembledCopilotPrompt {
+    assemble_copilot_with_boundary(ctx, crate::request_boundary())
+}
+
+/// [`assemble_copilot`] under a caller-chosen boundary (tests asserting exact
+/// layout).
+pub fn assemble_copilot_with_boundary(
+    ctx: &CopilotContext,
+    boundary: Boundary,
+) -> AssembledCopilotPrompt {
     AssembledCopilotPrompt {
         system: A_AD1_ADMIN_COPILOT.to_string(),
         admin_role: ctx.admin_role.clone(),
@@ -114,6 +152,7 @@ pub fn assemble_copilot(ctx: &CopilotContext) -> AssembledCopilotPrompt {
         policy: ctx.policy.clone(),
         output_contract: ctx.output_contract.clone(),
         admin_message: ctx.admin_message.clone(),
+        boundary,
     }
 }
 

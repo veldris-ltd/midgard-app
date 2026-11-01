@@ -11,6 +11,8 @@ description = "Heimdall decision-support adapter: A.8 option generation via Mimi
 heimdall-picture = { path = "../picture" }
 # The verbatim A.8 system prompt (authoritative text lives in the prompt library).
 mimir-prompts = { path = "../../mimir/prompts" }
+# The OS CSPRNG each prompt's DATA-block boundary is drawn from. [VLD-ANB-MIDGARD-0080]
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
 # The live inference transport (PQ-mTLS to the Mimir gateway) behind the seam. The
 # Mock/Unavailable providers keep working with no bridge configured. [RT-45]
 mimir-bridge = { path = "../../mimir/bridge" }

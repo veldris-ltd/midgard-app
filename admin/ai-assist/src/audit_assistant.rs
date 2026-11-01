@@ -1,8 +1,15 @@
 //! A.AD3 — the audit-investigation assistant. Strictly read-only Q&A over the audit
 //! ledger; every finding is cited by audit entry id, and the response type cannot
 //! express any mutation. `[FR-AD-9]`
+//!
+//! Ledger rows carry strings any actor could have caused to be recorded, and the
+//! question is the auditor's text, so both reach the model only as
+//! provenance-tagged DATA blocks (sources `ledger` and `admin`,
+//! [`mimir_prompts::delimit`]) under a fresh per-request boundary, after the
+//! verbatim system prompt and the data-handling rule. [VLD-ANB-MIDGARD-0080]
 
-use mimir_prompts::A_AD3_AUDIT_ASSISTANT;
+use mimir_prompts::delimit::{self, Boundary};
+use mimir_prompts::{A_AD3_AUDIT_ASSISTANT, DATA_HANDLING_RULE};
 
 use crate::error::AdviceError;
 use crate::json::{self, string_array, JsonValue};
@@ -60,24 +67,51 @@ pub struct AssembledAuditPrompt {
     pub audit_results: String,
     /// Rendered `{{QUESTION}}`.
     pub question: String,
+    /// The boundary this prompt's DATA blocks carry, fresh per assembly.
+    pub boundary: Boundary,
 }
 
 impl AssembledAuditPrompt {
+    /// The system-authority text: the verbatim A.AD3 prompt and the data-handling
+    /// rule.
+    pub fn system_text(&self) -> String {
+        format!("{}\n\n{DATA_HANDLING_RULE}", self.system)
+    }
+
+    /// The untrusted body: the ledger results (one bounded item per row line) and
+    /// the question, each as a DATA block.
+    pub fn body_text(&self) -> String {
+        let b = self.boundary.as_str();
+        let rows: Vec<&str> = self.audit_results.lines().collect();
+        format!(
+            "AUDIT_RESULTS:\n{}\n\nQUESTION:\n{}",
+            delimit::render_items("AUDIT_RESULTS", "ledger", b, &rows).expect(crate::VALID_BLOCK),
+            delimit::render_block("QUESTION", "admin", b, &self.question)
+                .expect(crate::VALID_BLOCK),
+        )
+    }
+
     /// The full text the adapter sends to the model.
     pub fn full_text(&self) -> String {
-        format!(
-            "{}\n\nAUDIT_RESULTS:\n{}\n\nQUESTION:\n{}\n",
-            self.system, self.audit_results, self.question
-        )
+        format!("{}\n\n{}\n", self.system_text(), self.body_text())
     }
 }
 
-/// Assemble the A.AD3 prompt.
+/// Assemble the A.AD3 prompt, under a fresh random boundary.
 pub fn assemble_audit(ctx: &AuditContext) -> AssembledAuditPrompt {
+    assemble_audit_with_boundary(ctx, crate::request_boundary())
+}
+
+/// [`assemble_audit`] under a caller-chosen boundary (tests asserting exact layout).
+pub fn assemble_audit_with_boundary(
+    ctx: &AuditContext,
+    boundary: Boundary,
+) -> AssembledAuditPrompt {
     AssembledAuditPrompt {
         system: A_AD3_AUDIT_ASSISTANT.to_string(),
         audit_results: ctx.audit_results.clone(),
         question: ctx.question.clone(),
+        boundary,
     }
 }
 

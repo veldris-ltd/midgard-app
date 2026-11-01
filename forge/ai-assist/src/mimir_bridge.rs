@@ -81,6 +81,7 @@ mod tests {
             schema_text: "name: text".into(),
             library_text: "uppercase".into(),
             user_request: "uppercase the name".into(),
+            boundary: mimir_prompts::delimit::Boundary::fixed("b"),
         }
     }
 
