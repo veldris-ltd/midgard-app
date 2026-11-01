@@ -30,6 +30,7 @@ fn picture(kind: &str, label: &str, feed: &str) -> Picture {
         track: Track {
             first_seen: 100,
             last_seen: 105,
+            last_received: 105,
             observation_count: 2,
         },
         classification: Some(Classification {
