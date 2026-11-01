@@ -40,11 +40,11 @@ use std::sync::Arc;
 use fabric::{DurableObjectStore, LedgerStore, ObjectStore, PolicyContext};
 use gateway::{Authorised, Gateway, RequestHandler, Router};
 use policy::{
-    dominates, ClassificationLevel, Clearance, DefaultPdp, Marking, PolicyDecisionPoint, Purpose,
-    Resource, ResourceId,
+    dominates, Clearance, DefaultPdp, PolicyDecisionPoint, Purpose, Resource, ResourceId,
 };
 use pq_mtls::{Authorization, WorkloadIdentity};
 use pqc_agility::backend::fips::provider as fips_provider;
+use service_runtime::marking::open_marking;
 use service_runtime::{
     apply_mesh_limits, mesh_context, serve_mesh_with, MeshLimits, ServiceIdentity,
 };
@@ -70,14 +70,13 @@ pub mod outcome {
     pub const FAILED: u8 = 3;
 }
 
-/// The resource a sync — and its channel — is authorised against.
+/// The resource a sync — and its channel — is authorised against: open, as every mesh
+/// resource is unless configured; what a sync may write is held to the workload's
+/// certified clearance record by record. [VLD-ANB-MIDGARD-0063]
 fn sync_resource(id: &str, purpose: &str) -> Resource {
     Resource {
         id: ResourceId(id.into()),
-        marking: Marking {
-            level: ClassificationLevel::UNCLASSIFIED,
-            compartments: BTreeSet::new(),
-        },
+        marking: open_marking(),
         allowed_purposes: [Purpose(purpose.to_string())].into_iter().collect(),
     }
 }
