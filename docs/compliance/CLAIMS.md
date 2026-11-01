@@ -694,7 +694,7 @@ Native applications for iOS, Android and Linux, a Tauri desktop application, a w
 
 ### `supply-chain-gate` (operable)
 
-Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified.
+Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token.
 
 **Limit.** The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them.
 

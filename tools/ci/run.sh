@@ -636,10 +636,14 @@ job_shell_audit() {
             [ -f "$root/package.json" ] || no_project "$root/package.json"
             need node "shell-audit: node is needed for the $shell audit"
             (cd "$root" && npm ci && npm run build)
-            (cd "$root" && exec npx --yes http-server dist -p 4173 -s >/dev/null 2>&1) &
+            # The server and the wait come from the CI-owned lockfile, never fetched by
+            # name at run time: the record they help write gates the release. [VLD-ANB-MIDGARD-0058]
+            (cd tools/ci/shell-audit && npm ci --ignore-scripts --no-audit --no-fund)
+            local bin="$PWD/tools/ci/shell-audit/node_modules/.bin"
+            "$bin/http-server" "$root/dist" -p 4173 -s >/dev/null 2>&1 &
             local server=$!
             trap "kill $server 2>/dev/null || true" EXIT
-            npx --yes wait-on http://127.0.0.1:4173
+            "$bin/wait-on" http://127.0.0.1:4173
             node clients/shells/web/a11y/axe-audit.mjs --url http://127.0.0.1:4173 --shell "$shell" \
                 --release "$release" --out "$root/audits/$release.toml" --report "$report"
             ;;

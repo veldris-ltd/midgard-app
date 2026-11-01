@@ -37,6 +37,7 @@ out which system it is running under from the variables that system always sets
 | `tools/ci/vendor-check.sh` | checks `/vendor` is exactly what `Cargo.lock` names, and that Cargo is pinned to it |
 | `tools/ci/claims.sh` | renders the claims ledger and checks every row against the files, lines and tests it cites |
 | `renovate.json` | the weekly dependency updates for both ecosystems (see [Dependency updates](#dependency-updates)) |
+| `tools/ci/shell-audit/` | the exact versions, in a lockfile, of the tools the shell-audit job runs |
 | `tools/ci/tests/*.test.sh` | tests for the scripts above |
 
 ### Keeping the two in step
@@ -54,6 +55,24 @@ out which system it is running under from the variables that system always sets
 
 It runs as part of the `selftest` job on both forges, so adding a job on one and
 forgetting the other turns both red.
+
+### Checkouts and the tools jobs fetch
+
+Every `actions/checkout` step sets `persist-credentials: false`. No job pushes, and
+`release-publish` passes its token to `gh` in the environment, so nothing needs the
+job token in `.git/config`, where it would otherwise stay for the rest of the job: on
+the self-hosted signing runner, beside the key material. The checkout fetches first,
+so `fetch-depth: 0` and the history checks are unaffected. `tools/ci/tests/workflows.test.sh`
+fails if a checkout step leaves the option out, and the signing runner's own cleanup
+is item 5 of [docs/ops/PKI.md](../ops/PKI.md) "Signing runner", asserted by the release
+preflight. (VLD-ANB-MIDGARD-0081)
+
+A job never runs a package fetched by name. The shell-audit job's `http-server` and
+`wait-on` are pinned to exact versions in `tools/ci/shell-audit/package-lock.json`,
+installed with `npm ci --ignore-scripts` and run from its `node_modules/.bin`; see that
+directory's README to bump them. `tools/ci/tests/npx-pin.test.sh` fails on `npx --yes`,
+`npx -y`, or an `npx` of a package with no exact version, anywhere under `tools/`,
+`.github/` or in `.gitlab-ci.yml`. (VLD-ANB-MIDGARD-0058)
 
 ## Running a job yourself
 
