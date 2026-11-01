@@ -508,6 +508,119 @@ install_python() {
     python3 --version
 }
 
+# ---- the edge firewall -----------------------------------------------------------------
+# The gateway and console are on compose's `edge` network only so their loopback ports
+# can be published. Its bridge does no masquerade, but a server that forwards or NATs
+# the bridge's subnet itself would still route the gateway out, so a rule in Docker's
+# DOCKER-USER chain drops whatever arrives from the bridge (a fixed interface name,
+# mg-edge0, set in compose.yaml) and would leave by any other interface. Replies to
+# connections already made are let through first. The loopback publish is untouched: it
+# goes through the server's own input and output path, not the forward path these rules
+# sit on. The rules carry a comment so they can be found and removed exactly; a small
+# systemd unit puts them back after every boot and Docker restart. [VLD-ANB-MIDGARD-0061]
+EDGE_BRIDGE=mg-edge0
+EDGE_RULE_TAG=midgard-edge-egress
+EDGE_HELPER=/usr/local/sbin/midgard-edge-egress
+EDGE_UNIT=/etc/systemd/system/midgard-edge-egress.service
+
+# remove_edge_egress_rules IPTABLES: delete every DOCKER-USER rule carrying our comment
+remove_edge_egress_rules() {
+    local ipt="$1" line spec lines=()
+    mapfile -t lines < <("$ipt" -S DOCKER-USER 2>/dev/null |
+        grep -E -- "--comment \"?$EDGE_RULE_TAG\"?( |\$)" || true)
+    for line in "${lines[@]}"; do
+        line="${line//\"/}"
+        read -ra spec <<<"${line/#-A /-D }"
+        "$ipt" "${spec[@]}"
+    done
+}
+
+# apply_edge_egress: put the rules in place, once, in iptables and (where Docker
+# manages it) ip6tables. Safe to repeat. Fails if there is no iptables or no
+# DOCKER-USER chain, as when Docker runs with iptables off or its nftables backend.
+apply_edge_egress() {
+    local ipt keep drop
+    keep=(-i "$EDGE_BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED
+        -m comment --comment "$EDGE_RULE_TAG" -j RETURN)
+    drop=(-i "$EDGE_BRIDGE" ! -o "$EDGE_BRIDGE" -m comment --comment "$EDGE_RULE_TAG" -j DROP)
+    if ! command -v iptables >/dev/null 2>&1; then
+        echo "iptables is not installed, so nothing stops the gateway's network ($EDGE_BRIDGE)" \
+            "routing out of this server. Install iptables and run the installer again." >&2
+        return 1
+    fi
+    if ! iptables -n -L DOCKER-USER >/dev/null 2>&1; then
+        echo "iptables has no DOCKER-USER chain, so nothing stops the gateway's network" \
+            "($EDGE_BRIDGE) routing out of this server. Start Docker with its iptables" \
+            "firewall (not \"iptables\": false, nor the nftables backend) and run the installer again." >&2
+        return 1
+    fi
+    for ipt in iptables ip6tables; do
+        if [ "$ipt" = ip6tables ] && ! { command -v ip6tables && ip6tables -n -L DOCKER-USER; } >/dev/null 2>&1; then
+            echo "ip6tables: no DOCKER-USER chain, so Docker routes no IPv6 here"
+            continue
+        fi
+        if "$ipt" -C DOCKER-USER "${keep[@]}" 2>/dev/null &&
+            "$ipt" -C DOCKER-USER "${drop[@]}" 2>/dev/null; then
+            echo "$ipt: the $EDGE_BRIDGE egress rules are already in place"
+            continue
+        fi
+        remove_edge_egress_rules "$ipt"
+        "$ipt" -I DOCKER-USER 1 "${drop[@]}"
+        "$ipt" -I DOCKER-USER 1 "${keep[@]}"
+        echo "$ipt: added the $EDGE_BRIDGE egress rules"
+    done
+}
+
+# install_edge_egress: apply the rules now, and install and enable the unit that
+# applies them at every boot and Docker restart. The unit runs a copy of the two
+# functions above, so it does not depend on the install folder.
+install_edge_egress() {
+    apply_edge_egress || return 1
+    {
+        echo '#!/usr/bin/env bash'
+        echo "# Written by mg-install: the gateway's edge network has no route out of this server."
+        echo '# Removed by: sudo mg-install uninstall. [VLD-ANB-MIDGARD-0061]'
+        echo 'set -euo pipefail'
+        declare -p EDGE_BRIDGE EDGE_RULE_TAG
+        declare -f remove_edge_egress_rules apply_edge_egress
+        echo 'apply_edge_egress'
+    } >"$EDGE_HELPER.tmp"
+    chmod 0755 "$EDGE_HELPER.tmp"
+    mv "$EDGE_HELPER.tmp" "$EDGE_HELPER"
+    cat >"$EDGE_UNIT" <<UNIT
+# Written by mg-install. [VLD-ANB-MIDGARD-0061]
+[Unit]
+Description=Midgard: the gateway's edge network ($EDGE_BRIDGE) has no route out of this server
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$EDGE_HELPER
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+    systemctl enable "$(basename "$EDGE_UNIT")"
+}
+
+# remove_edge_egress: undo install_edge_egress. Never fails: it runs while uninstalling.
+remove_edge_egress() {
+    local ipt
+    if [ -f "$EDGE_UNIT" ]; then
+        systemctl disable "$(basename "$EDGE_UNIT")" || true
+        rm -f "$EDGE_UNIT"
+        systemctl daemon-reload || true
+    fi
+    rm -f "$EDGE_HELPER"
+    for ipt in iptables ip6tables; do
+        if command -v "$ipt" >/dev/null 2>&1; then remove_edge_egress_rules "$ipt" || true; fi
+    done
+    return 0
+}
+
 # ---- the wizard ------------------------------------------------------------------------
 
 step_welcome() {
@@ -1383,6 +1496,7 @@ install_now() {
     save_state
     run "Building the Rust toolchain image (first time only)" build_toolchain
     run "Writing this server's configuration" write_site
+    run "Closing the gateway's network off from outside this server" install_edge_egress
     run "Building the Midgard services from source" dc build init
     if [ "$CONSOLE" = yes ]; then
         if [ "$(docker image inspect -f '{{index .Config.Labels "org.midgard.source"}}' "$CONSOLE_IMAGE" 2>/dev/null)" = "$SOURCE_COMMIT" ] &&
@@ -1740,6 +1854,8 @@ cmd_uninstall() {
         ok "The services are removed. Data volumes and $INSTALL_DIR are kept."
         note "  Run the installer again to bring it back, or 'uninstall --purge' to delete everything."
     fi
+    remove_edge_egress >/dev/null 2>&1
+    ok "The firewall rule for the gateway's network and its system service are removed."
 }
 
 cmd_handed_over() {

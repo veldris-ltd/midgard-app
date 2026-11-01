@@ -7,7 +7,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-compose() { docker compose -p midgard-smoke -f compose.yaml "$@"; }
+compose() { MIDGARD_EDGE_BRIDGE=mg-smoke0 docker compose -p midgard-smoke -f compose.yaml "$@"; }
 trap 'compose --profile probe --profile fleet --profile heimdall down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
 
 compose up -d --build --wait gateway mimir-server bifrost-fleet heimdall-feed forge-worker
@@ -76,15 +76,24 @@ for id in $(compose ps -q); do
 done
 
 echo "--- the gateway has no route out of the host"
-# The control: the same probe, from the gateway's image and networks, reaches the
-# gateway itself over the mesh, so a failure below is the network's and not the probe's.
-compose run --rm --no-deps -T --entrypoint timeout gateway 10 \
-    bash -c 'exec 3<>/dev/tcp/gateway/7710'
-if compose run --rm --no-deps -T --entrypoint timeout gateway 10 \
-    bash -c 'exec 3<>/dev/tcp/1.1.1.1/443'; then
-    echo "the gateway opened a connection to 1.1.1.1:443" >&2
-    exit 1
+if [[ "$(docker info --format '{{.OperatingSystem}}' 2>/dev/null)" == *"Docker Desktop"* ]]; then
+    # Docker Desktop's VM forwards the bridge's subnet itself, so the bridge setting
+    # alone does not stop it. On a server, mg-install's DOCKER-USER rule does, and
+    # Desktop is not a server target. [VLD-ANB-MIDGARD-0061]
+    echo "SKIP: Docker Desktop routes the edge bridge out whatever its settings, and is"
+    echo "      not a server target; on a Linux server mg-install's firewall rule"
+    echo "      (midgard-edge-egress, in DOCKER-USER) is what stops the gateway reaching out"
+else
+    # The control: the same probe, from the gateway's image and networks, reaches the
+    # gateway itself over the mesh, so a failure below is the network's, not the probe's.
+    compose run --rm --no-deps -T --entrypoint timeout gateway 10 \
+        bash -c 'exec 3<>/dev/tcp/gateway/7710'
+    if compose run --rm --no-deps -T --entrypoint timeout gateway 10 \
+        bash -c 'exec 3<>/dev/tcp/1.1.1.1/443'; then
+        echo "the gateway opened a connection to 1.1.1.1:443" >&2
+        exit 1
+    fi
+    echo "no connection out"
 fi
-echo "no connection out"
 
 echo "compose smoke: PASS"

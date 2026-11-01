@@ -254,14 +254,26 @@ CONTRIBUTING.md for the version policy.
     carries no traffic between its containers, so the gateway, which was on an
     ordinary NAT bridge, cannot open connections out of the host; the loopback
     publish on 127.0.0.1:7710 is unchanged, and the console reaches the gateway
-    through it. A host that NATs the bridge's subnet itself (Docker Desktop's VM
-    does) still forwards the gateway's traffic; there, a `DOCKER-USER` rule is the
-    control. The header of `compose.yaml` said nothing could reach outside the host,
-    which was true only of the mesh; it now describes both networks.
+    through it. The header of `compose.yaml` said nothing could reach outside the
+    host, which was true only of the mesh; it now describes both networks.
+  - The bridge setting alone is not enough where the host forwards or NATs the
+    bridge's subnet itself (Docker Desktop's VM does), so `edge`'s bridge now has a
+    fixed interface name, `mg-edge0`, and `mg-install` adds a host firewall rule: in
+    Docker's `DOCKER-USER` chain (and ip6tables' where Docker manages one), replies
+    to existing connections return, then anything forwarded from `mg-edge0` to
+    another interface is dropped. The rules are tagged `midgard-edge-egress`; a
+    systemd unit, `midgard-edge-egress.service`, puts them back after every boot and
+    Docker restart; `mg-install uninstall` removes both. A server with no iptables
+    or no `DOCKER-USER` chain (Docker's nftables backend, or `"iptables": false`)
+    fails the step rather than installing unprotected. Plain compose, without the
+    installer, still relies on the bridge setting.
   - `tools/ci/tests/compose-limits.test.sh` (in `selftest`) fails if a long-running
     service loses a limit or `edge` regains a route out, and checks the installer's
-    sizing; `deploy/compose/smoke.sh` checks each running container's limits and that
-    the gateway cannot connect out.
+    sizing; `tools/ci/tests/edge-egress.test.sh` checks the bridge name and, with
+    fake iptables and systemctl, the installer's rules, their idempotence, their
+    removal and the failure without iptables; `deploy/compose/smoke.sh` checks each
+    running container's limits and that the gateway cannot connect out (skipped on
+    Docker Desktop, which is not a server target).
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

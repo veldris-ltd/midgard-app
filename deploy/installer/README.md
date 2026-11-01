@@ -134,7 +134,7 @@ Each step shows one line and a tick. The detail goes to `/opt/midgard/install.lo
 
 1. Copy the source to `/opt/midgard/src`, and unpack the sample datasets zip if you gave one.
 2. Build the pinned Rust toolchain image (first time only), then the Midgard services, offline against the vendored dependencies.
-3. Write this server's configuration: the profile's schema, policy and Forge jobs, joined with the sample configuration's where the profile loads recorded datasets.
+3. Write this server's configuration: the profile's schema, policy and Forge jobs, joined with the sample configuration's where the profile loads recorded datasets. Then close the gateway's network off from outside the server: a firewall rule in Docker's `DOCKER-USER` chain, and a system service that restores it at boot.
 4. Build the web console.
 5. Fetch, verify and sign the model.
 6. Create the enclosure: its issuer and audit keys, and a mesh identity and certificate for each service.
@@ -333,16 +333,18 @@ So you know exactly what it did, and what to remove by hand if you ever need to:
 | The command `mg-install` | a link at `/usr/local/bin/mg-install` |
 | Images | `midgard-acceptance:1.82.0`, `midgard/dev:local`, `midgard/console:local`, and the pinned llama.cpp image with Granite |
 | Volumes | `midgard_*` (one per service's state and identity), `midgard-models`, `midgard-model-signing` |
-| Containers and networks | the `midgard` Compose project; networks `midgard_edge` (no masquerade) and `midgard_mesh` (internal) |
+| Containers and networks | the `midgard` Compose project; networks `midgard_edge` (no masquerade, bridge `mg-edge0`) and `midgard_mesh` (internal) |
+| A firewall rule | two rules in Docker's `DOCKER-USER` chain (and ip6tables' if Docker manages one), tagged `midgard-edge-egress`, that stop anything on `midgard_edge` reaching outside the server; `sudo iptables -S DOCKER-USER` shows them |
+| A system service | `midgard-edge-egress.service` in `/etc/systemd/system`, enabled, which runs `/usr/local/sbin/midgard-edge-egress` to put the rules back after a reboot or a Docker restart |
 | Listening ports | `127.0.0.1:7710` (gateway) and `127.0.0.1:5173` (console) only |
 
-It changes no firewall rule, no web server, no system service other than Docker, and no user account.
+It changes no other firewall rule, no web server, no system service other than Docker and its own, and no user account. `sudo mg-install uninstall` removes the firewall rules and the service.
 
 ## Security model
 
 What the install protects, and what it does not yet:
 
-- **Nothing is exposed.** Only loopback ports are published. The services talk to one another on an internal Docker network with no route out, over post-quantum mutual TLS, each with its own certificate from the enclosure's issuer. The gateway and console are also on `midgard_edge`, only so their loopback ports can be published: it does no masquerade and no container-to-container traffic, so nothing on it is routed out of the server. [VLD-ANB-MIDGARD-0061]
+- **Nothing is exposed.** Only loopback ports are published. The services talk to one another on an internal Docker network with no route out, over post-quantum mutual TLS, each with its own certificate from the enclosure's issuer. The gateway and console are also on `midgard_edge`, only so their loopback ports can be published: it does no masquerade and no container-to-container traffic, and the installer's firewall rule drops anything sent from it to any other interface, so nothing on it is routed out of the server even if the server forwards traffic. [VLD-ANB-MIDGARD-0061]
 - **Hardened containers.** Every Midgard container runs as a non-root user, with a read-only root filesystem, no Linux capabilities and `no-new-privileges`, under memory, processor, process and open-file limits, and mounts only its own volumes. No service sees the enclosure's keys except the gateway's state.
 - **Encrypted, signed state.** Stores are sealed at rest (AES-256-GCM under ML-KEM-1024-wrapped keys) and every audit ledger is signed with ML-DSA and re-verified at start.
 - **Secrets stay out of files.** Passwords are typed when used and never stored or logged; the authenticator key is shown once; the install log and report hold no secrets.
@@ -363,6 +365,7 @@ Not yet, and why it matters:
 |---|---|
 | A step fails | The screen shows the end of `/opt/midgard/install.log`. Fix the cause and run `sudo mg-install` again: it resumes. |
 | "Cannot reach Docker Hub or static.rust-lang.org" | The build needs them once. Check the server's outbound firewall and DNS, or any proxy. |
+| "Closing the gateway's network off" fails with "no DOCKER-USER chain" or "iptables is not installed" | Docker must run with its iptables firewall: install `iptables`, and remove `"iptables": false` or `"firewall-backend": "nftables"` from `/etc/docker/daemon.json`, then restart Docker and run the installer again. If `firewalld` is reloaded later, `sudo systemctl restart midgard-edge-egress` puts the rule back. |
 | "Port 7710 (or 5173) is already in use" | Another program holds it. Find it with `sudo ss -ltnp 'sport = :7710'`. |
 | Building the services fails with "No space left on device" | Free disk where Docker keeps images (`docker system df`, `docker builder prune`). |
 | Building the console fails | The npm registry is unreachable. Re-run and answer **no** to the web console; the gateway's API works without it. |

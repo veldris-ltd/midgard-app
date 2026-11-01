@@ -14,8 +14,9 @@
 # sees the enclosure's keys. The mesh network is internal and no mesh service is
 # published on a host port; each is reachable only over PQ-mTLS by a certified
 # workload. The gateway is also on `edge`, for the 127.0.0.1 publish only: `edge`
-# does no masquerade and carries no container-to-container traffic, so neither
-# network routes anything out of the host. [VLD-ANB-MIDGARD-0061]
+# does no masquerade and carries no container-to-container traffic, and on a server
+# mg-install's firewall rule drops anything forwarded out of it, so neither network
+# routes anything out of the host. [VLD-ANB-MIDGARD-0061]
 #
 # The image is built locally from source and is NOT the signed release image
 # (deploy/images/service.Dockerfile verifies a release signature before it runs).
@@ -326,10 +327,15 @@ networks:
   # routed out of the host, and no traffic between its containers (the console's
   # browser reaches the gateway through the published port). `internal: true` would
   # deny egress outright, but Docker publishes no port from an internal network. A
-  # host that NATs this subnet itself (Docker Desktop's VM does) still forwards it;
-  # there, add a DOCKER-USER rule. [VLD-ANB-MIDGARD-0061]
+  # host that NATs or forwards this subnet itself (Docker Desktop's VM does) would
+  # still route it, so the bridge has a fixed interface name, mg-edge0, and mg-install
+  # adds a firewall rule (DOCKER-USER) that drops anything forwarded from it to another
+  # interface. Without the installer, only the bridge setting applies. The name is at
+  # most 15 characters; MIDGARD_EDGE_BRIDGE changes it, so a second project (smoke.sh)
+  # can run beside this one. [VLD-ANB-MIDGARD-0061]
   edge:
     driver_opts:
+      com.docker.network.bridge.name: ${MIDGARD_EDGE_BRIDGE:-mg-edge0}
       com.docker.network.bridge.enable_ip_masquerade: "false"
       com.docker.network.bridge.enable_icc: "false"
   mesh:
