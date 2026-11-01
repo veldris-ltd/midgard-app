@@ -78,14 +78,14 @@ fn ac_h_5_two_nodes_converge_over_signed_deltas() {
 
     // Node A sees A123 (t=100) and A124 (t=101).
     let mut node_a = FusionEngine::new();
-    node_a.ingest(&verified(&gw, &feed_sk, "A123", 100, 480.0));
-    node_a.ingest(&verified(&gw, &feed_sk, "A124", 101, 100.0));
+    node_a.ingest(&verified(&gw, &feed_sk, "A123", 100, 480.0), 100);
+    node_a.ingest(&verified(&gw, &feed_sk, "A124", 101, 100.0), 101);
 
     // Node B sees S9 (t=102) and an OLDER A123 (t=90) — the merge tie-break must
     // keep node A's newer A123.
     let mut node_b = FusionEngine::new();
-    node_b.ingest(&verified(&gw, &feed_sk, "S9", 102, 12.0));
-    node_b.ingest(&verified(&gw, &feed_sk, "A123", 90, 300.0));
+    node_b.ingest(&verified(&gw, &feed_sk, "S9", 102, 12.0), 102);
+    node_b.ingest(&verified(&gw, &feed_sk, "A123", 90, 300.0), 90);
 
     let (a_vk, a_sk) = keypair(10);
     let (b_vk, b_sk) = keypair(20);
@@ -121,7 +121,7 @@ fn ac_h_5_two_nodes_converge_over_signed_deltas() {
 fn ac_h_5_tampered_delta_is_rejected_and_merges_nothing() {
     let (gw, feed_sk) = feed_gateway();
     let mut node_a = FusionEngine::new();
-    node_a.ingest(&verified(&gw, &feed_sk, "A123", 100, 480.0));
+    node_a.ingest(&verified(&gw, &feed_sk, "A123", 100, 480.0), 100);
 
     let (a_vk, a_sk) = keypair(10);
     let repl = Replicator::new(provider());
@@ -143,7 +143,7 @@ fn ac_h_5_tampered_delta_is_rejected_and_merges_nothing() {
 fn ac_h_5_delta_from_untrusted_node_is_rejected() {
     let (gw, feed_sk) = feed_gateway();
     let mut node_a = FusionEngine::new();
-    node_a.ingest(&verified(&gw, &feed_sk, "A123", 100, 480.0));
+    node_a.ingest(&verified(&gw, &feed_sk, "A123", 100, 480.0), 100);
 
     let (_a_vk, a_sk) = keypair(10);
     let (impostor_vk, _impostor_sk) = keypair(99);

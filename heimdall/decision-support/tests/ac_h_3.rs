@@ -38,6 +38,7 @@ fn entity(id: &str, kind: &str, layer: &str, feed: &str, label: &str) -> Tracked
             first_seen: 100,
             last_seen: 105,
             observation_count: 2,
+            last_received: 105,
         },
         classification: Some(Classification {
             label: label.into(),

@@ -275,7 +275,7 @@ fn rc_26_feed_over_pqmtls_converges_across_two_nodes() {
     // Node A fuses the admitted observation.
     let mut node_a = FusionEngine::new();
     for v in &admitted {
-        node_a.ingest(v);
+        node_a.ingest(v, v.observation().observed_at);
     }
     assert!(
         node_a.picture().entity(&EntityId("trk-1".into())).is_some(),

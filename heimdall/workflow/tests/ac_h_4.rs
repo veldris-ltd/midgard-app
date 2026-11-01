@@ -240,6 +240,7 @@ fn tracked(id: &str, feed: &str) -> TrackedEntity {
             first_seen: 100,
             last_seen: 105,
             observation_count: 2,
+            last_received: 105,
         },
         classification: Some(Classification {
             label: "fast-mover".into(),

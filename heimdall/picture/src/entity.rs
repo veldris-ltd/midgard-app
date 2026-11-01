@@ -7,9 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::id::{EntityId, LayerId};
 use crate::observation::Attr;
 
-/// The temporal state of an entity: when first/last seen and how many observations
-/// have fused into it. `last_seen` is the merge tie-breaker during replication
-/// (last-write-wins). [FR-H-2] [FR-H-6]
+/// The temporal state of an entity: when first/last seen, when an observation of it
+/// was last received, and how many observations have fused into it. `last_seen` is
+/// the merge priority during replication (last-write-wins), `last_received` its
+/// tie-breaker. [FR-H-2] [FR-H-6]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Track {
     /// Logical time of the first fused observation.
@@ -18,24 +19,33 @@ pub struct Track {
     pub last_seen: u64,
     /// How many observations have fused into this entity.
     pub observation_count: u64,
+    /// When the receiving service last took in an observation of this entity, by
+    /// its own clock: `observed_at` is what the feed asserts, this is what the
+    /// service saw, so a track whose feed has gone quiet shows as stale.
+    /// [VLD-ANB-MIDGARD-0015]
+    pub last_received: u64,
 }
 
 impl Track {
-    /// Open a track from its first observation time.
-    pub fn opened_at(t: u64) -> Self {
+    /// Open a track from its first observation, observed (by the feed) at
+    /// `observed_at` and received (by the service) at `received_at`.
+    pub fn opened_at(observed_at: u64, received_at: u64) -> Self {
         Self {
-            first_seen: t,
-            last_seen: t,
+            first_seen: observed_at,
+            last_seen: observed_at,
             observation_count: 1,
+            last_received: received_at,
         }
     }
 
-    /// Fold in a later observation at logical time `t`. `first_seen` only ever
-    /// moves earlier and `last_seen` only ever moves later, so out-of-order
-    /// observations still yield a monotone, deterministic track.
-    pub fn observe(&mut self, t: u64) {
-        self.first_seen = self.first_seen.min(t);
-        self.last_seen = self.last_seen.max(t);
+    /// Fold in a later observation observed at `observed_at` and received at
+    /// `received_at`. `first_seen` only ever moves earlier and `last_seen` and
+    /// `last_received` only ever move later, so out-of-order observations still
+    /// yield a monotone, deterministic track.
+    pub fn observe(&mut self, observed_at: u64, received_at: u64) {
+        self.first_seen = self.first_seen.min(observed_at);
+        self.last_seen = self.last_seen.max(observed_at);
+        self.last_received = self.last_received.max(received_at);
         self.observation_count += 1;
     }
 }
@@ -110,5 +120,11 @@ impl TrackedEntity {
     /// The entity's most recent logical time (its merge priority).
     pub fn last_seen(&self) -> u64 {
         self.track.last_seen
+    }
+
+    /// When an observation of the entity was last received (its merge tie-breaker).
+    /// [VLD-ANB-MIDGARD-0015]
+    pub fn last_received(&self) -> u64 {
+        self.track.last_received
     }
 }

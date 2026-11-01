@@ -40,8 +40,10 @@ compose run --rm fleet-agent --channel stable --version 0.1.0
 grep -q '"converged":true' <<<"$(compose run --rm fleet-status)"
 
 echo "--- two signed observations fuse into one tracked entity"
-compose run --rm feed-source --kind air-track --entity AC-1 --attrs speed=420 --observed-at 100
-compose run --rm feed-source --kind air-track --entity AC-1 --attrs speed=430 --observed-at 110
+# Dated by the host clock: heimdall-feed refuses an observed_at far from its own.
+now="$(date +%s)"
+compose run --rm feed-source --kind air-track --entity AC-1 --attrs speed=420 --observed-at "$now"
+compose run --rm feed-source --kind air-track --entity AC-1 --attrs speed=430 --observed-at "$((now + 10))"
 picture="$(compose run --rm picture)"
 echo "$picture"
 grep -q '"id":"AC-1"' <<<"$picture"

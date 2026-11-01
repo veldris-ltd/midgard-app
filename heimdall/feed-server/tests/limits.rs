@@ -15,7 +15,9 @@ use attest::Keystore;
 use gateway::Gateway;
 use governance::Governance;
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
-use heimdall_feed_server::{outcome, FeedService, PageRequest, PictureState, READ_PICTURE};
+use heimdall_feed_server::{
+    outcome, FeedService, IngestLimits, PageRequest, PictureState, READ_PICTURE,
+};
 use heimdall_picture::{
     Attr, EntityId, FeedId, LayerId, Observation, PictureLimits, Track, TrackedEntity,
 };
@@ -124,6 +126,12 @@ fn service(
         Purpose(PURPOSE.into()),
         Arc::new(|| NOW),
         metrics.clone(),
+        // The observations are dated in logical time, far behind NOW: the window
+        // behind the clock is opened all the way (it is proved in ingest_window.rs).
+        IngestLimits {
+            max_age: u64::MAX,
+            ..IngestLimits::default()
+        },
     );
     (service, metrics)
 }
@@ -411,7 +419,7 @@ fn heavy_entity(i: usize) -> TrackedEntity {
         kind: "air-track".into(),
         layer: LayerId("air".into()),
         sources: ["radar-1".to_string()].into_iter().collect(),
-        track: Track::opened_at(i as u64),
+        track: Track::opened_at(i as u64, i as u64),
         classification: None,
         latest_attrs,
     }
