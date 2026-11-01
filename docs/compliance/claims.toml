@@ -31,8 +31,8 @@ area = "Core: cryptography and transport"
 claim = "ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorithm-agility layer. The FIPS backend passes the ACVP known-answer tests held in the repository, and the test backend cannot be compiled together with it."
 status = "operable"
 limit = "The module has no FIPS 140-3 certificate; that is an external laboratory activity and a GA blocker."
-evidence = ["crypto/pqc-agility/src/backend/mod.rs:14"]
-tests = ["crypto/pqc-agility/tests/fips_backend.rs::kem_roundtrip_every_suite"]
+evidence = ["crypto/pqc-agility/src/backend/mod.rs:14", "crypto/pqc-agility/src/hybrid.rs:1", "docs/security/CRYPTO_REVIEW_HANDOFF.md"]
+tests = ["crypto/pqc-agility/tests/fips_backend.rs::kem_roundtrip_every_suite", "crypto/pqc-agility/tests/hash_kat.rs::kat_hmac_sha256_rfc4231", "crypto/pqc-agility/tests/hash_kat.rs::kat_hkdf_sha256_rfc5869", "crypto/pqc-agility/tests/hybrid_kat.rs::combiner_pinned_vector", "crypto/pqc-agility/tests/fips_backend.rs::hybrid_refuses_an_all_zero_x25519_result"]
 service_tests = ["deploy/compose/smoke.sh:19"]
 stated_in = ["README.md:63", "docs/compliance/GA_READINESS.md:64", "docs/launch/pipeline/build-deck.js:474"]
 
