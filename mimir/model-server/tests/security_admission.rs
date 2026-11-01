@@ -175,6 +175,7 @@ fn consumer(id: &str) -> WorkloadIdentity {
 fn request(prompt: &str, max_tokens: u32) -> InferenceRequest {
     InferenceRequest {
         purpose: "investigation".into(),
+        system_prompt: String::new(),
         workload_class: WorkloadClass::Balanced,
         quant_pref: None,
         backend_override: None,
