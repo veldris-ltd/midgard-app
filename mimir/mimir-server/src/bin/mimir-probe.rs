@@ -4,13 +4,16 @@
 //!
 //! ```text
 //! mimir-probe --identity-dir DIR --addr HOST:PORT --purpose P
-//!             [--service NAME] [--server NAME] [--prompt TEXT] [--max-tokens N]
+//!             [--service NAME] [--server NAME] [--system TEXT] [--prompt TEXT]
+//!             [--max-tokens N]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME
 //! defaults to `mimir-probe`); policy must let that identity's roles open the channel
 //! and `Infer`. The service at `--addr` must hold the mesh identity `--server` (default
-//! `mimir-server`); any other is refused before the prompt is sent.
+//! `mimir-server`); any other is refused before the prompt is sent. `--system` is sent
+//! as the request's system text, which the model's family template places in its
+//! system turn (default: none, so the prompt is rendered alone).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -22,7 +25,8 @@ use pq_mtls::{Posture, ServiceId};
 use service_runtime::{Args, ServiceIdentity};
 
 const USAGE: &str = "usage: mimir-probe --identity-dir DIR [--keystore-passphrase-file PATH] --addr HOST:PORT --purpose P \
-                     [--service NAME] [--server NAME] [--prompt TEXT] [--max-tokens N]";
+                     [--service NAME] [--server NAME] [--system TEXT] [--prompt TEXT] \
+                     [--max-tokens N]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -35,6 +39,7 @@ fn main() {
             "purpose",
             "service",
             "server",
+            "system",
             "prompt",
             "max-tokens",
         ],
@@ -90,6 +95,7 @@ fn run(args: &Args) -> Result<String, String> {
     let completion = client
         .infer(InferenceRequest {
             purpose,
+            system_prompt: args.get("system").unwrap_or_default().to_string(),
             workload_class: WorkloadClass::Balanced,
             quant_pref: None,
             backend_override: None,

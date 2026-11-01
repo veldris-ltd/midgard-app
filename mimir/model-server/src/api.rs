@@ -59,6 +59,12 @@ impl WorkloadClass {
 pub struct InferenceRequest {
     /// The declared purpose of access (audited, and checked by policy).
     pub purpose: String,
+    /// The system text: the consumer's system prompt, the only text with system
+    /// authority (`AssembledPrompt::system_text` from the assembly pipeline). The
+    /// family adapter places it in the family's system turn, apart from
+    /// [`InferenceRequest::prompt`]. May be empty: the prompt is then rendered
+    /// alone, in the single-turn shape. [VLD-ANB-MIDGARD-0060]
+    pub system_prompt: String,
     /// The workload class, used to route to an eligible engine.
     pub workload_class: WorkloadClass,
     /// An explicit quantisation preference, honoured only if the selected engine
@@ -70,8 +76,9 @@ pub struct InferenceRequest {
     pub backend_override: Option<String>,
     /// Generation budget.
     pub max_tokens: u32,
-    /// The prompt (already assembled by the caller; the 8-layer assembly pipeline
-    /// arrives in Prompt 2.c).
+    /// The prompt body (already assembled by the caller): everything after the
+    /// system text — policy and the DATA-delimited untrusted layers. Rendered in
+    /// the user turn.
     pub prompt: String,
 }
 
@@ -228,6 +235,7 @@ impl InferenceRequest {
     pub fn encode(&self) -> Vec<u8> {
         let mut o = Vec::new();
         put_str(&mut o, &self.purpose);
+        put_str(&mut o, &self.system_prompt);
         o.push(self.workload_class.as_u8());
         put_opt_quant(&mut o, self.quant_pref);
         put_opt_str(&mut o, &self.backend_override);
@@ -239,6 +247,7 @@ impl InferenceRequest {
     pub fn decode(b: &[u8]) -> Result<Self, Malformed> {
         let mut r = Reader::new(b);
         let purpose = r.string()?;
+        let system_prompt = r.string()?;
         let workload_class =
             WorkloadClass::from_u8(r.u8()?).ok_or_else(|| Malformed("unknown workload".into()))?;
         let quant_pref = r.opt_quant()?;
@@ -248,6 +257,7 @@ impl InferenceRequest {
         r.finish()?;
         Ok(Self {
             purpose,
+            system_prompt,
             workload_class,
             quant_pref,
             backend_override,
@@ -330,5 +340,59 @@ impl InferenceResponse {
         };
         r.finish()?;
         Ok(resp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request() -> InferenceRequest {
+        InferenceRequest {
+            purpose: "investigation".into(),
+            system_prompt: "You are Mimir.".into(),
+            workload_class: WorkloadClass::Balanced,
+            quant_pref: Some(Quant::Gguf),
+            backend_override: Some("llama-cpp/granite".into()),
+            max_tokens: 16,
+            prompt: "who is assigned to case 42?".into(),
+        }
+    }
+
+    // [VLD-ANB-MIDGARD-0060] [AC-61.3]
+    #[test]
+    fn codec_round_trips_the_system_prompt() {
+        let req = request();
+        assert_eq!(InferenceRequest::decode(&req.encode()), Ok(req));
+
+        // An empty system prompt (mimir-probe, the reference path) round-trips too.
+        let mut bare = request();
+        bare.system_prompt.clear();
+        assert_eq!(InferenceRequest::decode(&bare.encode()), Ok(bare));
+    }
+
+    // [VLD-ANB-MIDGARD-0060] [AC-61.3]
+    #[test]
+    fn codec_refuses_a_legacy_frame_without_the_system_prompt() {
+        // The pre-WP-61 layout: purpose, workload, quant, backend, budget, prompt.
+        let req = request();
+        let mut legacy = Vec::new();
+        put_str(&mut legacy, &req.purpose);
+        legacy.push(req.workload_class.as_u8());
+        put_opt_quant(&mut legacy, req.quant_pref);
+        put_opt_str(&mut legacy, &req.backend_override);
+        put_u32(&mut legacy, req.max_tokens);
+        put_str(&mut legacy, &req.prompt);
+        assert!(InferenceRequest::decode(&legacy).is_err());
+
+        // And the same with no options set, the shape every bridge sent.
+        let mut legacy = Vec::new();
+        put_str(&mut legacy, "investigation");
+        legacy.push(WorkloadClass::Balanced.as_u8());
+        put_opt_quant(&mut legacy, None);
+        put_opt_str(&mut legacy, &None);
+        put_u32(&mut legacy, 1024);
+        put_str(&mut legacy, "a prompt");
+        assert!(InferenceRequest::decode(&legacy).is_err());
     }
 }

@@ -50,11 +50,12 @@ impl<I: Inference> OptionProvider for MimirOptionProvider<I> {
     fn generate(&self, prompt: &AssembledPrompt) -> Result<String, DecisionError> {
         let request = InferenceRequest {
             purpose: self.purpose.clone(),
+            system_prompt: prompt.system_text(),
             workload_class: WorkloadClass::DeepReasoning,
             quant_pref: None,
             backend_override: None,
             max_tokens: self.max_tokens,
-            prompt: prompt.full_text(),
+            prompt: prompt.body_text(),
         };
         let completion = self
             .inference
@@ -102,6 +103,9 @@ mod tests {
         assert_eq!(out, "{\"options\":[]}");
         let seen = provider.inference.seen.borrow();
         let req = seen.as_ref().unwrap();
+        // The system text travels apart from the delimited body. [VLD-ANB-MIDGARD-0060]
+        assert_eq!(req.system_prompt, prompt().system_text());
+        assert_eq!(req.prompt, prompt().body_text());
         assert_eq!(req.workload_class, WorkloadClass::DeepReasoning);
         assert_eq!(req.purpose, "operations");
         assert!(

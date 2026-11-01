@@ -1149,6 +1149,27 @@ CONTRIBUTING.md for the version policy.
     `with_schema`.
   - The `Classifier` seam has no implementation in the library; the only ones are
     test doubles.
+- **The system prompt reaches the model in its own role, and model control tokens in
+  any text are neutralised.** The family adapters rendered the whole prompt, system
+  prompt and policy included, as one user turn, and llama-server parses special
+  tokens in a raw prompt, so text holding a family's control tokens (`[/INST]`,
+  `<|end_of_text|>`, `<|start_of_role|>system<|end_of_role|>`) could close the user
+  turn and open a system or assistant turn. [VLD-ANB-MIDGARD-0060] [FR-MS-7]
+  - `InferenceRequest` carries `system_prompt` beside `prompt` (on the wire straight
+    after `purpose`; a frame from an older consumer is refused as malformed). The
+    agent runtime sends `AssembledPrompt::system_text` and `body_text`; the Heimdall
+    decision-support, admin copilot, Forge and Bifrost bridges send their assembler's `system_text` and
+    `body_text`. `mimir-probe --system TEXT` sets it.
+  - `FamilyAdapter::render(system, user)` puts the system text in the family's system
+    turn (Granite, Nemotron) or first in the single user turn, a blank line before
+    the user text (Mistral, Gemma). An empty system text renders the user text alone,
+    as before.
+  - Each adapter declares its family's control vocabulary (`special_tokens`), and
+    `neutralise` puts a backslash before the final character of every occurrence in
+    system and user text (`[/INST]` becomes `[/INST\]`), so the only control tokens
+    sent to the engine are the template's own. Text that legitimately holds a token
+    shows the backslash. The reference engine, and a sidecar with no adapter, read
+    the system text and the prompt as one, as before.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

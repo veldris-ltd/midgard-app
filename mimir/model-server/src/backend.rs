@@ -79,12 +79,30 @@ impl BackendDescriptor {
 /// A request prepared for an engine (quant resolved, budget set).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedRequest {
-    /// The prompt to serve.
+    /// The system text, apart from the prompt so a family adapter can place it in
+    /// the family's system turn. Empty when there is none, or when `prompt` is
+    /// already templated (the router renders before the engine). [VLD-ANB-MIDGARD-0060]
+    pub system_prompt: String,
+    /// The prompt to serve (the body, rendered in the user turn).
     pub prompt: String,
     /// Generation budget.
     pub max_tokens: u32,
     /// The resolved quantisation.
     pub quant: Quant,
+}
+
+impl PreparedRequest {
+    /// The system text and the prompt as one string, for an engine that takes no
+    /// chat template (the reference engine, a sidecar with no family adapter): the
+    /// system text, a blank line, then the prompt — the shape the assembly
+    /// pipeline's `text` has — or the prompt alone when there is no system text.
+    pub fn flat_prompt(&self) -> String {
+        if self.system_prompt.is_empty() {
+            self.prompt.clone()
+        } else {
+            format!("{}\n\n{}", self.system_prompt, self.prompt)
+        }
+    }
 }
 
 /// A raw completion from an engine (before serving evidence is attached).

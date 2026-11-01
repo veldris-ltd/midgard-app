@@ -269,10 +269,14 @@ impl Router {
             .adapters
             .get(&decision.family)
             .ok_or_else(|| RouteError::NoAdapter(decision.family.clone()))?;
-        let templated = adapter.render(&req.prompt);
+        // The system text goes in the family's system turn, and the family's control
+        // tokens in either part are neutralised. [VLD-ANB-MIDGARD-0060]
+        let templated = adapter.render(&req.system_prompt, &req.prompt);
 
         let quant = engine.descriptor().resolve_quant(req.quant_pref);
         let prepared = PreparedRequest {
+            // Already templated: the system text is inside `templated`.
+            system_prompt: String::new(),
             prompt: templated,
             max_tokens: req.max_tokens,
             quant,

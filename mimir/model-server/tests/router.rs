@@ -106,6 +106,7 @@ const NEUTRAL_PROMPT: &str = "SYSTEM: ground everything.\nUSER: summarise case-1
 fn request(workload: WorkloadClass) -> InferenceRequest {
     InferenceRequest {
         purpose: "analysis".into(),
+        system_prompt: String::new(),
         workload_class: workload,
         quant_pref: None,
         backend_override: None,
@@ -152,9 +153,9 @@ fn ac_ms_4_family_templating_lives_in_the_adapter_not_the_prompt() {
         assert!(!NEUTRAL_PROMPT.contains(marker));
     }
     // … the adapters add them, differently per family, from the same neutral text.
-    let mistral = MistralAdapter.render(NEUTRAL_PROMPT);
-    let gemma = GemmaAdapter.render(NEUTRAL_PROMPT);
-    let nemo = NemotronAdapter.render(NEUTRAL_PROMPT);
+    let mistral = MistralAdapter.render("", NEUTRAL_PROMPT);
+    let gemma = GemmaAdapter.render("", NEUTRAL_PROMPT);
+    let nemo = NemotronAdapter.render("", NEUTRAL_PROMPT);
     assert!(mistral.starts_with("<s>[INST] ") && mistral.ends_with(" [/INST]"));
     assert!(gemma.contains("<start_of_turn>model"));
     assert!(nemo.contains("<extra_id_1>Assistant"));
