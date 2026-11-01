@@ -585,7 +585,11 @@ CONTRIBUTING.md for the version policy.
     and `Track::observe` take both times; `FeedService::new` takes `IngestLimits`.
   - Feeds that replay history older than seven days, such as a recorded backfill, are
     refused until `--max-observation-age` is widened. The compose and kind smoke tests
-    now date their observations by the host clock.
+    now date their observations by the host clock. `mg-install` replays the bundled
+    sample feeds, which keep the times they were recorded at, by restarting
+    `heimdall-feed` with `--max-observation-age` wide enough for the oldest sample for
+    the replay only, then restarting it with the default, whether or not the replay
+    succeeded.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
