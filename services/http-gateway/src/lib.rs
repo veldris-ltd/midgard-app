@@ -1196,6 +1196,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// released before the next is taken, and none is held while serving. Neither of
     /// those two refusals writes a ledger row; both are counted in `/metrics`.
     /// [VLD-ANB-MIDGARD-0021] [NFR-SEC-1]
+    // The refusal is the response itself, built once per request: with both the route
+    // headers (WP-30) and the log detail (WP-26) it passes clippy's size threshold, and
+    // boxing it would buy nothing.
+    #[allow(clippy::result_large_err)]
     fn authenticate(
         &self,
         req: &Request,
@@ -1350,6 +1354,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             .unwrap_or(ClassificationLevel::UNCLASSIFIED)
     }
 
+    // The refusal is the response itself, built once per request: with both the route
+    // headers (WP-30) and the log detail (WP-26) it passes clippy's size threshold, and
+    // boxing it would buy nothing.
+    #[allow(clippy::result_large_err)]
     fn authorize(
         &self,
         claims: &TokenClaims,

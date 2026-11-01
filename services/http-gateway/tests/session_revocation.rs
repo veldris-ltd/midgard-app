@@ -163,10 +163,11 @@ fn logout_without_a_valid_token_is_401() {
         assert_eq!(r.status, 401, "{token:?}: {}", r.body);
     }
     assert_eq!(gw.revoked_count(), 0);
-    assert_eq!(
-        gw.audit_len(),
-        audit_before,
-        "a refused sign-out writes no row"
+    // An unauthenticated refusal writes at most the one rate-limited
+    // `AUTH rejected (<class>)` row a minute per source. [VLD-ANB-MIDGARD-0054]
+    assert!(
+        gw.audit_len() <= audit_before + 1,
+        "a refused sign-out writes no row of its own"
     );
 }
 
@@ -281,7 +282,7 @@ fn revocation_survives_a_restart_and_expired_entries_are_purged() {
     let later = now + TOKEN_TTL + 1;
     let r = call(&gw, "GET", "/api/v1/whoami", "", Some(&token), later);
     assert_eq!(r.status, 401, "{}", r.body);
-    assert!(error_of(&r).contains("Expired"), "{}", r.body);
+    assert_eq!(error_of(&r), "token rejected", "{}", r.body);
     let fresh = login(&gw, "olivia", PASSWORD, later);
     assert_eq!(
         call(&gw, "GET", "/api/v1/whoami", "", Some(&fresh), later).status,
