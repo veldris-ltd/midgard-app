@@ -8,7 +8,7 @@
 use policy::Purpose;
 use pqc_agility::{KemSuiteId, SecretArray};
 
-use crate::identity::WorkloadIdentity;
+use crate::identity::{IdentityCert, WorkloadIdentity};
 use crate::posture::Posture;
 
 /// What the responder authorised the peer for: the effective clearance (the lower of
@@ -38,6 +38,9 @@ pub struct Session {
     peer: WorkloadIdentity,
     peer_cert: PeerCert,
     authorization: Option<Authorization>,
+    /// The peer's full certificate, kept by the responder so a resumption ticket can
+    /// carry it and resumption can re-verify it. [VLD-ANB-MIDGARD-0046]
+    peer_certificate: Option<IdentityCert>,
     suite: KemSuiteId,
     traffic_secret: SecretArray<32>,
 }
@@ -54,9 +57,17 @@ impl Session {
             peer,
             peer_cert,
             authorization,
+            peer_certificate: None,
             suite,
             traffic_secret: traffic,
         }
+    }
+
+    /// Keep the peer's full certificate on the session (the responder does, so it can
+    /// issue resumption tickets that re-verify it). [VLD-ANB-MIDGARD-0046]
+    pub(crate) fn with_peer_certificate(mut self, cert: IdentityCert) -> Self {
+        self.peer_certificate = Some(cert);
+        self
     }
 
     /// The authenticated peer identity.
@@ -83,6 +94,12 @@ impl Session {
     /// `None` on the initiator's (the initiator authorises nothing).
     pub fn authorization(&self) -> Option<&Authorization> {
         self.authorization.as_ref()
+    }
+
+    /// The certificate the peer presented, as the responder verified it. `Some` on the
+    /// responder's session, `None` on the initiator's.
+    pub fn peer_certificate(&self) -> Option<&IdentityCert> {
+        self.peer_certificate.as_ref()
     }
 
     /// The negotiated KEM suite.

@@ -823,6 +823,28 @@ CONTRIBUTING.md for the version policy.
   rendering (tags, `imagePullPolicy: Always`). The acceptance probes name an all-zero
   sentinel digest that `run-deployment-tier.sh` replaces with `MIDGARD_PROBE_IMAGE`,
   pinned by digest, or refuses to run.
+- **PQ-mTLS session resumption is hardened before any service enables it.**
+  [VLD-ANB-MIDGARD-0046]
+  - The gateway sends the session ticket as the first sealed record of the session
+    (`pq_mtls::NEW_TICKET_AAD`), never as a plaintext frame; a client opens it with
+    its `RecordOpener` before its first request.
+  - The responder checks the binder before the replay marker, so a ResumeHello from
+    someone without the resumption secret cannot use up a client's ticket.
+  - Every resumption runs a fresh ML-KEM exchange in the ticket's suite (the TLS 1.3
+    `psk_dhe_ke` pattern): the binder covers the client's ephemeral key, and the
+    traffic secret is HKDF with the transcript hash as salt and `RMS || shared
+    secret` as input keying material. A resumed leg now has forward secrecy.
+  - The ticket carries the client's whole certificate, and resumption re-runs
+    `verify_cert` (CA signature, validity window, the revocation list in force).
+  - Gateway ticket keys rotate once per ticket TTL with a key id in the ticket's
+    first byte, keeping the previous key; the seen-ticket set holds SHA-256 digests
+    until each ticket expires, at most 65 536, and refuses (and counts) resumptions
+    beyond that, so the client falls back to a full handshake.
+  - Wire change: tickets, ResumeHello and ResumeAccept are version 3, and
+    `run_resume_initiator` / `run_resume_responder` take the crypto provider (and the
+    responder a slice of ticket keys). Earlier tickets are refused and the client
+    falls back to a full handshake; a client built before this change cannot use a
+    resumption-enabled gateway. No deployment enables resumption.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

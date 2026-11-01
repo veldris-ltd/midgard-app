@@ -588,12 +588,13 @@ impl<'a> Responder<'a> {
             not_after: cert.terms.not_after,
         };
         let session = Session::new(
-            cert.identity,
+            cert.identity.clone(),
             peer_cert,
             Some(Authorization { clearance, purpose }),
             suite,
             traffic,
-        );
+        )
+        .with_peer_certificate(cert);
         Ok((Finished { finished_r }, session))
     }
 }

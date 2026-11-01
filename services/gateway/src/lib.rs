@@ -17,8 +17,19 @@
 //! (fabric / governance / KMS). A [`RateLimiter`] enforces per-identity token
 //! buckets and a per-connection request quota, so an abusive peer is throttled.
 //! With a [`TicketKey`] configured, the gateway also issues PQ-mTLS **resumption
-//! tickets** and accepts abbreviated (resumed) handshakes that skip the KEM +
-//! signature flights — amortising the handshake across connections too.
+//! tickets** and accepts abbreviated (resumed) handshakes that skip the signature
+//! flights — amortising the handshake across connections too.
+//!
+//! ## Resumption (VLD-ANB-MIDGARD-0046)
+//! The ticket travels inside the session's record layer, sealed under
+//! [`pq_mtls::NEW_TICKET_AAD`] as the first record the gateway sends. Each resumption
+//! runs a fresh KEM exchange and re-verifies the client's certificate against the
+//! gateway's live trust anchor and revocation list. Ticket keys rotate once per
+//! ticket TTL; the previous key is kept so tickets issued before a rotation still
+//! open while they are in date. Seen tickets are remembered as SHA-256 digests until
+//! they expire, at most [`MAX_SEEN_TICKETS`] of them; when the set is full a
+//! resumption is refused (the client falls back to a full handshake) and counted.
+//! Resumption is opt-in ([`Gateway::with_resumption`]) and no service enables it.
 //!
 //! ## Pre-authentication limits (MG-SEC-13)
 //! Everything before the handshake completes is reachable by anyone who can open a
@@ -35,10 +46,10 @@
 //! connection that simply stops is reported as [`MtlsError::StreamTruncated`], so a
 //! cut connection is never mistaken for a finished one.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -46,9 +57,9 @@ use policy::{PolicyDecisionPoint, Resource};
 use pq_mtls::{
     issue_ticket, read_frame, run_responder, run_resume_responder, write_frame, IdentityCert,
     MtlsError, Record, Responder, Role, TcpChannel, TicketKey, TransportError, TrustAnchor,
-    WorkloadIdentity, MODE_FULL, MODE_RESUME,
+    WorkloadIdentity, MODE_FULL, MODE_RESUME, NEW_TICKET_AAD,
 };
-use pqc_agility::{CryptoProvider, OsRng, SigningKey};
+use pqc_agility::{sha256, CryptoProvider, OsRng, Rng, SigningKey};
 
 /// AAD binding every application record to this gateway's record context. A
 /// client must seal/open its records under the same value.
@@ -267,6 +278,115 @@ impl RateLimiter {
     }
 }
 
+// ---- resumption state ------------------------------------------------------
+
+/// The most seen-ticket digests the gateway remembers. When the set is full (and
+/// nothing in it has expired) a resumption is refused and the client falls back to a
+/// full handshake. [VLD-ANB-MIDGARD-0046]
+pub const MAX_SEEN_TICKETS: usize = 65_536;
+
+/// What [`SeenTickets::admit`] decided about a ticket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TicketAdmission {
+    /// First presentation: the ticket is now marked as used.
+    Fresh,
+    /// The ticket was presented before.
+    Replayed,
+    /// The set is at [`MAX_SEEN_TICKETS`]; the ticket is refused unrecorded.
+    Full,
+}
+
+/// The single-use guard for resumption tickets: SHA-256 digests of the tickets
+/// presented so far, each kept until the ticket's own expiry. Expired entries are
+/// pruned on insert, and the set never holds more than [`MAX_SEEN_TICKETS`].
+/// [VLD-ANB-MIDGARD-0046]
+#[derive(Debug)]
+pub struct SeenTickets {
+    entries: HashMap<[u8; 32], u64>,
+    /// The earliest expiry in `entries` (`u64::MAX` when empty), so pruning only
+    /// walks the set once something in it can have expired.
+    earliest: u64,
+}
+
+impl Default for SeenTickets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SeenTickets {
+    /// An empty set.
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            earliest: u64::MAX,
+        }
+    }
+
+    /// Record `ticket` (valid until `expires_at`, inclusive) as used at `now`, after
+    /// pruning the entries that expired before `now`.
+    pub fn admit(&mut self, ticket: &[u8], expires_at: u64, now: u64) -> TicketAdmission {
+        self.prune(now);
+        let digest = sha256(ticket);
+        if self.entries.contains_key(&digest) {
+            return TicketAdmission::Replayed;
+        }
+        if self.entries.len() >= MAX_SEEN_TICKETS {
+            return TicketAdmission::Full;
+        }
+        self.entries.insert(digest, expires_at);
+        self.earliest = self.earliest.min(expires_at);
+        TicketAdmission::Fresh
+    }
+
+    /// How many tickets are remembered.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether no ticket is remembered.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn prune(&mut self, now: u64) {
+        if now <= self.earliest {
+            return;
+        }
+        self.entries.retain(|_, expires_at| *expires_at >= now);
+        self.earliest = self.entries.values().copied().min().unwrap_or(u64::MAX);
+    }
+}
+
+/// The gateway's ticket keys: the one new tickets are sealed under and the one before
+/// it. The current key is replaced once it is older than the ticket TTL, so every
+/// ticket still in date was sealed under one of the two. [VLD-ANB-MIDGARD-0046]
+struct TicketKeys {
+    current: Arc<TicketKey>,
+    previous: Option<Arc<TicketKey>>,
+    /// When `current` came into use (`None` until the first connection, so a clock
+    /// injected after [`Gateway::with_resumption`] is honoured).
+    rotated_at: Option<u64>,
+    ttl: u64,
+}
+
+impl TicketKeys {
+    /// Rotate if the current key has been in use for longer than the TTL, then return
+    /// the current and previous keys.
+    fn at(&mut self, now: u64, rng: &mut dyn Rng) -> (Arc<TicketKey>, Option<Arc<TicketKey>>) {
+        match self.rotated_at {
+            None => self.rotated_at = Some(now),
+            Some(at) if now.saturating_sub(at) > self.ttl => {
+                let next = TicketKey::generate(rng).with_id(self.current.id().wrapping_add(1));
+                self.previous = Some(std::mem::replace(&mut self.current, Arc::new(next)));
+                self.rotated_at = Some(now);
+            }
+            Some(_) => {}
+        }
+        (self.current.clone(), self.previous.clone())
+    }
+}
+
 // ---- the gateway ----------------------------------------------------------
 
 type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
@@ -298,8 +418,9 @@ pub struct Gateway {
     rate_limiter: Option<Arc<RateLimiter>>,
     on_throttle: Option<ThrottleHook>,
     max_requests_per_conn: usize,
-    ticket: Option<(Arc<TicketKey>, u64)>, // (key, ttl secs)
-    seen_tickets: Arc<Mutex<HashSet<Vec<u8>>>>,
+    ticket: Option<Arc<Mutex<TicketKeys>>>,
+    seen_tickets: Arc<Mutex<SeenTickets>>,
+    replay_cache_full: Arc<AtomicU64>,
     clock: Clock,
     gate: ConnectionGate,
     handshake_timeout: Duration,
@@ -406,7 +527,8 @@ impl Gateway {
             on_throttle: None,
             max_requests_per_conn: 0,
             ticket: None,
-            seen_tickets: Arc::new(Mutex::new(HashSet::new())),
+            seen_tickets: Arc::new(Mutex::new(SeenTickets::new())),
+            replay_cache_full: Arc::new(AtomicU64::new(0)),
             clock: system_clock(),
             gate: ConnectionGate::new(DEFAULT_MAX_CONNECTIONS),
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
@@ -471,10 +593,37 @@ impl Gateway {
     }
 
     /// Enable PQ-mTLS session resumption: issue tickets valid for `ttl_secs` and
-    /// accept abbreviated handshakes that present a valid one.
+    /// accept abbreviated handshakes that present a valid one. `key` seals tickets
+    /// first; the gateway replaces it with a fresh random key (the next key id) once
+    /// it is older than `ttl_secs`, keeping the previous one to open tickets issued
+    /// before. [VLD-ANB-MIDGARD-0046]
     pub fn with_resumption(mut self, key: TicketKey, ttl_secs: u64) -> Self {
-        self.ticket = Some((Arc::new(key), ttl_secs));
+        self.ticket = Some(Arc::new(Mutex::new(TicketKeys {
+            current: Arc::new(key),
+            previous: None,
+            rotated_at: None,
+            ttl: ttl_secs,
+        })));
         self
+    }
+
+    /// How many resumptions were refused because the seen-ticket set was full (each
+    /// client fell back to a full handshake). [VLD-ANB-MIDGARD-0046]
+    pub fn resumptions_refused_replay_cache_full(&self) -> u64 {
+        self.replay_cache_full.load(Ordering::Relaxed)
+    }
+
+    /// The current and previous ticket keys and the ticket TTL at `now`, rotating
+    /// first if due.
+    fn ticket_keys(
+        keys: &Mutex<TicketKeys>,
+        now: u64,
+    ) -> (Arc<TicketKey>, Option<Arc<TicketKey>>, u64) {
+        let mut keys = keys
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (current, previous) = keys.at(now, &mut OsRng);
+        (current, previous, keys.ttl)
     }
 
     /// Override the wall clock (seconds) used for ticket issuance/expiry — for
@@ -549,41 +698,60 @@ impl Gateway {
         let peer = session.peer().clone();
         let mut stream = ch.into_stream();
 
-        // Hand the client a resumption ticket before the request loop. The ticket
-        // carries what this handshake authorised — the clearance capped by the
-        // client's certificate and its declared purpose. [MG-SEC-04]
+        let (mut sealer, opener) = session.records(Role::Responder);
+        // Hand the client a resumption ticket before the request loop, as the first
+        // sealed record, never in clear. The ticket carries the client's certificate
+        // and what this handshake authorised: the clearance capped by the
+        // certificate and the declared purpose. [MG-SEC-04] [VLD-ANB-MIDGARD-0046]
         if issue {
-            if let Some((key, ttl)) = &self.ticket {
+            if let Some(keys) = &self.ticket {
                 let now = (self.clock)();
-                let ticket = issue_ticket(key, &session, now, *ttl, &mut rng)?;
-                write_frame(&mut stream, &ticket).map_err(MtlsError::Transport)?;
+                let (key, _, ttl) = Self::ticket_keys(keys, now);
+                let ticket = issue_ticket(&key, &session, now, ttl, &mut rng)?;
+                write_frame(&mut stream, &sealer.seal(NEW_TICKET_AAD, &ticket)?)
+                    .map_err(MtlsError::Transport)?;
             }
         }
 
-        let (sealer, opener) = session.records(Role::Responder);
         self.serve_requests(&mut stream, &peer, sealer, opener)?;
         Ok(peer)
     }
 
-    /// Abbreviated (resumed) handshake, then serve — no KEM, no signatures.
+    /// Abbreviated (resumed) handshake, then serve: a fresh KEM exchange and a
+    /// certificate re-check, but no signature flights. [VLD-ANB-MIDGARD-0046]
     fn serve_resumed(&self, stream: TcpStream) -> Result<WorkloadIdentity, MtlsError> {
-        let (key, _ttl) = self
+        let keys = self
             .ticket
             .as_ref()
             .ok_or_else(|| MtlsError::Protocol("resumption not configured".into()))?;
         let mut stream = stream;
         let mut rng = OsRng;
         let now = (self.clock)();
-        let seen = self.seen_tickets.clone();
+        let (current, previous, _) = Self::ticket_keys(keys, now);
+        let mut open_with: Vec<&TicketKey> = vec![&current];
+        open_with.extend(previous.as_deref());
         let resumed = run_resume_responder(
             &mut stream,
-            key,
+            &open_with,
+            // The anchor's revocation state is shared by every clone, so this is the
+            // list in force now, reloaded live. [MG-SEC-03]
             &self.trust_anchor,
+            self.provider.as_ref(),
             self.pdp.as_ref(),
             &self.resource,
             now,
-            // Single-use: `insert` returns true only if the ticket is unseen.
-            |t| seen.lock().expect("ticket set").insert(t.to_vec()),
+            // Single-use, and only reached once the binder has verified.
+            |t, expires_at| {
+                let admission = self
+                    .seen_tickets
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .admit(t, expires_at, now);
+                if admission == TicketAdmission::Full {
+                    self.replay_cache_full.fetch_add(1, Ordering::Relaxed);
+                }
+                admission == TicketAdmission::Fresh
+            },
             &mut rng,
         )?;
         let peer = resumed.client.clone();

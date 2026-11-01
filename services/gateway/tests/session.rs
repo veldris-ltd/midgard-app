@@ -6,8 +6,11 @@
 //!   handler — including the *real* governance spine — and an unknown method is
 //!   refused (never misrouted).
 //! - **Resumption:** a second connection presents the ticket issued on the first
-//!   and completes an abbreviated handshake (no KEM, no signatures); the ticket is
-//!   single-use.
+//!   and completes an abbreviated handshake (a fresh KEM exchange, no signatures);
+//!   the ticket is single-use. The ticket arrives inside the record layer, a bad
+//!   binder cannot consume it, a revoked or expired client certificate cannot
+//!   resume, the seen-ticket set is bounded and ticket keys rotate.
+//!   [VLD-ANB-MIDGARD-0046]
 //! - **Rate limiting:** an abusive peer that exceeds its token bucket is throttled
 //!   (its connection is dropped). [RC-25]
 #![cfg(feature = "backend-fips")]
@@ -15,12 +18,15 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use gateway::{
     decode_response, encode_request, status, Gateway, RateLimiter, RequestHandler, Router,
-    RECORD_AAD,
+    SeenTickets, TicketAdmission, MAX_SEEN_TICKETS, RECORD_AAD,
 };
 use governance::{GovContext, Governance};
 use iam::{Idp, IDP_SIG_ALG};
@@ -31,10 +37,10 @@ use policy::{
 use pq_mtls::{
     read_frame, run_initiator, run_resume_initiator, write_frame, ClientTicket, IdentityCert,
     Initiator, MtlsError, Posture, Role as RecordRole, ServiceId, TcpChannel, TicketKey,
-    WorkloadIdentity, MODE_FULL, MODE_RESUME,
+    WorkloadIdentity, MODE_FULL, MODE_RESUME, NEW_TICKET_AAD,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::{CryptoProvider, Rng, SigningKey};
+use pqc_agility::{CryptoProvider, KemSuiteId, Rng, SigningKey};
 
 // ---- deterministic RNG (shared with the handshake tests) ------------------
 
@@ -57,6 +63,17 @@ impl Rng for SeedRng {
 }
 
 fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (IdentityCert, SigningKey) {
+    workload_until(idp, id, roles, seed, u64::MAX)
+}
+
+/// A workload certificate valid from the epoch until `not_after`.
+fn workload_until(
+    idp: &Idp,
+    id: &str,
+    roles: &[&str],
+    seed: u64,
+    not_after: u64,
+) -> (IdentityCert, SigningKey) {
     let (vk, sk) = idp
         .provider()
         .sig_for(IDP_SIG_ALG)
@@ -75,7 +92,7 @@ fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (IdentityCert, Si
             pq_mtls::CertTerms::new(
                 1,
                 0,
-                u64::MAX,
+                not_after,
                 pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
             ),
         )
@@ -199,6 +216,43 @@ fn spawn(gateway: Gateway) -> std::net::SocketAddr {
     addr
 }
 
+/// [`spawn`], also reporting each connection's outcome on the returned channel.
+fn spawn_observed(
+    gateway: Gateway,
+) -> (
+    std::net::SocketAddr,
+    mpsc::Receiver<Result<WorkloadIdentity, MtlsError>>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { break };
+            let gw = gateway.clone();
+            let tx = tx.clone();
+            thread::spawn(move || {
+                let _ = tx.send(gw.handle_connection(stream));
+            });
+        }
+    });
+    (addr, rx)
+}
+
+/// The next connection outcome the gateway reports.
+fn outcome(rx: &mpsc::Receiver<Result<WorkloadIdentity, MtlsError>>) -> Result<(), MtlsError> {
+    rx.recv_timeout(Duration::from_secs(30))
+        .expect("the gateway reports every connection")
+        .map(|_| ())
+}
+
+/// A clock the test moves by hand.
+fn manual_clock(start: u64) -> (Arc<AtomicU64>, Arc<dyn Fn() -> u64 + Send + Sync>) {
+    let now = Arc::new(AtomicU64::new(start));
+    let read = now.clone();
+    (now, Arc::new(move || read.load(Ordering::SeqCst)))
+}
+
 // ---- client ---------------------------------------------------------------
 
 /// A connected client session over the record layer.
@@ -207,6 +261,9 @@ struct Client {
     sealer: pq_mtls::RecordSealer,
     opener: pq_mtls::RecordOpener,
     ticket: Option<ClientTicket>,
+    /// The raw frame the ticket arrived in, as it crossed the wire.
+    ticket_frame: Vec<u8>,
+    suite: KemSuiteId,
 }
 
 impl Client {
@@ -235,35 +292,53 @@ impl Client {
         );
         let session = run_initiator(init, &mut ch)?;
         let mut stream = ch.into_stream();
-        let ticket_bytes = read_frame(&mut stream).map_err(MtlsError::Transport)?;
+        let (sealer, mut opener) = session.records(RecordRole::Initiator);
+        // The ticket is the first sealed record. [VLD-ANB-MIDGARD-0046]
+        let ticket_frame = read_frame(&mut stream).map_err(MtlsError::Transport)?;
+        let ticket_bytes = opener.open(NEW_TICKET_AAD, &ticket_frame)?;
         let ticket = Some(ClientTicket::new(&session, ticket_bytes));
-        let (sealer, opener) = session.records(RecordRole::Initiator);
         Ok(Client {
             stream,
             sealer,
             opener,
             ticket,
+            ticket_frame,
+            suite: session.suite(),
         })
     }
 
-    /// Resume from a previously issued ticket (abbreviated handshake).
-    fn connect_resumed(
+    /// Resume from a previously issued ticket (abbreviated handshake) at `now`.
+    fn connect_resumed_at(
         addr: std::net::SocketAddr,
         ticket: &ClientTicket,
         anchor: &pq_mtls::TrustAnchor,
+        now: u64,
         seed: u64,
     ) -> Result<Client, MtlsError> {
         let mut stream = TcpStream::connect(addr).unwrap();
         stream.write_all(&[MODE_RESUME]).unwrap();
         let mut rng = SeedRng(seed);
-        let session = run_resume_initiator(&mut stream, ticket, anchor, 1_000, &mut rng)?;
+        let provider = fips_provider();
+        let session = run_resume_initiator(&mut stream, ticket, anchor, &provider, now, &mut rng)?;
         let (sealer, opener) = session.records(RecordRole::Initiator);
         Ok(Client {
             stream,
             sealer,
             opener,
             ticket: None,
+            ticket_frame: Vec::new(),
+            suite: session.suite(),
         })
+    }
+
+    /// Resume at t=1000.
+    fn connect_resumed(
+        addr: std::net::SocketAddr,
+        ticket: &ClientTicket,
+        anchor: &pq_mtls::TrustAnchor,
+        seed: u64,
+    ) -> Result<Client, MtlsError> {
+        Self::connect_resumed_at(addr, ticket, anchor, 1_000, seed)
     }
 
     /// Send one routed request and read the `(status, body)` response.
@@ -379,7 +454,6 @@ fn a_second_connection_resumes_and_the_ticket_is_single_use() {
 
 #[test]
 fn an_expired_ticket_is_refused() {
-    use std::sync::atomic::{AtomicU64, Ordering};
     let (handler, _gov) = control_plane_router();
     let (gateway, anchor, idp) = base_gateway(handler);
     // An advancing clock: the ticket is issued at t=1000 (TTL 100s); we then push
@@ -428,4 +502,250 @@ fn an_abusive_client_is_rate_limited() {
     assert!(client.try_call("kms.seal"), "request 3 served");
     // … the fourth is throttled: the gateway drops the connection.
     assert!(!client.try_call("kms.seal"), "request 4 must be throttled");
+}
+
+// ---- VLD-ANB-MIDGARD-0046: resumption hardening ---------------------------
+
+/// A resumption-capable gateway with a hand-moved clock, its CA, and a client.
+fn resumption_rig(
+    ttl: u64,
+    start: u64,
+    client_not_after: u64,
+) -> (
+    Gateway,
+    pq_mtls::TrustAnchor,
+    (IdentityCert, SigningKey),
+    Arc<AtomicU64>,
+) {
+    let (handler, _gov) = control_plane_router();
+    let (gateway, anchor, idp) = base_gateway(handler);
+    let (now, clock) = manual_clock(start);
+    let gateway = gateway
+        .with_resumption(TicketKey::generate(&mut SeedRng(9)), ttl)
+        .with_clock(clock);
+    let client = workload_until(&idp, "svc-client", &["analyst"], 3, client_not_after);
+    (gateway, anchor, client, now)
+}
+
+/// A ResumeHello for `ticket` whose binder is 32 zero bytes, laid out as
+/// `run_resume_initiator` sends it: `u32 len || ticket || nonce_c || suite ||
+/// u32 len || kem_pk || binder`.
+fn resume_hello_with_zero_binder(ticket: &[u8], suite: KemSuiteId) -> Vec<u8> {
+    let (kem_pk, _) = fips_provider()
+        .kem_for(suite)
+        .unwrap()
+        .keypair(&mut SeedRng(40))
+        .unwrap();
+    let mut o = Vec::new();
+    o.extend_from_slice(&(ticket.len() as u32).to_le_bytes());
+    o.extend_from_slice(ticket);
+    o.extend_from_slice(&[0x11; 32]);
+    o.push(kem_pk.suite().as_u8());
+    o.extend_from_slice(&(kem_pk.as_bytes().len() as u32).to_le_bytes());
+    o.extend_from_slice(kem_pk.as_bytes());
+    o.extend_from_slice(&[0u8; 32]);
+    o
+}
+
+/// AC-52.1: the ticket crosses the wire only inside a sealed record, and the client
+/// recovers it with its record opener. [VLD-ANB-MIDGARD-0046]
+#[test]
+fn ticket_is_delivered_inside_the_record_layer() {
+    let (gateway, anchor, (cl_cert, cl_sk), _now) = resumption_rig(3_600, 1_000, u64::MAX);
+    let addr = spawn(gateway);
+    let provider = fips_provider();
+    let mut client = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
+    let ticket = client
+        .ticket
+        .take()
+        .expect("ticket recovered via the opener");
+    let frame = &client.ticket_frame;
+    assert!(ticket.ticket.len() > 32);
+    assert!(
+        !frame
+            .windows(ticket.ticket.len())
+            .any(|w| w == ticket.ticket.as_slice()),
+        "the ticket must not appear in clear on the wire"
+    );
+    // Both record streams stay in step after the ticket record.
+    assert_eq!(client.call("kms.seal", b"x").unwrap().0, status::OK);
+    // And the recovered ticket resumes.
+    let mut resumed = Client::connect_resumed(addr, &ticket, &anchor, 11).expect("resumes");
+    assert_eq!(resumed.call("kms.seal", b"y").unwrap().0, status::OK);
+}
+
+/// AC-52.2: a ResumeHello with a bad binder is refused without consuming the ticket;
+/// the real resumption then succeeds, and presenting the ticket again is refused, in
+/// that order. [VLD-ANB-MIDGARD-0046]
+#[test]
+fn a_bad_binder_does_not_consume_the_ticket() {
+    let (gateway, anchor, (cl_cert, cl_sk), _now) = resumption_rig(3_600, 1_000, u64::MAX);
+    let (addr, results) = spawn_observed(gateway);
+    let provider = fips_provider();
+    let mut full = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
+    let ticket = full.ticket.take().unwrap();
+    let suite = full.suite;
+    drop(full);
+    let _ = outcome(&results); // the full connection, cut by the drop
+
+    // 1. Right ticket, binder of zeros.
+    let mut stream = TcpStream::connect(addr).unwrap();
+    stream.write_all(&[MODE_RESUME]).unwrap();
+    write_frame(
+        &mut stream,
+        &resume_hello_with_zero_binder(&ticket.ticket, suite),
+    )
+    .unwrap();
+    assert!(read_frame(&mut stream).is_err(), "no ResumeAccept");
+    assert!(matches!(
+        outcome(&results),
+        Err(MtlsError::KeyConfirmationFailed)
+    ));
+
+    // 2. The real resumption with the same ticket still succeeds.
+    let mut resumed = Client::connect_resumed(addr, &ticket, &anchor, 11).expect("resumes");
+    assert_eq!(resumed.call("kms.seal", b"x").unwrap().0, status::OK);
+    drop(resumed);
+    let _ = outcome(&results);
+
+    // 3. And it was single-use.
+    assert!(Client::connect_resumed(addr, &ticket, &anchor, 12).is_err());
+    assert!(matches!(
+        outcome(&results),
+        Err(MtlsError::Authz(pq_mtls::AuthzError::Denied))
+    ));
+}
+
+/// AC-52.2: two correct resumptions with one ticket: the second is Denied.
+/// [VLD-ANB-MIDGARD-0046]
+#[test]
+fn a_ticket_presented_twice_is_refused() {
+    let (gateway, anchor, (cl_cert, cl_sk), _now) = resumption_rig(3_600, 1_000, u64::MAX);
+    let (addr, results) = spawn_observed(gateway);
+    let provider = fips_provider();
+    let mut full = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
+    let ticket = full.ticket.take().unwrap();
+    drop(full);
+    let _ = outcome(&results);
+
+    let first = Client::connect_resumed(addr, &ticket, &anchor, 11).expect("first resumes");
+    drop(first);
+    let _ = outcome(&results);
+    assert!(Client::connect_resumed(addr, &ticket, &anchor, 12).is_err());
+    assert!(matches!(
+        outcome(&results),
+        Err(MtlsError::Authz(pq_mtls::AuthzError::Denied))
+    ));
+}
+
+/// AC-52.4: a client whose certificate is revoked after its ticket was issued, or
+/// that has reached its not_after, cannot resume; the gateway says why.
+/// [VLD-ANB-MIDGARD-0046] [MG-SEC-02] [MG-SEC-03]
+#[test]
+fn a_revoked_or_expired_client_cert_cannot_resume() {
+    // Revoked in the gateway's (shared, live) anchor after issue.
+    let (gateway, anchor, (cl_cert, cl_sk), _now) = resumption_rig(3_600, 1_000, u64::MAX);
+    let fingerprint = cl_cert.fingerprint();
+    let (addr, results) = spawn_observed(gateway);
+    let provider = fips_provider();
+    let mut full = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
+    let ticket = full.ticket.take().unwrap();
+    drop(full);
+    let _ = outcome(&results);
+    anchor.revoke(fingerprint);
+    assert!(Client::connect_resumed(addr, &ticket, &anchor, 11).is_err());
+    assert!(matches!(outcome(&results), Err(MtlsError::PeerCertRevoked)));
+
+    // Expired: the certificate ends at t=5000 and the ticket is cut to end with it;
+    // at t=5000 the ticket is still in date but the certificate is not.
+    let (gateway, anchor, (cl_cert, cl_sk), now) = resumption_rig(10_000, 1_000, 5_000);
+    let (addr, results) = spawn_observed(gateway);
+    let mut full = Client::connect_full(&provider, cl_cert, &cl_sk, anchor.clone(), addr, 5)
+        .expect("full handshake");
+    let ticket = full.ticket.take().unwrap();
+    drop(full);
+    let _ = outcome(&results);
+    now.store(5_000, Ordering::SeqCst);
+    assert!(Client::connect_resumed_at(addr, &ticket, &anchor, 5_000, 11).is_err());
+    assert!(matches!(
+        outcome(&results),
+        Err(MtlsError::PeerCertExpired { .. })
+    ));
+}
+
+/// AC-52.5: the seen-ticket set never exceeds its cap, refuses beyond it, and drops
+/// entries once they expire. [VLD-ANB-MIDGARD-0046]
+#[test]
+fn seen_tickets_are_pruned_and_capped() {
+    const TTL: u64 = 100;
+    let mut seen = SeenTickets::new();
+    let now = 1_000;
+    let mut full = 0usize;
+    for i in 0..70_000u32 {
+        match seen.admit(&i.to_le_bytes(), now + TTL, now) {
+            TicketAdmission::Fresh => {}
+            TicketAdmission::Full => full += 1,
+            TicketAdmission::Replayed => panic!("every synthetic ticket is distinct"),
+        }
+        assert!(seen.len() <= MAX_SEEN_TICKETS);
+    }
+    assert_eq!(seen.len(), MAX_SEEN_TICKETS);
+    assert_eq!(full, 70_000 - MAX_SEEN_TICKETS);
+    // A ticket already seen is a replay, not a fresh one.
+    assert_eq!(
+        seen.admit(&0u32.to_le_bytes(), now + TTL, now),
+        TicketAdmission::Replayed
+    );
+    // Still in date at the expiry second: nothing is pruned.
+    assert_eq!(
+        seen.admit(b"late", now + 2 * TTL, now + TTL),
+        TicketAdmission::Full
+    );
+    // Past the expiry everything is pruned and the set takes tickets again.
+    assert_eq!(
+        seen.admit(b"later", now + 3 * TTL, now + TTL + 1),
+        TicketAdmission::Fresh
+    );
+    assert_eq!(seen.len(), 1);
+}
+
+/// AC-52.5: ticket keys rotate once per TTL, and a ticket issued under the previous
+/// key still resumes while it is in date. [VLD-ANB-MIDGARD-0046]
+#[test]
+fn ticket_keys_rotate_and_old_tickets_still_open_within_ttl() {
+    let (gateway, anchor, (cl_cert, cl_sk), now) = resumption_rig(100, 1_000, u64::MAX);
+    let addr = spawn(gateway);
+    let provider = fips_provider();
+    let ticket_at = |t: u64, seed: u64| {
+        now.store(t, Ordering::SeqCst);
+        Client::connect_full(
+            &provider,
+            cl_cert.clone(),
+            &cl_sk,
+            anchor.clone(),
+            addr,
+            seed,
+        )
+        .expect("full handshake")
+        .ticket
+        .take()
+        .unwrap()
+    };
+    let first = ticket_at(1_000, 5);
+    let before_rotation = ticket_at(1_090, 6);
+    let after_rotation = ticket_at(1_150, 7);
+    assert_eq!(first.ticket[0], 0, "the first key's id");
+    assert_eq!(before_rotation.ticket[0], 0, "no rotation within the TTL");
+    assert_eq!(after_rotation.ticket[0], 1, "rotated past the TTL");
+
+    // The previous key still opens a ticket that is in date …
+    assert!(Client::connect_resumed_at(addr, &before_rotation, &anchor, 1_150, 11).is_ok());
+    // … one past its TTL is refused …
+    assert!(Client::connect_resumed_at(addr, &first, &anchor, 1_150, 12).is_err());
+    // … and the current key's tickets resume.
+    assert!(Client::connect_resumed_at(addr, &after_rotation, &anchor, 1_150, 13).is_ok());
 }
