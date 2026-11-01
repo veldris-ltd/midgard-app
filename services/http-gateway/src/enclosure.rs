@@ -24,7 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use audit_writer::{
-    entry_hash, genesis_hash, signing_preimage, AuditContext, Outcome, SealedEntry,
+    entry_hash, genesis_hash, signing_preimage, AuditContext, Outcome, SealedEntry, SealedJournal,
 };
 use fabric::{
     ActionFunction, ActionType, Cardinality, Effect, Fabric, FabricError, FunctionRuntime,
@@ -37,6 +37,7 @@ use policy::{
 };
 use pqc_agility::{CryptoProvider, VerifyingKey};
 
+use crate::approval_journal::ApprovalFrame;
 use crate::json::Json;
 use crate::ontology_file::{ActionEffect, Ontology};
 
@@ -55,8 +56,16 @@ const MAX_HOPS: i64 = 4;
 const MAX_PAGE: i64 = 500;
 /// How long an approved human gate can be redeemed (seconds).
 const APPROVAL_TTL: u64 = 900;
-/// Most approvals the enclosure holds; the oldest are dropped first.
+/// Most approvals the enclosure holds. Expired entries are pruned, then rejected
+/// and used ones make room, oldest first; a live (pending or approved) entry is never
+/// evicted, and a request that finds no room is refused with 429. [VLD-ANB-MIDGARD-0039]
 const MAX_APPROVALS: usize = 256;
+/// How long a pending approval waits for a decision before it expires (seconds).
+const PENDING_TTL: u64 = 86_400;
+/// Most open approvals (pending, or approved and unexpired) one requester may hold.
+const MAX_OPEN_PER_REQUESTER: usize = 16;
+/// How long a caller refused for a full approval queue is asked to wait (seconds).
+const APPROVAL_RETRY_AFTER: u64 = 60;
 
 /// A request the enclosure refused, already mapped to its HTTP status.
 pub struct EdgeError {
@@ -67,6 +76,9 @@ pub struct EdgeError {
     /// What went wrong, for the gateway's log only; never sent to the client.
     /// [VLD-ANB-MIDGARD-0053]
     pub detail: Option<String>,
+    /// For a 429, the seconds the client is asked to wait (`Retry-After`).
+    /// [VLD-ANB-MIDGARD-0039]
+    pub retry_after: Option<u64>,
 }
 
 impl EdgeError {
@@ -75,6 +87,15 @@ impl EdgeError {
             status,
             body: Json::obj(vec![("error", Json::s(message))]),
             detail: None,
+            retry_after: None,
+        }
+    }
+
+    /// Too many requests: refused with 429 and a `Retry-After`. [VLD-ANB-MIDGARD-0039]
+    fn too_many(message: &str) -> Self {
+        Self {
+            retry_after: Some(APPROVAL_RETRY_AFTER),
+            ..Self::new(429, message)
         }
     }
 
@@ -101,6 +122,7 @@ impl EdgeError {
                 ("auditSeq", Json::s(&audit_seq.to_string())),
             ]),
             detail: None,
+            retry_after: None,
         }
     }
 }
@@ -137,8 +159,10 @@ enum ApprovalState {
 ///
 /// The gate is a two-person rule: the requester asks, someone else approves, and only
 /// the requester can then redeem it — once, for that action on that object, before it
-/// expires. Approvals live in memory: a restart drops them, and the requester asks
-/// again.
+/// expires. A pending approval expires after [`PENDING_TTL`]. Each state change is
+/// written to the signed ledger as an `APPROVAL ...` row on `approval:<id>`, and, in a
+/// served enclosure, to the sealed approvals journal, so approvals survive a restart.
+/// [VLD-ANB-MIDGARD-0038] [VLD-ANB-MIDGARD-0039]
 ///
 /// While an approval is pending, approved and unexpired, or redeemed, its target is
 /// protected from mesh sync ([`Enclosure::gated_targets`]) until the approval is
@@ -242,6 +266,9 @@ pub struct Enclosure<S: ObjectStore = InMemoryStore, L: LedgerStore = InMemoryLe
     approvals: Vec<Approval>,
     /// The number the next approval id takes.
     next_approval: u64,
+    /// Where each approval state change is journalled; `None` keeps approvals in
+    /// memory only (the development gateway). [VLD-ANB-MIDGARD-0039]
+    approval_journal: Option<SealedJournal>,
 }
 
 impl<L: LedgerStore> Enclosure<InMemoryStore, L> {
@@ -266,7 +293,89 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             updated: BTreeMap::new(),
             approvals: Vec::new(),
             next_approval: 1,
+            approval_journal: None,
         }
+    }
+
+    /// Journal approvals to `journal`, first replaying the frames `recovered` from it
+    /// in order, so the approvals open when it was last written are open again. The
+    /// next approval id follows the highest one seen. A frame that does not decode, or
+    /// names an approval the journal never opened, refuses the boot.
+    /// [VLD-ANB-MIDGARD-0039]
+    pub fn with_approval_journal(
+        mut self,
+        journal: SealedJournal,
+        recovered: Vec<Vec<u8>>,
+    ) -> Result<Self, String> {
+        let mut approvals: Vec<Approval> = Vec::new();
+        let mut next = 1u64;
+        for bytes in &recovered {
+            let frame = ApprovalFrame::decode(bytes)?;
+            let unknown = |id: &str| format!("approval record names unknown approval {id}");
+            match frame {
+                ApprovalFrame::Request {
+                    id,
+                    action_id,
+                    action_title,
+                    target,
+                    requester,
+                    requested,
+                } => {
+                    if let Some(n) = id.strip_prefix("APR-").and_then(|n| n.parse::<u64>().ok()) {
+                        next = next.max(n.saturating_add(1));
+                    }
+                    approvals.push(Approval {
+                        id,
+                        action_id,
+                        action_title,
+                        target,
+                        requester,
+                        requested,
+                        state: ApprovalState::Pending,
+                    });
+                }
+                ApprovalFrame::Decide {
+                    id,
+                    approved,
+                    approver,
+                    expires,
+                } => {
+                    let a = approvals
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .ok_or_else(|| unknown(&id))?;
+                    a.state = if approved {
+                        ApprovalState::Approved { approver, expires }
+                    } else {
+                        ApprovalState::Rejected { approver }
+                    };
+                }
+                ApprovalFrame::Use { id } => {
+                    let a = approvals
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .ok_or_else(|| unknown(&id))?;
+                    let approver = match &a.state {
+                        ApprovalState::Approved { approver, .. } => approver.clone(),
+                        _ => {
+                            return Err(format!("approval record uses {id}, which is not approved"))
+                        }
+                    };
+                    a.state = ApprovalState::Used { approver };
+                }
+                ApprovalFrame::Prune { id } => {
+                    let i = approvals
+                        .iter()
+                        .position(|a| a.id == id)
+                        .ok_or_else(|| unknown(&id))?;
+                    approvals.remove(i);
+                }
+            }
+        }
+        self.approvals = approvals;
+        self.next_approval = next;
+        self.approval_journal = Some(journal);
+        Ok(self)
     }
 
     /// The fabric.
@@ -494,20 +603,33 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             },
             _ => None,
         };
+        // A gated action's lineage row names the approval that authorised it, its
+        // approver and its target. [VLD-ANB-MIDGARD-0038]
+        let audit = match approval {
+            Some(i) => {
+                let a = &self.approvals[i];
+                AuditContext {
+                    approval_id: Some(a.id.clone()),
+                    approver: approver_of(a).map(str::to_string),
+                    target: Some(target.clone()),
+                    ..AuditContext::default()
+                }
+            }
+            None => AuditContext::default(),
+        };
         params.insert("targets".into(), target);
 
-        let resp = match self.fabric.apply_action(ctx, &entry.id, &params, now) {
+        let resp = match self
+            .fabric
+            .apply_action_with(ctx, &entry.id, &params, now, audit)
+        {
             Ok(resp) => resp,
             Err(e) => return Err(self.refusal(e)),
         };
         if resp.applied {
             self.updated.insert(entry.object_type, now);
             if let Some(i) = approval {
-                let a = &mut self.approvals[i];
-                if let ApprovalState::Approved { approver, .. } = &a.state {
-                    let approver = approver.clone();
-                    a.state = ApprovalState::Used { approver };
-                }
+                self.redeem(ctx, i, now)?;
             }
         }
         Ok(Json::obj(vec![
@@ -568,8 +690,28 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             )));
         }
         let target = self.readable_target(ctx, &entry.object_type, target)?;
-        if self.approvals.len() >= MAX_APPROVALS {
-            self.approvals.remove(0);
+        self.prune_approvals(now)?;
+        let open = self
+            .approvals
+            .iter()
+            .filter(|a| a.requester == ctx.subject && is_open(a, now))
+            .count();
+        let refusal = if open >= MAX_OPEN_PER_REQUESTER {
+            Some((
+                "approval-quota",
+                "too many open approval requests for this user",
+            ))
+        } else if self.approvals.len() >= MAX_APPROVALS {
+            Some((
+                "approval-queue-full",
+                "the approval queue is full; try again later",
+            ))
+        } else {
+            None
+        };
+        if let Some((reason, message)) = refusal {
+            let refused = EdgeError::too_many(message);
+            return Err(self.refused(ctx, "Apply", reason, None, &target, now, refused));
         }
         let approval = Approval {
             id: format!("APR-{}", self.next_approval),
@@ -580,10 +722,121 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             requested: now,
             state: ApprovalState::Pending,
         };
+        // Journalled first, so an id that reaches the ledger is never handed out again
+        // after a restart; if the ledger then refuses the row, the journal entry is
+        // withdrawn and the approval is not kept. [VLD-ANB-MIDGARD-0038]
+        // [VLD-ANB-MIDGARD-0039]
+        self.journal_approval(&ApprovalFrame::Request {
+            id: approval.id.clone(),
+            action_id: approval.action_id.clone(),
+            action_title: approval.action_title.clone(),
+            target: approval.target.clone(),
+            requester: approval.requester.clone(),
+            requested: approval.requested,
+        })?;
         self.next_approval += 1;
+        if let Err(e) = self.approval_row(&ctx.subject, "APPROVAL requested", &approval, now) {
+            let _ = self.journal_approval(&ApprovalFrame::Prune {
+                id: approval.id.clone(),
+            });
+            return Err(e);
+        }
         let json = approval_json(&approval, now, &ctx.subject);
         self.approvals.push(approval);
         Ok(json)
+    }
+
+    /// Make room in the approval store. Every expired entry (pending past
+    /// [`PENDING_TTL`], or approved past its redemption window) is removed and written
+    /// to the ledger as `APPROVAL expired`; then, while the store is full, rejected and
+    /// then used entries are removed, oldest first. A live entry is never removed.
+    /// Each removal is journalled; a failure stops the prune and fails the request.
+    /// [VLD-ANB-MIDGARD-0039]
+    fn prune_approvals(&mut self, now: u64) -> Result<(), EdgeError> {
+        while let Some(i) = self.approvals.iter().position(|a| is_expired(a, now)) {
+            let a = self.approvals[i].clone();
+            // The row is the requester's: it is their request that lapsed.
+            self.approval_row(&a.requester, "APPROVAL expired", &a, now)?;
+            self.journal_approval(&ApprovalFrame::Prune { id: a.id })?;
+            self.approvals.remove(i);
+        }
+        let settled: [fn(&ApprovalState) -> bool; 2] = [
+            |s| matches!(s, ApprovalState::Rejected { .. }),
+            |s| matches!(s, ApprovalState::Used { .. }),
+        ];
+        for is_settled in settled {
+            while self.approvals.len() >= MAX_APPROVALS {
+                let Some(i) = self.approvals.iter().position(|a| is_settled(&a.state)) else {
+                    break;
+                };
+                let id = self.approvals[i].id.clone();
+                self.journal_approval(&ApprovalFrame::Prune { id })?;
+                self.approvals.remove(i);
+            }
+        }
+        Ok(())
+    }
+
+    /// Mark approval `i` used once its action has run: journalled, so it cannot be
+    /// redeemed again after a restart, and written to the ledger as `APPROVAL
+    /// redeemed`. The action has already applied, so if either write fails the
+    /// approval is still marked used here and the request reports a server error.
+    /// [VLD-ANB-MIDGARD-0038] [VLD-ANB-MIDGARD-0039]
+    fn redeem(&mut self, ctx: &PolicyContext, i: usize, now: u64) -> Result<(), EdgeError> {
+        let a = &mut self.approvals[i];
+        let ApprovalState::Approved { approver, .. } = &a.state else {
+            return Ok(());
+        };
+        a.state = ApprovalState::Used {
+            approver: approver.clone(),
+        };
+        let a = a.clone();
+        let journalled = self
+            .journal_approval(&ApprovalFrame::Use { id: a.id.clone() })
+            .map_err(|e| {
+                EdgeError::internal(format!(
+                    "applied, but the redemption was not journalled: {}",
+                    e.detail.unwrap_or_default()
+                ))
+            });
+        let audited = self.approval_row(&ctx.subject, "APPROVAL redeemed", &a, now);
+        journalled.and(audited)
+    }
+
+    /// Write one approval lifecycle row, `event` on `approval:<id>`, with the
+    /// approval's id, its approver (once decided), its target and, as the reason, the
+    /// action it gates. [VLD-ANB-MIDGARD-0038]
+    fn approval_row(
+        &mut self,
+        actor: &str,
+        event: &str,
+        a: &Approval,
+        now: u64,
+    ) -> Result<(), EdgeError> {
+        let context = AuditContext {
+            outcome: Outcome::Info,
+            reason: Some(a.action_id.clone()),
+            approval_id: Some(a.id.clone()),
+            approver: approver_of(a).map(str::to_string),
+            target: Some(a.target.clone()),
+            ..AuditContext::default()
+        };
+        self.fabric
+            .governance_mut()
+            .record_event_with(actor, event, &format!("approval:{}", a.id), now, context)
+            .map(|_| ())
+            .map_err(|e| EdgeError::internal(format!("approval not audited: {e}")))
+    }
+
+    /// Append one approval state change to the journal, if there is one.
+    /// [VLD-ANB-MIDGARD-0039]
+    fn journal_approval(&mut self, frame: &ApprovalFrame) -> Result<(), EdgeError> {
+        match &mut self.approval_journal {
+            None => Ok(()),
+            Some(journal) => journal
+                .append(&frame.encode())
+                .map_err(|e| EdgeError::internal(format!("approval not journalled: {e}"))),
+        }
     }
 
     /// `POST /approvals/{id}/approve` or `/reject`: a second person decides a pending
@@ -608,7 +861,7 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         }
         let a = &self.approvals[i];
         let target = a.target.clone();
-        if a.state != ApprovalState::Pending {
+        if a.state != ApprovalState::Pending || is_expired(a, now) {
             let refused = EdgeError::new(
                 409,
                 &format!("approval {id} is already {}", approval_status(a, now)),
@@ -638,17 +891,36 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                 refused,
             ));
         }
-        let a = &mut self.approvals[i];
         let approver = ctx.subject.clone();
-        a.state = if approve {
+        let expires = now.saturating_add(APPROVAL_TTL);
+        let mut decided = self.approvals[i].clone();
+        decided.state = if approve {
             ApprovalState::Approved {
-                approver,
-                expires: now.saturating_add(APPROVAL_TTL),
+                approver: approver.clone(),
+                expires,
             }
         } else {
-            ApprovalState::Rejected { approver }
+            ApprovalState::Rejected {
+                approver: approver.clone(),
+            }
         };
-        Ok(approval_json(a, now, &ctx.subject))
+        // The decision is in the ledger, then the journal, before it takes effect; a
+        // failure of either leaves the approval pending. [VLD-ANB-MIDGARD-0038]
+        let event = if approve {
+            "APPROVAL approved"
+        } else {
+            "APPROVAL rejected"
+        };
+        self.approval_row(&ctx.subject, event, &decided, now)?;
+        self.journal_approval(&ApprovalFrame::Decide {
+            id: decided.id.clone(),
+            approved: approve,
+            approver,
+            expires: if approve { expires } else { 0 },
+        })?;
+        let json = approval_json(&decided, now, &ctx.subject);
+        self.approvals[i] = decided;
+        Ok(json)
     }
 
     /// Record a refusal in the ledger before it is returned: the edge has already
@@ -910,14 +1182,32 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                     } else {
                         format!("{alg} ✗ unverified")
                     };
-                    Json::obj(vec![
+                    let mut row = vec![
                         ("id", Json::s(&audit_id(e.seq))),
                         ("actor", Json::s(&e.record.actor.0)),
                         ("action", Json::s(&e.record.action.0)),
                         ("resource", Json::s(&e.record.resource.0)),
                         ("ts", Json::s(&time_of_day(&e.record.ts.0))),
                         ("pqSignature", Json::s(&marker)),
-                    ])
+                    ];
+                    // The row's context, where it states one: how it ended, why, and
+                    // for a human gate the approval, its approver and its target.
+                    // [VLD-ANB-MIDGARD-0038]
+                    let c = &e.record.context;
+                    if c.outcome != Outcome::Unspecified {
+                        row.push(("outcome", Json::s(c.outcome.as_str())));
+                    }
+                    for (key, value) in [
+                        ("reason", &c.reason),
+                        ("approvalId", &c.approval_id),
+                        ("approver", &c.approver),
+                        ("target", &c.target),
+                    ] {
+                        if let Some(value) = value {
+                            row.push((key, Json::s(value)));
+                        }
+                    }
+                    Json::obj(row)
                 })
                 .collect(),
         );
@@ -1697,12 +1987,41 @@ fn audit_id(seq: u64) -> String {
 /// An approval's state as the console shows it.
 fn approval_status(a: &Approval, now: u64) -> &'static str {
     match &a.state {
+        _ if is_expired(a, now) => "expired",
         ApprovalState::Pending => "pending",
-        ApprovalState::Approved { expires, .. } if now >= *expires => "expired",
         ApprovalState::Approved { .. } => "approved",
         ApprovalState::Rejected { .. } => "rejected",
         ApprovalState::Used { .. } => "used",
     }
+}
+
+/// Who decided an approval, once someone has.
+fn approver_of(a: &Approval) -> Option<&str> {
+    match &a.state {
+        ApprovalState::Pending => None,
+        ApprovalState::Approved { approver, .. }
+        | ApprovalState::Rejected { approver }
+        | ApprovalState::Used { approver } => Some(approver),
+    }
+}
+
+/// Whether an approval has lapsed: pending past [`PENDING_TTL`], or approved and not
+/// redeemed in time. [VLD-ANB-MIDGARD-0039]
+fn is_expired(a: &Approval, now: u64) -> bool {
+    match &a.state {
+        ApprovalState::Pending => now >= a.requested.saturating_add(PENDING_TTL),
+        ApprovalState::Approved { expires, .. } => now >= *expires,
+        ApprovalState::Rejected { .. } | ApprovalState::Used { .. } => false,
+    }
+}
+
+/// Whether an approval still counts against its requester: pending, or approved and
+/// redeemable, and not expired. [VLD-ANB-MIDGARD-0039]
+fn is_open(a: &Approval, now: u64) -> bool {
+    matches!(
+        a.state,
+        ApprovalState::Pending | ApprovalState::Approved { .. }
+    ) && !is_expired(a, now)
 }
 
 /// An approval as the console shows it to `subject`.

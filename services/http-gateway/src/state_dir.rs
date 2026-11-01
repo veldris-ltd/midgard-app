@@ -15,6 +15,7 @@
 //!   revocations.journal    session tokens signed out before expiry (sealed, append-only)
 //!   governance.ledger      the PQ-signed audit ledger (sealed, append-only)
 //!   objects.store          the object fabric's objects and links (sealed, append-only)
+//!   approvals.journal      human-gate approvals and their state changes (sealed)
 //!   admin/passkeys.journal administrators' public passkeys (sealed, append-only)
 //!   admin/roles.journal    administrators' role bindings (sealed, append-only)
 //!   admin/privilege/       the dual-control service's ledger and in-flight approvals
@@ -120,6 +121,11 @@ impl StateDir {
     /// The durable object store.
     pub fn store(&self) -> PathBuf {
         self.root.join("objects.store")
+    }
+
+    /// The human-gate approvals journal. [VLD-ANB-MIDGARD-0039]
+    pub fn approvals(&self) -> PathBuf {
+        self.root.join("approvals.journal")
     }
 
     /// Where administration state lives.

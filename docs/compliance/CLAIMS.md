@@ -218,14 +218,20 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 
 ### `human-gated-actions` (operable)
 
-An action the ontology marks as human-gated is refused at the edge unless the request carries a human-gate token, and actions are gated unless the ontology says otherwise.
+An action the ontology marks as human-gated runs only with an approval that a second person granted to this requester for this action on this object, unexpired and unused; request, decision and redemption are bound in the signed ledger by approval id, requester, approver and target, and approvals survive a restart.
 
-**Limit.** The edge accepts any non-empty token: it does not yet check that the token is a named person's authorisation (RF-UID-3).
+**Limit.** Approvals are bounded (256 total, 16 open per requester, pending entries expire after 24 hours); a full queue refuses new requests with 429.
 
 - Source:
-  - [`services/http-gateway/src/enclosure.rs:375`](../../services/http-gateway/src/enclosure.rs)
+  - [`services/http-gateway/src/enclosure.rs:987`](../../services/http-gateway/src/enclosure.rs)
+  - [`services/http-gateway/src/enclosure.rs:750`](../../services/http-gateway/src/enclosure.rs)
 - Tests:
   - [`services/http-gateway/tests/fabric_edge.rs::a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing`](../../services/http-gateway/tests/fabric_edge.rs)
+  - [`services/http-gateway/tests/fabric_edge.rs::an_approval_is_bound_to_its_requester_action_and_object_and_redeems_once`](../../services/http-gateway/tests/fabric_edge.rs)
+  - [`services/http-gateway/tests/fabric_edge.rs::the_ledger_binds_request_decision_and_redemption_to_the_approval`](../../services/http-gateway/tests/fabric_edge.rs)
+  - [`services/http-gateway/tests/fabric_edge.rs::pending_and_approved_gates_are_not_evicted_by_a_flood_of_requests`](../../services/http-gateway/tests/fabric_edge.rs)
+  - [`services/http-gateway/tests/fabric_edge.rs::a_pending_approval_expires_and_is_audited`](../../services/http-gateway/tests/fabric_edge.rs)
+  - [`services/http-gateway/tests/durable_enclosure.rs::approvals_survive_a_restart_and_redeem_once`](../../services/http-gateway/tests/durable_enclosure.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
 - Stated at:

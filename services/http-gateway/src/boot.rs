@@ -31,7 +31,7 @@ pub use audit_writer::Adoption;
 use audit_writer::{
     adopt_ledger, checkpoint_path, verify_chain, verify_ledger, AdoptionKeys, AuditError,
     AuditWriter, CheckpointMirror, FileCheckpointMirror, FileLedger, LedgerId, LedgerStore,
-    PinnedKey, Sealer,
+    PinnedKey, SealedJournal, Sealer,
 };
 use fabric::DurableObjectStore;
 use governance::Governance;
@@ -42,6 +42,7 @@ use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{SecretBytes, SigningKey, VerifyingKey};
 
 use crate::admin_api::AdminControl;
+use crate::approval_journal::APPROVALS_DOMAIN;
 use crate::enclosure::Enclosure;
 use crate::ontology_file::parse_ontology;
 use crate::policy_file::parse_policy;
@@ -119,6 +120,7 @@ pub fn open_state_dir_mirrored(
     let privilege_ledger_sealer = sealer(&audit_keystore);
     let privilege_state_sealer = sealer(&audit_keystore);
     let pending_sealer = sealer(&audit_keystore);
+    let approvals_sealer = sealer(&audit_keystore);
     let audit_alg = audit_keystore.alg;
     let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
     // The keystore that signs the ledger does not get to say which key checks it.
@@ -209,10 +211,18 @@ pub fn open_state_dir_mirrored(
     )?;
     let administrators = admin.administrators();
 
+    // Human-gate approvals are journalled under the same root as the object store and
+    // replayed, so a pending or approved gate survives a restart and a used one stays
+    // used. [VLD-ANB-MIDGARD-0039]
+    let (approvals, recovered) =
+        SealedJournal::open(state.approvals(), approvals_sealer, APPROVALS_DOMAIN)
+            .map_err(|e| format!("the approvals journal does not open: {e}"))?;
+    let mut enclosure = Enclosure::with_store(store, governance)
+        .with_approval_journal(approvals, recovered)
+        .map_err(|e| format!("{}: {e}", state.approvals().display()))?;
     // The type registry is not journalled, so the ontology is registered on every boot;
     // the objects already in the store are typed by it. A directory without an
     // ontology file serves no object types.
-    let mut enclosure = Enclosure::with_store(store, governance);
     let ontology_path = state.ontology();
     let ontology = if ontology_path.exists() {
         let text = std::fs::read_to_string(&ontology_path)

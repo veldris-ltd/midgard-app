@@ -716,3 +716,47 @@ fn type_and_object_resource_ids_are_stable() {
     let people = fab.search(&c, &search("person"), 1).unwrap();
     assert_eq!(people.total, 1, "other types are still served");
 }
+
+/// A gated action's lineage row names the approval that authorised it, its approver
+/// and its target, and still records the decision as its outcome, whatever the caller
+/// put there. [NFR-AI-1] [VLD-ANB-MIDGARD-0038] [AC-21.1]
+#[test]
+fn an_action_row_carries_the_callers_audit_context() {
+    use audit_writer::{AuditContext, Outcome};
+
+    let mut fab = build_fabric();
+    fab.store_mut().put_object(case("c1", "Case One", "open"));
+    let c = ctx(
+        "alice",
+        &["analyst"],
+        ClassificationLevel::SECRET,
+        "investigation",
+    );
+    let mut params = BTreeMap::new();
+    params.insert("case_id".into(), "c1".into());
+    let audit = AuditContext {
+        approval_id: Some("APR-7".into()),
+        approver: Some("bob".into()),
+        target: Some("c1".into()),
+        outcome: Outcome::Refused,
+        ..AuditContext::default()
+    };
+    let resp = fab
+        .apply_action_with(&c, "close_case", &params, 1000, audit)
+        .unwrap();
+    assert!(resp.applied);
+
+    let row = &fab.audit_entries()[usize::try_from(resp.audit_seq).unwrap()].record;
+    assert_eq!(row.context.approval_id.as_deref(), Some("APR-7"));
+    assert_eq!(row.context.approver.as_deref(), Some("bob"));
+    assert_eq!(row.context.target.as_deref(), Some("c1"));
+    assert_eq!(row.context.outcome, Outcome::Permit);
+
+    // Without a context the row is written as before, outcome aside.
+    let mut params = BTreeMap::new();
+    params.insert("case_id".into(), "c1".into());
+    let plain = fab.apply_action(&c, "close_case", &params, 1001).unwrap();
+    let row = &fab.audit_entries()[usize::try_from(plain.audit_seq).unwrap()].record;
+    assert_eq!(row.context.approval_id, None);
+    assert_eq!(row.context.outcome, Outcome::Permit);
+}

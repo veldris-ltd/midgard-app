@@ -951,3 +951,174 @@ fn a_refused_human_gate_and_a_self_approval_are_in_the_ledger() {
         rows.encode()
     );
 }
+
+/// The row in `rows` with `action` on `resource`, if any.
+fn audit_row<'a>(rows: &'a Json, action: &str, resource: &str) -> Option<&'a Json> {
+    items(rows)
+        .iter()
+        .find(|r| field(r, "action") == action && field(r, "resource") == resource)
+}
+
+/// Who asked, who approved and which action ran on what are all in the signed ledger,
+/// bound by the approval id: the request, the decision and the redemption each leave
+/// an `APPROVAL` row on `approval:<id>`, and the fabric's own row for the action names
+/// the approval and its approver. [NFR-AI-1] [AC-M-4] [VLD-ANB-MIDGARD-0038] [AC-21.1]
+#[test]
+fn the_ledger_binds_request_decision_and_redemption_to_the_approval() {
+    let (gw, token) = session();
+    let id = approved(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+    assert_eq!(id, "APR-1");
+    let r = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", &id);
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let rows = audit(&gw, &token);
+    let lifecycle = [
+        ("APPROVAL requested", DEMO_USERNAME, None),
+        (
+            "APPROVAL approved",
+            DEMO_APPROVER_USERNAME,
+            Some(DEMO_APPROVER_USERNAME),
+        ),
+        (
+            "APPROVAL redeemed",
+            DEMO_USERNAME,
+            Some(DEMO_APPROVER_USERNAME),
+        ),
+    ];
+    for (action, actor, approver) in lifecycle {
+        let row = audit_row(&rows, action, "approval:APR-1")
+            .unwrap_or_else(|| panic!("no {action} row: {}", rows.encode()));
+        assert_eq!(field(row, "actor"), actor, "{}", row.encode());
+        assert_eq!(field(row, "approvalId"), "APR-1", "{}", row.encode());
+        assert_eq!(field(row, "target"), "aircraft/AC-2214", "{}", row.encode());
+        assert_eq!(field(row, "reason"), "ground_aircraft", "{}", row.encode());
+        assert_eq!(row.str_field("approver"), approver, "{}", row.encode());
+    }
+
+    let fabric_row = audit_row(&rows, "PERMIT groundAircraft", "ground_aircraft")
+        .unwrap_or_else(|| panic!("no fabric action row: {}", rows.encode()));
+    assert_eq!(field(fabric_row, "actor"), DEMO_USERNAME);
+    assert_eq!(field(fabric_row, "approvalId"), "APR-1");
+    assert_eq!(field(fabric_row, "approver"), DEMO_APPROVER_USERNAME);
+    assert_eq!(field(fabric_row, "target"), "aircraft/AC-2214");
+    assert_eq!(field(fabric_row, "outcome"), "permit");
+}
+
+/// A flood of approval requests cannot push a live gate out: each requester holds at
+/// most 16 open requests, and once the store is full a request is refused with 429 and
+/// a Retry-After rather than evicting a pending or approved entry, both of which still
+/// work afterwards. [NFR-AI-1] [VLD-ANB-MIDGARD-0039] [AC-21.2]
+#[test]
+fn pending_and_approved_gates_are_not_evicted_by_a_flood_of_requests() {
+    let (mut gw, token) = session();
+    let pending = request_approval(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+    let live = approved(&gw, &token, "Schedule maintenance", "aircraft/AC-2214");
+
+    let flooders: Vec<String> = (0..16).map(|n| format!("flood-{n}")).collect();
+    for name in &flooders {
+        gw.provision_login(name, "flood-password", http_gateway::demo_operator())
+            .unwrap();
+    }
+    let body = r#"{"actionType":"Ground aircraft","target":"aircraft/AC-2214"}"#;
+    let mut accepted_by = Vec::new();
+    let mut queue_full = None;
+    for name in &flooders {
+        let flood = login(&gw, name, "flood-password");
+        let mut accepted = 0;
+        let refusal = loop {
+            let r = call(&gw, "POST", "/api/v1/approvals", "", body, Some(&flood));
+            if r.status != 200 {
+                break r;
+            }
+            accepted += 1;
+            assert!(accepted <= 16, "more than 16 open requests for {name}");
+        };
+        assert_eq!(refusal.status, 429, "{}", refusal.body);
+        assert_eq!(refusal.retry_after, Some(60), "{}", refusal.body);
+        accepted_by.push(accepted);
+        if refusal.body.contains("queue") {
+            queue_full = Some(refusal);
+            break;
+        }
+        assert!(
+            refusal.body.contains("too many open approval requests"),
+            "{}",
+            refusal.body
+        );
+        assert_eq!(accepted, 16, "the per-requester cap is 16");
+    }
+    let queue_full = queue_full.expect("the store filled and refused");
+    assert!(
+        queue_full.body.contains("approval queue is full"),
+        "{}",
+        queue_full.body
+    );
+    // 256 in all: the operator's two and the flood's 254.
+    assert_eq!(accepted_by.iter().sum::<usize>(), 254, "{accepted_by:?}");
+
+    let listed = json(&call(&gw, "GET", "/api/v1/approvals", "", "", Some(&token)));
+    let still_pending = items(&listed)
+        .iter()
+        .find(|a| field(a, "id") == pending)
+        .expect("the pending approval is still listed");
+    assert_eq!(field(still_pending, "status"), "pending");
+    let r = act(
+        &gw,
+        &token,
+        "Schedule maintenance",
+        "aircraft/AC-2214",
+        &live,
+    );
+    assert_eq!(r.status, 200, "the approved gate still redeems: {}", r.body);
+}
+
+/// A pending approval nobody decides expires after 24 hours: the next request prunes
+/// it, it is no longer listed, and the ledger says it expired. [NFR-AI-1]
+/// [VLD-ANB-MIDGARD-0039] [AC-21.3]
+#[test]
+fn a_pending_approval_expires_and_is_audited() {
+    let (gw, token) = session();
+    let first = request_approval(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+
+    // A day and a second later, with a fresh session.
+    let later = now() + 86_401;
+    let body = format!(r#"{{"username":"{DEMO_USERNAME}","password":"{DEMO_PASSWORD}"}}"#);
+    let r = call_at(&gw, "POST", "/api/v1/login", "", &body, None, later);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let token = field(&json(&r), "token").to_string();
+    let body = r#"{"actionType":"Ground aircraft","target":"aircraft/AC-2261"}"#;
+    let r = call_at(
+        &gw,
+        "POST",
+        "/api/v1/approvals",
+        "",
+        body,
+        Some(&token),
+        later,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let listed = call_at(&gw, "GET", "/api/v1/approvals", "", "", Some(&token), later);
+    assert!(
+        !items(&json(&listed))
+            .iter()
+            .any(|a| field(a, "id") == first),
+        "{}",
+        listed.body
+    );
+    let rows = call_at(
+        &gw,
+        "GET",
+        "/api/v1/audit",
+        "limit=200",
+        "",
+        Some(&token),
+        later,
+    );
+    let rows = json(&rows);
+    let expired = audit_row(&rows, "APPROVAL expired", &format!("approval:{first}"))
+        .unwrap_or_else(|| panic!("no expiry row: {}", rows.encode()));
+    assert_eq!(field(expired, "actor"), DEMO_USERNAME);
+    assert_eq!(field(expired, "target"), "aircraft/AC-2214");
+    assert_eq!(field(expired, "approvalId"), first);
+}

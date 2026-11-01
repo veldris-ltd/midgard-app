@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use audit_writer::{InMemoryLedger, LedgerId, LedgerStore, SealedEntry};
-use governance::{GovContext, Governance};
+use governance::{AuditContext, GovContext, Governance};
 use policy::{Resource, ResourceId};
 use pqc_agility::VerifyingKey;
 
@@ -172,6 +172,27 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         raw_params: &BTreeMap<String, String>,
         now: u64,
     ) -> Result<ApplyActionResponse, FabricError> {
+        self.apply_action_with(
+            ctx,
+            action_type_id,
+            raw_params,
+            now,
+            AuditContext::default(),
+        )
+    }
+
+    /// [`apply_action`](Self::apply_action), recording `audit` on the action's
+    /// lineage row: for a human-gated action, the approval that authorised it, its
+    /// approver and its target. The row's outcome is the decision's, Permit or Deny.
+    /// [NFR-AI-1] [VLD-ANB-MIDGARD-0038]
+    pub fn apply_action_with(
+        &mut self,
+        ctx: &GovContext,
+        action_type_id: &str,
+        raw_params: &BTreeMap<String, String>,
+        now: u64,
+        audit: AuditContext,
+    ) -> Result<ApplyActionResponse, FabricError> {
         let at = self
             .registry
             .action_type(action_type_id)
@@ -206,7 +227,7 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         };
         let decision = self
             .governance
-            .authorize(ctx, &resource, &at.api_name, now)
+            .authorize_with(ctx, &resource, &at.api_name, now, audit)
             .map_err(|e| FabricError::Audit(e.to_string()))?;
         if !decision.permitted {
             return Err(FabricError::Denied);

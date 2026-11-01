@@ -516,6 +516,24 @@ CONTRIBUTING.md for the version policy.
   - The Forge worker no longer ignores a failed run's audit write: the row carries
     outcome Failed and a sanitised error class, and a row the ledger refuses is
     logged as not audited.
+- **A human gate's request, decision and redemption are bound in the signed ledger,
+  and approvals are bounded and survive a restart.** [VLD-ANB-MIDGARD-0038]
+  [VLD-ANB-MIDGARD-0039]
+  - Each approval state change writes an `APPROVAL requested`, `approved`,
+    `rejected`, `redeemed` or `expired` row on `approval:<id>`, carrying the approval
+    id, approver, target and gated action; the fabric's row for a gated action
+    (`Fabric::apply_action_with`) names the approval and its approver. `GET /audit`
+    rows show `outcome`, `reason`, `approvalId`, `approver` and `target` where the
+    row states them.
+  - New state file `approvals.journal`: approvals are sealed under the audit root, one
+    frame per state change, and replayed on boot, so a pending or approved gate
+    survives a restart and a used one stays used. Back it up with the other journals
+    (`docs/ops/BACKUP_RESTORE.md`).
+  - The store holds at most 256 approvals and no longer drops the oldest whatever its
+    state: a pending approval expires after 24 hours, expired entries are pruned and
+    audited, rejected and used ones make room, and a request that finds no room, or
+    a requester who already has 16 open requests, is refused with 429 and
+    `Retry-After: 60`.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
