@@ -20,6 +20,7 @@ use crate::defend::SelfDefending;
 use crate::evals::EvalHarness;
 use crate::govloop::{
     default_gate_resource, ActionCatalog, AgentTask, GovernedLoop, HumanGate, Preauth, StepBudget,
+    DEFAULT_MAX_VALUE_LEN,
 };
 use crate::guardrail::InputGuardrail;
 use crate::heal::{RecoverySupervisor, SelfHealing};
@@ -34,6 +35,9 @@ pub struct ToolSpec {
     /// Purposes for which it is pre-authorised (no human gate for a reversible,
     /// evaluated scope).
     pub preauth_purposes: Vec<String>,
+    /// The parameter keys a proposal of this tool may carry (empty: none).
+    /// Anything else is refused before the gate. [VLD-ANB-MIDGARD-0077]
+    pub params: Vec<String>,
 }
 
 /// The declarative agent definition both builders emit and the loop consumes.
@@ -58,11 +62,12 @@ impl AgentSpec {
     pub fn tool_names(&self) -> Vec<String> {
         self.tools.iter().map(|t| t.name.clone()).collect()
     }
-    /// The action catalogue (reversibility) derived from the tools.
+    /// The action catalogue (reversibility, parameter keys) derived from the tools.
     pub fn catalog(&self) -> ActionCatalog {
         let mut c = ActionCatalog::new();
         for t in &self.tools {
-            c = c.with(&t.name, t.reversible);
+            let params: Vec<&str> = t.params.iter().map(String::as_str).collect();
+            c = c.with_schema(&t.name, t.reversible, &params, DEFAULT_MAX_VALUE_LEN);
         }
         c
     }
@@ -115,7 +120,17 @@ impl LogicBuilder {
             name: name.into(),
             reversible,
             preauth_purposes: Vec::new(),
+            params: Vec::new(),
         });
+        self
+    }
+    /// Declare the parameter keys an already-granted tool accepts (no-op if not
+    /// granted). A tool declares none by default, so a proposal carrying any
+    /// parameter is refused before the gate. [VLD-ANB-MIDGARD-0077]
+    pub fn params(mut self, tool: &str, keys: &[&str]) -> Self {
+        if let Some(t) = self.spec.tools.iter_mut().find(|t| t.name == tool) {
+            t.params = keys.iter().map(|k| k.to_string()).collect();
+        }
         self
     }
     /// Pre-authorise an already-granted tool for a purpose (no-op if not granted).

@@ -451,7 +451,7 @@ Grounding an answer in the object fabric: a retrieval plan over declared types, 
 
 ### `agent-runtime` (reference)
 
-A governed agent loop: plan, ground, assemble (untrusted grounding, memory, history and user text as delimited, provenance-tagged data that cannot forge a layer header), guard, evaluate, check reversibility, pass a human gate for consequential or irreversible actions, audit, then execute.
+A governed agent loop: plan, ground, assemble (untrusted grounding, memory, history and user text as delimited, provenance-tagged data that cannot forge a layer header), guard the answer and every proposed action, refuse an action the catalogue does not declare or whose parameters fall outside its declared keys and bounds, evaluate, check reversibility, pass a human gate for consequential or irreversible actions, audit, then execute.
 
 **Until it is operable, say:** "The governed agent loop is implemented and tested as a library (AC-MI-3): a consequential action runs only after a recorded human decision. No service runs the loop, so no agent acts on a deployed enclosure."
 
@@ -459,27 +459,37 @@ A governed agent loop: plan, ground, assemble (untrusted grounding, memory, hist
 
 - Criteria: AC-MI-3
 - Source:
-  - [`mimir/agent-runtime/src/govloop.rs:37`](../../mimir/agent-runtime/src/govloop.rs)
-  - [`mimir/agent-runtime/src/assembly.rs:295`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/govloop.rs:368`](../../mimir/agent-runtime/src/govloop.rs)
+  - [`mimir/agent-runtime/src/govloop.rs:190`](../../mimir/agent-runtime/src/govloop.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:321`](../../mimir/agent-runtime/src/assembly.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::mutation_is_denied_when_human_denies`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::irreversible_action_forces_human_even_if_preauthorised`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
+  - [`mimir/agent-runtime/tests/ac_mi_3.rs::malicious_action_params_halt_the_turn`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
+  - [`mimir/agent-runtime/tests/ac_mi_3.rs::unknown_param_key_is_rejected_before_the_gate`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
+  - [`mimir/agent-runtime/tests/ac_mi_3.rs::oversized_param_value_is_rejected`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
   - [`mimir/agent-runtime/tests/prompt_delimiting.rs::forged_header_in_grounding_is_data`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
   - [`mimir/agent-runtime/tests/prompt_delimiting.rs::forged_header_in_user_memory_history_is_data`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
   - [`mimir/agent-runtime/tests/prompt_delimiting.rs::token_accounting_is_exact_with_blocks`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
 
 ### `guardrails` (reference)
 
-Input guardrails against prompt injection: a deterministic filter with de-obfuscation, a classifier seam, and rewriting of a prompt that can be made safe; and every prompt assembler places untrusted text only in indented, provenance-tagged DATA blocks with control and zero-width characters removed, each field bounded and the per-request boundary neutralised.
+Input guardrails against prompt injection, applied to each untrusted item (grounding fact, memory item, history turn, user message) before composition, never to the trusted system, contract, policy or tool layers, which are never rewritten: a deterministic pre-filter with de-obfuscation that exempts identifiers and hashes, a classifier seam with no shipped implementation, and rewriting of only the item that can be made safe; the same pre-filter screens the agent's whole output, proposed actions included; and every prompt assembler places untrusted text only in indented, provenance-tagged DATA blocks with control and zero-width characters removed, each field bounded and the per-request boundary neutralised.
 
-**Until it is operable, say:** "Input guardrails and prompt delimiting are implemented and tested as a library against a small hand-written corpus. The classifier behind the seam is a test double, the data-handling rule the model is given is advisory, and no running service applies the guardrails."
+**Until it is operable, say:** "Input guardrails and prompt delimiting are implemented and tested as a library against a small hand-written corpus. The pre-filter is applied per untrusted item and trusted layers are never rewritten. The classifier seam has no shipped implementation (only test doubles implement it), the data-handling rule the model is given is advisory, and no running service applies the guardrails."
 
 **Milestone.** A classifier served by the model plane, a corpus with a stated block rate, and a service that applies them (RF-MI-7).
 
 - Source:
-  - [`mimir/agent-runtime/src/defend.rs:317`](../../mimir/agent-runtime/src/defend.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:276`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/defend.rs:383`](../../mimir/agent-runtime/src/defend.rs)
   - [`mimir/prompts/src/delimit.rs:245`](../../mimir/prompts/src/delimit.rs)
 - Tests:
+  - [`mimir/agent-runtime/tests/guardrail_scope.rs::sanitise_rewrites_only_the_offending_item`](../../mimir/agent-runtime/tests/guardrail_scope.rs)
+  - [`mimir/agent-runtime/tests/guardrail_scope.rs::trusted_layers_are_never_inspected`](../../mimir/agent-runtime/tests/guardrail_scope.rs)
+  - [`mimir/agent-runtime/tests/guardrail_scope.rs::data_word_in_grounding_no_longer_blocks_the_turn`](../../mimir/agent-runtime/tests/guardrail_scope.rs)
+  - [`mimir/agent-runtime/tests/guardrail_scope.rs::object_id_and_hash_are_not_sanitised`](../../mimir/agent-runtime/tests/guardrail_scope.rs)
+  - [`mimir/agent-runtime/tests/guardrail_scope.rs::injection_in_user_message_still_blocks`](../../mimir/agent-runtime/tests/guardrail_scope.rs)
   - [`mimir/agent-runtime/tests/guardrail_paraphrase.rs::obfuscated_paraphrases_are_blocked_even_though_not_literal_entries`](../../mimir/agent-runtime/tests/guardrail_paraphrase.rs)
   - [`mimir/agent-runtime/tests/guardrail_paraphrase.rs::sanitise_rewrites_the_prompt_instead_of_passing_it_through`](../../mimir/agent-runtime/tests/guardrail_paraphrase.rs)
   - [`mimir/agent-runtime/tests/prompt_delimiting.rs::control_and_zero_width_characters_are_removed`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)

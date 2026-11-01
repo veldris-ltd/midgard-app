@@ -16,6 +16,14 @@
 //! | 7 | User message | never (it is the request) |
 //! | 8 | Input guardrail pass | (a screening step, not text) |
 //!
+//! Layer 8 screens each item of the untrusted layers (every grounding fact line,
+//! memory item and history turn, and the user message) **before** it is composed
+//! into its DATA block and before any token is counted. A block names the layer;
+//! a sanitise verdict replaces only the offending item. The trusted layers
+//! (system prompt, output contract, policy, tool schemas) are never passed to the
+//! guardrail and never rewritten, so the control meant to protect the operator's
+//! instructions cannot alter them. [VLD-ANB-MIDGARD-0078] [FR-MI-7]
+//!
 //! Budgeting rule: the non-trimmable core (system + policy + contract + tools +
 //! user) must fit, or assembly is **rejected** rather than silently trimmed;
 //! only the trimmable layers are truncated to fit, grounding first and by
@@ -158,8 +166,8 @@ pub struct AssembledPrompt {
     /// `system_text + "\n\n" + body_text`.
     pub text: String,
     /// The SYSTEM block (system prompt, data-handling rule, output contract) —
-    /// the only text with system authority. Empty only if a layer-8 sanitise
-    /// rewrite reflowed the SYSTEM block, in which case all of `text` is body.
+    /// the only text with system authority. Always exactly what the trusted inputs
+    /// render: layer 8 never inspects or rewrites it. [VLD-ANB-MIDGARD-0078]
     pub system_text: String,
     /// Everything after the SYSTEM block: policy, tools and the DATA-delimited
     /// grounding, memory, history and user layers.
@@ -189,9 +197,9 @@ pub enum AssemblyError {
         /// The budget.
         budget: usize,
     },
-    /// The layer-8 guardrail blocked the assembled prompt.
+    /// The layer-8 guardrail blocked an item of an untrusted layer.
     Blocked {
-        /// Why.
+        /// Which layer, and why.
         reason: String,
     },
 }
@@ -243,7 +251,8 @@ impl Pipeline {
         self
     }
 
-    /// Wire the layer-8 input guardrail (the A.3 classifier in Prompt 2.e).
+    /// Wire the layer-8 input guardrail (the A.3 classifier in Prompt 2.e). It is
+    /// called once per untrusted item, never on a trusted layer.
     pub fn with_guardrail(mut self, guardrail: Box<dyn InputGuardrail>) -> Self {
         self.guardrail = guardrail;
         self
@@ -258,6 +267,23 @@ impl Pipeline {
 
     fn count(&self, s: &str) -> usize {
         self.counter.count(s)
+    }
+
+    /// Layer 8: screen each item of one untrusted layer before it is composed. A
+    /// block fails the assembly naming the layer; a sanitise verdict replaces only
+    /// that item with its rewrite; an allow keeps it. Trusted layers never come
+    /// here. [VLD-ANB-MIDGARD-0078] [FR-MI-7]
+    fn screen(&self, label: &str, items: &[String]) -> Result<Vec<String>, AssemblyError> {
+        items
+            .iter()
+            .map(|item| match self.guardrail.inspect(item) {
+                GuardVerdict::Allow => Ok(item.clone()),
+                GuardVerdict::Sanitise { rewritten, .. } => Ok(rewritten),
+                GuardVerdict::Block { reason } => Err(AssemblyError::Blocked {
+                    reason: format!("{label}: {reason}"),
+                }),
+            })
+            .collect()
     }
 
     /// Fill a trimmable section greedily under the remaining budget, returning how
@@ -289,9 +315,9 @@ impl Pipeline {
         (included, running)
     }
 
-    /// Assemble the eight layers. Rejects if the non-trimmable core cannot fit;
-    /// trims grounding (by relevance), then memory, then history to fit; then runs
-    /// the layer-8 guardrail.
+    /// Assemble the eight layers. Screens every untrusted item first (layer 8);
+    /// rejects if the non-trimmable core cannot fit; trims grounding (by
+    /// relevance), then memory, then history to fit.
     pub fn assemble(
         &self,
         layers: &Layers,
@@ -300,6 +326,18 @@ impl Pipeline {
         let budget = cfg.budget_tokens;
         let boundary = self.boundary.clone().unwrap_or_else(random_boundary);
         let b = boundary.as_str();
+
+        // Layer 8, run first: each untrusted item is screened on its own, before it
+        // is rendered into a DATA block and before any token is counted, so the
+        // accounting below sees exactly the text that is composed. The trusted
+        // layers are never screened. [VLD-ANB-MIDGARD-0078]
+        let user_message = self
+            .screen("user", &[layers.user_message.to_string()])?
+            .remove(0);
+        let fact_lines: Vec<String> = layers.grounding.facts.iter().map(|f| f.line()).collect();
+        let fact_lines = self.screen("grounding", &fact_lines)?;
+        let memory = self.screen("memory", &layers.memory)?;
+        let history = self.screen("history", &layers.history)?;
 
         // Non-trimmable core. The SYSTEM block is trusted text only; the
         // data-handling rule tells the model what the DATA blocks below are.
@@ -316,7 +354,7 @@ impl Pipeline {
             format!("{H_TOOLS}\n{}", layers.tools.join("\n"))
         };
         let user_block = Section::new(H_USER, "USER", "user", &boundary)
-            .render(&[delimit::render_item(b, layers.user_message)]);
+            .render(&[delimit::render_item(b, &user_message)]);
 
         let core = self.count(&sys_block)
             + self.count(&policy_block)
@@ -333,11 +371,9 @@ impl Pipeline {
 
         // Layer 3: grounding, highest relevance first (facts are pre-sorted). Each
         // fact line is already one line with its fields cleaned (ground.rs).
-        let fact_lines: Vec<String> = layers
-            .grounding
-            .facts
+        let fact_lines: Vec<String> = fact_lines
             .iter()
-            .map(|f| delimit::render_item(b, &f.line()))
+            .map(|line| delimit::render_item(b, line))
             .collect();
         let g_section = Section::new(H_GROUNDING, "GROUNDING", "fabric", &boundary);
         let (g_incl, running_after_g) = self.fill(
@@ -362,11 +398,7 @@ impl Pipeline {
         let dropped_facts = fact_lines.len() - g_incl;
 
         // Layer 4: memory (lowest relevance is dropped — caller supplies best first).
-        let memory_items: Vec<String> = layers
-            .memory
-            .iter()
-            .map(|m| delimit::render_item(b, m))
-            .collect();
+        let memory_items: Vec<String> = memory.iter().map(|m| delimit::render_item(b, m)).collect();
         let m_section = Section::new(H_MEMORY, "MEMORY", "agent-memory", &boundary);
         let (m_incl, running_after_m) = self.fill(
             m_section.cost(self.counter.as_ref()),
@@ -375,7 +407,7 @@ impl Pipeline {
             running,
         );
         running = running_after_m;
-        let dropped_memory = layers.memory.len() - m_incl;
+        let dropped_memory = memory.len() - m_incl;
         let memory_block = if m_incl == 0 {
             String::new()
         } else {
@@ -383,8 +415,7 @@ impl Pipeline {
         };
 
         // Layer 6: history, most-recent-first for inclusion (oldest dropped).
-        let recent: Vec<String> = layers
-            .history
+        let recent: Vec<String> = history
             .iter()
             .rev()
             .map(|h| delimit::render_item(b, h))
@@ -397,7 +428,7 @@ impl Pipeline {
             running,
         );
         running = running_after_h;
-        let dropped_history = layers.history.len() - h_incl;
+        let dropped_history = history.len() - h_incl;
         // Restore chronological order within the included window for the prompt.
         let history_block = if h_incl == 0 {
             String::new()
@@ -407,8 +438,8 @@ impl Pipeline {
             h_section.render(&window)
         };
 
-        // Canonical layer order 1→7.
-        let mut parts = vec![sys_block.clone(), policy_block];
+        // Canonical layer order 1→7: the SYSTEM block, then the body.
+        let mut parts = vec![policy_block];
         if !grounding_block.is_empty() {
             parts.push(grounding_block);
         }
@@ -422,34 +453,17 @@ impl Pipeline {
             parts.push(history_block);
         }
         parts.push(user_block);
-        let mut text = parts.join("\n\n");
-
-        // Layer 8: input guardrail pass over the fully-assembled text. A block halts
-        // the loop; a sanitise verdict REPLACES the text with its rewritten form —
-        // the offending fragment never reaches the model. [FR-MI-7]
-        match self.guardrail.inspect(&text) {
-            GuardVerdict::Block { reason } => return Err(AssemblyError::Blocked { reason }),
-            GuardVerdict::Sanitise { rewritten, .. } => text = rewritten,
-            GuardVerdict::Allow => {}
-        }
+        let body_text = parts.join("\n\n");
+        // Nothing rewrites the composed text, so the SYSTEM block is always its
+        // exact prefix and the role split never degrades. [VLD-ANB-MIDGARD-0078]
+        let text = format!("{sys_block}\n\n{body_text}");
 
         let token_count = self.count(&text);
         debug_assert_eq!(token_count, running, "token accounting must be exact");
 
-        // Split off the SYSTEM block for role-separated delivery. A sanitise rewrite
-        // that reflowed it leaves no trusted prefix, so the whole text is body: the
-        // degraded case grants nothing system authority.
-        let (system_text, body_text) = match text
-            .strip_prefix(sys_block.as_str())
-            .and_then(|rest| rest.strip_prefix("\n\n"))
-        {
-            Some(body) => (sys_block, body.to_string()),
-            None => (String::new(), text.clone()),
-        };
-
         Ok(AssembledPrompt {
             text,
-            system_text,
+            system_text: sys_block,
             body_text,
             boundary,
             included_citations,

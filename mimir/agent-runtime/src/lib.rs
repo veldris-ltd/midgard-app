@@ -47,7 +47,7 @@ pub use evals::{
 pub use govloop::{
     default_gate_resource, ActionCatalog, ActionExecutor, ActionMeta, ActionOutcome, AgentTask,
     Applied, ApproveAll, DenyAll, GovernedLoop, HaltReason, HealingRecord, HumanDecision,
-    HumanGate, LoopOutcome, Preauth, StepBudget,
+    HumanGate, LoopOutcome, Preauth, StepBudget, DEFAULT_MAX_VALUE_LEN,
 };
 pub use guardrail::{AllowAll, GuardVerdict, InputGuardrail};
 pub use heal::{

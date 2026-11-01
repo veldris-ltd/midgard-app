@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use agent_runtime::{
     default_gate_resource, run_ev_a4, ActionCatalog, ActionExecutor, ActionIntent, AgentTask,
     Applied, DenyAll, GovernedLoop, Preauth, RecoveryAction, SelfHealing, StepBudget,
+    DEFAULT_MAX_VALUE_LEN,
 };
 use fabric::{
     ActionFunction, ActionType, Effect, Fabric, FabricError, FunctionRuntime, Governance,
@@ -201,7 +202,12 @@ fn healing_loop(budget: u32) -> GovernedLoop {
     .unwrap();
     GovernedLoop::new(gov, default_gate_resource())
         .with_human(Box::new(DenyAll))
-        .with_catalog(ActionCatalog::new().with("triage", true))
+        .with_catalog(ActionCatalog::new().with_schema(
+            "triage",
+            true,
+            &["case_id"],
+            DEFAULT_MAX_VALUE_LEN,
+        ))
         .with_preauth(Preauth::new().allow("triage", "investigation"))
         .with_supervisor(Box::new(SelfHealing::new()), budget)
 }

@@ -1116,6 +1116,39 @@ CONTRIBUTING.md for the version policy.
     and the client inference crate (no CSPRNG under its test backend) draw their
     boundary from the standard library's randomly keyed hasher
     (`Boundary::from_std_entropy`).
+- **The agent guardrails screen what could carry an attack, and nothing else.**
+  [VLD-ANB-MIDGARD-0077] [VLD-ANB-MIDGARD-0078] [FR-MI-7]
+  - The layer-8 input guardrail ran over the whole assembled prompt, so a data word
+    in a grounding fact or memory item ("rotate the credentials") blocked the turn
+    for everyone who retrieved it, and any 40-character alphanumeric run (an object
+    id, a hash) produced a sanitise rewrite that deleted long tokens and collapsed
+    newlines across the SYSTEM, OUTPUT_CONTRACT, POLICY and TOOLS blocks. It now
+    screens each grounding fact line, memory item, history turn and the user
+    message before composition; a block names the layer and a sanitise verdict
+    replaces only that item. The trusted layers are never inspected or rewritten,
+    so `AssembledPrompt::system_text` is always the SYSTEM block.
+  - The `SelfDefending` pre-filter exempts hexadecimal runs and `obj:`, `entity:`,
+    `feed:`, `track:` and `sha256:` identifiers, and treats a run as encoded only at
+    64 or more base64 characters including a `+`, `/` or `=`; its rewrite works line
+    by line and keeps newlines. A named secret (`api key`, `secret key`,
+    `credentials`) blocks only with a request to disclose it ("print the api key"),
+    and "ignore prior" and "disregard prior" join the override phrases.
+    `SelfDefending::verdict_rates` reports the sanitise rate beside the block rate.
+  - The governed loop's output guardrail inspected only the answer and inferences;
+    it now inspects `AgentOutput::to_contract_json`, so every proposed action's type,
+    parameters, rationale and citations are screened, and a sanitise verdict on
+    output is a block. Before the gate, `ActionCatalog::validate` refuses an
+    undeclared action type, a parameter key outside the action's declared keys, a
+    value over its bound (4096 bytes by default) and a key or value with control
+    characters, halting with `HaltReason::ActionRejected` and nothing gated or
+    executed. `ActionMeta` gains `params` and `max_value_len`;
+    `ActionCatalog::with_schema` declares them and `with` declares no parameters;
+    `LogicBuilder::params` declares a tool's keys. `GovernedLoop::new` now wires
+    `SelfDefending` as both input and output guardrail. An action catalogue that
+    declared an action with `with` and proposals that carry parameters must move to
+    `with_schema`.
+  - The `Classifier` seam has no implementation in the library; the only ones are
+    test doubles.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
