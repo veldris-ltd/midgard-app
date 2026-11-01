@@ -172,26 +172,42 @@ Officer and a second witness (dual control), recorded in the audit chain:
 Artefacts are signed with ML-DSA; git cannot verify that, so tags and commits are
 signed with SSH keys, and the ceremony publishes which ones count.
 
-1. Each person who may cut a release tag holds an SSH signing key (ed25519) in a
-   custodian of their own — a hardware key where available — and configures git with
-   it (`gpg.format = ssh`, `user.signingkey`).
+1. Each person who may cut a release tag, and each maintainer, holds an SSH signing
+   key (ed25519) in a custodian of their own — a hardware key where available — and
+   configures git with it (`gpg.format = ssh`, `user.signingkey`, `commit.gpgsign` and
+   `tag.gpgsign` true; CONTRIBUTING.md, "Branches and the public tree").
 2. The ceremony collects the public halves and commits them as
    `deploy/trust/allowed_signers`, in git's allowed-signers format, each for the
-   namespace `git`:
+   namespace `git`: the release tag keys and the maintainers' commit keys, one line
+   each, under the email the person commits as:
 
    ```text
    release@example.org namespaces="git" ssh-ed25519 AAAA...
+   maintainer@example.org namespaces="git" ssh-ed25519 AAAA...
    ```
 
 3. The fingerprint of each key (`ssh-keygen -lf key.pub`) is published through a
    second channel, so a reader can tell the committed file was not swapped.
 4. The same keys are registered on the forge as signing keys, so the branch rule that
-   requires signed commits accepts them.
+   requires signed commits accepts them, and each maintainer turns on *vigilant mode*
+   on GitHub, so a commit that claims to be theirs without their signature shows as
+   unverified.
 
 `tools/ci/verify-tag.sh` verifies a release tag against that file, and the release's
 `release-tag` job runs it before anything is built: with no file, no tag verifies.
-Rotating a key is a commit to `deploy/trust/allowed_signers`, itself signed by a key
-already listed there.
+The `commits` CI job (`tools/ci/verify-commits.sh`) verifies every commit a pull
+request or push brings against the same file, as the base of the change has it, and
+fails closed while it lists no key (VLD-ANB-MIDGARD-0069).
+
+The file is changed only by a pull request whose commits are signed by a key already
+listed there, reviewed by the other maintainer (CODEOWNERS names both for
+`/deploy/trust/`, and the ruleset requires a code owner's approval). Because the job
+reads the file as the base has it, a key takes effect for the commits after the change
+that adds it is merged, never for that change itself. Rotating a key is such a change:
+add the new line, and remove the old one once nothing still to be merged is signed by
+it. A removal is recorded in `CHANGELOG.md` with the key's fingerprint and the reason.
+The first keys go in the same way, verified by GitHub instead (the job accepts GitHub's
+verification while the file lists no key); until they are in, the job fails on CodeLab.
 
 On the signing runners the committed file is not the authority: a commit that added a
 key would otherwise verify a tag on itself. The runner holds its own copy, and the tag

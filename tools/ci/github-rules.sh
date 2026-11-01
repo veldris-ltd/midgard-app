@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Apply the repository rules to the GitHub repository. [AC-RF-CA-6d] [AC-RF-CA-6e]
-# [VLD-ANB-MIDGARD-0035]
+# [VLD-ANB-MIDGARD-0035] [VLD-ANB-MIDGARD-0069] [AC-P1.2]
 #
 #   bash tools/ci/github-rules.sh --repo veldris-ltd/midgard-app
 #   bash tools/ci/github-rules.sh --repo ... --dry-run          print what would be sent, change nothing
@@ -10,7 +10,10 @@
 # equivalent is tools/ci/gitlab-rules.sh. Each is created, or updated in place when a
 # ruleset of that name exists, so running it again converges:
 #
-#   - "signed history" on main and dev: signed commits, no force push, no deletion;
+#   - "signed history" on main and dev: signed commits, no force push, no deletion, and
+#     a change only through a pull request with an approving review from a code owner
+#     (.github/CODEOWNERS), merged with a merge commit. No one may bypass it: an
+#     emergency change goes through the second maintainer (VLD-ANB-MIDGARD-0069);
 #   - "release tags are immutable" on v* tags: no deletion, no move, no update. No one
 #     may bypass it;
 #   - "release tags are created by release managers" on v* tags: only the
@@ -37,7 +40,7 @@ while [ "$#" -gt 0 ]; do
         --team) team="${2:?--team needs a team slug}"; shift 2 ;;
         --dry-run) dry=1; shift ;;
         --export) export_dir="${2:?--export needs a directory}"; shift 2 ;;
-        -h | --help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h | --help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "github-rules: unknown argument '$1'" >&2; exit 2 ;;
     esac
 done
@@ -83,8 +86,15 @@ apply() {
     fi
 }
 
+# A change reaches main or dev through a pull request: one approval, from a code owner,
+# given after the last push and not by whoever pushed it; merged as a merge commit,
+# which GitHub signs and the CodeLab mirror's `commits` job can verify.
+pull_request='{ "type": "pull_request", "parameters": { "required_approving_review_count": 1,
+    "require_code_owner_review": true, "dismiss_stale_reviews_on_push": true,
+    "require_last_push_approval": true, "required_review_thread_resolution": false,
+    "allowed_merge_methods": ["merge"] } }'
 apply "signed history" "$(ruleset "signed history" branch '"refs/heads/main", "refs/heads/dev"' \
-    '{ "type": "required_signatures" }, { "type": "non_fast_forward" }, { "type": "deletion" }' '')"
+    "{ \"type\": \"required_signatures\" }, { \"type\": \"non_fast_forward\" }, { \"type\": \"deletion\" }, $pull_request" '')"
 apply "release tags are immutable" "$(ruleset "release tags are immutable" tag '"refs/tags/v*"' \
     '{ "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" }' '')"
 apply "release tags are created by release managers" "$(ruleset "release tags are created by release managers" tag '"refs/tags/v*"' \

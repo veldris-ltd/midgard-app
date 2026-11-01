@@ -195,6 +195,7 @@ hygiene:
   script:
     - bash tools/ci/run.sh selftest
     - bash tools/ci/run.sh provenance
+    - bash tools/ci/run.sh commits
     - bash tools/ci/run.sh vendor
     - bash tools/ci/run.sh claims
     - bash tools/ci/run.sh gate-record

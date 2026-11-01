@@ -107,8 +107,8 @@ before it merges. To refresh by hand, `just advisory-db-refresh` and
 
 1. Branch from `main` (or `dev`); keep PRs focused.
 2. Fill in what changed, why, and the requirement tag(s).
-3. CI must be green: script self-tests, provenance-tag lint, vendored-dependency
-   check, secret scan, rendered-manifest check, format and lint, build and test,
+3. CI must be green: script self-tests, provenance-tag lint, signed commits,
+   vendored-dependency check, secret scan, rendered-manifest check, format and lint, build and test,
    reproducible build, advisory and licence scan, and the air-gapped acceptance
    suite (`just ci list`; see [docs/dev/CI.md](docs/dev/CI.md)). There is no contract
    breaking-change gate yet.
@@ -121,7 +121,28 @@ Work lands on `dev` and reaches `main` by an ordinary merge through a pull reque
 There is no export step and no private upstream: what is on `main` is exactly the
 tracked tree that was merged, dot-directories included, so nothing can be dropped
 between the working tree and the published one. `dev` always descends from `main`;
-both branches refuse force pushes and deletion.
+both branches refuse force pushes and deletion, and take a change only through a pull
+request a code owner has approved.
+
+Every commit that reaches `main` or `dev` is signed. The forge refuses an unsigned
+commit (the `signed history` ruleset on GitHub, the push rules on CodeLab; see
+[docs/dev/CI.md](docs/dev/CI.md), "Repository rules"), and the `commits` job fails a
+pull request that carries one, naming it. Sign with an SSH key:
+
+```bash
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub   # the public half; a hardware key is better
+git config --global commit.gpgsign true
+git config --global tag.gpgsign true
+```
+
+Register the same key on GitHub as a *signing* key. A maintainer's key is also listed
+in `deploy/trust/allowed_signers`, which is how the `commits` job verifies commits
+without asking the forge ([docs/ops/PKI.md](docs/ops/PKI.md), "Git signing"). To sign
+commits already made on your branch, `git rebase --exec 'git commit --amend --no-edit
+-S' <base>` and push the branch with `--force-with-lease` (never `main` or `dev`). A
+maintainer merges a pull request with a merge commit, which the forge signs; the
+commits in the pull request must still be signed.
 
 ## Releases and versions
 

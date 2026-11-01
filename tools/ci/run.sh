@@ -42,6 +42,7 @@ GITLEAKS_SHA256_darwin_arm64=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13
 JOBS='
 selftest|host|the CI scripts test themselves, and both pipelines call the same jobs
 provenance|host|changed sources under governed trees cite a requirement
+commits|host|every commit the change brings is signed by a key in deploy/trust/allowed_signers, or verified by the forge
 vendor|host|/vendor is exactly the crates Cargo.lock names, and Cargo is pinned to it
 claims|host|every row of the claims ledger cites files, lines and tests that exist
 gate-record|host|the committed gate record is what its logs give, and the status tables are what it gives
@@ -126,6 +127,10 @@ job_selftest() {
 }
 
 job_provenance() { bash tools/ci/provenance-lint.sh; }
+
+# The change set's commits are signed, so provenance starts at the change and not at the
+# tag. [VLD-ANB-MIDGARD-0069]
+job_commits() { bash tools/ci/verify-commits.sh "$@"; }
 
 job_vendor() { bash tools/ci/vendor-check.sh; }
 
