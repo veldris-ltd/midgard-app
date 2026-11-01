@@ -13,9 +13,14 @@
 //! own), and `max_tokens` is clamped to the ceiling before the engine sees it. The
 //! admission slot is held until the engine returns, error or timeout included.
 //! [VLD-ANB-MIDGARD-0016]
+//!
+//! A [`ServingState`] disengages serving at run time: while it is stopped, a permitted
+//! call is refused with the stop's reason code (`MODEL_REVOKED` or `SERVING_STOPPED`)
+//! on the same admission path, audited and counted like the other refusals, while the
+//! calls already admitted finish. [VLD-ANB-MIDGARD-0057]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -159,8 +164,99 @@ impl Drop for AdmissionGuard {
     }
 }
 
-/// Told the reason code of every admission refusal (`BUSY`, `PROMPT_TOO_LARGE`), for
-/// the service's metrics. [VLD-ANB-MIDGARD-0016]
+/// The refusal code while the served model's approval is withdrawn: its id is revoked,
+/// or its manifest no longer verifies against the current trust anchor.
+/// [VLD-ANB-MIDGARD-0057]
+pub const MODEL_REVOKED: &str = "MODEL_REVOKED";
+
+/// The refusal code while an operator has disengaged inference. [VLD-ANB-MIDGARD-0057]
+pub const SERVING_STOPPED: &str = "SERVING_STOPPED";
+
+/// Whether the handler serves: a run-time stop, shared between the handler and whatever
+/// watches the model's approval and the operator's stop switch. Serving by default.
+/// [VLD-ANB-MIDGARD-0057]
+pub struct ServingState {
+    serving: AtomicBool,
+    reason: Mutex<Option<String>>,
+    admission: Mutex<Option<Arc<Admission>>>,
+}
+
+impl Default for ServingState {
+    fn default() -> Self {
+        Self {
+            serving: AtomicBool::new(true),
+            reason: Mutex::new(None),
+            admission: Mutex::new(None),
+        }
+    }
+}
+
+impl ServingState {
+    /// A state that serves until it is stopped.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Refuse new calls with the reason code `reason` ([`MODEL_REVOKED`] or
+    /// [`SERVING_STOPPED`]); calls already admitted finish.
+    pub fn stop(&self, reason: &str) {
+        *self
+            .reason
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(reason.to_string());
+        self.serving.store(false, Ordering::SeqCst);
+    }
+
+    /// Serve again.
+    pub fn resume(&self) {
+        self.serving.store(true, Ordering::SeqCst);
+        *self
+            .reason
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    /// Whether new calls are served.
+    pub fn is_serving(&self) -> bool {
+        self.serving.load(Ordering::SeqCst)
+    }
+
+    /// The reason code of the current stop, if stopped.
+    pub fn reason(&self) -> Option<String> {
+        self.reason
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Calls admitted and not yet returned by the engine, across every identity: what a
+    /// stop waits on to drain. Zero before a handler is attached.
+    pub fn in_flight(&self) -> usize {
+        let admission = self
+            .admission
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        admission.map_or(0, |a| {
+            a.in_flight
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .total
+        })
+    }
+
+    /// Count in-flight calls against `admission`, the handler's.
+    fn attach(&self, admission: &Arc<Admission>) {
+        *self
+            .admission
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(admission.clone());
+    }
+}
+
+/// Told the reason code of every admission refusal (`BUSY`, `PROMPT_TOO_LARGE`,
+/// `MODEL_REVOKED`, `SERVING_STOPPED`), for the service's metrics.
+/// [VLD-ANB-MIDGARD-0016] [VLD-ANB-MIDGARD-0057]
 pub type RefusalHook = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// The audited inference handler, over any audit ledger — in memory by default, or a
@@ -172,6 +268,7 @@ pub struct InferenceHandler<S: LedgerStore = InMemoryLedger> {
     clock: Arc<dyn Clock>,
     limits: InferenceLimits,
     admission: Arc<Admission>,
+    serving: Arc<ServingState>,
     on_refusal: Option<RefusalHook>,
 }
 
@@ -189,13 +286,17 @@ impl<S: LedgerStore> InferenceHandler<S> {
         resource: Resource,
         clock: Arc<dyn Clock>,
     ) -> Self {
+        let admission = Admission::new(&InferenceLimits::default());
+        let serving = Arc::new(ServingState::new());
+        serving.attach(&admission);
         Self {
             server,
             governance: Mutex::new(governance),
             resource,
             clock,
             limits: InferenceLimits::default(),
-            admission: Admission::new(&InferenceLimits::default()),
+            admission,
+            serving,
             on_refusal: None,
         }
     }
@@ -204,7 +305,17 @@ impl<S: LedgerStore> InferenceHandler<S> {
     /// [VLD-ANB-MIDGARD-0016]
     pub fn with_limits(mut self, limits: InferenceLimits) -> Self {
         self.admission = Admission::new(&limits);
+        self.serving.attach(&self.admission);
         self.limits = limits;
+        self
+    }
+
+    /// Serve only while `state` does, instead of always; its
+    /// [`in_flight`](ServingState::in_flight) counts this handler's admitted calls.
+    /// [VLD-ANB-MIDGARD-0057]
+    pub fn with_serving_state(mut self, state: Arc<ServingState>) -> Self {
+        state.attach(&self.admission);
+        self.serving = state;
         self
     }
 
@@ -243,6 +354,16 @@ impl<S: LedgerStore> InferenceHandler<S> {
             },
         }
         .encode()
+    }
+
+    /// Refuse a permitted call while serving is stopped, with the stop's reason code.
+    /// [VLD-ANB-MIDGARD-0057]
+    fn refuse_stopped(&self, subject: &str, now: u64) -> Vec<u8> {
+        let reason = self
+            .serving
+            .reason()
+            .unwrap_or_else(|| SERVING_STOPPED.to_string());
+        self.refuse(subject, &reason, now)
     }
 
     /// Number of audit entries written so far (test/inspection).
@@ -321,15 +442,25 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
             .encode();
         }
 
-        // Admission: bound the prompt, take a concurrency slot (held until the engine
-        // returns, a timeout included), and clamp the generation budget.
-        // [VLD-ANB-MIDGARD-0016]
+        // Admission: refuse while serving is stopped, bound the prompt, take a
+        // concurrency slot (held until the engine returns, a timeout included), and
+        // clamp the generation budget. [VLD-ANB-MIDGARD-0016] [VLD-ANB-MIDGARD-0057]
+        if !self.serving.is_serving() {
+            return self.refuse_stopped(&ctx.subject, now);
+        }
         if req.prompt.len() > self.limits.max_prompt_bytes {
             return self.refuse(&ctx.subject, "PROMPT_TOO_LARGE", now);
         }
-        let Some(_slot) = self.admission.try_acquire(&ctx.subject) else {
+        let Some(slot) = self.admission.try_acquire(&ctx.subject) else {
             return self.refuse(&ctx.subject, "BUSY", now);
         };
+        // A stop that landed while the slot was taken: either this sees it, or the stop's
+        // drain counts this call. [VLD-ANB-MIDGARD-0057]
+        if !self.serving.is_serving() {
+            drop(slot);
+            return self.refuse_stopped(&ctx.subject, now);
+        }
+        let _slot = slot;
         let mut req = req;
         req.max_tokens = req.max_tokens.min(self.limits.max_tokens);
 

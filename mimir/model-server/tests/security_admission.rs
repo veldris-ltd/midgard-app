@@ -3,6 +3,11 @@
 //! in flight are bounded per identity and globally. Every refusal is a `Denied` with a
 //! reason code and an audit entry of its own, after the call's decision entry.
 //! [VLD-ANB-MIDGARD-0016] [AC-62.1] [AC-62.2] [AC-62.3] [AC-MI-8]
+//!
+//! While the handler's `ServingState` is stopped, a permitted call is refused with the
+//! stop's code on the same path, audited and counted, while calls already admitted
+//! finish and are what the state reports in flight. [VLD-ANB-MIDGARD-0057] [AC-67.1]
+//! [AC-67.2] [AC-67.4]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
@@ -16,7 +21,7 @@ use iam::IDP_SIG_ALG;
 use model_server::{
     BackendDescriptor, HwProfile, InferError, InferenceHandler, InferenceLimits, InferenceRequest,
     InferenceResponse, Locality, LogicalClock, ModelBackend, NodeProfile, PreparedRequest, Quant,
-    RawCompletion, Server, WorkloadClass,
+    RawCompletion, Server, ServingState, WorkloadClass, MODEL_REVOKED, SERVING_STOPPED,
 };
 use policy::{
     Action, ClassificationLevel, DefaultPdp, Effect, Marking, PolicySet, Purpose, Resource,
@@ -145,6 +150,11 @@ fn handler(backend: Arc<dyn ModelBackend>, limits: InferenceLimits) -> Arc<Infer
         )
         .with_limits(limits),
     )
+}
+
+/// The handler out of its `Arc`, to configure further.
+fn unshared(handler: Arc<InferenceHandler>) -> InferenceHandler {
+    Arc::try_unwrap(handler).ok().expect("not shared yet")
 }
 
 /// A certified consumer named `id`, as the gateway hands it to the handler.
@@ -310,4 +320,82 @@ fn global_limit_applies_across_identities() {
         None,
         "served once a slot is released"
     );
+}
+
+#[test]
+fn a_stopped_serving_state_refuses_with_its_code_and_audits_it() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.1] [AC-67.2]
+    let backend = Arc::new(Recording {
+        descriptor: descriptor(),
+        seen: Mutex::new(Vec::new()),
+    });
+    let state = Arc::new(ServingState::new());
+    let refusals = Arc::new(Mutex::new(Vec::new()));
+    let counted = refusals.clone();
+    let h = unshared(handler(backend.clone(), InferenceLimits::default()))
+        .with_serving_state(state.clone())
+        .on_refusal(Arc::new(move |reason| {
+            counted.lock().unwrap().push(reason.to_string());
+        }));
+    let peer = consumer("forge-worker");
+    assert!(state.is_serving());
+    assert_eq!(denied(&call(&h, &peer)), None, "serving by default");
+
+    for code in [MODEL_REVOKED, SERVING_STOPPED] {
+        state.stop(code);
+        assert!(!state.is_serving());
+        assert_eq!(state.reason().as_deref(), Some(code));
+        let before = h.audit_len();
+        assert_eq!(denied(&call(&h, &peer)), Some(code));
+        assert_eq!(h.audit_len(), before + 2, "the decision and the refusal");
+    }
+    assert_eq!(*refusals.lock().unwrap(), [MODEL_REVOKED, SERVING_STOPPED]);
+    assert_eq!(
+        backend.seen.lock().unwrap().len(),
+        1,
+        "never served while stopped"
+    );
+
+    state.resume();
+    assert_eq!(state.reason(), None);
+    assert_eq!(denied(&call(&h, &peer)), None, "served once resumed");
+    assert_eq!(backend.seen.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn a_stop_lets_calls_in_flight_finish_and_counts_them() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.4]
+    let backend = Blocking::new(2);
+    let state = Arc::new(ServingState::new());
+    assert_eq!(state.in_flight(), 0, "nothing attached yet");
+    let h = Arc::new(
+        unshared(handler(backend.clone(), InferenceLimits::default()))
+            .with_serving_state(state.clone()),
+    );
+    let holders: Vec<_> = ["forge-worker", "bifrost-fleet"]
+        .into_iter()
+        .map(|id| {
+            let (h, peer) = (h.clone(), consumer(id));
+            thread::spawn(move || call(&h, &peer))
+        })
+        .collect();
+    backend.entered.wait();
+    assert_eq!(state.in_flight(), 2);
+
+    state.stop(SERVING_STOPPED);
+    assert_eq!(
+        denied(&call(&h, &consumer("heimdall-feed"))),
+        Some(SERVING_STOPPED),
+        "a new call is refused while the admitted ones run"
+    );
+    backend.block.store(false, Ordering::SeqCst);
+    backend.release.wait();
+    for holder in holders {
+        assert_eq!(
+            denied(&holder.join().unwrap()),
+            None,
+            "admitted calls finish"
+        );
+    }
+    assert_eq!(state.in_flight(), 0, "drained");
 }

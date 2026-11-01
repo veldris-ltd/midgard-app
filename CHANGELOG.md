@@ -353,6 +353,32 @@ CONTRIBUTING.md for the version policy.
     `--parallel 2`, and the Helm values give mimir-server every limit at its default.
     Consumers that need more than 1024 completion tokens (Heimdall deep reasoning)
     now need `--max-tokens` raised.
+- **Model revocation and operator disengagement act on a running mimir-server.**
+  Revocation was consulted once, when the model loaded; a later revocation, a
+  withdrawn model trust key or an operator's need to stop inference had no effect short
+  of stopping the container. [VLD-ANB-MIDGARD-0057] [AC-67.1] [AC-67.2] [AC-67.3]
+  [AC-67.4] [AC-MI-7]
+  - Every `--reload-interval` seconds (default 60, at least 1) mimir-server looks for
+    `STOP` in its locked state directory and, for a model engine, re-reads the
+    revocation list (`revoked.list` there, or `--revocation-file`; one artefact id per
+    line, `#` comments, absent means nothing revoked) and `--model-trust`, and
+    re-checks the manifest it verified at start-up against them, signature and gates,
+    without hashing the weights again (`ModelLoader::with_revoked`,
+    `ModelLoader::reverify_manifest`, `parse_revocation_list`).
+  - While `STOP` exists a permitted call is refused `SERVING_STOPPED`; while the
+    model is revoked or its manifest no longer verifies (or either file cannot be
+    read) it is refused `MODEL_REVOKED`. The refusal is made on WP-62's admission path
+    (`InferenceHandler::with_serving_state(ServingState)`), audited as
+    `Infer:MODEL_REVOKED` or `Infer:SERVING_STOPPED` and counted as
+    `inference_refused_total{reason}`; `/readyz` reports `model-verified` not ready;
+    the log says `serving stopped`, then `drained` once the completions admitted
+    before the stop have returned (waiting at most `--infer-timeout`). Serving resumes
+    (`serving resumed`) once every check passes again. The reference engine honours
+    `STOP` only. A service started with `STOP` present is never ready.
+  - There is no network control surface and no signal handling: the files in the
+    state directory are the switch. `docs/ops/RUNBOOKS.md` gains RB-8, disengage
+    Mimir inference, and RB-9, rotate or withdraw the model trust anchor; the compose
+    file and Helm values pass `--reload-interval 60`.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

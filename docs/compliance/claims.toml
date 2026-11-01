@@ -227,10 +227,10 @@ stated_in = ["README.md:812", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:1
 [[claim]]
 id = "mimir-inference-cpu"
 area = "Mimir"
-claim = "mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited and admitted against a budget: max_tokens clamped to a ceiling, a bounded prompt, and bounded calls in flight per identity and in all."
+claim = "mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited and admitted against a budget: max_tokens clamped to a ceiling, a bounded prompt, and bounded calls in flight per identity and in all. An operator can disengage it while it runs, and it drains the calls in flight before reporting the stop."
 status = "operable"
-evidence = ["mimir/model-server/src/backends/openai_compat.rs:60", "mimir/model-server/src/handler.rs:324"]
-tests = ["mimir/mimir-server/tests/serve.rs::inference_is_served_over_pqmtls_audited_and_survives_a_restart", "mimir/model-server/tests/security_admission.rs::max_tokens_is_clamped_to_the_ceiling", "mimir/model-server/tests/security_admission.rs::oversized_prompt_is_refused_and_audited", "mimir/model-server/tests/security_admission.rs::third_concurrent_call_for_one_identity_is_busy", "mimir/model-server/tests/security_admission.rs::global_limit_applies_across_identities", "mimir/mimir-server/tests/serve.rs::a_burst_over_the_rate_limit_is_throttled"]
+evidence = ["mimir/model-server/src/backends/openai_compat.rs:60", "mimir/model-server/src/handler.rs:445", "mimir/mimir-server/src/main.rs:281"]
+tests = ["mimir/mimir-server/tests/serve.rs::inference_is_served_over_pqmtls_audited_and_survives_a_restart", "mimir/model-server/tests/security_admission.rs::max_tokens_is_clamped_to_the_ceiling", "mimir/model-server/tests/security_admission.rs::oversized_prompt_is_refused_and_audited", "mimir/model-server/tests/security_admission.rs::third_concurrent_call_for_one_identity_is_busy", "mimir/model-server/tests/security_admission.rs::global_limit_applies_across_identities", "mimir/mimir-server/tests/serve.rs::a_burst_over_the_rate_limit_is_throttled", "mimir/model-server/tests/security_admission.rs::a_stop_lets_calls_in_flight_finish_and_counts_them", "mimir/mimir-server/tests/serve.rs::the_stop_file_disengages_and_removing_it_resumes", "mimir/mimir-server/tests/serve.rs::in_flight_completion_drains_before_stop_is_logged"]
 service_tests = ["deploy/compose/smoke.sh:19", "deploy/compose/granite-smoke.sh:40", "deploy/kind/smoke.sh:73"]
 limit = "One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream. A completion the sidecar is generating cannot be cancelled: it fails after the inference timeout passes with nothing read, and its slot is then free."
 stated_in = ["CHANGELOG.md:72", "docs/releases/v0.1.0-rc.1.md:22", "docs/launch/pipeline/build-deck.js:381"]
@@ -250,12 +250,12 @@ stated_in = ["CHANGELOG.md:94", "docs/releases/v0.1.0-rc.1.md:114", "docs/launch
 [[claim]]
 id = "signed-model-manifest"
 area = "Mimir"
-claim = "A model loads only from a manifest signed with ML-DSA, and its weights are checked against the signed digest before anything is served. One changed byte stops the service from starting."
+claim = "A model loads only from a manifest signed with ML-DSA, and its weights are checked against the signed digest before anything is served. One changed byte stops the service from starting. Revocation is enforced while the model is served, not only when it loads: a running service re-checks the manifest against the current trust key and revocation list on an interval, and stops serving when the id is revoked or the manifest no longer verifies."
 status = "operable"
 criteria = ["AC-MS-2"]
-evidence = ["tools/mg-model/src/main.rs:1"]
-tests = ["mimir/model-server/tests/model_dir.rs::changed_truncated_or_swapped_weights_are_refused"]
-service_tests = ["mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts", "deploy/compose/granite-smoke.sh:31"]
+evidence = ["tools/mg-model/src/main.rs:1", "mimir/model-server/src/artifact.rs:427"]
+tests = ["mimir/model-server/tests/model_dir.rs::changed_truncated_or_swapped_weights_are_refused", "mimir/model-server/tests/model_dir.rs::a_verified_manifest_is_rechecked_against_the_current_key_and_revocations", "mimir/model-server/tests/model_dir.rs::a_revocation_list_parses_strictly"]
+service_tests = ["mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts", "deploy/compose/granite-smoke.sh:31", "mimir/mimir-server/tests/serve.rs::a_revoked_model_stops_serving_within_the_interval", "mimir/mimir-server/tests/serve.rs::a_replaced_trust_anchor_stops_serving"]
 limit = "No vendor signature is checked cryptographically; an upstream signature is recorded as unverifiable. The served model was signed with a development key and did not pass through the staging intake."
 stated_in = ["CHANGELOG.md:74", "docs/launch/pipeline/build-deck.js:380"]
 

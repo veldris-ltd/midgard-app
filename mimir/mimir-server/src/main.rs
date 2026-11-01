@@ -15,6 +15,7 @@
 //!              [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
 //!              [--max-tokens N] [--max-prompt-bytes N] [--max-concurrent N]
 //!              [--max-concurrent-per-identity N] [--infer-timeout SECONDS]
+//!              [--reload-interval SECONDS] [--revocation-file FILE]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME
@@ -63,20 +64,37 @@
 //! (`reason="throttled"`). A completion waits at most `--infer-timeout` seconds (default
 //! 60) on any read from the sidecar, after which it fails and its slot is free. Each of
 //! these must be a whole number of at least 1. [VLD-ANB-MIDGARD-0016]
+//!
+//! Serving can be disengaged while the service runs, through files in the locked
+//! `--state-dir`; there is no network control surface. Every `--reload-interval`
+//! seconds (default 60, at least 1) the service looks for the stop file `STOP` there
+//! and, for a model engine, re-reads the revocation list (`--revocation-file`, default
+//! `revoked.list` in `--state-dir`; no file revokes nothing; one artefact id per line,
+//! `#` comments) and `--model-trust`, and re-checks the manifest it verified at start-up
+//! against them (its signature and gates; the weights are not hashed again). While the
+//! stop file is present, inference is refused `SERVING_STOPPED`; while the model's id is
+//! revoked, or its manifest no longer verifies against the trust key (or either file
+//! cannot be read), it is refused `MODEL_REVOKED`. Either way `/readyz` reports
+//! `model-verified` not ready, each refusal is audited and counted in
+//! `inference_refused_total`, the log says `serving stopped` with the reason, and once
+//! the completions already admitted have returned (waiting at most `--infer-timeout`)
+//! it says `drained`. When every check passes again, serving resumes (`serving
+//! resumed`). The reference engine honours the stop file only. [VLD-ANB-MIDGARD-0057]
 
 use std::collections::BTreeSet;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gateway::{Gateway, RequestHandler};
 use governance::Governance;
 use model_server::{
-    parse_trust_key, probe, reference_registry, stage_verified_weights, withdraw_staged, Clock,
-    FamilyAdapter, GemmaAdapter, GraniteAdapter, InferenceHandler, InferenceLimits, LicencePolicy,
-    MistralAdapter, ModelBackend, ModelLoader, NemotronAdapter, ReleaseFloor, Server,
-    SidecarBackend, StagedWeights,
+    parse_revocation_list, parse_trust_key, probe, reference_registry, stage_verified_weights,
+    withdraw_staged, Clock, FamilyAdapter, GemmaAdapter, GraniteAdapter, InferenceHandler,
+    InferenceLimits, LicencePolicy, MistralAdapter, ModelBackend, ModelLoader, NemotronAdapter,
+    NodeProfile, ReleaseFloor, Server, ServingState, SidecarBackend, StagedWeights, MODEL_REVOKED,
+    SERVING_STOPPED,
 };
 use policy::{
     ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
@@ -96,7 +114,8 @@ const USAGE: &str = "usage: mimir-server --identity-dir DIR --state-dir DIR --pu
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
                      [--rate-per-sec N] [--requests-per-conn N] \
                      [--max-tokens N] [--max-prompt-bytes N] [--max-concurrent N] \
-                     [--max-concurrent-per-identity N] [--infer-timeout SECONDS]";
+                     [--max-concurrent-per-identity N] [--infer-timeout SECONDS] \
+                     [--reload-interval SECONDS] [--revocation-file FILE]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "mimir-inference";
@@ -109,17 +128,31 @@ const MODEL_FLOOR_FILE: &str = "model-release.floor";
 /// [VLD-ANB-MIDGARD-0016]
 const DEFAULT_INFER_TIMEOUT_SECS: u64 = 60;
 
-/// The inference budget and the sidecar timeout the command line asks for.
-/// [VLD-ANB-MIDGARD-0016]
+/// The operator's stop switch, in the state directory: while it exists nothing is
+/// served. [VLD-ANB-MIDGARD-0057]
+const STOP_FILE: &str = "STOP";
+
+/// The revocation list, in the state directory unless `--revocation-file` says
+/// otherwise. [VLD-ANB-MIDGARD-0057]
+const REVOCATION_FILE: &str = "revoked.list";
+
+/// How often the stop file, the revocation list and the trust key are re-read, by
+/// default: the cadence the mesh CRL is reloaded at. [VLD-ANB-MIDGARD-0057]
+const DEFAULT_RELOAD_INTERVAL_SECS: u64 = 60;
+
+/// The inference budget, the sidecar timeout and the serving watch's reload interval
+/// the command line asks for. [VLD-ANB-MIDGARD-0016] [VLD-ANB-MIDGARD-0057]
 struct Admission {
     limits: InferenceLimits,
     infer_timeout: Duration,
+    reload_interval: Duration,
 }
 
 /// [`InferenceLimits::default`] and a 60 s inference timeout, with what
 /// `--max-tokens`, `--max-prompt-bytes`, `--max-concurrent`,
 /// `--max-concurrent-per-identity` and `--infer-timeout` say instead. Each must be a
-/// whole number of at least 1. [VLD-ANB-MIDGARD-0016]
+/// whole number of at least 1. The same holds for `--reload-interval` (default 60 s).
+/// [VLD-ANB-MIDGARD-0016] [VLD-ANB-MIDGARD-0057]
 fn admission_from_args(args: &Args) -> Result<Admission, String> {
     let positive = |key: &str| -> Result<Option<u64>, String> {
         args.get(key)
@@ -146,9 +179,11 @@ fn admission_from_args(args: &Args) -> Result<Admission, String> {
         limits.max_concurrent_per_identity = size(n);
     }
     let secs = positive("infer-timeout")?.unwrap_or(DEFAULT_INFER_TIMEOUT_SECS);
+    let reload = positive("reload-interval")?.unwrap_or(DEFAULT_RELOAD_INTERVAL_SECS);
     Ok(Admission {
         limits,
         infer_timeout: Duration::from_secs(secs),
+        reload_interval: Duration::from_secs(reload),
     })
 }
 
@@ -197,6 +232,142 @@ impl ReadinessCheck for WeightsUnchanged {
     fn check(&self) -> bool {
         self.0.get().is_some_and(StagedWeights::still_in_place)
     }
+}
+
+/// What the serving watch re-checks of the served model: the manifest file's bytes as
+/// they were verified at start-up, against the trust key and revocation list as they are
+/// now. [VLD-ANB-MIDGARD-0057]
+struct ModelRecheck {
+    id: String,
+    manifest_bytes: Vec<u8>,
+    trust_path: PathBuf,
+    revocation_file: PathBuf,
+    node: NodeProfile,
+}
+
+impl ModelRecheck {
+    /// Why the model may no longer be served, if it may not. An unreadable or malformed
+    /// trust key or revocation list fails closed.
+    fn refusal(&self) -> Option<String> {
+        let revoked = match std::fs::read_to_string(&self.revocation_file) {
+            Ok(text) => match parse_revocation_list(&text) {
+                Ok(revoked) => revoked,
+                Err(e) => return Some(format!("{}: {e}", self.revocation_file.display())),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeSet::new(),
+            Err(e) => {
+                return Some(format!(
+                    "cannot read {}: {e}",
+                    self.revocation_file.display()
+                ))
+            }
+        };
+        let trust = match read_trust_key(&self.trust_path) {
+            Ok(trust) => trust,
+            Err(e) => return Some(e),
+        };
+        ModelLoader::new(trust, LicencePolicy::default())
+            .with_revoked(revoked)
+            .reverify_manifest(&self.manifest_bytes, &self.node)
+            .err()
+            .map(|e| format!("model {}: {e}", self.id))
+    }
+}
+
+/// The serving control plane: on every reload interval it looks for the operator's stop
+/// file and re-checks the model, and stops or resumes serving to match: the handler's
+/// [`ServingState`] and the `model-verified` readiness check together, so a deployment
+/// with or without an orchestrator stops. [VLD-ANB-MIDGARD-0057]
+struct ServingWatch {
+    stop_file: PathBuf,
+    model: Option<ModelRecheck>,
+    state: Arc<ServingState>,
+    model_ready: Arc<Toggle>,
+    drain_timeout: Duration,
+}
+
+impl ServingWatch {
+    /// The reason code and the finding if serving must stop now. The stop file wins.
+    fn verdict(&self) -> Option<(&'static str, String)> {
+        match self.stop_file.try_exists() {
+            Ok(false) => {}
+            Ok(true) => {
+                let found = format!("the stop file {} is present", self.stop_file.display());
+                return Some((SERVING_STOPPED, found));
+            }
+            Err(e) => {
+                let found = format!("cannot check {}: {e}", self.stop_file.display());
+                return Some((SERVING_STOPPED, found));
+            }
+        }
+        let refusal = self.model.as_ref()?.refusal()?;
+        Some((MODEL_REVOKED, refusal))
+    }
+
+    /// One pass: stop (and drain) or resume as the checks say.
+    fn pass(&self, logger: &Logger) {
+        match self.verdict() {
+            Some((code, found)) => {
+                if self.state.reason().as_deref() == Some(code) {
+                    return;
+                }
+                let was_serving = self.state.is_serving();
+                self.state.stop(code);
+                self.model_ready.set(false);
+                logger.warn("serving stopped", &[("reason", code), ("detail", &found)]);
+                if was_serving {
+                    self.drain(logger);
+                }
+            }
+            None if !self.state.is_serving() => {
+                self.state.resume();
+                self.model_ready.set(true);
+                logger.info("serving resumed", &[]);
+            }
+            None => {}
+        }
+    }
+
+    /// Wait, at most the inference timeout, for the completions admitted before the stop
+    /// to return.
+    fn drain(&self, logger: &Logger) {
+        let admitted = self.state.in_flight().to_string();
+        let deadline = Instant::now() + self.drain_timeout;
+        while self.state.in_flight() > 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        match self.state.in_flight() {
+            0 => logger.info("drained", &[("completions", &admitted)]),
+            left => logger.warn(
+                "drain timed out",
+                &[("completions", &admitted), ("in_flight", &left.to_string())],
+            ),
+        }
+    }
+
+    /// Check now, then on every `interval` on a thread of its own.
+    fn spawn(self, service: &str, interval: Duration, logger: &Logger) -> Result<(), String> {
+        self.pass(logger);
+        let service = service.to_string();
+        std::thread::Builder::new()
+            .name("serving-watch".into())
+            .spawn(move || {
+                let logger = Logger::new(&service, &StdoutJsonSink);
+                loop {
+                    std::thread::sleep(interval);
+                    self.pass(&logger);
+                }
+            })
+            .map(drop)
+            .map_err(|e| format!("cannot start the serving watch: {e}"))
+    }
+}
+
+/// The model-signing trust key in `path`.
+fn read_trust_key(path: &Path) -> Result<pqc_agility::VerifyingKey, String> {
+    std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))
+        .and_then(|text| parse_trust_key(&text).map_err(|e| format!("{}: {e}", path.display())))
 }
 
 /// The serve directory: an existing directory that is neither the model directory nor
@@ -266,6 +437,8 @@ fn main() {
             "max-concurrent",
             "max-concurrent-per-identity",
             "infer-timeout",
+            "reload-interval",
+            "revocation-file",
             "engine",
             "model-dir",
             "model-trust",
@@ -302,30 +475,27 @@ fn main() {
 
 /// Verify the model directory, at the release floor kept in `state_dir`, stage the
 /// verified weights into the serve directory for the sidecar, and build the sidecar
-/// backend that serves them, with the staged weights (held open) and the log fields that
-/// name what is served. [MG-SEC-14]
+/// backend that serves them, with the staged weights (held open), the log fields that
+/// name what is served and what the serving watch re-checks of it. [MG-SEC-14]
+/// [VLD-ANB-MIDGARD-0057]
 fn sidecar_backend(
     args: &Args,
     engine: EngineChoice,
     state_dir: &Path,
     infer_timeout: Duration,
-) -> Result<(Arc<SidecarBackend>, StagedWeights, LogFields), String> {
+) -> Result<(Arc<SidecarBackend>, StagedWeights, LogFields, ModelRecheck), String> {
     let dir = Path::new(args.require("model-dir")?);
     let serve = serve_dir(args, dir)?;
     // Before anything is verified: a sidecar (re)started from here on waits for this
     // model to be staged. [MG-SEC-14]
     withdraw_staged(&serve).map_err(|e| format!("cannot use {}: {e}", serve.display()))?;
-    let trust_path = args.require("model-trust")?;
-    let trust = std::fs::read_to_string(trust_path)
-        .map_err(|e| format!("cannot read {trust_path}: {e}"))
-        .and_then(|text| parse_trust_key(&text).map_err(|e| format!("{trust_path}: {e}")))?;
+    let trust_path = Path::new(args.require("model-trust")?);
+    let trust = read_trust_key(trust_path)?;
     let mut floor =
         ReleaseFloor::open(state_dir.join(MODEL_FLOOR_FILE)).map_err(|e| e.to_string())?;
-    let mut model = ModelLoader::new(trust, LicencePolicy::default()).verify_dir_at_floor(
-        dir,
-        &probe(),
-        &mut floor,
-    )?;
+    let node = probe();
+    let mut model = ModelLoader::new(trust, LicencePolicy::default())
+        .verify_dir_at_floor(dir, &node, &mut floor)?;
     let staged = stage_verified_weights(&mut model.weights, &model.manifest, &serve)?;
     let manifest = &model.manifest;
 
@@ -365,7 +535,16 @@ fn sidecar_backend(
         ("model_staged", staged.path().display().to_string()),
         ("sidecar", addr.to_string()),
     ];
-    Ok((Arc::new(backend), staged, fields))
+    let recheck = ModelRecheck {
+        id: manifest.id.clone(),
+        manifest_bytes: model.manifest_bytes,
+        trust_path: trust_path.to_path_buf(),
+        revocation_file: args
+            .get("revocation-file")
+            .map_or_else(|| state_dir.join(REVOCATION_FILE), PathBuf::from),
+        node,
+    };
+    Ok((Arc::new(backend), staged, fields, recheck))
 }
 
 fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), String> {
@@ -393,7 +572,13 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         }
     };
     if engine == EngineChoice::Reference {
-        for option in ["model-dir", "model-trust", "serve-dir", "sidecar"] {
+        for option in [
+            "model-dir",
+            "model-trust",
+            "serve-dir",
+            "sidecar",
+            "revocation-file",
+        ] {
             if args.get(option).is_some() {
                 return Err(format!("--{option} needs --engine llama-cpp or vllm"));
             }
@@ -447,15 +632,20 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
     let governance = Governance::with_audit(pdp()?, writer);
     ledger_ready.set(true);
 
-    let (registry, model_fields): (Vec<Arc<dyn ModelBackend>>, LogFields) = match engine {
-        EngineChoice::Reference => (reference_registry(), Vec::new()),
+    let (registry, model_fields, recheck): (Vec<Arc<dyn ModelBackend>>, LogFields, _) = match engine
+    {
+        EngineChoice::Reference => (reference_registry(), Vec::new(), None),
         _ => {
-            let (sidecar, weights, fields) =
+            let (sidecar, weights, fields, recheck) =
                 sidecar_backend(args, engine, state_dir, admission.infer_timeout)?;
             let _ = sidecar_cell.set(sidecar.clone());
             let _ = weights_cell.set(weights);
             model_ready.set(true);
-            (vec![sidecar as Arc<dyn ModelBackend>], fields)
+            (
+                vec![sidecar as Arc<dyn ModelBackend>],
+                fields,
+                Some(recheck),
+            )
         }
     };
     let server = Server::bootstrap(probe(), &registry, None)
@@ -473,6 +663,7 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
     // [VLD-ANB-MIDGARD-0016]
     let refused = metrics.clone();
     let throttled = metrics.clone();
+    let serving = Arc::new(ServingState::new());
     let handler: Arc<dyn RequestHandler> = Arc::new(
         InferenceHandler::new(
             Arc::new(server),
@@ -481,6 +672,7 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
             Arc::new(WallClock),
         )
         .with_limits(admission.limits)
+        .with_serving_state(serving.clone())
         .on_refusal(Arc::new(move |reason| {
             let reason = reason.to_ascii_lowercase();
             refused.inc("inference_refused_total", &[("reason", &reason)]);
@@ -503,6 +695,17 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         limits,
     );
 
+    // The operator's stop file and the model's approval, checked before the first call
+    // is accepted and on every reload interval after. [VLD-ANB-MIDGARD-0057]
+    ServingWatch {
+        stop_file: state_dir.join(STOP_FILE),
+        model: recheck,
+        state: serving,
+        model_ready: model_ready.clone(),
+        drain_timeout: admission.infer_timeout,
+    }
+    .spawn(service, admission.reload_interval, &logger)?;
+
     let listener = TcpListener::bind(args.get("bind").unwrap_or("0.0.0.0:7720"))
         .map_err(|e| format!("cannot bind the mesh port: {e}"))?;
     let mesh_addr = listener
@@ -521,6 +724,7 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         admission.limits,
         admission.infer_timeout.as_secs()
     );
+    let reload_text = format!("{}s", admission.reload_interval.as_secs());
     let mut fields: Vec<(&str, &str)> = vec![
         ("mesh", &mesh),
         ("health", &health_text),
@@ -529,6 +733,7 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         ("engine", &engine_id),
         ("limits", &limits_text),
         ("inference_limits", &inference_text),
+        ("reload_interval", &reload_text),
     ];
     fields.extend(model_fields.iter().map(|(k, v)| (*k, v.as_str())));
     logger.info("serving", &fields);
