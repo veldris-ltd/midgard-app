@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Signing-runner preflight for the release workflow. [NFR-PQ-3] [AC-B-1] [RC-07]
+# [VLD-ANB-MIDGARD-0035]
 #
 # Asserts the runner is provisioned as docs/ops/PKI.md ("Signing runner") requires, and
 # fails closed naming every item that is missing, before any job builds or signs.
 #
 #   bash tools/ci/release-preflight.sh
+#
+# The release pipeline runs this from a checkout of main beside the tagged one
+# (.ci-trusted), so the job's workspace, not this script's checkout, is what key
+# material must stay out of.
 #
 # Environment (the workflow maps runner secrets onto these; none has a default):
 #   MIDGARD_SIGNING_KEYSTORE   the release signing keystore (ML-DSA-87)
@@ -13,18 +18,26 @@
 #   MIDGARD_BIFROST_KEYSTORE   the Bifrost admission keystore (ML-DSA-65): registry
 #                              admission and the air-gap bundle
 #   MIDGARD_BIFROST_REGISTRY   the Bifrost artefact registry directory
+#   MIDGARD_ALLOWED_SIGNERS_PATH
+#                              the runner's own copy of allowed_signers, which release
+#                              tags are verified against (tools/ci/verify-tag.sh)
 #   TOOLCHAIN_IMAGE            the toolchain image (default midgard-acceptance:1.82.0)
 set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 . tools/ci/lib.sh
 TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE:-midgard-acceptance:1.82.0}"
+workspace="${GITHUB_WORKSPACE:-${CI_PROJECT_DIR:-$PWD}}"
+workspace="$(cd "$workspace" 2>/dev/null && pwd -P || echo "$workspace")"
 problems=0
 ok() { echo "preflight: ok — $*"; }
 bad() {
     ci_error "preflight: $* (see docs/ops/PKI.md, \"Signing runner\")"
     problems=$((problems + 1))
 }
+# in_workspace PATH: whether PATH lies in the job's workspace, where a checkout, and
+# whatever the checked-out code chooses to read, can reach it.
+in_workspace() { [[ "$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/" == "$workspace/"* ]]; }
 
 # 1. The pinned toolchain and the service image bases, provisioned while connected:
 #    every build runs in the toolchain image with no network.
@@ -114,8 +127,8 @@ for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE \
         bad "$var is not configured (runner secret ${var}_PATH)"
     elif [ ! -r "$path" ] || [ -d "$path" ]; then
         bad "$var names $path, which is not a readable file"
-    elif [[ "$(cd "$(dirname "$path")" && pwd)/" == "$PWD/"* ]]; then
-        bad "$var names a file inside the repository checkout"
+    elif in_workspace "$path"; then
+        bad "$var names a file inside the job's workspace ($workspace); keep key material outside it"
     else
         ok "$var is configured"
     fi
@@ -162,6 +175,34 @@ if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
     else
         ok "job-completed hook $hook"
     fi
+fi
+
+# 6. The runner is isolated from what it releases. [VLD-ANB-MIDGARD-0035]
+#    - Release tags verify against the runner's own copy of allowed_signers, outside the
+#      workspace, so a key the tagged commit adds cannot verify that tag.
+#    - The docker daemon answers, and every build step goes through in-toolchain.sh,
+#      which starts the toolchain container with no network.
+signers="${MIDGARD_ALLOWED_SIGNERS_PATH:-}"
+if [ -z "$signers" ]; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH is not configured (runner secret MIDGARD_ALLOWED_SIGNERS_PATH): release tags are verified against the runner's copy of allowed_signers"
+elif [ ! -s "$signers" ] || [ -d "$signers" ]; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH names $signers, which is not a non-empty file"
+elif in_workspace "$signers"; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH names a file inside the job's workspace ($workspace); the runner's copy must live outside it"
+elif grep -q 'PRIVATE KEY' "$signers"; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH names a file holding private key material"
+else
+    ok "MIDGARD_ALLOWED_SIGNERS_PATH is configured, outside the workspace"
+fi
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    ok "the docker daemon is reachable"
+else
+    bad "the docker daemon is not reachable (docker info failed)"
+fi
+if grep -Eq '^exec docker run [^#]*--network none' "$workspace/tools/ci/in-toolchain.sh" 2>/dev/null; then
+    ok "builds run in the toolchain container with --network none"
+else
+    bad "$workspace/tools/ci/in-toolchain.sh does not start the toolchain container with --network none"
 fi
 
 if [ "$problems" -gt 0 ]; then

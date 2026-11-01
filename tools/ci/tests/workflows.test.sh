@@ -43,6 +43,31 @@ unpersisted="$(cat "$workflows"/*.yml | grep -c 'persist-credentials: false')"
     pass "$checkouts checkout(s), $unpersisted persist-credentials: false" ||
     fail "the counts agree: $checkouts checkout(s), $unpersisted persist-credentials: false"
 
+# The release gate runs from a checkout of main, not from the tag it gates: in both
+# pipelines' preflight job the first two jobs run are release-tag and release-preflight
+# from .ci-trusted, and the trusted checkout is of main. [VLD-ANB-MIDGARD-0035] [AC-P2.3]
+gitlab="$workflows/../../.gitlab-ci.yml"
+want=$'bash .ci-trusted/tools/ci/run.sh release-tag\nbash .ci-trusted/tools/ci/run.sh release-preflight'
+# job_runs FILE JOB: the commands the job runs, in order, YAML list markers removed.
+job_runs() {
+    tr -d '\r' < "$1" | awk -v job="$2" '
+        $0 ~ "^ *" job ":$" { match($0, /^ */); indent = RLENGTH; on = 1; next }
+        on && /^ *[a-z.][a-z0-9_.-]*:/ { match($0, /^ */); if (RLENGTH <= indent) on = 0 }
+        on' | sed -n -e 's/^ *- run: *//p' -e 's/^    - //p'
+}
+gh_runs="$(job_runs "$workflows/release.yml" preflight | grep 'run\.sh')"
+gl_runs="$(job_runs "$gitlab" release-preflight | grep 'run\.sh')"
+[ "$(head -n 2 <<<"$gh_runs")" = "$want" ] &&
+    pass "GitHub: the release preflight runs the tag gate from .ci-trusted before any tagged-commit script" ||
+    fail "GitHub: the release preflight runs the tag gate from .ci-trusted first:"$'\n'"$gh_runs"
+[ "$(head -n 2 <<<"$gl_runs")" = "$want" ] &&
+    pass "GitLab: the release preflight runs the tag gate from .ci-trusted before any tagged-commit script" ||
+    fail "GitLab: the release preflight runs the tag gate from .ci-trusted first:"$'\n'"$gl_runs"
+tr -d '\r' < "$workflows/release.yml" | grep -B3 -A3 'path: .ci-trusted' | grep -q 'ref: main' &&
+    pass "GitHub: .ci-trusted is a checkout of main" || fail "GitHub: .ci-trusted is a checkout of main"
+tr -d '\r' < "$gitlab" | grep -q '^    - git clone --branch main --depth [0-9]* "$CI_REPOSITORY_URL" .ci-trusted$' &&
+    pass "GitLab: .ci-trusted is a clone of main" || fail "GitLab: .ci-trusted is a clone of main"
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"
     exit 1

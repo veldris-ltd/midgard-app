@@ -470,13 +470,13 @@ milestone = "RF-CL-1 to RF-CL-7."
 [[claim]]
 id = "supply-chain-gate"
 area = "Supply chain and release"
-claim = "Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token."
+claim = "Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token. A release tag is verified independently of the commit it tags: against the signing runner's own copy of allowed_signers, which the committed copy must equal, on a commit that must be on main, by scripts from a separate checkout of main; tag creation is restricted to a release-managers team by a ruleset applied as code."
 status = "operable"
 criteria = ["AC-M-6", "AC-B-1"]
-evidence = ["justfile:373", "tools/ci/release.sh:170", "tools/ci/pipelines.sh:52", "tools/ci/release.sh:182", "justfile:389", "tools/ci/tests/js-toolchain.test.sh", "vendor/advisory-db/snapshot.toml:27", "vendor/advisory-db-npm/snapshot.toml:15", "renovate.json", ".github/workflows/advisory-refresh.yml", "tools/ci/tests/advisory-refresh.test.sh", "tools/ci/shell-audit/package-lock.json", "tools/ci/run.sh:368", "tools/ci/tests/npx-pin.test.sh", "tools/ci/tests/workflows.test.sh"]
+evidence = ["justfile:373", "tools/ci/release.sh:170", "tools/ci/pipelines.sh:52", "tools/ci/release.sh:182", "justfile:389", "tools/ci/tests/js-toolchain.test.sh", "vendor/advisory-db/snapshot.toml:27", "vendor/advisory-db-npm/snapshot.toml:15", "renovate.json", ".github/workflows/advisory-refresh.yml", "tools/ci/tests/advisory-refresh.test.sh", "tools/ci/shell-audit/package-lock.json", "tools/ci/run.sh:368", "tools/ci/tests/npx-pin.test.sh", "tools/ci/tests/workflows.test.sh", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh", "tools/ci/github-rules.sh", "tools/ci/tests/github-rules.test.sh"]
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component", "tools/mg-scan/tests/cli.rs::snapshot_older_than_fail_after_days_fails"]
 service_tests = ["tools/ci/run.sh:320", "tools/ci/tests/pipelines.test.sh:73", "tools/ci/run.sh:225", "tools/ci/run.sh:232", "tools/ci/run.sh:344", "tools/ci/run.sh:369"]
-limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them. The advisory scan refuses a snapshot more than 45 days old; the weekly advisory-refresh job and Renovate are configured on both forges but have not yet run on either."
+limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them. The advisory scan refuses a snapshot more than 45 days old; the weekly advisory-refresh job and Renovate are configured on both forges but have not yet run on either. The tag-creation ruleset, the runner's copy of allowed_signers and an ephemeral runner are owner actions not yet confirmed by exported evidence."
 stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402", "README.md:746", "README.md:754", "README.md:744"]
 
 [[claim]]
@@ -505,9 +505,9 @@ stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/complianc
 [[claim]]
 id = "acceptance-gate"
 area = "Supply chain and release"
-claim = "Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network."
+claim = "Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network. A release is gated only on a tag whose commit is on main, checked by the release pipeline itself, not only on the operator's side."
 status = "operable"
-evidence = ["deploy/acceptance/run-airgapped.sh:10", ".gitlab-ci.yml:236"]
+evidence = ["deploy/acceptance/run-airgapped.sh:10", ".gitlab-ci.yml:236", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh"]
 service_tests = ["tools/ci/run.sh:313", "tools/ci/run.sh:215", "tools/ci/run.sh:221", "tools/ci/run.sh:209"]
 limit = "Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again. On GitLab the suite runs only on protected branches, on the privileged runner tagged protected; merge-request jobs run unprivileged and never start it."
 stated_in = ["GETTING_STARTED.md:5"]

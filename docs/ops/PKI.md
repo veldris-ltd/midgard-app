@@ -193,6 +193,12 @@ signed with SSH keys, and the ceremony publishes which ones count.
 Rotating a key is a commit to `deploy/trust/allowed_signers`, itself signed by a key
 already listed there.
 
+On the signing runners the committed file is not the authority: a commit that added a
+key would otherwise verify a tag on itself. The runner holds its own copy, and the tag
+verifies only when the committed file is byte-for-byte that copy (see "Signing runner",
+item 6). So a key change takes effect for releases only once the release manager has
+put it on the runners too.
+
 ## Rotation cadence
 
 | Key | Cadence | Mechanism |
@@ -264,7 +270,38 @@ here if any is missing:
    re-registered for each job) as well. The preflight asserts the hook: on a self-hosted
    runner it fails closed unless that variable names a readable script. The workflows'
    checkouts set `persist-credentials: false`, so the job token is not written into
-   `.git/config` either (VLD-ANB-MIDGARD-0081).
+   `.git/config` either (VLD-ANB-MIDGARD-0081). Run it **ephemeral**: the preflight
+   cannot see that a runner was registered with `--ephemeral`, so it is the owner's to
+   confirm.
+6. **The runner's own `allowed_signers`, outside the checkout** (VLD-ANB-MIDGARD-0035).
+   A release tag is verified against signers the tagged commit cannot choose. The
+   release manager copies the ceremony's `allowed_signers` onto each runner, outside the
+   work directory and beside the keystores, checks it against the committed file
+   (`sha256sum` of both must agree), and names it with the runner secret
+   `MIDGARD_ALLOWED_SIGNERS_PATH` (on GitLab, the CI/CD variable of that name).
+   `tools/ci/verify-tag.sh` then refuses a tag unless the committed
+   `deploy/trust/allowed_signers` is byte-for-byte that copy: "the committed
+   allowed_signers differs from the runner-pinned copy; a key change must be
+   provisioned on the runner first". On a self-hosted runner with the variable unset it
+   refuses every tag. Rotating a key is therefore two steps: the signed, reviewed
+   commit, then the same file on every runner. The preflight asserts the variable names
+   a non-empty file of public keys outside the job's workspace, and that every keystore
+   lies outside the workspace too.
+7. **A gate that is not the tag's.** The release starts from a pushed `v*` tag, but the
+   checks that decide whether anything else runs do not come from it: the preflight job
+   checks out `main` a second time into `.ci-trusted` and runs `release-tag` and
+   `release-preflight` from there, judging the tagged checkout. Only then do the tagged
+   commit's own scripts run, by then proven signed and on `main` (`verify-tag.sh` refuses
+   a tag whose commit is not an ancestor of `origin/main`). The preflight also asserts
+   that the docker daemon answers and that `tools/ci/in-toolchain.sh` starts every build
+   with `--network none`.
+8. **Only release managers create release tags.** The tag ruleset that admits a `v*`
+   tag is the forge's to enforce, not the repository's: on GitHub, the "release tags are
+   created by release managers" ruleset (`tools/ci/github-rules.sh`) with the
+   `release-managers` team as its only bypass actor; on GitLab, `v*` protected so that
+   only maintainers create one (`tools/ci/gitlab-rules.sh`). Nothing on the runner can
+   check this; the exported ruleset evidence in `docs/compliance/evidence/` is the
+   record.
 
 If any is absent, the preflight **fails closed**, so a release never ships unsigned,
 unscanned, or from a half-provisioned runner.

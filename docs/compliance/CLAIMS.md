@@ -694,7 +694,7 @@ Native applications for iOS, Android and Linux, a Tauri desktop application, a w
 
 ### `supply-chain-gate` (operable)
 
-Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token.
+Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token. A release tag is verified independently of the commit it tags: against the signing runner's own copy of allowed_signers, which the committed copy must equal, on a commit that must be on main, by scripts from a separate checkout of main; tag creation is restricted to a release-managers team by a ruleset applied as code.
 
 **Limit.** The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them.
 
@@ -754,7 +754,7 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 
 ### `acceptance-gate` (operable)
 
-Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network.
+Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network. A release is gated only on a tag whose commit is on main, checked by the release pipeline itself, not only on the operator's side.
 
 **Limit.** Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again. On GitLab the suite runs only on protected branches, on the privileged runner tagged protected; merge-request jobs run unprivileged and never start it.
 

@@ -16,10 +16,13 @@ cd "${MIDGARD_PIPELINES_ROOT:-$(dirname "$0")/../..}"
 GITHUB_DIR=.github/workflows
 GITLAB_FILE=.gitlab-ci.yml
 
-# The job names a set of files passes to tools/ci/run.sh.
+# The job names a set of files passes to tools/ci/run.sh. The release gate calls its
+# jobs through .ci-trusted/tools/ci/run.sh, a checkout of main beside the tagged one,
+# so that the code deciding whether a tag is released is not the tag's own
+# (VLD-ANB-MIDGARD-0035): the same jobs, from another checkout, and counted as such.
 called() {
     cat "$@" 2>/dev/null | tr -d '\r' | sed 's/#.*//' \
-        | grep -oE 'tools/ci/run\.sh +[a-z][a-z0-9-]*' | awk '{print $NF}' | sort -u
+        | grep -oE '(\.ci-trusted/)?tools/ci/run\.sh +[a-z][a-z0-9-]*' | awk '{print $NF}' | sort -u
 }
 
 github_jobs() { called "$GITHUB_DIR"/*.yml; }
@@ -28,8 +31,10 @@ defined_jobs() { bash tools/ci/run.sh names | sort -u; }
 
 # Lines that run something other than run.sh. Setup that only a CI system can do —
 # checking out, caching, fetching an artefact, installing a shell into a bare image —
-# is not build logic and is allowed; anything else belongs in a job.
-ALLOWED='^(bash tools/ci/run\.sh |apk add --no-cache |docker info|mkdir -p |echo |test |\[ )'
+# is not build logic and is allowed; anything else belongs in a job. GitLab has no
+# second-checkout step, so the release gate's clone of main into .ci-trusted is allowed
+# in exactly the form .gitlab-ci.yml writes it.
+ALLOWED='^(bash (\.ci-trusted/)?tools/ci/run\.sh |apk add --no-cache |docker info|mkdir -p |echo |test |\[ |git clone --branch main --depth [0-9]+ "\$CI_REPOSITORY_URL" \.ci-trusted$)'
 stray_github() {
     cat "$GITHUB_DIR"/*.yml | tr -d '\r' | sed -n 's/^ *\(- \)\{0,1\}run: *//p' \
         | grep -v '^[|>]' | grep -Ev "$ALLOWED" || true

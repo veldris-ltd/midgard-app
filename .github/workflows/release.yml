@@ -96,14 +96,30 @@ jobs:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+      # The runner's own copy of allowed_signers, outside the workspace: the tag is
+      # verified against it, not against the tagged commit's (docs/ops/PKI.md).
+      MIDGARD_ALLOWED_SIGNERS_PATH: ${{ secrets.MIDGARD_ALLOWED_SIGNERS_PATH }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-          # The gate record names a commit; checking it needs the history.
+          # The gate record names a commit, and the tag must be on main; checking
+          # either needs the history.
           fetch-depth: 0
-      - run: bash tools/ci/run.sh release-preflight
-      - run: bash tools/ci/run.sh release-tag
+      # The gate is not the tag's own code: the tag check and the preflight run from a
+      # checkout of main, the protected branch, and judge the tagged checkout from
+      # there. Only once they pass does anything from the tagged commit run, by then
+      # proven signed and on main. [VLD-ANB-MIDGARD-0035]
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: main
+          path: .ci-trusted
+          fetch-depth: 0
+          persist-credentials: false
+      - run: bash .ci-trusted/tools/ci/run.sh release-tag
+        env:
+          VERIFY_TAG_ROOT: ${{ github.workspace }}
+      - run: bash .ci-trusted/tools/ci/run.sh release-preflight
       - run: bash tools/ci/run.sh gate-record --release
       - run: bash tools/ci/run.sh numbers
 

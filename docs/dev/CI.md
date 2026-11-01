@@ -324,14 +324,15 @@ touches the release machinery, and by hand on any branch.
 ### A real release
 
 Needs a signing runner provisioned as [docs/ops/PKI.md](../ops/PKI.md) describes —
-labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with three settings
-naming files on that runner:
+labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with four settings
+naming files on that runner, all outside the job's workspace:
 
 | Setting | What |
 |---|---|
 | `MIDGARD_SIGNING_KEYSTORE_PATH` | the release signing keystore (ML-DSA-87) |
 | `MIDGARD_BIFROST_KEYSTORE_PATH` | the Bifrost admission keystore (ML-DSA-65) |
 | `MIDGARD_BIFROST_REGISTRY_PATH` | the Bifrost registry directory |
+| `MIDGARD_ALLOWED_SIGNERS_PATH` | the runner's own copy of `deploy/trust/allowed_signers`, which release tags are verified against |
 
 On GitHub these are repository secrets; on GitLab, CI/CD variables. The public halves
 are committed as `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub`,
@@ -341,6 +342,29 @@ with a key of the right algorithm and nothing private, so a release cannot ship 
 the anchor mimir-server's load gate trusts. [VLD-ANB-MIDGARD-0028]
 The keystores are mounted read-only into the toolchain container; nothing else of the
 runner's environment reaches it.
+
+The preflight job checks out the repository twice: the tagged commit, and `main` into
+`.ci-trusted`. The tag gate runs from the second, so the code that decides whether the
+tagged commit's scripts run is not the tagged commit's (VLD-ANB-MIDGARD-0035):
+
+1. `bash .ci-trusted/tools/ci/run.sh release-tag`, with `VERIFY_TAG_ROOT` naming the
+   tagged checkout: the tag is annotated, signed by a key in the runner's
+   `allowed_signers`, the committed `deploy/trust/allowed_signers` is byte-for-byte that
+   copy, and the tagged commit is an ancestor of `origin/main`, fetched afresh. A tag on
+   a commit that is not on `main` — a hotfix branch not yet merged, say — is refused:
+   merge first.
+2. `bash .ci-trusted/tools/ci/run.sh release-preflight`: the runner is provisioned and
+   isolated (docs/ops/PKI.md, "Signing runner").
+3. Only then the tagged commit's own `gate-record --release` and `numbers`, and after the
+   preflight job the `release` job, which builds exactly the tagged tree.
+
+On GitHub the second checkout is an `actions/checkout` step with `ref: main` and
+`path: .ci-trusted`; on GitLab, which has no such step, the job clones `main` with its
+read-only job token (`git clone --branch main --depth 50 "$CI_REPOSITORY_URL"
+.ci-trusted`). `tools/ci/pipelines.sh` counts a `.ci-trusted/tools/ci/run.sh <job>` call
+as a call of that job, and allows that one clone line, so both pipelines still call the
+same jobs and carry no other logic. `tools/ci/tests/workflows.test.sh` checks that in
+both pipelines the gate runs from `.ci-trusted` before anything else.
 
 A release also waits on the client shell audits, which fail closed until every shell
 has a buildable project (see [`clients/shells/AUDIT_SCHEMA.md`](../../clients/shells/AUDIT_SCHEMA.md)).
@@ -365,9 +389,11 @@ and is `origin/main`, the gate record covers the commit (`gate-record --release`
 numbers sheet and the claims ledger check, the release notes exist, and
 `deploy/trust/allowed_signers` is published. It does not push. On the runner, the
 `release-tag` job ([`tools/ci/verify-tag.sh`](../../tools/ci/verify-tag.sh)) verifies
-the tag against `deploy/trust/allowed_signers` before anything is built or signed, so
-an unsigned tag, a lightweight tag, or one signed by a key not listed there starts no
-release.
+the tag against the runner's copy of `deploy/trust/allowed_signers` before anything is
+built or signed, so an unsigned tag, a lightweight tag, one signed by a key not listed
+there, one whose commit changed the signers, or one on a commit not on `main` starts no
+release. `tag-release.sh` checks that the commit is the tip of `origin/main` on your
+side; the runner checks again, since a tag can be pushed by other means.
 
 Because the gate record names the commit it gated, the order is: merge to `main`; run
 the gate on that commit and record it (see "The gate record"); write the numbers sheet;
@@ -378,21 +404,30 @@ generated from it.
 ### Repository rules
 
 The forge enforces what the scripts cannot: that history on the release path is
-signed, and that a published tag stays put. These are the repository owner's to set.
-On GitHub, as rulesets (Settings → Rules → Rulesets), or with `gh`:
+signed, that a published tag stays put, and that only release managers create a `v*`
+tag, which is what starts a release on the signing runners (VLD-ANB-MIDGARD-0035).
+These are the repository owner's to set. On GitHub they are three rulesets (Settings →
+Rules → Rulesets), applied with a repository administrator's `gh` login by
+[`tools/ci/github-rules.sh`](../../tools/ci/github-rules.sh); `--dry-run` prints them
+first, and `--export` writes what is live for review:
 
 ```bash
-gh api -X POST repos/veldris-ltd/midgard-app/rulesets --input - <<'EOF'
-{ "name": "signed history", "target": "branch", "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/heads/main", "refs/heads/dev"], "exclude": [] } },
-  "rules": [ { "type": "required_signatures" }, { "type": "non_fast_forward" }, { "type": "deletion" } ] }
-EOF
-gh api -X POST repos/veldris-ltd/midgard-app/rulesets --input - <<'EOF'
-{ "name": "release tags are immutable", "target": "tag", "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
-  "rules": [ { "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" } ] }
-EOF
+bash tools/ci/github-rules.sh --repo veldris-ltd/midgard-app --dry-run
+bash tools/ci/github-rules.sh --repo veldris-ltd/midgard-app --export docs/compliance/evidence
 ```
+
+| Ruleset | On | Rules | Bypass |
+|---|---|---|---|
+| signed history | `refs/heads/main`, `refs/heads/dev` | `required_signatures`, `non_fast_forward`, `deletion` | none |
+| release tags are immutable | `refs/tags/v*` | `deletion`, `non_fast_forward`, `update` | none |
+| release tags are created by release managers | `refs/tags/v*` | `creation` | the `release-managers` team (`Team`, `always`) |
+
+Tag creation is a ruleset of its own because a bypass actor bypasses every rule in its
+ruleset: in the immutability ruleset it would let a release manager move or delete a
+published tag. The `release-managers` team must exist in the organisation first; the
+script stops, changing nothing, if it does not. The runner cannot see these settings,
+so `release-tag` does not rely on them: it checks the signature against the runner's
+own signers and the commit against `main` whoever pushed the tag.
 
 `non_fast_forward` on the branches also refuses force pushes, so a classic protection
 rule that allows them on `dev` must be turned off as well. On GitLab: protect `v*` under

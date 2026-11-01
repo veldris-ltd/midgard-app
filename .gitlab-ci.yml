@@ -25,8 +25,8 @@
 #     maintainer's approval;
 #   - for a release: a runner tagged `kms`, provisioned as docs/ops/PKI.md describes,
 #     with a shell executor, docker, node and pnpm, and the CI/CD variables
-#     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH and
-#     MIDGARD_BIFROST_REGISTRY_PATH naming files on it;
+#     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH,
+#     MIDGARD_BIFROST_REGISTRY_PATH and MIDGARD_ALLOWED_SIGNERS_PATH naming files on it;
 #   - for the apple shell audit: a runner tagged `macos`.
 #
 # Run a release dry run, a release, or the shell audits by hand from "Run pipeline",
@@ -384,12 +384,18 @@ shell-audit-gate:
 
 # --- the release itself, on the signing runners -----------------------------------------
 
+# The tag check and the preflight run from a clone of main, the protected branch, and
+# judge the tagged checkout from there; nothing from the tagged commit runs until they
+# pass. The job token the clone uses is read-only. [VLD-ANB-MIDGARD-0035]
 release-preflight:
   stage: release
   extends: [.signing, .on-release]
+  variables:
+    VERIFY_TAG_ROOT: $CI_PROJECT_DIR
   script:
-    - bash tools/ci/run.sh release-preflight
-    - bash tools/ci/run.sh release-tag
+    - git clone --branch main --depth 50 "$CI_REPOSITORY_URL" .ci-trusted
+    - bash .ci-trusted/tools/ci/run.sh release-tag
+    - bash .ci-trusted/tools/ci/run.sh release-preflight
     - bash tools/ci/run.sh gate-record --release
     - bash tools/ci/run.sh numbers
 
