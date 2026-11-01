@@ -913,7 +913,7 @@ Both pipelines call the same jobs in `tools/ci/run.sh`; see [docs/dev/CI.md](doc
 
 See [the release candidate notes](docs/releases/v0.1.0-rc.1.md) and `docs/ops/PKI.md`.
 
-At run time, `deploy/images/entrypoint.sh` re-verifies the signature, SBOM and provenance against the pinned release trust key before exec'ing any service — a tampered or unsigned binary refuses to start.
+At run time, each release image's entrypoint, `mg-verify --run-service` on a distroless runtime with no shell, re-verifies the signature, SBOM and provenance against the pinned release trust key before exec'ing any service — a tampered or unsigned binary refuses to start.
 
 ---
 

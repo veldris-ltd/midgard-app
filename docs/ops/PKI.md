@@ -231,8 +231,12 @@ here if any is missing:
    runner 2.327.1 or later (`./config.sh --version` on the runner).
 1. **Pinned toolchain image.** Build `midgard-acceptance:1.82.0` from
    `deploy/acceptance/Dockerfile` (Rust `1.82.0` and `just`, on a digest-pinned base),
-   and pull the service image base `deploy/images/service.Dockerfile` names. Do both
-   while connected. Every build and signing step runs in that image with
+   and pull both bases `deploy/images/service.Dockerfile` names: `BASE`, the toolchain
+   image its prep stage lays files out on, and `RUNTIME`, the distroless
+   `cc-debian12:nonroot` image it runs on. Pull the chart's seed image too
+   (`seedImage` in `deploy/helm/midgard/values.yaml`, distroless
+   `base-debian12:debug-nonroot`, by digest), which the enclosure's registry must
+   carry for first start. Do all of this while connected. Every build and signing step runs in that image with
    `--network none`. The runner itself only reaches GitHub.
 2. **Offline advisory database.** The RustSec database is vendored at
    `vendor/advisory-db`, with the licence policy and exception tables in

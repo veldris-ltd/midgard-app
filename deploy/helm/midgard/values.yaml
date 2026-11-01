@@ -7,11 +7,12 @@ createNamespace: true
 
 image:
   # Release: "<registry>/<service>@<digest>", each image re-verifying its binary's
-  # signature before it runs (deploy/images/entrypoint.sh). The verifier, its key and
-  # the entrypoint travel inside the image, so only the digest binds a pod to the signed
-  # build: a release chart pins every image by digest, and does not render while a
-  # service's digest is empty. deploy/helm/set-digests.sh writes them from the signed
-  # images.lock of a release. [VLD-ANB-MIDGARD-0012]
+  # signature before it runs (its entrypoint, mg-verify --run-service: see
+  # deploy/images/service.Dockerfile). The verifier and its key travel inside the
+  # image, so only the digest binds a pod to the signed build: a release chart pins
+  # every image by digest, and does not render while a service's digest is empty.
+  # deploy/helm/set-digests.sh writes them from the signed images.lock of a release.
+  # [VLD-ANB-MIDGARD-0012]
   registry: registry.enclosure.local/midgard
   digests:
     http-gateway: ""
@@ -32,6 +33,24 @@ image:
 # The pinned public release trust key mg-verify checks every image against before it
 # runs. Provisioned by the key ceremony (RT-35). Unused with image.single.
 trustKeyConfigMap: midgard-release-trust
+
+# The image the `seed` init container unpacks a service's seed.tar with (services with
+# seed: true). A release service image runs on distroless, with no shell or tar, so
+# seeding needs its own small image with both: by default Google's distroless
+# base-debian12 debug-nonroot, whose BusyBox provides sh and tar, and nothing runs in it
+# but the one unpack command. It runs as the service's user, with the same hardened
+# securityContext, and mounts only the state volume and the seed Secret. Pinned by
+# digest, always: the chart refuses a digest that is not sha256:<64 hex>. Mirror it into
+# the enclosure's registry and set repository to match. With image.single the single
+# image is used instead, and this is unused. [VLD-ANB-MIDGARD-0068]
+# The digest is the multi-arch index digest of
+# gcr.io/distroless/base-debian12:debug-nonroot, read with
+# `docker buildx imagetools inspect` on 2026-11-01 (linux/amd64 manifest
+# sha256:23f77acf6d1b00a5d63ed914c2afa1e1a64eb473388be5eed8b8937b08266af8).
+seedImage:
+  repository: gcr.io/distroless/base-debian12
+  digest: sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+  pullPolicy: IfNotPresent
 
 # Namespace-wide resource ceiling.
 quota:

@@ -130,11 +130,28 @@ spec:
       {{- if .seed }}
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
+        {{- if $.Values.image.single }}
         - name: seed
           image: {{ $image }}
           imagePullPolicy: {{ $pullPolicy }}
           # The volume's root belongs to the node, so leave its own mode and times alone.
           command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+        {{- else }}
+        {{- $seed := $.Values.seedImage }}
+        {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" ($seed.digest | default "")) }}
+        {{- fail "seedImage.digest must be sha256:<64 hex>: the seed image is pinned by digest" }}
+        {{- end }}
+        - name: seed
+          image: {{ printf "%s@%s" $seed.repository $seed.digest }}
+          imagePullPolicy: {{ $seed.pullPolicy | default "IfNotPresent" }}
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+        {{- end }}
           securityContext:
 {{ include "midgard.hardened" . | indent 12 }}
           resources:

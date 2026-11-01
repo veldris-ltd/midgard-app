@@ -73,7 +73,7 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:58`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:73`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:470`](../../docs/launch/pipeline/build-deck.js)
 
@@ -111,7 +111,7 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:106`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:121`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
 
 ### `hardware-key-custody` (reference)
@@ -129,7 +129,7 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
   - [`services/kms/tests/rc_28.rs::decapsulation_happens_on_the_device_not_in_the_process`](../../services/kms/tests/rc_28.rs)
   - [`services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper`](../../services/kms/tests/rc_28.rs)
 - Stated at:
-  - [`CHANGELOG.md:93`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:108`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:112`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:483`](../../docs/launch/pipeline/build-deck.js)
 
@@ -157,7 +157,7 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
   - [`README.md:54`](../../README.md)
-  - [`CHANGELOG.md:49`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:64`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
 
 ### `object-fabric` (operable)
@@ -289,7 +289,7 @@ Enrolling a principal online needs two different administrators, each proving po
 - Service tests:
   - [`tools/mg-admin/tests/enrol.rs::two_administrators_enrol_a_principal_through_a_running_gateway`](../../tools/mg-admin/tests/enrol.rs)
 - Stated at:
-  - [`CHANGELOG.md:56`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:71`](../../CHANGELOG.md)
 
 ## Admin
 
@@ -357,7 +357,7 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
   - [`README.md:812`](../../README.md)
-  - [`CHANGELOG.md:97`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:112`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
 
@@ -378,7 +378,7 @@ mimir-server answers inference requests from a real model inside the enclosure: 
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:72`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:87`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:381`](../../docs/launch/pipeline/build-deck.js)
 
@@ -396,7 +396,7 @@ GPU serving through vLLM, with a first token in under 800 ms.
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
 - Stated at:
-  - [`CHANGELOG.md:94`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:109`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:114`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:541`](../../docs/launch/pipeline/build-deck.js)
 
@@ -415,7 +415,7 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
   - [`deploy/compose/granite-smoke.sh:31`](../../deploy/compose/granite-smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:74`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:89`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:380`](../../docs/launch/pipeline/build-deck.js)
 
 ### `model-family-routing` (reference)
@@ -509,7 +509,7 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:67`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:82`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:367`](../../docs/launch/pipeline/build-deck.js)
 
@@ -527,7 +527,7 @@ A partitioned compute engine in Rust: filter, derive, join, aggregate, sort and 
   - [`forge/engine/tests/partitioned.rs::partitioned_matches_reference_with_shuffle_and_spill`](../../forge/engine/tests/partitioned.rs)
   - [`forge/engine/tests/relational.rs::inner_join_then_aggregate`](../../forge/engine/tests/relational.rs)
 - Stated at:
-  - [`CHANGELOG.md:113`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:128`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:371`](../../docs/launch/pipeline/build-deck.js)
 
 ### `forge-data-expectations` (reference)
@@ -742,15 +742,22 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 
 - Criteria: AC-B-1
 - Source:
-  - [`deploy/images/entrypoint.sh:27`](../../deploy/images/entrypoint.sh)
+  - [`tools/mg-verify/src/main.rs:267`](../../tools/mg-verify/src/main.rs)
   - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
+- Tests:
+  - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_refuses_an_unverified_binary_and_does_not_exec`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
+  - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_a_verified_binary_with_the_given_arguments`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
+  - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_without_a_service_name_is_a_usage_error`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
+  - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_an_artefact_path_is_a_usage_error`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
+  - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_no_service_options_refuses_to_start`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
+  - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_trust_anchor_comes_only_from_its_own_command_line`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
 - Stated at:
   - [`README.md:756`](../../README.md)
   - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
-  - [`CHANGELOG.md:83`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:98`](../../CHANGELOG.md)
 
 ### `acceptance-gate` (operable)
 
@@ -782,7 +789,7 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/compose/smoke.sh:13`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:63`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:78`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:323`](../../docs/launch/pipeline/build-deck.js)
 
@@ -813,7 +820,7 @@ Each service exposes liveness, readiness and Prometheus metrics, and writes stru
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:125`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:140`](../../CHANGELOG.md)
 
 ### `compliance-mapping` (spec)
 

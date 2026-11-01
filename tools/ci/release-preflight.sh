@@ -24,7 +24,7 @@ bad() {
     problems=$((problems + 1))
 }
 
-# 1. The pinned toolchain and the service image base, provisioned while connected:
+# 1. The pinned toolchain and the service image bases, provisioned while connected:
 #    every build runs in the toolchain image with no network.
 if ! command -v docker >/dev/null 2>&1; then
     bad "docker is not installed"
@@ -39,11 +39,29 @@ else
     else
         bad "the toolchain image $TOOLCHAIN_IMAGE is not present; build it from deploy/acceptance/Dockerfile while connected"
     fi
-    base="$(sed -n 's/^ARG BASE=//p' deploy/images/service.Dockerfile | head -1)"
-    if docker image inspect "$base" >/dev/null 2>&1; then
-        ok "service image base $base"
+    # Both stages of the service image: the toolchain base its prep stage lays files out
+    # on, and the distroless RUNTIME base it runs on. [VLD-ANB-MIDGARD-0068]
+    for arg in BASE RUNTIME; do
+        base="$(sed -n "s/^ARG $arg=//p" deploy/images/service.Dockerfile | tr -d '\r' | head -1)"
+        if [ -z "$base" ]; then
+            bad "deploy/images/service.Dockerfile declares no ARG $arg"
+        elif docker image inspect "$base" >/dev/null 2>&1; then
+            ok "service image $arg $base"
+        else
+            bad "the service image $arg $base is not present; pull it while connected"
+        fi
+    done
+    # The chart's seed image (seedImage), which unpacks a service's first state: pinned
+    # by digest, and present, so it can be carried into the enclosure's registry.
+    seed_value() { sed -n "/^seedImage:/,/^[^ ]/s/^  $1: *//p" deploy/helm/midgard/values.yaml | tr -d '\r' | head -1; }
+    seed_repo="$(seed_value repository)"
+    seed_digest="$(seed_value digest)"
+    if ! grep -qE '^sha256:[0-9a-f]{64}$' <<<"$seed_digest" || [ -z "$seed_repo" ]; then
+        bad "deploy/helm/midgard/values.yaml seedImage must name a repository and a sha256 digest"
+    elif docker image inspect "$seed_repo@$seed_digest" >/dev/null 2>&1; then
+        ok "seed image $seed_repo@$seed_digest"
     else
-        bad "the service image base $base is not present; pull it while connected"
+        bad "the seed image $seed_repo@$seed_digest is not present; pull it while connected"
     fi
 fi
 

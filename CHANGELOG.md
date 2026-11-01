@@ -209,6 +209,21 @@ CONTRIBUTING.md for the version policy.
     keystore's `test-floors` feature); `ClientCore` is `ClientCore<K: Keystore +
     TrustRoot>`, and `ClientCore::open` keeps its argument order.
     `midgard_client_keystore` re-exports `TrustRoot`.
+- **Release service images run on a distroless runtime, with no shell.** The service
+  image is now two stages, each pinned by digest: the toolchain stage only lays out
+  the gate-built files, and the image runs on `gcr.io/distroless/cc-debian12:nonroot`
+  (glibc and libgcc; no shell, package manager, compiler or curl), which stays on the
+  toolchain's Debian release because the binaries link glibc. Verify-before-run moves
+  from `deploy/images/entrypoint.sh`, now removed, into `mg-verify --run-service`, the
+  image's exec-form entrypoint: it verifies `/app/$MIDGARD_SERVICE` against the pinned
+  `/trust/release-trust.pub` and only then execs the service with the container's
+  arguments. It still refuses a container given no options (exit 2), and neither the
+  environment nor the arguments can name another trust key. The chart's `seed` init
+  container, which needs a shell and `tar`, runs in its own digest-pinned image
+  (`seedImage`, distroless `base-debian12:debug-nonroot`) with the same hardened
+  securityContext. The signing-runner preflight requires the runtime and seed images,
+  and `tools/ci/tests/service-image.test.sh` replaces the entrypoint script's test.
+  [VLD-ANB-MIDGARD-0068] [AC-B-1] [NFR-PQ-3]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

@@ -10,13 +10,25 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
 - **`images/`** — the per-service runtime image.
   - `service.Dockerfile` — minimal, non-root, read-only-rootfs image built **from
     the signed release artefact** (binary + `.sig` + `.att` + `.sbom.cdx.json`),
-    parameterised by `--build-arg SERVICE=<name>`. Base pinned by digest.
-  - `entrypoint.sh` — **verify-before-run**: `mg-verify` re-checks the ML-DSA
-    signature + SBOM + provenance against the pinned trust key before the service is
-    exec'd; a tampered image fails closed and the container refuses to start.
-    The trust key is always `/trust/release-trust.pub`, owned by root: no environment
-    variable can point verification at another key (`MIDGARD_RELEASE_TRUST_KEY` is
-    gone). [AC-B-1] [NFR-PQ-3] [MG-SEC-14]
+    parameterised by `--build-arg SERVICE=<name>`. Two stages, each pinned by digest:
+    a `prep` stage on the toolchain image lays out the files, the service account and
+    the modes, and builds nothing; the runtime stage is distroless
+    (`gcr.io/distroless/cc-debian12:nonroot`: glibc and libgcc, no shell, no package
+    manager, no compiler), which must stay on the toolchain's Debian release
+    (bookworm) because the gate-built binaries link glibc. [VLD-ANB-MIDGARD-0068]
+  - **verify-before-run** is the image's entrypoint, `mg-verify --run-service`:
+    it re-checks the ML-DSA signature + SBOM + provenance of
+    `/app/$MIDGARD_SERVICE` against the pinned trust key and only then execs the
+    service with the container's arguments; a tampered image fails closed and the
+    container refuses to start. The trust key is always `/trust/release-trust.pub`,
+    owned by root and named on the entrypoint's own command line: no environment
+    variable or container argument can point verification at another key
+    (`MIDGARD_RELEASE_TRUST_KEY` is gone). [AC-B-1] [NFR-PQ-3] [MG-SEC-14]
+  - The chart's `seed` init container, which unpacks a service's first state, needs
+    a shell and `tar`, which the distroless runtime does not have. It runs in its own
+    image, `seedImage` in the chart's values (distroless `base-debian12:debug-nonroot`,
+    whose BusyBox carries both), pinned by digest, with the same hardened
+    securityContext. Mirror it into the enclosure's registry with the service images.
 - **`compose/`** — Midgard on one machine with docker compose: the HTTP edge, the
   Mimir inference plane, the Bifrost fleet manager, the Heimdall feed gateway and the
   Forge worker in hardened containers (non-root, read-only rootfs, no
@@ -110,7 +122,7 @@ services are not built yet. The remaining services (admin) join with the identic
 `services/runtime`; the release **coverage gate** (RT-07) forces each new binary
 through the release gate first.
 
-The runtime image's entrypoint passes the container arguments to the service
+The runtime image's entrypoint (`mg-verify --run-service`) passes the container arguments to the service
 (`mimir-server --identity-dir … --state-dir …`). With none, it refuses to start: no
 service is ever started on a default address, and `http-gateway` in particular needs
 `--state-dir`. The gateway's development mode (`--dev`) listens on loopback only, so it

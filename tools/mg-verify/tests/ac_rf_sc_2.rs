@@ -65,6 +65,35 @@ impl Bundle {
 
     fn build(tag: &str, name: &str, signing_key_id: &str, trusted_key_id: &str) -> Self {
         let b = Self::scratch(tag, name);
+        b.sign(signing_key_id, trusted_key_id);
+        b
+    }
+
+    /// A scratch directory standing in for an image's app directory: the artefact is
+    /// a copy of this mg-verify binary called `svc`, so a test can see whether it was
+    /// started (it prints its usage text when given `--help`). Signed or not.
+    fn service(tag: &str, signed: bool) -> Self {
+        let b = Self::scratch(tag, "svc");
+        std::fs::copy(EXE, &b.artefact).expect("copy the binary in as svc");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&b.artefact, std::fs::Permissions::from_mode(0o755))
+                .expect("make svc executable");
+        }
+        if signed {
+            b.sign("release-key-1", "release-key-1");
+        } else {
+            std::fs::write(b.sbom(), SBOM).expect("write sbom");
+            std::fs::write(&b.anchors, "ML-DSA-87 release-key-1 aabb\n").expect("write anchors");
+        }
+        b
+    }
+
+    /// Sign the artefact (with an SBOM written beside it) by `signing_key_id`, and
+    /// write an anchor file trusting `trusted_key_id`.
+    fn sign(&self, signing_key_id: &str, trusted_key_id: &str) {
+        let b = self;
         std::fs::write(b.sbom(), SBOM).expect("write sbom");
 
         let mut rng = pqc_agility::OsRng;
@@ -94,7 +123,24 @@ impl Bundle {
             },
         )
         .expect("sign");
-        b
+    }
+
+    /// `mg-verify --trust-anchor <anchors> --run-service <args>`, as a release image's
+    /// entrypoint runs it, with this bundle's directory as the app directory and
+    /// `envs` set (nothing else is inherited but PATH).
+    fn run_service(&self, envs: &[(&str, &str)], args: &[&str]) -> Output {
+        let mut cmd = Command::new(EXE);
+        cmd.env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("MIDGARD_APP_DIR", &self.dir)
+            .arg("--trust-anchor")
+            .arg(&self.anchors)
+            .arg("--run-service")
+            .args(args);
+        for (k, v) in envs {
+            cmd.env(k, v);
+        }
+        cmd.output().expect("run mg-verify --run-service")
     }
 
     /// A bundle with a **genuine signature over whatever SBOM it is given**.
@@ -597,4 +643,154 @@ fn ac_rf_sc_2d_subsystems_hold_no_independent_acceptance_decision() {
             );
         }
     }
+}
+
+// --- verify-before-run: `--run-service`, the release image's entrypoint -------
+//
+// The release image's runtime stage is distroless, with no shell, so mg-verify is
+// its entrypoint: it verifies the service binary against the pinned anchor and only
+// then becomes it. [AC-B-1] [NFR-PQ-3] [VLD-ANB-MIDGARD-0068]
+
+fn stdout(o: &Output) -> String {
+    String::from_utf8_lossy(&o.stdout).into_owned()
+}
+
+#[test]
+fn run_service_refuses_an_unverified_binary_and_does_not_exec() {
+    // [AC-B-1] AC-36.3
+    let b = Bundle::service("run-unsigned", false);
+    let out = b.run_service(&[("MIDGARD_SERVICE", "svc")], &["--help"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("refusing to start"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        !stdout(&out).contains("usage:") && !stdout(&out).contains("verify-before-run: OK"),
+        "the service must not have been started: {}",
+        stdout(&out)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn run_service_execs_a_verified_binary_with_the_given_arguments() {
+    // [AC-B-1] AC-36.4
+    let b = Bundle::service("run-signed", true);
+    let out = b.run_service(&[("MIDGARD_SERVICE", "svc")], &["--help"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    // The exact line deploy/images/build.sh looks for.
+    let ok = text
+        .find("verify-before-run: OK — starting svc")
+        .unwrap_or_else(|| panic!("no OK line: {text}"));
+    // Then the service's own output: svc is mg-verify, given --help by exec.
+    let usage = text
+        .find("usage:")
+        .unwrap_or_else(|| panic!("the service did not run with its argument: {text}"));
+    assert!(ok < usage, "verified first, then started: {text}");
+    assert!(text.contains(&format!(
+        "verify-before-run: checking {} against {}",
+        b.artefact.display(),
+        b.anchors.display()
+    )));
+
+    // A leading `--` is a separator, not an argument for the service.
+    let out = b.run_service(&[("MIDGARD_SERVICE", "svc")], &["--", "--help"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("usage:"));
+}
+
+#[test]
+fn run_service_without_a_service_name_is_a_usage_error() {
+    // [AC-B-1]
+    let b = Bundle::service("run-no-name", true);
+    for envs in [vec![], vec![("MIDGARD_SERVICE", "")]] {
+        let out = b.run_service(&envs, &["--help"]);
+        assert_eq!(out.status.code(), Some(2), "{envs:?}: {}", stderr(&out));
+        assert!(
+            !stdout(&out).contains("usage:"),
+            "nothing started: {envs:?}"
+        );
+    }
+    // A path is not a service name: the binary is always one the app directory holds.
+    let out = b.run_service(&[("MIDGARD_SERVICE", "../svc")], &["--help"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+#[test]
+fn run_service_with_an_artefact_path_is_a_usage_error() {
+    // [AC-B-1]
+    let b = Bundle::service("run-artefact", true);
+    let out = b.run_service(&[("MIDGARD_SERVICE", "svc")], &["some/path"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(!stdout(&out).contains("verify-before-run: OK"));
+
+    // Nor before the flag.
+    let out = Command::new(EXE)
+        .env("MIDGARD_SERVICE", "svc")
+        .env("MIDGARD_APP_DIR", &b.dir)
+        .arg(&b.artefact)
+        .arg("--trust-anchor")
+        .arg(&b.anchors)
+        .args(["--run-service", "--help"])
+        .output()
+        .expect("run mg-verify");
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(out.stdout.is_empty());
+}
+
+#[test]
+fn run_service_with_no_service_options_refuses_to_start() {
+    // [AC-B-1] A container given no options is refused, not started on a default
+    // address, even with a binary that verifies. [MG-SEC-06]
+    let b = Bundle::service("run-no-options", true);
+    for args in [&[][..], &["--"][..]] {
+        let out = b.run_service(&[("MIDGARD_SERVICE", "svc")], args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));
+        assert!(
+            stderr(&out).contains("refusing to start"),
+            "{}",
+            stderr(&out)
+        );
+        assert!(!stdout(&out).contains("verify-before-run: OK"), "{args:?}");
+    }
+}
+
+#[test]
+fn run_service_trust_anchor_comes_only_from_its_own_command_line() {
+    // [AC-B-1] The image names /trust/release-trust.pub before --run-service. Neither
+    // the environment nor the container's arguments can point verification at
+    // another anchor. [MG-SEC-14]
+    let b = Bundle::service("run-anchor", true);
+    let genuine = b.dir.join("genuine.pub");
+    std::fs::copy(&b.anchors, &genuine).expect("keep the anchor that would verify");
+    let other = Keystore::generate("other-key", kms::RELEASE_SIG_ALG, &mut pqc_agility::OsRng)
+        .expect("generate keystore");
+    std::fs::write(&b.anchors, other.export_verifying_key()).expect("write anchors");
+
+    let g = genuine.to_string_lossy().into_owned();
+    let out = b.run_service(
+        &[
+            ("MIDGARD_SERVICE", "svc"),
+            ("MIDGARD_RELEASE_TRUST_KEY", &g),
+            ("TRUST", &g),
+        ],
+        &["--trust-anchor", &g, "--help"],
+    );
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("refusing to start"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        !stdout(&out).contains("usage:"),
+        "the service must not start"
+    );
+    assert!(
+        !stdout(&out).contains("genuine.pub") && !stderr(&out).contains("genuine.pub"),
+        "the other anchor path is never used"
+    );
 }
