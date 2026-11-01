@@ -45,6 +45,23 @@ const ALL_SIGS: [SigId; 4] = [
     SigId::SlhDsaSha2_128s,
 ];
 
+// [AC-51.2] [VLD-ANB-MIDGARD-0036] A secret key is allocated at exactly its final size
+// (never grown, so no realloc leaves a copy in freed memory) and still round trips.
+#[test]
+fn hybrid_keypair_secret_is_exactly_sized() {
+    let p = provider();
+    for suite in ALL_SUITES {
+        let kem = p.kem_for(suite).expect("suite registered");
+        let mut rng = SeedRng(0x51 ^ suite.as_u8() as u64);
+        let (pk, sk) = kem.keypair(&mut rng).expect("keypair");
+        let sizes = kem.sizes();
+        assert_eq!(sk.expose().len(), sizes.secret_key, "{suite:?} sk len");
+        let (ct, ss_enc) = kem.encapsulate(&pk, &mut rng).expect("encaps");
+        let ss_dec = kem.decapsulate(&sk, &ct).expect("decaps");
+        assert_eq!(ss_enc.expose(), ss_dec.expose(), "{suite:?} round trip");
+    }
+}
+
 #[test]
 fn kem_roundtrip_every_suite() {
     let p = provider();

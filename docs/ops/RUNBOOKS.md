@@ -15,6 +15,7 @@ Index:
 - [RB-8: Disengage Mimir inference](#rb-8-disengage-mimir-inference)
 - [RB-9: Rotate or withdraw the model trust anchor](#rb-9-rotate-or-withdraw-the-model-trust-anchor)
 - [RB-8: Heimdall feed observations refused as stale or replayed](#rb-8-heimdall-feed-observations-refused-as-stale-or-replayed)
+- [RB-8: A service could not lock process memory](#rb-8-memory-lock)
 
 Release engineering (not an in-enclosure operational task):
 - [Execute the GA gate — readiness §4 A–C](RUNBOOK_ga_gate.md)
@@ -165,3 +166,22 @@ shows `Ingest refused` rows with reason `observed-at-out-of-window`, `replay` or
    event, preserve the ledger and check who holds that feed's certificate.
 3. **Verify:** the source's next observation is `accepted`, and the ledger shows no
    further refusals for it.
+
+## RB-8: A service could not lock process memory
+**Trigger:** a service logs `could not lock process memory (...)` at start, naming
+`RLIMIT_MEMLOCK` and `CAP_IPC_LOCK`. [VLD-ANB-MIDGARD-0036]
+1. The service is running, but key material is kept out of swap only per secret, not
+   for the whole process. Every mesh service calls `mlockall(MCL_CURRENT | MCL_FUTURE)`
+   at start, and only when `RLIMIT_MEMLOCK` is unlimited: with a finite limit, every
+   allocation past it would fail.
+2. Set the memory-lock limit to unlimited for the service: `ulimit -l unlimited` in
+   its start script, `LimitMEMLOCK=infinity` in a systemd unit, `ulimits: memlock:
+   -1` in Compose, or the container runtime's equivalent on Kubernetes. Granting
+   `CAP_IPC_LOCK` alone is not enough while the limit stays finite.
+3. A locked process cannot be swapped, so its resident memory counts in full against
+   the container memory limit; size `defaultResources` in
+   `deploy/helm/midgard/values.yaml` for that. If a host cannot absorb it, set
+   `MIDGARD_NO_MLOCKALL=1` for the service (it logs that it is running without the
+   process lock) and record the decision.
+4. **Verify:** restart the service; it no longer logs the line, and
+   `grep -E "VmLck|VmRSS" /proc/<pid>/status` shows locked memory close to its resident size.

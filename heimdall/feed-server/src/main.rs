@@ -88,6 +88,7 @@ const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--
 const LEDGER_ID: &str = "heimdall-feed-audit";
 
 fn main() {
+    service_runtime::harden_process("heimdall-feed");
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match Args::parse(
         &argv,

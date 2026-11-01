@@ -57,6 +57,7 @@ const ACCEPTED: u8 = 0;
 const RETRY_AFTER_FAILURE: u64 = 10;
 
 fn main() {
+    service_runtime::harden_process("forge-worker");
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match Args::parse(
         &argv,
