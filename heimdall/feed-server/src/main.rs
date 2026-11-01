@@ -9,6 +9,7 @@
 //!               [--max-entities N] [--max-entities-per-feed N] [--max-attrs N]
 //!               [--max-attr-bytes N] [--evict-after SECONDS]
 //!               [--max-observation-skew S] [--max-observation-age S] [--stale-after S]
+//!               [--resource-marking BAND[:COMPARTMENT,...]]
 //! heimdall-feed --identity-dir DIR --state-dir DIR --compact [--service NAME]
 //! ```
 //!
@@ -53,8 +54,11 @@
 //! admitted sequence is refused as a replay. The last sequence per feed is sealed in
 //! `--state-dir`'s `feed-sequences.sealed`, so a restart keeps refusing replays.
 //! [VLD-ANB-MIDGARD-0041]
+//!
+//! The service's resources are marked `--resource-marking` (a band, optionally with
+//! compartments; default `open`): a peer is authorised against it at the clearance its
+//! certificate grants. [VLD-ANB-MIDGARD-0063]
 
-use std::collections::BTreeSet;
 use std::net::TcpListener;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -64,10 +68,9 @@ use governance::Governance;
 use heimdall_feed_server::{FeedService, IngestLimits, PictureState, SequenceFile};
 use heimdall_picture::PictureLimits;
 use heimdall_store::DurablePicture;
-use policy::{
-    ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
-};
+use policy::{DefaultPdp, PolicyDecisionPoint, Purpose, Resource, ResourceId};
 use pqc_agility::backend::fips::provider as fips_provider;
+use service_runtime::marking::{open_marking, parse_marking};
 use service_runtime::policy_file::parse_policy;
 use service_runtime::{
     apply_mesh_limits, mesh_limits_from_args, serve_mesh_with, spawn_health_port, unix_seconds,
@@ -76,7 +79,8 @@ use service_runtime::{
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--service NAME] \
-                     [--purpose P] [--bind ADDR] [--health-bind ADDR] \
+                     [--purpose P] [--resource-marking BAND[:COMPARTMENT,...]] [--bind ADDR] \
+                     [--health-bind ADDR] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
                      [--rate-per-sec N] [--requests-per-conn N] [--max-entities N] \
                      [--max-entities-per-feed N] [--max-attrs N] [--max-attr-bytes N] \
@@ -97,6 +101,7 @@ fn main() {
             "state-dir",
             "service",
             "purpose",
+            "resource-marking",
             "bind",
             "health-bind",
             "max-connections",
@@ -208,6 +213,12 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
         max_age: seconds(args, "max-observation-age", defaults.max_age)?,
         stale_after: seconds(args, "stale-after", defaults.stale_after)?,
     };
+    // What the service's resources are marked at: a channel and a request are authorised
+    // against it with the peer's certified clearance. Default open. [VLD-ANB-MIDGARD-0063]
+    let marking = match args.get("resource-marking") {
+        Some(spec) => parse_marking(spec).map_err(|e| format!("--resource-marking: {e}"))?,
+        None => open_marking(),
+    };
     let logger = Logger::new(service, &StdoutJsonSink);
 
     let state_ready = Arc::new(Toggle::new("picture", false));
@@ -257,10 +268,7 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
 
     let resource = |id: &str| Resource {
         id: ResourceId(id.into()),
-        marking: Marking {
-            level: ClassificationLevel::UNCLASSIFIED,
-            compartments: BTreeSet::new(),
-        },
+        marking: marking.clone(),
         allowed_purposes: [Purpose(purpose.to_string())].into_iter().collect(),
     };
     let feed_service = FeedService::new(

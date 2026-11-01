@@ -9,16 +9,21 @@
 //! 2. checked against the ontology, all or nothing, and every link end must be in the
 //!    sync or already in the fabric; a malformed sync from a permitted workload is
 //!    audited too, as `SYNC records: MALFORMED`;
-//! 3. checked against what it would write, all or nothing: every record's marking must
+//! 3. checked against the workload's certified clearance: when its certificate carries
+//!    attributes (version 3), every record's marking must be one the clearance the
+//!    channel authorised it at dominates, or the whole sync is refused
+//!    (`marking-above-sync-clearance`). A certificate issued before attributes binds
+//!    nothing here; [VLD-ANB-MIDGARD-0063]
+//! 4. checked against what it would write, all or nothing: every record's marking must
 //!    be within the gateway's sync clearance
 //!    ([`SecuredGateway::with_sync_clearance`]); a record for an object already in the
 //!    fabric may keep or raise its marking but not lower it, and may narrow its
 //!    purposes but not widen them; and no record may touch an object under a live or
 //!    redeemed human gate. A refusal is audited as `SYNC refused: <reason>` against the
 //!    object it names;
-//! 4. recorded — how many objects it creates and updates and links it adds — before
+//! 5. recorded — how many objects it creates and updates and links it adds — before
 //!    anything is written;
-//! 5. applied: objects are created or replaced, and a link already present is not
+//! 6. applied: objects are created or replaced, and a link already present is not
 //!    added again.
 //!
 //! Unlike an offline import, a sync replaces objects: it is how a source's changes reach
@@ -33,14 +38,16 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::Arc;
 
 use fabric::{DurableObjectStore, LedgerStore, ObjectStore, PolicyContext};
-use gateway::{Gateway, RequestHandler, Router};
+use gateway::{Authorised, Gateway, RequestHandler, Router};
 use policy::{
     dominates, ClassificationLevel, Clearance, DefaultPdp, Marking, PolicyDecisionPoint, Purpose,
     Resource, ResourceId,
 };
-use pq_mtls::WorkloadIdentity;
+use pq_mtls::{Authorization, WorkloadIdentity};
 use pqc_agility::backend::fips::provider as fips_provider;
-use service_runtime::{apply_mesh_limits, serve_mesh_with, MeshLimits, ServiceIdentity};
+use service_runtime::{
+    apply_mesh_limits, mesh_context, serve_mesh_with, MeshLimits, ServiceIdentity,
+};
 
 use crate::enclosure::Enclosure;
 use crate::import_file::{parse_import, Import};
@@ -83,10 +90,12 @@ fn reply(code: u8, message: &str) -> Vec<u8> {
 
 impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
     /// Sync `body`, import-format JSON Lines, from the authenticated workload `peer`,
-    /// declared for `purpose`, at `now`.
+    /// which the channel authorised as `authorization`, declared for `purpose`, at
+    /// `now`.
     pub fn sync_records(
         &self,
         peer: &WorkloadIdentity,
+        authorization: &Authorization,
         purpose: &str,
         body: &[u8],
         now: u64,
@@ -94,15 +103,8 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
         let mut enclosure = self.lock();
         // Authorise before the records are read, so a workload policy does not permit
         // learns nothing about the ontology from the reply. [VLD-ANB-MIDGARD-0073]
-        let context = PolicyContext {
-            subject: peer.id.0.clone(),
-            roles: peer.roles.clone(),
-            clearance: Clearance {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: BTreeSet::new(),
-            },
-            purpose: Purpose(purpose.to_string()),
-        };
+        let context: PolicyContext =
+            mesh_context(peer, authorization, &Purpose(purpose.to_string()));
         let decision = match enclosure.governance_mut().authorize(
             &context,
             &sync_resource("fabric-sync", purpose),
@@ -144,6 +146,35 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
         };
         if import.objects.is_empty() && import.links.is_empty() {
             return reply(outcome::MALFORMED, "the sync holds no objects or links");
+        }
+        // A workload whose certificate carries attributes syncs nothing above the
+        // clearance it was certified at. [VLD-ANB-MIDGARD-0063]
+        if authorization.purposes.is_some() {
+            if let Some(above) = import
+                .objects
+                .iter()
+                .find(|o| !dominates(&context.clearance, &o.marking))
+            {
+                let recorded = enclosure.governance_mut().record_event(
+                    &peer.id.0,
+                    "SYNC refused: marking-above-sync-clearance",
+                    &format!("object:{}", above.id),
+                    now,
+                );
+                let audited = if recorded.is_ok() {
+                    ""
+                } else {
+                    " (not audited)"
+                };
+                return reply(
+                    outcome::DENIED,
+                    &format!(
+                        "marking-above-sync-clearance: {} is marked above the clearance this \
+                         workload is certified at; nothing was synced{audited}",
+                        above.id
+                    ),
+                );
+            }
         }
 
         // What the sync would write, checked against what it would overwrite before
@@ -304,9 +335,11 @@ pub fn spawn_mesh_listener<L: LedgerStore + Send + 'static>(
 ) -> std::io::Result<SocketAddr> {
     let metrics = gateway.metrics_registry();
     let declared = purpose.to_string();
-    let handler: Arc<dyn RequestHandler> = Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| {
-        gateway.sync_records(peer, &declared, body, crate::now_secs())
-    });
+    let handler: Arc<dyn RequestHandler> = Arc::new(Authorised(
+        move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+            gateway.sync_records(peer, auth, &declared, body, crate::now_secs())
+        },
+    ));
     let pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(channel_policy);
     let mesh = apply_mesh_limits(
         Gateway::new(

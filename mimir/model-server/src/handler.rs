@@ -19,16 +19,17 @@
 //! on the same admission path, audited and counted like the other refusals, while the
 //! calls already admitted finish. [VLD-ANB-MIDGARD-0057]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard};
 
 use audit_writer::{InMemoryLedger, LedgerStore};
 use gateway::RequestHandler;
-use governance::{GovContext, Governance};
-use policy::{ClassificationLevel, Clearance, Purpose, Resource};
-use pq_mtls::WorkloadIdentity;
+use governance::Governance;
+use policy::{Purpose, Resource};
+use pq_mtls::{Authorization, WorkloadIdentity};
+use service_runtime::mesh_context;
 use telemetry::{Logger, StdoutJsonSink};
 
 use crate::api::{InferenceRequest, InferenceResponse};
@@ -406,27 +407,15 @@ impl<S: LedgerStore> InferenceHandler<S> {
             }
         }
     }
-
-    /// Build the per-call governance context from the authenticated peer and the
-    /// request's declared purpose. Clearance/posture binding is refined when the
-    /// full policy context flows through the assembly pipeline (Prompt 2.c); for
-    /// serving, the inference resource is UNCLASSIFIED and the audit records the
-    /// authenticated subject, action, resource, and purpose.
-    fn context(peer: &WorkloadIdentity, purpose: &str) -> GovContext {
-        GovContext {
-            subject: peer.id.0.clone(),
-            roles: peer.roles.clone(),
-            clearance: Clearance {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: BTreeSet::new(),
-            },
-            purpose: Purpose(purpose.to_string()),
-        }
-    }
 }
 
 impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
-    fn handle(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    fn handle(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8> {
         let now = self.clock.now();
 
         // Decode first so a declared purpose can flow into the audit; a malformed
@@ -436,7 +425,9 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
             Ok(req) => (req.purpose.clone(), "Infer"),
             Err(_) => ("inference".to_string(), "Infer:MALFORMED"),
         };
-        let ctx = Self::context(peer, &purpose);
+        // The per-call context: the peer's certified roles, the clearance the channel
+        // authorised it at, and the request's declared purpose. [VLD-ANB-MIDGARD-0063]
+        let ctx = mesh_context(peer, authorization, &Purpose(purpose));
 
         // Decide AND audit — one PQ-signed lineage entry per call, permit or deny.
         let decision = {

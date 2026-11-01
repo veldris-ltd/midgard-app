@@ -15,11 +15,14 @@
 //!   mg-admin enrol request|approve|list --gateway <url> --admin <name> --keystore <path> ..
 //!   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir>
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!                       [--purposes <p,..>]
 //!   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>]
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!                       [--purposes <p,..>]
 //!   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
 //!   mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir>
 //!                         [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!                         [--purposes <p,..>]
 //!   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
 //!   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file>
 //!                             --ledger-id <id> [--audit-pin <file>]
@@ -82,12 +85,15 @@ USAGE:
   mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> --id <enrolment>
   mg-admin enrol list    --gateway <url> --admin <name> --keystore <path>
   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
-                      [--days <n>] [--clearance <band>] [--compartments <c,..>]
+                      [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
+                      [--purposes <p,..>]
   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>] \\
-                      [--days <n>] [--clearance <band>] [--compartments <c,..>]
+                      [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
+                      [--purposes <p,..>]
   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
   mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
-                        [--days <n>] [--clearance <band>] [--compartments <c,..>]
+                        [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
+                        [--purposes <p,..>]
   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file> \\
                             --ledger-id <id> [--audit-pin <file>]
@@ -126,9 +132,12 @@ COMMANDS:
              by the enclosure's issuer, mesh.anchor, the trust anchor every service
              verifies its peers against, and mesh.crl, the signed revocation list. The
              certificate is valid for --days (default 30) and grants --clearance (a band
-             as for user add, default open) with --compartments. Never overwrites an
-             existing service's identity.
-  mesh renew give a service a fresh key and certificate in --out, keeping its roles.
+             as for user add, default open) with --compartments. With --purposes it
+             also binds the purposes the service may open channels for, and a channel
+             declared for any other is refused; without, it binds none. Never
+             overwrites an existing service's identity.
+  mesh renew give a service a fresh key and certificate in --out, keeping its roles
+             and, unless --purposes is given, the purposes its certificate binds.
              With --within, does nothing until the certificate expires within that many
              days, so it can run from a timer. Restart the service afterwards.
   mesh revoke
@@ -250,6 +259,7 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "days",
                 "clearance",
                 "compartments",
+                "purposes",
             ],
             &[],
         )?),
@@ -263,6 +273,7 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "days",
                 "clearance",
                 "compartments",
+                "purposes",
             ],
             &[],
         )?),
@@ -276,6 +287,7 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "days",
                 "clearance",
                 "compartments",
+                "purposes",
             ],
             &[],
         )?),

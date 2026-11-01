@@ -4,9 +4,11 @@
 //! and a link to an object that does not exist are refused and change nothing; every
 //! sync is audited; and what was synced is durable. A sync may raise but never lower an
 //! object's marking, never widen its purposes, never write above the gateway's sync
-//! clearance and never touch an object under a human gate; and a workload policy does
-//! not permit learns nothing about the ontology. [FR-F-4] [NFR-SEC-1] [NFR-SEC-2]
-//! [NFR-AI-1] [AC-M-4] [VLD-ANB-MIDGARD-0001] [VLD-ANB-MIDGARD-0073]
+//! clearance and never touch an object under a human gate; a workload whose certificate
+//! carries attributes syncs nothing above the clearance it is certified at; and a
+//! workload policy does not permit learns nothing about the ontology. [FR-F-4]
+//! [NFR-SEC-1] [NFR-SEC-2] [NFR-AI-1] [AC-M-4] [VLD-ANB-MIDGARD-0001]
+//! [VLD-ANB-MIDGARD-0073] [VLD-ANB-MIDGARD-0063]
 #![cfg(feature = "backend-fips")]
 
 use std::path::{Path, PathBuf};
@@ -27,7 +29,7 @@ use policy::{
     Action, ClassificationLevel, Clearance, Compartment, Effect, PolicySet, Purpose, Role, Rule,
     RuleId, Selector,
 };
-use pq_mtls::{ServiceId, WorkloadIdentity};
+use pq_mtls::{Authorization, Posture, ServiceId, WorkloadIdentity};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::OsRng;
 
@@ -106,6 +108,25 @@ fn workload(name: &str, role: &str) -> WorkloadIdentity {
     }
 }
 
+/// What the channel authorised a workload with a certificate issued before attributes
+/// for: open, binding no purposes.
+fn legacy() -> Authorization {
+    Authorization {
+        clearance: Posture::unclassified(),
+        purpose: Purpose(PURPOSE.into()),
+        purposes: None,
+    }
+}
+
+/// What the channel authorised a workload certified at `level` with attributes for.
+fn certified(level: ClassificationLevel) -> Authorization {
+    Authorization {
+        clearance: Posture::at(level),
+        purpose: Purpose(PURPOSE.into()),
+        purposes: Some([Purpose(PURPOSE.into())].into_iter().collect()),
+    }
+}
+
 fn split(response: &[u8]) -> (u8, String) {
     (
         response[0],
@@ -143,7 +164,7 @@ fn a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric() {
             .unwrap()
             .into_parts();
         let sync = |peer: &WorkloadIdentity, records: &str| {
-            split(&gateway.sync_records(peer, PURPOSE, records.as_bytes(), NOW))
+            split(&gateway.sync_records(peer, &legacy(), PURPOSE, records.as_bytes(), NOW))
         };
 
         let first = [
@@ -218,6 +239,62 @@ fn a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric() {
          malformed sync's record"
     );
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_worker_cannot_sync_above_its_certified_clearance() {
+    // [VLD-ANB-MIDGARD-0063] [AC-22.4]
+    let dir = scratch("certified");
+    let state = provision(&dir);
+    let worker = workload("forge-worker", "forge-worker");
+    // "internal" is the policy lattice's second level.
+    let internal = certified(ClassificationLevel::CONFIDENTIAL);
+    let restricted_facility = r#"{"object":"facility","key":"FAC-R","marking":"restricted","purposes":["operations"],"properties":{"name":"Restricted base"}}"#;
+    {
+        let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
+            .unwrap()
+            .into_parts();
+
+        // A record above the certified clearance refuses the whole sync.
+        let batch = [aircraft("AC-1", 100), restricted_facility.to_string()].join("\n");
+        let (code, message) =
+            split(&gateway.sync_records(&worker, &internal, PURPOSE, batch.as_bytes(), NOW));
+        assert_eq!(code, outcome::DENIED, "{message}");
+        assert!(
+            message.contains("marking-above-sync-clearance"),
+            "{message}"
+        );
+        assert!(message.contains("facility/FAC-R"), "{message}");
+
+        // Within the clearance, the sync is applied.
+        let (code, message) = split(&gateway.sync_records(
+            &worker,
+            &internal,
+            PURPOSE,
+            aircraft("AC-1", 100).as_bytes(),
+            NOW,
+        ));
+        assert_eq!(code, outcome::ACCEPTED, "{message}");
+
+        // A certificate issued before attributes keeps today's behaviour.
+        let (code, message) = split(&gateway.sync_records(
+            &worker,
+            &legacy(),
+            PURPOSE,
+            restricted_facility.as_bytes(),
+            NOW,
+        ));
+        assert_eq!(code, outcome::ACCEPTED, "{message}");
+    }
+
+    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
+    {
+        let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
+        assert!(store.get_object("aircraft/AC-1").is_some());
+        assert!(store.get_object("facility/FAC-R").is_some());
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -300,7 +377,7 @@ fn a_sync_that_lowers_a_marking_is_refused_and_changes_nothing() {
         .unwrap()
         .into_parts();
     let sync =
-        |records: &str| split(&gateway.sync_records(&worker, PURPOSE, records.as_bytes(), NOW));
+        |records: &str| split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW));
 
     let (code, message) = sync(&marked("AC-1", "confidential", &[], &["operations"]));
     assert_eq!(code, outcome::ACCEPTED, "{message}");
@@ -354,7 +431,7 @@ fn a_sync_may_raise_a_marking_and_narrow_purposes() {
         .unwrap()
         .into_parts();
     let sync =
-        |records: &str| split(&gateway.sync_records(&worker, PURPOSE, records.as_bytes(), NOW));
+        |records: &str| split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW));
 
     let (code, message) = sync(&marked(
         "AC-1",
@@ -400,7 +477,7 @@ fn a_sync_above_the_sync_clearance_is_refused() {
             .into_parts();
         let before = ledger_rows(&state).len();
         let (code, message) =
-            split(&gateway.sync_records(&worker, PURPOSE, record.as_bytes(), NOW));
+            split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
         assert_eq!(code, outcome::DENIED, "{message}");
         assert!(
             message.contains("marking-above-sync-clearance"),
@@ -432,7 +509,7 @@ fn a_sync_above_the_sync_clearance_is_refused() {
         .unwrap()
         .into_parts();
     let gateway = gateway.with_sync_clearance(granted);
-    let (code, message) = split(&gateway.sync_records(&worker, PURPOSE, record.as_bytes(), NOW));
+    let (code, message) = split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
     assert_eq!(code, outcome::ACCEPTED, "{message}");
     drop((gateway, lock));
     let _ = std::fs::remove_dir_all(&dir);
@@ -452,7 +529,7 @@ fn an_unpermitted_peer_learns_nothing_from_a_malformed_sync() {
 
     let before = ledger_rows(&state).len();
     let (code, message) =
-        split(&gateway.sync_records(&analyst, PURPOSE, SUBMARINE.as_bytes(), NOW));
+        split(&gateway.sync_records(&analyst, &legacy(), PURPOSE, SUBMARINE.as_bytes(), NOW));
     assert_eq!(code, outcome::DENIED, "{message}");
     assert!(!message.contains("submarine"), "{message}");
     assert!(!message.contains("ontology"), "{message}");
@@ -480,7 +557,7 @@ fn a_malformed_sync_from_a_permitted_peer_is_still_audited() {
         .into_parts();
 
     let before = ledger_rows(&state).len();
-    let (code, message) = split(&gateway.sync_records(&worker, PURPOSE, SUBMARINE.as_bytes(), NOW));
+    let (code, message) = split(&gateway.sync_records(&worker, &legacy(), PURPOSE, SUBMARINE.as_bytes(), NOW));
     assert_eq!(code, outcome::MALFORMED, "{message}");
     assert!(message.contains("submarine"), "{message}");
     assert_eq!(
@@ -534,7 +611,7 @@ fn a_sync_never_touches_a_human_gated_target() {
     };
 
     let (code, message) =
-        split(&gateway.sync_records(&worker, PURPOSE, aircraft("AC-1", 100).as_bytes(), NOW));
+        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, aircraft("AC-1", 100).as_bytes(), NOW));
     assert_eq!(code, outcome::ACCEPTED, "{message}");
 
     let login = call(
@@ -559,7 +636,7 @@ fn a_sync_never_touches_a_human_gated_target() {
 
     let before = ledger_rows(&state).len();
     let (code, message) =
-        split(&gateway.sync_records(&worker, PURPOSE, aircraft("AC-1", 999).as_bytes(), NOW));
+        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, aircraft("AC-1", 999).as_bytes(), NOW));
     assert_eq!(code, outcome::DENIED, "{message}");
     assert!(message.contains("human-gated-target"), "{message}");
     assert_eq!(

@@ -8,6 +8,7 @@
 //!               [--max-connections N] [--idle-timeout SECONDS]
 //!               [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
 //!               [--heartbeat-journal-interval SECONDS]
+//!               [--resource-marking BAND[:COMPARTMENT,...]]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -35,8 +36,11 @@
 //! `--heartbeat-journal-interval` seconds per installation (default `--stale-after`),
 //! so after a restart a node's last-seen time is known to within that interval.
 //! [VLD-ANB-MIDGARD-0042]
+//!
+//! The service's resources are marked `--resource-marking` (a band, optionally with
+//! compartments; default `open`): a peer is authorised against it at the clearance its
+//! certificate grants. [VLD-ANB-MIDGARD-0063]
 
-use std::collections::BTreeSet;
 use std::net::TcpListener;
 use std::path::Path;
 use std::sync::Arc;
@@ -45,10 +49,9 @@ use bifrost_fleet::DurableFleet;
 use bifrost_fleet_server::{parse_channels, FleetService};
 use gateway::Gateway;
 use governance::Governance;
-use policy::{
-    ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
-};
+use policy::{DefaultPdp, PolicyDecisionPoint, Purpose, Resource, ResourceId};
 use pqc_agility::backend::fips::provider as fips_provider;
+use service_runtime::marking::{open_marking, parse_marking};
 use service_runtime::policy_file::parse_policy;
 use service_runtime::{
     apply_mesh_limits, mesh_limits_from_args_over, serve_mesh_with, spawn_health_port,
@@ -57,7 +60,8 @@ use service_runtime::{
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: bifrost-fleet --identity-dir DIR --state-dir DIR [--service NAME] \
-                     [--purpose P] [--stale-after SECONDS] [--bind ADDR] [--health-bind ADDR] \
+                     [--purpose P] [--stale-after SECONDS] \
+                     [--resource-marking BAND[:COMPARTMENT,...]] [--bind ADDR] [--health-bind ADDR] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
                      [--rate-per-sec N] [--requests-per-conn N] \
                      [--heartbeat-journal-interval SECONDS]";
@@ -88,6 +92,7 @@ fn main() {
             "state-dir",
             "service",
             "purpose",
+            "resource-marking",
             "stale-after",
             "bind",
             "health-bind",
@@ -124,6 +129,12 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
     let identity_dir = args.require("identity-dir")?;
     let state_dir = Path::new(args.require("state-dir")?);
     let purpose = args.get("purpose").unwrap_or("fleet-management");
+    // What the service's resources are marked at: a channel and a request are authorised
+    // against it with the peer's certified clearance. Default open. [VLD-ANB-MIDGARD-0063]
+    let marking = match args.get("resource-marking") {
+        Some(spec) => parse_marking(spec).map_err(|e| format!("--resource-marking: {e}"))?,
+        None => open_marking(),
+    };
     let stale_after = match args.get("stale-after") {
         Some(s) => s
             .parse::<u64>()
@@ -195,10 +206,7 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
 
     let resource = |id: &str| Resource {
         id: ResourceId(id.into()),
-        marking: Marking {
-            level: ClassificationLevel::UNCLASSIFIED,
-            compartments: BTreeSet::new(),
-        },
+        marking: marking.clone(),
         allowed_purposes: [Purpose(purpose.to_string())].into_iter().collect(),
     };
     let fleet_service = FleetService::new(

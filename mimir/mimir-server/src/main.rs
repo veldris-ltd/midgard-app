@@ -9,6 +9,7 @@
 //! ```text
 //! mimir-server --identity-dir DIR --state-dir DIR --purposes P[,P...]
 //!              [--service NAME] [--bind ADDR] [--health-bind ADDR]
+//!              [--resource-marking BAND[:COMPARTMENT,...]]
 //!              [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE
 //!               --serve-dir DIR [--sidecar ADDR]]
 //!              [--max-connections N] [--idle-timeout SECONDS]
@@ -22,6 +23,9 @@
 //! defaults to `mimir-server`). `--state-dir` holds `policy.json` — the rules for
 //! `OpenChannel` and `Infer` — and the service's ledger, `mimir.ledger`, and is locked
 //! while the service runs. `--purposes` are the purposes inference may be called for.
+//! The inference resource is marked `--resource-marking` (a band, optionally with
+//! compartments; default `open`): a peer is authorised against it at the clearance its
+//! certificate grants. [VLD-ANB-MIDGARD-0063]
 //! PQ-mTLS is served on `--bind` (default `0.0.0.0:7720`); `/healthz`, `/readyz` and
 //! `/metrics` on `--health-bind` (default `0.0.0.0:9090`).
 //!
@@ -96,10 +100,9 @@ use model_server::{
     NodeProfile, ReleaseFloor, Server, ServingState, SidecarBackend, StagedWeights, MODEL_REVOKED,
     SERVING_STOPPED,
 };
-use policy::{
-    ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
-};
+use policy::{DefaultPdp, PolicyDecisionPoint, Purpose, Resource, ResourceId};
 use pqc_agility::backend::fips::provider as fips_provider;
+use service_runtime::marking::{open_marking, parse_marking};
 use service_runtime::policy_file::parse_policy;
 use service_runtime::{
     apply_mesh_limits, mesh_limits_from_args, serve_mesh_with, spawn_health_port, Args, DirLock,
@@ -109,6 +112,7 @@ use telemetry::{HealthRegistry, Logger, MetricsRegistry, ReadinessCheck, StdoutJ
 
 const USAGE: &str = "usage: mimir-server --identity-dir DIR --state-dir DIR --purposes P[,P...] \
                      [--service NAME] [--bind ADDR] [--health-bind ADDR] \
+                     [--resource-marking BAND[:COMPARTMENT,...]] \
                      [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE \
                      --serve-dir DIR [--sidecar ADDR]] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
@@ -425,6 +429,7 @@ fn main() {
             "identity-dir",
             "state-dir",
             "purposes",
+            "resource-marking",
             "service",
             "bind",
             "health-bind",
@@ -562,6 +567,11 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
     if purposes.is_empty() {
         return Err("--purposes needs at least one purpose".into());
     }
+    // What the inference resource is marked at. Default open. [VLD-ANB-MIDGARD-0063]
+    let marking = match args.get("resource-marking") {
+        Some(spec) => parse_marking(spec).map_err(|e| format!("--resource-marking: {e}"))?,
+        None => open_marking(),
+    };
     let engine = match args.get("engine").unwrap_or("reference") {
         "reference" => EngineChoice::Reference,
         "llama-cpp" => EngineChoice::LlamaCpp,
@@ -657,10 +667,7 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
     let engine_id = server.selection().backend_id.clone();
     let resource = |id: &str| Resource {
         id: ResourceId(id.into()),
-        marking: Marking {
-            level: ClassificationLevel::UNCLASSIFIED,
-            compartments: BTreeSet::new(),
-        },
+        marking: marking.clone(),
         allowed_purposes: purposes.clone(),
     };
     // Admission refusals and throttled requests are counted by reason.
