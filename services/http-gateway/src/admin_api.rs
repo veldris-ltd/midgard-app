@@ -171,6 +171,12 @@ impl AdminControl {
         self.passkeys.admins().len()
     }
 
+    /// Whether `name` is an administrator with a registered passkey, so a refusal
+    /// naming them is recorded by name. [AC-27.4]
+    pub fn is_administrator(&self, name: &str) -> bool {
+        self.passkeys.admins().iter().any(|admin| admin.0 == name)
+    }
+
     /// Enrolments waiting for a second administrator.
     pub fn parked(&self) -> usize {
         self.parked.len()

@@ -187,7 +187,7 @@ impl Connector for FileConnector {
     fn sync(&self, _ctx: &SyncContext) -> Result<Dataset, ConnectorError> {
         // Genuine disk I/O: open and read the file at sync time.
         let body = std::fs::read_to_string(&self.path)
-            .map_err(|e| ConnectorError::Io(format!("reading '{}': {e}", self.path.display())))?;
+            .map_err(|e| ConnectorError::io(format!("reading '{}': {e}", self.path.display())))?;
         DelimitedConnector::parse_body(&self.schema, &body, self.delimiter, self.has_header)
     }
 }

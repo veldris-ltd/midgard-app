@@ -497,13 +497,15 @@ An evaluation suite for the AI touchpoints, recorded per evaluation and per mode
 
 forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sealed, versioned datasets, resuming from a checkpoint, then projects the rows onto the ontology and into the object fabric over PQ-mTLS. Each connector is held to an egress policy naming the exact host and port.
 
-**Limit.** The Kafka connector has been tested only against a fake broker. The PostgreSQL connector has no TLS and cannot use the egress broker before PostgreSQL 17.
+**Limit.** The Kafka connector has been tested only against a fake broker. The PostgreSQL connector has no TLS and cannot use the egress broker before PostgreSQL 17. Connector errors carry an error class and hashed references, not hosts or secret names.
 
 - Source:
   - [`forge/worker/src/lib.rs:10`](../../forge/worker/src/lib.rs)
   - [`forge/connector-sdk/src/connector.rs:84`](../../forge/connector-sdk/src/connector.rs)
+  - [`forge/connector-sdk/src/error.rs:1`](../../forge/connector-sdk/src/error.rs)
 - Tests:
   - [`forge/engine/tests/rc_27.rs::rc_27_egress_violating_connector_is_blocked`](../../forge/engine/tests/rc_27.rs)
+  - [`forge/connector-sdk/tests/security_wire.rs::connector_errors_redact_hosts_secret_names_and_server_text`](../../forge/connector-sdk/tests/security_wire.rs)
 - Service tests:
   - [`forge/worker/tests/sync.rs::the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh`](../../forge/worker/tests/sync.rs)
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
@@ -801,14 +803,17 @@ Highly available clusters, replication between sites, zero-downtime operation an
 
 ### `telemetry` (operable)
 
-Each service exposes liveness, readiness and Prometheus metrics, and writes structured logs, with no dependency that could send telemetry out of the enclosure.
+Each service exposes liveness, readiness and Prometheus metrics, and writes structured logs, with no dependency that could send telemetry out of the enclosure. Log and metric output escapes every control character.
 
 **Limit.** The tracing module is unused, the observability console shows fixed figures, and no service-level objective has been measured in a deployment.
 
 - Source:
   - [`services/telemetry/src/lib.rs:1`](../../services/telemetry/src/lib.rs)
+  - [`services/telemetry/src/escape.rs:1`](../../services/telemetry/src/escape.rs)
 - Tests:
   - [`services/telemetry/tests/telemetry.rs::metrics_render_prometheus_text`](../../services/telemetry/tests/telemetry.rs)
+  - [`services/telemetry/tests/telemetry.rs::log_lines_escape_every_control_character`](../../services/telemetry/tests/telemetry.rs)
+  - [`services/telemetry/tests/telemetry.rs::metric_labels_never_contain_raw_controls`](../../services/telemetry/tests/telemetry.rs)
   - [`services/http-gateway/tests/rc_33.rs::service_exposes_liveness_readiness_metrics_and_an_observable_slo_breach`](../../services/http-gateway/tests/rc_33.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)

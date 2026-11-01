@@ -41,7 +41,7 @@ pub fn get(
     target: &str,
     headers: &[(String, String)],
 ) -> Result<Response, ConnectorError> {
-    let io = |e: std::io::Error| ConnectorError::Io(format!("HTTP: {e}"));
+    let io = |e: std::io::Error| ConnectorError::io(format!("HTTP: {e}"));
     let mut request = format!("GET {target} HTTP/1.1\r\n");
     for (name, value) in headers {
         if value.contains(['\r', '\n']) {
@@ -139,11 +139,9 @@ fn read_line(reader: &mut BufReader<TcpStream>) -> Result<String, ConnectorError
         .by_ref()
         .take(MAX_LINE as u64)
         .read_until(b'\n', &mut line)
-        .map_err(|e| ConnectorError::Io(format!("HTTP: {e}")))?;
+        .map_err(|e| ConnectorError::io(format!("HTTP: {e}")))?;
     if read == 0 {
-        return Err(ConnectorError::Io(
-            "HTTP: the connection closed early".into(),
-        ));
+        return Err(ConnectorError::io("HTTP: the connection closed early"));
     }
     if line.last() != Some(&b'\n') {
         return Err(ConnectorError::Parse("an HTTP line is too long".into()));

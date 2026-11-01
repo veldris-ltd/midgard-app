@@ -29,7 +29,7 @@ use pqc_agility::{OsRng, Rng};
 
 use crate::connector::{Connector, ConnectorDescriptor, ConnectorKind, SyncContext, SyncOutcome};
 use crate::credential::CredentialRef;
-use crate::error::ConnectorError;
+use crate::error::{redact, ConnectorError};
 use crate::net;
 use crate::wire::{base64_encode, ScramSha256};
 
@@ -156,7 +156,7 @@ impl Connector for PostgresConnector {
 
         let secret = ctx.credentials.resolve(&self.password)?;
         let password = std::str::from_utf8(secret.expose())
-            .map_err(|_| ConnectorError::Credential("the database password is not UTF-8".into()))?;
+            .map_err(|_| ConnectorError::credential("the database password is not UTF-8"))?;
 
         let stream = net::connect(ctx.sandbox, &self.host, self.port)?;
         let mut session = Session {
@@ -208,7 +208,7 @@ struct Session {
 
 impl Session {
     fn io(&self, e: std::io::Error) -> ConnectorError {
-        ConnectorError::Io(format!("{}: {e}", self.peer))
+        ConnectorError::io_at(&self.peer, e.to_string())
     }
 
     fn send(&mut self, tag: Option<u8>, body: &[u8]) -> Result<(), ConnectorError> {
@@ -229,7 +229,10 @@ impl Session {
             .ok()
             .filter(|&l| (4..=MAX_MESSAGE).contains(&l))
             .ok_or_else(|| {
-                ConnectorError::Parse(format!("{}: a malformed message length {len}", self.peer))
+                ConnectorError::Parse(format!(
+                    "{}: a malformed message length {len}",
+                    redact::host(&self.peer)
+                ))
             })?;
         let mut body = vec![0u8; len - 4];
         self.stream.read_exact(&mut body).map_err(|e| self.io(e))?;
@@ -269,9 +272,9 @@ impl Session {
                         10 => {
                             let offered = mechanisms(data);
                             if !offered.iter().any(|m| m == "SCRAM-SHA-256") {
-                                return Err(ConnectorError::Credential(format!(
+                                return Err(ConnectorError::credential(format!(
                                     "{} offers {}; only SCRAM-SHA-256 is accepted",
-                                    self.peer,
+                                    redact::host(&self.peer),
                                     offered.join(", ")
                                 )));
                             }
@@ -295,7 +298,7 @@ impl Session {
                             })?;
                             let reply = client
                                 .client_final(server_first, password)
-                                .map_err(ConnectorError::Credential)?;
+                                .map_err(ConnectorError::credential)?;
                             self.send(Some(b'p'), reply.as_bytes())?;
                         }
                         12 => {
@@ -307,21 +310,21 @@ impl Session {
                             })?;
                             client
                                 .verify_server_final(server_final)
-                                .map_err(ConnectorError::Credential)?;
+                                .map_err(ConnectorError::credential)?;
                             verified = true;
                         }
                         3 | 5 => {
-                            return Err(ConnectorError::Credential(format!(
+                            return Err(ConnectorError::credential(format!(
                                 "{} asks for a {} password; only SCRAM-SHA-256 is accepted",
-                                self.peer,
+                                redact::host(&self.peer),
                                 if code == 3 { "cleartext" } else { "MD5" }
                             )))
                         }
                         other => {
-                            return Err(ConnectorError::Credential(format!(
+                            return Err(ConnectorError::credential(format!(
                                 "{} asks for authentication method {other}; only SCRAM-SHA-256 \
                                  is accepted",
-                                self.peer
+                                redact::host(&self.peer)
                             )))
                         }
                     }
@@ -329,16 +332,22 @@ impl Session {
                 b'S' | b'K' | b'N' => {}
                 b'Z' if verified => return Ok(()),
                 b'Z' => {
-                    return Err(ConnectorError::Credential(format!(
+                    return Err(ConnectorError::credential(format!(
                         "{} let the connection in without authenticating it with SCRAM-SHA-256",
-                        self.peer
+                        redact::host(&self.peer)
                     )))
                 }
-                b'E' => return Err(ConnectorError::Credential(server_error(&self.peer, &body))),
+                b'E' => {
+                    return Err(ConnectorError::credential(format!(
+                        "{} refused the login: {}",
+                        redact::host(&self.peer),
+                        server_error(&body)
+                    )))
+                }
                 other => {
                     return Err(ConnectorError::Parse(format!(
                         "{}: an unexpected message '{}' during startup",
-                        self.peer,
+                        redact::host(&self.peer),
                         char::from(other)
                     )))
                 }
@@ -356,8 +365,10 @@ impl Session {
         loop {
             let (tag, body) = self.recv()?;
             match tag {
-                b'E' => failure = Some(server_error(&self.peer, &body)),
-                b'Z' => return failure.map_or(Ok(()), |e| Err(ConnectorError::Io(e))),
+                b'E' => failure = Some(server_error(&body)),
+                b'Z' => {
+                    return failure.map_or(Ok(()), |e| Err(ConnectorError::io_at(&self.peer, e)))
+                }
                 _ => {}
             }
         }
@@ -420,11 +431,11 @@ impl Session {
                 }
                 b's' => self.execute(batch_rows)?,
                 b'C' => break Ok(()),
-                b'E' => break Err(ConnectorError::Io(server_error(&self.peer, &body))),
+                b'E' => break Err(ConnectorError::io_at(&self.peer, server_error(&body))),
                 other => {
                     break Err(ConnectorError::Parse(format!(
                         "{}: an unexpected message '{}' during a query",
-                        self.peer,
+                        redact::host(&self.peer),
                         char::from(other)
                     )))
                 }
@@ -606,7 +617,7 @@ fn mechanisms(data: &[u8]) -> Vec<String> {
 }
 
 /// An ErrorResponse as `SEVERITY CODE: message`.
-fn server_error(peer: &str, body: &[u8]) -> String {
+fn server_error(body: &[u8]) -> String {
     let (mut severity, mut code, mut message) = (String::new(), String::new(), String::new());
     for field in body.split(|&b| b == 0).filter(|f| !f.is_empty()) {
         let value = String::from_utf8_lossy(&field[1..]).into_owned();
@@ -617,7 +628,7 @@ fn server_error(peer: &str, body: &[u8]) -> String {
             _ => {}
         }
     }
-    format!("{peer}: {severity} {code}: {message}")
+    format!("{severity} {code}: {message}")
 }
 
 /// A fresh SCRAM nonce: 18 random bytes as base64 (never a comma).

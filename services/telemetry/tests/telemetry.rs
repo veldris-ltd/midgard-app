@@ -258,3 +258,69 @@ fn long_label_values_are_truncated_in_the_rendering() {
         .render()
         .contains(&format!("short{{path=\"{}\"}} 1\n", "b".repeat(256))));
 }
+
+/// Every control character in a log field is escaped: CR by name, ESC and NUL as
+/// `\u00XX`, U+2028 as `\u2028`, so no raw control byte reaches the line and the line
+/// parses back to the original value. [RC-33] [AC-27.1] [VLD-ANB-MIDGARD-0033]
+#[test]
+fn log_lines_escape_every_control_character() {
+    let value = format!("a{}b{}c{}d{}e", '\r', '\u{1b}', '\u{2028}', '\u{0}');
+    let sink = BufferSink::new();
+    let logger = Logger::new("http-gateway", &sink);
+    logger.warn(
+        &value,
+        &[(value.as_str(), value.as_str()), ("path", "/x\u{7f}\t")],
+    );
+
+    let line = sink.records()[0].to_json();
+    for escaped in [r"\r", r"\u001b", r"\u2028", r"\u0000", r"\u007f", r"\t"] {
+        assert!(line.contains(escaped), "{escaped} missing from {line}");
+    }
+    assert!(
+        !line
+            .chars()
+            .any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}'),
+        "raw control character in {line:?}"
+    );
+    let parsed = service_runtime::json::parse(&line).expect("the line is valid JSON");
+    assert_eq!(parsed.str_field("message"), Some(value.as_str()));
+    assert_eq!(parsed.str_field(&value), Some(value.as_str()));
+    assert_eq!(parsed.str_field("path"), Some("/x\u{7f}\t"));
+}
+
+/// A label value carrying CR and ESC renders with no raw control byte, and every line
+/// of the exposition is still a comment or one `name{labels} value` sample.
+/// [RC-33] [AC-27.2] [VLD-ANB-MIDGARD-0033]
+#[test]
+fn metric_labels_never_contain_raw_controls() {
+    let m = MetricsRegistry::new();
+    m.describe("http_requests_total", "total HTTP requests");
+    m.inc(
+        "http_requests_total",
+        &[("route", "/a\r\nforged_total 99\u{1b}[0m"), ("code", "200")],
+    );
+    m.inc(
+        "http_requests_total",
+        &[("route", "/b\"\\"), ("code", "200")],
+    );
+
+    let text = m.render();
+    assert!(
+        !text.chars().any(|c| c.is_control() && c != '\n'),
+        "raw control character in {text:?}"
+    );
+    assert!(
+        !text.lines().any(|l| l.starts_with("forged_total")),
+        "{text}"
+    );
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        if line.starts_with('#') {
+            continue;
+        }
+        let (series, value) = line.rsplit_once(' ').expect("a sample has a value");
+        assert!(value.parse::<f64>().is_ok(), "{line}");
+        assert!(series.starts_with("http_requests_total{"), "{line}");
+        assert!(series.ends_with('}'), "{line}");
+    }
+    assert!(text.contains("route=\"/b\\\"\\\\\""), "{text}");
+}

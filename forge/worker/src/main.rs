@@ -4,7 +4,7 @@
 //! ```text
 //! forge-worker --identity-dir DIR --state-dir DIR --jobs FILE --gateway HOST:PORT
 //!              [--service NAME] [--gateway-service NAME] [--purpose P] [--secrets-dir DIR]
-//!              [--egress-routes FILE] [--health-bind ADDR] [--once]
+//!              [--egress-routes FILE] [--health-bind ADDR] [--once] [--diagnostics]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -23,7 +23,10 @@
 //! from the job's checkpoint, and the new checkpoint is recorded once the gateway has
 //! accepted the records. Each run is audited and logged as one JSON line. With `--once`,
 //! every job runs once and the worker exits, 1 if any failed. `/healthz`, `/readyz` and
-//! `/metrics` are served on `--health-bind` when given.
+//! `/metrics` are served on `--health-bind` when given. A failed run is logged with its
+//! class and a redacted reason; `--diagnostics` adds a debug line with the full
+//! detail (hosts, secret names, the source's own text), for an operator diagnosing a
+//! source, not for routine running. [VLD-ANB-MIDGARD-0071]
 
 use std::path::Path;
 use std::sync::Arc;
@@ -37,12 +40,12 @@ use governance::Governance;
 use kms::TrustRoot;
 use policy::{DefaultPdp, PolicySet};
 use service_runtime::{client, spawn_health_port, unix_seconds, Args, DirLock, ServiceIdentity};
-use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
+use telemetry::{HealthRegistry, Level, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: forge-worker --identity-dir DIR --state-dir DIR --jobs FILE \
                      --gateway HOST:PORT [--service NAME] [--gateway-service NAME] \
                      [--purpose P] [--secrets-dir DIR] \
-                     [--egress-routes FILE] [--health-bind ADDR] [--once]";
+                     [--egress-routes FILE] [--health-bind ADDR] [--once] [--diagnostics]";
 
 /// The id of the worker's audit ledger.
 const LEDGER_ID: &str = "forge-worker-audit";
@@ -69,7 +72,7 @@ fn main() {
             "secrets-dir",
             "egress-routes",
         ],
-        &["once"],
+        &["once", "diagnostics"],
     ) {
         Ok(args) => args,
         Err(e) => {
@@ -143,6 +146,7 @@ fn run(args: &Args) -> Result<(), String> {
         service,
         metrics: &metrics,
         credentials: credentials.as_ref(),
+        diagnostics: args.flag("diagnostics"),
     };
     let mut synced: Vec<Option<String>> = vec![None; jobs.len()];
 
@@ -194,6 +198,8 @@ struct Worker<'a> {
     service: &'a str,
     metrics: &'a MetricsRegistry,
     credentials: &'a dyn CredentialResolver,
+    /// Whether a failed run's full detail is logged at debug level.
+    diagnostics: bool,
 }
 
 impl Worker<'_> {
@@ -232,7 +238,7 @@ impl Worker<'_> {
                 .ok_or_else(|| "the gateway sent an empty response".to_string())?;
             let message = String::from_utf8_lossy(body).into_owned();
             if *code != ACCEPTED {
-                return Err(format!("the gateway refused the sync: {message}"));
+                return Err(format!("the gateway refused the sync: {message}").into());
             }
             *synced = Some(run.version.clone());
             Ok((run, "synced", message))
@@ -280,12 +286,26 @@ impl Worker<'_> {
                 true
             }
             Err(reason) => {
-                let recorded = record_failed_run(audit, self.service, &job.id, &reason, now);
+                let recorded = record_failed_run(audit, self.service, &job.id, reason.class(), now);
                 self.metrics.inc(
                     "forge_job_runs_total",
                     &[("job", &job.id), ("outcome", "failed")],
                 );
-                logger.error("job run failed", &[("job", &job.id), ("reason", &reason)]);
+                logger.error(
+                    "job run failed",
+                    &[
+                        ("job", &job.id),
+                        ("class", reason.class()),
+                        ("reason", &reason.to_string()),
+                    ],
+                );
+                if self.diagnostics {
+                    logger.log(
+                        Level::Debug,
+                        "job run failed",
+                        &[("job", &job.id), ("diagnostic", reason.diagnostic())],
+                    );
+                }
                 // As on success: a failure the ledger did not record is said so.
                 // [VLD-ANB-MIDGARD-0072]
                 if let Err(e) = recorded {

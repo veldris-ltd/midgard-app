@@ -3,9 +3,11 @@
 //! once a minute per source; every request leaves one structured JSON log line; and a
 //! server error reaches the client only as `internal error` and a reference, its
 //! detail kept in the log under that reference. Driven over real sockets, so the
-//! source is the accepted connection's peer address.
+//! source is the accepted connection's peer address. Caller-derived ledger resources
+//! carry no control characters, and an unenrolled username reaches the ledger only
+//! as a keyed hash.
 //! [NFR-SEC-1] [RC-33] [AC-M-4] [VLD-ANB-MIDGARD-0052] [VLD-ANB-MIDGARD-0053]
-//! [VLD-ANB-MIDGARD-0054]
+//! [VLD-ANB-MIDGARD-0054] [VLD-ANB-MIDGARD-0037] [VLD-ANB-MIDGARD-0065]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
@@ -354,4 +356,120 @@ fn server_errors_carry_a_reference_not_detail() {
     assert!(records.iter().any(|r| r.message == "request"
         && field(r, "request_id") == Some(&reference)
         && field(r, "status") == Some("500")));
+}
+
+/// The ledger rows the operator can read, newest first.
+fn audit_rows(gw: &SecuredGateway, token: &str) -> (String, Vec<Json>) {
+    let audit = gw.handle(
+        &request("GET", "/api/v1/audit", "limit=200", "", Some(token)),
+        now(),
+    );
+    assert_eq!(audit.status, 200, "{}", audit.body);
+    match parse(&audit.body).unwrap() {
+        Json::Arr(rows) => (audit.body, rows),
+        other => panic!("not a list: {}", other.encode()),
+    }
+}
+
+/// A query whose `objectType` carries CRLF and a forged `PERMIT` line, a path with an
+/// escape character and a 300-character path are admitted and recorded, and every
+/// resulting row's resource is free of control characters and at most 256 characters.
+/// [AC-M-4] [AC-27.3] [VLD-ANB-MIDGARD-0037]
+#[test]
+fn ledger_resource_fields_are_sanitised() {
+    let gw = SecuredGateway::dev();
+    let token = operator_token(&gw);
+    let forged = r#"{"objectType":"aircraft\r\nPERMIT Read forged"}"#;
+    gw.handle(
+        &request("POST", "/api/v1/query", "", forged, Some(&token)),
+        now(),
+    );
+    gw.handle(
+        &request("GET", "/api/v1/x\u{1b}[2Ky", "", "", Some(&token)),
+        now(),
+    );
+    let long = format!("/api/v1/{}", "a".repeat(292));
+    assert_eq!(long.chars().count(), 300);
+    gw.handle(&request("GET", &long, "", "", Some(&token)), now());
+
+    let (_, rows) = audit_rows(&gw, &token);
+    let resources: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r.str_field("resource"))
+        .collect();
+    for resource in &resources {
+        assert!(!resource.chars().any(char::is_control), "{resource:?}");
+        assert!(resource.chars().count() <= 256, "{resource}");
+    }
+    assert!(
+        resources.contains(&"object-type:aircraftPERMIT Read forged"),
+        "{resources:?}"
+    );
+    assert!(resources.contains(&"/api/v1/x[2Ky"), "{resources:?}");
+    assert!(
+        resources.contains(&&long[..256]),
+        "the long path is recorded, capped at 256: {resources:?}"
+    );
+}
+
+/// A failed login with a name that matches no principal is recorded as
+/// `unknown:<16 hex>`, the same for each attempt, and the typed string reaches no row;
+/// the enrolled demo user is still recorded by name. [AC-M-4] [AC-27.4]
+/// [VLD-ANB-MIDGARD-0065]
+#[test]
+fn an_unenrolled_username_is_recorded_as_a_keyed_hash() {
+    let gw = SecuredGateway::dev();
+    let typed = r#"{"username":"hunter2-not-a-user","password":"whatever"}"#;
+    for _ in 0..2 {
+        let r = gw.handle(&request("POST", "/api/v1/login", "", typed, None), now());
+        assert_eq!(r.status, 401, "{}", r.body);
+    }
+    let token = operator_token(&gw);
+
+    let (body, rows) = audit_rows(&gw, &token);
+    assert_eq!(body.matches("hunter2").count(), 0, "{body}");
+    let refused: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.str_field("action") == Some("LOGIN refused"))
+        .filter_map(|r| r.str_field("actor"))
+        .collect();
+    assert_eq!(refused.len(), 2, "{body}");
+    assert_eq!(refused[0], refused[1], "one name, one actor");
+    let hash = refused[0]
+        .strip_prefix("unknown:")
+        .expect("an unenrolled name is hashed");
+    assert!(is_reference(hash), "16 lowercase hex: {hash}");
+
+    assert!(
+        rows.iter()
+            .any(|r| r.str_field("action") == Some("LOGIN succeeded")
+                && r.str_field("actor") == Some(DEMO_USERNAME)),
+        "{body}"
+    );
+}
+
+/// A deployment's actor-hash key is created once, owner-only, and read back on every
+/// later boot; a key file of the wrong length refuses to boot. [AC-27.4]
+#[test]
+fn the_actor_hash_key_is_created_once_and_kept() {
+    use http_gateway::{boot::actor_hash_key, state_dir::StateDir};
+
+    let root = std::env::temp_dir().join(format!("mg-actor-hash-{}-{}", std::process::id(), now()));
+    let state = StateDir::new(&root);
+    std::fs::create_dir_all(state.keys()).unwrap();
+    let first = actor_hash_key(&state).expect("created on first boot");
+    assert_eq!(actor_hash_key(&state).unwrap(), first, "kept across boots");
+    assert_eq!(std::fs::read(state.actor_hash_key()).unwrap(), first);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(state.actor_hash_key())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    std::fs::write(state.actor_hash_key(), b"short").unwrap();
+    assert!(actor_hash_key(&state).is_err());
+    let _ = std::fs::remove_dir_all(&root);
 }

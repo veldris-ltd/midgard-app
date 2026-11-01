@@ -534,6 +534,31 @@ CONTRIBUTING.md for the version policy.
     audited, rejected and used ones make room, and a request that finds no room, or
     a requester who already has 16 open requests, is refused with 429 and
     `Retry-After: 60`.
+- **Logs, metrics, ledger rows and connector errors can no longer be broken or
+  stuffed by what a caller or a source sends.** [VLD-ANB-MIDGARD-0033]
+  [VLD-ANB-MIDGARD-0037] [VLD-ANB-MIDGARD-0065] [VLD-ANB-MIDGARD-0071]
+  - JSON log lines escape every control character (`\r`, `\t`, `\u00XX` for the
+    rest of U+0000 to U+001F and U+007F) and U+2028/U+2029 (`telemetry::json_escape`);
+    Prometheus label values keep their own escapes and replace every other control
+    character with U+FFFD (`telemetry::label_value`).
+  - Ledger resources built from a request (the query body's `objectType`, the
+    request path, the administration path) are stripped of control characters and
+    capped at 256 characters.
+  - A login with a username that matches no enrolled principal is recorded as
+    `unknown:<16 hex>`, an HMAC-SHA256 under a new key file, `keys/actor-hash.key`
+    (32 random bytes, 0600, created on first boot), so a password typed into the
+    username box never reaches the ledger. Enrolled names and registered
+    administrators are recorded by name as before. Back the key up with the
+    keystores: after a restore without it, new hashes no longer match old ones.
+  - `ConnectorError` has a stable `class()` (sandbox-denied, credential, parse, data,
+    store, io); its display shows hosts and secret names only as `h:`/`s:` plus 8 hex
+    of their SHA-256, absolute paths as file names, and source text control-free,
+    capped at 120 characters. `diagnostic()` keeps the full text, which the Forge
+    worker logs at debug level only with the new `--diagnostics` flag. The worker's
+    failure log line gains `class`, and a connector failure's ledger row records
+    that class. `Credential` and `Io` are now struct variants (`secret`/`target`
+    plus `detail`); log consumers that matched hosts or secret names in error text
+    must use the hashed references.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

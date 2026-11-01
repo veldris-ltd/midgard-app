@@ -1123,6 +1123,9 @@ dependencies = [
 [[package]]
 name = "telemetry"
 version = "0.1.0-rc.1"
+dependencies = [
+ "service-runtime",
+]
 
 [[package]]
 name = "typenum"

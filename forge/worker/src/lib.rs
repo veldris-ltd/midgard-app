@@ -652,15 +652,13 @@ impl CredentialResolver for SecretsDir {
     fn resolve(&self, cref: &CredentialRef) -> Result<Secret, ConnectorError> {
         let name = &cref.0;
         if !valid_secret_name(name) {
-            return Err(ConnectorError::Credential(format!(
-                "'{name}' is not a secret name"
-            )));
+            return Err(ConnectorError::secret(name, "is not a secret name"));
         }
         let mut bytes = std::fs::read(self.0.join(name)).map_err(|e| {
-            ConnectorError::Credential(format!(
-                "secret '{name}' cannot be read from {}: {e}",
-                self.0.display()
-            ))
+            ConnectorError::secret(
+                name,
+                format!("cannot be read from {}: {e}", self.0.display()),
+            )
         })?;
         if bytes.last() == Some(&b'\n') {
             bytes.pop();
@@ -825,6 +823,56 @@ pub struct Run {
     pub checkpoint: Option<String>,
 }
 
+/// Why a job run failed. Its display is the reason fit for any log and the job's
+/// status, so a connector failure appears in it only in its redacted form; the class
+/// is what the failure is counted and audited under; the diagnostic is the full
+/// detail, for the worker's `--diagnostics` debug log alone. [VLD-ANB-MIDGARD-0071]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunFailure {
+    reason: String,
+    class: String,
+    diagnostic: String,
+}
+
+impl RunFailure {
+    /// A connector failure while doing `what`: classed by the connector, shown
+    /// redacted, with the connector's full detail kept as the diagnostic.
+    pub fn connector(what: &str, e: &ConnectorError) -> Self {
+        Self {
+            reason: format!("{what}: {e}"),
+            class: e.class().to_string(),
+            diagnostic: format!("{what}: {}", e.diagnostic()),
+        }
+    }
+
+    /// The class the failure is counted and audited under.
+    pub fn class(&self) -> &str {
+        &self.class
+    }
+
+    /// The full detail, for a debug log the operator asked for.
+    pub fn diagnostic(&self) -> &str {
+        &self.diagnostic
+    }
+}
+
+impl std::fmt::Display for RunFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+/// A failure the worker described itself, classed by [`error_class`].
+impl From<String> for RunFailure {
+    fn from(reason: String) -> Self {
+        Self {
+            class: error_class(&reason),
+            diagnostic: reason.clone(),
+            reason,
+        }
+    }
+}
+
 /// Run `job` against the worker's dataset store: sync the source from `checkpoint`
 /// with `credentials`, commit what it read with lineage, and project it.
 pub fn run_job<R: TrustRoot>(
@@ -832,7 +880,7 @@ pub fn run_job<R: TrustRoot>(
     store: &mut DurableDatasetStore<R>,
     credentials: &dyn CredentialResolver,
     checkpoint: Option<&str>,
-) -> Result<Run, String> {
+) -> Result<Run, RunFailure> {
     let connector = job.connector();
     let sandbox = connector
         .egress_hosts()
@@ -846,7 +894,7 @@ pub fn run_job<R: TrustRoot>(
     }
     let outcome = connector
         .sync_incremental(&ctx)
-        .map_err(|e| format!("the source does not sync: {e}"))?;
+        .map_err(|e| RunFailure::connector("the source does not sync", &e))?;
     let dataset = outcome.dataset;
 
     let previous = store.branch_head(&job.id);

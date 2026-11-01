@@ -54,6 +54,7 @@ use policy::{
     Purpose, Resource, ResourceId, Role, Rule, RuleId, Selector,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
+use pqc_agility::hash::hmac_sha256;
 use pqc_agility::{CryptoProvider, OsRng, Rng, VerifyingKey};
 use revocations::Revocations;
 use std::time::Instant;
@@ -191,6 +192,11 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// When each source address last had a rejected token written to the ledger.
     /// [VLD-ANB-MIDGARD-0054]
     auth_audited: Mutex<BTreeMap<String, u64>>,
+    /// The key a username that matches no enrolment is hashed under before it is
+    /// written to the ledger: random per process unless a deployment loads its
+    /// `keys/actor-hash.key`, so hashes stay comparable across restarts.
+    /// [AC-27.4] [VLD-ANB-MIDGARD-0065]
+    actor_hash_key: [u8; 32],
 }
 
 /// What the gateway knows about the request it is handling, beyond the request
@@ -259,6 +265,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             telemetry::DROPPED_SERIES,
             "metric series not recorded because their family was at its series cap",
         );
+        let mut actor_hash_key = [0u8; 32];
+        OsRng.fill(&mut actor_hash_key);
         Self {
             state: State::new(),
             provider,
@@ -292,7 +300,17 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             )),
             log_sink: Arc::new(StdoutJsonSink),
             auth_audited: Mutex::new(BTreeMap::new()),
+            actor_hash_key,
         }
+    }
+
+    /// Hash the usernames of unenrolled principals under `key` instead of a key drawn
+    /// for this process alone. A deployment loads it from `keys/actor-hash.key`
+    /// ([`boot::actor_hash_key`]) so an `unknown:` actor names the same typed string
+    /// before and after a restart. [AC-27.4] [VLD-ANB-MIDGARD-0065]
+    pub fn with_actor_hash_key(mut self, key: [u8; 32]) -> Self {
+        self.actor_hash_key = key;
+        self
     }
 
     /// Send the structured request log to `sink` instead of stdout (tests read it
@@ -658,12 +676,12 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         response: Response,
         now: u64,
     ) -> Response {
-        match self.lock().governance_mut().record_event(
-            &audit_actor(username),
-            event,
-            resource,
-            now,
-        ) {
+        let actor = self.audit_actor(username);
+        match self
+            .lock()
+            .governance_mut()
+            .record_event(&actor, event, resource, now)
+        {
             Ok(_) => response,
             Err(e) => Response::internal(format!("audit failure: {e}")),
         }
@@ -704,6 +722,50 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         self.revocations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// A caller-supplied username as a ledger actor. Its purpose is that a password
+    /// mistyped into the username box never lands in the append-only, signed ledger:
+    /// a name with an enrolment in the login directory is recorded as given (stripped
+    /// of control characters and capped, so a hostile value cannot bloat a row or
+    /// imitate another), and any other name as `unknown:<16 hex>`, the start of its
+    /// HMAC-SHA256 under the actor-hash key. Repeated attempts with one name still
+    /// share one actor, so a spray stays visible. [AC-M-4] [AC-27.4]
+    /// [VLD-ANB-MIDGARD-0065]
+    fn audit_actor(&self, username: &str) -> String {
+        let Some(name) = actor_name(username) else {
+            return "(no username)".to_string();
+        };
+        let enrolled = self
+            .directory
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .enrollment(&name)
+            .is_some();
+        if enrolled {
+            name
+        } else {
+            let mac = hmac_sha256(&self.actor_hash_key, name.as_bytes());
+            format!("unknown:{}", hex_encode(&mac[..8]))
+        }
+    }
+
+    /// The administrator an administration request names, as a ledger actor: a
+    /// registered administrator by name, anything else as [`Self::audit_actor`] records
+    /// it. Takes the administration lock, then the directory's, never both at once.
+    fn admin_actor(&self, admin: &str) -> String {
+        let registered = actor_name(admin).filter(|name| {
+            self.admin.as_ref().is_some_and(|control| {
+                control
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .is_administrator(name)
+            })
+        });
+        match registered {
+            Some(name) => name,
+            None => self.audit_actor(admin),
+        }
     }
 
     /// The failed-login throttle, recovering from poisoning like [`Self::lock`].
@@ -789,15 +851,19 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             Ok((json, event)) => (
                 Response::ok(json.encode()),
                 event.map(|(actor, action, subject)| {
-                    (actor, action.to_string(), format!("principal:{subject}"))
+                    (
+                        actor,
+                        action.to_string(),
+                        audit_resource(&format!("principal:{subject}")),
+                    )
                 }),
             ),
             Err(e) => (
                 admin_refusal(e.status, &e.message),
                 Some((
-                    audit_actor(body.str_field("admin").unwrap_or_default()),
+                    self.admin_actor(body.str_field("admin").unwrap_or_default()),
                     format!("ADMIN refused ({})", e.status),
-                    req.path.clone(),
+                    audit_resource(&req.path),
                 )),
             ),
         };
@@ -847,8 +913,9 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             0 => "ADMIN challenge refused".to_string(),
             n => format!("ADMIN challenge refused, {n} refusals suppressed"),
         };
+        let actor = self.admin_actor(body.str_field("admin").unwrap_or_default());
         match self.lock().governance_mut().record_event(
-            &audit_actor(body.str_field("admin").unwrap_or_default()),
+            &actor,
             &event,
             "/api/v1/admin/challenge",
             now,
@@ -1263,11 +1330,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             let recorded = self.lock().governance_mut().record_event_with(
                 "(unauthenticated)",
                 &format!("AUTH rejected ({class})"),
-                &req.path,
+                &audit_resource(&req.path),
                 now,
                 AuditContext {
                     outcome: AuditOutcome::Refused,
-                    reason: Some(class.to_string()),
+                    reason: Some(audit_resource(class)),
                     ..rc.audit()
                 },
             );
@@ -1305,7 +1372,9 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         true
     }
 
-    /// The (resource id, marking level, action) a request targets.
+    /// The (resource id, marking level, action) a request targets. A resource id built
+    /// from the caller's body or path passes through [`audit_resource`], as it becomes
+    /// the ledger row's resource. [AC-27.3] [VLD-ANB-MIDGARD-0037]
     fn resource_action(&self, req: &Request) -> (String, ClassificationLevel, &'static str) {
         match (req.method.as_str(), req.path.as_str()) {
             // Both name the object type they read under the fabric's resource-id
@@ -1318,7 +1387,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     .and_then(|b| b.str_field("objectType").map(str::to_string))
                     .unwrap_or_default();
                 let level = self.marking_for(&ot);
-                (fabric::type_resource_id(&ot).0, level, "Read")
+                (audit_resource(&fabric::type_resource_id(&ot).0), level, "Read")
             }
             ("POST", "/api/v1/search-around") => {
                 let ot = parse(&req.body)
@@ -1330,16 +1399,18 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     })
                     .unwrap_or_default();
                 let level = self.marking_for(&ot);
-                (fabric::type_resource_id(&ot).0, level, "Read")
+                (audit_resource(&fabric::type_resource_id(&ot).0), level, "Read")
             }
             ("POST", "/api/v1/actions") | ("POST", "/api/v1/approvals") => {
                 (req.path.clone(), self.marking_for("__actions__"), "Apply")
             }
             // Deciding someone else's human gate is its own permission, so the policy
             // says who may approve, and the ledger records each decision. [NFR-AI-1]
-            ("POST", path) if approval_decision(path).is_some() => {
-                (path.to_string(), self.marking_for("__actions__"), "Approve")
-            }
+            ("POST", path) if approval_decision(path).is_some() => (
+                audit_resource(path),
+                self.marking_for("__actions__"),
+                "Approve",
+            ),
             // Reading the ledger is its own permission, so a generic Read on `*` does
             // not admit it. [VLD-ANB-MIDGARD-0031]
             ("GET", "/api/v1/audit") => (
@@ -1347,7 +1418,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 self.marking_for("__audit__"),
                 ACTION_READ_AUDIT,
             ),
-            (_, path) => (path.to_string(), self.marking_for(path), "Read"),
+            (_, path) => (audit_resource(path), self.marking_for(path), "Read"),
         }
     }
 
@@ -1731,19 +1802,29 @@ impl Drop for Attempt<'_> {
     }
 }
 
-/// A caller-supplied username as a ledger actor. It is recorded as given, so repeated
-/// attempts against one name are visible, but stripped of control characters and
-/// capped so a hostile value cannot bloat a row or imitate another. [AC-M-4]
-fn audit_actor(username: &str) -> String {
+/// A caller-supplied username stripped of control characters and capped at 64
+/// characters, or `None` if nothing printable is left. [`SecuredGateway::audit_actor`]
+/// decides whether it is recorded as given. [AC-M-4]
+fn actor_name(username: &str) -> Option<String> {
     let name: String = username
         .chars()
         .filter(|c| !c.is_control())
         .take(64)
         .collect();
-    if name.trim().is_empty() {
-        "(no username)".to_string()
+    (!name.trim().is_empty()).then_some(name)
+}
+
+/// A caller-derived ledger resource (a request path, a body's `objectType`): control
+/// characters stripped, so no row can carry a line break or a forged second line,
+/// capped at 256 characters, and `(no resource)` if nothing is left. Object ids and
+/// types that passed `strict_json::identifier` on import are not re-sanitised.
+/// [AC-M-4] [AC-27.3] [VLD-ANB-MIDGARD-0037]
+fn audit_resource(s: &str) -> String {
+    let resource: String = s.chars().filter(|c| !c.is_control()).take(256).collect();
+    if resource.is_empty() {
+        "(no resource)".to_string()
     } else {
-        name
+        resource
     }
 }
 

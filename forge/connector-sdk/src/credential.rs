@@ -56,10 +56,7 @@ pub struct NoCredentials;
 
 impl CredentialResolver for NoCredentials {
     fn resolve(&self, cref: &CredentialRef) -> Result<Secret, ConnectorError> {
-        Err(ConnectorError::Credential(format!(
-            "no credentials configured (requested '{}')",
-            cref.0
-        )))
+        Err(ConnectorError::secret(&cref.0, "no credentials configured"))
     }
 }
 
@@ -89,13 +86,14 @@ impl<'a, R: TrustRoot> KmsCredentialResolver<'a, R> {
 
 impl<'a, R: TrustRoot> CredentialResolver for KmsCredentialResolver<'a, R> {
     fn resolve(&self, cref: &CredentialRef) -> Result<Secret, ConnectorError> {
-        let blob = self.sealed.get(cref).ok_or_else(|| {
-            ConnectorError::Credential(format!("unknown credential '{}'", cref.0))
-        })?;
+        let blob = self
+            .sealed
+            .get(cref)
+            .ok_or_else(|| ConnectorError::secret(&cref.0, "unknown credential"))?;
         let plaintext = self
             .kms
             .unseal(cref.0.as_bytes(), blob)
-            .map_err(|e| ConnectorError::Credential(format!("unseal failed: {e:?}")))?;
+            .map_err(|e| ConnectorError::secret(&cref.0, format!("unseal failed: {e:?}")))?;
         Ok(Secret::new(plaintext))
     }
 }

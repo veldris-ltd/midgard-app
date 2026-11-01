@@ -39,7 +39,7 @@ use iam::{DurableDirectory, Idp, Pbkdf2Hasher};
 use kms::{Kms, KmsSealer};
 use policy::DefaultPdp;
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
-use pqc_agility::{SecretBytes, SigningKey, VerifyingKey};
+use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey, VerifyingKey};
 
 use crate::admin_api::AdminControl;
 use crate::approval_journal::APPROVALS_DOMAIN;
@@ -246,7 +246,8 @@ pub fn open_state_dir_mirrored(
             .with_idp(idp, Pbkdf2Hasher::production())
             .with_directory(directory)
             .with_admin(admin)
-            .with_revocation_journal(state.revocations(), revocations_sealer)?;
+            .with_revocation_journal(state.revocations(), revocations_sealer)?
+            .with_actor_hash_key(actor_hash_key(state)?);
     // Records synced over the mesh are checked against the same ontology.
     let gateway = match ontology {
         Some(ontology) => gateway.with_ontology(ontology),
@@ -262,6 +263,43 @@ pub fn open_state_dir_mirrored(
         administrators,
         lock,
     })
+}
+
+/// The key unenrolled usernames are hashed under in the ledger, from
+/// `keys/actor-hash.key`: created on first boot as 32 random bytes, owner-only (0600)
+/// like the journals, and read back on every later boot so an `unknown:` actor names
+/// the same typed string across restarts. A file that is not exactly 32 bytes refuses
+/// to boot rather than being replaced. [AC-27.4] [VLD-ANB-MIDGARD-0065]
+pub fn actor_hash_key(state: &StateDir) -> Result<[u8; 32], String> {
+    use std::io::Write;
+
+    let path = state.actor_hash_key();
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            return bytes.try_into().map_err(|bytes: Vec<u8>| {
+                format!(
+                    "{} holds {} bytes, not a 32-byte key",
+                    path.display(),
+                    bytes.len()
+                )
+            })
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
+    }
+    let mut key = [0u8; 32];
+    OsRng.fill(&mut key);
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(&path)
+        .and_then(|mut file| file.write_all(&key).and_then(|()| file.sync_all()))
+        .map_err(|e| format!("cannot create {}: {e}", path.display()))?;
+    Ok(key)
 }
 
 /// Create the governance audit ledger in a new state directory and vouch for it with a
