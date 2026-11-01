@@ -104,7 +104,6 @@ pub enum FuseOutcome {
     },
 }
 
-
 /// The reason code a refusal for an `observed_at` outside the window is audited with.
 pub const REASON_OUT_OF_WINDOW: &str = "observed-at-out-of-window";
 /// The reason code a refusal for a repeated observation id is audited with.
