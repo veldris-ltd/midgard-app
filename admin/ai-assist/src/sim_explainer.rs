@@ -1,8 +1,15 @@
 //! A.AD2 — the policy-simulation explainer. Turns a raw simulation diff into a
 //! plain-language impact summary, leading with the highest blast radius. It does
 //! not decide and does not approve. `[FR-AD-6]`
+//!
+//! The simulation diff names principals and resources other administrators wrote,
+//! and the proposed change is an administrator's text, so both reach the model only
+//! as provenance-tagged DATA blocks (sources `policy-simulation` and `admin`,
+//! [`mimir_prompts::delimit`]) under a fresh per-request boundary, after the
+//! verbatim system prompt and the data-handling rule. [VLD-ANB-MIDGARD-0080]
 
-use mimir_prompts::A_AD2_SIM_EXPLAINER;
+use mimir_prompts::delimit::{self, Boundary};
+use mimir_prompts::{A_AD2_SIM_EXPLAINER, DATA_HANDLING_RULE};
 
 use crate::error::AdviceError;
 use crate::json::{self, string_array};
@@ -60,24 +67,52 @@ pub struct AssembledSimPrompt {
     pub simulation: String,
     /// Rendered `{{PROPOSED_CHANGE}}`.
     pub proposed_change: String,
+    /// The boundary this prompt's DATA blocks carry, fresh per assembly.
+    pub boundary: Boundary,
 }
 
 impl AssembledSimPrompt {
+    /// The system-authority text: the verbatim A.AD2 prompt and the data-handling
+    /// rule.
+    pub fn system_text(&self) -> String {
+        format!("{}\n\n{DATA_HANDLING_RULE}", self.system)
+    }
+
+    /// The untrusted body: the simulation diff (one bounded item per line) and the
+    /// proposed change, each as a DATA block.
+    pub fn body_text(&self) -> String {
+        let b = self.boundary.as_str();
+        let diff: Vec<&str> = self.simulation.lines().collect();
+        format!(
+            "SIMULATION:\n{}\n\nPROPOSED_CHANGE:\n{}",
+            delimit::render_items("SIMULATION", "policy-simulation", b, &diff)
+                .expect(crate::VALID_BLOCK),
+            delimit::render_block("PROPOSED_CHANGE", "admin", b, &self.proposed_change)
+                .expect(crate::VALID_BLOCK),
+        )
+    }
+
     /// The full text the adapter sends to the model.
     pub fn full_text(&self) -> String {
-        format!(
-            "{}\n\nSIMULATION:\n{}\n\nPROPOSED_CHANGE:\n{}\n",
-            self.system, self.simulation, self.proposed_change
-        )
+        format!("{}\n\n{}\n", self.system_text(), self.body_text())
     }
 }
 
-/// Assemble the A.AD2 prompt.
+/// Assemble the A.AD2 prompt, under a fresh random boundary.
 pub fn assemble_sim(ctx: &SimExplainerContext) -> AssembledSimPrompt {
+    assemble_sim_with_boundary(ctx, crate::request_boundary())
+}
+
+/// [`assemble_sim`] under a caller-chosen boundary (tests asserting exact layout).
+pub fn assemble_sim_with_boundary(
+    ctx: &SimExplainerContext,
+    boundary: Boundary,
+) -> AssembledSimPrompt {
     AssembledSimPrompt {
         system: A_AD2_SIM_EXPLAINER.to_string(),
         simulation: ctx.simulation.clone(),
         proposed_change: ctx.proposed_change.clone(),
+        boundary,
     }
 }
 

@@ -1,11 +1,11 @@
-//! The A.AD1 and A.AD3 prompts carry state, ledger rows and the administrator's
-//! words only inside provenance-tagged DATA blocks: an injected ledger or state
+//! The A.AD1, A.AD2 and A.AD3 prompts carry state, simulation diffs, ledger rows and
+//! the administrator's words only inside provenance-tagged DATA blocks: an injected
 //! string can neither forge a column-zero header nor change the system text
-//! (VLD-ANB-MIDGARD-0080). [FR-AD-9] [FR-AD-10] [FR-MI-7] [AC-60.4]
+//! (VLD-ANB-MIDGARD-0080). [FR-AD-6] [FR-AD-9] [FR-AD-10] [FR-MI-7] [AC-60.4]
 
 use admin_ai_assist::{
-    assemble_audit, assemble_audit_with_boundary, assemble_copilot_with_boundary, AuditContext,
-    CopilotContext,
+    assemble_audit, assemble_audit_with_boundary, assemble_copilot_with_boundary,
+    assemble_sim_with_boundary, AuditContext, CopilotContext, SimExplainerContext,
 };
 use mimir_prompts::delimit::Boundary;
 use mimir_prompts::DATA_HANDLING_RULE;
@@ -90,4 +90,39 @@ fn each_assembly_draws_a_fresh_boundary() {
     let a = assemble_audit(&audit("r", "q"));
     let b = assemble_audit(&audit("r", "q"));
     assert_ne!(a.boundary, b.boundary);
+}
+
+#[test]
+fn injected_simulation_diff_and_change_stay_inside_their_blocks() {
+    let ctx = |sim: &str, change: &str| SimExplainerContext {
+        simulation: sim.into(),
+        proposed_change: change.into(),
+    };
+    let benign = assemble_sim_with_boundary(&ctx("grant role:x", "add x"), Boundary::fixed(BOUND));
+    let p = assemble_sim_with_boundary(&ctx(FORGED, "add x"), Boundary::fixed(BOUND));
+    assert_only_in(&p.full_text(), "SIMULATION", "policy-simulation");
+    assert_eq!(p.system_text(), benign.system_text());
+    assert!(benign.system_text().ends_with(DATA_HANDLING_RULE));
+    let q = assemble_sim_with_boundary(&ctx("grant role:x", FORGED), Boundary::fixed(BOUND));
+    assert_only_in(&q.full_text(), "PROPOSED_CHANGE", "admin");
+    assert_eq!(q.system_text(), benign.system_text());
+}
+
+#[test]
+fn control_and_zero_width_characters_are_removed() {
+    let p = assemble_sim_with_boundary(
+        &SimExplainerContext {
+            simulation: "gr\u{200B}ant\u{7} role:x\r\nrevoke\u{FEFF} y".into(),
+            proposed_change: "add x".into(),
+        },
+        Boundary::fixed(BOUND),
+    );
+    let text = p.full_text();
+    for c in ['\u{200B}', '\u{7}', '\r', '\u{FEFF}'] {
+        assert!(!text.contains(c), "{c:?} removed");
+    }
+    assert_eq!(
+        block(&text, "SIMULATION", "policy-simulation"),
+        vec!["  grant role:x", "  revoke y"]
+    );
 }

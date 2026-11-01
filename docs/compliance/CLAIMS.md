@@ -478,7 +478,7 @@ Input guardrails against prompt injection: a deterministic filter with de-obfusc
 
 - Source:
   - [`mimir/agent-runtime/src/defend.rs:317`](../../mimir/agent-runtime/src/defend.rs)
-  - [`mimir/prompts/src/delimit.rs:230`](../../mimir/prompts/src/delimit.rs)
+  - [`mimir/prompts/src/delimit.rs:245`](../../mimir/prompts/src/delimit.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/guardrail_paraphrase.rs::obfuscated_paraphrases_are_blocked_even_though_not_literal_entries`](../../mimir/agent-runtime/tests/guardrail_paraphrase.rs)
   - [`mimir/agent-runtime/tests/guardrail_paraphrase.rs::sanitise_rewrites_the_prompt_instead_of_passing_it_through`](../../mimir/agent-runtime/tests/guardrail_paraphrase.rs)
@@ -486,6 +486,8 @@ Input guardrails against prompt injection: a deterministic filter with de-obfusc
   - [`mimir/agent-runtime/tests/prompt_delimiting.rs::boundary_collision_is_neutralised`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
   - [`mimir/agent-runtime/tests/prompt_delimiting.rs::oversized_field_is_bounded`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
   - [`mimir/agent-runtime/tests/prompt_delimiting.rs::data_handling_rule_is_in_system_block`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
+  - [`bifrost/risk/tests/prompt_delimiting.rs::forged_header_in_release_context_is_data`](../../bifrost/risk/tests/prompt_delimiting.rs)
+  - [`clients/inference/tests/prompt_delimiting.rs::forged_header_in_user_message_or_context_id_is_data`](../../clients/inference/tests/prompt_delimiting.rs)
 
 ### `evals` (reference)
 

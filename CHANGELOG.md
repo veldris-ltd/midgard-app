@@ -1102,16 +1102,20 @@ CONTRIBUTING.md for the version policy.
     so the token accounting stays exact; each untrusted section costs two more lines
     and the rule about 70 words, so a budget near its limit may trim one more fact.
   - Heimdall decision support (`picture`, `operator`), the admin copilot
-    (`admin-state`, `admin`) and audit assistant (`ledger`, `admin`), Forge AI assist
-    (`dataset-schema`, `user`) and the extension broker (`web-page`, `enclosure`) use
-    the same renderer and expose `system_text` and `body_text`. Trusted sections (the
-    transform library; the copilot's role, policy and contract; the broker's policy
-    and contract) now sit with the system prompt, ahead of the data. Entity fields
-    and column names stay on one line.
+    (`admin-state`, `admin`), simulation explainer (`policy-simulation`, `admin`) and
+    audit assistant (`ledger`, `admin`), Forge AI assist (`dataset-schema`, `user`),
+    Bifrost release risk (`release`), the on-device assistant (`local-store`, `user`)
+    and the extension broker (`web-page`, `enclosure`) use the same renderer and
+    expose `system_text` and `body_text`. Trusted sections (the transform library; the
+    copilot's role, policy and contract; the on-device and broker policy, tier and
+    contract) now sit with the system prompt, ahead of the data. Entity fields,
+    column names, release facts and context ids stay on one line. The tier-selection
+    prompt holds only values the client computes and is unchanged.
   - The rule given to the model is advisory; the indentation, the boundary and the
-    character cleaning are the controls. The broker draws its boundary from the
-    standard library's randomly keyed hasher, keeping it free of crypto dependencies
-    (KDD-2).
+    character cleaning are the controls. The broker (no crypto dependencies, KDD-2)
+    and the client inference crate (no CSPRNG under its test backend) draw their
+    boundary from the standard library's randomly keyed hasher
+    (`Boundary::from_std_entropy`).
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

@@ -18,7 +18,9 @@ pub struct ReleaseContext {
 }
 
 impl ReleaseContext {
-    /// Render the context as the injected `RELEASE_CONTEXT` block for A.7.
+    /// Render the context as the injected `RELEASE_CONTEXT` block for A.7. The
+    /// author-written fields go through `mimir_prompts::delimit::inline`, so each
+    /// fact stays on its one line. [VLD-ANB-MIDGARD-0080]
     pub fn render(&self) -> String {
         format!(
             "- change_summary: {}\n\
@@ -26,11 +28,11 @@ impl ReleaseContext {
              - sbom_new_critical_cves: {}\n\
              - prior_incidents: {}\n\
              - ring_strategy: {}",
-            self.change_summary,
+            mimir_prompts::delimit::inline(&self.change_summary),
             self.tests_passed,
             self.sbom_new_critical_cves,
             self.prior_incidents,
-            self.ring_strategy
+            mimir_prompts::delimit::inline(&self.ring_strategy)
         )
     }
 }

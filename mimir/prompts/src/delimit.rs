@@ -98,6 +98,21 @@ impl Boundary {
         Self(out)
     }
 
+    /// A boundary for a crate that takes no crypto dependency (the extension broker,
+    /// KDD-2) or has no CSPRNG in every build (the client inference crate under its
+    /// test backend). The bytes come from the standard library's randomly keyed
+    /// hasher (keys seeded from the OS once per thread), not a CSPRNG. That is
+    /// enough for a boundary: the indentation and the neutralisation of the
+    /// boundary inside data are the controls, an unguessable boundary is defence
+    /// in depth. Every other assembler draws from `pqc_agility::OsRng`.
+    pub fn from_std_entropy() -> Self {
+        use std::hash::{BuildHasher, Hasher};
+        let bits = std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish();
+        Self::from_random_bytes(bits.to_le_bytes())
+    }
+
     /// A boundary from a caller-chosen token, refused unless `[A-Za-z0-9_-]+`.
     pub fn new(token: &str) -> Result<Self, DelimitError> {
         if is_token(token) {
@@ -335,5 +350,8 @@ mod tests {
             Err(DelimitError::InvalidBoundary("x y".into()))
         );
         assert!(Boundary::new("").is_err());
+        let (a, b) = (Boundary::from_std_entropy(), Boundary::from_std_entropy());
+        assert_ne!(a, b);
+        assert_eq!(a.as_str().len(), 16);
     }
 }

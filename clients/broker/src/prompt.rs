@@ -35,17 +35,10 @@ impl AssembledExtensionPrompt {
 }
 
 /// A fresh boundary for one prompt. The broker performs no cryptography and takes
-/// no crypto dependency (KDD-2), so the bytes come from the standard library's
-/// randomly keyed hasher (keys seeded from the OS once per thread), not a CSPRNG.
-/// That is enough for its purpose: the indentation and the neutralisation of the
-/// boundary inside data are the controls; an unguessable boundary is defence in
-/// depth. [VLD-ANB-MIDGARD-0080]
+/// no crypto dependency (KDD-2), so it uses [`Boundary::from_std_entropy`], not a
+/// CSPRNG. [VLD-ANB-MIDGARD-0080]
 fn request_boundary() -> Boundary {
-    use std::hash::{BuildHasher, Hasher};
-    let bits = std::collections::hash_map::RandomState::new()
-        .build_hasher()
-        .finish();
-    Boundary::from_random_bytes(bits.to_le_bytes())
+    Boundary::from_std_entropy()
 }
 
 /// Assemble the A.C3 prompt from the user-shared selection, enclosure grounding, and

@@ -22,8 +22,8 @@
 //! dependency-free reader, and an **EV-AD** eval suite scores the behaviour — each
 //! eval both passing on correct output and catching the corresponding violation.
 //!
-//! A.AD1 and A.AD3 place untrusted text (state, ledger rows, the administrator's
-//! words) in their prompts only as provenance-tagged DATA blocks
+//! A.AD1, A.AD2 and A.AD3 place untrusted text (state, simulation diffs, ledger
+//! rows, the administrator's words) in their prompts only as provenance-tagged DATA blocks
 //! (`mimir_prompts::delimit`), each prompt under a fresh boundary from
 //! [`request_boundary`]. [VLD-ANB-MIDGARD-0080] [FR-MI-7]
 
@@ -67,6 +67,6 @@ pub fn request_boundary() -> Boundary {
     Boundary::from_random_bytes(bytes)
 }
 pub use sim_explainer::{
-    assemble_sim, explain_simulation, AssembledSimPrompt, MockSimExplainer, SimExplainer,
-    SimExplainerContext, SimulationImpact, UnavailableSimExplainer,
+    assemble_sim, assemble_sim_with_boundary, explain_simulation, AssembledSimPrompt,
+    MockSimExplainer, SimExplainer, SimExplainerContext, SimulationImpact, UnavailableSimExplainer,
 };
