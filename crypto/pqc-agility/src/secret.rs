@@ -21,10 +21,37 @@
 //! Secret types deliberately do **not** implement `Clone` — copying key material must
 //! be explicit via `expose`.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Once;
+
 use zeroize::Zeroize;
 
+/// How many secrets this process failed to lock into RAM.
+static LOCK_FAILURES: AtomicU64 = AtomicU64::new(0);
+static LOCK_FAILURE_WARNING: Once = Once::new();
+
+/// How many secrets this process has failed to `mlock` since it started. A non-zero
+/// count means key material may reach swap; services export it as a metric. [MG-SEC-08]
+pub fn mlock_failures() -> u64 {
+    LOCK_FAILURES.load(Ordering::Relaxed)
+}
+
+/// Count a failed lock, and say so on stderr the first time — a silent fallback would
+/// leave an operator believing keys are kept out of swap when they are not. [MG-SEC-08]
+fn report_lock_failure(len: usize) {
+    LOCK_FAILURES.fetch_add(1, Ordering::Relaxed);
+    LOCK_FAILURE_WARNING.call_once(|| {
+        eprintln!(
+            "warning: pqc-agility could not mlock a {len}-byte secret ({}); key material \
+             may be written to swap. Raise RLIMIT_MEMLOCK or grant CAP_IPC_LOCK.",
+            std::io::Error::last_os_error()
+        );
+    });
+}
+
 /// Lock a byte range into RAM so it is never paged to swap. Best-effort: returns
-/// whether the lock succeeded. Zero-length ranges are never locked.
+/// whether the lock succeeded, and reports a failure through [`mlock_failures`] and a
+/// one-time warning. Zero-length ranges are never locked.
 fn lock_pages(ptr: *const u8, len: usize) -> bool {
     if len == 0 {
         return false;
@@ -33,7 +60,11 @@ fn lock_pages(ptr: *const u8, len: usize) -> bool {
     {
         // SAFETY: `ptr`/`len` describe a live allocation owned by the caller for the
         // secret's lifetime; mlock only pins its pages and mutates no memory.
-        unsafe { libc::mlock(ptr as *const libc::c_void, len) == 0 }
+        let locked = unsafe { libc::mlock(ptr as *const libc::c_void, len) == 0 };
+        if !locked {
+            report_lock_failure(len);
+        }
+        locked
     }
     #[cfg(not(unix))]
     {

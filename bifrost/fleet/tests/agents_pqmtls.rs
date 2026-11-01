@@ -21,8 +21,8 @@ use policy::{
     ResourceId, Role, Rule, RuleId, Selector,
 };
 use pq_mtls::{
-    canonical_identity, read_frame, run_initiator, run_responder, write_frame, IdentityCert,
-    Initiator, Posture, Responder, Role as RecordRole, ServiceId, TrustAnchor, WorkloadIdentity,
+    read_frame, run_initiator, run_responder, write_frame, IdentityCert, Initiator, Posture,
+    Responder, Role as RecordRole, ServiceId, TrustAnchor, WorkloadIdentity,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::{CryptoProvider, OsRng, Rng, SigId, SigningKey, VerifyingKey};
@@ -82,11 +82,15 @@ fn party(p: &CryptoProvider, id: &str, role: &str, seed: u64, ca: &Ca) -> Party 
     let ca_signature = p
         .sig_for(ALG)
         .unwrap()
-        .sign(&ca.signing_key, &canonical_identity(&identity))
+        .sign(
+            &ca.signing_key,
+            &pq_mtls::canonical_cert_body(&identity, &test_terms()),
+        )
         .unwrap();
     Party {
         cert: IdentityCert {
             identity,
+            terms: test_terms(),
             ca_sig_alg: ALG,
             ca_signature,
         },
@@ -141,6 +145,7 @@ fn agent_check_in(
         agent.cert.clone(),
         &agent.signing_key,
         anchor.clone(),
+        pq_mtls::ServiceId("fleet-manager".into()),
         Purpose("investigation".into()),
         posture(),
         &mut rng,
@@ -288,4 +293,15 @@ fn agents_check_in_over_pqmtls_and_staleness_is_detected() {
 
     shutdown.store(true, Ordering::Relaxed);
     server.join().unwrap();
+}
+
+/// Terms for test certificates: valid from the epoch to the end of time, granting
+/// TOP SECRET, so a test's requested clearance is what it gets.
+fn test_terms() -> pq_mtls::CertTerms {
+    pq_mtls::CertTerms::new(
+        1,
+        0,
+        u64::MAX,
+        pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+    )
 }

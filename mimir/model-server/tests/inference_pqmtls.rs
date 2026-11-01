@@ -58,7 +58,19 @@ fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (pq_mtls::Identit
         sig_alg: IDP_SIG_ALG,
         verifying_key: vk,
     };
-    (idp.certify(&identity).unwrap(), sk)
+    (
+        idp.certify(
+            &identity,
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
+        .unwrap(),
+        sk,
+    )
 }
 
 fn inference_resource() -> Resource {
@@ -153,6 +165,7 @@ fn call_inference(
         cert,
         signing_key,
         anchor,
+        pq_mtls::ServiceId("svc-mimir".into()),
         Purpose("investigation".into()),
         posture(),
         &mut rng,
@@ -172,6 +185,7 @@ fn call_inference(
             &read_frame(&mut stream).map_err(MtlsError::Transport)?,
         )
         .map_err(|_| MtlsError::Protocol("open failed".into()))?;
+    gateway::close_stream(&mut stream, &mut seal)?;
     let resp = InferenceResponse::decode(&raw).expect("decodes");
     Ok((suite, resp))
 }

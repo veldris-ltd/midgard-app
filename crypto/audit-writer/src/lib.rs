@@ -8,25 +8,41 @@
 //! The chain hash reuses `pqc-agility`'s KAT-tested SHA-256 (no second hash
 //! implementation), and signing goes through the same agility shim as the rest of
 //! the platform, so audit signatures rotate algorithms with no data migration.
+//!
+//! A chain alone cannot show that nothing was cut off its end, so every append also
+//! refreshes a signed [`LedgerCheckpoint`] of the ledger's length and head; a durable
+//! ledger must exist to be opened; and [`verify::verify_ledger`] checks chain and
+//! checkpoint under a [`PinnedKey`] supplied from outside the signing keystore.
+//! Optionally every checkpoint is also published to a [`CheckpointMirror`] off the
+//! server, so the ledger and its checkpoint cannot be rolled back together.
+//! [MG-SEC-05]
 
+pub mod adopt;
 pub mod canonical;
 pub mod chain;
+pub mod checkpoint;
 pub mod codec;
 pub mod error;
 pub mod file;
 pub mod journal;
 pub mod ledger;
+pub mod mirror;
+pub mod pin;
 pub mod record;
 pub mod verify;
 
+pub use adopt::{adopt_ledger, Adoption, AdoptionKeys};
 pub use canonical::canonical_record;
-pub use chain::{entry_hash, genesis_hash, signing_preimage};
+pub use chain::{checkpoint_preimage, entry_hash, genesis_hash, signing_preimage};
+pub use checkpoint::LedgerCheckpoint;
 pub use codec::{decode_sealed_entry, encode_sealed_entry};
 pub use error::AuditError;
-pub use file::{FileLedger, Sealer};
+pub use file::{checkpoint_path, FileLedger, Sealer};
 pub use journal::SealedJournal;
 pub use ledger::{AuditWriter, InMemoryLedger, LedgerStore};
+pub use mirror::{CheckpointMirror, FileCheckpointMirror};
+pub use pin::PinnedKey;
 pub use record::{
     Action, Actor, AuditRecord, LedgerId, RecordId, Resource, SealedEntry, Timestamp,
 };
-pub use verify::verify_chain;
+pub use verify::{verify_chain, verify_ledger};

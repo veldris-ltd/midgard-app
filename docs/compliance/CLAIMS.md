@@ -77,14 +77,20 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
 
 A mesh certificate authority that issues, renews and revokes workload certificates, with a revocation honoured at the next handshake.
 
-**Until it is operable, say:** "Issue, renewal and revocation of workload certificates are implemented and tested as a library (services/iam/tests/rc_35.rs). The certificates deployments use today come from mg-admin mesh issue, which does not set an expiry and does not renew."
+**Until it is operable, say:** "Workload certificates carry an expiry and a clearance. mg-admin mesh issue, renew and revoke manage them, and services re-read a signed revocation list every 30 seconds. Renewal is an operator command; services do not renew themselves yet."
 
-**Milestone.** mg-admin mesh issue goes through the certificate authority and services renew automatically (RF-IAM-6).
+**Milestone.** Services renew their own certificates before expiry (RF-IAM-6).
 
 - Source:
-  - [`tools/mg-admin/src/mesh.rs:115`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:203`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:348`](../../tools/mg-admin/src/mesh.rs)
+  - [`crypto/pq-mtls/src/revocation.rs:1`](../../crypto/pq-mtls/src/revocation.rs)
+  - [`services/runtime/src/identity.rs:68`](../../services/runtime/src/identity.rs)
 - Tests:
   - [`services/iam/tests/rc_35.rs::renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake`](../../services/iam/tests/rc_35.rs)
+  - [`services/iam/tests/rc_35.rs::the_signed_list_carries_the_revocation_to_other_verifiers`](../../services/iam/tests/rc_35.rs)
+  - [`services/iam/tests/rc_35.rs::an_expired_certificate_no_longer_handshakes`](../../services/iam/tests/rc_35.rs)
+  - [`tools/mg-admin/tests/mesh.rs::mesh_certificates_expire_revoke_and_renew`](../../tools/mg-admin/tests/mesh.rs)
 
 ### `sealed-durable-state` (operable)
 
@@ -127,14 +133,19 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
 
 ### `audit-ledger` (operable)
 
-Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start.
+Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start.
 
 **Limit.** The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime).
 
 - Source:
   - [`crypto/audit-writer/src/ledger.rs:5`](../../crypto/audit-writer/src/ledger.rs)
+  - [`crypto/audit-writer/src/checkpoint.rs:1`](../../crypto/audit-writer/src/checkpoint.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
+  - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
+  - [`crypto/audit-writer/tests/truncation.rs::a_ledger_checked_with_the_wrong_key_is_refused`](../../crypto/audit-writer/tests/truncation.rs)
+  - [`services/http-gateway/tests/state_dir_boot.rs::a_shortened_or_deleted_ledger_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
+  - [`services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart`](../../services/http-gateway/tests/durable_enclosure.rs)
 - Service tests:
@@ -289,18 +300,24 @@ A guarded-action orchestrator that makes a mutating admin action one transaction
 
 ### `break-glass` (reference)
 
-Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout.
+Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. It takes two people: the requester and a different approver, each signed in with their own passkey and each holding the role that entitles them (the approver a security officer), and both identities are sealed into the audit ledger.
 
-**Until it is operable, say:** "Break-glass alerting with durable, at-least-once delivery is implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
+**Until it is operable, say:** "Break-glass alerting with durable, at-least-once delivery, and two-person approval between passkey-authenticated administrators, are implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
 
 **Milestone.** RF-CA-11: the alert path runs in a service and the console reads it.
 
 - Criteria: AC-AD-8
 - Source:
   - [`admin/breakglass/src/alert.rs:84`](../../admin/breakglass/src/alert.rs)
+  - [`admin/breakglass/src/service.rs:1`](../../admin/breakglass/src/service.rs)
 - Tests:
   - [`admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage`](../../admin/breakglass/tests/rc_32.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::the_requester_cannot_approve_their_own_break_glass`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::an_unauthenticated_approver_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::a_valid_two_person_grant_records_both_identities_in_the_ledger`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::an_approver_without_breakglass_approve_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
+  - [`admin/breakglass/tests/mg_sec_07.rs::a_requester_without_breakglass_request_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
 
 ### `config-reconciliation` (reference)
 
@@ -710,7 +727,7 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 
 - Criteria: AC-B-1
 - Source:
-  - [`deploy/images/entrypoint.sh:16`](../../deploy/images/entrypoint.sh)
+  - [`deploy/images/entrypoint.sh:27`](../../deploy/images/entrypoint.sh)
   - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)

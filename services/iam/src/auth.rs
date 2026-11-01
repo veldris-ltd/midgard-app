@@ -79,6 +79,9 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
     /// Authenticate a principal and, on success, mint a PQ-signed token. Verifies
     /// password **and** MFA before issuance; every failure path mints nothing. `now`
     /// is the unix time used both to bound the token and to check TOTP. [RC-29]
+    ///
+    /// This reads the directory only, so a legacy password hash stays as it is; use
+    /// [`UpgradingAuthenticator`] to also replace it on sign-in. [MG-SEC-11]
     pub fn authenticate(
         &self,
         subject: &str,
@@ -88,6 +91,21 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
         now: u64,
         ttl_secs: u64,
     ) -> Result<Vec<u8>, AuthError> {
+        self.check(subject, password, mfa, purpose, now, ttl_secs)
+            .map(|(token, _)| token)
+    }
+
+    /// The whole check. On success, also the stored password hash when the hasher
+    /// wants it replaced (legacy or below current parameters). [MG-SEC-11]
+    fn check(
+        &self,
+        subject: &str,
+        password: &[u8],
+        mfa: MfaProof,
+        purpose: Purpose,
+        now: u64,
+        ttl_secs: u64,
+    ) -> Result<(Vec<u8>, Option<String>), AuthError> {
         let Some(entry) = self.directory.enrollment(subject) else {
             // Do the password work anyway: an unknown principal must not be refused
             // measurably faster than a known one with a wrong password.
@@ -134,8 +152,93 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
         }
 
         // 3. Only now mint the token, from the directory's attributes.
-        self.idp
+        let token = self
+            .idp
             .mint_token(subject, &entry.user, purpose, now, ttl_secs)
-            .map_err(AuthError::Issue)
+            .map_err(AuthError::Issue)?;
+        let stale = &entry.credentials.password_hash;
+        let stale = self.hasher.needs_rehash(stale).then(|| stale.clone());
+        Ok((token, stale))
+    }
+}
+
+/// What became of the principal's stored password hash after a successful sign-in
+/// through [`UpgradingAuthenticator`]. [MG-SEC-11]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasswordUpgrade {
+    /// The stored hash is already in the current format; nothing was written.
+    Current,
+    /// The stored hash was legacy (or weaker than current) and has been replaced by
+    /// an Argon2id hash of the password just presented, and persisted.
+    Upgraded,
+    /// The enrollment changed between the check and the write (re-enrolled or
+    /// removed); the newer entry was left alone.
+    Superseded,
+    /// The replacement could not be recorded. The sign-in still stands; the next one
+    /// tries again.
+    NotRecorded(String),
+}
+
+/// A successful sign-in: the minted token and what became of the password hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Login {
+    /// The PQ-signed access token.
+    pub token: Vec<u8>,
+    /// Whether the stored password hash was upgraded.
+    pub upgrade: PasswordUpgrade,
+}
+
+/// The authenticator with **rehash on sign-in**: the same checks as
+/// [`Authenticator::authenticate`] — nothing is written unless every one passes —
+/// then, when the stored hash is legacy PBKDF2 or weaker than the current Argon2id
+/// parameters, it hashes the password just presented with the hasher's
+/// [`rehash`](PasswordHasher::rehash) and persists it through
+/// [`Directory::replace_password_hash`]. Old entries are thereby replaced the next
+/// time their owners sign in. [MG-SEC-11] [RC-29]
+pub struct UpgradingAuthenticator<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> {
+    idp: &'a Idp,
+    directory: &'a mut D,
+    hasher: &'a H,
+}
+
+impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> UpgradingAuthenticator<'a, H, D> {
+    /// Build an upgrading authenticator over a directory it may write to.
+    pub fn new(idp: &'a Idp, directory: &'a mut D, hasher: &'a H) -> Self {
+        Self {
+            idp,
+            directory,
+            hasher,
+        }
+    }
+
+    /// Authenticate exactly as [`Authenticator::authenticate`] does and, on success,
+    /// upgrade a stale password hash. A failure to record the upgrade does not fail
+    /// the sign-in; it is reported in [`Login::upgrade`]. [MG-SEC-11]
+    pub fn authenticate(
+        &mut self,
+        subject: &str,
+        password: &[u8],
+        mfa: MfaProof,
+        purpose: Purpose,
+        now: u64,
+        ttl_secs: u64,
+    ) -> Result<Login, AuthError> {
+        let (token, stale) = Authenticator::new(self.idp, &*self.directory, self.hasher)
+            .check(subject, password, mfa, purpose, now, ttl_secs)?;
+        let upgrade = match stale {
+            None => PasswordUpgrade::Current,
+            Some(current) => {
+                let new_hash = self.hasher.rehash(password);
+                match self
+                    .directory
+                    .replace_password_hash(subject, &current, new_hash)
+                {
+                    Ok(true) => PasswordUpgrade::Upgraded,
+                    Ok(false) => PasswordUpgrade::Superseded,
+                    Err(e) => PasswordUpgrade::NotRecorded(e),
+                }
+            }
+        };
+        Ok(Login { token, upgrade })
     }
 }

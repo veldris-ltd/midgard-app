@@ -65,6 +65,8 @@ fn provision(dir: &Path) -> (StateDir, Vec<(&'static str, SoftwareAdminAuthentic
     let audit = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
     idp.write(&state.idp_keystore()).unwrap();
     audit.write(&state.audit_keystore()).unwrap();
+    // What `mg-admin init` also creates: the ledger and its signed checkpoint.
+    http_gateway::boot::init_audit_ledger(&state).unwrap();
 
     let policy = PolicySet::new(vec![Rule {
         id: RuleId("operator-read".into()),
@@ -189,7 +191,7 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
     let strong_hash = Pbkdf2Hasher::production().hash(PASSWORD.as_bytes());
 
     let id = {
-        let served = open_state_dir(&state, Vec::new()).expect("boots");
+        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
         assert_eq!(served.administrators, 3);
         let gw = &served.gateway;
 
@@ -244,7 +246,7 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
         id
     }; // restart
 
-    let served = open_state_dir(&state, Vec::new()).expect("boots again");
+    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots again");
     let gw = &served.gateway;
     let bob = proof(gw, device("bob"));
     let listed = post(
@@ -313,4 +315,14 @@ fn a_development_gateway_serves_no_administration() {
         NOW,
     );
     assert_eq!(r.status, 404, "{}", r.body);
+}
+
+/// The audit key the operator pins the gateway to, from outside the keystore it
+/// checks. [MG-SEC-05]
+fn pin(state: &StateDir) -> audit_writer::PinnedKey {
+    audit_writer::PinnedKey::new(
+        attest::Keystore::read(&state.audit_keystore())
+            .unwrap()
+            .verifying_key,
+    )
 }

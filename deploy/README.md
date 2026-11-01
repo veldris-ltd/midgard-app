@@ -14,7 +14,9 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   - `entrypoint.sh` — **verify-before-run**: `mg-verify` re-checks the ML-DSA
     signature + SBOM + provenance against the pinned trust key before the service is
     exec'd; a tampered image fails closed and the container refuses to start.
-    [AC-B-1] [NFR-PQ-3]
+    The trust key is always `/trust/release-trust.pub`, owned by root: no environment
+    variable can point verification at another key (`MIDGARD_RELEASE_TRUST_KEY` is
+    gone). [AC-B-1] [NFR-PQ-3] [MG-SEC-14]
 - **`compose/`** — Midgard on one machine with docker compose: the HTTP edge, the
   Mimir inference plane, the Bifrost fleet manager, the Heimdall feed gateway and the
   Forge worker in hardened containers (non-root, read-only rootfs, no
@@ -24,6 +26,13 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   PQ-mTLS. `smoke.sh` builds, starts, probes and restarts a throwaway copy. The image
   is built from source (`compose/Dockerfile`), **not** the signed release image.
   [RC-33] [NFR-SEC-1]
+  `compose.granite.yaml` serves a real model (Granite on llama.cpp) instead of the
+  reference engine. The llama.cpp sidecar never mounts the models volume: mimir-server
+  verifies the model, stages the verified weights read-only into the `mimir-serve`
+  volume (`--serve-dir`), which only it writes, and writes `staged.ready` last;
+  llama.cpp mounts that volume read-only and starts on the staged copy once the marker
+  exists. The chart's `modelServing` (and `kind/model.sh`) does the same with an
+  emptyDir at `/serve`. [MG-SEC-14]
 - **`installer/`**: `mg-install`, the guided installer for one server: a server check,
   use-case profiles (each with a starter schema, policy and sample Forge jobs), the choice
   of products, first users and administrators enrolled before anything starts, an
@@ -74,9 +83,11 @@ services are not built yet. The remaining services (admin) join with the identic
 `services/runtime`; the release **coverage gate** (RT-07) forces each new binary
 through the release gate first.
 
-The runtime image's entrypoint passes any container arguments to the service
-(`mimir-server --identity-dir … --state-dir …`); with none, it starts the service on
-`MIDGARD_BIND`.
+The runtime image's entrypoint passes the container arguments to the service
+(`mimir-server --identity-dir … --state-dir …`). With none, it refuses to start: no
+service is ever started on a default address, and `http-gateway` in particular needs
+`--state-dir`. The gateway's development mode (`--dev`) listens on loopback only, so it
+cannot be served from an image. [MG-SEC-06]
 
 A real multi-node `kubectl apply` + cross-host PQ-mTLS smoke belongs to the
 **deployment-tier acceptance suite (RT-40)**, run on a staging cluster — it cannot

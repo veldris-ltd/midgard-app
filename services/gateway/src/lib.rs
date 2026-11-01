@@ -19,18 +19,34 @@
 //! With a [`TicketKey`] configured, the gateway also issues PQ-mTLS **resumption
 //! tickets** and accepts abbreviated (resumed) handshakes that skip the KEM +
 //! signature flights — amortising the handshake across connections too.
+//!
+//! ## Pre-authentication limits (MG-SEC-13)
+//! Everything before the handshake completes is reachable by anyone who can open a
+//! socket, so it is bounded: a [connection cap](Gateway::with_max_connections) refuses
+//! connections beyond it before a thread is spent on them, a
+//! [handshake timeout](Gateway::with_handshake_timeout) drops a peer that stalls
+//! mid-handshake, and handshake frames are capped at
+//! [`pq_mtls::MAX_HANDSHAKE_FRAME`] with no memory reserved from a peer's length
+//! prefix. An authenticated connection that goes quiet is dropped after the
+//! [idle timeout](Gateway::with_idle_timeout).
+//!
+//! ## End of stream (MG-SEC-12)
+//! A client ends its connection with the record layer's end-of-stream marker. A
+//! connection that simply stops is reported as [`MtlsError::StreamTruncated`], so a
+//! cut connection is never mistaken for a finished one.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use policy::{PolicyDecisionPoint, Purpose, Resource};
+use policy::{PolicyDecisionPoint, Resource};
 use pq_mtls::{
     issue_ticket, read_frame, run_responder, run_resume_responder, write_frame, IdentityCert,
-    MtlsError, Posture, Responder, Role, TcpChannel, TicketKey, TrustAnchor, WorkloadIdentity,
-    MODE_FULL, MODE_RESUME,
+    MtlsError, Record, Responder, Role, TcpChannel, TicketKey, TransportError, TrustAnchor,
+    WorkloadIdentity, MODE_FULL, MODE_RESUME,
 };
 use pqc_agility::{CryptoProvider, OsRng, SigningKey};
 
@@ -38,11 +54,21 @@ use pqc_agility::{CryptoProvider, OsRng, SigningKey};
 /// client must seal/open its records under the same value.
 pub const RECORD_AAD: &[u8] = b"midgard-gw/1";
 
-/// The purpose/posture the gateway records in a resumption ticket so a resumed
-/// connection re-authorizes identically to the full handshake it descends from.
-/// (The full handshake carries these on the wire; a resumed one recovers them from
-/// the sealed ticket.)
-const CHANNEL_PURPOSE: &str = "investigation";
+/// Default cap on concurrent connections. [MG-SEC-13]
+pub const DEFAULT_MAX_CONNECTIONS: usize = 512;
+/// Default time a peer has to complete the handshake. [MG-SEC-13]
+pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Default time an authenticated connection may sit idle. [MG-SEC-13]
+pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Seal and send the end-of-stream marker on a record stream: how a client finishes a
+/// connection so the server can tell it from a cut one. [MG-SEC-12]
+pub fn close_stream(
+    stream: &mut TcpStream,
+    sealer: &mut pq_mtls::RecordSealer,
+) -> Result<(), MtlsError> {
+    write_frame(stream, &sealer.seal_close(RECORD_AAD)?).map_err(MtlsError::Transport)
+}
 
 // ---- request handling & routing -------------------------------------------
 
@@ -231,6 +257,21 @@ pub struct Gateway {
     ticket: Option<(Arc<TicketKey>, u64)>, // (key, ttl secs)
     seen_tickets: Arc<Mutex<HashSet<Vec<u8>>>>,
     clock: Clock,
+    max_connections: usize,
+    active: Arc<AtomicUsize>,
+    handshake_timeout: Duration,
+    idle_timeout: Duration,
+}
+
+/// A slot under the gateway's connection cap, released when dropped. [MG-SEC-13]
+pub struct ConnectionPermit {
+    active: Arc<AtomicUsize>,
+}
+
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl Gateway {
@@ -266,7 +307,59 @@ impl Gateway {
             ticket: None,
             seen_tickets: Arc::new(Mutex::new(HashSet::new())),
             clock: system_clock(),
+            max_connections: DEFAULT_MAX_CONNECTIONS,
+            active: Arc::new(AtomicUsize::new(0)),
+            handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
+    }
+
+    /// Serve at most `max` connections at once; further ones are refused with
+    /// [`MtlsError::Overloaded`] before any handshake work. [MG-SEC-13]
+    pub fn with_max_connections(mut self, max: usize) -> Self {
+        self.max_connections = max;
+        self
+    }
+
+    /// Drop a peer that has not completed the handshake within `timeout`. [MG-SEC-13]
+    pub fn with_handshake_timeout(mut self, timeout: Duration) -> Self {
+        self.handshake_timeout = timeout;
+        self
+    }
+
+    /// Drop an authenticated connection that sends nothing for `timeout`. [MG-SEC-13]
+    pub fn with_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.idle_timeout = timeout;
+        self
+    }
+
+    /// Take a slot under the connection cap, or `None` if the gateway is full. Accept
+    /// loops call this before spending a thread on a connection. [MG-SEC-13]
+    pub fn admit(&self) -> Option<ConnectionPermit> {
+        let mut current = self.active.load(Ordering::Acquire);
+        loop {
+            if current >= self.max_connections {
+                return None;
+            }
+            match self.active.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Some(ConnectionPermit {
+                        active: self.active.clone(),
+                    })
+                }
+                Err(seen) => current = seen,
+            }
+        }
+    }
+
+    /// Connections currently being served.
+    pub fn active_connections(&self) -> usize {
+        self.active.load(Ordering::Acquire)
     }
 
     /// Enforce a per-identity token-bucket rate limit.
@@ -301,6 +394,27 @@ impl Gateway {
     /// returns an error and the connection is dropped — there is no unauthenticated
     /// path to the handler. [AC-M-1] [AC-M-3] [RT-25]
     pub fn handle_connection(&self, stream: TcpStream) -> Result<WorkloadIdentity, MtlsError> {
+        let permit = self.admit().ok_or(MtlsError::Overloaded)?;
+        self.handle_admitted(permit, stream)
+    }
+
+    /// [`Gateway::handle_connection`] for a connection already holding a slot from
+    /// [`Gateway::admit`]; the slot is released when this returns.
+    pub fn handle_admitted(
+        &self,
+        permit: ConnectionPermit,
+        stream: TcpStream,
+    ) -> Result<WorkloadIdentity, MtlsError> {
+        let _permit = permit;
+        // Everything up to an established session must finish within the handshake
+        // timeout: a peer that stalls is dropped, not waited on. [MG-SEC-13]
+        let io = |e: std::io::Error| MtlsError::Transport(TransportError::Io(e.to_string()));
+        stream
+            .set_read_timeout(Some(self.handshake_timeout))
+            .map_err(io)?;
+        stream
+            .set_write_timeout(Some(self.handshake_timeout))
+            .map_err(io)?;
         if self.ticket.is_some() {
             // Resumption-capable: the client leads with a one-byte connection mode.
             let mut mode = [0u8; 1];
@@ -332,26 +446,20 @@ impl Gateway {
             self.pdp.as_ref(),
             self.resource.clone(),
             &mut rng,
-        );
+        )
+        .at_time((self.clock)());
         let mut ch = TcpChannel::new(stream);
         let session = run_responder(responder, &mut ch)?;
         let peer = session.peer().clone();
         let mut stream = ch.into_stream();
 
-        // Hand the client a resumption ticket before the request loop.
+        // Hand the client a resumption ticket before the request loop. The ticket
+        // carries what this handshake authorised — the clearance capped by the
+        // client's certificate and its declared purpose. [MG-SEC-04]
         if issue {
             if let Some((key, ttl)) = &self.ticket {
                 let now = (self.clock)();
-                let ticket = issue_ticket(
-                    key,
-                    &session,
-                    &peer,
-                    &self.channel_posture(),
-                    &Purpose(CHANNEL_PURPOSE.into()),
-                    now,
-                    *ttl,
-                    &mut rng,
-                )?;
+                let ticket = issue_ticket(key, &session, now, *ttl, &mut rng)?;
                 write_frame(&mut stream, &ticket).map_err(MtlsError::Transport)?;
             }
         }
@@ -374,6 +482,7 @@ impl Gateway {
         let resumed = run_resume_responder(
             &mut stream,
             key,
+            &self.trust_anchor,
             self.pdp.as_ref(),
             &self.resource,
             now,
@@ -387,10 +496,12 @@ impl Gateway {
         Ok(peer)
     }
 
-    /// The record loop: serve request/response frames until EOF, rate limit, or the
-    /// per-connection quota is hit. A throttled/over-quota peer's connection is
-    /// dropped (its next read fails) — the record layer's sequence numbers stay in
-    /// lock-step because we only ever seal responses in order.
+    /// The record loop: serve request/response frames until the client's
+    /// end-of-stream marker, a rate limit, or the per-connection quota. A
+    /// throttled/over-quota peer's connection is dropped (its next read fails) — the
+    /// record layer's sequence numbers stay in lock-step because we only ever seal
+    /// responses in order. A connection that ends without the marker is
+    /// [`MtlsError::StreamTruncated`]. [MG-SEC-12]
     fn serve_requests(
         &self,
         stream: &mut TcpStream,
@@ -398,11 +509,18 @@ impl Gateway {
         mut sealer: pq_mtls::RecordSealer,
         mut opener: pq_mtls::RecordOpener,
     ) -> Result<(), MtlsError> {
+        let io = |e: std::io::Error| MtlsError::Transport(TransportError::Io(e.to_string()));
+        stream
+            .set_read_timeout(Some(self.idle_timeout))
+            .map_err(io)?;
+        stream
+            .set_write_timeout(Some(self.idle_timeout))
+            .map_err(io)?;
         let mut served = 0usize;
         loop {
             let frame = match read_frame(stream) {
                 Ok(f) if !f.is_empty() => f,
-                _ => break, // clean close / EOF
+                _ => return Err(MtlsError::StreamTruncated),
             };
             // Per-identity rate limit.
             if let Some(rl) = &self.rate_limiter {
@@ -415,7 +533,10 @@ impl Gateway {
             if self.max_requests_per_conn != 0 && served > self.max_requests_per_conn {
                 break;
             }
-            let request = opener.open(RECORD_AAD, &frame)?;
+            let request = match opener.open_record(RECORD_AAD, &frame)? {
+                Record::Data(request) => request,
+                Record::Close => break,
+            };
             let response = self.handler.handle(peer, &request);
             write_frame(stream, &sealer.seal(RECORD_AAD, &response)?)
                 .map_err(MtlsError::Transport)?;
@@ -423,18 +544,10 @@ impl Gateway {
         Ok(())
     }
 
-    fn channel_posture(&self) -> Posture {
-        // The channel resource's marking is the posture ceiling the gateway asserts
-        // for a resumed connection (it re-authorizes under the same PDP).
-        Posture {
-            level: self.resource.marking.level,
-            compartments: self.resource.marking.compartments.clone(),
-        }
-    }
-
-    /// Serve connections until `listener` errors, one thread per connection.
-    /// Per-connection failures are isolated (logged by the closure) and never
-    /// take down the listener.
+    /// Serve connections until `listener` errors, one thread per connection, up to
+    /// the connection cap: a connection over the cap is reported as
+    /// [`MtlsError::Overloaded`] and closed without a thread. Per-connection failures
+    /// are isolated (logged by the closure) and never take down the listener.
     pub fn serve(
         &self,
         listener: &TcpListener,
@@ -445,11 +558,17 @@ impl Gateway {
         let on_result = Arc::new(on_result);
         for stream in listener.incoming() {
             match stream {
-                Ok(stream) => {
-                    let gw = self.clone();
-                    let cb = on_result.clone();
-                    std::thread::spawn(move || cb(gw.handle_connection(stream)));
-                }
+                Ok(stream) => match self.admit() {
+                    Some(permit) => {
+                        let gw = self.clone();
+                        let cb = on_result.clone();
+                        std::thread::spawn(move || cb(gw.handle_admitted(permit, stream)));
+                    }
+                    None => {
+                        drop(stream);
+                        on_result(Err(MtlsError::Overloaded));
+                    }
+                },
                 Err(_) => break,
             }
         }

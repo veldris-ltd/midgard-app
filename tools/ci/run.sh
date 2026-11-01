@@ -47,7 +47,7 @@ k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders (needs 
 toolchain|host|build or restore the digest-pinned toolchain image (the only online step)
 fmt|toolchain|formatting
 lint|toolchain|clippy at deny-warnings
-build|toolchain|release build of the workspace
+build|toolchain|release build of the workspace, whose graph never enables the test backend
 test|toolchain|the test suite, both crypto backends; its log is kept in target/gate
 repro|toolchain|two normalised builds of the workspace are bit-identical
 scan|toolchain|advisory and licence scan of the dependency graph, PR mode
@@ -193,7 +193,12 @@ job_toolchain() {
 
 job_fmt() { in_toolchain just fmt-check; }
 job_lint() { in_toolchain just lint; }
-job_build() { in_toolchain just build-rust; }
+# The release build, then the check that nothing in its graph enables the insecure
+# test backend. [MG-SEC-15]
+job_build() {
+    in_toolchain just build-rust
+    in_toolchain bash tools/ci/no-test-backend.sh
+}
 # The two parts of the acceptance gate go through gate-run.sh, which runs them exactly
 # as before and keeps the log and its metadata in target/gate. The pipelines keep that
 # directory; tools/ci/gate-record.sh makes the gate record from it.

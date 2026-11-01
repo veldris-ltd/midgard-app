@@ -35,10 +35,11 @@ build-py:
     @uv sync --frozen || echo "no python members yet"
 
 # --- UI edges (dev) -------------------------------------------------------
-# Run the browser-facing HTTP/JSON edge for the console UIs. Point a console at
-# it with `VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev`.
+# Run the browser-facing HTTP/JSON edge for the console UIs, in development mode
+# (seeded data, the published demo logins, loopback only). Point a console at it
+# with `VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev`. [MG-SEC-06]
 gateway-http addr="127.0.0.1:7710":
-    cargo run -p http-gateway -- {{addr}}
+    cargo run -p http-gateway -- --dev {{addr}}
 
 # Run the Midgard console against the real HTTP edge (start `just gateway-http` first).
 console-midgard-http:
@@ -128,7 +129,7 @@ fmt-check:
 # below mirror `test`'s.
 lint:
     cargo clippy -p pqc-agility -p pq-mtls -p audit-writer --features test-backend --all-targets -- -D warnings
-    cargo clippy -p pqc-agility --features backend-fips --all-targets -- -D warnings
+    cargo clippy -p pqc-agility -p pq-mtls -p audit-writer --features backend-fips --all-targets -- -D warnings
     cargo clippy -p policy -p iam -p gateway -p http-gateway -p service-runtime -p kms -p governance -p fabric -p scheduler --all-targets -- -D warnings
     cargo clippy -p attest -p mg-sign -p mg-verify -p mg-sbom -p mg-scan -p mg-repro -p mg-bundle -p mg-register -p mg-admin --all-targets -- -D warnings
     cargo clippy -p model-server -p mimir-server -p staging -p mimir-prompts -p oag-retriever -p agent-runtime --features backend-fips --all-targets -- -D warnings
@@ -138,6 +139,8 @@ lint:
     cargo clippy -p admin-identity -p admin-privilege -p admin-sim -p admin-config -p admin-breakglass -p admin-audit -p admin-ai-assist -p admin-service-identity --features backend-fips --all-targets -- -D warnings
     cargo clippy -p midgard-client-sync -p midgard-client-keystore -p midgard-client-store -p midgard-client-broker -p midgard-client-delivery -p midgard-client-core --features backend-fips --all-targets -- -D warnings
     cargo clippy -p midgard-client-enclosure -p midgard-client-inference --features test-backend --all-targets -- -D warnings
+    cargo clippy -p telemetry --all-targets -- -D warnings
+    cargo clippy -p heimdall-store -p mimir-bridge -p admin-orchestrator -p mg-model --features backend-fips --all-targets -- -D warnings
 
 # Run all tests.
 # IMPORTANT: the crypto crates gate their backend tests behind a feature; running
@@ -150,11 +153,12 @@ lint:
 # invocations. Do NOT use `--all-features`.
 test:
     cargo test -p pqc-agility -p pq-mtls -p audit-writer --features test-backend
-    cargo test -p pqc-agility --features backend-fips --test fips_backend
-    cargo test -p pqc-agility --features backend-fips --test aead_kat
-    cargo test -p pqc-agility --features backend-fips --test agility_fips
-    cargo test -p pq-mtls --features backend-fips --test real_fips_handshake
-    cargo test -p pq-mtls --features backend-fips --test tcp_transport
+    # Every crypto test that can run on the production backend does, whole crates
+    # rather than chosen files: the NIST ACVP vectors (offline), tamper, truncation
+    # and downgrade detection, the record layer and resumption. [MG-SEC-15]
+    cargo test -p pqc-agility --features backend-fips
+    cargo test -p pq-mtls --features backend-fips
+    cargo test -p audit-writer --features backend-fips
     cargo test -p policy
     cargo test -p iam
     cargo test -p gateway
@@ -199,6 +203,10 @@ test:
     cargo test -p attest --no-default-features --features backend-fips
     cargo test -p mg-sign -p mg-sbom -p mg-scan -p mg-verify -p mg-repro
     cargo test -p mg-admin
+    # Crates whose tests no recipe ran before. [MG-SEC-15]
+    cargo test -p telemetry
+    cargo test -p heimdall-store -p mimir-bridge -p admin-orchestrator --features backend-fips
+    cargo test -p mg-bundle -p mg-model -p mg-register --features backend-fips
     # go.work exists but declares no modules and there are no .go files, so this
     # is a no-op that only ever fails when Go is absent. Whether the Go workspace
     # stays at all is RF-SDK-4.

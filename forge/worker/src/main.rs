@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! forge-worker --identity-dir DIR --state-dir DIR --jobs FILE --gateway HOST:PORT
-//!              [--service NAME] [--purpose P] [--secrets-dir DIR]
+//!              [--service NAME] [--gateway-service NAME] [--purpose P] [--secrets-dir DIR]
 //!              [--egress-routes FILE] [--health-bind ADDR] [--once]
 //! ```
 //!
@@ -14,7 +14,9 @@
 //! crate docs); the secrets its sources name are files in `--secrets-dir`. With
 //! `--egress-routes`, every network source must be one of the egress broker's local
 //! ports, or the worker refuses to start. Records are synced to the enclosure's gateway
-//! mesh door at `--gateway`, declared for `--purpose` (default `data-integration`).
+//! mesh door at `--gateway`, declared for `--purpose` (default `data-integration`). The
+//! door must hold the mesh identity `--gateway-service` (default `http-gateway`); any
+//! other is refused before records are sent.
 //!
 //! Every job runs at start and then every `every` seconds, in the order the file
 //! declares them; a run that fails is retried after at most ten seconds. A run resumes
@@ -38,7 +40,8 @@ use service_runtime::{client, spawn_health_port, unix_seconds, Args, DirLock, Se
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: forge-worker --identity-dir DIR --state-dir DIR --jobs FILE \
-                     --gateway HOST:PORT [--service NAME] [--purpose P] [--secrets-dir DIR] \
+                     --gateway HOST:PORT [--service NAME] [--gateway-service NAME] \
+                     [--purpose P] [--secrets-dir DIR] \
                      [--egress-routes FILE] [--health-bind ADDR] [--once]";
 
 /// The id of the worker's audit ledger.
@@ -59,6 +62,7 @@ fn main() {
             "state-dir",
             "jobs",
             "gateway",
+            "gateway-service",
             "service",
             "purpose",
             "health-bind",
@@ -85,6 +89,7 @@ fn run(args: &Args) -> Result<(), String> {
     let jobs_path = Path::new(args.require("jobs")?);
     let gateway = args.require("gateway")?;
     let purpose = args.get("purpose").unwrap_or("data-integration");
+    let gateway_service = args.get("gateway-service").unwrap_or("http-gateway");
 
     let jobs_text = std::fs::read_to_string(jobs_path)
         .map_err(|e| format!("cannot read {}: {e}", jobs_path.display()))?;
@@ -133,6 +138,7 @@ fn run(args: &Args) -> Result<(), String> {
     let worker = Worker {
         identity: &identity,
         gateway,
+        gateway_service,
         purpose,
         service,
         metrics: &metrics,
@@ -183,6 +189,7 @@ fn run(args: &Args) -> Result<(), String> {
 struct Worker<'a> {
     identity: &'a ServiceIdentity,
     gateway: &'a str,
+    gateway_service: &'a str,
     purpose: &'a str,
     service: &'a str,
     metrics: &'a MetricsRegistry,
@@ -215,6 +222,7 @@ impl Worker<'_> {
             let response = client::call(
                 self.identity,
                 self.gateway,
+                self.gateway_service,
                 self.purpose,
                 SYNC_RECORDS,
                 run.records.as_bytes(),

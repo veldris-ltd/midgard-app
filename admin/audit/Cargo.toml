@@ -22,6 +22,8 @@ audit-writer = { path = "../../crypto/audit-writer", features = ["backend-fips"]
 admin-sim = { path = "../sim" }
 admin-config = { path = "../config" }
 admin-breakglass = { path = "../breakglass" }
+# Break-glass is granted between two passkey-authenticated sessions. [MG-SEC-07]
+admin-identity = { path = "../identity" }
 # The data-plane-independence test (AC-AD-10) exercises the policy PDP with no
 # admin service present.
 policy = { path = "../../crypto/policy" }

@@ -17,8 +17,13 @@ pub struct Posture {
 impl Posture {
     /// A minimal unclassified posture with no compartments.
     pub fn unclassified() -> Self {
+        Self::at(ClassificationLevel::UNCLASSIFIED)
+    }
+
+    /// A posture at `level` with no compartments.
+    pub fn at(level: ClassificationLevel) -> Self {
         Self {
-            level: ClassificationLevel::UNCLASSIFIED,
+            level,
             compartments: BTreeSet::new(),
         }
     }

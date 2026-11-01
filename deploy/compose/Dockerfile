@@ -45,12 +45,13 @@ RUN useradd --system -K SYS_UID_MAX=10001 --uid 10001 --no-create-home --shell /
     && mkdir -p /state /identity /vol/core-state /vol/mimir-identity /vol/mimir-state \
                 /vol/probe-identity /vol/fleet-identity /vol/fleet-state /vol/fleet-clients \
                 /vol/heimdall-identity /vol/heimdall-state /vol/heimdall-clients \
-                /vol/gateway-identity /vol/forge-identity /mesh-identity \
+                /vol/gateway-identity /vol/forge-identity /mesh-identity /serve \
     && chown 10001:10001 /state /identity /vol/core-state /vol/mimir-identity \
                          /vol/mimir-state /vol/probe-identity /vol/fleet-identity \
                          /vol/fleet-state /vol/fleet-clients /vol/heimdall-identity \
                          /vol/heimdall-state /vol/heimdall-clients /vol/gateway-identity \
-                         /vol/forge-identity /mesh-identity
+                         /vol/forge-identity /mesh-identity /serve \
+    && chmod 0755 /serve
 
 COPY --from=build /out/ /usr/local/bin/
 COPY deploy/compose/init.sh /usr/local/bin/midgard-init

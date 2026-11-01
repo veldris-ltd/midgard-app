@@ -11,6 +11,7 @@ the sovereign posture: no cloud dependency, no telemetry or data egress (NFR-PRV
 | [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md) | Severity levels, on-call roster, escalation, post-mortems. |
 | [KEY_CEREMONY.md](KEY_CEREMONY.md) | The release key ceremony: held with the Dvalin app (veldris-ltd/dvalin-app); what it leaves in this repository. |
 | [PKI.md](PKI.md) | CA/PKI bootstrap, cert issuance/renewal/revocation, HSM key ceremony, rotation, signing runner. |
+| [UPGRADING.md](UPGRADING.md) | Moving an enclosure from an earlier build to the security release: identities, ledgers, the gateway's command line, models. |
 
 ## Tested, not just written
 

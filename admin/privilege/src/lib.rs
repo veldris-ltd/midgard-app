@@ -29,7 +29,7 @@ pub mod risk;
 pub mod service;
 
 pub use control::{controls_for, RequiredControls};
-pub use durable::DurablePrivilege;
+pub use durable::{DurablePrivilege, AUDIT_FILE as LEDGER_FILE};
 pub use error::PrivError;
 pub use risk::{ActionClass, RiskLevel};
 pub use service::{ActionEntry, ActionState, AdminActionRequest, Disposition, PrivilegeService};

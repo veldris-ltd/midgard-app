@@ -15,6 +15,11 @@
 //! tampered file fails the signature/manifest/artefact checks in [`crate::import`].
 //! Reading itself fails closed on a bad magic or truncation. [FR-B-5] [AC-B-3] [RC-19]
 //!
+//! [`read_verified_bundle`] goes further: it checks the bundle signature over the
+//! manifest's bytes exactly as they lie in the file **before** anything is decoded, so
+//! a tampered manifest is the signature's failure and never the decoder's input. An
+//! import from a file uses it. [MG-SEC-14]
+//!
 //! [`read_bundle`] and [`from_bytes`] also read format version 2, the chunked layout
 //! `crate::stream` writes, checking each chunk's digest as they reassemble the payload
 //! in memory. Large bundles are better imported with `crate::import_streaming`.
@@ -23,11 +28,11 @@ use std::path::Path;
 
 use bifrost_artefact::{ArtefactManifest, SignedArtefact};
 use pqc_agility::hash::sha256;
-use pqc_agility::{SigId, Signature};
+use pqc_agility::{SigId, Signature, VerifyingKey};
 
 use crate::bundle::OfflineBundle;
 use crate::error::BundleError;
-use crate::manifest::{BundleEntry, BundleManifest};
+use crate::manifest::{manifest_extent, BundleEntry, BundleManifest};
 
 const MAGIC: &[u8; 8] = b"MGBUNDLE";
 const FORMAT_VERSION: u8 = 1;
@@ -146,9 +151,46 @@ pub fn write_bundle(path: impl AsRef<Path>, bundle: &OfflineBundle) -> Result<()
     Ok(())
 }
 
-/// Read a bundle from `path` — pure file I/O, no network.
+/// Read a bundle from `path` — pure file I/O, no network. Nothing is verified: import
+/// it with [`crate::import`], or read it with [`read_verified_bundle`].
 pub fn read_bundle(path: impl AsRef<Path>) -> Result<OfflineBundle, BundleError> {
     from_bytes(&std::fs::read(path).map_err(io)?)
+}
+
+/// Check a bundle's signature in its container bytes, over the manifest's bytes exactly
+/// as they lie there, before any of them is decoded: only the length prefixes that frame
+/// the manifest are followed. [FR-B-5] [AC-B-3] [MG-SEC-14]
+pub fn verify_bundle_bytes(b: &[u8], trust_key: &VerifyingKey) -> Result<(), BundleError> {
+    let mut r = Reader { b, p: 0 };
+    if r.take(8)? != MAGIC {
+        return Err(BundleError::Io("bad magic (not an MGBUNDLE file)".into()));
+    }
+    let version = r.u8()?;
+    if version != FORMAT_VERSION && version != STREAMING_FORMAT_VERSION {
+        return Err(BundleError::Io("unsupported bundle format version".into()));
+    }
+    let signature = r.signature()?;
+    let raw = r.take(manifest_extent(&b[r.p..])?)?;
+    attest::accept::accept(
+        &attest::accept::BIFROST_BUNDLE,
+        raw,
+        trust_key,
+        &signature,
+        &[bifrost_artefact::BIFROST_SIG_ALG],
+    )
+    .map_err(|_| BundleError::BadBundleSignature)
+}
+
+/// Read a bundle from `path`, checking its signature over the manifest's raw bytes
+/// before decoding anything ([`verify_bundle_bytes`]). The artefacts inside are not yet
+/// verified: [`crate::import`] does that. [FR-B-5] [AC-B-3] [MG-SEC-14]
+pub fn read_verified_bundle(
+    path: impl AsRef<Path>,
+    trust_key: &VerifyingKey,
+) -> Result<OfflineBundle, BundleError> {
+    let bytes = std::fs::read(path).map_err(io)?;
+    verify_bundle_bytes(&bytes, trust_key)?;
+    from_bytes(&bytes)
 }
 
 fn io(e: std::io::Error) -> BundleError {

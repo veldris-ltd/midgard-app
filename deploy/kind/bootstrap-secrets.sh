@@ -4,14 +4,17 @@
 # Runs the compose image's `midgard-init` — `mg-admin init` plus `mg-admin mesh issue`
 # for every workload — into a throwaway Docker volume, then turns what it wrote into
 # Kubernetes Secrets:
-#   <service>-identity   the service's identity and audit keystores, certificate and
-#                        the mesh trust anchor
+#   <service>-identity   the service's identity and audit keystores, certificate, the
+#                        mesh trust anchor and the signed revocation list (mesh.crl)
 #   <service>-seed       seed.tar: the state its init container unpacks on first start
 #                        (for http-gateway, the enclosure's keys, policy, ontology and
 #                        ledger)
 #   <client>-identity    the identities of the probe, agent, source and analyst Jobs
 # and the forge-jobs ConfigMap from deploy/compose/forge. Existing secrets are left
-# alone: the enclosure's keys are minted once.
+# alone: the enclosure's keys are minted once. A namespace provisioned by an earlier
+# release holds certificates and an anchor this release refuses, and no mesh.crl: a
+# local cluster is upgraded by deleting the namespace and running deploy/kind/up.sh
+# again (docs/ops/UPGRADING.md). [MG-SEC-02]
 #
 # The keystores are secrets. On a real cluster provision them from your key custody,
 # not from this script.
@@ -46,7 +49,10 @@ docker run --rm --network none -v "$VOLUME:/vol" --entrypoint tar "$IMAGE" -C /v
 identity() {
     local name="$1" dir="$work/$2"
     shift 2
-    local args=(--from-file="$(native "$dir/mesh.anchor")")
+    # The trust anchor and the signed revocation list every service loads with its
+    # identity. A revocation is a newer mesh.crl in this secret: the kubelet updates the
+    # mounted file and the service re-reads it within 30 seconds. [MG-SEC-03]
+    local args=(--from-file="$(native "$dir/mesh.anchor")" --from-file="$(native "$dir/mesh.crl")")
     for svc in "$@"; do
         for f in "$svc.keystore" "$svc.audit.keystore" "$svc.cert"; do
             args+=(--from-file="$(native "$dir/$f")")

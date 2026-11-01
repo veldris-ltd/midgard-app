@@ -25,12 +25,16 @@ pub mod file;
 pub mod stream;
 
 pub use error::BundleError;
-pub use manifest::{BundleEntry, BundleManifest};
+pub use manifest::{BundleEntry, BundleManifest, MAX_MANIFEST};
 
 #[cfg(feature = "backend-fips")]
 pub use bundle::{build_bundle, import, OfflineBundle};
 pub use file::{
-    from_bytes, read_bundle, to_bytes, write_bundle, MAX_CHUNK_SIZE, STREAMING_FORMAT_VERSION,
+    from_bytes, read_bundle, read_verified_bundle, to_bytes, verify_bundle_bytes, write_bundle,
+    MAX_CHUNK_SIZE, STREAMING_FORMAT_VERSION,
 };
 #[cfg(feature = "backend-fips")]
-pub use stream::{import_streaming, pack_streaming, FileArtefact, DEFAULT_CHUNK_SIZE};
+pub use stream::{
+    import_streaming, pack_streaming, pack_streaming_open, FileArtefact, OpenArtefact,
+    PayloadSource, DEFAULT_CHUNK_SIZE,
+};

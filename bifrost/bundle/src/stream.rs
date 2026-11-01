@@ -28,13 +28,22 @@
 //! a reader stop at the first damaged chunk of a many-gigabyte payload and say which,
 //! rather than read to the end to learn only that something differs.
 //!
+//! An import checks the bundle signature over the manifest's bytes exactly as they lie
+//! in the file, before the manifest is decoded: until the signature holds, the reader
+//! only follows the length prefixes that frame it. [MG-SEC-14]
+//!
 //! An import writes into a staging directory beside `out_dir` and moves the artefacts
 //! into place only after the last one has verified, so a refused import leaves nothing
 //! behind, and no import overwrites a file.
+//!
+//! [`pack_streaming_open`] packs from handles the caller already holds — a model's
+//! weights, opened once and verified through that handle — so what is packed is what was
+//! checked, never whatever the path names by the time the packer opens it; an expected
+//! digest per artefact makes the packer refuse anything else. [MG-SEC-14]
 
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use bifrost_artefact::{ArtefactManifest, ArtefactRef, VerifyError, BIFROST_SIG_ALG};
@@ -43,8 +52,8 @@ use pqc_agility::{SigId, Signature, SigningKey, VerifyingKey};
 
 use crate::bundle::import;
 use crate::error::BundleError;
-use crate::file::{read_bundle, MAX_CHUNK_SIZE, STREAMING_FORMAT_VERSION};
-use crate::manifest::{BundleEntry, BundleManifest};
+use crate::file::{read_verified_bundle, MAX_CHUNK_SIZE, STREAMING_FORMAT_VERSION};
+use crate::manifest::{BundleEntry, BundleManifest, MAX_MANIFEST};
 
 const MAGIC: &[u8; 8] = b"MGBUNDLE";
 
@@ -69,19 +78,75 @@ pub struct FileArtefact {
     pub path: PathBuf,
 }
 
+/// A payload a packer reads from: anything readable that can be rewound — an open file,
+/// or bytes held in memory.
+pub trait PayloadSource: Read + Seek {}
+
+impl<T: Read + Seek> PayloadSource for T {}
+
+/// An artefact to pack from a payload the caller already holds open. [MG-SEC-14]
+pub struct OpenArtefact<'a> {
+    /// Artefact id; on import, the file name it is written to.
+    pub id: String,
+    /// Version.
+    pub version: String,
+    /// Component kind (e.g. `service`, `model-bundle`).
+    pub component: String,
+    /// Its CycloneDX SBOM document.
+    pub sbom: String,
+    /// The payload, read from its start, twice.
+    pub payload: &'a mut dyn PayloadSource,
+    /// The SHA-256 the payload must have, when the caller has verified it: anything
+    /// else is refused before anything is signed.
+    pub expect_sha256: Option<[u8; 32]>,
+}
+
 fn io(e: std::io::Error) -> BundleError {
     BundleError::Io(e.to_string())
 }
 
 /// Pack `artefacts` into a signed version 2 bundle at `path`, reading each payload a
-/// chunk at a time, twice: once to digest and sign it, once to write it. A payload that
-/// changes in between is refused. Writes atomically (temp + rename) and returns the
-/// signed manifest. [FR-B-5] [AC-MS-3]
+/// chunk at a time, twice: once to digest and sign it, once to write it. Each file is
+/// opened once, and a payload that changes in between is refused. Writes atomically
+/// (temp + rename) and returns the signed manifest. [FR-B-5] [AC-MS-3]
 pub fn pack_streaming(
     path: impl AsRef<Path>,
     bundle_id: impl Into<String>,
     label: impl Into<String>,
     artefacts: &[FileArtefact],
+    signing_key: &SigningKey,
+    chunk_size: u32,
+) -> Result<BundleManifest, BundleError> {
+    let mut files = artefacts
+        .iter()
+        .map(|a| {
+            File::open(&a.path)
+                .map_err(|e| BundleError::Io(format!("cannot open {}: {e}", a.path.display())))
+        })
+        .collect::<Result<Vec<File>, BundleError>>()?;
+    let mut open: Vec<OpenArtefact<'_>> = artefacts
+        .iter()
+        .zip(files.iter_mut())
+        .map(|(a, file)| OpenArtefact {
+            id: a.id.clone(),
+            version: a.version.clone(),
+            component: a.component.clone(),
+            sbom: a.sbom.clone(),
+            payload: file,
+            expect_sha256: None,
+        })
+        .collect();
+    pack_streaming_open(path, bundle_id, label, &mut open, signing_key, chunk_size)
+}
+
+/// [`pack_streaming`] from payloads the caller holds open: each is rewound and read
+/// twice through the same handle, and one whose digest is not its `expect_sha256` is
+/// refused before anything is signed or written. [FR-B-5] [AC-MS-3] [MG-SEC-14]
+pub fn pack_streaming_open(
+    path: impl AsRef<Path>,
+    bundle_id: impl Into<String>,
+    label: impl Into<String>,
+    artefacts: &mut [OpenArtefact<'_>],
     signing_key: &SigningKey,
     chunk_size: u32,
 ) -> Result<BundleManifest, BundleError> {
@@ -92,8 +157,17 @@ pub fn pack_streaming(
     }
     // 1. Digest every payload, sign each artefact's manifest, then the bundle's.
     let mut signed = Vec::with_capacity(artefacts.len());
-    for artefact in artefacts {
-        let (len, payload_sha256) = digest_file(&artefact.path)?;
+    for artefact in artefacts.iter_mut() {
+        let (len, payload_sha256) = digest_payload(artefact.payload)?;
+        if artefact
+            .expect_sha256
+            .is_some_and(|expected| expected != payload_sha256)
+        {
+            return Err(BundleError::Io(format!(
+                "{} is not the payload that was verified; nothing packed",
+                artefact.id
+            )));
+        }
         let manifest = ArtefactManifest {
             id: artefact.id.clone(),
             version: artefact.version.clone(),
@@ -169,34 +243,19 @@ pub fn import_streaming(
         _ => return Err(BundleError::Io("unsupported bundle format version".into())),
     }
 
-    // The bundle signature, before any payload is read.
+    // The bundle signature, over the manifest's bytes exactly as they lie in the file,
+    // before the manifest is decoded and before any payload is read. [MG-SEC-14]
     let signature = r.signature()?;
-    let bundle_id = r.string()?;
-    let label = r.string()?;
-    let count = r.u32()?;
-    let mut entries = Vec::new();
-    for _ in 0..count {
-        entries.push(BundleEntry {
-            id: r.string()?,
-            version: r.string()?,
-            component: r.string()?,
-            payload_sha256: r.array()?,
-            sbom_sha256: r.array()?,
-        });
-    }
-    let manifest = BundleManifest {
-        bundle_id,
-        label,
-        entries,
-    };
+    let raw = r.raw_manifest()?;
     attest::accept::accept(
         &attest::accept::BIFROST_BUNDLE,
-        &manifest.encode(),
+        &raw,
         trust_key,
         &signature,
         &[BIFROST_SIG_ALG],
     )
     .map_err(|_| BundleError::BadBundleSignature)?;
+    let manifest = BundleManifest::decode(&raw)?;
 
     let staging = match out_dir {
         Some(dir) => Some(Staging::begin(dir, &manifest.entries)?),
@@ -308,7 +367,7 @@ fn import_whole(
     trust_key: &VerifyingKey,
     out_dir: Option<&Path>,
 ) -> Result<Vec<ArtefactRef>, BundleError> {
-    let bundle = read_bundle(path)?;
+    let bundle = read_verified_bundle(path, trust_key)?;
     let refs = import(trust_key, &bundle)?;
     if let Some(dir) = out_dir {
         let staging = Staging::begin(dir, &bundle.manifest.entries)?;
@@ -354,15 +413,14 @@ fn sign(
         .map_err(|e| BundleError::Io(format!("signing failed: {e}")))
 }
 
-/// Stream a file through SHA-256: its length and digest.
-fn digest_file(path: &Path) -> Result<(u64, [u8; 32]), BundleError> {
-    let mut file = File::open(path)
-        .map_err(|e| BundleError::Io(format!("cannot open {}: {e}", path.display())))?;
+/// Stream a payload through SHA-256 from its start: its length and digest.
+fn digest_payload(payload: &mut dyn PayloadSource) -> Result<(u64, [u8; 32]), BundleError> {
+    payload.seek(SeekFrom::Start(0)).map_err(io)?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
     let mut len = 0u64;
     loop {
-        let n = match file.read(&mut buf) {
+        let n = match payload.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -379,7 +437,7 @@ fn write_container(
     manifest: &BundleManifest,
     signature: &Signature,
     signed: &[Signed],
-    artefacts: &[FileArtefact],
+    artefacts: &mut [OpenArtefact<'_>],
     chunk_size: u32,
 ) -> Result<(), BundleError> {
     let mut w = BufWriter::new(File::create(tmp).map_err(io)?);
@@ -399,7 +457,7 @@ fn write_container(
     w.write_all(&(signed.len() as u32).to_le_bytes())
         .map_err(io)?;
     let mut chunk = vec![0u8; chunk_size as usize];
-    for (s, source) in signed.iter().zip(artefacts) {
+    for (s, source) in signed.iter().zip(artefacts.iter_mut()) {
         let m = &s.manifest;
         put_fields(&mut w, &m.id, &m.version, &m.component)?;
         w.write_all(&m.payload_sha256)
@@ -410,13 +468,9 @@ fn write_container(
             .and_then(|()| w.write_all(&chunk_size.to_le_bytes()))
             .map_err(io)?;
 
-        let changed = || {
-            BundleError::Io(format!(
-                "{} changed while it was being packed",
-                source.path.display()
-            ))
-        };
-        let mut file = File::open(&source.path).map_err(io)?;
+        let changed = || BundleError::Io(format!("{} changed while it was being packed", m.id));
+        let file = &mut *source.payload;
+        file.seek(SeekFrom::Start(0)).map_err(io)?;
         let mut whole = Sha256::new();
         let mut left = s.len;
         while left > 0 {
@@ -602,5 +656,41 @@ impl Source {
         let alg = SigId::from_u8(self.u8()?)
             .ok_or_else(|| BundleError::Io("unknown signature algorithm".into()))?;
         Ok(Signature::new(alg, self.bytes()?))
+    }
+
+    /// The bundle manifest's bytes exactly as they lie in the file — the bytes its
+    /// signature covers — framed by their length prefixes and nothing more: no field is
+    /// decoded, and at most [`MAX_MANIFEST`] bytes are read. [MG-SEC-14]
+    fn raw_manifest(&mut self) -> Result<Vec<u8>, BundleError> {
+        let mut raw = Vec::new();
+        self.raw_field(&mut raw)?; // bundle id
+        self.raw_field(&mut raw)?; // label
+        let count = self.raw_fixed::<4>(&mut raw)?;
+        for _ in 0..u32::from_le_bytes(count) {
+            for _ in 0..3 {
+                self.raw_field(&mut raw)?; // id, version, component
+            }
+            self.raw_fixed::<64>(&mut raw)?; // payload and SBOM digests
+        }
+        Ok(raw)
+    }
+
+    fn raw_fixed<const N: usize>(&mut self, raw: &mut Vec<u8>) -> Result<[u8; N], BundleError> {
+        if raw.len() + N > MAX_MANIFEST {
+            return Err(BundleError::Io("the bundle manifest is oversized".into()));
+        }
+        let bytes = self.array::<N>()?;
+        raw.extend_from_slice(&bytes);
+        Ok(bytes)
+    }
+
+    fn raw_field(&mut self, raw: &mut Vec<u8>) -> Result<(), BundleError> {
+        let len = u32::from_le_bytes(self.raw_fixed::<4>(raw)?) as usize;
+        if raw.len() + len > MAX_MANIFEST || len as u64 > self.left {
+            return Err(BundleError::Io("the bundle manifest is oversized".into()));
+        }
+        let start = raw.len();
+        raw.resize(start + len, 0);
+        self.read_exact(&mut raw[start..])
     }
 }

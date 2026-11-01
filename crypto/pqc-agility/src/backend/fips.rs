@@ -10,13 +10,23 @@
 //! ## Artefact layout (stable, tagged by [`KemSuiteId`])
 //! - Pure ML-KEM suite: `pk = ek`, `sk = dk`, `ct = ct`.
 //! - Hybrid suite: the 32-byte X25519 half is appended to each artefact —
-//!   `pk = ek ‖ x25519_pub`, `sk = dk ‖ x25519_static`, `ct = ct ‖ x25519_eph_pub`.
-//!   The shared secret mixes both halves through [`crate::hybrid::combine_secrets`]
-//!   so dropping either half changes the result. [NFR-PQ-1] [NFR-PQ-4]
+//!   `pk = ek ‖ x25519_pub`, `sk = dk ‖ x25519_static`, `ct = ct ‖ x25519_eph_pub`
+//!   (X-Wing's public-key and ciphertext order). The shared secret is X-Wing's
+//!   [`crate::hybrid::combine_hybrid`] over both secrets and the X25519 messages, and
+//!   an all-zero X25519 result is refused. [NFR-PQ-1] [NFR-PQ-4] [MG-SEC-09]
+//!
+//! ## Secret hygiene [MG-SEC-08]
+//! `x25519-dalek`, `aes`, `aes-gcm`, `ghash` and `polyval` are built with their
+//! `zeroize` features, so their key schedules and DH scalars are wiped on drop. Every
+//! intermediate secret this module holds — ML-KEM shared secrets, serialised key
+//! bytes, the X25519 DH output — sits in a [`Zeroizing`] wrapper, and a hybrid secret
+//! key is allocated at its final size before it is filled, so it is never reallocated
+//! (which would leave a copy in freed memory and defeat the `mlock`).
 
 use fips203::{ml_kem_1024, ml_kem_768};
 use rand_core::{CryptoRng, RngCore};
 use x25519_dalek::{EphemeralSecret, PublicKey as XPublicKey, StaticSecret as XStaticSecret};
+use zeroize::Zeroizing;
 
 // Trait methods only — imported anonymously so the three crates' identically
 // named traits (KeyGen, SerDes, Signer, Verifier) don't collide and never warn
@@ -27,7 +37,7 @@ use fips205::traits::{KeyGen as _, SerDes as _, Signer as _, Verifier as _};
 
 use crate::algorithm::{KemId, KemSuiteId, SigId};
 use crate::error::CryptoError;
-use crate::hybrid::combine_secrets;
+use crate::hybrid::{combine_hybrid, reject_noncontributory_x25519};
 use crate::kem::{Ciphertext, Kem, KemPublicKey, KemSecretKey, KemSizes, SharedSecret};
 use crate::registry::CryptoProvider;
 use crate::rng::Rng;
@@ -78,16 +88,24 @@ impl CryptoRng for RngAdapter<'_> {}
 
 macro_rules! mlkem_ops {
     ($module:ident, $keypair:ident, $encaps:ident, $decaps:ident) => {
-        fn $keypair(a: &mut RngAdapter) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
+        /// `(ek, dk)`, with `dk` written into a buffer of `dk_capacity` bytes so a
+        /// hybrid suite can append its X25519 half without reallocating.
+        fn $keypair(
+            a: &mut RngAdapter,
+            dk_capacity: usize,
+        ) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
             let (ek, dk) = fips203::$module::KG::try_keygen_with_rng(a)
                 .map_err(|_| CryptoError::RngFailure)?;
-            Ok((ek.into_bytes().to_vec(), dk.into_bytes().to_vec()))
+            let dk_bytes = Zeroizing::new(dk.into_bytes());
+            let mut sk = Vec::with_capacity(dk_capacity.max(dk_bytes.len()));
+            sk.extend_from_slice(dk_bytes.as_slice());
+            Ok((ek.into_bytes().to_vec(), sk))
         }
 
         fn $encaps(
             ek_bytes: &[u8],
             a: &mut RngAdapter,
-        ) -> Result<(Vec<u8>, [u8; 32]), CryptoError> {
+        ) -> Result<(Vec<u8>, Zeroizing<[u8; 32]>), CryptoError> {
             let ek_arr: [u8; fips203::$module::EK_LEN] =
                 ek_bytes.try_into().map_err(|_| CryptoError::InvalidKey)?;
             let ek = fips203::$module::EncapsKey::try_from_bytes(ek_arr)
@@ -95,23 +113,23 @@ macro_rules! mlkem_ops {
             let (ssk, ct) = ek
                 .try_encaps_with_rng(a)
                 .map_err(|_| CryptoError::RngFailure)?;
-            Ok((ct.into_bytes().to_vec(), ssk.into_bytes()))
+            Ok((ct.into_bytes().to_vec(), Zeroizing::new(ssk.into_bytes())))
         }
 
-        fn $decaps(dk_bytes: &[u8], ct_bytes: &[u8]) -> Result<[u8; 32], CryptoError> {
-            let dk_arr: [u8; fips203::$module::DK_LEN] =
-                dk_bytes.try_into().map_err(|_| CryptoError::InvalidKey)?;
+        fn $decaps(dk_bytes: &[u8], ct_bytes: &[u8]) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+            let dk_arr: Zeroizing<[u8; fips203::$module::DK_LEN]> =
+                Zeroizing::new(dk_bytes.try_into().map_err(|_| CryptoError::InvalidKey)?);
             let ct_arr: [u8; fips203::$module::CT_LEN] = ct_bytes
                 .try_into()
                 .map_err(|_| CryptoError::InvalidCiphertext)?;
-            let dk = fips203::$module::DecapsKey::try_from_bytes(dk_arr)
+            let dk = fips203::$module::DecapsKey::try_from_bytes(*dk_arr)
                 .map_err(|_| CryptoError::InvalidKey)?;
             let ct = fips203::$module::CipherText::try_from_bytes(ct_arr)
                 .map_err(|_| CryptoError::InvalidCiphertext)?;
             let ssk = dk
                 .try_decaps(&ct)
                 .map_err(|_| CryptoError::DecapsulationFailed)?;
-            Ok(ssk.into_bytes())
+            Ok(Zeroizing::new(ssk.into_bytes()))
         }
     };
 }
@@ -143,10 +161,14 @@ fn pq_sizes(param: KemId) -> (usize, usize, usize) {
     }
 }
 
-fn mlkem_keypair(param: KemId, a: &mut RngAdapter) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
+fn mlkem_keypair(
+    param: KemId,
+    a: &mut RngAdapter,
+    dk_capacity: usize,
+) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
     match param {
-        KemId::MlKem768 => mlkem768_keypair(a),
-        KemId::MlKem1024 => mlkem1024_keypair(a),
+        KemId::MlKem768 => mlkem768_keypair(a, dk_capacity),
+        KemId::MlKem1024 => mlkem1024_keypair(a, dk_capacity),
         KemId::X25519 => Err(CryptoError::UnknownAlgorithm("X25519")),
     }
 }
@@ -155,7 +177,7 @@ fn mlkem_encaps(
     param: KemId,
     ek_bytes: &[u8],
     a: &mut RngAdapter,
-) -> Result<(Vec<u8>, [u8; 32]), CryptoError> {
+) -> Result<(Vec<u8>, Zeroizing<[u8; 32]>), CryptoError> {
     match param {
         KemId::MlKem768 => mlkem768_encaps(ek_bytes, a),
         KemId::MlKem1024 => mlkem1024_encaps(ek_bytes, a),
@@ -163,7 +185,11 @@ fn mlkem_encaps(
     }
 }
 
-fn mlkem_decaps(param: KemId, dk_bytes: &[u8], ct_bytes: &[u8]) -> Result<[u8; 32], CryptoError> {
+fn mlkem_decaps(
+    param: KemId,
+    dk_bytes: &[u8],
+    ct_bytes: &[u8],
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
     match param {
         KemId::MlKem768 => mlkem768_decaps(dk_bytes, ct_bytes),
         KemId::MlKem1024 => mlkem1024_decaps(dk_bytes, ct_bytes),
@@ -195,10 +221,6 @@ impl FipsKem {
             },
         }
     }
-
-    fn context(&self) -> Vec<u8> {
-        self.suite.as_str().as_bytes().to_vec()
-    }
 }
 
 fn to_x25519_arr(b: &[u8]) -> Result<[u8; X25519_LEN], CryptoError> {
@@ -216,13 +238,16 @@ impl Kem for FipsKem {
 
     fn keypair(&self, rng: &mut dyn Rng) -> Result<(KemPublicKey, KemSecretKey), CryptoError> {
         let mut a = RngAdapter { inner: rng };
-        let (mut pk, mut sk) = mlkem_keypair(self.suite.pq_component(), &mut a)?;
+        // Sized up front: appending the X25519 half must not reallocate. [MG-SEC-08]
+        let (mut pk, mut sk) =
+            mlkem_keypair(self.suite.pq_component(), &mut a, self.sizes.secret_key)?;
         if self.suite.is_hybrid() {
             let x_sk = XStaticSecret::random_from_rng(&mut a);
             let x_pk = XPublicKey::from(&x_sk);
             pk.extend_from_slice(x_pk.as_bytes());
-            sk.extend_from_slice(&x_sk.to_bytes());
+            sk.extend_from_slice(Zeroizing::new(x_sk.to_bytes()).as_slice());
         }
+        debug_assert_eq!(sk.capacity(), self.sizes.secret_key);
         Ok((
             KemPublicKey::new(self.suite, pk),
             KemSecretKey::new(self.suite, SecretBytes::new(sk)),
@@ -252,17 +277,24 @@ impl Kem for FipsKem {
         let (mut ct, ss_pq) = mlkem_encaps(self.suite.pq_component(), pq_ek, &mut a)?;
 
         if self.suite.is_hybrid() {
-            let their_pub = XPublicKey::from(to_x25519_arr(x_pk_bytes)?);
+            let pk_x = to_x25519_arr(x_pk_bytes)?;
             let eph = EphemeralSecret::random_from_rng(&mut a);
             let eph_pub = XPublicKey::from(&eph);
-            let ss_cl = eph.diffie_hellman(&their_pub);
+            let ss_cl = eph.diffie_hellman(&XPublicKey::from(pk_x));
+            reject_noncontributory_x25519(ss_cl.as_bytes())?;
             ct.extend_from_slice(eph_pub.as_bytes());
-            let ss = combine_secrets(&ss_pq, ss_cl.as_bytes(), &self.context());
+            let ss = combine_hybrid(
+                self.suite,
+                &ss_pq,
+                ss_cl.as_bytes(),
+                eph_pub.as_bytes(),
+                &pk_x,
+            );
             Ok((Ciphertext::new(self.suite, ct), ss))
         } else {
             Ok((
                 Ciphertext::new(self.suite, ct),
-                SharedSecret::from_bytes(ss_pq),
+                SharedSecret::from_bytes(*ss_pq),
             ))
         }
     }
@@ -295,12 +327,21 @@ impl Kem for FipsKem {
         let ss_pq = mlkem_decaps(self.suite.pq_component(), pq_dk, pq_ct)?;
 
         if self.suite.is_hybrid() {
-            let x_sk = XStaticSecret::from(to_x25519_arr(x_sk_bytes)?);
-            let eph_pub = XPublicKey::from(to_x25519_arr(x_eph_bytes)?);
-            let ss_cl = x_sk.diffie_hellman(&eph_pub);
-            Ok(combine_secrets(&ss_pq, ss_cl.as_bytes(), &self.context()))
+            let x_sk = XStaticSecret::from(*Zeroizing::new(to_x25519_arr(x_sk_bytes)?));
+            // X-Wing binds the recipient's own X25519 public key, recomputed here.
+            let pk_x = XPublicKey::from(&x_sk);
+            let ct_x = to_x25519_arr(x_eph_bytes)?;
+            let ss_cl = x_sk.diffie_hellman(&XPublicKey::from(ct_x));
+            reject_noncontributory_x25519(ss_cl.as_bytes())?;
+            Ok(combine_hybrid(
+                self.suite,
+                &ss_pq,
+                ss_cl.as_bytes(),
+                &ct_x,
+                pk_x.as_bytes(),
+            ))
         } else {
-            Ok(SharedSecret::from_bytes(ss_pq))
+            Ok(SharedSecret::from_bytes(*ss_pq))
         }
     }
 }
@@ -314,13 +355,16 @@ macro_rules! mldsa_ops {
         fn $keypair(a: &mut RngAdapter) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
             let (pk, sk) = fips204::$module::KG::try_keygen_with_rng(a)
                 .map_err(|_| CryptoError::RngFailure)?;
-            Ok((pk.into_bytes().to_vec(), sk.into_bytes().to_vec()))
+            Ok((
+                pk.into_bytes().to_vec(),
+                Zeroizing::new(sk.into_bytes()).to_vec(),
+            ))
         }
 
         fn $sign(sk_bytes: &[u8], msg: &[u8], a: &mut RngAdapter) -> Result<Vec<u8>, CryptoError> {
-            let sk_arr: [u8; fips204::$module::SK_LEN] =
-                sk_bytes.try_into().map_err(|_| CryptoError::InvalidKey)?;
-            let sk = fips204::$module::PrivateKey::try_from_bytes(sk_arr)
+            let sk_arr: Zeroizing<[u8; fips204::$module::SK_LEN]> =
+                Zeroizing::new(sk_bytes.try_into().map_err(|_| CryptoError::InvalidKey)?);
+            let sk = fips204::$module::PrivateKey::try_from_bytes(*sk_arr)
                 .map_err(|_| CryptoError::InvalidKey)?;
             let sig = sk
                 .try_sign_with_rng(a, msg, &[])
@@ -353,12 +397,16 @@ mldsa_ops!(ml_dsa_87, mldsa87_keypair, mldsa87_sign, mldsa87_verify);
 fn slh128s_keypair(a: &mut RngAdapter) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
     use fips205::slh_dsa_sha2_128s::KG;
     let (pk, sk) = KG::try_keygen_with_rng(a).map_err(|_| CryptoError::RngFailure)?;
-    Ok((pk.into_bytes().to_vec(), sk.into_bytes().to_vec()))
+    Ok((
+        pk.into_bytes().to_vec(),
+        Zeroizing::new(sk.into_bytes()).to_vec(),
+    ))
 }
 
 fn slh128s_sign(sk_bytes: &[u8], msg: &[u8], a: &mut RngAdapter) -> Result<Vec<u8>, CryptoError> {
     use fips205::slh_dsa_sha2_128s::{PrivateKey, SK_LEN};
-    let sk_arr: [u8; SK_LEN] = sk_bytes.try_into().map_err(|_| CryptoError::InvalidKey)?;
+    let sk_arr: Zeroizing<[u8; SK_LEN]> =
+        Zeroizing::new(sk_bytes.try_into().map_err(|_| CryptoError::InvalidKey)?);
     // fips205's SerDes takes the byte array by reference (unlike fips203/204).
     let sk = PrivateKey::try_from_bytes(&sk_arr).map_err(|_| CryptoError::InvalidKey)?;
     // hedged = true: mix fresh randomness into signing (the recommended mode).

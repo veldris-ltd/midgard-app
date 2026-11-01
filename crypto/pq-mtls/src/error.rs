@@ -16,6 +16,44 @@ pub enum MtlsError {
     PeerCertUntrusted,
     /// The peer's certificate is on the revocation list (CRL). [RC-35]
     PeerCertRevoked,
+    /// The peer's certificate is outside its validity window. [MG-SEC-02]
+    PeerCertExpired {
+        /// Start of the certificate's validity.
+        not_before: u64,
+        /// End of the certificate's validity (exclusive).
+        not_after: u64,
+        /// The time it was checked at.
+        now: u64,
+    },
+    /// The peer holds a valid certificate, but for another service than the one the
+    /// caller meant to reach. Refused before anything is sent. [MG-SEC-01]
+    PeerIdentityMismatch {
+        /// The service the caller asked for.
+        expected: String,
+        /// The service the certificate names.
+        got: String,
+    },
+    /// A revocation list did not verify under the trust anchor. [MG-SEC-03]
+    CrlUntrusted,
+    /// A revocation list is older than the one already installed. [MG-SEC-03]
+    CrlRollback {
+        /// The installed version.
+        installed: u64,
+        /// The version offered.
+        offered: u64,
+    },
+    /// The negotiated suite is not a hybrid (ML-KEM + X25519) suite, and this side
+    /// requires one. [MG-SEC-12]
+    HybridRequired,
+    /// The peer speaks a handshake protocol version this side does not. [MG-SEC-09]
+    UnsupportedVersion(u8),
+    /// The record stream ended without the peer's end-of-stream marker: the
+    /// connection was cut, not finished. [MG-SEC-12]
+    StreamTruncated,
+    /// The peer sent its end-of-stream marker where data was expected. [MG-SEC-12]
+    StreamClosed,
+    /// The server is at its connection limit. [MG-SEC-13]
+    Overloaded,
     /// The peer's transcript signature failed verification.
     PeerSignatureInvalid,
     /// The peer presented no credential (mutual auth is mandatory).
@@ -41,6 +79,29 @@ impl fmt::Display for MtlsError {
             MtlsError::BackendUnavailable => write!(f, "crypto backend unavailable"),
             MtlsError::PeerCertUntrusted => write!(f, "peer certificate not trusted"),
             MtlsError::PeerCertRevoked => write!(f, "peer certificate is revoked"),
+            MtlsError::PeerCertExpired {
+                not_before,
+                not_after,
+                now,
+            } => write!(
+                f,
+                "peer certificate is valid over [{not_before}, {not_after}), not at {now}"
+            ),
+            MtlsError::PeerIdentityMismatch { expected, got } => {
+                write!(f, "peer is '{got}', not the expected '{expected}'")
+            }
+            MtlsError::CrlUntrusted => write!(f, "revocation list is not signed by the CA"),
+            MtlsError::CrlRollback { installed, offered } => write!(
+                f,
+                "revocation list version {offered} would replace newer version {installed}"
+            ),
+            MtlsError::HybridRequired => write!(f, "a hybrid key exchange is required"),
+            MtlsError::UnsupportedVersion(v) => write!(f, "unsupported protocol version {v}"),
+            MtlsError::StreamTruncated => {
+                write!(f, "record stream ended without an end-of-stream marker")
+            }
+            MtlsError::StreamClosed => write!(f, "peer closed the record stream"),
+            MtlsError::Overloaded => write!(f, "server is at its connection limit"),
             MtlsError::PeerSignatureInvalid => write!(f, "peer signature invalid"),
             MtlsError::MissingPeerCredential => write!(f, "peer presented no credential"),
             MtlsError::KeyConfirmationFailed => write!(f, "key confirmation failed"),

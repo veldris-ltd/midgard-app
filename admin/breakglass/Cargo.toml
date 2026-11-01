@@ -7,6 +7,9 @@ publish.workspace = true
 description = "Break-glass emergency elevation: time-boxed, justification-mandatory, real-time alerted, with a forced post-hoc review. Pure state machine over an injected clock and alert sink; works fully in-enclosure. [FR-AD-8] [AC-AD-8] [AC-AD-12]"
 
 [dependencies]
+# Passkey-authenticated admin sessions: the requester and the second-person approver
+# are verified identities, never typed names. [MG-SEC-07]
+admin-identity = { path = "../identity" }
 # The generic SealedJournal + Sealer seam backing the durable store. [RC-14]
 audit-writer = { path = "../../crypto/audit-writer" }
 # The audit verifying key type exposed by the controller. [RC-32]

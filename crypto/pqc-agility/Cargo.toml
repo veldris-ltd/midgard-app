@@ -15,7 +15,7 @@ test-backend = []
 # C toolchain, trivial offline vendoring, and deterministic (bit-reproducible)
 # builds — the reasons it was chosen over liboqs in Phase 1. [NFR-PQ-1..4]
 # [AC-M-6] [NFR-PRV-1]
-backend-fips = ["dep:fips203", "dep:fips204", "dep:fips205", "dep:x25519-dalek", "dep:rand_core", "dep:aes-gcm"]
+backend-fips = ["dep:fips203", "dep:fips204", "dep:fips205", "dep:x25519-dalek", "dep:rand_core", "dep:aes-gcm", "dep:aes", "dep:ghash", "dep:polyval"]
 
 [dependencies]
 # Secret hygiene (always on, vendored, tiny): vetted zeroization on drop, replacing
@@ -23,6 +23,15 @@ backend-fips = ["dep:fips203", "dep:fips204", "dep:fips205", "dep:x25519-dalek",
 # kept out of swap on Unix. [RC-39] [NFR-PQ-2]
 zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 libc = "0.2"
+# Vetted symmetric primitives (always on, vendored, pure Rust, no_std): SHA-256,
+# HMAC, HKDF, PBKDF2 and constant-time comparison come from RustCrypto behind the
+# unchanged `hash` module API, replacing the hand-written versions, and are pinned
+# by RFC/NIST test vectors in `tests/hash_kat.rs`. [MG-SEC-10] [NFR-PRV-1]
+sha2 = { version = "0.10", default-features = false }
+hmac = { version = "0.12", default-features = false }
+hkdf = { version = "0.12", default-features = false }
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+subtle = { version = "2.6", default-features = false }
 # All post-quantum primitives are pure Rust and OPTIONAL — with no features the
 # crate stays std-only apart from the two secret-hygiene deps above (traits,
 # negotiation, registry, hash, hybrid combiner all still compile). The vendored
@@ -34,11 +43,21 @@ libc = "0.2"
 fips203 = { version = "0.4", optional = true, default-features = false, features = ["ml-kem-768", "ml-kem-1024"] }
 fips204 = { version = "0.4", optional = true, default-features = false, features = ["ml-dsa-44", "ml-dsa-65", "ml-dsa-87"] }
 fips205 = { version = "0.4", optional = true, default-features = false, features = ["slh_dsa_sha2_128s"] }
-x25519-dalek = { version = "2", optional = true, default-features = false, features = ["static_secrets"] }
+# `zeroize` wipes X25519 static/ephemeral scalars and DH outputs on drop. [MG-SEC-08]
+x25519-dalek = { version = "2", optional = true, default-features = false, features = ["static_secrets", "zeroize"] }
 # AES-256-GCM for record protection in transit (pq-mtls) and envelope encryption
 # at rest (KMS). Pure Rust; one implementation shared so no service re-rolls AEAD.
 # [NFR-PQ-2] [NFR-SEC-1]
-aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "alloc"] }
+aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "alloc", "zeroize"] }
+# Not used directly: named only to turn on their `zeroize` features, which aes-gcm
+# does not forward, so the expanded AES key schedule and the GHASH/POLYVAL key are
+# wiped on drop. All three are already in aes-gcm's graph. [MG-SEC-08]
+aes = { version = "0.8", optional = true, default-features = false, features = ["zeroize"] }
+ghash = { version = "0.5", optional = true, default-features = false, features = ["zeroize"] }
+polyval = { version = "0.6", optional = true, default-features = false, features = ["zeroize"] }
+# SHA3-256 for the X-Wing hybrid combiner (always on: the combiner is not backend
+# gated). Already vendored as a dependency of the FIPS crates. [MG-SEC-09]
+sha3 = { version = "0.10", default-features = false }
 # `getrandom` gives the production OS CSPRNG (a syscall — offline, no network) that
 # backs `OsRng`; the KEM/sig APIs still take an injected `&mut dyn Rng` from callers.
 rand_core = { version = "0.6", optional = true, default-features = false, features = ["getrandom"] }

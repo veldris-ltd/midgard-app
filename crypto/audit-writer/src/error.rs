@@ -28,6 +28,41 @@ pub enum AuditError {
     UnknownSigAlgorithm { seq: u64 },
     /// A cryptographic operation failed.
     Crypto(CryptoError),
+    /// The ledger file is not there. An existing ledger is opened, never silently
+    /// re-created: deleting it is tampering, not a fresh start. [MG-SEC-05]
+    LedgerMissing(String),
+    /// A new ledger was asked for where one (or its checkpoint) already exists.
+    LedgerExists(String),
+    /// The ledger has no signed checkpoint, so its length cannot be vouched for.
+    /// [MG-SEC-05]
+    CheckpointMissing,
+    /// The checkpoint is malformed, names another ledger, or does not verify under
+    /// the pinned key. [MG-SEC-05]
+    CheckpointInvalid(String),
+    /// The ledger holds fewer entries than its signed checkpoint vouches for: entries
+    /// were cut off the end. [MG-SEC-05]
+    Truncated { checkpoint: u64, found: u64 },
+    /// The entry the checkpoint names as the head is not the one in the ledger: the
+    /// tail was rewritten. [MG-SEC-05]
+    CheckpointMismatch { seq: u64 },
+    /// The ledger is more than one entry ahead of its checkpoint. Only the window
+    /// between an entry's `fsync` and its checkpoint's can leave it one ahead.
+    /// [MG-SEC-05]
+    CheckpointStale { checkpoint: u64, found: u64 },
+    /// The key the ledger is checked with is not the pinned audit key. [MG-SEC-05]
+    KeyNotPinned,
+    /// The checkpoint mirror vouches for more entries than the local checkpoint: the
+    /// ledger and its checkpoint were rolled back together. [MG-SEC-05]
+    RolledBack { mirrored: u64, local: u64 },
+    /// The entry the checkpoint mirror names as the head at its position is not the
+    /// one in the ledger: the ledger was replaced. [MG-SEC-05]
+    MirrorMismatch { seq: u64 },
+    /// A checkpoint mirror is configured, the ledger holds entries, and the mirror
+    /// holds no checkpoint for it. [MG-SEC-05]
+    MirrorMissing(String),
+    /// The checkpoint mirror cannot be read or written, or refused a checkpoint that
+    /// would move it back. [MG-SEC-05]
+    Mirror(String),
 }
 
 impl fmt::Display for AuditError {
@@ -47,6 +82,43 @@ impl fmt::Display for AuditError {
                 write!(f, "no verifying key for algorithm at seq {seq}")
             }
             AuditError::Crypto(e) => write!(f, "crypto error: {e}"),
+            AuditError::LedgerMissing(p) => write!(f, "the ledger {p} is missing"),
+            AuditError::LedgerExists(p) => write!(f, "a ledger already exists at {p}"),
+            AuditError::CheckpointMissing => write!(f, "the ledger has no signed checkpoint"),
+            AuditError::CheckpointInvalid(why) => {
+                write!(f, "the ledger checkpoint is invalid: {why}")
+            }
+            AuditError::Truncated { checkpoint, found } => write!(
+                f,
+                "the ledger was truncated: its checkpoint vouches for {checkpoint} entries, \
+                 {found} remain"
+            ),
+            AuditError::CheckpointMismatch { seq } => {
+                write!(
+                    f,
+                    "the ledger's entry at seq {seq} is not the checkpointed head"
+                )
+            }
+            AuditError::CheckpointStale { checkpoint, found } => write!(
+                f,
+                "the ledger holds {found} entries but its checkpoint only {checkpoint}"
+            ),
+            AuditError::KeyNotPinned => write!(f, "the audit key is not the pinned audit key"),
+            AuditError::RolledBack { mirrored, local } => write!(
+                f,
+                "the ledger was rolled back: its checkpoint mirror vouches for {mirrored} \
+                 entries, the local checkpoint only for {local}"
+            ),
+            AuditError::MirrorMismatch { seq } => write!(
+                f,
+                "the ledger's entry at seq {seq} is not the head its checkpoint mirror names"
+            ),
+            AuditError::MirrorMissing(at) => write!(
+                f,
+                "the ledger holds entries but its checkpoint mirror has no checkpoint for it \
+                 ({at})"
+            ),
+            AuditError::Mirror(why) => write!(f, "checkpoint mirror: {why}"),
         }
     }
 }

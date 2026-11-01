@@ -14,9 +14,8 @@ backend-fips = ["pqc-agility/backend-fips"]
 [dependencies]
 pqc-agility = { path = "../pqc-agility" }
 
-[dev-dependencies]
-# Enable the deterministic backend for the crate's own tests.
-pqc-agility = { path = "../pqc-agility", features = ["test-backend"] }
+# No dev-dependency forces a backend: the tests run on whichever one is selected,
+# `--features test-backend` or `--features backend-fips`. [MG-SEC-15]
 
 [lib]
 path = "src/lib.rs"

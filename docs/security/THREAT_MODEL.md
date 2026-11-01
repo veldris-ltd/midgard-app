@@ -50,6 +50,16 @@ the trust boundaries, with each threat mapped to the implemented, tested control
   config history; reproducible builds + PQ-signed artefacts + SBOM
   (`mg-sign`/`mg-verify`/`mg-sbom`), verified fail-closed. A tampered backup is
   rejected on restore (RT-34 drill).
+- *Threat:* loading signed software that is old, swapped, or checked against the wrong
+  key. *Controls:* signatures are checked over the raw bytes of a model manifest or a
+  bundle manifest before either is parsed; Bifrost's artefact registry and
+  `mimir-server` keep a persisted release floor (`attest::ReleaseFloor`) and refuse an
+  older signed release, or the same version with different content; model weights are
+  hashed through the handle that is then read, never re-opened by path, and a sidecar
+  engine that can only load by path is given a read-only copy staged from that handle
+  into a directory only `mimir-server` writes, never the model directory; and the
+  release image verifies against the pinned `/trust/release-trust.pub` only, with no
+  environment override. [MG-SEC-14]
 
 ### Repudiation
 - *Threat:* denying an action was taken.

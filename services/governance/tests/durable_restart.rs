@@ -89,7 +89,7 @@ fn sealer() -> KmsSealer<SoftwareTrustRoot> {
 }
 
 fn open_ledger(path: &PathBuf) -> FileLedger {
-    FileLedger::open(path, Box::new(sealer()), LedgerId(LEDGER.into())).unwrap()
+    FileLedger::open_or_create(path, Box::new(sealer()), LedgerId(LEDGER.into())).unwrap()
 }
 
 #[test]

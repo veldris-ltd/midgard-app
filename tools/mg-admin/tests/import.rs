@@ -178,7 +178,7 @@ fn an_import_fills_a_real_enclosure_that_a_gateway_then_serves() {
     }
 
     // A gateway over the directory serves the imported objects, under their markings.
-    let served = open_state_dir(&state, Vec::new()).expect("the enclosure boots");
+    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("the enclosure boots");
     let gw = &served.gateway;
     let request = |method: &str, path: &str, body: &str, token: Option<&str>| {
         gw.handle(
@@ -228,4 +228,10 @@ fn an_import_fills_a_real_enclosure_that_a_gateway_then_serves() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_file(&data);
     let _ = std::fs::remove_file(&bad);
+}
+
+/// The audit key `mg-admin init` exported, pinned as an operator would pin it.
+/// [MG-SEC-05]
+fn pin(state: &StateDir) -> audit_writer::PinnedKey {
+    http_gateway::boot::read_audit_pin(&state.audit_trust_anchor()).unwrap()
 }

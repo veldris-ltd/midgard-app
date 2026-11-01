@@ -34,7 +34,7 @@ fn real_main() -> Result<(), String> {
         ResourceId, Role, Rule, RuleId, Selector,
     };
     use pq_mtls::{
-        canonical_identity, read_frame, run_initiator, run_responder, write_frame, IdentityCert,
+        certify, read_frame, run_initiator, run_responder, write_frame, CertTerms, IdentityCert,
         Initiator, Posture, Responder, Role as RecordRole, ServiceId, TcpChannel, TrustAnchor,
         WorkloadIdentity,
     };
@@ -87,19 +87,13 @@ fn real_main() -> Result<(), String> {
             sig_alg: ALG,
             verifying_key: vk,
         };
-        let ca_signature = p
-            .sig_for(ALG)
-            .unwrap()
-            .sign(ca_sk, &canonical_identity(&identity))
-            .unwrap();
-        (
-            IdentityCert {
-                identity,
-                ca_sig_alg: ALG,
-                ca_signature,
-            },
-            sk,
-        )
+        // A throwaway certificate good for an hour either side of now, cleared to
+        // SECRET — the probe's own, never a production identity.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let terms = CertTerms::new(seed, now.saturating_sub(3600), now + 3600, posture());
+        (certify(p, ALG, ca_sk, &identity, terms).unwrap(), sk)
     }
 
     fn channel_resource() -> Resource {
@@ -216,6 +210,13 @@ fn real_main() -> Result<(), String> {
                     .map_err(|e| format!("seal: {e:?}"))?,
             )
             .map_err(|e| format!("write resp: {e:?}"))?;
+            write_frame(
+                &mut stream,
+                &seal
+                    .seal_close(b"resp")
+                    .map_err(|e| format!("seal: {e:?}"))?,
+            )
+            .map_err(|e| format!("write close: {e:?}"))?;
             eprintln!(
                 "pqmtls-probe: OK — cross-host handshake ({:?}) + record round-trip with peer {}",
                 session.suite(),
@@ -232,6 +233,7 @@ fn real_main() -> Result<(), String> {
                 client_cert,
                 &client_sk,
                 anchor,
+                ServiceId("svc-server".into()),
                 Purpose("investigation".into()),
                 posture(),
                 &mut rng,
@@ -259,6 +261,13 @@ fn real_main() -> Result<(), String> {
             if resp != b"PONG" {
                 return Err("unexpected response payload".into());
             }
+            write_frame(
+                &mut stream,
+                &seal
+                    .seal_close(b"req")
+                    .map_err(|e| format!("seal: {e:?}"))?,
+            )
+            .map_err(|e| format!("write close: {e:?}"))?;
             eprintln!(
                 "pqmtls-probe: OK — cross-host handshake ({:?}) + record round-trip with peer {}",
                 session.suite(),

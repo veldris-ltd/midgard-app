@@ -11,7 +11,7 @@
 //! identity directory.
 //!
 //! The new principal's password never reaches the gateway. The requester's tool hashes
-//! it and sends the PBKDF2 hash, which is refused below the production work factor. A
+//! it and sends the Argon2id hash, which is refused below the enforced cost floor. A
 //! parked enrolment — hash and any TOTP secret included — is sealed at rest, so it
 //! survives a restart until it is approved.
 
@@ -23,7 +23,7 @@ use admin_identity::{
 };
 use admin_privilege::{ActionClass, AdminActionRequest, Disposition, DurablePrivilege};
 use audit_writer::{SealedJournal, Sealer};
-use iam::{Credentials, Enrollment, TotpSecret, UserRecord, DEFAULT_ITERATIONS};
+use iam::{check_enrolment_hash, Credentials, Enrollment, TotpSecret, UserRecord};
 use policy::{Clearance, Compartment, Purpose, Role};
 use pqc_agility::{OsRng, Signature};
 
@@ -483,19 +483,9 @@ fn parse_principal(item: Option<&Json>) -> Result<ParkedEnrolment, AdminError> {
     let password_hash = text(item, at, "passwordHash")
         .map_err(|e| refuse(400, e))?
         .to_string();
-    let iterations = password_hash
-        .strip_prefix("pbkdf2-sha256$i=")
-        .and_then(|rest| rest.split('$').next())
-        .and_then(|i| i.parse::<u32>().ok())
-        .ok_or_else(|| refuse(400, "\"passwordHash\" must be a pbkdf2-sha256 hash"))?;
-    if iterations < DEFAULT_ITERATIONS {
-        return Err(refuse(
-            400,
-            format!(
-                "\"passwordHash\" uses {iterations} iterations; at least {DEFAULT_ITERATIONS} are required"
-            ),
-        ));
-    }
+    // Argon2id within the enforced cost floors and ceilings, or refused. [MG-SEC-11]
+    check_enrolment_hash(&password_hash)
+        .map_err(|why| refuse(400, format!("\"passwordHash\" {why}")))?;
     let totp_secret = match item.get("totpSecret") {
         None => None,
         Some(_) => {

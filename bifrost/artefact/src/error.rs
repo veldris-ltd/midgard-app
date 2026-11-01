@@ -53,6 +53,10 @@ pub enum RegistryError {
     /// The durable registry failed to persist or recover an artefact (I/O or a
     /// malformed on-disk record). Fails closed. [RC-12]
     Io(String),
+    /// The artefact verifies but goes backwards: older than a release already accepted
+    /// for its id, or the same version with a different manifest; or the release floor
+    /// could not be kept. [MG-SEC-14]
+    Rollback(attest::RollbackError),
 }
 
 impl std::fmt::Display for RegistryError {
@@ -63,6 +67,7 @@ impl std::fmt::Display for RegistryError {
                 write!(f, "no artefact {id}@{version} in the registry")
             }
             RegistryError::Io(m) => write!(f, "durable registry i/o: {m}"),
+            RegistryError::Rollback(e) => write!(f, "anti-rollback: {e}"),
         }
     }
 }

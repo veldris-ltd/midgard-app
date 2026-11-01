@@ -8,7 +8,7 @@ use policy::{
     ResourceId, Role, Rule, RuleId, Selector,
 };
 use pq_mtls::{
-    canonical_identity, IdentityCert, Posture, ServiceId, TrustAnchor, WorkloadIdentity,
+    certify, CertTerms, IdentityCert, Posture, ServiceId, TrustAnchor, WorkloadIdentity,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::{CryptoProvider, Rng, SigId, SigningKey, VerifyingKey};
@@ -75,19 +75,24 @@ pub fn party(p: &CryptoProvider, id: &str, roles: &[&str], seed: u64, ca: &Ca) -
         sig_alg: ALG,
         verifying_key: vk,
     };
-    let ca_signature = p
-        .sig_for(ALG)
-        .unwrap()
-        .sign(&ca.signing_key, &canonical_identity(&identity))
-        .unwrap();
     Party {
-        cert: IdentityCert {
-            identity,
-            ca_sig_alg: ALG,
-            ca_signature,
-        },
+        cert: certify(p, ALG, &ca.signing_key, &identity, terms(seed)).unwrap(),
         signing_key: sk,
     }
+}
+
+/// The terms test certificates are issued under: valid from the epoch to the end of
+/// time, granting TOP SECRET, so the clearance a test requests is what it gets.
+pub fn terms(serial: u64) -> CertTerms {
+    CertTerms::new(
+        serial,
+        0,
+        u64::MAX,
+        Posture {
+            level: ClassificationLevel::TOP_SECRET,
+            compartments: BTreeSet::new(),
+        },
+    )
 }
 
 /// An UNCLASSIFIED channel resource permitting the "investigation" purpose.

@@ -102,3 +102,11 @@ signed with the Bifrost admission key, and proves how the files travelled. The m
 manifest, signed with the model-signing key, proves what they are. `unpack` checks
 both, and if the model does not verify it removes the directory it wrote, so nothing
 unverified is left to serve.
+
+`pack` packs exactly what its load gate verified: the manifest bytes it checked, and the
+weights read through the handle they were hashed through, each refused unless it still
+has the verified digest. An import checks the bundle signature over the manifest's bytes
+as they lie in the file before decoding any of them. Older releases do not get back in:
+Bifrost's artefact registry refuses a release older than one it has accepted for the
+same id (or the same version with a different manifest), and `mimir-server` does the
+same for models. [MG-SEC-14]

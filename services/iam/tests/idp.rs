@@ -146,12 +146,22 @@ fn certifies_workload_identities_that_chain_to_the_anchor() {
         sig_alg: iam::IDP_SIG_ALG,
         verifying_key: wvk,
     };
-    let cert = idp.certify(&identity).expect("certify");
+    let cert = idp
+        .certify(
+            &identity,
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
+        .expect("certify");
     // The cert chains to the IdP trust anchor.
-    verify_cert(&cert, &idp.trust_anchor(), idp.provider()).expect("cert must chain");
+    verify_cert(&cert, &idp.trust_anchor(), idp.provider(), 1_000).expect("cert must chain");
 
     // A cert tampered to claim extra roles no longer verifies.
     let mut forged = cert.clone();
     forged.identity.roles.insert(Role("admin".into()));
-    assert!(verify_cert(&forged, &idp.trust_anchor(), idp.provider()).is_err());
+    assert!(verify_cert(&forged, &idp.trust_anchor(), idp.provider(), 1_000).is_err());
 }

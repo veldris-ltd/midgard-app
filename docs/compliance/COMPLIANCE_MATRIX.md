@@ -14,8 +14,9 @@ activity on top of these controls.
 | **FIPS 204** (ML-DSA) | PQ digital signatures | `crypto/pqc-agility` sign; IdP tokens + mesh certs (`services/iam`); audit chain (`crypto/audit-writer`); release signing (`tools/mg-sign`) |
 | **FIPS 205** (SLH-DSA) | Stateless hash-based signatures | `crypto/pqc-agility` (alternative signature scheme, agility-selected) |
 | **FIPS 197** (AES) | Symmetric AEAD | AES-256-GCM in `crypto/pqc-agility` (aead); KMS envelope + PQ-mTLS record layer |
+| **FIPS 180-4 / RFC 2104 / RFC 5869** | Hash, MAC, key derivation | SHA-256, HMAC-SHA256, HKDF-SHA256, PBKDF2-HMAC-SHA256 and constant-time compare in `crypto/pqc-agility` (hash) — wrappers over the vendored RustCrypto `sha2`, `hmac`, `hkdf`, `pbkdf2` and `subtle` crates, pinned by NIST, RFC 4231 and RFC 5869 known-answer tests (`tests/hash_kat.rs`). Used by the PQ-mTLS handshake and resumption, KMS, TOTP and the connectors [MG-SEC-10] |
 | **FIPS 140-3** | Cryptographic module / key custody | Hardware TrustRoot (HSM/PKCS#11 / TPM 2.0) seam in `services/kms` (RT-28); software root documented residual risk. *Module certification is a lab activity.* |
-| **NIST SP 800-132** | Password-based key derivation | PBKDF2-HMAC-SHA256 in `services/iam` (password); Argon2id drop-in behind the `PasswordHasher` seam |
+| **NIST SP 800-132 / RFC 9106** | Password storage | Argon2id (PHC string, vendored RustCrypto `argon2`) for every new password in `services/iam` (password); legacy PBKDF2-HMAC-SHA256 entries still verify and are re-hashed with Argon2id on sign-in (`UpgradingAuthenticator`). Enforced cost floors — Argon2id m ≥ 19 MiB, t ≥ 2, p ≥ 1; PBKDF2 ≥ 600 000 iterations — and ceilings, so a tampered entry cannot be weakened [MG-SEC-11] |
 | **NIST SP 800-90A** | Deterministic RNG / entropy | `OsRng` (OS CSPRNG) for all production randomness |
 
 ## Access control & security controls (NIST SP 800-53)
@@ -35,7 +36,7 @@ activity on top of these controls.
 
 | ASVS | Area | Where |
 |------|------|-------|
-| **V2** (Authentication) | MFA, phishing-resistant step-up | `services/iam`, `admin/identity` (WebAuthn, TOTP, PBKDF2) |
+| **V2** (Authentication) | MFA, phishing-resistant step-up | `services/iam`, `admin/identity` (WebAuthn, TOTP, Argon2id) |
 | **V5** (Validation/encoding) | Fail-closed decoding | Hand-rolled codecs fail closed on malformed input (fabric, pq-mtls, audit) |
 | **V14.2 / V14.3** (Build / secrets) | No secrets in source; secure build | CI secret scan; keys never in repo (KMS/OIDC identity); provenance gate |
 
@@ -61,6 +62,6 @@ organisational and out of repo scope; these controls are the evidence base.
   certification, real HSM/GPU/cluster) are *controls implemented in code* here; the
   formal certification runs on a deployed system (see RT-40 for the deployment-tier
   acceptance plan).
-- Where a standard is approximated offline (PBKDF2 standing in for Argon2id; the
-  WebAuthn assertion core without full COSE/CBOR parsing), the seam is designed for
+- Where a standard is approximated offline (the WebAuthn assertion core without
+  full COSE/CBOR parsing), the seam is designed for
   the certified implementation to drop in — documented at the call site.

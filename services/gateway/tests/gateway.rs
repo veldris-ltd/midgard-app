@@ -1,12 +1,13 @@
 //! The gateway terminates PQ-mTLS over real TCP: it authenticates IdP-certified
 //! peers (AC-M-3), negotiates the hybrid PQ suite (AC-M-1), authorises the
-//! channel, and fails closed on unauthorised or untrusted peers.
+//! channel, and fails closed on unauthorised or untrusted peers. [AC-M-1] [AC-M-3]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use gateway::{EchoHandler, Gateway, RECORD_AAD};
 use iam::{Idp, IDP_SIG_ALG};
@@ -53,7 +54,19 @@ fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (pq_mtls::Identit
         sig_alg: IDP_SIG_ALG,
         verifying_key: vk,
     };
-    (idp.certify(&identity).unwrap(), sk)
+    (
+        idp.certify(
+            &identity,
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
+        .unwrap(),
+        sk,
+    )
 }
 
 fn channel_resource() -> Resource {
@@ -99,6 +112,7 @@ fn client_connect(
     anchor: pq_mtls::TrustAnchor,
     addr: std::net::SocketAddr,
     seed: u64,
+    close: bool,
 ) -> Result<(KemSuiteId, ServiceId, Option<Vec<u8>>), MtlsError> {
     let stream = TcpStream::connect(addr).unwrap();
     let mut ch = TcpChannel::new(stream);
@@ -108,6 +122,7 @@ fn client_connect(
         cert,
         signing_key,
         anchor,
+        pq_mtls::ServiceId("svc-gateway".into()),
         Purpose("investigation".into()),
         posture(),
         &mut rng,
@@ -128,6 +143,10 @@ fn client_connect(
             &read_frame(&mut stream).map_err(MtlsError::Transport)?,
         )
         .ok();
+    // Without the end-of-stream marker the gateway sees a cut connection. [MG-SEC-12]
+    if close {
+        gateway::close_stream(&mut stream, &mut seal)?;
+    }
     Ok((suite, peer, echoed))
 }
 
@@ -160,8 +179,16 @@ fn authenticated_client_completes_and_is_echoed() {
         });
 
         let client_provider = fips_provider();
-        let (suite, peer, echoed) =
-            client_connect(&client_provider, cl_cert, &cl_sk, anchor.clone(), addr, 5).unwrap();
+        let (suite, peer, echoed) = client_connect(
+            &client_provider,
+            cl_cert,
+            &cl_sk,
+            anchor.clone(),
+            addr,
+            5,
+            true,
+        )
+        .unwrap();
 
         // AC-M-1: hybrid X25519+ML-KEM-768 negotiated.
         assert_eq!(suite, KemSuiteId::HybridX25519MlKem768);
@@ -207,7 +234,15 @@ fn unauthorized_client_is_denied() {
             gateway.handle_connection(stream)
         });
         let client_provider = fips_provider();
-        let _ = client_connect(&client_provider, cl_cert, &cl_sk, anchor.clone(), addr, 5);
+        let _ = client_connect(
+            &client_provider,
+            cl_cert,
+            &cl_sk,
+            anchor.clone(),
+            addr,
+            5,
+            true,
+        );
         let err = server.join().unwrap().unwrap_err();
         assert!(
             matches!(err, MtlsError::Authz(_)),
@@ -248,11 +283,117 @@ fn client_with_untrusted_cert_is_rejected() {
         // The client trusts the real IdP (so it accepts the gateway's cert and
         // proceeds), but presents a cert signed by the rogue IdP — which the
         // gateway does not trust, so the gateway rejects it.
-        let _ = client_connect(&client_provider, cl_cert, &cl_sk, anchor.clone(), addr, 5);
+        let _ = client_connect(
+            &client_provider,
+            cl_cert,
+            &cl_sk,
+            anchor.clone(),
+            addr,
+            5,
+            true,
+        );
         let err = server.join().unwrap().unwrap_err();
         assert!(
             matches!(err, MtlsError::PeerCertUntrusted),
             "expected untrusted-cert rejection, got {err:?}"
         );
     });
+}
+
+/// A gateway serving `svc-gateway` to clients with the `analyst` role, and a client.
+fn fixture() -> (
+    Gateway,
+    pq_mtls::IdentityCert,
+    SigningKey,
+    pq_mtls::TrustAnchor,
+) {
+    let idp = Idp::generate("idp", &mut SeedRng(1)).unwrap();
+    let (gw_cert, gw_sk) = workload(&idp, "svc-gateway", &["server"], 2);
+    let (cl_cert, cl_sk) = workload(&idp, "svc-client", &["analyst"], 3);
+    let anchor = idp.trust_anchor();
+    let pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(permit_pdp("analyst"));
+    let gateway = Gateway::new(
+        Arc::new(fips_provider()),
+        gw_cert,
+        Arc::new(gw_sk),
+        anchor.clone(),
+        pdp,
+        channel_resource(),
+        Arc::new(EchoHandler),
+    );
+    (gateway, cl_cert, cl_sk, anchor)
+}
+
+/// MG-SEC-12: a client that is cut off after its request — no end-of-stream marker —
+/// is reported as a truncated stream, not a finished one.
+#[test]
+fn a_connection_cut_without_the_end_marker_is_reported_as_truncated() {
+    let (gateway, cl_cert, cl_sk, anchor) = fixture();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    thread::scope(|s| {
+        let server = s.spawn(|| {
+            let (stream, _) = listener.accept().unwrap();
+            gateway.handle_connection(stream)
+        });
+        let provider = fips_provider();
+        let (_, _, echoed) =
+            client_connect(&provider, cl_cert, &cl_sk, anchor, addr, 5, false).unwrap();
+        assert_eq!(echoed.as_deref(), Some(&b"hello gateway"[..]));
+        let served = server.join().unwrap();
+        assert!(
+            matches!(served, Err(MtlsError::StreamTruncated)),
+            "{served:?}"
+        );
+    });
+}
+
+/// MG-SEC-13: past the connection cap a connection is refused before any handshake
+/// work, and a slot is free again once its connection ends.
+#[test]
+fn connections_past_the_cap_are_refused_before_the_handshake() {
+    let (gateway, ..) = fixture();
+    let gateway = gateway.with_max_connections(1);
+    let held = gateway.admit().expect("the first slot");
+    assert_eq!(gateway.active_connections(), 1);
+    assert!(gateway.admit().is_none(), "the cap is one connection");
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _client = TcpStream::connect(addr).unwrap();
+    let (stream, _) = listener.accept().unwrap();
+    let started = Instant::now();
+    assert!(matches!(
+        gateway.handle_connection(stream),
+        Err(MtlsError::Overloaded)
+    ));
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "refused at once"
+    );
+
+    drop(held);
+    assert_eq!(gateway.active_connections(), 0);
+    assert!(gateway.admit().is_some(), "the slot is released");
+}
+
+/// MG-SEC-13: a peer that connects and sends nothing is dropped at the handshake
+/// timeout, and its slot released, instead of holding a thread forever.
+#[test]
+fn a_silent_peer_is_dropped_at_the_handshake_timeout() {
+    let (gateway, ..) = fixture();
+    let gateway = gateway.with_handshake_timeout(Duration::from_millis(300));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _silent = TcpStream::connect(addr).unwrap();
+    let (stream, _) = listener.accept().unwrap();
+    let started = Instant::now();
+    let served = gateway.handle_connection(stream);
+    let waited = started.elapsed();
+    assert!(served.is_err(), "{served:?}");
+    assert!(
+        waited >= Duration::from_millis(250) && waited < Duration::from_secs(5),
+        "dropped after {waited:?}"
+    );
+    assert_eq!(gateway.active_connections(), 0);
 }

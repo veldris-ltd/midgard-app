@@ -86,6 +86,8 @@ fn provision(dir: &Path) -> StateDir {
         .unwrap()
         .write(&state.audit_keystore())
         .unwrap();
+    // What `mg-admin init` also creates: the ledger and its signed checkpoint.
+    http_gateway::boot::init_audit_ledger(&state).unwrap();
     std::fs::write(state.policy(), render_policy(&policy()).unwrap()).unwrap();
     std::fs::write(state.ontology(), ONTOLOGY).unwrap();
     state
@@ -114,12 +116,20 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
     let key = Keystore::generate(service, IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(&format!("{service}-audit"), IDP_SIG_ALG, &mut OsRng).unwrap();
     let cert = idp
-        .certify(&WorkloadIdentity {
-            id: ServiceId(service.into()),
-            roles: roles.iter().map(|r| Role(r.to_string())).collect(),
-            sig_alg: IDP_SIG_ALG,
-            verifying_key: key.verifying_key.clone(),
-        })
+        .certify(
+            &WorkloadIdentity {
+                id: ServiceId(service.into()),
+                roles: roles.iter().map(|r| Role(r.to_string())).collect(),
+                sig_alg: IDP_SIG_ALG,
+                verifying_key: key.verifying_key.clone(),
+            },
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
         .unwrap();
     key.write(&dir.join(format!("{service}.keystore"))).unwrap();
     audit
@@ -127,6 +137,8 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
+    let crl = idp.sign_crl(1, 0, Default::default()).unwrap();
+    std::fs::write(dir.join("mesh.crl"), pq_mtls::encode_crl(&crl)).unwrap();
 }
 
 fn worker(identities: &Path, service: &str, state: &Path, jobs: &Path, gateway: &str) -> Output {
@@ -194,7 +206,9 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
     let jobs = data.join("jobs.json");
     std::fs::write(&jobs, JOBS).unwrap();
 
-    let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+    let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
+        .unwrap()
+        .into_parts();
     let mesh = spawn_mesh_listener(
         Arc::new(gateway),
         &ServiceIdentity::load(&identities, "http-gateway").unwrap(),
@@ -282,4 +296,14 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
     assert_eq!(datasets.len(), 3);
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The audit key the operator pins the gateway to, from outside the keystore it
+/// checks. [MG-SEC-05]
+fn pin(state: &StateDir) -> audit_writer::PinnedKey {
+    audit_writer::PinnedKey::new(
+        attest::Keystore::read(&state.audit_keystore())
+            .unwrap()
+            .verifying_key,
+    )
 }

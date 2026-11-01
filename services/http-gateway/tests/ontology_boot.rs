@@ -60,6 +60,8 @@ fn provision(dir: &Path) -> StateDir {
     let audit = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
     idp.write(&state.idp_keystore()).unwrap();
     audit.write(&state.audit_keystore()).unwrap();
+    // What `mg-admin init` also creates: the ledger and its signed checkpoint.
+    http_gateway::boot::init_audit_ledger(&state).unwrap();
 
     let rule = |id: &str, role: &str, action: &str| Rule {
         id: RuleId(id.into()),
@@ -189,7 +191,7 @@ fn a_declared_action_changes_a_stored_object_durably() {
     };
 
     {
-        let served = open_state_dir(&state, Vec::new()).expect("boots");
+        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
         assert_eq!((served.object_types, served.actions), (1, 1));
         let gw = &served.gateway;
         let token = login(gw);
@@ -253,7 +255,7 @@ fn a_declared_action_changes_a_stored_object_durably() {
         assert_eq!(status_of_ac1(gw, &token), "grounded");
     } // restart
 
-    let served = open_state_dir(&state, Vec::new()).expect("boots again");
+    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots again");
     assert_eq!((served.object_types, served.actions), (1, 1));
     let token = login(&served.gateway);
     assert_eq!(
@@ -275,10 +277,20 @@ fn an_invalid_ontology_refuses_to_boot() {
         r#"{"version":1,"objectTypes":[{"id":"aircraft","title":"Aircraft","properties":[]}],"actions":[{"id":"a","name":"a","title":"A","objectType":"ship","marking":"internal","purposes":["operations"],"effect":{"kind":"set-property","property":"status","value":"x"}}]}"#,
     )
     .unwrap();
-    match open_state_dir(&state, Vec::new()) {
+    match open_state_dir(&state, Vec::new(), &pin(&state)) {
         Ok(_) => panic!("an ontology naming an undeclared type must not boot"),
         Err(e) => assert!(e.contains("ontology file refused"), "{e}"),
     }
     assert!(!state.lock().exists(), "a refused boot leaves no lock");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The audit key the operator pins the gateway to, from outside the keystore it
+/// checks. [MG-SEC-05]
+fn pin(state: &StateDir) -> audit_writer::PinnedKey {
+    audit_writer::PinnedKey::new(
+        attest::Keystore::read(&state.audit_keystore())
+            .unwrap()
+            .verifying_key,
+    )
 }

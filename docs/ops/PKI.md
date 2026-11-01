@@ -9,65 +9,99 @@ post-quantum (ML-DSA / FIPS 204). Implemented in `services/iam` (`MeshCa`) over
 ## Model (why it looks like this)
 
 Midgard's mesh CA is the IdP's ML-DSA key. It issues **short-lived, rekeyed workload
-certs** and maintains an **authoritative issuance registry + a CRL distributed inside
-the trust anchor**, rather than long-lived certs carrying embedded validity:
+certificates that carry their own terms**, and a **signed revocation list** that every
+service holds beside its identity:
 
-- The **CA registry** (`MeshCa`) is the source of truth for what was issued, its
-  validity window, and its status.
-- **Revocation** is a set of revoked **verifying-key fingerprints** (SHA-256) carried
-  in `pq_mtls::TrustAnchor.revoked`. Since renewal **rekeys** (a new cert = a new key),
-  a fingerprint names exactly one issued cert, so revoking one never revokes its
-  renewals. `verify_cert` checks the CRL on **every handshake** — so revocation is
-  honoured on the *next* handshake with no cert re-parsing needed.
-- **Expiry** is enforced by a short renewal cadence: certs are renewed well before
-  `not_after`, so live handshakes always use fresh certs. The registry's
-  `status(serial, now)` and `expiring_by(deadline)` drive the renewer.
-
-This is the OCSP-/short-lived-cert posture, chosen because the mesh is fully
-in-enclosure and the CA is always reachable — no need to push long-lived certs and
-chase them with distributed CRLs on a WAN.
+- **A certificate carries its terms.** Each one holds a serial, a validity window
+  (`not_before`, `not_after`) and the clearance the service may be authorised at, all
+  inside the CA's signature (format `MGCERT2`). `verify_cert` checks the window on
+  every handshake, so an expired certificate fails the handshake on either side
+  (`PeerCertExpired`), and a resumption ticket never outlives the certificate it was
+  issued under. [MG-SEC-02]
+- **The clearance is the certificate's, not the caller's.** A server authorises the
+  lower of what the certificate grants and what the client asks for (the lower level,
+  the shared compartments), and keeps it on the session. [MG-SEC-04]
+- **A client names the peer it means to reach.** Every mesh call carries the expected
+  service; any other certificate, however valid, is refused before the client sends
+  its key exchange (`PeerIdentityMismatch`). [MG-SEC-01]
+- **Revocation is a list the CA signs.** `mesh.crl` (format `MGCRL1`) holds the
+  SHA-256 fingerprints of revoked certificates and a version number. Every service
+  needs it to start, re-reads it every 30 seconds, and refuses a list the CA did not
+  sign or one older than the list in force (`CrlUntrusted`, `CrlRollback`). Since
+  renewal **rekeys** (a new certificate is a new key), a fingerprint names exactly one
+  certificate, so revoking one never revokes its renewals. [MG-SEC-03]
+- The **CA registry** (`MeshCa`) records what was issued, its window and its status;
+  `status(serial, now)` and `expiring_by(deadline)` drive a renewer.
 
 ## Bootstrap
 
-1. **Root/CA key ceremony** (below) provisions the CA (IdP) ML-DSA signing key on the
-   HSM/TPM.
-2. Publish the CA **trust anchor** (`ca_alg` + public `ca_key`) to every workload — it
-   is the mesh's single root of trust (`Idp::trust_anchor` / `MeshCa::trust_anchor`).
-3. Each workload generates its **own** keypair locally (the private key never leaves
-   the workload) and submits its `WorkloadIdentity` (id + roles + public key) for
-   certification.
+1. **Root/CA key ceremony** (below) provisions the CA (IdP) ML-DSA signing key. In a
+   deployment today that is `mg-admin init`, which writes the issuer keystore to the
+   state directory's `keys/`.
+2. Publish the CA **trust anchor** (`mesh.anchor`, format `MGANCHOR2`: the algorithm
+   and the public key) to every workload — it is the mesh's single root of trust —
+   together with the current `mesh.crl`.
+3. Each workload's own keypair is generated for it and never leaves its identity
+   directory.
 
 ## Issuance
 
-`MeshCa::issue(identity, not_before, not_after) -> (IdentityCert, serial)`:
-- the CA signs the workload's canonical identity with its ML-DSA key,
-- records `{serial, subject, fingerprint, not_before, not_after}` in the registry,
-- returns the cert (presented in the PQ-mTLS handshake) + its serial.
+```bash
+mg-admin mesh issue --state-dir STATE --service mimir-server --roles inference-server     --out /srv/mimir-identity [--days 30] [--clearance open] [--compartments A,B]
+```
+
+writes the service's identity keystore, a separate audit keystore, its certificate
+(valid for `--days`, default 30, at most 365, granting `--clearance`, default `open`),
+`mesh.anchor`, and the current `mesh.crl`. It never overwrites an identity, and the
+issue is recorded in the enclosure's audit ledger before anything is written. In the
+library: `MeshCa::issue(identity, not_before, not_after, clearance)`.
 
 ## Renewal (downtime-free)
 
-`MeshCa::renew(new_identity, not_before, not_after)`:
-- the workload generates a **new** keypair (rekey) and the CA issues a fresh cert with
-  a new window and serial;
-- the **old cert keeps working** until it expires or is revoked, so there is an overlap
-  window during which both certs validate — **no session is dropped and no handshake
-  fails** while the workload swaps in the new cert. (Verified in
-  `services/iam/tests/rc_35.rs`: the renewed cert AND the still-valid old cert both
-  complete a mutual handshake.)
-- **Cadence:** renew at ~⅔ of the validity window (e.g. issue for 24 h, renew at 16 h).
-  An automated renewer walks `MeshCa::expiring_by(now + renewal_horizon)` and renews
-  each, then retires the old cert after the overlap.
+```bash
+mg-admin mesh renew --state-dir STATE --service mimir-server --out /srv/mimir-identity     --within 10
+```
 
-## Revocation (honoured on the next handshake)
+gives the service a **new** identity key and a fresh certificate, keeping its roles and
+its audit keystore. With `--within N` it does nothing until the certificate expires
+within N days, so it can run daily from a timer. Restart the service to present the new
+certificate. The old certificate keeps working until it expires or is revoked, so no
+handshake fails during the swap (verified in `services/iam/tests/rc_35.rs`).
 
-`MeshCa::revoke(serial)`:
-- marks the registry record revoked and adds its fingerprint to the CRL;
-- every subsequently built `MeshCa::trust_anchor()` carries that fingerprint, so the
-  verifier rejects the cert with `MtlsError::PeerCertRevoked` on the **next handshake**
-  (verified in `rc_35.rs`). Existing sessions are unaffected (revocation gates *new*
-  handshakes); to also kill live sessions, tear down the peer's connections.
-- Distribute the updated anchor/CRL to verifiers on change (in-enclosure push); the
-  gateway/Heimdall pick it up for subsequent handshakes.
+- **Cadence:** renew at about two-thirds of the window — for 30-day certificates, a
+  daily `mesh renew --within 10`. Services do not yet renew themselves (RF-IAM-6).
+
+## Revocation (honoured within seconds)
+
+```bash
+mg-admin mesh revoke --state-dir STATE --cert /srv/fleet-clients/fleet-agent-1.cert     --out /srv/mimir-identity,/srv/fleet-identity,/srv/heimdall-identity,/srv/gateway-identity
+```
+
+adds the certificate's fingerprint to the list, signs the next version, keeps it as the
+master copy in the state directory's `trust/mesh.crl`, and writes it into every `--out`
+directory. Name **every** service directory: a service only refuses what its own copy
+lists. Each running service picks the newer list up within 30 seconds, without a
+restart; the next handshake with that certificate fails with `PeerCertRevoked`, and a
+resumption ticket issued to it no longer resumes. Running it again changes nothing.
+Sessions already open are not cut; to end them, restart the peer.
+
+On Kubernetes the list is part of each `<service>-identity` Secret; update the Secret's
+`mesh.crl` key and the kubelet updates the mounted file.
+
+## Upgrading identities from an earlier release
+
+Certificates and anchors written before certificates carried terms are refused, and
+there is no `mesh.crl` beside them. Bring each service directory up to date in place:
+
+```bash
+mg-admin mesh upgrade --state-dir STATE --service mimir-server --roles inference-server     --out /srv/mimir-identity
+```
+
+It reissues the certificate for the key the service already holds and rewrites
+`mesh.anchor` and `mesh.crl`. It keeps **both keystores**: the audit keystore signs the
+service's ledger and seals its state, so a new one would lock the service out of both
+(which is why `mesh issue` is not the way to upgrade). On a current service it changes
+nothing. The whole procedure is in [UPGRADING.md](UPGRADING.md).
 
 ## Signing roots (two, deliberately)
 
@@ -163,7 +197,7 @@ already listed there.
 
 | Key | Cadence | Mechanism |
 |-----|---------|-----------|
-| Workload certs | ≤ 24 h validity, renew at ~⅔ | `MeshCa::renew` (rekey) |
+| Workload certs | 30 days by default (`--days`), renew at ~⅔ | `mg-admin mesh renew --within` on a timer (rekey) |
 | Mesh CA key | annually, or on suspicion | new ceremony → dual trust-anchor overlap → re-issue workloads → retire old CA |
 | KMS trust root | per RT-28 policy | `RotatingKms::rotate_to` (old blobs unchanged) |
 | Release signing key | annually | ceremony → update `deploy/trust/release-trust.pub` |
@@ -226,7 +260,10 @@ keystore files as the keys themselves.
 ## Tested
 
 `services/iam/tests/rc_35.rs` exercises the lifecycle over a **real PQ-mTLS mutual
-handshake**: issue → handshake ✓ → renew (rekey) → both new and old certs handshake ✓
-(downtime-free) → revoke old → next handshake with it is rejected `PeerCertRevoked`
-while the renewed cert still connects (targeted revocation). Plus expiry/status
-tracking and the renewal worklist.
+handshake**: issue → handshake ✓ → renew (rekey) → both new and old certificates
+handshake ✓ (downtime-free) → revoke old → the next handshake with it is rejected
+`PeerCertRevoked` while the renewed certificate still connects; the signed list carries
+a revocation to verifiers elsewhere; an expired certificate no longer handshakes.
+`crypto/pq-mtls/tests/identity_files.rs` covers the window, edited terms, forged and
+older lists and live reload; `tools/mg-admin/tests/mesh.rs` drives `mesh issue`,
+`renew`, `revoke` and `upgrade` through the real binary.

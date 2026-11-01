@@ -1,38 +1,84 @@
 //! AC-AD-8 — break-glass elevation is time-boxed, justified, alerted in real time,
 //! and forces a post-hoc review. `[FR-AD-8]`
 
+mod common;
+
 use admin_breakglass::{
     AlertKind, BreakGlassError, BreakGlassService, BreakGlassState, GrantRequest, RecordingAlerter,
 };
+use admin_identity::{AdminSession, IdentityDirectory, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
+use common::{directory, Admins, APPROVAL_MAX_AGE};
 
 fn req(id: &str, justification: &str, ttl: u64) -> GrantRequest {
     GrantRequest {
         id: id.into(),
         principal: "mallory".into(),
-        approver: "secoff".into(),
         scope: "kms".into(),
         justification: justification.into(),
         ttl_secs: ttl,
     }
 }
 
+/// The requester and a distinct approver, both signed in with their passkeys.
+fn sessions() -> (AdminSession, AdminSession) {
+    let mut admins = Admins::new(&["mallory", "secoff"]);
+    (
+        admins.sign_in("mallory", 1000),
+        admins.sign_in("secoff", 1000),
+    )
+}
+
+/// `mallory` may request break-glass; `secoff` is the security officer who approves.
+fn roles() -> IdentityDirectory {
+    directory(&[
+        ("mallory", ROLE_IAM_ADMIN),
+        ("secoff", ROLE_SECURITY_OFFICER),
+    ])
+}
+
 #[test]
 fn ac_ad_8_grant_is_time_boxed_justified_and_alerted() {
     let mut svc = BreakGlassService::new(RecordingAlerter::new());
+    let (mallory, secoff) = sessions();
+    let dir = roles();
 
     // A justification is mandatory.
     assert_eq!(
-        svc.grant(req("g0", "  ", 60), 1000).unwrap_err(),
+        svc.grant(
+            &dir,
+            req("g0", "  ", 60),
+            &mallory,
+            &secoff,
+            1000,
+            APPROVAL_MAX_AGE
+        )
+        .unwrap_err(),
         BreakGlassError::JustificationRequired
     );
     // The time-box must be non-zero.
     assert_eq!(
-        svc.grant(req("g0", "prod incident", 0), 1000).unwrap_err(),
+        svc.grant(
+            &dir,
+            req("g0", "prod incident", 0),
+            &mallory,
+            &secoff,
+            1000,
+            APPROVAL_MAX_AGE
+        )
+        .unwrap_err(),
         BreakGlassError::InvalidTtl
     );
 
     // A valid grant: active within its box, and a real-time alert was raised.
-    svc.grant(req("g1", "prod incident #42", 60), 1000).unwrap();
+    svc.grant(
+        &dir,
+        req("g1", "prod incident #42", 60),
+        &mallory,
+        &secoff,
+        1000,
+        APPROVAL_MAX_AGE,
+    )
+    .unwrap();
     assert!(svc.is_active("g1", 1000));
     assert!(svc.is_active("g1", 1059));
     assert_eq!(svc.state("g1", 1000), Some(BreakGlassState::Active));
@@ -46,7 +92,17 @@ fn ac_ad_8_grant_is_time_boxed_justified_and_alerted() {
 #[test]
 fn ac_ad_8_expiry_forces_a_reviewed_post_hoc() {
     let mut svc = BreakGlassService::new(RecordingAlerter::new());
-    svc.grant(req("g1", "prod incident #42", 60), 1000).unwrap();
+    let (mallory, secoff) = sessions();
+    let dir = roles();
+    svc.grant(
+        &dir,
+        req("g1", "prod incident #42", 60),
+        &mallory,
+        &secoff,
+        1000,
+        APPROVAL_MAX_AGE,
+    )
+    .unwrap();
 
     // Before expiry there is nothing to review.
     assert!(svc.pending_reviews(1030).is_empty());
@@ -81,10 +137,19 @@ fn ac_ad_8_expiry_forces_a_reviewed_post_hoc() {
 #[test]
 fn ac_ad_8_break_glass_is_never_unilateral() {
     let mut svc = BreakGlassService::new(RecordingAlerter::new());
-    let mut r = req("g1", "prod incident", 60);
-    r.approver = "  ".into();
+    let (mallory, _) = sessions();
+    let dir = roles();
     assert_eq!(
-        svc.grant(r, 1000).unwrap_err(),
-        BreakGlassError::ApproverRequired
+        svc.grant(
+            &dir,
+            req("g1", "prod incident", 60),
+            &mallory,
+            &mallory,
+            1000,
+            APPROVAL_MAX_AGE
+        )
+        .unwrap_err(),
+        BreakGlassError::SelfApprovalDenied
     );
+    assert_eq!(svc.alerter().count(AlertKind::Granted), 0);
 }

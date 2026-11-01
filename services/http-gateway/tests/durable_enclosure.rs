@@ -80,7 +80,7 @@ fn audit_keys() -> (VerifyingKey, SigningKey) {
 /// registered on every boot; data is not seeded here.
 fn boot(dir: &Path) -> DurableEnclosure {
     let (vk, sk) = audit_keys();
-    let ledger = FileLedger::open(
+    let ledger = FileLedger::open_or_create(
         dir.join("governance.ledger"),
         Box::new(sealer()),
         LedgerId(LEDGER.into()),

@@ -55,6 +55,8 @@ fn provision(dir: &Path) -> StateDir {
         .unwrap()
         .write(&state.audit_keystore())
         .unwrap();
+    // What `mg-admin init` also creates: the ledger and its signed checkpoint.
+    http_gateway::boot::init_audit_ledger(&state).unwrap();
     let rule = |id: &str, role: &str, action: &str| Rule {
         id: RuleId(id.into()),
         role: Role(role.into()),
@@ -104,7 +106,9 @@ fn link(from: &str) -> String {
 }
 
 fn audit_entries(state: &StateDir) -> usize {
-    open_state_dir(state, Vec::new()).unwrap().audit_entries
+    open_state_dir(state, Vec::new(), &pin(state))
+        .unwrap()
+        .audit_entries
 }
 
 #[test]
@@ -115,7 +119,9 @@ fn a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric() {
     let analyst = workload("analyst-tool", "analyst");
 
     {
-        let (gateway, _lock) = open_state_dir(&state, Vec::new()).unwrap().into_parts();
+        let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
+            .unwrap()
+            .into_parts();
         let sync = |peer: &WorkloadIdentity, records: &str| {
             split(&gateway.sync_records(peer, PURPOSE, records.as_bytes(), NOW))
         };
@@ -191,4 +197,14 @@ fn a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The audit key the operator pins the gateway to, from outside the keystore it
+/// checks. [MG-SEC-05]
+fn pin(state: &StateDir) -> audit_writer::PinnedKey {
+    audit_writer::PinnedKey::new(
+        attest::Keystore::read(&state.audit_keystore())
+            .unwrap()
+            .verifying_key,
+    )
 }

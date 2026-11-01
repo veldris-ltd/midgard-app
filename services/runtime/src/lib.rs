@@ -30,7 +30,7 @@ pub mod strict_json;
 
 pub use args::Args;
 pub use health_http::spawn_health_port;
-pub use identity::ServiceIdentity;
+pub use identity::{checkpoint_service_ledger, ServiceIdentity};
 pub use lock::DirLock;
 pub use serve::serve_mesh;
 

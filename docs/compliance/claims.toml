@@ -52,10 +52,10 @@ id = "mesh-certificate-lifecycle"
 area = "Core: cryptography and transport"
 claim = "A mesh certificate authority that issues, renews and revokes workload certificates, with a revocation honoured at the next handshake."
 status = "reference"
-evidence = ["tools/mg-admin/src/mesh.rs:115"]
-tests = ["services/iam/tests/rc_35.rs::renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake"]
-fallback = "Issue, renewal and revocation of workload certificates are implemented and tested as a library (services/iam/tests/rc_35.rs). The certificates deployments use today come from mg-admin mesh issue, which does not set an expiry and does not renew."
-milestone = "mg-admin mesh issue goes through the certificate authority and services renew automatically (RF-IAM-6)."
+evidence = ["tools/mg-admin/src/mesh.rs:203", "tools/mg-admin/src/mesh.rs:348", "crypto/pq-mtls/src/revocation.rs:1", "services/runtime/src/identity.rs:68"]
+tests = ["services/iam/tests/rc_35.rs::renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake", "services/iam/tests/rc_35.rs::the_signed_list_carries_the_revocation_to_other_verifiers", "services/iam/tests/rc_35.rs::an_expired_certificate_no_longer_handshakes", "tools/mg-admin/tests/mesh.rs::mesh_certificates_expire_revoke_and_renew"]
+fallback = "Workload certificates carry an expiry and a clearance. mg-admin mesh issue, renew and revoke manage them, and services re-read a signed revocation list every 30 seconds. Renewal is an operator command; services do not renew themselves yet."
+milestone = "Services renew their own certificates before expiry (RF-IAM-6)."
 
 [[claim]]
 id = "sealed-durable-state"
@@ -85,10 +85,10 @@ stated_in = ["CHANGELOG.md:93", "docs/releases/v0.1.0-rc.1.md:112", "docs/launch
 [[claim]]
 id = "audit-ledger"
 area = "Core: fabric, identity and governance"
-claim = "Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start."
+claim = "Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start."
 status = "operable"
-evidence = ["crypto/audit-writer/src/ledger.rs:5"]
-tests = ["crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history", "services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row", "services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart"]
+evidence = ["crypto/audit-writer/src/ledger.rs:5", "crypto/audit-writer/src/checkpoint.rs:1"]
+tests = ["crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history", "crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected", "crypto/audit-writer/tests/truncation.rs::a_ledger_checked_with_the_wrong_key_is_refused", "services/http-gateway/tests/state_dir_boot.rs::a_shortened_or_deleted_ledger_refuses_to_boot", "services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot", "services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row", "services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:24"]
 limit = "The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime)."
 stated_in = ["README.md:54", "CHANGELOG.md:49", "docs/launch/pipeline/build-deck.js:334"]
@@ -192,12 +192,12 @@ milestone = "The admin surface is served from a running service through the orch
 [[claim]]
 id = "break-glass"
 area = "Admin"
-claim = "Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout."
+claim = "Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. It takes two people: the requester and a different approver, each signed in with their own passkey and each holding the role that entitles them (the approver a security officer), and both identities are sealed into the audit ledger."
 status = "reference"
 criteria = ["AC-AD-8"]
-evidence = ["admin/breakglass/src/alert.rs:84"]
-tests = ["admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires", "admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage"]
-fallback = "Break-glass alerting with durable, at-least-once delivery is implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
+evidence = ["admin/breakglass/src/alert.rs:84", "admin/breakglass/src/service.rs:1"]
+tests = ["admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires", "admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage", "admin/breakglass/tests/mg_sec_07.rs::the_requester_cannot_approve_their_own_break_glass", "admin/breakglass/tests/mg_sec_07.rs::an_unauthenticated_approver_is_refused", "admin/breakglass/tests/mg_sec_07.rs::a_valid_two_person_grant_records_both_identities_in_the_ledger", "admin/breakglass/tests/mg_sec_07.rs::an_approver_without_breakglass_approve_is_refused", "admin/breakglass/tests/mg_sec_07.rs::a_requester_without_breakglass_request_is_refused"]
+fallback = "Break-glass alerting with durable, at-least-once delivery, and two-person approval between passkey-authenticated administrators, are implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
 milestone = "RF-CA-11: the alert path runs in a service and the console reads it."
 
 [[claim]]
@@ -482,7 +482,7 @@ area = "Supply chain and release"
 claim = "Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails."
 status = "operable"
 criteria = ["AC-B-1"]
-evidence = ["deploy/images/entrypoint.sh:16", "deploy/images/service.Dockerfile"]
+evidence = ["deploy/images/entrypoint.sh:27", "deploy/images/service.Dockerfile"]
 service_tests = ["deploy/images/build.sh:103"]
 limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly."
 stated_in = ["README.md:756", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83"]

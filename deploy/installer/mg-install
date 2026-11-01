@@ -1117,8 +1117,16 @@ enrol_admins() {
 
 stage_model() {
     local file="${ANSWER[MODEL_FILE]:-}" dl="$INSTALL_DIR/downloads"
-    if docker run --rm -v midgard-models:/models "$DEV_IMAGE" test -f "/models/granite/model.manifest" 2>/dev/null; then
+    # Staged means a format 2 manifest: one signed over its own bytes, which
+    # mimir-server checks before parsing it. An older manifest is signed again. [MG-SEC-14]
+    if docker run --rm -v midgard-models:/models "$DEV_IMAGE" sh -c \
+        'head -n 1 /models/granite/model.manifest 2>/dev/null | grep -qx "midgard-model-manifest 2"' 2>/dev/null; then
         echo "the model is already staged"
+        return 0
+    fi
+    if docker run --rm -v midgard-models:/models "$DEV_IMAGE" test -f "/models/granite/$GRANITE_GGUF" 2>/dev/null; then
+        echo "the model's manifest predates format 2; signing it again"
+        bash "$SRC/deploy/compose/stage-model.sh"
         return 0
     fi
     if [ -z "$file" ]; then
@@ -1143,8 +1151,10 @@ issue_feed_identities() {
     # shellcheck disable=SC2016,SC2086
     dc run --rm --no-deps -T --entrypoint sh init -c '
         for feed in "$@"; do
-            if [ -f "/vol/heimdall-clients/$feed.cert" ]; then
-                echo "$feed already has an identity"
+            if [ -f "/vol/heimdall-clients/$feed.keystore" ]; then
+                # Kept keys, current certificate: a no-op unless an earlier
+                # release issued it. [MG-SEC-02]
+                mg-admin mesh upgrade --state-dir /vol/core-state --service "$feed"                     --roles feed-source --out /vol/heimdall-clients
             else
                 mg-admin mesh issue --state-dir /vol/core-state --service "$feed" \
                     --roles feed-source --out /vol/heimdall-clients
@@ -1298,7 +1308,10 @@ install_now() {
         run "Removing the previous enclosure" dc down -v --remove-orphans
         rm -rf "$INSTALL_DIR/admin-passkeys"
     fi
-    dc stop gateway >>"$LOG" 2>&1 || true
+    # Every service stops, not just the gateway: init adopts each service's audit ledger
+    # written by an earlier release, and nothing may append to one meanwhile. The start
+    # below brings them all back. [MG-SEC-05]
+    dc stop >>"$LOG" 2>&1 || true
     run "Creating the enclosure's keys and service identities" dc run --rm init
     enrol_operator
     enrol_admins

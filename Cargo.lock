@@ -20,6 +20,7 @@ version = "0.1.0-rc.1"
 dependencies = [
  "admin-breakglass",
  "admin-config",
+ "admin-identity",
  "admin-sim",
  "audit-writer",
  "policy",
@@ -30,6 +31,7 @@ dependencies = [
 name = "admin-breakglass"
 version = "0.1.0-rc.1"
 dependencies = [
+ "admin-identity",
  "audit-writer",
  "kms",
  "pqc-agility",
@@ -113,6 +115,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures",
+ "zeroize",
 ]
 
 [[package]]
@@ -127,6 +130,7 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -143,6 +147,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
+dependencies = [
+ "base64ct",
+ "blake2",
+ "cpufeatures",
+ "password-hash",
+ "zeroize",
+]
+
+[[package]]
 name = "attest"
 version = "0.1.0-rc.1"
 dependencies = [
@@ -156,6 +173,12 @@ version = "0.1.0-rc.1"
 dependencies = [
  "pqc-agility",
 ]
+
+[[package]]
+name = "base64ct"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "bifrost-artefact"
@@ -218,6 +241,15 @@ version = "0.1.0-rc.1"
 dependencies = [
  "bifrost-artefact",
  "pqc-agility",
+]
+
+[[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -285,6 +317,7 @@ dependencies = [
  "fiat-crypto",
  "rustc_version",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -306,6 +339,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -493,6 +527,7 @@ checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
 dependencies = [
  "opaque-debug",
  "polyval",
+ "zeroize",
 ]
 
 [[package]]
@@ -601,6 +636,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "http-gateway"
 version = "0.1.0-rc.1"
 dependencies = [
@@ -624,6 +677,7 @@ dependencies = [
 name = "iam"
 version = "0.1.0-rc.1"
 dependencies = [
+ "argon2",
  "audit-writer",
  "kms",
  "policy",
@@ -678,6 +732,7 @@ dependencies = [
  "policy",
  "pq-mtls",
  "pqc-agility",
+ "service-runtime",
 ]
 
 [[package]]
@@ -888,6 +943,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
+name = "password-hash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
+dependencies = [
+ "base64ct",
+ "rand_core",
+ "subtle",
+]
+
+[[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest",
+ "hmac",
+]
+
+[[package]]
 name = "policy"
 version = "0.1.0-rc.1"
 
@@ -901,6 +977,7 @@ dependencies = [
  "cpufeatures",
  "opaque-debug",
  "universal-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -915,12 +992,21 @@ dependencies = [
 name = "pqc-agility"
 version = "0.1.0-rc.1"
 dependencies = [
+ "aes",
  "aes-gcm",
  "fips203",
  "fips204",
  "fips205",
+ "ghash",
+ "hkdf",
+ "hmac",
  "libc",
+ "pbkdf2",
+ "polyval",
  "rand_core",
+ "sha2",
+ "sha3",
+ "subtle",
  "x25519-dalek",
  "zeroize",
 ]
@@ -1080,6 +1166,7 @@ checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
 dependencies = [
  "curve25519-dalek",
  "rand_core",
+ "zeroize",
 ]
 
 [[package]]

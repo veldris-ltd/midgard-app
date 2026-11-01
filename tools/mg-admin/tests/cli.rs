@@ -273,3 +273,179 @@ fn a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn audit_checkpoint_adopts_a_ledger_written_before_checkpoints_and_is_safe_to_repeat() {
+    let dir = scratch("checkpoint");
+    init(&dir);
+    let state = StateDir::new(&dir);
+    assert!(state.ledger().exists(), "init creates the audit ledger");
+    let checkpoint = audit_writer::checkpoint_path(&state.ledger());
+    assert!(checkpoint.exists(), "...vouched for by a signed checkpoint");
+    let o = add_user(&dir, "alice", &[], PASSWORD);
+    assert!(o.status.success(), "user add: {}", stderr(&o));
+
+    // A ledger from before checkpoints: the same entries, no checkpoint. Nothing
+    // that appends to it opens it.
+    std::fs::remove_file(&checkpoint).unwrap();
+    let o = add_user(&dir, "bob", &[], PASSWORD);
+    assert!(
+        !o.status.success(),
+        "a ledger without a checkpoint is refused"
+    );
+
+    let dir_arg = dir.display().to_string();
+    let pin = state.audit_trust_anchor().display().to_string();
+    let wrong = dir.join("wrong.pub");
+    let other = Keystore::generate("other", governance::GOV_SIG_ALG, &mut OsRng).unwrap();
+    std::fs::write(&wrong, other.export_verifying_key()).unwrap();
+    let wrong = wrong.display().to_string();
+    let adopt = |pin: &str| {
+        mg_admin(
+            &[
+                "audit",
+                "checkpoint",
+                "--state-dir",
+                &dir_arg,
+                "--audit-pin",
+                pin,
+            ],
+            "",
+        )
+    };
+
+    // Under a key that is not the audit key, it is not adopted. [MG-SEC-05]
+    let o = adopt(&wrong);
+    assert!(!o.status.success(), "a wrong pin must not adopt the ledger");
+    assert!(stderr(&o).contains("pinned audit key"), "{}", stderr(&o));
+    assert!(!checkpoint.exists());
+
+    // Under the pinned key, it is, once.
+    let o = adopt(&pin);
+    assert!(o.status.success(), "audit checkpoint: {}", stderr(&o));
+    assert!(
+        stdout(&o).contains("vouches for 1 entries"),
+        "{}",
+        stdout(&o)
+    );
+    // Running it again is safe: an already-checkpointed ledger is left alone.
+    let o = adopt(&pin);
+    assert!(o.status.success(), "audit checkpoint again: {}", stderr(&o));
+    assert!(
+        stdout(&o).contains("governance ledger already has a checkpoint"),
+        "{}",
+        stdout(&o)
+    );
+
+    let o = add_user(&dir, "bob", &[], PASSWORD);
+    assert!(
+        o.status.success(),
+        "user add after adoption: {}",
+        stderr(&o)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn init_and_audit_checkpoint_keep_a_checkpoint_mirror() {
+    let root = scratch("mirror");
+    let dir = root.join("state");
+    let mirror = root.join("mirror");
+    std::fs::create_dir_all(&mirror).unwrap();
+    let dir_arg = dir.display().to_string();
+    let mirror_arg = mirror.display().to_string();
+    let mirrored = || {
+        audit_writer::CheckpointMirror::latest(
+            &audit_writer::FileCheckpointMirror::new(&mirror).unwrap(),
+            &LedgerId(LEDGER_ID.into()),
+        )
+        .unwrap()
+        .map(|c| c.count)
+    };
+
+    // A mirror directory that is not there is refused before anything is written.
+    let missing = root.join("not-mounted").display().to_string();
+    let o = mg_admin(
+        &[
+            "init",
+            "--state-dir",
+            &dir_arg,
+            "--checkpoint-mirror",
+            &missing,
+        ],
+        "",
+    );
+    assert!(!o.status.success(), "a missing mirror is refused");
+    assert!(!dir.exists(), "{}", stderr(&o));
+
+    // init mirrors the ledger's first, empty checkpoint. [MG-SEC-05]
+    let o = mg_admin(
+        &[
+            "init",
+            "--state-dir",
+            &dir_arg,
+            "--checkpoint-mirror",
+            &mirror_arg,
+        ],
+        "",
+    );
+    assert!(o.status.success(), "init: {}", stderr(&o));
+    assert_eq!(mirrored(), Some(0));
+    // A second enclosure does not share the mirror.
+    let other = root.join("other").display().to_string();
+    let o = mg_admin(
+        &[
+            "init",
+            "--state-dir",
+            &other,
+            "--checkpoint-mirror",
+            &mirror_arg,
+        ],
+        "",
+    );
+    assert!(!o.status.success(), "a mirror already in use is refused");
+    assert!(stderr(&o).contains("already holds"), "{}", stderr(&o));
+
+    // `user add` writes the ledger without the mirror: the mirror falls behind,
+    // which is not an error, and `audit checkpoint --checkpoint-mirror` catches it up.
+    let o = add_user(&dir, "alice", &[], PASSWORD);
+    assert!(o.status.success(), "user add: {}", stderr(&o));
+    assert_eq!(mirrored(), Some(0));
+    let pin = StateDir::new(&dir)
+        .audit_trust_anchor()
+        .display()
+        .to_string();
+    let reseed = || {
+        mg_admin(
+            &[
+                "audit",
+                "checkpoint",
+                "--state-dir",
+                &dir_arg,
+                "--audit-pin",
+                &pin,
+                "--checkpoint-mirror",
+                &mirror_arg,
+            ],
+            "",
+        )
+    };
+    let o = reseed();
+    assert!(o.status.success(), "audit checkpoint: {}", stderr(&o));
+    assert!(
+        stdout(&o).contains("vouches for 1 entries"),
+        "{}",
+        stdout(&o)
+    );
+    assert_eq!(mirrored(), Some(1));
+
+    // A lost mirror is re-seeded the same way.
+    std::fs::remove_dir_all(&mirror).unwrap();
+    std::fs::create_dir_all(&mirror).unwrap();
+    let o = reseed();
+    assert!(o.status.success(), "re-seed: {}", stderr(&o));
+    assert_eq!(mirrored(), Some(1));
+
+    let _ = std::fs::remove_dir_all(&root);
+}

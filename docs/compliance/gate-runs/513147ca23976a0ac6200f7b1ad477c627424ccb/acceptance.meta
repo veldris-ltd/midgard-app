@@ -1,0 +1,16 @@
+part=acceptance
+commit=513147ca23976a0ac6200f7b1ad477c627424ccb
+tree=clean
+image=midgard-acceptance:1.82.0
+image_id=sha256:aa0152f547fe263410de509245d05353f802253cfb95f8e8a8ab12a904776bb4
+base_image=rust:1.82@sha256:d9c3c6f1264a547d84560e06ffd79ed7a799ce0bff0980b26cf10d29af888377
+dockerfile_sha256=2dc9456b51c97056d37ca9dfb84525814cddb66d88bfec31c732365973125a49
+rustc=rustc 1.82.0 (f6e511eec 2024-10-15)
+cargo=cargo 1.82.0 (8f40fc59f 2024-08-21)
+network=none
+started=2026-10-30T12:11:18Z
+finished=2026-10-30T12:29:03Z
+seconds=1065
+exit=0
+platform=local
+run_url=

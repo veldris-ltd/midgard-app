@@ -25,7 +25,7 @@ import { GatewayError, HumanGateRequiredError } from '../mock/MockGateway';
  * (services/http-gateway), which serves the `GatewayClient` contract from the
  * enclosure. This is the swap-in for `MockGateway` — select it with
  * `VITE_GATEWAY=http` (see each product app's src/main.tsx). Start the edge with:
- *   cargo run -p http-gateway            # listens on 127.0.0.1:7710
+ *   cargo run -p http-gateway -- --dev   # listens on 127.0.0.1:7710
  *
  * In production this Rust edge terminates the browser session and forwards to
  * the enclosure over PQ-mTLS. Today it serves object types, query, actions,

@@ -79,7 +79,19 @@ fn workload(idp: &Idp, id: &str, roles: &[&str], seed: u64) -> (IdentityCert, Si
         sig_alg: IDP_SIG_ALG,
         verifying_key: vk,
     };
-    (idp.certify(&identity).unwrap(), sk)
+    (
+        idp.certify(
+            &identity,
+            pq_mtls::CertTerms::new(
+                1,
+                0,
+                u64::MAX,
+                pq_mtls::Posture::at(policy::ClassificationLevel::TOP_SECRET),
+            ),
+        )
+        .unwrap(),
+        sk,
+    )
 }
 
 fn channel_resource() -> Resource {
@@ -148,6 +160,7 @@ fn initiator_session(
     cert: &IdentityCert,
     sk: &SigningKey,
     anchor: &TrustAnchor,
+    peer: &str,
     seed: u64,
 ) -> (Session, TcpStream) {
     let provider = fips_provider();
@@ -158,6 +171,7 @@ fn initiator_session(
         cert.clone(),
         sk,
         anchor.clone(),
+        pq_mtls::ServiceId(peer.into()),
         Purpose("investigation".into()),
         posture(),
         &mut rng,
@@ -239,6 +253,7 @@ fn rc_26_feed_over_pqmtls_converges_across_two_nodes() {
             feed_cert,
             &feed_ch_sk,
             anchor.clone(),
+            pq_mtls::ServiceId("node-a".into()),
             Purpose("investigation".into()),
             posture(),
             &mut rng,
@@ -289,7 +304,8 @@ fn rc_26_feed_over_pqmtls_converges_across_two_nodes() {
 
     // Node A (initiator): establish session and replicate against node B.
     let stream = TcpStream::connect(repl_addr).unwrap();
-    let (session, stream) = initiator_session(stream, &a_repl_cert, &a_repl_sk, &anchor, 202);
+    let (session, stream) =
+        initiator_session(stream, &a_repl_cert, &a_repl_sk, &anchor, "node-b", 202);
     let mut link_a = SessionLink::new(&session, stream, RecordRole::Initiator);
     let repl = Replicator::new(shared_fips());
     replicate_round(&mut link_a, &repl, &a_sk, &b_vk, node_a.picture_mut())
@@ -358,6 +374,7 @@ fn rc_26_unsigned_feed_is_rejected_at_the_boundary() {
             feed_cert,
             &feed_ch_sk,
             anchor2,
+            pq_mtls::ServiceId("node-a".into()),
             Purpose("investigation".into()),
             posture(),
             &mut rng,

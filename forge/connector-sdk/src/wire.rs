@@ -1,10 +1,10 @@
 //! Wire helpers the network connectors share: hex and base64, PBKDF2-HMAC-SHA256, and
 //! a SCRAM-SHA-256 client (RFC 5802, RFC 7677). Hashing and HMAC come from
-//! `pqc-agility`'s known-answer-tested implementation; nothing here is a new
-//! primitive, only the constructions the source protocols require. [FR-F-2]
-//! [NFR-SEC-1]
+//! `pqc-agility`'s known-answer-tested wrappers over the vetted RustCrypto crates;
+//! nothing here is a new primitive, only the constructions the source protocols
+//! require. [FR-F-2] [NFR-SEC-1] [MG-SEC-10]
 
-use pqc_agility::hash::{ct_eq, hmac_sha256, sha256};
+use pqc_agility::hash::{self, ct_eq, hmac_sha256, sha256};
 
 /// Lowercase hex.
 pub fn hex(bytes: &[u8]) -> String {
@@ -60,25 +60,12 @@ pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// PBKDF2 with HMAC-SHA256 (RFC 8018 §5.2), producing `len` bytes.
+/// PBKDF2 with HMAC-SHA256 (RFC 8018 §5.2), producing `len` bytes. Computed by the
+/// vetted RustCrypto `pbkdf2` crate through `pqc-agility`'s hash module, not by a
+/// local loop. [MG-SEC-10]
 pub fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, len: usize) -> Vec<u8> {
-    let mut out = Vec::with_capacity(len + 32);
-    let mut block = 1u32;
-    while out.len() < len {
-        let mut first = salt.to_vec();
-        first.extend_from_slice(&block.to_be_bytes());
-        let mut u = hmac_sha256(password, &first);
-        let mut t = u;
-        for _ in 1..iterations {
-            u = hmac_sha256(password, &u);
-            for (acc, x) in t.iter_mut().zip(u.iter()) {
-                *acc ^= x;
-            }
-        }
-        out.extend_from_slice(&t);
-        block += 1;
-    }
-    out.truncate(len);
+    let mut out = vec![0u8; len];
+    hash::pbkdf2_hmac_sha256(password, salt, iterations, &mut out);
     out
 }
 

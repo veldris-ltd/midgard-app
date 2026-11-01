@@ -4,12 +4,15 @@
 //!
 //! ```text
 //! bifrost-agent --identity-dir DIR --addr HOST:PORT --channel C --version V
-//!               [--service NAME] [--install-id ID] [--unhealthy] [--purpose P]
-//! bifrost-agent --identity-dir DIR --addr HOST:PORT --status [--service NAME] [--purpose P]
+//!               [--service NAME] [--server NAME] [--install-id ID] [--unhealthy]
+//!               [--purpose P]
+//! bifrost-agent --identity-dir DIR --addr HOST:PORT --status [--service NAME]
+//!               [--server NAME] [--purpose P]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
-//! to `fleet-agent`). An installation checks in under its own name: `--install-id`
+//! to `fleet-agent`). The manager at `--addr` must hold the mesh identity `--server`
+//! (default `bifrost-fleet`); any other is refused before anything is sent. An installation checks in under its own name: `--install-id`
 //! defaults to NAME, and the manager refuses a check-in for any other. `--status` prints
 //! the fleet as JSON. Exits 1 when the manager refuses.
 
@@ -20,7 +23,7 @@ use service_runtime::{client, Args, ServiceIdentity};
 
 const USAGE: &str = "usage: bifrost-agent --identity-dir DIR --addr HOST:PORT \
                      (--channel C --version V [--install-id ID] [--unhealthy] | --status) \
-                     [--service NAME] [--purpose P]";
+                     [--service NAME] [--server NAME] [--purpose P]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -29,6 +32,7 @@ fn main() {
         &[
             "identity-dir",
             "addr",
+            "server",
             "service",
             "purpose",
             "channel",
@@ -57,9 +61,10 @@ fn run(args: &Args) -> Result<String, String> {
     let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
     let addr = args.require("addr")?;
     let purpose = args.get("purpose").unwrap_or("fleet-management");
+    let server = args.get("server").unwrap_or("bifrost-fleet");
 
     if args.flag("status") {
-        let response = client::call(&identity, addr, purpose, FLEET_STATUS, &[])?;
+        let response = client::call(&identity, addr, server, purpose, FLEET_STATUS, &[])?;
         return answer(&response);
     }
 
@@ -72,7 +77,7 @@ fn run(args: &Args) -> Result<String, String> {
         VersionId::new(version),
         !args.flag("unhealthy"),
     );
-    let response = client::call(&identity, addr, purpose, CHECK_IN, &report.encode())?;
+    let response = client::call(&identity, addr, server, purpose, CHECK_IN, &report.encode())?;
     let message = answer(&response)?;
     Ok(format!(
         "checked in {install_id} on {channel} at {version}: {message}"

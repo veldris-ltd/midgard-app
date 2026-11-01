@@ -3,8 +3,10 @@
 //! can authenticate each other — and (2) issues PQ-signed access tokens for
 //! authenticated principals. One ML-DSA issuer key roots both. [NFR-SEC-2] [NFR-PRV-1]
 
+use std::collections::BTreeSet;
+
 use policy::Purpose;
-use pq_mtls::{canonical_identity, IdentityCert, TrustAnchor, WorkloadIdentity};
+use pq_mtls::{certify, CertTerms, IdentityCert, RevocationList, TrustAnchor, WorkloadIdentity};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::{CryptoError, CryptoProvider, Rng, SigId, SigningKey, VerifyingKey};
 
@@ -130,21 +132,42 @@ impl Idp {
         &self.store
     }
 
-    /// Certify a workload identity: the IdP signs the identity's canonical
-    /// encoding, producing a certificate that chains to [`Idp::trust_anchor`].
-    pub fn certify(&self, identity: &WorkloadIdentity) -> Result<IdentityCert, TokenError> {
-        let scheme = self
-            .provider
-            .sig_for(IDP_SIG_ALG)
-            .map_err(|_| TokenError::UnknownAlg)?;
-        let ca_signature = scheme
-            .sign(&self.signing_key, &canonical_identity(identity))
-            .map_err(|_| TokenError::BadSignature)?;
-        Ok(IdentityCert {
-            identity: identity.clone(),
-            ca_sig_alg: IDP_SIG_ALG,
-            ca_signature,
-        })
+    /// Certify a workload identity under `terms`: the IdP signs the identity together
+    /// with its serial, validity window and granted clearance, producing a certificate
+    /// that chains to [`Idp::trust_anchor`], stops working when the window closes, and
+    /// caps the clearance its holder can be authorised at. [MG-SEC-02] [MG-SEC-04]
+    pub fn certify(
+        &self,
+        identity: &WorkloadIdentity,
+        terms: CertTerms,
+    ) -> Result<IdentityCert, TokenError> {
+        certify(
+            &self.provider,
+            IDP_SIG_ALG,
+            &self.signing_key,
+            identity,
+            terms,
+        )
+        .map_err(|_| TokenError::BadSignature)
+    }
+
+    /// Sign a revocation list: the only form in which verifiers accept revocations.
+    /// `version` must be higher than any list issued before. [MG-SEC-03]
+    pub fn sign_crl(
+        &self,
+        version: u64,
+        issued_at: u64,
+        revoked: BTreeSet<[u8; 32]>,
+    ) -> Result<RevocationList, TokenError> {
+        RevocationList::sign(
+            &self.provider,
+            IDP_SIG_ALG,
+            &self.signing_key,
+            version,
+            issued_at,
+            revoked,
+        )
+        .map_err(|_| TokenError::BadSignature)
     }
 
     /// Issue a token for a registered subject and a declared purpose, valid for
