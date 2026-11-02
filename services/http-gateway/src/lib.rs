@@ -182,6 +182,19 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         let readiness = Arc::new(Toggle::new("gateway", true));
         let mut health = HealthRegistry::new();
         health.register(Box::new(readiness.clone()));
+        let metrics = Arc::new(MetricsRegistry::new());
+        metrics.describe(
+            "http_requests_total",
+            "HTTP requests by matched route template (path) and status",
+        );
+        metrics.describe(
+            "http_request_latency_ms",
+            "HTTP request latency in milliseconds by matched route template (path)",
+        );
+        metrics.describe(
+            telemetry::DROPPED_SERIES,
+            "metric series not recorded because their family was at its series cap",
+        );
         Self {
             state: State::new(),
             provider,
@@ -199,7 +212,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             admin: None,
             ontology: None,
             hasher: Pbkdf2Hasher::production(),
-            metrics: Arc::new(MetricsRegistry::new()),
+            metrics,
             health,
             readiness,
             availability: Mutex::new(AvailabilitySlo::new(
@@ -767,9 +780,10 @@ impl SecuredGateway {
 impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// Handle one request: authenticate, authorise + audit, serve — with the CORS
     /// grant attached only for an allowlisted origin. Instrumented: every request is
-    /// counted by path+status, its latency observed, and the availability SLO
-    /// updated (a 5xx counts against availability; a correct 401/403 does not).
-    /// [RC-33]
+    /// counted by route+status, its latency observed, and the availability SLO
+    /// updated (a 5xx counts against availability; a correct 401/403 does not). The
+    /// `path` label is the matched route template ([`route_label`]), never the request
+    /// path, so a client cannot add series. [RC-33] [VLD-ANB-MIDGARD-0003]
     pub fn handle(&self, req: &Request, now: u64) -> Response {
         self.handle_from(req, None, now)
     }
@@ -785,15 +799,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         let status = resp.status.to_string();
+        let route = route_label(&req.method, &req.path);
         self.metrics.inc(
             "http_requests_total",
-            &[("path", req.path.as_str()), ("status", &status)],
+            &[("path", route), ("status", &status)],
         );
-        self.metrics.observe(
-            "http_request_latency_ms",
-            &[("path", req.path.as_str())],
-            elapsed_ms,
-        );
+        self.metrics
+            .observe("http_request_latency_ms", &[("path", route)], elapsed_ms);
         // Availability = served without a server error. Auth/authz denials are the
         // correct outcome, not an outage.
         let served_ok = resp.status < 500;
@@ -1381,6 +1393,54 @@ fn search_of(body: &Json) -> Result<fabric::Search, EdgeError> {
     })
 }
 
+/// Every (method, path) the edge serves, as the route template its metrics carry.
+/// [VLD-ANB-MIDGARD-0003]
+const ROUTES: &[(&str, &str)] = &[
+    ("GET", "/"),
+    ("GET", "/api/v1/health"),
+    ("GET", "/api/v1/ready"),
+    ("GET", "/metrics"),
+    ("POST", "/api/v1/login"),
+    ("POST", "/api/v1/admin/challenge"),
+    ("POST", "/api/v1/admin/enrolments"),
+    ("POST", "/api/v1/admin/enrolments/approve"),
+    ("POST", "/api/v1/admin/enrolments/list"),
+    ("GET", "/api/v1/object-types"),
+    ("POST", "/api/v1/query"),
+    ("POST", "/api/v1/actions"),
+    ("GET", "/api/v1/whoami"),
+    ("GET", "/api/v1/approvals"),
+    ("POST", "/api/v1/approvals"),
+    ("POST", "/api/v1/search-around"),
+    ("GET", "/api/v1/audit"),
+    ("GET", "/api/v1/policies"),
+    ("POST", "/api/v1/policy/simulate"),
+    ("GET", "/api/v1/identities"),
+    ("GET", "/api/v1/keys"),
+    ("GET", "/api/v1/compute"),
+    ("GET", "/api/v1/observability"),
+    ("GET", "/api/v1/resilience"),
+    ("GET", "/api/v1/sdk-surface"),
+];
+
+/// The metrics label for a request: the template of the route it matched, with an
+/// approval id collapsed to `{id}`, `OPTIONS` for a preflight and `other` for anything
+/// the edge does not serve. Nothing in it is taken from the request, so the label has
+/// a fixed set of values whatever a client sends. [VLD-ANB-MIDGARD-0003]
+fn route_label(method: &str, path: &str) -> &'static str {
+    if method == "OPTIONS" {
+        return "OPTIONS";
+    }
+    if let Some(&(_, template)) = ROUTES.iter().find(|&&(m, p)| m == method && p == path) {
+        return template;
+    }
+    match (method, approval_decision(path)) {
+        ("POST", Some((_, true))) => "/api/v1/approvals/{id}/approve",
+        ("POST", Some((_, false))) => "/api/v1/approvals/{id}/reject",
+        _ => "other",
+    }
+}
+
 /// `/api/v1/approvals/{id}/approve` or `/reject` → the approval id and whether it
 /// approves.
 fn approval_decision(path: &str) -> Option<(&str, bool)> {
@@ -1594,5 +1654,79 @@ mod tests {
             gw.audit_len() > before,
             "the served request was still audited"
         );
+    }
+
+    #[test]
+    fn route_label_names_every_served_route_and_nothing_else() {
+        // [VLD-ANB-MIDGARD-0003] [AC-33.2] [AC-33.4]
+        let table = [
+            ("GET", "/", "/"),
+            ("GET", "/api/v1/health", "/api/v1/health"),
+            ("GET", "/api/v1/ready", "/api/v1/ready"),
+            ("GET", "/metrics", "/metrics"),
+            ("POST", "/api/v1/login", "/api/v1/login"),
+            ("POST", "/api/v1/admin/challenge", "/api/v1/admin/challenge"),
+            (
+                "POST",
+                "/api/v1/admin/enrolments",
+                "/api/v1/admin/enrolments",
+            ),
+            (
+                "POST",
+                "/api/v1/admin/enrolments/approve",
+                "/api/v1/admin/enrolments/approve",
+            ),
+            (
+                "POST",
+                "/api/v1/admin/enrolments/list",
+                "/api/v1/admin/enrolments/list",
+            ),
+            ("GET", "/api/v1/object-types", "/api/v1/object-types"),
+            ("POST", "/api/v1/query", "/api/v1/query"),
+            ("POST", "/api/v1/actions", "/api/v1/actions"),
+            ("GET", "/api/v1/whoami", "/api/v1/whoami"),
+            ("GET", "/api/v1/approvals", "/api/v1/approvals"),
+            ("POST", "/api/v1/approvals", "/api/v1/approvals"),
+            (
+                "POST",
+                "/api/v1/approvals/abc-123/approve",
+                "/api/v1/approvals/{id}/approve",
+            ),
+            (
+                "POST",
+                "/api/v1/approvals/xyz/reject",
+                "/api/v1/approvals/{id}/reject",
+            ),
+            ("POST", "/api/v1/search-around", "/api/v1/search-around"),
+            ("GET", "/api/v1/audit", "/api/v1/audit"),
+            ("GET", "/api/v1/policies", "/api/v1/policies"),
+            ("POST", "/api/v1/policy/simulate", "/api/v1/policy/simulate"),
+            ("GET", "/api/v1/identities", "/api/v1/identities"),
+            ("GET", "/api/v1/keys", "/api/v1/keys"),
+            ("GET", "/api/v1/compute", "/api/v1/compute"),
+            ("GET", "/api/v1/observability", "/api/v1/observability"),
+            ("GET", "/api/v1/resilience", "/api/v1/resilience"),
+            ("GET", "/api/v1/sdk-surface", "/api/v1/sdk-surface"),
+            ("OPTIONS", "/api/v1/query", "OPTIONS"),
+            ("OPTIONS", "/anything/at/all", "OPTIONS"),
+            // Not served: a trailing slash, an empty or nested approval id, an unknown
+            // verb, the wrong method, an unknown path or method.
+            ("GET", "/api/v1/health/", "other"),
+            ("POST", "/api/v1/approvals//approve", "other"),
+            ("POST", "/api/v1/approvals/a/b/approve", "other"),
+            ("POST", "/api/v1/approvals/abc/delete", "other"),
+            ("GET", "/api/v1/approvals/abc/approve", "other"),
+            ("GET", "/api/v1/query", "other"),
+            ("POST", "/api/v1/health", "other"),
+            ("GET", "/probe/1", "other"),
+            ("PUT", "/api/v1/query", "other"),
+        ];
+        for (method, path, expected) in table {
+            assert_eq!(route_label(method, path), expected, "{method} {path}");
+        }
+        // Every entry in the served routes is labelled as its own path.
+        for &(method, path) in ROUTES {
+            assert_eq!(route_label(method, path), path);
+        }
     }
 }

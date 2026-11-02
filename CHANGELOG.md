@@ -250,6 +250,26 @@ CONTRIBUTING.md for the version policy.
     suppressed`).
   - The per-source allowance the administration routes share with login (above)
     remains the rate control.
+- **Request paths no longer grow the gateway's memory or show up in `/metrics`.**
+  `http_requests_total` and `http_request_latency_ms` were labelled with the raw
+  request path, including on 401 and 404 answers, and the metrics registry made a
+  new series for every label set for the life of the process, so unauthenticated
+  GETs with unique paths (up to 16 KiB each) could exhaust the container's memory,
+  and every path sent was listed on the unauthenticated `/metrics`.
+  [VLD-ANB-MIDGARD-0003]
+  - The `path` label is now the template of the route the request matched
+    (`/api/v1/approvals/{id}/approve`, not the id), `OPTIONS` for a preflight and
+    `other` for anything the edge does not serve. The label keeps its name, so
+    dashboards and the RC-33 assertions are unchanged; grouping by approval id is
+    gone by design.
+  - `MetricsRegistry` holds at most 1,000 series per family (`MAX_SERIES_PER_FAMILY`)
+    for every counter, gauge and histogram; a new label set past that is not
+    recorded and is counted in `metrics_series_dropped_total{family}`, which is
+    exempt from the cap. A rendered label value longer than 256 characters is cut
+    and ends `...`. `describe()` now also takes help text before a family records
+    anything, and the gateway describes its request families and the dropped counter.
+  - `/metrics` on the edge stays unauthenticated, now bounded; the residual-risk
+    register records it, with network restriction as the compensating control.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

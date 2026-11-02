@@ -8,7 +8,7 @@
 //! [VLD-ANB-MIDGARD-0006] [VLD-ANB-MIDGARD-0004] [NFR-SEC-1] [AC-30.1] [AC-30.6]
 //! [AC-31.1] [AC-31.2] [VLD-ANB-MIDGARD-0005] [AC-11.1] [AC-11.2] [AC-11.3]
 //! [VLD-ANB-MIDGARD-0019] [AC-12.1] [AC-12.2] [AC-12.4]
-//! [VLD-ANB-MIDGARD-0020]
+//! [VLD-ANB-MIDGARD-0020] [VLD-ANB-MIDGARD-0003] [AC-33.1] [AC-33.2]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{Read, Write};
@@ -838,4 +838,106 @@ fn admin_challenge_without_administration_is_still_404_not_a_parse_hole() {
     let (status, _, body) = post_json(addr, "/api/v1/admin/challenge", &"[".repeat(100_000));
     assert!(status == 404 || status == 400, "{status}: {body}");
     assert_healthy(addr);
+}
+
+// ---- WP-33: metrics cardinality --------------------------------------------------
+
+/// The edge's limits with the per-source allowance off: every request in a test
+/// comes from 127.0.0.1, so it would answer 429 long before the test's last request.
+fn without_source_limit() -> EdgeLimits {
+    EdgeLimits {
+        source_burst: 0.0,
+        source_per_sec: 0.0,
+        ..EdgeLimits::default()
+    }
+}
+
+#[test]
+fn unknown_paths_share_one_metrics_series() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.1]
+    // Without a bearer token an unknown path is refused before routing, so each of
+    // these is a 401, not a 404: the series asserted below is the 401 one.
+    let addr = spawn_dev_gateway_with(without_source_limit());
+    for i in 0..2000 {
+        let (status, _, body) = get(addr, &format!("/probe/{i}"));
+        assert_eq!(status, 401, "/probe/{i}: {body}");
+    }
+
+    let (status, _, metrics) = get(addr, "/metrics");
+    assert_eq!(status, 200);
+    let series: Vec<&str> = metrics
+        .lines()
+        .filter(|l| l.starts_with("http_requests_total{path=\"other\",status=\"401\"}"))
+        .collect();
+    assert_eq!(
+        series,
+        ["http_requests_total{path=\"other\",status=\"401\"} 2000"]
+    );
+    assert!(!metrics.contains("/probe/"), "{metrics}");
+    assert!(
+        metrics.len() < 64 * 1024,
+        "/metrics is {} bytes",
+        metrics.len()
+    );
+    eprintln!(
+        "/metrics after 2,000 distinct paths: {} bytes",
+        metrics.len()
+    );
+
+    // Signed in, an unknown path is a 404, and it shares one series as well.
+    let token = demo_token(addr);
+    for i in 0..5 {
+        let req = format!(
+            "GET /probe/signed-in/{i} HTTP/1.1\r\nHost: localhost\r\n\
+             Authorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+        );
+        let (status, _, body) = raw_request(addr, req.as_bytes());
+        assert_eq!(status, 404, "{body}");
+    }
+    let (_, _, metrics) = get(addr, "/metrics");
+    assert!(
+        metrics.contains("http_requests_total{path=\"other\",status=\"404\"} 5\n"),
+        "{metrics}"
+    );
+    assert!(!metrics.contains("/probe/"), "{metrics}");
+}
+
+#[test]
+fn a_sixteen_kib_path_leaves_no_trace_in_metrics() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.1]
+    let addr = spawn_dev_gateway();
+    let path = format!("/{}", "a".repeat(15_000));
+    let (status, _, body) = get(addr, &path);
+    assert!(matches!(status, 401 | 404 | 431), "{status}: {body}");
+
+    let (status, _, metrics) = get(addr, "/metrics");
+    assert_eq!(status, 200);
+    assert!(!metrics.contains("aaaa"), "the path is in /metrics");
+}
+
+#[test]
+fn approval_ids_are_collapsed() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.2]
+    let gw = SecuredGateway::dev();
+    let request = |method: &str, path: &str| Request {
+        method: method.into(),
+        path: path.into(),
+        query: String::new(),
+        body: String::new(),
+        authorization: None,
+        origin: None,
+    };
+    let decide = gw.handle(&request("POST", "/api/v1/approvals/abc-123/approve"), 0);
+    assert_eq!(decide.status, 401, "{}", decide.body);
+
+    let metrics = gw.handle(&request("GET", "/metrics"), 0);
+    assert_eq!(metrics.status, 200);
+    assert!(
+        metrics.body.contains(
+            "http_requests_total{path=\"/api/v1/approvals/{id}/approve\",status=\"401\"} 1"
+        ),
+        "{}",
+        metrics.body
+    );
+    assert!(!metrics.body.contains("abc-123"), "{}", metrics.body);
 }

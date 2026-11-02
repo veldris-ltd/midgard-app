@@ -3,7 +3,8 @@
 
 use telemetry::{
     AvailabilitySlo, BufferExporter, BufferSink, HealthRegistry, IdGenerator, LatencySlo, Level,
-    Logger, MetricsRegistry, SpanContext, SpanExporter, SpanRecord, Toggle,
+    Logger, MetricsRegistry, SpanContext, SpanExporter, SpanRecord, Toggle, DROPPED_SERIES,
+    MAX_SERIES_PER_FAMILY,
 };
 
 #[test]
@@ -163,4 +164,97 @@ fn trace_context_propagates_via_w3c_traceparent() {
     });
     assert_eq!(exp.len(), 1);
     assert_eq!(exp.spans()[0].duration(), 150);
+}
+
+// ---- WP-33: bounded cardinality ------------------------------------------------
+
+#[test]
+fn a_family_stops_growing_at_the_series_cap() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.3]
+    let m = MetricsRegistry::new();
+    for i in 0..1_500 {
+        m.inc("flood", &[("path", &format!("/probe/{i}"))]);
+    }
+    assert_eq!(m.series_count("flood"), MAX_SERIES_PER_FAMILY);
+    assert_eq!(m.counter_value(DROPPED_SERIES, &[("family", "flood")]), 500);
+    assert_eq!(m.counter_value("flood", &[("path", "/probe/1499")]), 0);
+
+    // A series the family already holds still counts.
+    m.inc("flood", &[("path", "/probe/0")]);
+    assert_eq!(m.counter_value("flood", &[("path", "/probe/0")]), 2);
+    assert_eq!(m.series_count("flood"), MAX_SERIES_PER_FAMILY);
+    assert!(m
+        .render()
+        .contains("metrics_series_dropped_total{family=\"flood\"} 500"));
+}
+
+#[test]
+fn histograms_are_capped_too() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.3]
+    let m = MetricsRegistry::new();
+    for i in 0..1_500 {
+        m.observe("flood_ms", &[("path", &format!("/probe/{i}"))], 3.0);
+    }
+    assert_eq!(m.series_count("flood_ms"), MAX_SERIES_PER_FAMILY);
+    assert_eq!(
+        m.counter_value(DROPPED_SERIES, &[("family", "flood_ms")]),
+        500
+    );
+    m.observe("flood_ms", &[("path", "/probe/0")], 3.0);
+    assert!(m.render().contains("flood_ms_count{path=\"/probe/0\"} 2"));
+
+    // Gauges are held to the same cap.
+    for i in 0..1_200 {
+        m.set_gauge("flood_gauge", &[("id", &i.to_string())], 1.0);
+    }
+    assert_eq!(m.series_count("flood_gauge"), MAX_SERIES_PER_FAMILY);
+    assert_eq!(
+        m.counter_value(DROPPED_SERIES, &[("family", "flood_gauge")]),
+        200
+    );
+}
+
+#[test]
+fn the_dropped_counter_is_never_capped() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.3]
+    let m = MetricsRegistry::new();
+    // The dropped counter holds one series per family that overflowed, so it is exempt
+    // from the cap: past the cap's worth of families, every one is still counted.
+    let families = MAX_SERIES_PER_FAMILY + 500;
+    for f in 0..families {
+        m.inc(DROPPED_SERIES, &[("family", &format!("family_{f}"))]);
+    }
+    assert_eq!(m.series_count(DROPPED_SERIES), families);
+    assert_eq!(
+        m.counter_value(
+            DROPPED_SERIES,
+            &[("family", &format!("family_{}", families - 1))]
+        ),
+        1
+    );
+
+    // And a real overflow on top of that is still counted.
+    for i in 0..=MAX_SERIES_PER_FAMILY {
+        m.inc("flood", &[("i", &i.to_string())]);
+    }
+    assert_eq!(m.series_count(DROPPED_SERIES), families + 1);
+    assert_eq!(m.counter_value(DROPPED_SERIES, &[("family", "flood")]), 1);
+}
+
+#[test]
+fn long_label_values_are_truncated_in_the_rendering() {
+    // [VLD-ANB-MIDGARD-0003]
+    let m = MetricsRegistry::new();
+    let long = "a".repeat(20_000);
+    m.inc("long", &[("path", &long)]);
+    let text = m.render();
+    let expected = format!("long{{path=\"{}...\"}} 1\n", "a".repeat(256));
+    assert!(text.contains(&expected), "{}", &text[..text.len().min(600)]);
+    assert!(!text.contains(&"a".repeat(257)));
+
+    // A value at the limit is left alone.
+    m.inc("short", &[("path", &"b".repeat(256))]);
+    assert!(m
+        .render()
+        .contains(&format!("short{{path=\"{}\"}} 1\n", "b".repeat(256))));
 }
