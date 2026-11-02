@@ -77,10 +77,17 @@ fi
 #    sides; a placeholder that survives rendering is refused before anything is applied.
 sed -n '/^check_cross_host_mtls() {/,/^}/p' "$runner" > "$work/check.sh"
 # run_check: the lifted check, with the runner's helpers and a kubectl stub that copies
-# the manifest it applies to $work/applied.yaml.
+# the manifest it applies to $work/applied.yaml. The probe image is given pinned by
+# digest, as the runner requires (WP-37), so no docker is needed to resolve it.
+# [VLD-ANB-MIDGARD-0012]
+probe_image="registry.test/probe@sha256:$(printf 'a%.0s' $(seq 64))"
 run_check() (
+    # The runner's own helpers (probe_manifest, resolve_probe_image, the sentinel).
+    # shellcheck source=/dev/null
+    MIDGARD_DEPLOYMENT_TIER_FUNCTIONS_ONLY=1 . "$runner"
     # shellcheck disable=SC2034 # read by the lifted function
     HERE="$deployment" NS=test
+    MIDGARD_PROBE_IMAGE="${MIDGARD_PROBE_IMAGE:-$probe_image}"
     rm -f "$work/applied.yaml"
     note() { echo "    $*"; }
     record() { echo "  >>> $2: $1"; }
@@ -123,7 +130,7 @@ if [ -n "$second" ] && [ "$second" != "$seed" ]; then
 else
     fail "two runs drew the same seed ($seed, $second)"
 fi
-out="$(MIDGARD_PROBE_IMAGE='registry.test/probe:__CA_SEED__' run_check 2>&1)"
+out="$(MIDGARD_PROBE_IMAGE="registry.test/__CA_SEED__/probe@sha256:$(printf 'b%.0s' $(seq 64))" run_check 2>&1)"
 if [ ! -f "$work/applied.yaml" ] && [[ "$out" == *"refusing to apply"*">>> RC-40.2: FAIL"* ]]; then
     pass "a placeholder that survives rendering is refused and nothing is applied"
 else
