@@ -1387,7 +1387,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     .and_then(|b| b.str_field("objectType").map(str::to_string))
                     .unwrap_or_default();
                 let level = self.marking_for(&ot);
-                (audit_resource(&fabric::type_resource_id(&ot).0), level, "Read")
+                (
+                    audit_resource(&fabric::type_resource_id(&ot).0),
+                    level,
+                    "Read",
+                )
             }
             ("POST", "/api/v1/search-around") => {
                 let ot = parse(&req.body)
@@ -1399,7 +1403,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     })
                     .unwrap_or_default();
                 let level = self.marking_for(&ot);
-                (audit_resource(&fabric::type_resource_id(&ot).0), level, "Read")
+                (
+                    audit_resource(&fabric::type_resource_id(&ot).0),
+                    level,
+                    "Read",
+                )
             }
             ("POST", "/api/v1/actions") | ("POST", "/api/v1/approvals") => {
                 (req.path.clone(), self.marking_for("__actions__"), "Apply")
