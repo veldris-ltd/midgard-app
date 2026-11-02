@@ -29,9 +29,9 @@ talks to it over its own listener.
 | `production` | 0 |
 | `operable` | 23 |
 | `reference` | 19 |
-| `spec` | 5 |
+| `spec` | 4 |
 | `external` | 1 |
-| **Total** | **48** |
+| **Total** | **47** |
 
 No document is listed as wording a capability above its status.
 
@@ -71,7 +71,7 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`services/runtime/tests/security_listener.rs::an_unauthenticated_idle_mesh_connection_is_closed_at_the_timeout`](../../services/runtime/tests/security_listener.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:140`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:58`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
@@ -109,7 +109,7 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`services/http-gateway/tests/state_dir_boot.rs::a_tampered_ledger_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:106`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
@@ -214,10 +214,10 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 
 An action the ontology marks as human-gated is refused at the edge unless the request carries a human-gate token, and actions are gated unless the ontology says otherwise.
 
-**Limit.** The token must be an approval that redeemable() accepts: decided by a principal other than the requester, of this action on this object, unexpired (15 minutes), redeemed once and only by its requester. Not covered: any other signed-in principal whose policy grants Approve can decide it, with no fresh second factor at the moment of approval, and approvals live in memory, so a gateway restart drops pending and approved ones (RF-UID-3).
+**Limit.** The edge accepts any non-empty token: it does not yet check that the token is a named person's authorisation (RF-UID-3).
 
 - Source:
-  - [`services/http-gateway/src/enclosure.rs:606:fn redeemable`](../../services/http-gateway/src/enclosure.rs)
+  - [`services/http-gateway/src/enclosure.rs:375`](../../services/http-gateway/src/enclosure.rs)
 - Tests:
   - [`services/http-gateway/tests/fabric_edge.rs::a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing`](../../services/http-gateway/tests/fabric_edge.rs)
 - Service tests:
@@ -266,8 +266,6 @@ WebAuthn assertion verification, a JWKS endpoint and federation with an enterpri
 
 Access is denied unless a written rule grants it: role, marking and purpose must all match, and mandatory access control is evaluated first. A decision can be dry-run at the edge, and the dry-run is signed and audited.
 
-**Limit.** Marking and purpose are evaluated per request at the HTTP edge (the gateway's policy decision point). On the service mesh, a PQ-mTLS channel is authorised once, at the handshake, on the peer's certified identity and purpose; messages on an open channel are not checked per marking, which is tracked by its own finding.
-
 - Source:
   - [`services/runtime/src/policy_file.rs:1`](../../services/runtime/src/policy_file.rs)
 - Tests:
@@ -275,7 +273,7 @@ Access is denied unless a written rule grants it: role, marking and purpose must
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller`](../../services/http-gateway/tests/http.rs)
-  - [`deploy/kind/smoke.sh:140`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`docs/launch/pipeline/build-deck.js:351`](../../docs/launch/pipeline/build-deck.js)
 
@@ -349,12 +347,12 @@ Signed, versioned configuration with diff and rollback, and a reconciler that de
 
 Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin and Clients.
 
-**Until it is operable, say:** "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data under a demonstration banner, because their services expose no console routes."
+**Until it is operable, say:** "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
 
 **Milestone.** Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2).
 
 - Source:
-  - [`products/admin/ui/src/main.tsx:33:new AdminMock`](../../products/admin/ui/src/main.tsx)
+  - [`products/admin/ui/src/main.tsx:17`](../../products/admin/ui/src/main.tsx)
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
@@ -378,7 +376,7 @@ mimir-server answers inference requests from a real model inside the enclosure: 
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
-  - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:72`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
@@ -509,7 +507,7 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
 - Service tests:
   - [`forge/worker/tests/sync.rs::the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh`](../../forge/worker/tests/sync.rs)
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:130`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:67`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
@@ -569,7 +567,7 @@ bifrost-fleet records each installation's version, liveness and drift from its c
 - Service tests:
   - [`bifrost/fleet-server/tests/serve.rs::agents_check_in_operators_read_the_fleet_and_it_survives_a_restart`](../../bifrost/fleet-server/tests/serve.rs)
   - [`deploy/compose/smoke.sh:31`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:112`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:87`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`docs/launch/pipeline/build-deck.js:405`](../../docs/launch/pipeline/build-deck.js)
 
@@ -577,14 +575,15 @@ bifrost-fleet records each installation's version, liveness and drift from its c
 
 Ring-by-ring rollout with health gates between rings and automatic rollback, without downtime.
 
-**Until it is operable, say:** "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (AC-M-7, AC-B-2). Only roll_out_live observes availability, from live install counts; the roll_out model reports the fleet size by construction and is not evidence of zero downtime. Deployed services run one replica each and restart on their recovered state (RC-40.1); upgrading one interrupts it."
+**Until it is operable, say:** "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (AC-M-7, AC-B-2). Deployed services run one replica each and restart on their recovered state (RC-40.1); upgrading one interrupts it."
 
 **Milestone.** RF-CA-9, after the replica-model decision: the fleet manager drives a rollout against real agents (RF-B-2, RF-B-3).
 
 - Criteria: AC-M-7, AC-B-2
 - Source:
-  - [`bifrost/rollout/src/orchestrator.rs:160:fn roll_out_live`](../../bifrost/rollout/src/orchestrator.rs)
+  - [`bifrost/rollout/src/orchestrator.rs:101`](../../bifrost/rollout/src/orchestrator.rs)
 - Tests:
+  - [`bifrost/rollout/tests/rollout.rs::ac_b_2_broad_ring_gate_failure_rolls_back_automatically_no_downtime`](../../bifrost/rollout/tests/rollout.rs)
   - [`services/scheduler/tests/rollout_real.rs::rolling_upgrade_serves_every_request_with_real_replicas`](../../services/scheduler/tests/rollout_real.rs)
 - Stated at:
   - [`docs/releases/v0.1.0-rc.1.md:119`](../../docs/releases/v0.1.0-rc.1.md)
@@ -624,7 +623,7 @@ heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose
 - Service tests:
   - [`heimdall/feed-server/tests/serve.rs::sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart`](../../heimdall/feed-server/tests/serve.rs)
   - [`deploy/compose/smoke.sh:42`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:120`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:95`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`docs/launch/pipeline/build-deck.js:391`](../../docs/launch/pipeline/build-deck.js)
   - [`docs/launch/pipeline/build-deck.js:393`](../../docs/launch/pipeline/build-deck.js)
@@ -781,7 +780,7 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/kind/values.yaml:4`](../../deploy/kind/values.yaml)
 - Service tests:
   - [`deploy/compose/smoke.sh:13`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:63`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
@@ -826,21 +825,6 @@ Alignment with NIST SP 800-53, OWASP ASVS and ISO 27001.
 
 - Source:
   - [`docs/compliance/COMPLIANCE_MATRIX.md:1`](../../docs/compliance/COMPLIANCE_MATRIX.md)
-
-### `personal-data-erasure` (spec)
-
-Personal data can be erased and exported per subject, and each durable store enforces a retention period: the directory, object and dataset journals seal each record under its own data key, erasure destroys the key and leaves a tombstone, and compaction drops shredded records.
-
-**Limit.** The audit ledger is immutable by design and is not subject to erasure.
-
-**Until it is operable, say:** "Every durable store is an append-only sealed journal: access control, encryption at rest and in transit and an immutable audit trail are provided, but no record is deleted, compacted or exported, and a replaced record (such as an earlier password hash) stays in the journal. Retention targets are documented in docs/compliance/RETENTION.md and are not enforced; subject erasure and export are not implemented."
-
-**Milestone.** The follow-on to ANUBIS WP-29: per-record data keys with crypto-shred tombstones for the directory, object and dataset journals, then erasure, export and retention through mg-admin (VLD-ANB-MIDGARD-0070).
-
-- Source:
-  - [`docs/compliance/RETENTION.md:1`](../../docs/compliance/RETENTION.md)
-  - [`services/iam/src/directory.rs:67`](../../services/iam/src/directory.rs)
-  - [`docs/compliance/DATA_RESIDENCY.md:57:Act as data controller`](../../docs/compliance/DATA_RESIDENCY.md)
 
 ## Outside this repository
 

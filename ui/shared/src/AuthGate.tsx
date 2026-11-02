@@ -15,7 +15,7 @@ import { signOutAtServer, type Logout } from './signOut';
  * origin can read it back from there. A reload therefore returns to sign-in, by
  * design. Signing out tells the edge first (`logout`), which revokes the token so a
  * copy of it is refused too, and only then clears the session here.
- * [RC-37] [RC-29] [VLD-ANB-MIDGARD-0021] */
+ * [RC-37] [RC-29] [VLD-ANB-MIDGARD-0021]
  *
  * The mock client is optional so that an http build need not construct, or bundle, a
  * mock: a console in mock mode loads one from `@midgard/sdk/mock` and passes it here.
