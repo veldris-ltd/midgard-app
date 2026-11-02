@@ -20,10 +20,10 @@ use model_server::{
     NodeProfile, Server, WorkloadClass,
 };
 use policy::{
-    Action, ClassificationLevel, Clearance, DefaultPdp, Effect, Marking, PolicySet, Purpose,
-    Resource, ResourceId, Role, Rule, RuleId, Selector,
+    Action, ClassificationLevel, Clearance, Compartment, DefaultPdp, Effect, Marking, PolicySet,
+    Purpose, Resource, ResourceId, Role, Rule, RuleId, Selector,
 };
-use pq_mtls::{ServiceId, WorkloadIdentity};
+use pq_mtls::{Authorization, Posture, ServiceId, WorkloadIdentity};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::hash::sha256;
 use pqc_agility::Rng;
@@ -142,11 +142,36 @@ fn request(marking: Marking) -> InferenceRequest {
     }
 }
 
+/// What the channel authorised the caller at: cleared above every prompt these tests
+/// send, so the model's accreditation is what decides. [VLD-ANB-MIDGARD-0063]
+fn channel() -> Authorization {
+    channel_at(Posture {
+        level: ClassificationLevel::TOP_SECRET,
+        compartments: [Compartment("ALPHA".into())].into_iter().collect(),
+    })
+}
+
+fn channel_at(clearance: Posture) -> Authorization {
+    Authorization {
+        clearance,
+        purpose: Purpose("investigation".into()),
+        purposes: None,
+    }
+}
+
 fn call<S: LedgerStore + Send>(
     h: &InferenceHandler<S>,
     req: &InferenceRequest,
 ) -> InferenceResponse {
-    InferenceResponse::decode(&h.handle(&peer(), &req.encode())).expect("decodes")
+    call_as(h, &channel(), req)
+}
+
+fn call_as<S: LedgerStore + Send>(
+    h: &InferenceHandler<S>,
+    channel: &Authorization,
+    req: &InferenceRequest,
+) -> InferenceResponse {
+    InferenceResponse::decode(&h.handle(&peer(), channel, &req.encode())).expect("decodes")
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
@@ -291,4 +316,22 @@ fn audit_failure_after_completion_is_a_refusal() {
         InferenceResponse::Ok(_) => panic!("a completion was served unaudited"),
     }
     assert_eq!(h.audit_actions(), vec!["PERMIT Infer".to_string()]);
+}
+
+/// The call is authorised at the lower of the caller's certified clearance and the
+/// model's accreditation: a model accredited for CONFIDENTIAL still refuses a
+/// CONFIDENTIAL prompt from a caller certified only for UNCLASSIFIED data.
+/// [VLD-ANB-MIDGARD-0034] [VLD-ANB-MIDGARD-0063]
+#[test]
+fn the_callers_certified_clearance_also_bounds_the_prompt() {
+    let marked = parse_marking("CONFIDENTIAL").unwrap();
+    let h = handler(clearance("CONFIDENTIAL"));
+    assert!(matches!(
+        call_as(&h, &channel_at(Posture::unclassified()), &request(marked.clone())),
+        InferenceResponse::Denied { ref reason, .. } if reason == "POLICY_DENIED"
+    ));
+    assert!(matches!(
+        call(&h, &request(marked)),
+        InferenceResponse::Ok(_)
+    ));
 }

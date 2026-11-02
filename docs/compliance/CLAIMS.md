@@ -137,14 +137,13 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
 
 ### `audit-ledger` (operable)
 
-Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start. A served inference call adds a second entry to mimir-server's ledger, linked to its decision, carrying the SHA-256 of the prompt and of the completion; a completion that cannot be recorded is not served.
+Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start.
 
 **Limit.** The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime).
 
 - Source:
   - [`crypto/audit-writer/src/ledger.rs:5`](../../crypto/audit-writer/src/ledger.rs)
   - [`crypto/audit-writer/src/checkpoint.rs:1`](../../crypto/audit-writer/src/checkpoint.rs)
-  - [`mimir/model-server/src/handler.rs:89`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
   - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
@@ -153,8 +152,6 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart`](../../services/http-gateway/tests/durable_enclosure.rs)
-  - [`mimir/model-server/tests/security_marking.rs::completion_digests_are_recorded`](../../mimir/model-server/tests/security_marking.rs)
-  - [`mimir/model-server/tests/security_marking.rs::audit_failure_after_completion_is_a_refusal`](../../mimir/model-server/tests/security_marking.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
@@ -267,16 +264,13 @@ WebAuthn assertion verification, a JWKS endpoint and federation with an enterpri
 
 ### `policy-decisions` (operable)
 
-Access is denied unless a written rule grants it: role, marking and purpose must all match, and mandatory access control is evaluated first. A decision can be dry-run at the edge, and the dry-run is signed and audited. An inference call is decided the same way, with the marking of the data in its prompt as the resource's marking and the model's accreditation as the clearance.
+Access is denied unless a written rule grants it: role, marking and purpose must all match, and mandatory access control is evaluated first. A decision can be dry-run at the edge, and the dry-run is signed and audited.
 
 - Source:
   - [`services/runtime/src/policy_file.rs:1`](../../services/runtime/src/policy_file.rs)
-  - [`mimir/model-server/src/handler.rs:157`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing`](../../services/http-gateway/tests/policy_file.rs)
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
-  - [`mimir/model-server/tests/security_marking.rs::marked_prompt_against_unaccredited_model_is_denied_and_audited`](../../mimir/model-server/tests/security_marking.rs)
-  - [`mimir/model-server/tests/security_marking.rs::compartmented_prompt_needs_the_compartment`](../../mimir/model-server/tests/security_marking.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller`](../../services/http-gateway/tests/http.rs)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
@@ -371,19 +365,14 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 
 ### `mimir-inference-cpu` (operable)
 
-mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited. The caller's system prompt reaches the model in the family's system turn, and the family's control tokens in any text are neutralised. Each request declares the marking of the data in its prompt, which the model's declared accreditation must dominate, and a served completion leaves the SHA-256 of its prompt and of its text in the ledger.
+mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited.
 
-**Limit.** One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream. The prompt and completion cross the loopback to the engine in clear, inside a network namespace only mimir-server and the engine share (a recorded trust assumption). The ledger keeps digests of the prompt and completion, not copies.
+**Limit.** One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream.
 
 - Source:
   - [`mimir/model-server/src/backends/openai_compat.rs:60`](../../mimir/model-server/src/backends/openai_compat.rs)
-  - [`mimir/model-server/src/backends/openai_compat.rs:203`](../../mimir/model-server/src/backends/openai_compat.rs)
-  - [`mimir/model-server/src/marking.rs:1`](../../mimir/model-server/src/marking.rs)
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::inference_is_served_over_pqmtls_audited_and_survives_a_restart`](../../mimir/mimir-server/tests/serve.rs)
-  - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
-  - [`mimir/model-server/src/backends/openai_compat.rs::streams_a_completion_through_the_family_template`](../../mimir/model-server/src/backends/openai_compat.rs)
-  - [`mimir/mimir-server/tests/serve.rs::a_prompt_marked_above_the_model_accreditation_is_refused_and_audited`](../../mimir/mimir-server/tests/serve.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
@@ -431,7 +420,7 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
 
 ### `model-family-routing` (reference)
 
-Routing a workload to one of several model families (Mistral, Nemotron, Gemma, Granite) and hot-swapping between them without a change to the consumer. Each family's adapter places the system prompt in the family's system role (ahead of the user text where the family has none) and neutralises the family's control tokens in all text, so the only role markers are the template's own.
+Routing a workload to one of several model families (Mistral, Nemotron, Gemma, Granite) and hot-swapping between them without a change to the consumer.
 
 **Until it is operable, say:** "Routing across model families and hot-swap between them are implemented and tested as a library against a deterministic engine (AC-MS-9). The running inference service serves one model; one real model, IBM Granite 3.3 2B on CPU, has been served end to end."
 
@@ -440,13 +429,8 @@ Routing a workload to one of several model families (Mistral, Nemotron, Gemma, G
 - Criteria: AC-MS-4, AC-MS-9
 - Source:
   - [`mimir/model-server/src/router.rs:28`](../../mimir/model-server/src/router.rs)
-  - [`mimir/model-server/src/adapter.rs:27`](../../mimir/model-server/src/adapter.rs)
-  - [`mimir/model-server/src/adapter.rs:74`](../../mimir/model-server/src/adapter.rs)
 - Tests:
   - [`mimir/model-server/tests/router.rs::ac_ms_4_workload_routes_to_the_right_family_no_consumer_change`](../../mimir/model-server/tests/router.rs)
-  - [`mimir/model-server/tests/security_adapter_tokens.rs::injected_control_tokens_survive_only_as_literals`](../../mimir/model-server/tests/security_adapter_tokens.rs)
-  - [`mimir/model-server/tests/security_adapter_tokens.rs::granite_and_nemotron_carry_the_system_text_in_their_system_turn`](../../mimir/model-server/tests/security_adapter_tokens.rs)
-  - [`mimir/model-server/tests/security_adapter_tokens.rs::an_empty_system_text_renders_the_single_turn_shape`](../../mimir/model-server/tests/security_adapter_tokens.rs)
 - Stated at:
   - [`GETTING_STARTED.md:283`](../../GETTING_STARTED.md)
 

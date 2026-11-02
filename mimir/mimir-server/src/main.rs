@@ -106,9 +106,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gateway::{Gateway, RequestHandler};
 use governance::Governance;
-use model_server::marking::{
-    accreditation, marking_label, parse_marking as parse_model_marking,
-};
+use model_server::marking::{accreditation, marking_label, parse_marking as parse_model_marking};
 use model_server::{
     parse_revocation_list, parse_trust_key, probe, reference_registry, stage_verified_weights,
     withdraw_staged, Clock, FamilyAdapter, GemmaAdapter, GraniteAdapter, InferenceHandler,
