@@ -248,7 +248,7 @@ fn run_service(own: &[String], service: &[String]) -> ExitCode {
         eprintln!(
             "::fatal:: {name} was started with no options — refusing to start. Pass the \
              service's own options as the container's arguments (for http-gateway: \
-             --state-dir DIR --bind ADDR ...)."
+             --state-dir DIR --bind 0.0.0.0:7710 --allow-non-loopback ...)."
         );
         return ExitCode::from(2);
     }
