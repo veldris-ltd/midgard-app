@@ -37,6 +37,29 @@ CONTRIBUTING.md for the version policy.
   checks against what the app publishes. [RT-35] [AC-RF-CA-6a]
 
 ### Security
+- **GitLab jobs run only digest-pinned images, and merge requests no longer run
+  privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
+  - Every `image:` and service in `.gitlab-ci.yml` is pinned as
+    `name:tag@sha256:<digest>`, resolved on 2026-10-31 and dated beside it.
+    `tools/ci/pipelines.sh --check` (the `selftest` job) now fails on a GitLab image or
+    service that is not pinned by digest, or a GitHub action not pinned to a commit,
+    and prints each offending line.
+  - Merge-request jobs (`lint`, `test`, `repro`, `scan`, `release-dry-run`) run
+    directly inside the published toolchain image,
+    `$CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST`, with no Docker-in-Docker
+    service. Their first step fails closed unless the variable is the digest committed
+    in `tools/ci/toolchain.digest`. `tools/ci/in-toolchain.sh` runs commands in place
+    when `MIDGARD_IN_TOOLCHAIN=1`, with `CARGO_NET_OFFLINE=true`; elsewhere it still
+    uses `docker run --network none`.
+  - A new job, `toolchain-publish`, run by hand on `main` or `dev`, builds and pushes
+    the toolchain image and fails until its digest is committed. It and `acceptance`
+    are the only jobs left on the privileged runner, which is tagged `protected`. On
+    GitHub, `toolchain-publish` is a no-op.
+  - Upgrading a GitLab mirror: run `toolchain-publish` once, commit the digest, set
+    `MIDGARD_TOOLCHAIN_DIGEST`, and apply the runner settings in docs/dev/CI.md ("What
+    a GitLab instance needs"); until then merge-request pipelines fail. GitLab's `test`
+    job now records `network=offline`, which the gate record refuses: record the gate
+    from a GitHub run or locally.
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

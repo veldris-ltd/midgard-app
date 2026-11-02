@@ -28,7 +28,8 @@ out which system it is running under from the variables that system always sets
 | `tools/ci/run.sh` | every job, by name |
 | `tools/ci/lib.sh` | platform detection and the per-system helpers |
 | `tools/ci/pipelines.sh` | checks the two pipeline files call the same jobs |
-| `tools/ci/in-toolchain.sh` | runs a command in the pinned toolchain image, no network |
+| `tools/ci/in-toolchain.sh` | runs a command in the pinned toolchain image, no network; in place when already inside it |
+| `tools/ci/toolchain.digest` | the digest of the published toolchain image GitLab's merge-request jobs run in |
 | `tools/ci/release.sh` | the release, end to end, with a dry-run mode |
 | `tools/ci/release-artefacts.sh` | the release manifest's Rust binaries, derived from the workspace |
 | `tools/ci/js-artefacts.sh` | its JavaScript artefacts, and their reproducible build |
@@ -43,7 +44,12 @@ out which system it is running under from the variables that system always sets
 
 - a job is called by one pipeline and not the other;
 - either calls a job `run.sh` does not define, or `run.sh` defines one neither calls;
-- either pipeline runs something that is not a job (build logic in the YAML).
+- either pipeline runs something that is not a job (build logic in the YAML);
+- a GitLab `image:` or service is not pinned as `name:tag@sha256:<64 hex>` (after
+  expanding `$CI_REGISTRY_IMAGE`), or a GitHub `uses:` is not pinned to a 40-hex commit.
+  The one reference by variable allowed is the published toolchain image,
+  `$CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST`, whose jobs check the
+  variable first. Each offending line is printed. `[VLD-ANB-MIDGARD-0022]`
 
 It runs as part of the `selftest` job on both forges, so adding a job on one and
 forgetting the other turns both red.
@@ -83,7 +89,8 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `numbers` | host | [`docs/compliance/NUMBERS.md`](../compliance/NUMBERS.md) is what the tree gives, and no swept document quotes a crate, line, test or criteria count that differs from it |
 | `secrets` | host | no credential is committed (gitleaks, pinned by version and checksum) |
 | `k8s-render` | host | `deploy/k8s/enclosure.yaml` is what the Helm chart renders |
-| `toolchain` | host | builds or restores the toolchain image — the only online step |
+| `toolchain` | host | builds or restores the toolchain image — the only online step; inside the published image, checks it is the one `tools/ci/toolchain.digest` pins |
+| `toolchain-publish` | host | GitLab only: pushes the toolchain image to the project registry; fails until its digest is committed. On GitHub, a no-op |
 | `fmt`, `lint` | toolchain | formatting; clippy at deny-warnings |
 | `build`, `test` | toolchain | the release build; the test suite on both crypto backends, its log kept in `target/gate` |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
@@ -108,6 +115,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | a push to `main` or `dev` | `ci.yml`, plus `acceptance` | the same, plus `acceptance` |
 | a `v*` tag | `release.yml`: the release | the release |
 | by hand | *Run workflow* → `mode`: `dry-run` or `release` | *Run pipeline* → `MIDGARD_RELEASE_MODE`: `dry-run`, `release` or `audit` |
+| by hand on `main` or `dev`, no mode | — (the toolchain image is built per run) | `toolchain-publish` |
 
 ## The gate record
 
@@ -288,12 +296,102 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
 
 ## What a GitLab instance needs
 
-- A Docker executor with Docker-in-Docker allowed, for the jobs that build and use the
-  toolchain image. The checkout is mounted into the toolchain container from the job's
-  build directory, which GitLab shares with the `dind` service.
-- A `kms`-tagged shell-executor runner with Docker, node and pnpm, for releases.
+`[VLD-ANB-MIDGARD-0022]` `[VLD-ANB-MIDGARD-0043]`
+
+- **An unprivileged Docker executor for merge requests.** The Rust jobs (`lint`,
+  `test`, `repro`, `scan`, `release-dry-run`: everything that `extends: .toolchain`)
+  run directly inside the published toolchain image,
+  `$CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST`, with no Docker service and
+  `MIDGARD_IN_TOOLCHAIN=1`, so `tools/ci/in-toolchain.sh` runs each command in place.
+  Their first step, `run.sh toolchain`, fails unless `MIDGARD_TOOLCHAIN_DIGEST` is the
+  digest committed in [`tools/ci/toolchain.digest`](../../tools/ci/toolchain.digest).
+- **A privileged Docker executor with Docker-in-Docker, for protected refs only.** Tag
+  it `protected` and make it available only to protected branches and tags. Two jobs
+  use it (`extends: .docker`): `toolchain-publish`, by hand, and `acceptance`, on
+  pushes to `main` and `dev`, which starts its own containers under `--network none`.
+  No merge-request job runs on it.
+- **The CI/CD variable `MIDGARD_TOOLCHAIN_DIGEST`** (protected; masking not needed),
+  set to the digest line of `tools/ci/toolchain.digest`.
+- **Pipelines for fork merge requests require a maintainer's approval** (Settings →
+  CI/CD → General pipelines), so code from a fork runs only once a maintainer has read
+  it.
+- A `kms`-tagged shell-executor runner with Docker, node and pnpm, for releases. The
+  release jobs (`release`, `release-images`, `release-bundle`) use the Docker on that
+  host, not a `dind` service.
 - A `macos`-tagged runner for the `apple` shell audit. Without one that job waits, and
   the release with it.
+
+### Publishing the toolchain image
+
+Merge-request jobs no longer build the toolchain image; they run the one published
+from a protected branch. To publish it, the first time and whenever
+`deploy/acceptance/Dockerfile` changes:
+
+1. On `main` (or `dev`), *Run pipeline* with `MIDGARD_RELEASE_MODE` empty. The
+   `toolchain-publish` job builds the Dockerfile, pushes it as
+   `$CI_REGISTRY_IMAGE/toolchain:<dockerfile-sha16>` and prints the digest it was
+   given. It fails while that digest is not the one committed.
+2. Commit the two lines it prints to `tools/ci/toolchain.digest` through a merge
+   request, and set `MIDGARD_TOOLCHAIN_DIGEST` to the same digest. Until the variable
+   and the file agree, every `.toolchain` job fails, closed.
+3. Running it again is safe: it finds the committed image published from this
+   Dockerfile and pushes nothing. Keep that digest in the registry (exclude
+   `toolchain` from cleanup policies), or merge-request jobs cannot start.
+
+Until the first publish, merge-request pipelines on GitLab fail at that first step:
+the file holds no digest yet, by design.
+
+### Offline, without a network sandbox
+
+A job inside the published image has no Docker daemon to start a `--network none`
+container with, so on GitLab merge requests the offline property rests on Cargo: every
+crate resolves from `/vendor` (`.cargo/config.toml`, held to `Cargo.lock` by the
+`vendor` job in the hygiene stage), and `CARGO_NET_OFFLINE=true` (set by `.toolchain`
+and by `in-toolchain.sh` in place) makes every cargo invocation `--offline`, so a step
+that reached for a crate fails rather than fetching it. A script that opened a socket
+itself would not be stopped; that is the residual recorded as "CI runner compromise"
+in the [residual-risk register](../compliance/RESIDUAL_RISK_REGISTER.md).
+`--network none` stays wherever a daemon is: on GitHub, on developers' machines, on
+the `kms` release runners and in GitLab's `acceptance` job.
+
+The gate record still requires `--network none` for both its parts. GitLab's `test`
+job records `network=offline`, which `gate-record.sh` refuses, so make the record from
+a GitHub run or a local `just gate-run`.
+
+### Pinned images
+
+Every image and service in `.gitlab-ci.yml` is pinned by the multi-arch index digest
+the registry served for its tag on the date recorded beside it. Refresh a pin
+deliberately:
+
+```bash
+docker buildx imagetools inspect node:22-bookworm --format '{{json .Manifest.Digest}}'
+```
+
+and record the new date. `node:22-bookworm` must stay at Node 22.12 or later.
+
+The images are still pulled from Docker Hub. The owner should mirror them into the
+project registry and switch each reference to
+`$CI_REGISTRY_IMAGE/mirror/<name>:<tag>@sha256:<digest>`, keeping the same digest.
+
+### Owner actions, and the evidence they leave
+
+These are settings on the GitLab instance, not files in this repository. A CodeLab
+administrator:
+
+1. mirrors the pinned base images into the project registry, and switches the
+   references in `.gitlab-ci.yml` to the mirror;
+2. provides an unprivileged Docker executor for merge-request jobs;
+3. assigns the privileged Docker-in-Docker runner to protected branches and tags only,
+   and tags it `protected`;
+4. runs `toolchain-publish` on `main`, commits the digest, and sets the protected CI/CD
+   variable `MIDGARD_TOOLCHAIN_DIGEST` from `tools/ci/toolchain.digest`;
+5. turns on approval for pipelines from fork merge requests;
+6. exports the runner and project CI/CD settings to
+   `docs/compliance/evidence/gitlab-ci-settings-<YYYY-MM-DD>.md`, recording: each
+   runner, its executor, whether it is privileged, its tags and whether it runs only
+   on protected refs; the fork merge-request pipeline setting; and the
+   `MIDGARD_TOOLCHAIN_DIGEST` variable's value and protection.
 
 ## What has and has not been exercised
 
@@ -305,7 +403,9 @@ test. Three things to expect on that first run:
 
 - The hosted runners' disk. Two release builds of the workspace plus the debug build
   are large; if a job runs out of space, split it or use a larger runner.
-- The container images named in `.gitlab-ci.yml` are pinned by tag, not by digest.
+- The container images named in `.gitlab-ci.yml` are pinned by digest, but still
+  pulled from Docker Hub until they are mirrored, and the toolchain image has not yet
+  been published to a project registry.
 - `release-images`, `release-bundle` and `release-publish` have never run end to end:
   they need the signing runner, the service base image and real keys. The image
   build's reproducibility was checked here on a stand-in base image, not on the real

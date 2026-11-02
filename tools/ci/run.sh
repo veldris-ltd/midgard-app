@@ -14,7 +14,9 @@
 #
 # Jobs marked [toolchain] run inside the digest-pinned toolchain image with no network
 # (tools/ci/in-toolchain.sh); build it first with the `toolchain` job. The rest run on
-# the host.
+# the host. GitLab's merge-request jobs already run inside the published toolchain image
+# (MIDGARD_IN_TOOLCHAIN=1), so there the [toolchain] jobs run in place, offline by
+# `cargo --offline` and the vendor check rather than by a network sandbox.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -26,6 +28,8 @@ TOOLCHAIN_LABEL=dev.midgard.toolchain.dockerfile
 # Where a saved copy of the toolchain image is kept between jobs, when the CI system
 # caches this directory.
 CACHE_DIR="${MIDGARD_CI_CACHE:-.ci-cache}"
+# The digest of the published toolchain image GitLab's merge-request jobs run in.
+TOOLCHAIN_DIGEST_FILE=tools/ci/toolchain.digest
 
 # gitleaks, pinned by release and by the checksums that release publishes.
 GITLEAKS_VERSION=8.30.1
@@ -44,7 +48,8 @@ gate-record|host|the committed gate record is what its logs give, and the status
 numbers|host|docs/compliance/NUMBERS.md matches the tree, and no swept document quotes a figure that differs from it
 secrets|host|no credential is committed (gitleaks)
 k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders (needs helm)
-toolchain|host|build or restore the digest-pinned toolchain image (the only online step)
+toolchain|host|build or restore the digest-pinned toolchain image (the only online step); inside it, check it is the pinned one
+toolchain-publish|host|push the toolchain image to the GitLab project registry; its digest must be the committed one
 fmt|toolchain|formatting
 lint|toolchain|clippy at deny-warnings
 build|toolchain|release build of the workspace, whose graph never enables the test backend
@@ -161,13 +166,54 @@ toolchain_built_from() {
     docker image inspect --format "{{ index .Config.Labels \"$TOOLCHAIN_LABEL\" }}" "$IMAGE" 2>/dev/null || true
 }
 
+# The first 16 hex digits of the Dockerfile's SHA-256: the label an image carries, and
+# the tag the published image is pushed under.
+toolchain_key() {
+    (sha256sum deploy/acceptance/Dockerfile 2>/dev/null || shasum -a 256 deploy/acceptance/Dockerfile) | cut -c1-16
+}
+
+# The digest tools/ci/toolchain.digest pins: its first line that is not a comment, when
+# that is a sha256 digest; empty when the file holds none.
+committed_toolchain_digest() {
+    local line
+    line="$(tr -d '\r' < "$TOOLCHAIN_DIGEST_FILE" 2>/dev/null | sed 's/#.*//' | awk 'NF { print $1; exit }')"
+    [[ "$line" =~ ^sha256:[0-9a-f]{64}$ ]] && echo "$line"
+    return 0
+}
+
+# Inside the published image (GitLab's merge-request jobs) there is nothing to build:
+# the job is the check that the image GitLab started is the one this commit pins. The
+# image is chosen from the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST before any script
+# runs, so a variable left behind when the file moved on fails here, closed.
+# [VLD-ANB-MIDGARD-0043]
+toolchain_assert_pinned() {
+    local want recorded
+    want="$(committed_toolchain_digest)"
+    [ -n "$want" ] || {
+        ci_error "toolchain: $TOOLCHAIN_DIGEST_FILE pins no published digest yet; run toolchain-publish on main and commit the digest it prints" "$TOOLCHAIN_DIGEST_FILE"
+        exit 1
+    }
+    [ "${MIDGARD_TOOLCHAIN_DIGEST:-}" = "$want" ] || {
+        ci_error "toolchain: this job runs in toolchain@${MIDGARD_TOOLCHAIN_DIGEST:-<unset>}, but $TOOLCHAIN_DIGEST_FILE pins $want; set the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST from $TOOLCHAIN_DIGEST_FILE" "$TOOLCHAIN_DIGEST_FILE"
+        exit 1
+    }
+    recorded="$(sed -n 's/^# *dockerfile-sha16: *\([0-9a-f]\{16\}\).*/\1/p' "$TOOLCHAIN_DIGEST_FILE" | head -1)"
+    [ "$recorded" = "$(toolchain_key)" ] ||
+        ci_warning "toolchain: $TOOLCHAIN_DIGEST_FILE was published from Dockerfile ${recorded:-<unrecorded>}, not this one ($(toolchain_key)); run toolchain-publish once this is merged"
+    echo "toolchain: running in the pinned toolchain image, $want"
+}
+
 job_toolchain() {
     local key tarball
+    if [ "${MIDGARD_IN_TOOLCHAIN:-}" = 1 ]; then
+        toolchain_assert_pinned
+        return
+    fi
     need docker "toolchain: docker is not available"
     # The tag names the Rust version and says nothing about the rest of the Dockerfile,
     # so an image built before the Dockerfile last changed still answers to it. The
     # label does say: an image is current only when it records this Dockerfile.
-    key="$( (sha256sum deploy/acceptance/Dockerfile 2>/dev/null || shasum -a 256 deploy/acceptance/Dockerfile) | cut -c1-16)"
+    key="$(toolchain_key)"
     if [ "$(toolchain_built_from)" = "$key" ]; then
         echo "toolchain: $IMAGE is already present and current"
         return
@@ -188,6 +234,57 @@ job_toolchain() {
             rm -f "$CACHE_DIR"/toolchain-*.tar
             docker save -o "$tarball" "$IMAGE" || ci_warning "toolchain: could not save the image for reuse"
         fi
+    fi
+}
+
+# Build the toolchain image and push it to the GitLab project registry, where the
+# merge-request jobs run it by digest. Runs only on the privileged runner, by hand, on a
+# protected branch. The digest a push gets cannot be known before it, so the job fails,
+# printing it, until it is committed to tools/ci/toolchain.digest; once it is, a rerun
+# finds that image already published from this Dockerfile and pushes nothing.
+# [VLD-ANB-MIDGARD-0043]
+job_toolchain_publish() {
+    local key repo want got line
+    if [ "$(ci_platform)" = github ]; then
+        echo "toolchain-publish: not applicable: GitHub builds the toolchain per run"
+        return 0
+    fi
+    need docker "toolchain-publish: docker is not available"
+    [ -n "${CI_REGISTRY_IMAGE:-}" ] || {
+        ci_error "toolchain-publish: CI_REGISTRY_IMAGE is not set; this job publishes to a GitLab project registry"
+        exit 1
+    }
+    key="$(toolchain_key)"
+    repo="$CI_REGISTRY_IMAGE/toolchain"
+    want="$(committed_toolchain_digest)"
+    if [ -n "${CI_REGISTRY:-}" ] && [ -n "${CI_REGISTRY_USER:-}" ]; then
+        printf '%s' "${CI_REGISTRY_PASSWORD:-${CI_JOB_TOKEN:-}}" |
+            docker login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" >/dev/null
+    fi
+    if [ -n "$want" ] && docker pull "$repo@$want" >/dev/null 2>&1 &&
+        [ "$(docker image inspect --format "{{ index .Config.Labels \"$TOOLCHAIN_LABEL\" }}" "$repo@$want" 2>/dev/null)" = "$key" ]; then
+        echo "toolchain-publish: $repo@$want is published, built from this Dockerfile ($key); nothing to push"
+        return 0
+    fi
+    MIDGARD_CI_SAVE_TOOLCHAIN=0 job_toolchain
+    docker tag "$IMAGE" "$repo:$key"
+    docker push "$repo:$key"
+    got=""
+    while IFS= read -r line; do
+        line="${line%$'\r'}"
+        [[ "$line" == "$repo@"* ]] && { got="${line#"$repo@"}"; break; }
+    done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$repo:$key")
+    [[ "$got" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+        ci_error "toolchain-publish: pushed $repo:$key but could not read the digest it was given"
+        exit 1
+    }
+    echo "toolchain-publish: pushed $repo:$key as $repo@$got"
+    if [ "$got" != "$want" ]; then
+        ci_error "toolchain-publish: the pushed image is $got, but $TOOLCHAIN_DIGEST_FILE pins ${want:-nothing}; commit the new digest to $TOOLCHAIN_DIGEST_FILE, then set MIDGARD_TOOLCHAIN_DIGEST to it" "$TOOLCHAIN_DIGEST_FILE"
+        echo "$TOOLCHAIN_DIGEST_FILE should end:"
+        echo "# dockerfile-sha16: $key"
+        echo "$got"
+        exit 1
     fi
 }
 
