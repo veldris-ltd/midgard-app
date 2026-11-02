@@ -8,6 +8,8 @@
     { "id": "operator-channel", "role": "fleet-operator", "action": "OpenChannel",
       "resource": "*", "effect": "permit" },
     { "id": "operator-read", "role": "fleet-operator", "action": "ReadFleet",
+      "resource": "*", "effect": "permit" },
+    { "id": "operator-set-channel", "role": "fleet-operator", "action": "SetChannel",
       "resource": "*", "effect": "permit" }
   ]
 }

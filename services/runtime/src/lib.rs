@@ -35,8 +35,9 @@ pub use health_http::spawn_health_port;
 pub use identity::{checkpoint_service_ledger, ServiceIdentity};
 pub use lock::DirLock;
 pub use serve::{
-    apply_mesh_limits, mesh_limits_from_args, serve_bounded, serve_mesh, serve_mesh_with,
-    BoundedListener, ConnectionGate, ListenerLimits, MeshLimits, CONNECTION_STACK,
+    apply_mesh_limits, mesh_limits_from_args, mesh_limits_from_args_over, serve_bounded,
+    serve_mesh, serve_mesh_with, BoundedListener, ConnectionGate, ListenerLimits, MeshLimits,
+    CONNECTION_STACK,
 };
 
 /// Seconds since the Unix epoch by the system clock — what services stamp audit
