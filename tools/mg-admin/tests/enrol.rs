@@ -538,8 +538,10 @@ fn administration_needs_the_passphrase_and_a_one_time_code() {
     // The gateway refuses a code from the secret the reset replaced.
     let stale = list(Some(&old.code_at(now())));
     assert_eq!(stale.status.code(), Some(1), "{}", stderr(&stale));
+    // The gateway says only `unauthorised`; "second factor required" stays in its
+    // log. [VLD-ANB-MIDGARD-0053]
     assert!(
-        stderr(&stale).contains("second factor required"),
+        stderr(&stale).contains("the gateway refused (401): unauthorised"),
         "{}",
         stderr(&stale)
     );

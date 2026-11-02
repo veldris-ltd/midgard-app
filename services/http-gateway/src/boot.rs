@@ -42,8 +42,8 @@ use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey, VerifyingKey};
 
 use crate::admin_api::AdminControl;
-use crate::approval_journal::APPROVALS_DOMAIN;
 use crate::admin_totp::DurableAdminTotp;
+use crate::approval_journal::APPROVALS_DOMAIN;
 use crate::enclosure::Enclosure;
 use crate::ontology_file::parse_ontology;
 use crate::policy_file::parse_policy;

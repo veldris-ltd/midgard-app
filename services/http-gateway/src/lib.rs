@@ -20,8 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod activation;
 pub mod admin_api;
-pub mod approval_journal;
 pub mod admin_totp;
+pub mod approval_journal;
 pub mod boot;
 pub mod cli;
 pub mod data;
