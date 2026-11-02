@@ -57,6 +57,25 @@ bash tools/ci/in-toolchain.sh just test
 CI runs its Rust steps the same way. `docs/dev/BUILD_ENV.md` covers faster local
 iteration and Windows.
 
+Install the pre-commit hooks once per clone, so a committed secret or unformatted Rust
+is caught before it leaves your machine rather than in CI:
+
+```bash
+pip install pre-commit      # or your package manager's pre-commit
+pre-commit install          # then every `git commit` runs the hooks
+pre-commit run --all-files  # the whole tree, as CI scans it
+```
+
+`.pre-commit-config.yaml` runs `gitleaks protect --staged` with the repository's
+`.gitleaks.toml` and `cargo fmt --all -- --check`, both as local hooks using the tools
+on your PATH: install gitleaks at the version `tools/ci/run.sh` pins
+(`GITLEAKS_VERSION`, and check the download against the checksum beside it) and the
+Rust toolchain `rust-toolchain.toml` names. On a machine with no host Rust toolchain,
+run the format check in the toolchain image instead
+(`bash tools/ci/in-toolchain.sh cargo fmt --all -- --check`) and skip that hook with
+`SKIP=cargo-fmt git commit ...`. The hooks are a convenience; CI's `secrets` and `fmt`
+jobs still decide. [VLD-ANB-MIDGARD-0091]
+
 Before opening a PR, ensure:
 
 - `just test` (or the crate you touched) is green in the pinned image.

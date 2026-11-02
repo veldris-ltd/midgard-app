@@ -347,6 +347,12 @@ CONTRIBUTING.md for the version policy.
   and when a snapshot moved a pull request is opened with `gh` from
   `chore/advisory-refresh-<date>`. BUILD_ENV.md and CONTRIBUTING.md describe the
   review. [VLD-ANB-MIDGARD-0090]
+- **A pre-commit gate (WP-25 G).** `.pre-commit-config.yaml` runs the CI secret scan on
+  what is staged (`gitleaks protect --staged` with `.gitleaks.toml`) and
+  `cargo fmt --all -- --check` as local hooks; CONTRIBUTING.md explains
+  `pre-commit install` and the pinned gitleaks version, and
+  `tools/ci/tests/precommit.test.sh` keeps both hooks in the file.
+  [VLD-ANB-MIDGARD-0091]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator

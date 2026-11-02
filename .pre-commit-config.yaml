@@ -1,0 +1,26 @@
+# Pre-commit hooks: the CI secret scan and format check, run before a commit is made.
+# [AC-25.7] (VLD-ANB-MIDGARD-0091)
+#
+#   pre-commit install          once per clone; then every `git commit` runs these
+#   pre-commit run --all-files  the whole tree, as CI sees it
+#
+# Both hooks are local and run tools already on your PATH (language: system), so this
+# file pulls nothing from the network. Install gitleaks at the version tools/ci/run.sh
+# pins (GITLEAKS_VERSION, with the release checksums beside it), and the Rust toolchain
+# rust-toolchain.toml names. CI runs the same checks (`run.sh secrets`, `run.sh fmt`);
+# this only finds the problem sooner. tools/ci/tests/precommit.test.sh keeps both hooks
+# in this file. See CONTRIBUTING.md, "Building & testing".
+repos:
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (staged changes)
+        entry: gitleaks protect --staged --config .gitleaks.toml --redact --no-banner
+        language: system
+        pass_filenames: false
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: cargo fmt --all -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
