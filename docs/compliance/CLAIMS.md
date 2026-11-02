@@ -556,23 +556,14 @@ Ingest of imagery, audio and video, with georeferencing, captioning and transcri
 
 ### `bifrost-fleet` (operable)
 
-bifrost-fleet records each installation's version, liveness and drift from its channel. An agent checks in over PQ-mTLS, every request is authorised and audited, and fleet state survives a restart. A check-in must name a configured channel and the installation's registered channel (only an operator moves it), report fields are bounded, check-ins are rate limited per identity, and the journal records changes and is compacted.
+bifrost-fleet records each installation's version, liveness and drift from its channel. An agent checks in over PQ-mTLS, every request is authorised and audited, and fleet state survives a restart.
 
 **Limit.** The agent reports a version and a health flag. It does not install, verify or roll back anything.
 
 - Source:
-  - [`bifrost/fleet-server/src/lib.rs:126`](../../bifrost/fleet-server/src/lib.rs)
-  - [`bifrost/fleet/src/lib.rs:191`](../../bifrost/fleet/src/lib.rs)
-  - [`bifrost/fleet/src/agent.rs:19`](../../bifrost/fleet/src/agent.rs)
-  - [`bifrost/fleet/src/durable.rs:231`](../../bifrost/fleet/src/durable.rs)
-  - [`bifrost/fleet-server/src/main.rs:75`](../../bifrost/fleet-server/src/main.rs)
+  - [`bifrost/fleet-server/src/lib.rs:104`](../../bifrost/fleet-server/src/lib.rs)
 - Tests:
   - [`bifrost/fleet/tests/durable_restart.rs::fleet_state_survives_restart`](../../bifrost/fleet/tests/durable_restart.rs)
-  - [`bifrost/fleet/tests/security_checkin.rs::oversized_and_control_fields_are_refused_by_the_decoder`](../../bifrost/fleet/tests/security_checkin.rs)
-  - [`bifrost/fleet/tests/security_checkin.rs::a_check_in_on_an_unconfigured_channel_is_refused`](../../bifrost/fleet/tests/security_checkin.rs)
-  - [`bifrost/fleet/tests/security_checkin.rs::an_installation_keeps_its_registered_channel`](../../bifrost/fleet/tests/security_checkin.rs)
-  - [`bifrost/fleet/tests/security_checkin.rs::unchanged_check_ins_do_not_grow_the_journal`](../../bifrost/fleet/tests/security_checkin.rs)
-  - [`bifrost/fleet/tests/security_checkin.rs::compaction_bounds_the_journal_and_state_survives`](../../bifrost/fleet/tests/security_checkin.rs)
 - Service tests:
   - [`bifrost/fleet-server/tests/serve.rs::agents_check_in_operators_read_the_fleet_and_it_survives_a_restart`](../../bifrost/fleet-server/tests/serve.rs)
   - [`deploy/compose/smoke.sh:31`](../../deploy/compose/smoke.sh)
