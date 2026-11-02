@@ -45,14 +45,8 @@ ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorith
 
 - Source:
   - [`crypto/pqc-agility/src/backend/mod.rs:14`](../../crypto/pqc-agility/src/backend/mod.rs)
-  - [`crypto/pqc-agility/src/hybrid.rs:1`](../../crypto/pqc-agility/src/hybrid.rs)
-  - [`docs/security/CRYPTO_REVIEW_HANDOFF.md`](../../docs/security/CRYPTO_REVIEW_HANDOFF.md)
 - Tests:
   - [`crypto/pqc-agility/tests/fips_backend.rs::kem_roundtrip_every_suite`](../../crypto/pqc-agility/tests/fips_backend.rs)
-  - [`crypto/pqc-agility/tests/hash_kat.rs::kat_hmac_sha256_rfc4231`](../../crypto/pqc-agility/tests/hash_kat.rs)
-  - [`crypto/pqc-agility/tests/hash_kat.rs::kat_hkdf_sha256_rfc5869`](../../crypto/pqc-agility/tests/hash_kat.rs)
-  - [`crypto/pqc-agility/tests/hybrid_kat.rs::combiner_pinned_vector`](../../crypto/pqc-agility/tests/hybrid_kat.rs)
-  - [`crypto/pqc-agility/tests/fips_backend.rs::hybrid_refuses_an_all_zero_x25519_result`](../../crypto/pqc-agility/tests/fips_backend.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
 - Stated at:
