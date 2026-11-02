@@ -339,6 +339,14 @@ CONTRIBUTING.md for the version policy.
   it occurs in (`condition = "AND"`), and the two fixture tokens of a branch outside
   this tree are gone; that branch adds its own scoped entry when it merges.
   [VLD-ANB-MIDGARD-0089]
+- **A monthly dependency review (WP-25 F).** `.github/workflows/dependency-review.yml`
+  (the 1st of each month, and by hand) and a GitLab schedule run the new
+  `dependency-review` job: both advisory sources are fetched on the runner,
+  `just advisory-db-refresh` and `just advisory-db-npm-refresh` (which now take an
+  already fetched input) rewrite the snapshots offline in the toolchain, the scan runs,
+  and when a snapshot moved a pull request is opened with `gh` from
+  `chore/advisory-refresh-<date>`. BUILD_ENV.md and CONTRIBUTING.md describe the
+  review. [VLD-ANB-MIDGARD-0090]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator

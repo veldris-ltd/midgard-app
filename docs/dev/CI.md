@@ -96,6 +96,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `build`, `test` | toolchain | the release build; the test suite on both crypto backends, its log kept in `target/gate` |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
+| `dependency-review` | host | monthly: both advisory snapshots refreshed, scanned, and proposed as a pull or merge request when they moved ([BUILD_ENV.md](BUILD_ENV.md), "The monthly dependency review") |
 | `acceptance` | host | the full acceptance suite under a genuine air gap, its log kept in `target/gate` |
 | `js-build` | host | every UI bundle and npm package built twice, bit-identical |
 | `release-dry-run` | toolchain | the whole release gate, throwaway keys, nothing published |
@@ -115,6 +116,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | …that touches release machinery or a UI | `release.yml`: `js-build`, `release-dry-run` | `js-build`, `release-dry-run` |
 | a push to `main` or `dev` | `ci.yml`, plus `acceptance` | the same, plus `acceptance` |
 | a `v*` tag | `release.yml`: the release | the release |
+| monthly (1st, 04:17 UTC) | `dependency-review.yml` | a pipeline schedule: `dependency-review` |
 | by hand | *Run workflow* → `mode`: `dry-run` or `release` | *Run pipeline* → `MIDGARD_RELEASE_MODE`: `dry-run`, `release` or `audit` |
 | by hand on `main` or `dev`, no mode | — (the toolchain image is built per run) | `toolchain-publish` |
 

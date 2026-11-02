@@ -66,6 +66,13 @@ Before opening a PR, ensure:
   acceptance test that fails-closed on the negative path.
 - No secrets, keys, or credentials in source (CI runs a secret scan).
 
+Dependency and advisory updates follow the **monthly dependency review**
+([BUILD_ENV.md](docs/dev/BUILD_ENV.md), "The monthly dependency review"): a scheduled
+job refreshes the vendored advisory snapshots and opens a pull request, which a
+maintainer reviews before it merges. To refresh by hand, `just advisory-db-refresh`
+and `just advisory-db-npm-refresh` (online), then commit the snapshots.
+[VLD-ANB-MIDGARD-0090]
+
 ## Style
 
 - Rust: match the surrounding idiom, comment density, and naming. `cargo fmt`;
