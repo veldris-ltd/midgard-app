@@ -614,7 +614,7 @@ impl<'a> Responder<'a> {
             Some(Authorization {
                 clearance,
                 purpose,
-                purposes: cert.terms.purposes,
+                purposes: cert.terms.purposes.clone(),
             }),
             suite,
             traffic,

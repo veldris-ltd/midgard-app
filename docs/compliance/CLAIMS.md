@@ -264,21 +264,13 @@ WebAuthn assertion verification, a JWKS endpoint and federation with an enterpri
 
 ### `policy-decisions` (operable)
 
-Access is denied unless a written rule grants it: role, marking and purpose must all match, and mandatory access control is evaluated first. On the mesh, clearance and permitted purposes are certificate attributes signed by the IdP; a declared posture can only narrow them, and every mesh service authorises a request at the clearance the certificate grants. A decision can be dry-run at the edge, and the dry-run is signed and audited.
-
-**Limit.** On the mesh, purposes are bound only by certificates issued with mg-admin mesh issue --purposes; a certificate issued without them, or before them, is unconstrained in purpose. A mesh resource is open unless its service is given --resource-marking.
+Access is denied unless a written rule grants it: role, marking and purpose must all match, and mandatory access control is evaluated first. A decision can be dry-run at the edge, and the dry-run is signed and audited.
 
 - Source:
   - [`services/runtime/src/policy_file.rs:1`](../../services/runtime/src/policy_file.rs)
-  - [`crypto/pq-mtls/src/handshake.rs:594`](../../crypto/pq-mtls/src/handshake.rs)
-  - [`services/runtime/src/mesh.rs:18`](../../services/runtime/src/mesh.rs)
 - Tests:
   - [`services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing`](../../services/http-gateway/tests/policy_file.rs)
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
-  - [`crypto/pq-mtls/tests/security_attributes.rs::a_posture_above_the_certificate_is_clipped_to_the_certificate`](../../crypto/pq-mtls/tests/security_attributes.rs)
-  - [`crypto/pq-mtls/tests/security_attributes.rs::a_purpose_outside_the_certificate_is_refused`](../../crypto/pq-mtls/tests/security_attributes.rs)
-  - [`services/runtime/src/mesh.rs::mesh_context_takes_clearance_from_the_certificate`](../../services/runtime/src/mesh.rs)
-  - [`services/http-gateway/tests/mesh_sync.rs::a_worker_cannot_sync_above_its_certified_clearance`](../../services/http-gateway/tests/mesh_sync.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller`](../../services/http-gateway/tests/http.rs)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)

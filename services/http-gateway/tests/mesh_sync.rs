@@ -376,8 +376,9 @@ fn a_sync_that_lowers_a_marking_is_refused_and_changes_nothing() {
     let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
         .unwrap()
         .into_parts();
-    let sync =
-        |records: &str| split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW));
+    let sync = |records: &str| {
+        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW))
+    };
 
     let (code, message) = sync(&marked("AC-1", "confidential", &[], &["operations"]));
     assert_eq!(code, outcome::ACCEPTED, "{message}");
@@ -430,8 +431,9 @@ fn a_sync_may_raise_a_marking_and_narrow_purposes() {
     let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
         .unwrap()
         .into_parts();
-    let sync =
-        |records: &str| split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW));
+    let sync = |records: &str| {
+        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW))
+    };
 
     let (code, message) = sync(&marked(
         "AC-1",
@@ -509,7 +511,8 @@ fn a_sync_above_the_sync_clearance_is_refused() {
         .unwrap()
         .into_parts();
     let gateway = gateway.with_sync_clearance(granted);
-    let (code, message) = split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
+    let (code, message) =
+        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
     assert_eq!(code, outcome::ACCEPTED, "{message}");
     drop((gateway, lock));
     let _ = std::fs::remove_dir_all(&dir);
@@ -557,7 +560,8 @@ fn a_malformed_sync_from_a_permitted_peer_is_still_audited() {
         .into_parts();
 
     let before = ledger_rows(&state).len();
-    let (code, message) = split(&gateway.sync_records(&worker, &legacy(), PURPOSE, SUBMARINE.as_bytes(), NOW));
+    let (code, message) =
+        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, SUBMARINE.as_bytes(), NOW));
     assert_eq!(code, outcome::MALFORMED, "{message}");
     assert!(message.contains("submarine"), "{message}");
     assert_eq!(
@@ -610,8 +614,13 @@ fn a_sync_never_touches_a_human_gated_target() {
         )
     };
 
-    let (code, message) =
-        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, aircraft("AC-1", 100).as_bytes(), NOW));
+    let (code, message) = split(&gateway.sync_records(
+        &worker,
+        &legacy(),
+        PURPOSE,
+        aircraft("AC-1", 100).as_bytes(),
+        NOW,
+    ));
     assert_eq!(code, outcome::ACCEPTED, "{message}");
 
     let login = call(
@@ -635,8 +644,13 @@ fn a_sync_never_touches_a_human_gated_target() {
     assert_eq!(requested.status, 200, "{}", requested.body);
 
     let before = ledger_rows(&state).len();
-    let (code, message) =
-        split(&gateway.sync_records(&worker, &legacy(), PURPOSE, aircraft("AC-1", 999).as_bytes(), NOW));
+    let (code, message) = split(&gateway.sync_records(
+        &worker,
+        &legacy(),
+        PURPOSE,
+        aircraft("AC-1", 999).as_bytes(),
+        NOW,
+    ));
     assert_eq!(code, outcome::DENIED, "{message}");
     assert!(message.contains("human-gated-target"), "{message}");
     assert_eq!(

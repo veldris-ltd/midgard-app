@@ -28,7 +28,10 @@ use policy::{
     ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
     Role,
 };
-use pq_mtls::{encode_anchor, encode_cert, ServiceId, WorkloadIdentity, MAX_RECORD_FRAME};
+use pq_mtls::{
+    encode_anchor, encode_cert, Authorization, Posture, ServiceId, WorkloadIdentity,
+    MAX_RECORD_FRAME,
+};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{OsRng, SignatureScheme, SigningKey};
 use service_runtime::json::{parse, Json};
@@ -163,7 +166,11 @@ fn submit(
     static SEQUENCE: AtomicU64 = AtomicU64::new(1);
     let observation = observation.with_sequence(SEQUENCE.fetch_add(1, Ordering::SeqCst));
     let signed = sign_observation(&FipsSig::new(IDP_SIG_ALG), &source.key, observation).unwrap();
-    let response = service.ingest(&source.peer, &encode_signed_observation(&signed));
+    let response = service.ingest(
+        &source.peer,
+        &channel(),
+        &encode_signed_observation(&signed),
+    );
     (
         response[0],
         String::from_utf8_lossy(&response[1..]).into_owned(),
@@ -185,7 +192,7 @@ fn page(
     peer: &WorkloadIdentity,
     request: &[u8],
 ) -> (Json, usize) {
-    let response = service.read_picture(peer, request);
+    let response = service.read_picture(peer, &channel(), request);
     assert_eq!(
         response[0],
         outcome::ACCEPTED,
@@ -217,6 +224,16 @@ fn ids(page: &Json) -> Vec<String> {
 const FLOOD_KEYS: u64 = 500;
 /// The entity cap the flood runs against.
 const FLOOD_CAP: usize = 50;
+
+/// What the channel authorised a peer with a certificate issued before attributes for:
+/// unclassified, binding no purposes. [VLD-ANB-MIDGARD-0063]
+fn channel() -> Authorization {
+    Authorization {
+        clearance: Posture::unclassified(),
+        purpose: Purpose("situational-awareness".into()),
+        purposes: None,
+    }
+}
 
 #[test]
 fn a_flood_of_distinct_keys_ten_times_the_cap_keeps_the_picture_bounded() {
@@ -370,7 +387,7 @@ fn hidden_layers_are_filtered_unless_asked() {
     };
     assert_eq!(sea.get("visible"), Some(&Json::Bool(false)));
 
-    let malformed = service.read_picture(&reader, br#"{"offset": -1}"#);
+    let malformed = service.read_picture(&reader, &channel(), br#"{"offset": -1}"#);
     assert_eq!(malformed[0], outcome::MALFORMED);
     let _ = std::fs::remove_dir_all(&dir);
 }

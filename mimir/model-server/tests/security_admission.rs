@@ -27,7 +27,7 @@ use policy::{
     Action, ClassificationLevel, DefaultPdp, Effect, Marking, PolicySet, Purpose, Resource,
     ResourceId, Role, Rule, RuleId, Selector,
 };
-use pq_mtls::{ServiceId, WorkloadIdentity};
+use pq_mtls::{Authorization, Posture, ServiceId, WorkloadIdentity};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::Rng;
 
@@ -184,13 +184,24 @@ fn request(prompt: &str, max_tokens: u32) -> InferenceRequest {
 }
 
 fn call(handler: &InferenceHandler, peer: &WorkloadIdentity) -> InferenceResponse {
-    InferenceResponse::decode(&handler.handle(peer, &request("hello", 16).encode())).unwrap()
+    InferenceResponse::decode(&handler.handle(peer, &channel(), &request("hello", 16).encode()))
+        .unwrap()
 }
 
 fn denied(response: &InferenceResponse) -> Option<&str> {
     match response {
         InferenceResponse::Denied { reason, .. } => Some(reason),
         InferenceResponse::Ok(_) => None,
+    }
+}
+
+/// What the channel authorised a caller with a certificate issued before attributes
+/// for: unclassified, binding no purposes. [VLD-ANB-MIDGARD-0063]
+fn channel() -> Authorization {
+    Authorization {
+        clearance: Posture::unclassified(),
+        purpose: Purpose("investigation".into()),
+        purposes: None,
     }
 }
 
@@ -209,10 +220,10 @@ fn max_tokens_is_clamped_to_the_ceiling() {
     let peer = consumer("forge-worker");
 
     let wire = request("hello", u32::MAX).encode();
-    let response = InferenceResponse::decode(&h.handle(&peer, &wire)).unwrap();
+    let response = InferenceResponse::decode(&h.handle(&peer, &channel(), &wire)).unwrap();
     assert!(matches!(response, InferenceResponse::Ok(_)), "{response:?}");
     let wire = request("hello", 4).encode();
-    let response = InferenceResponse::decode(&h.handle(&peer, &wire)).unwrap();
+    let response = InferenceResponse::decode(&h.handle(&peer, &channel(), &wire)).unwrap();
     assert!(matches!(response, InferenceResponse::Ok(_)), "{response:?}");
 
     let seen = backend.seen.lock().unwrap();
@@ -239,12 +250,12 @@ fn oversized_prompt_is_refused_and_audited() {
     let peer = consumer("forge-worker");
 
     let at_bound = request(&"a".repeat(64), 16).encode();
-    let response = InferenceResponse::decode(&h.handle(&peer, &at_bound)).unwrap();
+    let response = InferenceResponse::decode(&h.handle(&peer, &channel(), &at_bound)).unwrap();
     assert!(matches!(response, InferenceResponse::Ok(_)), "{response:?}");
 
     let before = h.audit_len();
     let over = request(&"a".repeat(65), 16).encode();
-    let response = InferenceResponse::decode(&h.handle(&peer, &over)).unwrap();
+    let response = InferenceResponse::decode(&h.handle(&peer, &channel(), &over)).unwrap();
     assert_eq!(denied(&response), Some("PROMPT_TOO_LARGE"));
     assert_eq!(h.audit_len(), before + 2, "the decision and the refusal");
     assert_eq!(backend.seen.lock().unwrap().len(), 1, "never served");

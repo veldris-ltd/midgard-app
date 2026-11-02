@@ -368,16 +368,17 @@ fn an_unknown_tag_and_a_bad_cert_presence_byte_are_refused() {
     }
 
     // A ClientKeyExchange is the tag, the KEM suite, the u32 ciphertext length and the
-    // ciphertext, then the certificate-presence byte (0 absent, 1 present).
+    // ciphertext, then the certificate-presence byte (0 absent, 1 a version 2
+    // certificate, 2 a version 3 one): 3 is none of them.
     let mut cke = frames[2].clone();
     let presence_at = 1 + 1 + 4 + u32_at(&cke, 2) as usize;
     assert_eq!(
         cke[presence_at], 1,
         "the recorded CKE carries its certificate"
     );
-    cke[presence_at] = 2;
+    cke[presence_at] = 3;
     match decode_message(&cke) {
         Err(TransportError::Malformed(m)) => assert!(m.contains("bad cert presence"), "{m}"),
-        other => panic!("a presence byte of 2 was not refused: {other:?}"),
+        other => panic!("a presence byte of 3 was not refused: {other:?}"),
     }
 }
