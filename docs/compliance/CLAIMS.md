@@ -646,25 +646,17 @@ Replication of the common picture between nodes over PQ-mTLS.
 
 Decision support: ranked options, each cited and grounded against the picture, and workflows in which a person authorises a consequential action and the decision is audited.
 
-**Until it is operable, say:** "Advisory option generation (ranked options, each cited and grounded against the operating picture) is implemented and tested as a library (AC-H-3, EV-A8): ungrounded options are rejected, and only a grounded option can become a proposed action. In the workflow library an action's class comes from the deployment's catalogue, and no action runs without a recorded human decision. The running feed gateway fuses and serves the picture; it does not yet generate options or host the workflow."
+**Until it is operable, say:** "Advisory option generation (ranked options, each cited and grounded against the operating picture) is implemented and tested as a library (AC-H-3, EV-A8). The running feed gateway fuses and serves the picture; it does not yet generate options."
 
-**Milestone.** RF-CA-10: a running service generates options and hosts the workflow.
+**Milestone.** RF-CA-10, after two fixes in RF-H-4: ungrounded options are rejected, and no action runs without a recorded human decision.
 
 - Criteria: AC-H-3, AC-H-4
 - Source:
-  - [`heimdall/decision-support/src/adapter.rs:69`](../../heimdall/decision-support/src/adapter.rs)
-  - [`heimdall/decision-support/src/options.rs:140`](../../heimdall/decision-support/src/options.rs)
-  - [`heimdall/workflow/src/engine.rs:182`](../../heimdall/workflow/src/engine.rs)
-  - [`heimdall/workflow/src/catalog.rs:89`](../../heimdall/workflow/src/catalog.rs)
+  - [`heimdall/decision-support/src/adapter.rs:62`](../../heimdall/decision-support/src/adapter.rs)
+  - [`heimdall/workflow/src/engine.rs:131`](../../heimdall/workflow/src/engine.rs)
 - Tests:
   - [`heimdall/decision-support/tests/ac_h_3.rs::ac_h_3_options_are_ranked_and_cite_evidence`](../../heimdall/decision-support/tests/ac_h_3.rs)
-  - [`heimdall/decision-support/tests/ac_h_3.rs::ev_a8_grounded_catches_invented_evidence`](../../heimdall/decision-support/tests/ac_h_3.rs)
-  - [`heimdall/decision-support/tests/ac_h_3.rs::misranked_options_fail_parse`](../../heimdall/decision-support/tests/ac_h_3.rs)
   - [`heimdall/workflow/tests/ac_h_4.rs::ac_h_4_consequential_action_needs_human_authorisation_and_is_audited`](../../heimdall/workflow/tests/ac_h_4.rs)
-  - [`heimdall/workflow/tests/ac_h_4.rs::informational_action_still_needs_a_recorded_human_decision`](../../heimdall/workflow/tests/ac_h_4.rs)
-  - [`heimdall/workflow/tests/ac_h_4.rs::unknown_action_type_is_refused_at_proposal`](../../heimdall/workflow/tests/ac_h_4.rs)
-  - [`heimdall/workflow/tests/ac_h_4.rs::proposer_cannot_assert_the_class`](../../heimdall/workflow/tests/ac_h_4.rs)
-  - [`heimdall/workflow/tests/ac_h_4.rs::ac_h_3_and_4_option_to_audited_action_lineage`](../../heimdall/workflow/tests/ac_h_4.rs)
 
 ## Clients
 
