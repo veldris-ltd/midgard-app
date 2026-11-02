@@ -56,15 +56,19 @@ ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorith
 
 ### `pq-mtls` (operable)
 
-Services talk to each other over PQ-mTLS: a mutually authenticated handshake with hybrid X25519 and ML-KEM-768 key agreement, certified workload identities, session resumption and per-identity rate limiting.
+Services talk to each other over PQ-mTLS: a mutually authenticated handshake with hybrid X25519 and ML-KEM-768 key agreement, certified workload identities, session resumption, and per-identity rate limiting and per-connection quotas, enabled by default in every mesh service.
 
 - Criteria: RC-40.2
 - Source:
   - [`crypto/pq-mtls/src/lib.rs:18`](../../crypto/pq-mtls/src/lib.rs)
+  - [`services/runtime/src/serve.rs:345`](../../services/runtime/src/serve.rs)
 - Tests:
   - [`crypto/pq-mtls/tests/real_fips_handshake.rs::real_handshake_negotiates_hybrid_and_agrees`](../../crypto/pq-mtls/tests/real_fips_handshake.rs)
   - [`crypto/pq-mtls/tests/tcp_transport.rs::tcp_handshake_denies_unauthorized`](../../crypto/pq-mtls/tests/tcp_transport.rs)
   - [`services/gateway/tests/session.rs::a_second_connection_resumes_and_the_ticket_is_single_use`](../../services/gateway/tests/session.rs)
+  - [`services/runtime/tests/security_listener.rs::apply_mesh_limits_enforces_the_rate_limit`](../../services/runtime/tests/security_listener.rs)
+  - [`services/runtime/tests/security_listener.rs::the_mesh_cap_refuses_the_extra_connection_and_counts_it`](../../services/runtime/tests/security_listener.rs)
+  - [`services/runtime/tests/security_listener.rs::an_unauthenticated_idle_mesh_connection_is_closed_at_the_timeout`](../../services/runtime/tests/security_listener.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)

@@ -27,6 +27,13 @@
 //!       --mesh-identity-dir (NAME defaults to `http-gateway`); policy.json decides
 //!       who may open the channel and `SyncRecords`, under --mesh-purpose (default
 //!       `data-integration`).
+//!
+//!       --max-connections (edge default 256, mesh door 128) and --idle-timeout
+//!       (seconds, default 30) bound both listeners. --edge-rate-per-sec (default 50; 0
+//!       is off) is how fast one source address may open connections to the edge.
+//!       --rate-burst (default 100), --rate-per-sec (default 20) and
+//!       --requests-per-conn (default 10000) limit each certified peer of the mesh
+//!       door. A value that is not a number is a usage error. [VLD-ANB-MIDGARD-0004]
 //!   http-gateway --dev [ADDR]
 //!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
 //!       into an in-memory fabric, the published demo logins, an ephemeral issuer key.
@@ -48,7 +55,7 @@ use http_gateway::mesh_sync::spawn_mesh_listener;
 use http_gateway::policy_file::parse_policy;
 use http_gateway::state_dir::StateDir;
 use policy::DefaultPdp;
-use service_runtime::ServiceIdentity;
+use service_runtime::{MeshLimits, ServiceIdentity};
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -68,7 +75,7 @@ fn main() {
             }
             return;
         }
-        Ok(Command::Serve(args)) => args,
+        Ok(Command::Serve(args)) => *args,
         Err(message) => fail_usage(&message),
     };
     let ServeArgs {
@@ -81,6 +88,8 @@ fn main() {
         mesh_identity_dir,
         mesh_service,
         mesh_purpose,
+        edge,
+        mesh,
     } = args;
 
     let state = StateDir::new(&state_dir);
@@ -143,6 +152,7 @@ fn main() {
             &mesh_service,
             &mesh_purpose,
             &mesh_bind,
+            mesh,
         ) {
             Ok(addr) => eprintln!(
                 "http-gateway: serving SyncRecords over PQ-mTLS on {addr} as {mesh_service}"
@@ -154,7 +164,7 @@ fn main() {
         }
     }
 
-    if let Err(e) = http_gateway::serve_shared(&bind, gateway) {
+    if let Err(e) = http_gateway::serve_shared_with(&bind, gateway, edge) {
         eprintln!("http-gateway: failed to bind {bind}: {e}");
         exit(1);
     }
@@ -167,6 +177,7 @@ fn start_mesh(
     service: &str,
     purpose: &str,
     bind: &str,
+    limits: MeshLimits,
 ) -> Result<SocketAddr, String> {
     let identity = ServiceIdentity::load(identity_dir, service)?;
     let policy_path = StateDir::new(state_dir).policy();
@@ -179,6 +190,7 @@ fn start_mesh(
         DefaultPdp::new(policy),
         bind,
         purpose,
+        limits,
     )
     .map_err(|e| format!("cannot bind {bind}: {e}"))
 }

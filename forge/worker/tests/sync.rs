@@ -23,7 +23,7 @@ use policy::{Action, DefaultPdp, Effect, PolicySet, Role, Rule, RuleId, Selector
 use pq_mtls::{encode_anchor, encode_cert, ServiceId, WorkloadIdentity};
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::OsRng;
-use service_runtime::ServiceIdentity;
+use service_runtime::{MeshLimits, ServiceIdentity};
 
 const PURPOSE: &str = "data-integration";
 
@@ -215,6 +215,7 @@ fn the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh() {
         DefaultPdp::new(policy()),
         "127.0.0.1:0",
         PURPOSE,
+        MeshLimits::default(),
     )
     .unwrap()
     .to_string();

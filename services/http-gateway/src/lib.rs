@@ -15,8 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod admin_api;
 pub mod boot;
@@ -29,15 +28,16 @@ pub mod login_throttle;
 pub mod mesh_sync;
 pub mod ontology_file;
 pub mod state_dir;
-use service_runtime::strict_json;
 /// The JSON codec and the policy file, shared with the mesh services.
-pub use service_runtime::{json, policy_file};
+pub use service_runtime::{json, policy_file, ListenerLimits, CONNECTION_STACK};
+use service_runtime::{strict_json, BoundedListener};
 
 use data::State;
 use enclosure::{EdgeError, Enclosure};
 use fabric::{InMemoryLedger, InMemoryStore, LedgerStore, ObjectStore};
+use gateway::RateLimiter;
 use governance::{GovContext, Governance};
-use http::{read_request, Incoming, Request, Response};
+use http::{read_request_within, refuse_at_once, Incoming, Request, Response};
 use iam::{
     verify_token, AuthError, Credentials, Directory, DurableDirectory, Enrollment, Idp,
     InMemoryDirectory, IssueError, MfaProof, PasswordHasher, PasswordUpgrade, Pbkdf2Hasher,
@@ -140,7 +140,7 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// Password hasher for login verification (Argon2id/PBKDF2 seam, RT-29).
     hasher: Pbkdf2Hasher,
     // ---- observability (in-enclosure; nothing egresses) [RC-33] ----
-    metrics: MetricsRegistry,
+    metrics: Arc<MetricsRegistry>,
     health: HealthRegistry,
     readiness: Arc<Toggle>,
     availability: Mutex<AvailabilitySlo>,
@@ -190,7 +190,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             admin: None,
             ontology: None,
             hasher: Pbkdf2Hasher::production(),
-            metrics: MetricsRegistry::new(),
+            metrics: Arc::new(MetricsRegistry::new()),
             health,
             readiness,
             availability: Mutex::new(AvailabilitySlo::new(
@@ -506,6 +506,12 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         self.readiness.set(ready);
     }
 
+    /// The registry `/metrics` renders, for a listener serving this gateway to count
+    /// its connections in. [VLD-ANB-MIDGARD-0004]
+    pub fn metrics_registry(&self) -> Arc<MetricsRegistry> {
+        Arc::clone(&self.metrics)
+    }
+
     /// The Prometheus-format metrics snapshot (also what `/metrics` serves).
     pub fn metrics_text(&self) -> String {
         // Refresh SLO gauges so the scrape observes the current availability + any
@@ -587,6 +593,15 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// updated (a 5xx counts against availability; a correct 401/403 does not).
     /// [RC-33]
     pub fn handle(&self, req: &Request, now: u64) -> Response {
+        self.handle_from(req, None, now)
+    }
+
+    /// [`SecuredGateway::handle`] for a request that arrived from `peer`, the client's
+    /// address where it is known. Nothing is kept from it yet; it is here so a route
+    /// can see where a request came from without a change to [`Request`].
+    /// [VLD-ANB-MIDGARD-0004]
+    pub fn handle_from(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
+        let _ = peer;
         let start = Instant::now();
         let cors = self.cors_origin(req);
         let resp = self.handle_inner(req, now).with_allow_origin(cors);
@@ -866,6 +881,19 @@ where
     S: ObjectStore + Send + 'static,
     L: LedgerStore + Send + 'static,
 {
+    serve_shared_with(addr, gw, EdgeLimits::default())
+}
+
+/// [`serve_shared`] within `limits`. [VLD-ANB-MIDGARD-0004]
+pub fn serve_shared_with<S, L>(
+    addr: &str,
+    gw: Arc<SecuredGateway<S, L>>,
+    limits: EdgeLimits,
+) -> std::io::Result<()>
+where
+    S: ObjectStore + Send + 'static,
+    L: LedgerStore + Send + 'static,
+{
     if !(addr.starts_with("127.0.0.1")
         || addr.starts_with("localhost")
         || addr.starts_with("[::1]"))
@@ -874,24 +902,72 @@ where
             "http-gateway: WARNING binding non-loopback {addr}; production MUST front this with              PQ-mTLS/TLS-1.3 termination that forwards to the enclosure. [RC-24]"
         );
     }
-    serve_listener(TcpListener::bind(addr)?, gw)
+    serve_listener_with(TcpListener::bind(addr)?, gw, limits)
 }
 
-/// The stack each connection thread is given, stated rather than left to the platform
-/// default. The request parser's nesting bound ([`json::MAX_DEPTH`]) is sized against
-/// it: a body nested to the bound parses in a small fraction of this, and one nested
-/// deeper is refused before it can overflow the stack and abort the process.
-/// [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
-const EDGE_THREAD_STACK: usize = 2 * 1024 * 1024;
+/// Connections one source address may open in a burst before it is answered 429.
+/// [VLD-ANB-MIDGARD-0004]
+pub const EDGE_SOURCE_BURST: f64 = 200.0;
+/// Connections a second one source address's allowance refills at.
+/// [VLD-ANB-MIDGARD-0004]
+pub const EDGE_SOURCE_PER_SEC: f64 = 50.0;
 
-/// Serve `gw` on a bound listener until the process is killed, naming the address it
-/// actually listens on (a port of 0 binds an ephemeral one). Each connection is served
-/// on its own named thread with an explicit stack; a thread that cannot be created —
-/// a process or PID limit reached — is logged and its connection dropped, and the
-/// accept loop carries on. [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
+/// What the edge serves within: its listener's connection cap, timeouts and head
+/// deadline, and how fast one source address may open connections. Under compose every
+/// client reaches the edge from the proxy's one address, so there the per-source limit
+/// is a global one. [VLD-ANB-MIDGARD-0004]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgeLimits {
+    /// The connection cap, the socket timeouts and the head deadline.
+    pub listener: ListenerLimits,
+    /// Connections one source address may open in a burst. With `source_per_sec`, both
+    /// 0.0 turn the per-source limit off.
+    pub source_burst: f64,
+    /// Connections a second the allowance refills at; 0.0 with a non-zero burst makes
+    /// the burst a hard quota.
+    pub source_per_sec: f64,
+}
+
+impl Default for EdgeLimits {
+    /// [`ListenerLimits::edge`], and [`EDGE_SOURCE_BURST`] connections in a burst,
+    /// [`EDGE_SOURCE_PER_SEC`] a second, from one source address.
+    fn default() -> Self {
+        Self {
+            listener: ListenerLimits::edge(),
+            source_burst: EDGE_SOURCE_BURST,
+            source_per_sec: EDGE_SOURCE_PER_SEC,
+        }
+    }
+}
+
+/// [`serve_listener_with`] the default [`EdgeLimits`].
 pub fn serve_listener<S, L>(
     listener: TcpListener,
     gw: Arc<SecuredGateway<S, L>>,
+) -> std::io::Result<()>
+where
+    S: ObjectStore + Send + 'static,
+    L: LedgerStore + Send + 'static,
+{
+    serve_listener_with(listener, gw, EdgeLimits::default())
+}
+
+/// Serve `gw` on a bound listener within `limits` until the process is killed, naming
+/// the address it actually listens on (a port of 0 binds an ephemeral one).
+///
+/// The edge serves on the bounded listener every listener in the workspace shares: at
+/// most `limits.listener.max_connections` at once, each on its own named thread with
+/// [`CONNECTION_STACK`], with read and write timeouts set before the first read and
+/// the whole request to arrive within the head deadline. A connection over the cap is
+/// answered 503 with `Retry-After: 1` on the accepting thread, and one from a source
+/// address opening connections faster than its allowance is answered 429 with
+/// `Retry-After: 1`; neither gets a thread. Outcomes are counted as
+/// `http_connections_total{outcome}` in `/metrics`. [VLD-ANB-MIDGARD-0004]
+/// [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
+pub fn serve_listener_with<S, L>(
+    listener: TcpListener,
+    gw: Arc<SecuredGateway<S, L>>,
+    limits: EdgeLimits,
 ) -> std::io::Result<()>
 where
     S: ObjectStore + Send + 'static,
@@ -901,27 +977,50 @@ where
         "http-gateway (secured) listening on http://{}",
         listener.local_addr()?
     );
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                let gw = Arc::clone(&gw);
-                let spawned = thread::Builder::new()
-                    .name("http-edge".into())
-                    .stack_size(EDGE_THREAD_STACK)
-                    .spawn(move || {
-                        if let Err(e) = handle_connection(stream, &gw) {
-                            eprintln!("http-gateway: connection error: {e}");
-                        }
-                    });
-                // The closure, and the stream it owns, is dropped with the error.
-                if let Err(e) = spawned {
-                    eprintln!("http-gateway: cannot spawn connection thread: {e}");
-                }
+    eprintln!(
+        "http-gateway: at most {} connections, a {}s read timeout, a {}s head deadline, {} \
+         new connections a second from one address",
+        limits.listener.max_connections,
+        limits.listener.read_timeout.as_secs(),
+        limits.listener.head_deadline.as_secs(),
+        limits.source_per_sec
+    );
+    let metrics = gw.metrics_registry();
+    let mut bounded = BoundedListener::new("http", limits.listener, metrics.clone());
+    if !(limits.source_burst == 0.0 && limits.source_per_sec == 0.0) {
+        let sources = RateLimiter::new(limits.source_burst, limits.source_per_sec);
+        bounded = bounded.with_screen(Arc::new(move |stream, peer| {
+            if sources.allow(&peer.ip().to_string()) {
+                return true;
             }
-            Err(e) => eprintln!("http-gateway: accept error: {e}"),
-        }
+            metrics.inc("http_connections_total", &[("outcome", "rate_limited")]);
+            refuse_at_once(
+                stream,
+                &Response::json(
+                    429,
+                    r#"{"error":"too many connections from this address"}"#.into(),
+                )
+                .with_retry_after(1),
+            );
+            false
+        }));
     }
-    Ok(())
+    let head_deadline = limits.listener.head_deadline;
+    bounded.serve(
+        listener,
+        Arc::new(move |stream, _permit| {
+            if let Err(e) = handle_connection(stream, &gw, head_deadline) {
+                eprintln!("http-gateway: connection error: {e}");
+            }
+        }),
+        Arc::new(|stream| {
+            refuse_at_once(
+                &stream,
+                &Response::json(503, r#"{"error":"the gateway is at capacity"}"#.into())
+                    .with_retry_after(1),
+            );
+        }),
+    )
 }
 
 fn now_secs() -> u64 {
@@ -934,9 +1033,12 @@ fn now_secs() -> u64 {
 fn handle_connection<S: ObjectStore, L: LedgerStore>(
     mut stream: TcpStream,
     gw: &SecuredGateway<S, L>,
+    head_deadline: Duration,
 ) -> std::io::Result<()> {
-    match read_request(&stream)? {
-        Some(Incoming::Request(req)) => gw.handle(&req, now_secs()).write(&mut stream),
+    match read_request_within(&stream, head_deadline)? {
+        Some(Incoming::Request(req)) => gw
+            .handle_from(&req, stream.peer_addr().ok(), now_secs())
+            .write(&mut stream),
         // Too large or unframed: refused before the body is read, and not admitted, so
         // it reaches neither authentication nor the ledger. [NFR-SEC-1]
         Some(Incoming::Refused { response, origin }) => {

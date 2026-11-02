@@ -5,6 +5,8 @@
 //! bifrost-fleet --identity-dir DIR --state-dir DIR
 //!               [--service NAME] [--purpose P] [--stale-after SECONDS]
 //!               [--bind ADDR] [--health-bind ADDR]
+//!               [--max-connections N] [--idle-timeout SECONDS]
+//!               [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -16,6 +18,14 @@
 //! (default 300) is reported stale. PQ-mTLS is served on `--bind` (default
 //! `0.0.0.0:7740`); `/healthz`, `/readyz` and `/metrics` on `--health-bind` (default
 //! `0.0.0.0:9090`).
+//!
+//! The mesh listener serves at most `--max-connections` connections at once (default
+//! 128), and closes one that sends nothing for `--idle-timeout` seconds (default 30).
+//! Each certified peer may make `--rate-burst` requests in a burst (default 100),
+//! refilled at `--rate-per-sec` a second (default 20; a burst and a rate of 0 turn the
+//! limit off), and a connection is closed after `--requests-per-conn` requests (default
+//! 10000; 0 is unlimited). A value that is not a number is a usage error.
+//! [VLD-ANB-MIDGARD-0004]
 
 use std::collections::BTreeSet;
 use std::net::TcpListener;
@@ -32,12 +42,15 @@ use policy::{
 use pqc_agility::backend::fips::provider as fips_provider;
 use service_runtime::policy_file::parse_policy;
 use service_runtime::{
-    serve_mesh, spawn_health_port, unix_seconds, Args, DirLock, ServiceIdentity,
+    apply_mesh_limits, mesh_limits_from_args, serve_mesh_with, spawn_health_port, unix_seconds,
+    Args, DirLock, MeshLimits, ServiceIdentity,
 };
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
 const USAGE: &str = "usage: bifrost-fleet --identity-dir DIR --state-dir DIR [--service NAME] \
-                     [--purpose P] [--stale-after SECONDS] [--bind ADDR] [--health-bind ADDR]";
+                     [--purpose P] [--stale-after SECONDS] [--bind ADDR] [--health-bind ADDR] \
+                     [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
+                     [--rate-per-sec N] [--requests-per-conn N]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "bifrost-fleet-audit";
@@ -56,6 +69,11 @@ fn main() {
             "stale-after",
             "bind",
             "health-bind",
+            "max-connections",
+            "idle-timeout",
+            "rate-burst",
+            "rate-per-sec",
+            "requests-per-conn",
         ],
         &[],
     ) {
@@ -65,13 +83,20 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = run(&args) {
+    let limits = match mesh_limits_from_args(&args) {
+        Ok(limits) => limits,
+        Err(e) => {
+            eprintln!("bifrost-fleet: {e}\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = run(&args, &limits) {
         eprintln!("bifrost-fleet: {e}");
         std::process::exit(1);
     }
 }
 
-fn run(args: &Args) -> Result<(), String> {
+fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
     let service = args.get("service").unwrap_or("bifrost-fleet");
     let identity_dir = args.require("identity-dir")?;
     let state_dir = Path::new(args.require("state-dir")?);
@@ -153,14 +178,17 @@ fn run(args: &Args) -> Result<(), String> {
         metrics.clone(),
     );
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
-    let gateway = Gateway::new(
-        Arc::new(fips_provider()),
-        identity.cert.clone(),
-        identity.signing_key.clone(),
-        identity.anchor.clone(),
-        channel_pdp,
-        resource("bifrost-fleet-channel"),
-        Arc::new(fleet_service.router()),
+    let gateway = apply_mesh_limits(
+        Gateway::new(
+            Arc::new(fips_provider()),
+            identity.cert.clone(),
+            identity.signing_key.clone(),
+            identity.anchor.clone(),
+            channel_pdp,
+            resource("bifrost-fleet-channel"),
+            Arc::new(fleet_service.router()),
+        ),
+        limits,
     );
 
     let listener = TcpListener::bind(args.get("bind").unwrap_or("0.0.0.0:7740"))
@@ -175,9 +203,10 @@ fn run(args: &Args) -> Result<(), String> {
             ("mesh", &mesh_addr.to_string()),
             ("health", &health_addr.to_string()),
             ("roles", &identity.roles().join(",")),
+            ("limits", &limits.to_string()),
             ("recovered_audit_entries", &recovered.to_string()),
             ("installations", &installations.to_string()),
         ],
     );
-    serve_mesh(service, listener, gateway, metrics)
+    serve_mesh_with(service, listener, gateway, metrics, limits.listener)
 }

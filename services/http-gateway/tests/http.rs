@@ -4,14 +4,16 @@
 //!
 //! The object fabric, governance and audit routes are caller-scoped and live behind
 //! `SecuredGateway`; they are exercised end to end in `fabric_edge.rs`. [RC-37]
+//! A request must arrive whole within the head deadline. [VLD-ANB-MIDGARD-0004]
+//! [AC-31.2]
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use http_gateway::data::State;
-use http_gateway::http::Request;
+use http_gateway::http::{read_request_within, Request};
 use http_gateway::route;
 
 fn req(method: &str, path: &str, query: &str, body: &str) -> Request {
@@ -119,5 +121,29 @@ fn real_socket_round_trip() {
     assert!(
         !resp2.contains("Access-Control-Allow-Origin"),
         "no grant for foreign origin"
+    );
+}
+
+#[test]
+fn read_request_within_returns_none_when_the_head_deadline_passes() {
+    // [VLD-ANB-MIDGARD-0004] [AC-31.2]
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (server, _) = listener.accept().unwrap();
+    // Half a head, and then nothing.
+    client
+        .write_all(b"GET /api/v1/health HTTP/1.1\r\nHost: loc")
+        .unwrap();
+
+    let started = Instant::now();
+    let read = read_request_within(&server, Duration::from_millis(500));
+    let waited = started.elapsed();
+    assert!(
+        matches!(read, Ok(None)),
+        "nothing is served from half a head"
+    );
+    assert!(
+        waited >= Duration::from_millis(400) && waited < Duration::from_secs(2),
+        "gave up after {waited:?}"
     );
 }

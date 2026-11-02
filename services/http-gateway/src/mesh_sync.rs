@@ -29,8 +29,7 @@ use policy::{
 };
 use pq_mtls::WorkloadIdentity;
 use pqc_agility::backend::fips::provider as fips_provider;
-use service_runtime::{serve_mesh, ServiceIdentity};
-use telemetry::MetricsRegistry;
+use service_runtime::{apply_mesh_limits, serve_mesh_with, MeshLimits, ServiceIdentity};
 
 use crate::import_file::parse_import;
 use crate::SecuredGateway;
@@ -212,33 +211,40 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
 
 /// Serve [`SYNC_RECORDS`] for `gateway` over PQ-mTLS on `bind`, on a background thread,
 /// presenting `identity`. `channel_policy` decides who may open the channel, which opens
-/// for `purpose` only. Returns the bound address.
+/// for `purpose` only. The door serves within `limits` — a connection cap and timeouts,
+/// and a per-identity rate limit and request quota — and counts its connections in the
+/// gateway's metrics. Returns the bound address. [VLD-ANB-MIDGARD-0004]
 pub fn spawn_mesh_listener<L: LedgerStore + Send + 'static>(
     gateway: Arc<SecuredGateway<DurableObjectStore, L>>,
     identity: &ServiceIdentity,
     channel_policy: DefaultPdp,
     bind: &str,
     purpose: &str,
+    limits: MeshLimits,
 ) -> std::io::Result<SocketAddr> {
+    let metrics = gateway.metrics_registry();
     let declared = purpose.to_string();
     let handler: Arc<dyn RequestHandler> = Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| {
         gateway.sync_records(peer, &declared, body, crate::now_secs())
     });
     let pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(channel_policy);
-    let mesh = Gateway::new(
-        Arc::new(fips_provider()),
-        identity.cert.clone(),
-        identity.signing_key.clone(),
-        identity.anchor.clone(),
-        pdp,
-        sync_resource("fabric-sync-channel", purpose),
-        Arc::new(Router::new().route(SYNC_RECORDS, handler)),
+    let mesh = apply_mesh_limits(
+        Gateway::new(
+            Arc::new(fips_provider()),
+            identity.cert.clone(),
+            identity.signing_key.clone(),
+            identity.anchor.clone(),
+            pdp,
+            sync_resource("fabric-sync-channel", purpose),
+            Arc::new(Router::new().route(SYNC_RECORDS, handler)),
+        ),
+        &limits,
     );
     let listener = TcpListener::bind(bind)?;
     let addr = listener.local_addr()?;
     let service = identity.service.clone();
     std::thread::spawn(move || {
-        serve_mesh(&service, listener, mesh, Arc::new(MetricsRegistry::new()));
+        serve_mesh_with(&service, listener, mesh, metrics, limits.listener);
     });
     Ok(addr)
 }
