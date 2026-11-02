@@ -50,13 +50,12 @@ const PASSKEY_PASSPHRASE: &str = "passkey-passphrase-file";
 /// The longest an administrator's role binding may run, in days.
 const MAX_BINDING_DAYS: u64 = 3_650;
 /// Whether opening the passkey keystore passes a local knowledge gate: what the
-/// assertion's user-verification flag reports. A keystore of the current format holds
-/// the passkey with no gate, so the flag is signed false. Once the passkey keystore is
-/// wrapped under its holder's passphrase (keystore format version 2, WP-50), a passkey
-/// that opens at all was unlocked with that passphrase, and this becomes true:
-/// completes on merge with WP-50. The gateway never relies on the flag either way.
-/// [VLD-ANB-MIDGARD-0008]
-const PASSKEY_OPENS_UNDER_A_PASSPHRASE: bool = false;
+/// assertion's user-verification flag reports. The passkey keystore is wrapped under
+/// its holder's passphrase (keystore format version 2, `--passkey-passphrase-file`), so
+/// a passkey that opens at all was unlocked with that passphrase, and the flag is
+/// signed true. The gateway never relies on the flag either way.
+/// [VLD-ANB-MIDGARD-0008] [VLD-ANB-MIDGARD-0007]
+const PASSKEY_OPENS_UNDER_A_PASSPHRASE: bool = true;
 /// Digits in a one-time code.
 const TOTP_DIGITS: usize = 6;
 

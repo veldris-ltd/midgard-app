@@ -595,8 +595,8 @@ fn administration_needs_the_passphrase_and_a_one_time_code() {
         .expect("a token");
     let trail = audit_trail(&gateway, token);
     for shown in [
-        // WP-50: `uv-claimed=true` once the passkey opens under its passphrase.
-        "principal:olivia factors=totp+webauthn uv-claimed=false",
+        // The passkey opened under its passphrase, so the flag is signed true.
+        "principal:olivia factors=totp+webauthn uv-claimed=true",
         r#""actor":"alice","action":"ADMIN refused (401)""#,
         r#""action":"ROTATE administrator totp""#,
     ] {
@@ -609,17 +609,23 @@ fn administration_needs_the_passphrase_and_a_one_time_code() {
     }
 }
 
-/// [AC-10.4] [VLD-ANB-MIDGARD-0008] A wrong passkey passphrase stops mg-admin before it
-/// contacts the gateway. Completes on merge with WP-50, which wraps the passkey
-/// keystore under `--passkey-passphrase-file`; then fold this into
-/// `administration_needs_the_passphrase_and_a_one_time_code`, write the passkeys with
-/// a passphrase there and expect `uv-claimed=true`.
+/// [AC-10.4] [VLD-ANB-MIDGARD-0008] [VLD-ANB-MIDGARD-0007] A wrong passkey passphrase
+/// stops mg-admin before it contacts the gateway: the passkey keystore is wrapped under
+/// `--passkey-passphrase-file`. The right one is the other half of
+/// `administration_needs_the_passphrase_and_a_one_time_code`, whose ledger row shows
+/// `uv-claimed=true`.
 #[test]
-#[ignore = "completes on merge with WP-50: the passkey keystore has no passphrase before it"]
 fn a_wrong_passkey_passphrase_stops_before_the_gateway() {
     let (dir, keystore, codes) = two_administrators("passphrase");
     let wrong = dir.with_extension("wrong-passphrase");
     std::fs::write(&wrong, "not the passkey passphrase\n").unwrap();
+    // A passphrase file must be readable by its owner only, or it is refused before
+    // its contents are tried. [VLD-ANB-MIDGARD-0007]
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&wrong, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
     // Nothing listens here: reaching for the gateway would fail differently.
     let refused = mg_admin(
         &[
