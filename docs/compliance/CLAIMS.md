@@ -137,14 +137,13 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
 
 ### `audit-ledger` (operable)
 
-Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start. The ledger view needs ReadAudit and is scoped to the caller: rows about objects the caller cannot read are omitted, and so are other principals' login rows unless policy grants ReadAudit on audit-ledger:sessions.
+Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start.
 
 **Limit.** The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime).
 
 - Source:
   - [`crypto/audit-writer/src/ledger.rs:5`](../../crypto/audit-writer/src/ledger.rs)
   - [`crypto/audit-writer/src/checkpoint.rs:1`](../../crypto/audit-writer/src/checkpoint.rs)
-  - [`services/http-gateway/src/enclosure.rs:856`](../../services/http-gateway/src/enclosure.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
   - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
@@ -153,9 +152,6 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart`](../../services/http-gateway/tests/durable_enclosure.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::the_audit_view_hides_rows_about_objects_the_caller_cannot_read`](../../services/http-gateway/tests/fabric_edge.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::reading_the_audit_needs_the_read_audit_permission`](../../services/http-gateway/tests/fabric_edge.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::other_principals_login_rows_need_the_sessions_grant`](../../services/http-gateway/tests/fabric_edge.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
@@ -272,11 +268,9 @@ Access is denied unless a written rule grants it: role, marking and purpose must
 
 - Source:
   - [`services/runtime/src/policy_file.rs:1`](../../services/runtime/src/policy_file.rs)
-  - [`services/fabric/src/resource.rs:1`](../../services/fabric/src/resource.rs)
 - Tests:
   - [`services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing`](../../services/http-gateway/tests/policy_file.rs)
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
-  - [`services/http-gateway/tests/policy_resources.rs::a_type_scoped_deny_holds_on_query_search_around_and_per_object_reads`](../../services/http-gateway/tests/policy_resources.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller`](../../services/http-gateway/tests/http.rs)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
