@@ -59,8 +59,13 @@ fn analyst_may_read() -> PolicySet {
 /// a token for them; return (gateway, hex-encoded-token). The gateway classifies
 /// object-type `case-secret` as SECRET.
 fn fixture(analyst_level: ClassificationLevel) -> (SecuredGateway, String) {
-    let mut rng = OsRng;
-    let mut idp = Idp::generate("test-idp", &mut rng).unwrap();
+    let (gw, token, _idp) = fixture_with_idp(analyst_level);
+    (gw, token)
+}
+
+/// An IdP with the fixture's analyst registered, under `issuer_id`.
+fn idp_with_analyst(issuer_id: &str, analyst_level: ClassificationLevel) -> Idp {
+    let mut idp = Idp::generate(issuer_id, &mut OsRng).unwrap();
     idp.store_mut().upsert(
         "analyst-1",
         UserRecord {
@@ -72,6 +77,14 @@ fn fixture(analyst_level: ClassificationLevel) -> (SecuredGateway, String) {
             purposes: [purpose("Investigation")].into_iter().collect(),
         },
     );
+    idp
+}
+
+/// As [`fixture`], also handing back the IdP the gateway trusts, so a test can mint
+/// further tokens from it.
+fn fixture_with_idp(analyst_level: ClassificationLevel) -> (SecuredGateway, String, Idp) {
+    let mut rng = OsRng;
+    let idp = idp_with_analyst("test-idp", analyst_level);
     let token = idp
         .issue_token("analyst-1", purpose("Investigation"), NOW, TTL)
         .expect("issue token");
@@ -89,7 +102,7 @@ fn fixture(analyst_level: ClassificationLevel) -> (SecuredGateway, String) {
     // type — so the types these requests name must exist.
     .with_object_type("case-secret", "Case (secret)")
     .with_object_type("case-open", "Case (open)");
-    (gw, hex(&token))
+    (gw, hex(&token), idp)
 }
 
 fn query(object_type: &str, token: Option<&str>, origin: Option<&str>) -> Request {
@@ -180,5 +193,134 @@ fn public_health_needs_no_token() {
     assert_eq!(
         resp.status, 200,
         "liveness is the only unauthenticated route"
+    );
+}
+
+// ---- negative paths: token lifecycle and malformed headers -----------------------------
+//
+// Every refusal below is a 401 that names its reason, carries no claims, and writes no
+// audit row: an unauthenticated request never reaches the object-specific audit. (WP-26
+// may add an authentication-failure record; these assertions then become plus one.)
+// [AC-42.1] [AC-42.2] [VLD-ANB-MIDGARD-0092]
+
+/// A request with this exact `Authorization` header value (or none).
+fn query_with_authorization(authorization: Option<String>) -> Request {
+    Request {
+        authorization,
+        ..query("case-open", None, None)
+    }
+}
+
+/// `req` at `now` is refused 401 with `reason` in the body, no claims, and no audit row.
+fn assert_refused(gw: &SecuredGateway, req: &Request, now: u64, reason: &str) {
+    let before = gw.audit_len();
+    let resp = gw.handle(req, now);
+    assert_eq!(
+        resp.status, 401,
+        "{:?} must be refused: {}",
+        req.authorization, resp.body
+    );
+    assert!(
+        resp.body.contains(reason),
+        "the refusal names {reason:?}: {}",
+        resp.body
+    );
+    assert!(
+        !resp.body.contains("subject") && !resp.body.contains("analyst-1"),
+        "a refusal carries no claims: {}",
+        resp.body
+    );
+    assert_eq!(
+        gw.audit_len(),
+        before,
+        "a refused token writes no audit row"
+    );
+}
+
+#[test]
+fn an_expired_token_is_rejected_401() {
+    let (gw, token) = fixture(ClassificationLevel::SECRET);
+    // Expiry is exclusive: the last second of the token's life is served...
+    let resp = gw.handle(&query("case-open", Some(&token), None), NOW + TTL - 1);
+    assert_eq!(resp.status, 200, "a token is valid until its expiry");
+    // ...and the second it expires is not.
+    assert_refused(
+        &gw,
+        &query("case-open", Some(&token), None),
+        NOW + TTL,
+        "Expired",
+    );
+}
+
+#[test]
+fn a_not_yet_valid_token_is_rejected_401() {
+    let (gw, _token, idp) = fixture_with_idp(ClassificationLevel::SECRET);
+    let early = idp
+        .issue_token("analyst-1", purpose("Investigation"), NOW + 100, TTL)
+        .expect("issue token");
+    assert_refused(
+        &gw,
+        &query("case-open", Some(&hex(&early)), None),
+        NOW,
+        "NotYetValid",
+    );
+}
+
+#[test]
+fn a_token_from_another_issuer_is_rejected_401() {
+    // Tokens carry no audience field: the gateway is bound to one issuer's verifying
+    // key, and that binding is the audience control. A token another IdP signed for
+    // the same user, purpose and time does not verify against it.
+    let (gw, _token) = fixture(ClassificationLevel::SECRET);
+    let other = idp_with_analyst("other-idp", ClassificationLevel::SECRET);
+    let foreign = other
+        .issue_token("analyst-1", purpose("Investigation"), NOW, TTL)
+        .expect("issue token");
+    assert_refused(
+        &gw,
+        &query("case-open", Some(&hex(&foreign)), None),
+        NOW,
+        "BadSignature",
+    );
+}
+
+#[test]
+fn a_non_hex_bearer_is_rejected_401() {
+    let (gw, _token) = fixture(ClassificationLevel::SECRET);
+    assert_refused(
+        &gw,
+        &query("case-open", Some("zz-not-hex"), None),
+        NOW,
+        "malformed bearer token",
+    );
+}
+
+#[test]
+fn a_missing_scheme_is_rejected_401() {
+    let (gw, token) = fixture(ClassificationLevel::SECRET);
+    // A valid token without the `Bearer ` scheme is not read as one.
+    assert_refused(
+        &gw,
+        &query_with_authorization(Some(token)),
+        NOW,
+        "missing bearer token",
+    );
+    // Nor is another scheme.
+    assert_refused(
+        &gw,
+        &query_with_authorization(Some("Basic dXNlcjpwdw==".to_string())),
+        NOW,
+        "missing bearer token",
+    );
+}
+
+#[test]
+fn a_token_with_trailing_bytes_is_rejected_401() {
+    let (gw, token) = fixture(ClassificationLevel::SECRET);
+    assert_refused(
+        &gw,
+        &query("case-open", Some(&format!("{token}00")), None),
+        NOW,
+        "Malformed",
     );
 }
