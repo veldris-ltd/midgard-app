@@ -13,8 +13,9 @@ use admin_audit::{decode_detail, AdminAuditLog, AdminEvent, AdminOutcome};
 use admin_breakglass::{BreakGlassService, GrantRequest, RecordingAlerter};
 use admin_config::{ConfigState, ConfigStore};
 use admin_identity::{
-    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, IdentityDirectory, ResourceScope,
-    RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER,
+    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, AuthFactor, IdentityDirectory,
+    ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_IAM_ADMIN,
+    ROLE_SECURITY_OFFICER,
 };
 use admin_sim::{simulate, AccessProbe};
 use audit_writer::{verify_chain, AuditWriter, InMemoryLedger, LedgerId};
@@ -72,7 +73,8 @@ fn audit_log() -> (AdminAuditLog<InMemoryLedger>, VerifyingKey) {
 const APPROVAL_MAX_AGE: u64 = 300;
 
 /// `mallory` (requester) and `secoff` (approver), each signed in at `now` with their
-/// own passkey — break-glass takes two authenticated people. [MG-SEC-07]
+/// own passkey and a one-time code the relying party verified — break-glass takes
+/// two authenticated people, each with MFA. [MG-SEC-07] [VLD-ANB-MIDGARD-0008]
 fn breakglass_sessions(now: u64) -> (AdminSession, AdminSession) {
     let provider = pqc_agility::backend::fips::provider();
     let mut rng = SeedRng(31);
@@ -82,8 +84,12 @@ fn breakglass_sessions(now: u64) -> (AdminSession, AdminSession) {
         auth.register(AdminId(name.into()), key.credential().clone());
         let challenge = AdminChallenge::sample(&mut rng);
         let assertion = key.authenticate(&provider, &challenge, true).unwrap();
-        auth.sign_in(&AdminId(name.into()), &challenge, &assertion, now)
-            .unwrap()
+        let mut s = auth
+            .sign_in(&AdminId(name.into()), &challenge, &assertion, now)
+            .unwrap();
+        // The second factor: a passkey alone is not MFA. [AC-10.2] [VLD-ANB-MIDGARD-0008]
+        s.record_factor(AuthFactor::Totp);
+        s
     };
     (sign_in("mallory"), sign_in("secoff"))
 }
