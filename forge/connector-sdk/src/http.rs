@@ -132,7 +132,7 @@ fn read_chunked(reader: &mut BufReader<TcpStream>) -> Result<Vec<u8>, ConnectorE
         body.resize(end, 0);
         reader
             .read_exact(&mut body[start..])
-            .map_err(|e| ConnectorError::Io(format!("HTTP: {e}")))?;
+            .map_err(|e| ConnectorError::io(format!("HTTP: {e}")))?;
         read_line(reader)?;
     }
 }
@@ -147,7 +147,7 @@ fn read_sized(reader: &mut BufReader<TcpStream>, length: &str) -> Result<Vec<u8>
     let mut body = vec![0u8; length];
     reader
         .read_exact(&mut body)
-        .map_err(|e| ConnectorError::Io(format!("HTTP: {e}")))?;
+        .map_err(|e| ConnectorError::io(format!("HTTP: {e}")))?;
     Ok(body)
 }
 
