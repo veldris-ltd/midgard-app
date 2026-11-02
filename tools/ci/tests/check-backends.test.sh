@@ -18,19 +18,19 @@ fail() {
     failures=$((failures + 1))
 }
 
-if bash tools/ci/run.sh list | grep -qE '^check-backends +\[toolchain\]'; then
+if bash tools/ci/run.sh list | grep -E '^check-backends +\[toolchain\]' >/dev/null; then
     pass "run.sh list names check-backends as a toolchain job"
 else
     fail "run.sh list does not name check-backends"
 fi
 
-if cat .github/workflows/*.yml | tr -d '\r' | grep -qE '^ *- run: bash tools/ci/run\.sh check-backends *$'; then
+if cat .github/workflows/*.yml | tr -d '\r' | grep -E '^ *- run: bash tools/ci/run\.sh check-backends *$' >/dev/null; then
     pass "GitHub Actions runs check-backends"
 else
     fail "GitHub Actions does not run check-backends"
 fi
 
-if tr -d '\r' < .gitlab-ci.yml | grep -qE '^ *- bash tools/ci/run\.sh check-backends *$'; then
+if tr -d '\r' < .gitlab-ci.yml | grep -E '^ *- bash tools/ci/run\.sh check-backends *$' >/dev/null; then
     pass "GitLab CI runs check-backends"
 else
     fail "GitLab CI does not run check-backends"
