@@ -6,7 +6,7 @@
 //! their tests here, using [`spawn_dev_gateway`], [`raw_request`], [`post_json`] and
 //! [`get`]; [`spawn_dev_gateway_with`] starts one within chosen limits.
 //! [VLD-ANB-MIDGARD-0006] [VLD-ANB-MIDGARD-0004] [NFR-SEC-1] [AC-30.1] [AC-30.6]
-//! [AC-31.1] [AC-31.2]
+//! [AC-31.1] [AC-31.2] [VLD-ANB-MIDGARD-0005] [AC-11.1] [AC-11.2] [AC-11.3]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{Read, Write};
@@ -15,8 +15,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use http_gateway::http::MAX_BODY_BYTES;
-use http_gateway::json::parse;
+use http_gateway::cli;
+use http_gateway::http::{Request, Response, MAX_BODY_BYTES};
+use http_gateway::json::{parse, Json};
+use http_gateway::login_throttle::{
+    LoginThrottle, LOGIN_SOURCE_BURST, LOGIN_SOURCE_PER_SEC, MAX_PASSWORD_BYTES, MAX_TOTP_CHARS,
+    MAX_TRACKED, MAX_USERNAME_BYTES,
+};
 use http_gateway::{EdgeLimits, ListenerLimits, SecuredGateway, DEMO_PASSWORD, DEMO_USERNAME};
 
 /// A response: status, headers in order, body.
@@ -369,4 +374,280 @@ fn a_source_opening_connections_too_fast_gets_429() {
         reply.2
     );
     assert_eq!(header(&reply, "Retry-After"), Some("1"));
+}
+
+// ---- WP-11: login bounds, per-source limit, ledger coalescing --------------------
+
+const NOW: u64 = 1_800_000_000;
+
+/// The development gateway with the default per-source burst but no refill, so a test
+/// that takes longer than the refill period still sees the burst end where it should.
+fn quota_gateway() -> SecuredGateway {
+    SecuredGateway::dev().with_login_source_limit(LOGIN_SOURCE_BURST, 0.0)
+}
+
+/// A login request for `username` and `password`, as the edge parses one.
+fn login_request(username: &str, password: &str) -> Request {
+    Request {
+        method: "POST".into(),
+        path: "/api/v1/login".into(),
+        query: String::new(),
+        body: format!(r#"{{"username":"{username}","password":"{password}"}}"#),
+        authorization: None,
+        origin: None,
+    }
+}
+
+/// `n` wrong logins from `peer`, each under a name of its own (a password spray): the
+/// responses in order.
+fn spray(gw: &SecuredGateway, peer: SocketAddr, n: usize, at: u64) -> Vec<Response> {
+    (0..n)
+        .map(|i| {
+            let name = format!("spray-{}-{at}-{i}", peer.ip());
+            gw.handle_from(&login_request(&name, "wrong"), Some(peer), at)
+        })
+        .collect()
+}
+
+/// The actions of the newest `limit` ledger rows, read in process as the demo operator
+/// (the read itself adds rows, so take any count first).
+fn ledger_actions(gw: &SecuredGateway, limit: usize) -> Vec<String> {
+    let login = gw.handle(&login_request(DEMO_USERNAME, DEMO_PASSWORD), NOW);
+    assert_eq!(login.status, 200, "{}", login.body);
+    let token = parse(&login.body)
+        .ok()
+        .and_then(|j| j.str_field("token").map(str::to_string))
+        .expect("login returns a token");
+    let audit = gw.handle(
+        &Request {
+            method: "GET".into(),
+            path: "/api/v1/audit".into(),
+            query: format!("limit={limit}"),
+            body: String::new(),
+            authorization: Some(format!("Bearer {token}")),
+            origin: None,
+        },
+        NOW,
+    );
+    assert_eq!(audit.status, 200, "{}", audit.body);
+    match parse(&audit.body).expect("the audit view is JSON") {
+        Json::Arr(rows) => rows
+            .iter()
+            .filter_map(|row| row.str_field("action").map(str::to_string))
+            .collect(),
+        other => panic!("the audit view is an array, not {other:?}"),
+    }
+}
+
+#[test]
+fn a_one_mib_username_is_refused_before_any_state_is_touched() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.1] [AC-11.5]
+    let gw = SecuredGateway::dev();
+    let before = gw.audit_len();
+    let huge = "a".repeat(1_000_000);
+    let reply = gw.handle(&login_request(&huge, "x"), NOW);
+    assert_eq!(reply.status, 400, "{}", reply.body);
+    assert!(
+        reply.body.contains("login fields exceed their limits"),
+        "{}",
+        reply.body
+    );
+    assert_eq!(gw.audit_len(), before, "the ledger has no new row");
+    assert_eq!(
+        gw.login_throttle_stats(),
+        (0, 0),
+        "the throttle has no new entry"
+    );
+
+    // A password or one-time code over its limit is refused the same way.
+    let long_password = "p".repeat(MAX_PASSWORD_BYTES + 1);
+    let reply = gw.handle(&login_request(DEMO_USERNAME, &long_password), NOW);
+    assert_eq!(reply.status, 400, "{}", reply.body);
+    let mut long_code = login_request(DEMO_USERNAME, DEMO_PASSWORD);
+    long_code.body = format!(
+        r#"{{"username":"{DEMO_USERNAME}","password":"{DEMO_PASSWORD}","totp":"{}"}}"#,
+        "1".repeat(MAX_TOTP_CHARS + 1)
+    );
+    assert_eq!(gw.handle(&long_code, NOW).status, 400);
+    assert_eq!(gw.audit_len(), before);
+
+    // A name at the limit is still an ordinary login.
+    let at_limit = "a".repeat(MAX_USERNAME_BYTES);
+    assert_eq!(gw.handle(&login_request(&at_limit, "x"), NOW).status, 401);
+
+    let addr = spawn_dev_gateway();
+    let body = format!(r#"{{"username":"{huge}","password":"x"}}"#);
+    let (status, _, reply) = post_json(addr, "/api/v1/login", &body);
+    assert_eq!(status, 400, "{reply}");
+    assert_healthy(addr);
+}
+
+#[test]
+fn a_username_with_control_characters_is_400() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.1]
+    let gw = SecuredGateway::dev();
+    let before = gw.audit_len();
+    for name in [
+        r"oli\nvia",
+        r"oli\u0007via",
+        r"\u001b[2Jolivia",
+        r"olivia\u0000",
+    ] {
+        let reply = gw.handle(&login_request(name, "x"), NOW);
+        assert_eq!(reply.status, 400, "{name}: {}", reply.body);
+    }
+    assert_eq!(gw.audit_len(), before, "the ledger has no new row");
+    assert_eq!(
+        gw.login_throttle_stats(),
+        (0, 0),
+        "the throttle has no new entry"
+    );
+}
+
+#[test]
+fn ten_thousand_distinct_names_hold_under_two_mib() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.2]
+    let name = |i: usize| format!("{i:0>width$}", width = MAX_USERNAME_BYTES);
+
+    // Through the edge, a failed login keeps its name and nothing more: no name longer
+    // than the limit gets this far.
+    let gw = SecuredGateway::dev();
+    for i in 0..20 {
+        let reply = gw.handle(&login_request(&name(i), "wrong"), NOW);
+        assert_eq!(reply.status, 401, "failure {i}: {}", reply.body);
+    }
+    assert_eq!(gw.login_throttle_stats(), (20, 20 * MAX_USERNAME_BYTES));
+
+    // Every login through the edge costs a password check and a signed ledger row, too
+    // slow for ten thousand in a debug build, so the throttle the edge holds is filled
+    // directly with the most it can be given: ten thousand and more limit-length names
+    // failing at the same instant.
+    let mut throttle = LoginThrottle::new();
+    for i in 0..MAX_TRACKED + 50 {
+        throttle.record_failure(&name(i), NOW);
+    }
+    let (tracked, key_bytes) = (throttle.tracked(), throttle.key_bytes());
+    eprintln!("{tracked} names tracked in {key_bytes} key bytes");
+    assert!(tracked <= MAX_TRACKED, "{tracked} names tracked");
+    assert!(key_bytes <= 1_300_000, "{key_bytes} key bytes");
+}
+
+#[test]
+fn a_flooding_source_is_refused_before_verification() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.3]
+    let gw = quota_gateway();
+    let before = gw.audit_len();
+    let flooding: SocketAddr = "10.0.0.9:5000".parse().unwrap();
+    let replies = spray(&gw, flooding, 25, NOW);
+    for (i, reply) in replies.iter().enumerate() {
+        if i < 20 {
+            assert_eq!(
+                reply.status, 401,
+                "attempt {i} is within the burst: {}",
+                reply.body
+            );
+        } else {
+            assert_eq!(
+                reply.status, 429,
+                "attempt {i} is past the burst: {}",
+                reply.body
+            );
+            assert_eq!(reply.retry_after, Some(2));
+            assert!(reply.body.contains("from this address"), "{}", reply.body);
+        }
+    }
+    assert_eq!(
+        gw.audit_len(),
+        before + 21,
+        "twenty refusals and one coalesced source-throttled row"
+    );
+    assert_eq!(
+        gw.login_throttle_stats().0,
+        20,
+        "the refused attempts never reached a password check"
+    );
+
+    let other: SocketAddr = "10.0.0.10:5000".parse().unwrap();
+    let reply = gw.handle_from(&login_request("someone", "wrong"), Some(other), NOW);
+    assert_eq!(
+        reply.status, 401,
+        "another address is unaffected: {}",
+        reply.body
+    );
+    let reply = gw.handle(&login_request(DEMO_USERNAME, DEMO_PASSWORD), NOW);
+    assert_eq!(reply.status, 200, "a correct password still yields a token");
+}
+
+#[test]
+fn a_source_throttle_is_recorded_once_per_minute() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.3]
+    let gw = quota_gateway();
+    let flooding: SocketAddr = "10.0.0.9:5000".parse().unwrap();
+    spray(&gw, flooding, 25, NOW);
+    let before = gw.audit_len();
+    let reply = gw.handle_from(&login_request("late", "wrong"), Some(flooding), NOW + 30);
+    assert_eq!(reply.status, 429);
+    assert_eq!(
+        gw.audit_len(),
+        before,
+        "within the minute: counted, not recorded"
+    );
+
+    let reply = gw.handle_from(&login_request("later", "wrong"), Some(flooding), NOW + 61);
+    assert_eq!(reply.status, 429);
+    assert_eq!(gw.audit_len(), before + 1, "a minute on: one more row");
+    let actions = ledger_actions(&gw, 10);
+    assert!(
+        actions
+            .iter()
+            .any(|a| a == "LOGIN source throttled, 5 attempts suppressed"),
+        "the row names the suppressed count: {actions:?}"
+    );
+}
+
+#[test]
+fn source_throttling_applies_to_admin_routes() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.3]
+    let gw = quota_gateway();
+    let peer: SocketAddr = "10.0.0.9:5000".parse().unwrap();
+    let challenge = Request {
+        method: "POST".into(),
+        path: "/api/v1/admin/challenge".into(),
+        query: String::new(),
+        body: String::new(),
+        authorization: None,
+        origin: None,
+    };
+    for i in 0..25 {
+        let reply = gw.handle_from(&challenge, Some(peer), NOW);
+        let expected = if i < 20 { 404 } else { 429 };
+        assert_eq!(reply.status, expected, "attempt {i}: {}", reply.body);
+    }
+    // The address's login attempts draw on the same allowance.
+    let reply = gw.handle_from(&login_request("someone", "wrong"), Some(peer), NOW);
+    assert_eq!(reply.status, 429, "{}", reply.body);
+}
+
+#[test]
+fn the_login_limit_flags_are_parsed() {
+    // [VLD-ANB-MIDGARD-0005]
+    let args = |extra: &[&str]| {
+        let mut argv = vec!["--state-dir".to_string(), "/state".to_string()];
+        argv.extend(extra.iter().map(|s| s.to_string()));
+        cli::parse(&argv)
+    };
+    let Ok(cli::Command::Serve(serve)) = args(&[]) else {
+        panic!("a state directory serves");
+    };
+    assert_eq!(
+        (serve.login_burst, serve.login_per_sec),
+        (LOGIN_SOURCE_BURST, LOGIN_SOURCE_PER_SEC)
+    );
+    let Ok(cli::Command::Serve(serve)) = args(&["--login-burst", "50", "--login-per-sec", "2"])
+    else {
+        panic!("the login limits are options");
+    };
+    assert_eq!((serve.login_burst, serve.login_per_sec), (50.0, 2.0));
+    assert!(args(&["--login-burst", "many"]).is_err());
+    assert!(args(&["--login-per-sec", "-1"]).is_err());
 }

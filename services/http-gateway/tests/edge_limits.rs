@@ -1,6 +1,8 @@
 //! The edge's limits: a request too large, or framed without a length, is refused with
 //! a status that says so before its body is read; and repeated wrong passwords lock a
-//! username for a while, each lockout recorded in the ledger. [NFR-SEC-1] [RC-37]
+//! username for a while, each lockout recorded in the ledger once, with the attempts it
+//! refused counted onto the name's next recorded event. [NFR-SEC-1] [RC-37]
+//! [VLD-ANB-MIDGARD-0005]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{Read, Write};
@@ -173,8 +175,12 @@ fn an_unknown_name_locks_exactly_as_a_known_one_does() {
 }
 
 #[test]
-fn every_throttled_attempt_is_on_the_ledger() {
+fn the_first_throttled_attempt_is_on_the_ledger_and_later_ones_are_coalesced() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.4] [AC-11.6]
     let gw = SecuredGateway::dev();
+    // One login first, so the development hash's one-time upgrade to Argon2id (its own
+    // ledger row) is behind us and every row counted below is a login's.
+    assert_eq!(login(&gw, DEMO_USERNAME, DEMO_PASSWORD, NOW).status, 200);
     let before = gw.audit_len();
     fail(&gw, DEMO_USERNAME, FREE_FAILURES, NOW);
     assert_eq!(login(&gw, DEMO_USERNAME, "wrong", NOW).status, 429);
@@ -182,6 +188,45 @@ fn every_throttled_attempt_is_on_the_ledger() {
     assert_eq!(
         gw.audit_len(),
         before + 7,
-        "five refusals, the locking failure, and the throttled attempt"
+        "five refusals, the locking failure, and the first throttled attempt"
     );
+    for _ in 0..5 {
+        assert_eq!(login(&gw, DEMO_USERNAME, DEMO_PASSWORD, NOW).status, 429);
+    }
+    assert_eq!(
+        gw.audit_len(),
+        before + 7,
+        "later throttled attempts are counted, not recorded"
+    );
+
+    // Once the lock lapses, the next login is recorded, naming the count.
+    let after = login(&gw, DEMO_USERNAME, DEMO_PASSWORD, NOW + FIRST_LOCKOUT);
+    assert_eq!(after.status, 200, "{}", after.body);
+    assert_eq!(gw.audit_len(), before + 8);
+    let audit = gw.handle(
+        &Request {
+            method: "GET".into(),
+            path: "/api/v1/audit".into(),
+            query: "limit=5".into(),
+            body: String::new(),
+            authorization: Some(format!("Bearer {}", token_of(&after.body))),
+            origin: None,
+        },
+        NOW + FIRST_LOCKOUT,
+    );
+    assert!(
+        audit
+            .body
+            .contains("LOGIN succeeded, 5 throttled attempts suppressed"),
+        "{}",
+        audit.body
+    );
+}
+
+/// The bearer token in a login response's body.
+fn token_of(body: &str) -> String {
+    http_gateway::json::parse(body)
+        .ok()
+        .and_then(|j| j.str_field("token").map(str::to_string))
+        .expect("login returns a token")
 }

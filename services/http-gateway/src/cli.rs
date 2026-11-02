@@ -14,11 +14,16 @@
 //! fast one source address may open connections to the edge (0 turns that off), and
 //! `--rate-burst`, `--rate-per-sec` and `--requests-per-conn` are the mesh door's
 //! per-identity rate limit and request quota. [VLD-ANB-MIDGARD-0004]
+//!
+//! `--login-burst` and `--login-per-sec` are how many login and administration attempts
+//! one source address may make at once, and how fast that allowance refills (a burst
+//! of 0 turns it off). [VLD-ANB-MIDGARD-0005]
 
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use service_runtime::{mesh_limits_from_args, Args, MeshLimits};
 
+use crate::login_throttle::{LOGIN_SOURCE_BURST, LOGIN_SOURCE_PER_SEC};
 use crate::EdgeLimits;
 
 /// Where the gateway listens unless told otherwise, in either mode.
@@ -32,11 +37,14 @@ usage:
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]]
                [--max-connections N] [--idle-timeout SECONDS] [--edge-rate-per-sec N]
                [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
+               [--login-burst N] [--login-per-sec N]
       --max-connections (edge default 256, mesh door 128) and --idle-timeout (default 30)
       bound each listener; --edge-rate-per-sec (default 50, 0 is off) is how fast one
       address may open connections to the edge; --rate-burst (default 100),
       --rate-per-sec (default 20) and --requests-per-conn (default 10000) limit each
-      certified peer of the mesh door
+      certified peer of the mesh door; --login-burst (default 20, 0 is off) and
+      --login-per-sec (default 0.5) limit login and administration attempts from one
+      address
   http-gateway --dev [ADDR]
       development mode: seeded in-memory data and the published demo logins,
       on a loopback ADDR only (default 127.0.0.1:7710)";
@@ -80,6 +88,11 @@ pub struct ServeArgs {
     pub edge: EdgeLimits,
     /// What the mesh door serves within. [VLD-ANB-MIDGARD-0004]
     pub mesh: MeshLimits,
+    /// Login and administration attempts one source address may make at once; 0 turns
+    /// the per-source limit off. [VLD-ANB-MIDGARD-0005]
+    pub login_burst: f64,
+    /// Attempts a second that allowance refills at. [VLD-ANB-MIDGARD-0005]
+    pub login_per_sec: f64,
 }
 
 /// The options that tune the listeners' limits, given to [`limits`].
@@ -136,6 +149,8 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         mesh_purpose: "data-integration".to_string(),
         edge: EdgeLimits::default(),
         mesh: MeshLimits::default(),
+        login_burst: LOGIN_SOURCE_BURST,
+        login_per_sec: LOGIN_SOURCE_PER_SEC,
     };
     let mut limit_flags = Vec::new();
     let mut args = argv.iter();
@@ -158,6 +173,8 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
             "--mesh-identity-dir" => serve.mesh_identity_dir = Some(value.clone()),
             "--mesh-service" => serve.mesh_service = value.clone(),
             "--mesh-purpose" => serve.mesh_purpose = value.clone(),
+            "--login-burst" => serve.login_burst = non_negative(flag, value)?,
+            "--login-per-sec" => serve.login_per_sec = non_negative(flag, value)?,
             other if LIMIT_OPTIONS.contains(&other.trim_start_matches("--")) => {
                 limit_flags.extend([flag.clone(), value.clone()]);
             }
@@ -201,6 +218,16 @@ fn limits(flags: &[String]) -> Result<(EdgeLimits, MeshLimits), String> {
         }
     }
     Ok((edge, mesh))
+}
+
+/// `value` as a number of at least 0, or the usage error for `flag`.
+fn non_negative(flag: &str, value: &str) -> Result<f64, String> {
+    match value.parse::<f64>() {
+        Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
+        _ => Err(format!(
+            "{flag} must be a number of at least 0, not '{value}'"
+        )),
+    }
 }
 
 /// Resolve `addr` for development mode, which listens on loopback only: every address
