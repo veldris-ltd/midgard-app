@@ -612,27 +612,16 @@ mg-bundle packs gate-verified artefacts into one signed bundle and imports it of
 
 ### `heimdall-feed-and-picture` (operable)
 
-heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose certified identity it carries, and only with a valid signature. Observations that share an entity key fuse into one tracked entity, and the picture is sealed at rest and recovered at restart. The picture is bounded (entity, per-feed and attribute caps with stale-track eviction), persisted as a sealed per-entity journal with compaction, read in pages that never exceed the mesh frame cap, and Ingest is rate limited per identity.
+heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose certified identity it carries, and only with a valid signature. Observations that share an entity key fuse into one tracked entity, and the picture is sealed at rest and recovered at restart.
 
 **Limit.** A resubmitted observation is counted again, observations carry no marking, and there is no feed-staleness indication.
 
 - Source:
-  - [`heimdall/feed-server/src/lib.rs:309`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/store/src/picture_store.rs:115`](../../heimdall/store/src/picture_store.rs)
-  - [`heimdall/feed-server/src/lib.rs:696`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:166`](../../heimdall/feed-server/src/lib.rs)
 - Tests:
   - [`heimdall/picture-sync/tests/rc_26.rs::rc_26_unsigned_feed_is_rejected_at_the_boundary`](../../heimdall/picture-sync/tests/rc_26.rs)
-  - [`heimdall/feed-server/tests/limits.rs::a_flood_of_distinct_keys_ten_times_the_cap_keeps_the_picture_bounded`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/feed-server/tests/limits.rs::read_picture_pages_never_exceed_the_frame_cap`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/feed-server/tests/limits.rs::oversized_attributes_are_malformed`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/feed-server/tests/limits.rs::hidden_layers_are_filtered_unless_asked`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/store/tests/durable_restart.rs::each_upsert_appends_one_frame_and_the_file_grows_by_one_entity_not_the_picture`](../../heimdall/store/tests/durable_restart.rs)
-  - [`heimdall/store/tests/durable_restart.rs::compaction_shrinks_the_journal_and_the_picture_survives_restart`](../../heimdall/store/tests/durable_restart.rs)
-  - [`heimdall/store/tests/durable_restart.rs::a_removed_entity_stays_removed_after_restart`](../../heimdall/store/tests/durable_restart.rs)
-  - [`heimdall/store/tests/durable_restart.rs::a_picture_sealed_whole_by_an_earlier_build_opens_and_compacts_back_to_that_format`](../../heimdall/store/tests/durable_restart.rs)
 - Service tests:
   - [`heimdall/feed-server/tests/serve.rs::sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart`](../../heimdall/feed-server/tests/serve.rs)
-  - [`heimdall/feed-server/tests/serve.rs::a_source_bursting_past_its_rate_limit_is_throttled_and_the_other_is_served`](../../heimdall/feed-server/tests/serve.rs)
   - [`deploy/compose/smoke.sh:42`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:95`](../../deploy/kind/smoke.sh)
 - Stated at:
