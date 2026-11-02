@@ -17,8 +17,9 @@ propose changes so they pass the gates on the first try.
 - **Signed commits.** Every commit is signed with a key listed in
   `deploy/trust/allowed_signers`, and `main` accepts signed commits only (a
   required-signatures rule set by the repository owner). CI's
-  `bash tools/ci/run.sh signed-commits` fails a change holding a commit that does
-  not verify against that file, and names it. To sign with an SSH key:
+  `bash tools/ci/run.sh commits` (`tools/ci/verify-commits.sh`) fails a change
+  holding a commit that does not verify against that file as the change's base has
+  it, and names it. To sign with an SSH key:
 
   ```bash
   git config --global gpg.format ssh

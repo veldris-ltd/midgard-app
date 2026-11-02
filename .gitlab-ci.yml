@@ -201,7 +201,6 @@ hygiene:
     - bash tools/ci/run.sh gate-record
     - bash tools/ci/run.sh numbers
     - bash tools/ci/run.sh secrets
-    - bash tools/ci/run.sh signed-commits
     - bash tools/ci/run.sh k8s-render
 
 lint:
