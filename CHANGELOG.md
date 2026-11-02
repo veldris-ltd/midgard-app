@@ -326,6 +326,14 @@ CONTRIBUTING.md for the version policy.
   enrolments journal and what WP-15 changes about it. `claims.sh --check` accepts
   `path:line:token` anchors and fails when the line stops containing the token.
   [VLD-ANB-MIDGARD-0087]
+- **Every commit in a change must be signed (WP-25 D).** The new `signed-commits` job,
+  after `secrets` in the hygiene job on both forges, verifies each commit in the
+  change's range (the request's base, or the commit a push moved from, to HEAD) against
+  `deploy/trust/allowed_signers` and fails naming each one that is unsigned or signed
+  by an unlisted key. CONTRIBUTING.md says how to sign. Until the key ceremony
+  publishes `deploy/trust/allowed_signers` and authors sign, the job fails every
+  change; the owner enables the required-signatures rule on `main`.
+  [VLD-ANB-MIDGARD-0088]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator

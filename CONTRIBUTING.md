@@ -14,6 +14,26 @@ propose changes so they pass the gates on the first try.
 - **Sovereign posture.** No change may add outbound network dependencies to the OSS
   core, weaken the deny-by-default / fail-closed posture, or introduce a non-OSI
   dependency into the enclosure core. The build is air-gapped and vendored.
+- **Signed commits.** Every commit is signed with a key listed in
+  `deploy/trust/allowed_signers`, and `main` accepts signed commits only (a
+  required-signatures rule set by the repository owner). CI's
+  `bash tools/ci/run.sh signed-commits` fails a change holding a commit that does
+  not verify against that file, and names it. To sign with an SSH key:
+
+  ```bash
+  git config --global gpg.format ssh
+  git config --global user.signingkey ~/.ssh/id_ed25519.pub
+  git config --global commit.gpgsign true
+  # to check your own commits locally, as CI does:
+  git config --global gpg.ssh.allowedSignersFile deploy/trust/allowed_signers
+  ```
+
+  Then ask for your public key to be added to `deploy/trust/allowed_signers` as
+  `you@example.org namespaces="git" ssh-ed25519 AAAA...`, in a signed commit by a
+  maintainer (docs/ops/PKI.md, "Git signing"). A branch with unsigned commits is
+  re-signed with `git rebase --exec 'git commit --amend --no-edit -S' <base>`.
+  Sigstore (gitsign) signatures are not verified by this check yet.
+  [VLD-ANB-MIDGARD-0088]
 
 ## Provenance tags (required)
 

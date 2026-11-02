@@ -186,7 +186,7 @@ hygiene:
   extends: .not-manual
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # alpine:3.20 resolved 2026-10-31
   before_script:
-    - apk add --no-cache bash git curl coreutils sed gawk grep findutils helm
+    - apk add --no-cache bash git curl coreutils sed gawk grep findutils helm openssh-keygen
   script:
     - bash tools/ci/run.sh selftest
     - bash tools/ci/run.sh provenance
@@ -195,6 +195,7 @@ hygiene:
     - bash tools/ci/run.sh gate-record
     - bash tools/ci/run.sh numbers
     - bash tools/ci/run.sh secrets
+    - bash tools/ci/run.sh signed-commits
     - bash tools/ci/run.sh k8s-render
 
 lint:

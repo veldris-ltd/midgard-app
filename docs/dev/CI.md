@@ -88,6 +88,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `gate-record` | host | the committed gate record is what its logs give, and the README and GA_READINESS status tables are what it gives |
 | `numbers` | host | [`docs/compliance/NUMBERS.md`](../compliance/NUMBERS.md) is what the tree gives, and no swept document quotes a crate, line, test or criteria count that differs from it |
 | `secrets` | host | no credential is committed (gitleaks, pinned by version and checksum) |
+| `signed-commits` | host | every commit in the change (base..HEAD) is signed by a key in `deploy/trust/allowed_signers`; fails naming each commit that is not |
 | `k8s-render` | host | `deploy/k8s/enclosure.yaml` is what the Helm chart renders |
 | `toolchain` | host | builds or restores the toolchain image — the only online step; inside the published image, checks it is the one `tools/ci/toolchain.digest` pins |
 | `toolchain-publish` | host | GitLab only: pushes the toolchain image to the project registry; fails until its digest is committed. On GitHub, a no-op |
