@@ -37,6 +37,16 @@ services:
       - /serve
       - --sidecar
       - 127.0.0.1:8080
+      # Twice llama.cpp's --parallel 2 slots below: a call over it is refused BUSY.
+      # [VLD-ANB-MIDGARD-0016]
+      - --max-concurrent
+      - "4"
+      # How often STOP and revoked.list in /state, the model trust file and the
+      # verified manifest are re-checked: `touch /state/STOP`, or the model id in
+      # /state/revoked.list, stops inference within it (docs/ops/RUNBOOKS.md RB-8).
+      # [VLD-ANB-MIDGARD-0057]
+      - --reload-interval
+      - "60"
     volumes:
       - mimir-model-trust:/model-trust:ro
 

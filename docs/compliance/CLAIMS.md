@@ -73,7 +73,7 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:77`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:58`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:470`](../../docs/launch/pipeline/build-deck.js)
 
@@ -86,10 +86,10 @@ A mesh certificate authority that issues, renews and revokes workload certificat
 **Milestone.** Services renew their own certificates before expiry (RF-IAM-6).
 
 - Source:
-  - [`tools/mg-admin/src/mesh.rs:212`](../../tools/mg-admin/src/mesh.rs)
-  - [`tools/mg-admin/src/mesh.rs:368`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:203`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:348`](../../tools/mg-admin/src/mesh.rs)
   - [`crypto/pq-mtls/src/revocation.rs:1`](../../crypto/pq-mtls/src/revocation.rs)
-  - [`services/runtime/src/identity.rs:74`](../../services/runtime/src/identity.rs)
+  - [`services/runtime/src/identity.rs:68`](../../services/runtime/src/identity.rs)
 - Tests:
   - [`services/iam/tests/rc_35.rs::renewal_is_downtime_free_and_revocation_is_honoured_on_next_handshake`](../../services/iam/tests/rc_35.rs)
   - [`services/iam/tests/rc_35.rs::the_signed_list_carries_the_revocation_to_other_verifiers`](../../services/iam/tests/rc_35.rs)
@@ -111,14 +111,14 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:125`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:106`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
 
 ### `hardware-key-custody` (reference)
 
 A hardware trust root (HSM or TPM) in which the root secret never enters process memory, with root attestation and key rotation.
 
-**Until it is operable, say:** "Key custody is software: keystores are files whose custody root is wrapped under an operator passphrase (keystore format version 2: PBKDF2-HMAC-SHA256 at 600000 iterations, AES-256-GCM), held apart from the keystore. A hardware trust root with attestation is implemented and tested against a software stand-in (services/kms/tests/rc_28.rs), and a keystore can seal its root to it (crypto/attest/tests/keystore_v2.rs); no HSM or TPM has been used."
+**Until it is operable, say:** "Key custody is software: keystores are files. A hardware trust root with attestation is implemented and tested against a software stand-in (services/kms/tests/rc_28.rs); no HSM or TPM has been used."
 
 **Milestone.** RC-40.3 passes with a release artefact signed by a key held in a real HSM (RF-SEC-8, RF-SC-8).
 
@@ -128,9 +128,8 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
 - Tests:
   - [`services/kms/tests/rc_28.rs::decapsulation_happens_on_the_device_not_in_the_process`](../../services/kms/tests/rc_28.rs)
   - [`services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper`](../../services/kms/tests/rc_28.rs)
-  - [`crypto/attest/tests/keystore_v2.rs::external_root_wrap_round_trips`](../../crypto/attest/tests/keystore_v2.rs)
 - Stated at:
-  - [`CHANGELOG.md:112`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:93`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:112`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:483`](../../docs/launch/pipeline/build-deck.js)
 
@@ -158,7 +157,7 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
   - [`README.md:54`](../../README.md)
-  - [`CHANGELOG.md:68`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:49`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
 
 ### `object-fabric` (operable)
@@ -199,7 +198,7 @@ An enclosure's object types, link types and actions come from an ontology file w
 mg-admin import adds objects and links from a JSON Lines file with a published record schema. Every record is checked against the ontology and the store before anything is written, and one bad line refuses the whole file.
 
 - Source:
-  - [`tools/mg-admin/src/main.rs:421`](../../tools/mg-admin/src/main.rs)
+  - [`tools/mg-admin/src/main.rs:376`](../../tools/mg-admin/src/main.rs)
   - [`services/http-gateway/src/import_file.rs:91`](../../services/http-gateway/src/import_file.rs)
   - [`contracts/schema/import-record.v1.schema.json`](../../contracts/schema/import-record.v1.schema.json)
 - Tests:
@@ -290,7 +289,7 @@ Enrolling a principal online needs two different administrators, each proving po
 - Service tests:
   - [`tools/mg-admin/tests/enrol.rs::two_administrators_enrol_a_principal_through_a_running_gateway`](../../tools/mg-admin/tests/enrol.rs)
 - Stated at:
-  - [`CHANGELOG.md:75`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:56`](../../CHANGELOG.md)
 
 ## Admin
 
@@ -357,8 +356,8 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
-  - [`README.md:814`](../../README.md)
-  - [`CHANGELOG.md:116`](../../CHANGELOG.md)
+  - [`README.md:812`](../../README.md)
+  - [`CHANGELOG.md:97`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
 
@@ -379,7 +378,7 @@ mimir-server answers inference requests from a real model inside the enclosure: 
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:91`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:72`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:381`](../../docs/launch/pipeline/build-deck.js)
 
@@ -397,7 +396,7 @@ GPU serving through vLLM, with a first token in under 800 ms.
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
 - Stated at:
-  - [`CHANGELOG.md:113`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:94`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:114`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:541`](../../docs/launch/pipeline/build-deck.js)
 
@@ -405,26 +404,18 @@ GPU serving through vLLM, with a first token in under 800 ms.
 
 A model loads only from a manifest signed with ML-DSA, and its weights are checked against the signed digest before anything is served. One changed byte stops the service from starting.
 
-**Limit.** No vendor signature is checked cryptographically; an upstream signature is recorded as unverifiable. The trust anchor is the pinned deploy/trust/model-signing.pub, never the models volume, but the key ceremony has not yet committed it, so a real model is served today only under an explicit, warned development key (stage-model.sh --development, in a trust volume of its own). The one real model served so far did not pass through the staging intake.
+**Limit.** No vendor signature is checked cryptographically; an upstream signature is recorded as unverifiable. The served model was signed with a development key and did not pass through the staging intake.
 
 - Criteria: AC-MS-2
 - Source:
   - [`tools/mg-model/src/main.rs:1`](../../tools/mg-model/src/main.rs)
-  - [`tools/mg-model/src/main.rs:225`](../../tools/mg-model/src/main.rs)
-  - [`mimir/mimir-server/src/main.rs:158`](../../mimir/mimir-server/src/main.rs)
-  - [`deploy/trust/README.md`](../../deploy/trust/README.md)
-  - [`deploy/compose/stage-model.sh`](../../deploy/compose/stage-model.sh)
 - Tests:
   - [`mimir/model-server/tests/model_dir.rs::changed_truncated_or_swapped_weights_are_refused`](../../mimir/model-server/tests/model_dir.rs)
-  - [`tools/mg-model/tests/cli.rs::sign_without_sha256_is_a_usage_error`](../../tools/mg-model/tests/cli.rs)
-  - [`tools/mg-model/tests/cli.rs::verify_refuses_a_trust_file_inside_the_model_dir`](../../tools/mg-model/tests/cli.rs)
-  - [`tools/mg-model/tests/cli.rs::keygen_writes_keystore_v2_under_a_passphrase`](../../tools/mg-model/tests/cli.rs)
 - Service tests:
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
-  - [`mimir/mimir-server/tests/serve.rs::a_trust_anchor_inside_the_model_dir_is_refused_at_start`](../../mimir/mimir-server/tests/serve.rs)
-  - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
+  - [`deploy/compose/granite-smoke.sh:31`](../../deploy/compose/granite-smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:93`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:74`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:380`](../../docs/launch/pipeline/build-deck.js)
 
 ### `model-family-routing` (reference)
@@ -518,7 +509,7 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:86`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:67`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:367`](../../docs/launch/pipeline/build-deck.js)
 
@@ -536,7 +527,7 @@ A partitioned compute engine in Rust: filter, derive, join, aggregate, sort and 
   - [`forge/engine/tests/partitioned.rs::partitioned_matches_reference_with_shuffle_and_spill`](../../forge/engine/tests/partitioned.rs)
   - [`forge/engine/tests/relational.rs::inner_join_then_aggregate`](../../forge/engine/tests/relational.rs)
 - Stated at:
-  - [`CHANGELOG.md:132`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:113`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:371`](../../docs/launch/pipeline/build-deck.js)
 
 ### `forge-data-expectations` (reference)
@@ -719,7 +710,7 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
   - [`tools/ci/run.sh:320`](../../tools/ci/run.sh)
   - [`tools/ci/tests/pipelines.test.sh:73`](../../tools/ci/tests/pipelines.test.sh)
 - Stated at:
-  - [`README.md:744`](../../README.md)
+  - [`README.md:742`](../../README.md)
   - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
   - [`docs/launch/pipeline/build-deck.js:402`](../../docs/launch/pipeline/build-deck.js)
 
@@ -747,21 +738,19 @@ The workspace builds and its tests run with no network: every dependency is vend
 
 Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails.
 
-**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly. The images carry the pinned trust set read-only at /etc/midgard/trust, where mimir-server reads the model-signing anchor, and the release preflight refuses a release without that anchor; the key ceremony has not yet committed it.
+**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly.
 
 - Criteria: AC-B-1
 - Source:
   - [`deploy/images/entrypoint.sh:27`](../../deploy/images/entrypoint.sh)
   - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
-  - [`deploy/images/service.Dockerfile:50`](../../deploy/images/service.Dockerfile)
-  - [`tools/ci/release-preflight.sh:119`](../../tools/ci/release-preflight.sh)
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
 - Stated at:
-  - [`README.md:758`](../../README.md)
+  - [`README.md:756`](../../README.md)
   - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
-  - [`CHANGELOG.md:102`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:83`](../../CHANGELOG.md)
 
 ### `acceptance-gate` (operable)
 
@@ -793,7 +782,7 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/compose/smoke.sh:13`](../../deploy/compose/smoke.sh)
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:82`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:63`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:323`](../../docs/launch/pipeline/build-deck.js)
 
@@ -824,7 +813,7 @@ Each service exposes liveness, readiness and Prometheus metrics, and writes stru
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:144`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:125`](../../CHANGELOG.md)
 
 ### `compliance-mapping` (spec)
 
@@ -844,5 +833,5 @@ Alignment with NIST SP 800-53, OWASP ASVS and ISO 27001.
 Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here.
 
 - Stated at:
-  - [`README.md:835`](../../README.md)
+  - [`README.md:833`](../../README.md)
 
