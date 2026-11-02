@@ -672,6 +672,10 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     /// reached — the response says so with `truncated`, so a partial graph is never
     /// shown as the whole. `seedObjects` counts the starting objects the caller may
     /// read. [DD-1]
+    ///
+    /// Seed resolution ([`Self::seed_roots`]), link collection ([`adjacent_links`])
+    /// and the per-node clearance filter ([`Walk::admit`]) are separate so each can be
+    /// reasoned about, and tested, on its own. [VLD-ANB-MIDGARD-0094]
     pub fn search_around(
         &mut self,
         ctx: &PolicyContext,
@@ -684,29 +688,7 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         let node_limit = limit.unwrap_or(DEFAULT_NODE_LIMIT).clamp(1, MAX_NODE_LIMIT);
         let node_limit = usize::try_from(node_limit).unwrap_or(60);
 
-        let (roots, resource) = {
-            let gov = self.fabric.governance();
-            let store = self.fabric.store();
-            match seed.split_once('/') {
-                Some((ty, "*")) => {
-                    if self.fabric.registry().object_type(ty).is_none() {
-                        return Err(EdgeError::new(404, &format!("unknown object type: {ty}")));
-                    }
-                    let ids: Vec<String> = store
-                        .objects_of_type(ty)
-                        .into_iter()
-                        .filter(|o| can_read(gov, ctx, o))
-                        .map(|o| o.id.clone())
-                        .collect();
-                    (ids, fabric::type_resource(ty, &ctx.purpose))
-                }
-                _ => match store.get_object(seed) {
-                    Some(o) if can_read(gov, ctx, o) => (vec![o.id.clone()], resource_of(o)),
-                    _ => return Err(EdgeError::new(404, &format!("unknown seed object: {seed}"))),
-                },
-            }
-        };
-
+        let (roots, resource) = self.seed_roots(ctx, seed)?;
         let decision = self
             .fabric
             .governance_mut()
@@ -719,91 +701,56 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         let reg = self.fabric.registry();
         let store = self.fabric.store();
         let gov = self.fabric.governance();
-        let mut seen: BTreeSet<String> = BTreeSet::new();
-        let mut edge_keys: BTreeSet<(String, String, String)> = BTreeSet::new();
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-        let mut frontier: Vec<String> = Vec::new();
-        let seed_objects = roots.len();
-        let mut truncated = roots.len() > node_limit;
-
-        for id in roots.iter().take(node_limit) {
-            if let Some(o) = store.get_object(id) {
-                if seen.insert(o.id.clone()) {
-                    nodes.push(node_json(reg, o, 0));
-                    frontier.push(o.id.clone());
-                }
-            }
-        }
-
+        let readable = |o: &ObjectInstance| can_read(gov, ctx, o);
+        let mut walk = Walk::new(node_limit);
+        walk.seed(reg, store, &roots);
         for hop in 1..=hops {
-            let mut next = Vec::new();
-            for id in &frontier {
-                let Some(node) = store.get_object(id) else {
+            // Nodes admitted on this hop become the next hop's frontier.
+            for id in std::mem::take(&mut walk.frontier) {
+                let Some(node) = store.get_object(&id) else {
                     continue;
                 };
-                // (link type, source, target) for every link touching this node.
-                let mut adjacent: Vec<(&LinkType, &ObjectInstance, &ObjectInstance)> = Vec::new();
-                for lt in reg.link_types() {
-                    if lt.source_type == node.type_id {
-                        for target in store.neighbors(&node.id, &lt.id) {
-                            adjacent.push((lt, node, target));
-                        }
-                    }
-                    if lt.target_type == node.type_id {
-                        for source in store.objects_of_type(&lt.source_type) {
-                            if store
-                                .neighbors(&source.id, &lt.id)
-                                .iter()
-                                .any(|t| t.id == node.id)
-                            {
-                                adjacent.push((lt, source, node));
-                            }
-                        }
-                    }
-                }
-                for (lt, source, target) in adjacent {
-                    let other = if source.id == node.id { target } else { source };
-                    if !can_read(gov, ctx, other) {
-                        continue;
-                    }
-                    let is_new = !seen.contains(&other.id);
-                    if is_new && nodes.len() >= node_limit {
-                        truncated = true;
-                        continue;
-                    }
-                    if edge_keys.insert((lt.id.clone(), source.id.clone(), target.id.clone())) {
-                        edges.push(Json::obj(vec![
-                            ("from", Json::s(&source.id)),
-                            ("to", Json::s(&target.id)),
-                            ("label", Json::s(&link_label(reg, lt))),
-                        ]));
-                    }
-                    if is_new {
-                        seen.insert(other.id.clone());
-                        nodes.push(node_json(reg, other, hop));
-                        next.push(other.id.clone());
-                    }
+                for link in adjacent_links(reg, store, node) {
+                    walk.admit(&readable, reg, node, link, hop);
                 }
             }
-            frontier = next;
         }
+        Ok(walk.into_json(seed, roots.len(), decision.audit_seq))
+    }
 
-        Ok(Json::obj(vec![
-            ("seed", Json::s(seed)),
-            ("nodes", Json::Arr(nodes)),
-            ("edges", Json::Arr(edges)),
-            ("truncated", Json::Bool(truncated)),
-            (
-                "nodeLimit",
-                Json::Int(i64::try_from(node_limit).unwrap_or(i64::MAX)),
-            ),
-            (
-                "seedObjects",
-                Json::Int(i64::try_from(seed_objects).unwrap_or(i64::MAX)),
-            ),
-            ("auditId", Json::s(&audit_id(decision.audit_seq))),
-        ]))
+    /// The objects a search-around starts from and the resource its one audited
+    /// decision is taken on. `<type>/*` starts from every object of the type the
+    /// caller may read, authorised on the type; anything else names one object, which
+    /// must exist and be readable, and is authorised as [`seed_resource`] says. An
+    /// unknown type, or a seed that is missing or unreadable, is 404 before anything
+    /// is audited, so the ledger does not reveal that a hidden seed exists.
+    fn seed_roots(
+        &self,
+        ctx: &PolicyContext,
+        seed: &str,
+    ) -> Result<(Vec<String>, Resource), EdgeError> {
+        let gov = self.fabric.governance();
+        let store = self.fabric.store();
+        match seed.split_once('/') {
+            Some((ty, "*")) => {
+                if self.fabric.registry().object_type(ty).is_none() {
+                    return Err(EdgeError::new(404, &format!("unknown object type: {ty}")));
+                }
+                let ids: Vec<String> = store
+                    .objects_of_type(ty)
+                    .into_iter()
+                    .filter(|o| can_read(gov, ctx, o))
+                    .map(|o| o.id.clone())
+                    .collect();
+                Ok((ids, fabric::type_resource(ty, &ctx.purpose)))
+            }
+            _ => match store.get_object(seed) {
+                Some(o) if can_read(gov, ctx, o) => {
+                    Ok((vec![o.id.clone()], seed_resource(gov, ctx, o)))
+                }
+                _ => Err(EdgeError::new(404, &format!("unknown seed object: {seed}"))),
+            },
+        }
     }
 
     // ---- governance -------------------------------------------------------------
@@ -1451,6 +1398,172 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     }
 }
 
+// ---- search-around ---------------------------------------------------------------
+
+/// A link touching a node: (link type, source, target).
+type Adjacent<'a> = (&'a LinkType, &'a ObjectInstance, &'a ObjectInstance);
+
+/// The resource a single-seed search-around is authorised and audited on.
+///
+/// The seed has already passed [`can_read`], so no rule denies it by its object id
+/// or by its type's id, and a permit on one of the two grants it. The audited
+/// decision is taken on the object's own id (`object:<type>/<key>`) when a rule
+/// permits that, and otherwise on its type's id (`object-type:<type>`), always under
+/// the object's own marking and purposes so mandatory access control applies to the
+/// seed. A policy that permits only `object-type:<type>` therefore walks from one
+/// object of the type exactly as it reads that object, instead of refusing the walk.
+/// [VLD-ANB-MIDGARD-0023] [VLD-ANB-MIDGARD-0094] [NFR-SEC-2]
+fn seed_resource<L: LedgerStore>(
+    gov: &Governance<L>,
+    ctx: &PolicyContext,
+    obj: &ObjectInstance,
+) -> Resource {
+    let instance = resource_of(obj);
+    if gov.permits(ctx, &instance, "Read") {
+        return instance;
+    }
+    Resource {
+        id: fabric::type_resource_id(&obj.type_id),
+        ..instance
+    }
+}
+
+/// Every link touching `node`, in the order a search-around meets them: for each link
+/// type in registry order, the node's outbound links (through `neighbors`) and then
+/// its inbound ones (by scanning the link type's source objects). Edge order in a
+/// response follows this order. [VLD-ANB-MIDGARD-0094]
+fn adjacent_links<'a>(
+    reg: &'a TypeRegistry,
+    store: &'a dyn ObjectStore,
+    node: &'a ObjectInstance,
+) -> Vec<Adjacent<'a>> {
+    let mut adjacent = Vec::new();
+    for lt in reg.link_types() {
+        if lt.source_type == node.type_id {
+            for target in store.neighbors(&node.id, &lt.id) {
+                adjacent.push((lt, node, target));
+            }
+        }
+        if lt.target_type == node.type_id {
+            for source in store.objects_of_type(&lt.source_type) {
+                if store
+                    .neighbors(&source.id, &lt.id)
+                    .iter()
+                    .any(|t| t.id == node.id)
+                {
+                    adjacent.push((lt, source, node));
+                }
+            }
+        }
+    }
+    adjacent
+}
+
+/// One search-around in progress: the nodes and edges admitted so far, in discovery
+/// order, and the frontier the next hop walks from.
+struct Walk {
+    seen: BTreeSet<String>,
+    edge_keys: BTreeSet<(String, String, String)>,
+    nodes: Vec<Json>,
+    edges: Vec<Json>,
+    frontier: Vec<String>,
+    truncated: bool,
+    node_limit: usize,
+}
+
+impl Walk {
+    fn new(node_limit: usize) -> Self {
+        Self {
+            seen: BTreeSet::new(),
+            edge_keys: BTreeSet::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            frontier: Vec::new(),
+            truncated: false,
+            node_limit,
+        }
+    }
+
+    /// Admit the starting objects as hop-0 nodes, at most `node_limit` of them; more
+    /// than that marks the walk truncated.
+    fn seed(&mut self, reg: &TypeRegistry, store: &dyn ObjectStore, roots: &[String]) {
+        self.truncated = roots.len() > self.node_limit;
+        for id in roots.iter().take(self.node_limit) {
+            if let Some(o) = store.get_object(id) {
+                if self.seen.insert(o.id.clone()) {
+                    self.nodes.push(node_json(reg, o, 0));
+                    self.frontier.push(o.id.clone());
+                }
+            }
+        }
+    }
+
+    /// The clearance filter, applied to one link touching `node` on hop `hop`.
+    ///
+    /// The neighbour (the link's other end) is checked with `readable` first: one the
+    /// caller may not read contributes neither a node nor an edge. A neighbour not yet
+    /// seen when the node limit is reached marks the walk truncated and is skipped
+    /// together with its edge. Otherwise the edge is recorded once, however often it
+    /// is met, and a new neighbour joins the nodes and the next frontier.
+    ///
+    /// DESIGN DECISION: readability is an injected predicate rather than a
+    /// [`Governance`], so the filter is unit-tested on its own; production passes a
+    /// closure over [`can_read`], the same per-object check a fabric query applies.
+    /// [VLD-ANB-MIDGARD-0094] [NFR-SEC-2]
+    fn admit(
+        &mut self,
+        readable: &dyn Fn(&ObjectInstance) -> bool,
+        reg: &TypeRegistry,
+        node: &ObjectInstance,
+        (lt, source, target): Adjacent<'_>,
+        hop: u64,
+    ) {
+        let other = if source.id == node.id { target } else { source };
+        if !readable(other) {
+            return;
+        }
+        let is_new = !self.seen.contains(&other.id);
+        if is_new && self.nodes.len() >= self.node_limit {
+            self.truncated = true;
+            return;
+        }
+        if self
+            .edge_keys
+            .insert((lt.id.clone(), source.id.clone(), target.id.clone()))
+        {
+            self.edges.push(Json::obj(vec![
+                ("from", Json::s(&source.id)),
+                ("to", Json::s(&target.id)),
+                ("label", Json::s(&link_label(reg, lt))),
+            ]));
+        }
+        if is_new {
+            self.seen.insert(other.id.clone());
+            self.nodes.push(node_json(reg, other, hop));
+            self.frontier.push(other.id.clone());
+        }
+    }
+
+    /// The search-around response body.
+    fn into_json(self, seed: &str, seed_objects: usize, audit_seq: u64) -> Json {
+        Json::obj(vec![
+            ("seed", Json::s(seed)),
+            ("nodes", Json::Arr(self.nodes)),
+            ("edges", Json::Arr(self.edges)),
+            ("truncated", Json::Bool(self.truncated)),
+            (
+                "nodeLimit",
+                Json::Int(i64::try_from(self.node_limit).unwrap_or(i64::MAX)),
+            ),
+            (
+                "seedObjects",
+                Json::Int(i64::try_from(seed_objects).unwrap_or(i64::MAX)),
+            ),
+            ("auditId", Json::s(&audit_id(audit_seq))),
+        ])
+    }
+}
+
 // ---- projection helpers ---------------------------------------------------------
 
 /// One object as a policy resource, under the fabric's scheme (`object:<type>/<key>`).
@@ -1885,6 +1998,254 @@ mod tests {
         assert!(
             enclosure.gated_targets(NOW + APPROVAL_TTL).is_empty(),
             "an approval past its time protects nothing"
+        );
+    }
+}
+
+/// The search-around building blocks on their own: the clearance filter with an
+/// injected readability predicate, link collection order, and seed resolution.
+/// [VLD-ANB-MIDGARD-0094] [AC-43.2] [AC-43.3] [DD-1] [NFR-SEC-2]
+#[cfg(test)]
+mod search_around_tests {
+    use super::*;
+    use policy::{Action, Clearance, DefaultPdp, PolicySet, Role, Rule, RuleId};
+    use pqc_agility::OsRng;
+
+    const NOW: u64 = 1_800_000_000;
+    const PURPOSE: &str = "operations";
+
+    /// One object type, `thing`, and one link type, `thing` to `thing`.
+    fn registry() -> TypeRegistry {
+        let mut reg = TypeRegistry::new();
+        reg.register_object_type(ObjectType {
+            id: "thing".into(),
+            api_name: "thing".into(),
+            title: "Thing".into(),
+            properties: vec![],
+            interfaces: vec![],
+        })
+        .expect("object type registers");
+        reg.register_link_type(LinkType {
+            id: "rel".into(),
+            api_name: "rel".into(),
+            source_type: "thing".into(),
+            target_type: "thing".into(),
+            cardinality: Cardinality::ManyToMany,
+        })
+        .expect("link type registers");
+        reg
+    }
+
+    /// An in-memory store holding `thing/<key>` for every key and the `rel` links
+    /// given as (source key, target key).
+    fn store(keys: &[&str], links: &[(&str, &str)]) -> InMemoryStore {
+        let mut store = InMemoryStore::new();
+        for key in keys {
+            store.put_object(ObjectInstance {
+                id: format!("thing/{key}"),
+                type_id: "thing".into(),
+                properties: BTreeMap::new(),
+                marking: marking("open", &[]),
+                allowed_purposes: [Purpose(PURPOSE.into())].into_iter().collect(),
+            });
+        }
+        for (source, target) in links {
+            store.put_link(LinkInstance {
+                link_type: "rel".into(),
+                source_id: format!("thing/{source}"),
+                target_id: format!("thing/{target}"),
+            });
+        }
+        store
+    }
+
+    fn get<'a>(store: &'a InMemoryStore, key: &str) -> &'a ObjectInstance {
+        store
+            .get_object(&format!("thing/{key}"))
+            .unwrap_or_else(|| panic!("no thing/{key}"))
+    }
+
+    fn node_ids(walk: &Walk) -> Vec<&str> {
+        walk.nodes
+            .iter()
+            .map(|n| n.str_field("id").expect("id"))
+            .collect()
+    }
+
+    fn edge_ends(walk: &Walk) -> Vec<(&str, &str)> {
+        walk.edges
+            .iter()
+            .map(|e| {
+                (
+                    e.str_field("from").expect("from"),
+                    e.str_field("to").expect("to"),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn admit_drops_an_unreadable_neighbour_and_records_no_edge_to_it() {
+        let reg = registry();
+        let store = store(&["A", "B"], &[("A", "B")]);
+        let lt = reg.link_type("rel").expect("rel");
+        let (a, b) = (get(&store, "A"), get(&store, "B"));
+        let readable = |o: &ObjectInstance| o.id != "thing/B";
+
+        let mut walk = Walk::new(10);
+        walk.seed(&reg, &store, &["thing/A".to_string()]);
+        walk.admit(&readable, &reg, a, (lt, a, b), 1);
+
+        assert_eq!(node_ids(&walk), ["thing/A"]);
+        assert!(walk.edges.is_empty(), "no edge to an unreadable neighbour");
+        assert!(
+            !walk.truncated,
+            "a hidden neighbour does not truncate the walk"
+        );
+        assert_eq!(walk.frontier, ["thing/A"], "nor joins the frontier");
+    }
+
+    #[test]
+    fn admit_marks_truncated_at_the_node_limit_and_keeps_edges_between_seen_nodes() {
+        let reg = registry();
+        let store = store(
+            &["A", "B", "C", "D"],
+            &[("A", "B"), ("A", "C"), ("A", "D"), ("B", "A")],
+        );
+        let lt = reg.link_type("rel").expect("rel");
+        let [a, b, c, d] = ["A", "B", "C", "D"].map(|k| get(&store, k));
+        let readable = |_: &ObjectInstance| true;
+
+        let mut walk = Walk::new(2);
+        walk.seed(&reg, &store, &["thing/A".to_string()]);
+        // Three readable neighbours; only one fits beside the seed.
+        walk.admit(&readable, &reg, a, (lt, a, b), 1);
+        walk.admit(&readable, &reg, a, (lt, a, c), 1);
+        walk.admit(&readable, &reg, a, (lt, a, d), 1);
+        // A link between two admitted nodes, met twice.
+        walk.admit(&readable, &reg, a, (lt, b, a), 1);
+        walk.admit(&readable, &reg, a, (lt, b, a), 1);
+
+        assert_eq!(node_ids(&walk), ["thing/A", "thing/B"]);
+        assert!(walk.truncated);
+        assert_eq!(
+            edge_ends(&walk),
+            [("thing/A", "thing/B"), ("thing/B", "thing/A")],
+            "the cut neighbours bring no edge, and the repeated edge is recorded once"
+        );
+    }
+
+    #[test]
+    fn adjacent_links_finds_outbound_then_inbound_links_in_registry_order() {
+        let reg = registry();
+        let store = store(&["A", "B", "C"], &[("A", "B"), ("C", "A")]);
+
+        let found: Vec<(&str, &str, &str)> = adjacent_links(&reg, &store, get(&store, "A"))
+            .into_iter()
+            .map(|(lt, s, t)| (lt.id.as_str(), s.id.as_str(), t.id.as_str()))
+            .collect();
+
+        assert_eq!(
+            found,
+            [("rel", "thing/A", "thing/B"), ("rel", "thing/C", "thing/A")]
+        );
+    }
+
+    /// The demo operator's session context.
+    fn operator() -> PolicyContext {
+        let user = crate::demo_operator();
+        PolicyContext {
+            subject: "operator".into(),
+            roles: user.roles,
+            clearance: Clearance {
+                level: user.clearance.level,
+                compartments: user.clearance.compartments,
+            },
+            purpose: Purpose(PURPOSE.into()),
+        }
+    }
+
+    /// An enclosure over the development data, enforcing `rules`.
+    fn enclosure(rules: Vec<Rule>) -> Enclosure {
+        let pdp = DefaultPdp::new(PolicySet::new(rules).expect("valid policy"));
+        let governance = Governance::new(pdp, &mut OsRng).expect("governance keygen");
+        let mut enclosure = Enclosure::new(governance);
+        enclosure.seed_dev(PURPOSE, NOW).expect("dev data seeds");
+        enclosure
+    }
+
+    fn read_rule(id: &str, selector: Selector, effect: RuleEffect) -> Rule {
+        Rule {
+            id: RuleId(id.into()),
+            role: Role("operator".into()),
+            action: Action("Read".into()),
+            purpose: None,
+            selector,
+            effect,
+        }
+    }
+
+    #[test]
+    fn seed_roots_reports_an_unreadable_seed_as_unknown() {
+        let mut rules = crate::dev_login_policy().rules().to_vec();
+        rules.push(read_rule(
+            "deny-seed",
+            Selector::Resource(fabric::object_resource_id("aircraft/AC-2214")),
+            RuleEffect::Deny,
+        ));
+        let mut enclosure = enclosure(rules);
+        let ctx = operator();
+        let before = enclosure.audit_len();
+
+        let err = enclosure
+            .seed_roots(&ctx, "aircraft/AC-2214")
+            .expect_err("an unreadable seed is refused");
+        assert_eq!(err.status, 404);
+        assert!(err.body.encode().contains("unknown seed object"));
+        let err = enclosure
+            .search_around(&ctx, "aircraft/AC-2214", 1, None, NOW)
+            .expect_err("and so is a walk from it");
+        assert_eq!(err.status, 404);
+        assert_eq!(
+            enclosure.audit_len(),
+            before,
+            "no audit row reveals the seed"
+        );
+    }
+
+    /// The follow-up WP-19 left for WP-43: a single-seed walk is authorised as the
+    /// seed is read, on its object id or else its type's id, so a policy that permits
+    /// only `object-type:<type>` walks from one object of that type.
+    /// [VLD-ANB-MIDGARD-0023] [AC-19.2]
+    #[test]
+    fn a_type_scoped_permit_lets_a_walk_start_from_one_object_of_the_type() {
+        let type_only = read_rule(
+            "read-aircraft",
+            Selector::Resource(fabric::type_resource_id("aircraft")),
+            RuleEffect::Permit,
+        );
+        let mut enclosure = enclosure(vec![type_only]);
+        let ctx = operator();
+
+        let graph = enclosure
+            .search_around(&ctx, "aircraft/AC-2214", 2, None, NOW)
+            .unwrap_or_else(|e| panic!("{}: {}", e.status, e.body.encode()));
+        let nodes: Vec<&str> = match graph.get("nodes") {
+            Some(Json::Arr(nodes)) => nodes
+                .iter()
+                .map(|n| n.str_field("id").expect("id"))
+                .collect(),
+            other => panic!("no nodes: {other:?}"),
+        };
+        assert!(nodes.contains(&"aircraft/AC-2214"), "{nodes:?}");
+        assert!(
+            nodes.iter().all(|id| id.starts_with("aircraft/")),
+            "only objects of the permitted type are reached: {nodes:?}"
+        );
+        let last = enclosure.fabric().audit_entries().last().expect("a row");
+        assert_eq!(
+            last.record.resource.0, "object-type:aircraft",
+            "the decision is recorded on the id that permitted it"
         );
     }
 }
