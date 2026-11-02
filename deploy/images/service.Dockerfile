@@ -12,6 +12,8 @@
 #   mg-verify                                    the release verifier binary, and
 #                                                the verify-before-run entrypoint
 #   release-trust.pub                            the pinned public trust key
+#   deploy/trust/                                the pinned trust set (deploy/trust),
+#                                                with model-signing.pub for mimir-server
 #
 # Usage: docker build -f deploy/images/service.Dockerfile \
 #          --build-arg SERVICE=http-gateway -t midgard/http-gateway:<ver> <context>
@@ -54,6 +56,10 @@ RUN echo 'midgard:x:10001:10001::/nonexistent:/usr/sbin/nologin' >> /etc/passwd 
 
 COPY bundle/ /app/
 COPY release-trust.pub /trust/release-trust.pub
+# The pinned trust set, read-only (root-owned, not writable by the service account).
+# mimir-server's load gate trusts /etc/midgard/trust/model-signing.pub, never a key in
+# the volume that holds the weights. [VLD-ANB-MIDGARD-0028]
+COPY deploy/trust/ /etc/midgard/trust/
 COPY mg-verify /usr/local/bin/mg-verify
 # Every binary the image carries is executable: an image may carry several (forge-worker
 # runs forge-egress from its own image). The signatures, attestations and SBOMs beside

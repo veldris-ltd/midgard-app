@@ -738,6 +738,10 @@ fn a_burst_over_the_rate_limit_is_throttled() {
         ["--infer-timeout", "1.5"],
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+            .env(
+                "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+                attest::keystore::test_support::shared_test_passphrase_file(),
+            )
             .args(server_args(&identity_arg, &state_arg))
             .args(junk)
             .output()
@@ -933,6 +937,10 @@ fn the_stop_file_disengages_and_removing_it_resumes() {
         fx.state.display().to_string(),
     );
     let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity_arg, &state_arg))
         .args(["--revocation-file", "revoked.list"])
         .output()
@@ -944,6 +952,10 @@ fn the_stop_file_disengages_and_removing_it_resumes() {
         text(&out.stderr)
     );
     let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity_arg, &state_arg))
         .args(["--reload-interval", "0"])
         .output()
@@ -1031,4 +1043,72 @@ fn in_flight_completion_drains_before_stop_is_logged() {
     );
     drop(server);
     let _ = std::fs::remove_dir_all(&fx.root);
+}
+
+/// The trust key never lives beside the weights it vouches for: a `--model-trust` inside
+/// `--model-dir` is refused at start, before anything is verified or staged. The other
+/// signed-model tests keep the trust file outside the directory. [VLD-ANB-MIDGARD-0028]
+/// [AC-66.1]
+#[test]
+fn a_trust_anchor_inside_the_model_dir_is_refused_at_start() {
+    let root = scratch("trust-inside");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let state = root.join("state");
+    issue(
+        &idp,
+        &server_identity,
+        "mimir-server",
+        &["inference-server"],
+    );
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+    let (model, trust) = signed_model(&root);
+    let inside = model.join("model-signing.pub");
+    std::fs::copy(&trust, &inside).unwrap();
+    let serve = root.join("serve");
+    std::fs::create_dir_all(&serve).unwrap();
+    let (sidecar, _) = fake_sidecar("never served");
+    let (identity_arg, state_arg) = (
+        server_identity.display().to_string(),
+        state.display().to_string(),
+    );
+    let (model_arg, inside_arg, serve_arg) = (
+        model.display().to_string(),
+        inside.display().to_string(),
+        serve.display().to_string(),
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
+        .args(server_args(&identity_arg, &state_arg))
+        .args([
+            "--engine",
+            "llama-cpp",
+            "--model-dir",
+            &model_arg,
+            "--model-trust",
+            &inside_arg,
+            "--serve-dir",
+            &serve_arg,
+            "--sidecar",
+            &sidecar,
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    let e = text(&out.stderr);
+    assert!(
+        e.contains(
+            "--model-trust must not live inside --model-dir: the anchor and the weights it \
+             vouches for cannot share a writable location"
+        ),
+        "{e}"
+    );
+    // Refused before anything was verified: no floor, nothing staged.
+    assert!(!state.join("model-release.floor").exists());
+    assert!(!serve.join(model_server::STAGED_MARKER).exists());
+    let _ = std::fs::remove_dir_all(&root);
 }

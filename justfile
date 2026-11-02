@@ -64,9 +64,12 @@ compose-smoke:
     bash deploy/compose/smoke.sh
 
 # Stage the default Granite model (Apache-2.0) for compose: copy the downloaded GGUF
-# into the models volume, sign it with a development model key and verify it.
-model-stage GGUF="":
-    bash deploy/compose/stage-model.sh {{GGUF}}
+# into the models volume, sign it and verify it against the committed anchor
+# deploy/trust/model-signing.pub. `just model-stage --development GGUF` signs with a
+# development key instead (start compose with compose.dev-model.yaml as well).
+# [VLD-ANB-MIDGARD-0028]
+model-stage *ARGS:
+    bash deploy/compose/stage-model.sh {{ARGS}}
 
 # Serve Granite through compose on throwaway state: a certified inference call must be
 # answered by the real model. Needs the llama.cpp server image pinned in
@@ -88,8 +91,10 @@ kind-smoke:
 # Serve Granite on the kind cluster: load the pinned llama.cpp image and the model staged
 # for compose (`just model-stage`) into the cluster, verify it there, and turn on the
 # chart's modelServing. Keep it across `kind-up` with MIDGARD_KIND_MODEL=granite.
-kind-granite:
-    bash deploy/kind/model.sh
+# `just kind-granite --development` trusts the development key `model-stage
+# --development` made, in place of deploy/trust/model-signing.pub.
+kind-granite *ARGS:
+    bash deploy/kind/model.sh {{ARGS}}
 
 kind-down:
     kind delete cluster --name midgard

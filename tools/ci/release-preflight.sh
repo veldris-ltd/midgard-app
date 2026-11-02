@@ -144,6 +144,10 @@ anchor() { # anchor FILE ALG WHAT
 }
 anchor deploy/trust/release-trust.pub ML-DSA-87 "release signing key"
 anchor deploy/trust/bifrost-trust.pub ML-DSA-65 "Bifrost admission key"
+# The anchor mimir-server's load gate and `mg-model verify` trust, carried in the images
+# at /etc/midgard/trust: never a key from the volume that holds the weights.
+# [VLD-ANB-MIDGARD-0028]
+anchor deploy/trust/model-signing.pub ML-DSA-65 "model signing key"
 
 if [ "$problems" -gt 0 ]; then
     echo "preflight: $problems problem(s); the release stops here, before anything is built or signed"

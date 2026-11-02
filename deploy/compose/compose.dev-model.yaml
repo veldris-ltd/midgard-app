@@ -1,0 +1,46 @@
+# Development model-signing key, on top of compose.granite.yaml: mimir-server trusts the
+# public half `stage-model.sh --development` generated, from the volume
+# `midgard-model-trust`, mounted read-only at /model-trust, never from the models volume.
+# [VLD-ANB-MIDGARD-0028]
+#
+#   bash deploy/compose/stage-model.sh --development PATH/TO/granite-3.3-2b-instruct-Q4_K_M.gguf
+#   docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.yaml \
+#       -f deploy/compose/compose.dev-model.yaml up -d --build --wait
+#
+# WARNING: a deployment started with this file trusts a key generated on the install
+# host. Production anchors come from deploy/trust (compose.granite.yaml alone).
+#
+# Compose replaces an entrypoint whole, so this repeats compose.granite.yaml's with only
+# the trust path changed; tools/ci/tests/stage-model.test.sh holds the two together.
+
+services:
+  mimir-server:
+    entrypoint:
+      - mimir-server
+      - --identity-dir
+      - /identity
+      - --state-dir
+      - /state
+      - --purposes
+      - investigation
+      - --bind
+      - 0.0.0.0:7720
+      - --health-bind
+      - 0.0.0.0:9090
+      - --engine
+      - llama-cpp
+      - --model-dir
+      - /models/granite
+      - --model-trust
+      - /model-trust/model-signing.pub
+      - --serve-dir
+      - /serve
+      - --sidecar
+      - 127.0.0.1:8080
+    volumes:
+      - mimir-model-trust:/model-trust:ro
+
+volumes:
+  mimir-model-trust:
+    external: true
+    name: midgard-model-trust

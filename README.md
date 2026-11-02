@@ -666,7 +666,7 @@ Staging uses `mg-model`, and does the following:
 2. Signs a manifest over the weights' digest, file name, format, quantisation and size, the family, the licence and the hardware the model needs. The manifest file is format 2: its signature covers the file's own bytes, so it is checked before the file is parsed. A format 1 manifest, from before, is refused; sign the model again.
 3. Verifies the model directory the way `mimir-server` will.
 
-The signing key it creates is a development key, kept in the `midgard-model-signing` volume on the same machine. In production the key stays in staging, and only the signed manifest and the public key enter the enclosure.
+`mimir-server` trusts only the pinned anchor `deploy/trust/model-signing.pub`, which the key ceremony publishes and the image carries at `/etc/midgard/trust`; the key is never taken from the models volume, and a trust key inside the model directory is refused. Until the ceremony has committed that file, stage with a development key instead: `just model-stage --development granite-3.3-2b-instruct-Q4_K_M.gguf`. It generates the key into the `midgard-model-signing` volume on this machine, puts its public half in a volume of its own, `midgard-model-trust`, and warns that the deployment trusts a local key; add `-f deploy/compose/compose.dev-model.yaml` to the compose commands below. In production the key stays in staging, and only the signed manifest enters the enclosure.
 
 Then start the enclosure with the Granite override and make a call:
 
@@ -710,7 +710,7 @@ On Kubernetes, the chart's `modelServing` values for `mimir-server` run the same
 | **The picture stays in Heimdall** | Fused entities are not projected into the enclosure's object fabric, and no classifier is attached, so entities are unclassified. The whole picture is re-sealed after every observation, which will not scale to a large picture. |
 | **A feed is a mesh identity** | A source's feed id is the service its certificate names, and it signs with its mesh key. Separate feed-device keys are not supported. |
 | **The fleet manager only records** | It reports drift but does not push upgrades: nothing drives the rollout orchestrator from it yet. A channel removed from `channels.json` stays declared. |
-| **One real model, on CPU** | Without the Granite override, `mimir-server` serves the deterministic reference backend. Granite on llama.cpp has run end to end. vLLM on GPUs is wired in the code and the chart but has not been run, because no GPU was available, so the 800 ms first-token target is unproven. The model-signing key `stage-model.sh` creates is a development key. |
+| **One real model, on CPU** | Without the Granite override, `mimir-server` serves the deterministic reference backend. Granite on llama.cpp has run end to end. vLLM on GPUs is wired in the code and the chart but has not been run, because no GPU was available, so the 800 ms first-token target is unproven. Until the key ceremony commits `deploy/trust/model-signing.pub`, a real model is served only under a development key (`stage-model.sh --development`). |
 | **Nothing calls Mimir yet** | The gateway does not route AI requests to `mimir-server`. Only `mimir-probe` does. |
 | **Not the release image** | The image is built from source and unsigned. |
 | **Certificates are renewed by hand** | Certificates expire after 30 days. Nothing in compose renews them yet: run `mg-admin mesh renew --within 10` for each service (see [docs/ops/PKI.md](docs/ops/PKI.md)) and restart it, or the service stops at expiry. |

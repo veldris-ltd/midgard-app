@@ -405,16 +405,24 @@ GPU serving through vLLM, with a first token in under 800 ms.
 
 A model loads only from a manifest signed with ML-DSA, and its weights are checked against the signed digest before anything is served. One changed byte stops the service from starting.
 
-**Limit.** No vendor signature is checked cryptographically; an upstream signature is recorded as unverifiable. The served model was signed with a development key and did not pass through the staging intake.
+**Limit.** No vendor signature is checked cryptographically; an upstream signature is recorded as unverifiable. The trust anchor is the pinned deploy/trust/model-signing.pub, never the models volume, but the key ceremony has not yet committed it, so a real model is served today only under an explicit, warned development key (stage-model.sh --development, in a trust volume of its own). The one real model served so far did not pass through the staging intake.
 
 - Criteria: AC-MS-2
 - Source:
   - [`tools/mg-model/src/main.rs:1`](../../tools/mg-model/src/main.rs)
+  - [`tools/mg-model/src/main.rs:225`](../../tools/mg-model/src/main.rs)
+  - [`mimir/mimir-server/src/main.rs:158`](../../mimir/mimir-server/src/main.rs)
+  - [`deploy/trust/README.md`](../../deploy/trust/README.md)
+  - [`deploy/compose/stage-model.sh`](../../deploy/compose/stage-model.sh)
 - Tests:
   - [`mimir/model-server/tests/model_dir.rs::changed_truncated_or_swapped_weights_are_refused`](../../mimir/model-server/tests/model_dir.rs)
+  - [`tools/mg-model/tests/cli.rs::sign_without_sha256_is_a_usage_error`](../../tools/mg-model/tests/cli.rs)
+  - [`tools/mg-model/tests/cli.rs::verify_refuses_a_trust_file_inside_the_model_dir`](../../tools/mg-model/tests/cli.rs)
+  - [`tools/mg-model/tests/cli.rs::keygen_writes_keystore_v2_under_a_passphrase`](../../tools/mg-model/tests/cli.rs)
 - Service tests:
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
-  - [`deploy/compose/granite-smoke.sh:31`](../../deploy/compose/granite-smoke.sh)
+  - [`mimir/mimir-server/tests/serve.rs::a_trust_anchor_inside_the_model_dir_is_refused_at_start`](../../mimir/mimir-server/tests/serve.rs)
+  - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:93`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:380`](../../docs/launch/pipeline/build-deck.js)
@@ -739,12 +747,14 @@ The workspace builds and its tests run with no network: every dependency is vend
 
 Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails.
 
-**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly.
+**Limit.** Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly. The images carry the pinned trust set read-only at /etc/midgard/trust, where mimir-server reads the model-signing anchor, and the release preflight refuses a release without that anchor; the key ceremony has not yet committed it.
 
 - Criteria: AC-B-1
 - Source:
   - [`deploy/images/entrypoint.sh:27`](../../deploy/images/entrypoint.sh)
   - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
+  - [`deploy/images/service.Dockerfile:50`](../../deploy/images/service.Dockerfile)
+  - [`tools/ci/release-preflight.sh:119`](../../tools/ci/release-preflight.sh)
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
 - Stated at:
