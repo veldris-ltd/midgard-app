@@ -65,10 +65,6 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
 - Tests:
   - [`crypto/pq-mtls/tests/real_fips_handshake.rs::real_handshake_negotiates_hybrid_and_agrees`](../../crypto/pq-mtls/tests/real_fips_handshake.rs)
   - [`crypto/pq-mtls/tests/tcp_transport.rs::tcp_handshake_denies_unauthorized`](../../crypto/pq-mtls/tests/tcp_transport.rs)
-  - [`crypto/pq-mtls/tests/security_decode.rs::a_client_hello_with_a_hostile_suite_count_is_refused`](../../crypto/pq-mtls/tests/security_decode.rs)
-  - [`crypto/pq-mtls/tests/security_decode.rs::a_client_hello_with_seventeen_suites_is_refused`](../../crypto/pq-mtls/tests/security_decode.rs)
-  - [`crypto/pq-mtls/tests/security_decode.rs::every_truncation_of_every_message_is_refused`](../../crypto/pq-mtls/tests/security_decode.rs)
-  - [`crypto/pq-mtls/tests/security_decode.rs::a_replayed_client_key_exchange_is_refused`](../../crypto/pq-mtls/tests/security_decode.rs)
   - [`services/gateway/tests/session.rs::a_second_connection_resumes_and_the_ticket_is_single_use`](../../services/gateway/tests/session.rs)
   - [`services/runtime/tests/security_listener.rs::apply_mesh_limits_enforces_the_rate_limit`](../../services/runtime/tests/security_listener.rs)
   - [`services/runtime/tests/security_listener.rs::the_mesh_cap_refuses_the_extra_connection_and_counts_it`](../../services/runtime/tests/security_listener.rs)
@@ -605,8 +601,6 @@ mg-bundle packs gate-verified artefacts into one signed bundle and imports it of
   - [`deploy/air-gap-bundle/install.sh:75`](../../deploy/air-gap-bundle/install.sh)
 - Tests:
   - [`bifrost/bundle/tests/streaming.rs::damage_is_located_and_a_forged_chunk_is_still_refused`](../../bifrost/bundle/tests/streaming.rs)
-  - [`bifrost/bundle/tests/security_counts.rs::a_hostile_entry_count_is_refused_not_allocated`](../../bifrost/bundle/tests/security_counts.rs)
-  - [`bifrost/bundle/tests/security_counts.rs::a_hostile_artefact_count_is_refused`](../../bifrost/bundle/tests/security_counts.rs)
 - Service tests:
   - [`tools/mg-bundle/tests/cli.rs::a_bundle_from_a_sealed_keystore_imports_offline_and_refuses_everything_else`](../../tools/mg-bundle/tests/cli.rs)
 - Stated at:
