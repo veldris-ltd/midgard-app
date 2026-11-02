@@ -137,14 +137,13 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
 
 ### `audit-ledger` (operable)
 
-Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start. Each row records outcome, reason, source address and session where the service knows them, and refused requests (rejected tokens, human-gate refusals) are recorded.
+Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start.
 
 **Limit.** The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime).
 
 - Source:
   - [`crypto/audit-writer/src/ledger.rs:5`](../../crypto/audit-writer/src/ledger.rs)
   - [`crypto/audit-writer/src/checkpoint.rs:1`](../../crypto/audit-writer/src/checkpoint.rs)
-  - [`crypto/audit-writer/src/record.rs:114`](../../crypto/audit-writer/src/record.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
   - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
@@ -153,11 +152,6 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart`](../../services/http-gateway/tests/durable_enclosure.rs)
-  - [`crypto/audit-writer/tests/append_verify.rs::a_ledger_written_before_the_context_existed_still_verifies`](../../crypto/audit-writer/tests/append_verify.rs)
-  - [`services/governance/tests/authorize.rs::record_ids_are_unique_and_sequential`](../../services/governance/tests/authorize.rs)
-  - [`services/governance/tests/authorize.rs::authorize_sets_the_outcome_field`](../../services/governance/tests/authorize.rs)
-  - [`services/http-gateway/tests/security_edge.rs::a_rejected_token_is_uniform_counted_logged_and_audited_once_per_minute`](../../services/http-gateway/tests/security_edge.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::a_refused_human_gate_and_a_self_approval_are_in_the_ledger`](../../services/http-gateway/tests/fabric_edge.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
@@ -218,20 +212,14 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 
 ### `human-gated-actions` (operable)
 
-An action the ontology marks as human-gated runs only with an approval that a second person granted to this requester for this action on this object, unexpired and unused; request, decision and redemption are bound in the signed ledger by approval id, requester, approver and target, and approvals survive a restart.
+An action the ontology marks as human-gated is refused at the edge unless the request carries a human-gate token, and actions are gated unless the ontology says otherwise.
 
-**Limit.** Approvals are bounded (256 total, 16 open per requester, pending entries expire after 24 hours); a full queue refuses new requests with 429.
+**Limit.** The edge accepts any non-empty token: it does not yet check that the token is a named person's authorisation (RF-UID-3).
 
 - Source:
-  - [`services/http-gateway/src/enclosure.rs:987`](../../services/http-gateway/src/enclosure.rs)
-  - [`services/http-gateway/src/enclosure.rs:750`](../../services/http-gateway/src/enclosure.rs)
+  - [`services/http-gateway/src/enclosure.rs:375`](../../services/http-gateway/src/enclosure.rs)
 - Tests:
   - [`services/http-gateway/tests/fabric_edge.rs::a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing`](../../services/http-gateway/tests/fabric_edge.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::an_approval_is_bound_to_its_requester_action_and_object_and_redeems_once`](../../services/http-gateway/tests/fabric_edge.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::the_ledger_binds_request_decision_and_redemption_to_the_approval`](../../services/http-gateway/tests/fabric_edge.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::pending_and_approved_gates_are_not_evicted_by_a_flood_of_requests`](../../services/http-gateway/tests/fabric_edge.rs)
-  - [`services/http-gateway/tests/fabric_edge.rs::a_pending_approval_expires_and_is_audited`](../../services/http-gateway/tests/fabric_edge.rs)
-  - [`services/http-gateway/tests/durable_enclosure.rs::approvals_survive_a_restart_and_redeem_once`](../../services/http-gateway/tests/durable_enclosure.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
 - Stated at:
@@ -822,7 +810,6 @@ Each service exposes liveness, readiness and Prometheus metrics, and writes stru
 - Tests:
   - [`services/telemetry/tests/telemetry.rs::metrics_render_prometheus_text`](../../services/telemetry/tests/telemetry.rs)
   - [`services/http-gateway/tests/rc_33.rs::service_exposes_liveness_readiness_metrics_and_an_observable_slo_breach`](../../services/http-gateway/tests/rc_33.rs)
-  - [`services/http-gateway/tests/security_edge.rs::every_request_writes_one_json_log_line_with_source_and_request_id`](../../services/http-gateway/tests/security_edge.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)
 - Stated at:
