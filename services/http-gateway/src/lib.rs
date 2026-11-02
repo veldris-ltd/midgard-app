@@ -44,6 +44,7 @@ use iam::{
     TokenClaims, UpgradingAuthenticator, UserRecord,
 };
 use json::{parse, Json};
+use login_throttle::{Outcome, Refusal};
 use policy::{
     Action, ClassificationLevel, Clearance, Compartment, DefaultPdp, Effect, Marking, PolicySet,
     Purpose, Resource, ResourceId, Role, Rule, RuleId, Selector,
@@ -295,7 +296,9 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     ///
     /// Fields over their limits are refused before anything is kept or recorded, and a
     /// source address past its allowance is refused before any password is checked.
-    /// Throttled attempts are coalesced on the ledger. [VLD-ANB-MIDGARD-0005]
+    /// Throttled attempts are coalesced on the ledger. [VLD-ANB-MIDGARD-0005] Each
+    /// attempt is reserved in the throttle before its password is checked and released
+    /// after, so concurrent attempts cannot outrun the lockout. [VLD-ANB-MIDGARD-0019]
     fn handle_login(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
         let idp = match &self.idp {
             Some(i) => i,
@@ -345,29 +348,38 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         };
 
         let unauthorized = || Response::json(401, error_json("invalid credentials").encode());
-        let throttled = |seconds: u64| {
-            Response::json(
-                429,
-                error_json(&format!(
-                    "too many failed logins: try again in {seconds} seconds"
-                ))
-                .encode(),
-            )
-            .with_retry_after(seconds)
-        };
-        // A name locked by repeated failures is refused before its password is
-        // checked, so guessing gains nothing while the lock holds. [NFR-SEC-1] Only the
-        // lock's first such attempt is recorded; the rest are counted onto the name's
-        // next recorded event. [VLD-ANB-MIDGARD-0005]
-        let locked = self.throttle().retry_after(username, now);
-        if let Some(seconds) = locked {
-            self.count_login("throttled");
-            let first = self.throttle().note_throttled(username);
-            if !first {
-                return throttled(seconds);
+        // The attempt is reserved under the throttle's lock before its password is
+        // checked, so attempts arriving together cannot all pass a check made before
+        // any of them is recorded: no more than the free failures and one more are
+        // checked for a name before it locks, and no more than MAX_IN_FLIGHT at once.
+        // [VLD-ANB-MIDGARD-0019] A name locked by repeated failures is refused before
+        // its password is checked, so guessing gains nothing while the lock holds.
+        // [NFR-SEC-1] Only the lock's first such attempt is recorded; the rest, and
+        // busy refusals, are counted onto the name's next recorded event.
+        // [VLD-ANB-MIDGARD-0005]
+        let begun = self.throttle().begin_attempt(username, now);
+        match begun {
+            Ok(()) => {}
+            Err(Refusal::Locked { retry_after: wait }) => {
+                self.count_login("throttled");
+                let first = self.throttle().note_throttled(username);
+                if !first {
+                    return name_locked(wait);
+                }
+                return self.record_login(username, "LOGIN throttled", name_locked(wait), now);
             }
-            return self.record_login(username, "LOGIN throttled", throttled(seconds), now);
+            Err(Refusal::Busy { retry_after: wait }) => {
+                self.count_login("busy");
+                return name_busy(wait);
+            }
         }
+        // Released however the check ends, a panic included, so a slot cannot leak.
+        let mut attempt = Attempt {
+            throttle: &self.login_throttle,
+            username,
+            now,
+            finished: false,
+        };
 
         // Password, then any enrolled second factor, then the PQ-signed token bound to
         // the principal's attributes — one path, every check fail-closed. [RC-29] A
@@ -397,34 +409,45 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             },
             Err(_) => None,
         };
+        // The throttled attempts kept off the ledger while the name was locked are named
+        // on this, its next recorded event; taken before a success clears the name.
+        // [VLD-ANB-MIDGARD-0005]
+        let suppressed = self.throttle().take_suppressed(username);
         let (event, response) = match outcome.map(|login| login.token) {
-            Ok(token) => (
-                "LOGIN succeeded",
-                Response::json(
-                    200,
-                    Json::obj(vec![
-                        ("token", Json::s(&hex_encode(&token))),
-                        ("subject", Json::s(username)),
-                        (
-                            "expiresAt",
-                            Json::s(&now.saturating_add(TOKEN_TTL).to_string()),
-                        ),
-                    ])
-                    .encode(),
-                ),
-            ),
-            Err(AuthError::Issue(IssueError::Token(e))) => (
-                "LOGIN failed",
-                Response::json(
-                    500,
-                    error_json(&format!("token issuance failed: {e}")).encode(),
-                ),
-            ),
+            Ok(token) => {
+                attempt.finish_attempt(Outcome::Success);
+                (
+                    "LOGIN succeeded",
+                    Response::json(
+                        200,
+                        Json::obj(vec![
+                            ("token", Json::s(&hex_encode(&token))),
+                            ("subject", Json::s(username)),
+                            (
+                                "expiresAt",
+                                Json::s(&now.saturating_add(TOKEN_TTL).to_string()),
+                            ),
+                        ])
+                        .encode(),
+                    ),
+                )
+            }
+            // Not a failure of the credentials: the slot is released, nothing counted.
+            Err(AuthError::Issue(IssueError::Token(e))) => {
+                attempt.finish_attempt(Outcome::Error);
+                (
+                    "LOGIN failed",
+                    Response::json(
+                        500,
+                        error_json(&format!("token issuance failed: {e}")).encode(),
+                    ),
+                )
+            }
             // An unknown principal, a wrong password, a missing or wrong second factor,
             // or a purpose the principal does not hold: one uniform 401, so a caller
             // cannot tell which check refused them. The failure counts towards a lock.
-            Err(_) => match self.throttle().record_failure(username, now) {
-                Some(seconds) => ("LOGIN refused, locked", throttled(seconds)),
+            Err(_) => match attempt.finish_attempt(Outcome::Failure) {
+                Some(seconds) => ("LOGIN refused, locked", name_locked(seconds)),
                 None => ("LOGIN refused", unauthorized()),
             },
         };
@@ -434,16 +457,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             "LOGIN refused" => "refused",
             _ => "failed",
         });
-        // The throttled attempts kept off the ledger while the name was locked are named
-        // on this, its next recorded event. [VLD-ANB-MIDGARD-0005]
-        let suppressed = self.throttle().take_suppressed(username);
         let event = match suppressed {
             0 => event.to_string(),
             n => format!("{event}, {n} throttled attempts suppressed"),
         };
-        if response.status == 200 {
-            self.throttle().record_success(username);
-        }
         let response = match upgrade {
             Some(upgrade) => self.record_login(username, &upgrade, response, now),
             None => response,
@@ -1169,6 +1186,64 @@ fn source_refused() -> Response {
         error_json("too many login attempts from this address").encode(),
     )
     .with_retry_after(2)
+}
+
+/// The 429 for a login on a name locked by repeated failures, for `seconds` more.
+/// [NFR-SEC-1]
+fn name_locked(seconds: u64) -> Response {
+    Response::json(
+        429,
+        error_json(&format!(
+            "too many failed logins: try again in {seconds} seconds"
+        ))
+        .encode(),
+    )
+    .with_retry_after(seconds)
+}
+
+/// The 429 for a login on a name with as many attempts already being checked as it may
+/// have; not a failure. [VLD-ANB-MIDGARD-0019]
+fn name_busy(seconds: u64) -> Response {
+    let unit = if seconds == 1 { "second" } else { "seconds" };
+    Response::json(
+        429,
+        error_json(&format!(
+            "a login for this name is already being checked: try again in {seconds} {unit}"
+        ))
+        .encode(),
+    )
+    .with_retry_after(seconds)
+}
+
+/// A login attempt reserved by [`login_throttle::LoginThrottle::begin_attempt`]: its
+/// slot is released by [`Attempt::finish_attempt`], or, if the check never finishes
+/// (a panic), on drop as an [`Outcome::Error`], so no slot is held for ever.
+/// [VLD-ANB-MIDGARD-0019]
+struct Attempt<'a> {
+    throttle: &'a Mutex<login_throttle::LoginThrottle>,
+    username: &'a str,
+    now: u64,
+    finished: bool,
+}
+
+impl Attempt<'_> {
+    /// Release the slot and record `outcome`; the lockout the name now carries, in
+    /// seconds, if this failure locked it.
+    fn finish_attempt(&mut self, outcome: Outcome) -> Option<u64> {
+        self.finished = true;
+        self.throttle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .finish_attempt(self.username, outcome, self.now)
+    }
+}
+
+impl Drop for Attempt<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.finish_attempt(Outcome::Error);
+        }
+    }
 }
 
 /// A caller-supplied username as a ledger actor. It is recorded as given, so repeated

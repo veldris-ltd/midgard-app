@@ -4,7 +4,22 @@
 //! The count is kept per username exactly as submitted — known or not, so a lockout is
 //! no oracle for which names exist. While a name is locked its logins are refused
 //! before the password is checked, so even the right password waits. A success, or a
-//! quiet spell of [`FAILURE_WINDOW`], clears the count.
+//! quiet spell of [`FAILURE_WINDOW`], clears the count; the window is longer than the
+//! longest lock, so a lock lapses before the count that set it and the next failure
+//! locks the name again at once.
+//!
+//! Each attempt is reserved under the throttle's lock before its password is checked
+//! ([`LoginThrottle::begin_attempt`]) and released once the check is done
+//! ([`LoginThrottle::finish_attempt`]). Attempts in flight count towards the free
+//! failures, so however many arrive at once no more than [`FREE_FAILURES`] + 1
+//! passwords are checked for a name before it locks, and no more than
+//! [`MAX_IN_FLIGHT`] at a time. When the table is full, lapsed entries go first, then
+//! the unlocked entry idle longest; locked entries are evicted last, soonest-expiring
+//! first, so a flood of made-up names cannot clear a chosen name's lock.
+//!
+//! Anyone who can reach the edge can lock any name, an operator's included; the
+//! per-source bucket below is the compensating control, and the rest is accepted as
+//! residual risk. [VLD-ANB-MIDGARD-0019]
 //!
 //! Every login field is bounded before any of this is touched ([`MAX_USERNAME_BYTES`],
 //! [`MAX_PASSWORD_BYTES`], [`MAX_TOTP_CHARS`]), so the names kept here are at most
@@ -30,8 +45,13 @@ pub const FREE_FAILURES: u32 = 5;
 pub const FIRST_LOCKOUT: u64 = 30;
 /// The longest lockout, in seconds.
 pub const MAX_LOCKOUT: u64 = 900;
-/// Seconds without a failure after which a name's count is forgotten.
-pub const FAILURE_WINDOW: u64 = 900;
+/// Seconds without a failure after which a name's count is forgotten. Longer than
+/// [`MAX_LOCKOUT`], so the count outlives the lock it set. [VLD-ANB-MIDGARD-0019]
+pub const FAILURE_WINDOW: u64 = 1_800;
+const _: () = assert!(FAILURE_WINDOW > MAX_LOCKOUT);
+/// Passwords checked at once for one name; a further attempt is refused as busy
+/// rather than queued. [VLD-ANB-MIDGARD-0019]
+pub const MAX_IN_FLIGHT: u32 = 4;
 /// Most names, and most sources, tracked at once. A flood of made-up names evicts the
 /// oldest entries rather than growing without bound.
 pub const MAX_TRACKED: usize = 10_000;
@@ -53,11 +73,37 @@ pub const LOGIN_SOURCE_PER_SEC: f64 = 0.5;
 /// counted onto the next row. [VLD-ANB-MIDGARD-0005]
 pub const SOURCE_RECORD_INTERVAL: u64 = 60;
 
+/// Why [`LoginThrottle::begin_attempt`] refused an attempt before its password was
+/// checked. [VLD-ANB-MIDGARD-0019]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// The name is locked by repeated failures for `retry_after` more seconds.
+    Locked { retry_after: u64 },
+    /// Enough attempts on the name are already being checked; try again in
+    /// `retry_after` seconds. Not a failure.
+    Busy { retry_after: u64 },
+}
+
+/// How a reserved attempt ended, for [`LoginThrottle::finish_attempt`].
+/// [VLD-ANB-MIDGARD-0019]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// The credentials verified: the name starts again from no failures.
+    Success,
+    /// The credentials did not verify: the failure counts towards a lock.
+    Failure,
+    /// Neither: the check could not complete (token issuance failed, say). The slot
+    /// is released and nothing is counted.
+    Error,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Failures {
     count: u32,
     last: u64,
     locked_until: u64,
+    /// Attempts reserved by [`LoginThrottle::begin_attempt`] and not yet finished.
+    in_flight: u32,
     /// The lock (its `locked_until`) whose first throttled attempt is on the ledger.
     recorded_lock: u64,
     /// Throttled attempts kept off the ledger since that one.
@@ -78,12 +124,63 @@ struct SourceRecord {
 pub struct LoginThrottle {
     names: BTreeMap<String, Failures>,
     sources: BTreeMap<String, SourceRecord>,
+    /// Locked entries evicted because every entry was locked.
+    evicted_locked: u64,
 }
 
 impl LoginThrottle {
     /// An empty throttle.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Reserve an attempt on `username` before its password is checked, under the
+    /// same lock as the count it is checked against, so concurrent attempts cannot all
+    /// pass a check made before any of them is recorded. Refused if the name is locked,
+    /// if [`MAX_IN_FLIGHT`] attempts on it are already being checked, or if the
+    /// attempts in flight could already spend its free failures; one attempt at a time
+    /// is still let through once a lock has lapsed, so its failure can lock the name
+    /// again. Every `Ok` must be followed by [`Self::finish_attempt`].
+    /// [VLD-ANB-MIDGARD-0019]
+    pub fn begin_attempt(&mut self, username: &str, now: u64) -> Result<(), Refusal> {
+        if let Some(f) = self.names.get_mut(username) {
+            if now < f.locked_until {
+                return Err(Refusal::Locked {
+                    retry_after: f.locked_until - now,
+                });
+            }
+            if f.in_flight == 0 && now.saturating_sub(f.last) >= FAILURE_WINDOW {
+                f.count = 0;
+            }
+            if f.in_flight >= MAX_IN_FLIGHT
+                || (f.in_flight > 0 && f.count.saturating_add(f.in_flight) > FREE_FAILURES)
+            {
+                // Kept off the ledger, and named on the name's next recorded event.
+                f.suppressed = f.suppressed.saturating_add(1);
+                return Err(Refusal::Busy { retry_after: 1 });
+            }
+            f.in_flight += 1;
+            return Ok(());
+        }
+        self.entry(username, now).in_flight = 1;
+        Ok(())
+    }
+
+    /// Release an attempt reserved by [`Self::begin_attempt`] and record how it ended;
+    /// returns the lockout `username` now carries, in seconds, if this failure locked
+    /// it. [VLD-ANB-MIDGARD-0019]
+    pub fn finish_attempt(&mut self, username: &str, outcome: Outcome, now: u64) -> Option<u64> {
+        if let Some(f) = self.names.get_mut(username) {
+            f.in_flight = f.in_flight.saturating_sub(1);
+        }
+        match outcome {
+            Outcome::Success => {
+                self.record_success(username);
+                None
+            }
+            Outcome::Failure => self.record_failure(username, now),
+            Outcome::Error => None,
+        }
     }
 
     /// Seconds until `username` may try again, or `None` if it may try now.
@@ -97,16 +194,7 @@ impl LoginThrottle {
     /// Record a failed login for `username`; returns the lockout it now carries, in
     /// seconds, if this failure locked it.
     pub fn record_failure(&mut self, username: &str, now: u64) -> Option<u64> {
-        if !self.names.contains_key(username) && self.names.len() >= MAX_TRACKED {
-            self.evict(now);
-        }
-        let f = self.names.entry(username.to_string()).or_insert(Failures {
-            count: 0,
-            last: now,
-            locked_until: 0,
-            recorded_lock: 0,
-            suppressed: 0,
-        });
+        let f = self.entry(username, now);
         if now.saturating_sub(f.last) >= FAILURE_WINDOW {
             f.count = 0;
         }
@@ -121,9 +209,40 @@ impl LoginThrottle {
         Some(lockout)
     }
 
-    /// Record a successful login: `username` starts again from no failures.
+    /// Record a successful login: `username` starts again from no failures. Attempts
+    /// on it still in flight keep their reservations.
     pub fn record_success(&mut self, username: &str) {
-        self.names.remove(username);
+        match self.names.get_mut(username) {
+            Some(f) if f.in_flight > 0 => {
+                f.count = 0;
+                f.locked_until = 0;
+            }
+            Some(_) => {
+                self.names.remove(username);
+            }
+            None => {}
+        }
+    }
+
+    /// Locked entries evicted because every tracked entry was locked; zero unless the
+    /// table has been filled with locks. [VLD-ANB-MIDGARD-0019]
+    pub fn evicted_locked(&self) -> u64 {
+        self.evicted_locked
+    }
+
+    /// `username`'s entry, made if absent (evicting first if the table is full).
+    fn entry(&mut self, username: &str, now: u64) -> &mut Failures {
+        if !self.names.contains_key(username) && self.names.len() >= MAX_TRACKED {
+            self.evict(now);
+        }
+        self.names.entry(username.to_string()).or_insert(Failures {
+            count: 0,
+            last: now,
+            locked_until: 0,
+            in_flight: 0,
+            recorded_lock: 0,
+            suppressed: 0,
+        })
     }
 
     /// Note a login refused because `username` is locked: `true` if it is the lock's
@@ -201,21 +320,40 @@ impl LoginThrottle {
         }
     }
 
-    /// Drop every name whose count has lapsed; if none has, the one idle longest.
+    /// Drop every name whose count has lapsed. If none has, drop the unlocked name idle
+    /// longest (one with no attempt in flight before one with); only if every name is
+    /// locked, the one whose lock ends soonest, counted in `evicted_locked`. A live
+    /// lock is never cleared for its age. [VLD-ANB-MIDGARD-0019]
     fn evict(&mut self, now: u64) {
         let before = self.names.len();
-        self.names
-            .retain(|_, f| now < f.locked_until || now.saturating_sub(f.last) < FAILURE_WINDOW);
-        if self.names.len() == before {
-            if let Some(oldest) = self
-                .names
-                .iter()
-                .min_by_key(|(_, f)| f.last)
-                .map(|(name, _)| name.clone())
-            {
-                self.names.remove(&oldest);
-            }
+        self.names.retain(|_, f| {
+            now < f.locked_until || f.in_flight > 0 || now.saturating_sub(f.last) < FAILURE_WINDOW
+        });
+        if self.names.len() < before {
+            return;
         }
+        let unlocked = self
+            .names
+            .iter()
+            .filter(|(_, f)| now >= f.locked_until)
+            .min_by_key(|(_, f)| (f.in_flight > 0, f.last))
+            .map(|(name, _)| name.clone());
+        let victim = match unlocked {
+            Some(name) => name,
+            None => {
+                let Some(soonest) = self
+                    .names
+                    .iter()
+                    .min_by_key(|(_, f)| f.locked_until)
+                    .map(|(name, _)| name.clone())
+                else {
+                    return;
+                };
+                self.evicted_locked += 1;
+                soonest
+            }
+        };
+        self.names.remove(&victim);
     }
 }
 
@@ -330,5 +468,171 @@ mod tests {
             t.note_source_throttled(&format!("source-{i}"), T + SOURCE_RECORD_INTERVAL);
         }
         assert!(t.sources.len() <= MAX_TRACKED);
+    }
+
+    #[test]
+    fn a_locked_name_survives_a_flood_of_new_names() {
+        // [VLD-ANB-MIDGARD-0019] [AC-12.2]
+        let mut t = LoginThrottle::new();
+        for _ in 0..=FREE_FAILURES {
+            t.begin_attempt("victim", T).unwrap();
+            t.finish_attempt("victim", Outcome::Failure, T);
+        }
+        assert!(t.retry_after("victim", T).is_some());
+        for i in 0..20_000 {
+            let name = format!("guess-{i}");
+            t.begin_attempt(&name, T).unwrap();
+            t.finish_attempt(&name, Outcome::Failure, T);
+        }
+        assert!(t.names.len() <= MAX_TRACKED);
+        assert!(
+            t.retry_after("victim", T).is_some(),
+            "the flood did not clear the lock"
+        );
+        assert_eq!(t.evicted_locked(), 0);
+    }
+
+    #[test]
+    fn when_every_entry_is_locked_the_soonest_expiring_goes_first() {
+        // [VLD-ANB-MIDGARD-0019] [AC-12.2]
+        let mut t = LoginThrottle::new();
+        // "early" fails first, so it has the oldest `last`, but holds the longest lock.
+        for _ in 0..FREE_FAILURES + 3 {
+            t.record_failure("early", T);
+        }
+        for i in 1..MAX_TRACKED {
+            for _ in 0..=FREE_FAILURES {
+                t.record_failure(&format!("locked-{i}"), T + 1);
+            }
+        }
+        // "soonest" is locked last, at the first lockout, which ends before any other.
+        t.names.remove("locked-1");
+        for _ in 0..=FREE_FAILURES {
+            t.record_failure("soonest", T);
+        }
+        assert_eq!(t.names.len(), MAX_TRACKED);
+
+        t.record_failure("newcomer", T + 2);
+        assert_eq!(t.evicted_locked(), 1);
+        assert!(t.retry_after("soonest", T + 2).is_none(), "evicted");
+        assert!(
+            t.retry_after("early", T + 2).is_some(),
+            "not evicted for age"
+        );
+        assert!(t.retry_after("locked-2", T + 2).is_some());
+    }
+
+    #[test]
+    fn concurrent_attempts_are_reserved_on_entry() {
+        // [VLD-ANB-MIDGARD-0019] [AC-12.1] [AC-12.4]
+        let mut t = LoginThrottle::new();
+        for i in 0..MAX_IN_FLIGHT {
+            assert_eq!(t.begin_attempt("olivia", T), Ok(()), "attempt {i}");
+        }
+        assert_eq!(
+            t.begin_attempt("olivia", T),
+            Err(Refusal::Busy { retry_after: 1 }),
+            "no more than MAX_IN_FLIGHT at once"
+        );
+        for _ in 0..MAX_IN_FLIGHT {
+            assert_eq!(t.finish_attempt("olivia", Outcome::Failure, T), None);
+        }
+        // Four failures counted: two more may be checked at once, the free failure and
+        // the one that would lock, and no third.
+        assert_eq!(t.begin_attempt("olivia", T), Ok(()));
+        assert_eq!(t.begin_attempt("olivia", T), Ok(()));
+        assert_eq!(
+            t.begin_attempt("olivia", T),
+            Err(Refusal::Busy { retry_after: 1 }),
+            "the attempts in flight could already spend the free failures"
+        );
+        assert_eq!(t.finish_attempt("olivia", Outcome::Failure, T), None);
+        assert_eq!(
+            t.finish_attempt("olivia", Outcome::Failure, T),
+            Some(FIRST_LOCKOUT),
+            "the sixth failure locks"
+        );
+        assert_eq!(
+            t.begin_attempt("olivia", T + 1),
+            Err(Refusal::Locked {
+                retry_after: FIRST_LOCKOUT - 1
+            })
+        );
+
+        // Once the lock lapses one attempt at a time is checked, and its failure locks
+        // the name again.
+        let lapsed = T + FIRST_LOCKOUT;
+        assert_eq!(t.begin_attempt("olivia", lapsed), Ok(()));
+        assert_eq!(
+            t.begin_attempt("olivia", lapsed),
+            Err(Refusal::Busy { retry_after: 1 })
+        );
+        assert_eq!(
+            t.finish_attempt("olivia", Outcome::Failure, lapsed),
+            Some(2 * FIRST_LOCKOUT)
+        );
+    }
+
+    #[test]
+    fn an_error_outcome_releases_the_slot_without_counting() {
+        // [VLD-ANB-MIDGARD-0019] [AC-12.4]
+        let mut t = LoginThrottle::new();
+        for _ in 0..MAX_IN_FLIGHT {
+            t.begin_attempt("olivia", T).unwrap();
+        }
+        for _ in 0..MAX_IN_FLIGHT {
+            assert_eq!(t.finish_attempt("olivia", Outcome::Error, T), None);
+        }
+        // Nothing was counted: all the free failures are still there.
+        for i in 0..FREE_FAILURES {
+            t.begin_attempt("olivia", T).unwrap();
+            assert_eq!(
+                t.finish_attempt("olivia", Outcome::Failure, T),
+                None,
+                "failure {i}"
+            );
+        }
+        t.begin_attempt("olivia", T).unwrap();
+        assert_eq!(
+            t.finish_attempt("olivia", Outcome::Failure, T),
+            Some(FIRST_LOCKOUT)
+        );
+    }
+
+    #[test]
+    fn a_success_keeps_the_reservations_still_in_flight() {
+        // [VLD-ANB-MIDGARD-0019]
+        let mut t = LoginThrottle::new();
+        t.begin_attempt("olivia", T).unwrap();
+        t.begin_attempt("olivia", T).unwrap();
+        t.finish_attempt("olivia", Outcome::Success, T);
+        t.finish_attempt("olivia", Outcome::Failure, T);
+        assert_eq!(t.names["olivia"].in_flight, 0);
+        assert_eq!(t.names["olivia"].count, 1, "counted from the success");
+        t.record_success("olivia");
+        assert_eq!(t.tracked(), 0, "nothing in flight: the entry goes");
+    }
+
+    #[test]
+    fn the_count_outlives_the_longest_lock() {
+        // [VLD-ANB-MIDGARD-0019] [AC-12.3]
+        let mut t = LoginThrottle::new();
+        let mut lockout = None;
+        while lockout != Some(MAX_LOCKOUT) {
+            lockout = t.record_failure("olivia", T);
+        }
+        let lapsed = T + MAX_LOCKOUT + 1;
+        assert_eq!(t.retry_after("olivia", lapsed), None, "the lock lapsed");
+        assert_eq!(
+            t.record_failure("olivia", lapsed),
+            Some(MAX_LOCKOUT),
+            "the count persisted, so the next failure locks again at once"
+        );
+        let quiet = lapsed + FAILURE_WINDOW;
+        assert_eq!(
+            t.record_failure("olivia", quiet),
+            None,
+            "after a quiet window the count has lapsed"
+        );
     }
 }
