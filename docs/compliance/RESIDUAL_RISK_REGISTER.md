@@ -123,8 +123,6 @@ exercised by tests, and the Admin console renders fixtures (RF-AD-1).
 |--------|------|
 | MITIGATED | 5 |
 | PARTIAL | 16 |
-| MITIGATED | 6 |
-| PARTIAL | 15 |
 | ACCEPTED | 17 |
 | OPEN | 1 |
 | **Total** | **39** |
