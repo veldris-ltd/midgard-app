@@ -310,7 +310,7 @@ A guarded-action orchestrator that makes a mutating admin action one transaction
 
 ### `break-glass` (reference)
 
-Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. Grants are time-boxed to at most four hours, the approver must differ from the principal, and review or close revokes the capability at once. It takes two people: the requester and a different approver, each signed in with their own passkey and each holding the role that entitles them (the approver a security officer), and both identities are sealed into the audit ledger.
+Break-glass access: a scoped, time-boxed elevation that alerts a security officer, expires by itself and is audited throughout. It takes two people: the requester and a different approver, each signed in with their own passkey and each holding the role that entitles them (the approver a security officer), and both identities are sealed into the audit ledger.
 
 **Until it is operable, say:** "Break-glass alerting with durable, at-least-once delivery, and two-person approval between passkey-authenticated administrators, are implemented and tested as a library (AC-AD-8). The admin console is a design-complete interface running on fixture data; it is not connected to a backend."
 
@@ -320,14 +320,9 @@ Break-glass access: a scoped, time-boxed elevation that alerts a security office
 - Source:
   - [`admin/breakglass/src/alert.rs:84`](../../admin/breakglass/src/alert.rs)
   - [`admin/breakglass/src/service.rs:1`](../../admin/breakglass/src/service.rs)
-  - [`admin/breakglass/src/service.rs:20`](../../admin/breakglass/src/service.rs)
-  - [`admin/breakglass/src/controller.rs:131`](../../admin/breakglass/src/controller.rs)
 - Tests:
   - [`admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage`](../../admin/breakglass/tests/rc_32.rs)
-  - [`admin/breakglass/tests/ac_ad_8.rs::a_ttl_above_the_ceiling_is_refused`](../../admin/breakglass/tests/ac_ad_8.rs)
-  - [`admin/breakglass/tests/rc_32.rs::review_revokes_the_capability_immediately`](../../admin/breakglass/tests/rc_32.rs)
-  - [`admin/breakglass/tests/rc_32.rs::close_revokes_and_audits`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::the_requester_cannot_approve_their_own_break_glass`](../../admin/breakglass/tests/mg_sec_07.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::an_unauthenticated_approver_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::a_valid_two_person_grant_records_both_identities_in_the_ledger`](../../admin/breakglass/tests/mg_sec_07.rs)
@@ -669,19 +664,15 @@ Decision support: ranked options, each cited and grounded against the picture, a
 
 One shared client core in Rust: sealed local edits, clearance checks, and conflict-free sync that converges after a disconnection.
 
-**Limit.** The software keystore reports the NonExtractable floor only; higher floors require a platform keystore.
-
 **Until it is operable, say:** "A shared client core with sealed edits, conflict-free sync and tiered inference is implemented and tested as a library. It keeps its state in memory, and no application is built on it."
 
 **Milestone.** Client-side persistence and language bindings (RF-PER-5, RF-CL-1).
 
 - Criteria: AC-C-6, AC-C-10
 - Source:
-  - [`clients/core/src/lib.rs:53`](../../clients/core/src/lib.rs)
+  - [`clients/core/src/lib.rs:48`](../../clients/core/src/lib.rs)
 - Tests:
   - [`clients/core/tests/one_core.rs::two_cores_converge_on_reconnect`](../../clients/core/tests/one_core.rs)
-  - [`clients/core/tests/one_core.rs::the_core_is_generic_over_the_keystore`](../../clients/core/tests/one_core.rs)
-  - [`clients/store/tests/at_rest_and_clearance.rs::the_software_keystore_cannot_claim_a_hardware_floor`](../../clients/store/tests/at_rest_and_clearance.rs)
   - [`clients/sync/tests/convergence.rs::all_permutations_converge_and_are_idempotent`](../../clients/sync/tests/convergence.rs)
   - [`clients/inference/tests/rc_57.rs::tier2_request_delegates_over_real_pqmtls`](../../clients/inference/tests/rc_57.rs)
 - Stated at:
