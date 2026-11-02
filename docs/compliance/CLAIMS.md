@@ -214,10 +214,10 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 
 An action the ontology marks as human-gated is refused at the edge unless the request carries a human-gate token, and actions are gated unless the ontology says otherwise.
 
-**Limit.** The edge accepts any non-empty token: it does not yet check that the token is a named person's authorisation (RF-UID-3).
+**Limit.** The token must be an approval that redeemable() accepts: decided by a principal other than the requester, of this action on this object, unexpired (15 minutes), redeemed once and only by its requester. Not covered: any other signed-in principal whose policy grants Approve can decide it, with no fresh second factor at the moment of approval, and approvals live in memory, so a gateway restart drops pending and approved ones (RF-UID-3).
 
 - Source:
-  - [`services/http-gateway/src/enclosure.rs:375`](../../services/http-gateway/src/enclosure.rs)
+  - [`services/http-gateway/src/enclosure.rs:606:fn redeemable`](../../services/http-gateway/src/enclosure.rs)
 - Tests:
   - [`services/http-gateway/tests/fabric_edge.rs::a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing`](../../services/http-gateway/tests/fabric_edge.rs)
 - Service tests:
@@ -265,6 +265,8 @@ WebAuthn assertion verification, a JWKS endpoint and federation with an enterpri
 ### `policy-decisions` (operable)
 
 Access is denied unless a written rule grants it: role, marking and purpose must all match, and mandatory access control is evaluated first. A decision can be dry-run at the edge, and the dry-run is signed and audited.
+
+**Limit.** Marking and purpose are evaluated per request at the HTTP edge (the gateway's policy decision point). On the service mesh, a PQ-mTLS channel is authorised once, at the handshake, on the peer's certified identity and purpose; messages on an open channel are not checked per marking, which is tracked by its own finding.
 
 - Source:
   - [`services/runtime/src/policy_file.rs:1`](../../services/runtime/src/policy_file.rs)
@@ -347,12 +349,12 @@ Signed, versioned configuration with diff and rollback, and a reconciler that de
 
 Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin and Clients.
 
-**Until it is operable, say:** "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
+**Until it is operable, say:** "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data under a demonstration banner, because their services expose no console routes."
 
 **Milestone.** Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2).
 
 - Source:
-  - [`products/admin/ui/src/main.tsx:17`](../../products/admin/ui/src/main.tsx)
+  - [`products/admin/ui/src/main.tsx:33:new AdminMock`](../../products/admin/ui/src/main.tsx)
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
@@ -575,15 +577,14 @@ bifrost-fleet records each installation's version, liveness and drift from its c
 
 Ring-by-ring rollout with health gates between rings and automatic rollback, without downtime.
 
-**Until it is operable, say:** "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (AC-M-7, AC-B-2). Deployed services run one replica each and restart on their recovered state (RC-40.1); upgrading one interrupts it."
+**Until it is operable, say:** "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (AC-M-7, AC-B-2). Only roll_out_live observes availability, from live install counts; the roll_out model reports the fleet size by construction and is not evidence of zero downtime. Deployed services run one replica each and restart on their recovered state (RC-40.1); upgrading one interrupts it."
 
 **Milestone.** RF-CA-9, after the replica-model decision: the fleet manager drives a rollout against real agents (RF-B-2, RF-B-3).
 
 - Criteria: AC-M-7, AC-B-2
 - Source:
-  - [`bifrost/rollout/src/orchestrator.rs:101`](../../bifrost/rollout/src/orchestrator.rs)
+  - [`bifrost/rollout/src/orchestrator.rs:160:fn roll_out_live`](../../bifrost/rollout/src/orchestrator.rs)
 - Tests:
-  - [`bifrost/rollout/tests/rollout.rs::ac_b_2_broad_ring_gate_failure_rolls_back_automatically_no_downtime`](../../bifrost/rollout/tests/rollout.rs)
   - [`services/scheduler/tests/rollout_real.rs::rolling_upgrade_serves_every_request_with_real_replicas`](../../services/scheduler/tests/rollout_real.rs)
 - Stated at:
   - [`docs/releases/v0.1.0-rc.1.md:119`](../../docs/releases/v0.1.0-rc.1.md)
@@ -839,7 +840,7 @@ Personal data can be erased and exported per subject, and each durable store enf
 - Source:
   - [`docs/compliance/RETENTION.md:1`](../../docs/compliance/RETENTION.md)
   - [`services/iam/src/directory.rs:67`](../../services/iam/src/directory.rs)
-  - [`docs/compliance/DATA_RESIDENCY.md:57`](../../docs/compliance/DATA_RESIDENCY.md)
+  - [`docs/compliance/DATA_RESIDENCY.md:57:Act as data controller`](../../docs/compliance/DATA_RESIDENCY.md)
 
 ## Outside this repository
 

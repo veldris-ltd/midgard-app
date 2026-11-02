@@ -54,13 +54,18 @@ are, so cross-border transfer never happens without their action.
 - Choose deployment sites to satisfy residency obligations.
 - Configure any cross-node replication/DR only between sites in acceptable
   jurisdictions.
-- Act as data controller for personal data; Midgard provides the processor-side
-  technical controls: access control, encryption at rest and in transit, and an
-  immutable audit trail; retention is documented in
-  [RETENTION.md](RETENTION.md) and subject erasure and export are not yet implemented
-  (follow-on work package). The durable stores are append-only: a subject's records
+- Act as data controller for personal data. The processor-side technical controls
+  Midgard provides are access control (deny-by-default policy, clearance and
+  compartments), encryption at rest and in transit, and an immutable, signed audit
+  trail. It provides no deletion path: retention enforcement, subject erasure and
+  subject export are tracked by the retention work package and are not yet available.
+  [RETENTION.md](RETENTION.md) states the retention targets and the controller's
+  obligations until then. The durable stores are append-only: a subject's records
   cannot be removed from them today, and a password change leaves the earlier hash in
-  the directory's journal. [VLD-ANB-MIDGARD-0070]
+  the directory's journal. [VLD-ANB-MIDGARD-0070] [VLD-ANB-MIDGARD-0087]
+- Treat the published sample data as evaluation data: its personal-data screening is
+  [DATA_PROTECTION_SCREENING.md](DATA_PROTECTION_SCREENING.md), and data loaded or fed
+  into a deployment is the operator's to assess. [VLD-ANB-MIDGARD-0074]
 - On Kubernetes, keep the enclosure's keystores, passphrases and seeds out of etcd
   (the chart's `csi` or `externalSecrets` provider), or encrypt etcd at rest with a KMS
   v2 provider before using Kubernetes Secrets; an etcd backup is a copy of every Secret

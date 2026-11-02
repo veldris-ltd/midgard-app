@@ -314,6 +314,18 @@ CONTRIBUTING.md for the version policy.
   console runs on built-in sample data and is not connected to an enclosure.") and
   load their mock the same way, so moving one to http is its `mode` line.
   [VLD-ANB-MIDGARD-0086]
+- **The compliance documents match the code (WP-25 C).** `human-gated-actions` cites
+  `redeemable()` and states what it does not cover (any other principal the policy lets
+  approve can decide, with no fresh second factor; approvals are in memory);
+  `bifrost-rollout` cites `roll_out_live` and no longer counts the `roll_out` model's
+  nominal `min_available` as zero-downtime evidence; `policy-decisions` scopes marking
+  and purpose to the HTTP edge. The risk register no longer says the edge accepts any
+  non-empty token. DATA_RESIDENCY lists the controls that exist and says retention,
+  erasure and export are not yet available; BACKUP_RESTORE says custody is the version 2
+  software keystore and no HSM or TPM holds the root; RETENTION lists the parked
+  enrolments journal and what WP-15 changes about it. `claims.sh --check` accepts
+  `path:line:token` anchors and fails when the line stops containing the token.
+  [VLD-ANB-MIDGARD-0087]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator

@@ -12,7 +12,8 @@
 #   status         spec | reference | operable | production | external
 #   limit          what the claim does not cover (optional)
 #   criteria       acceptance criterion ids the claim maps to
-#   evidence       source paths, with a line anchor where one helps
+#   evidence       source paths, with a line anchor where one helps; path:line:token also
+#                  requires the line to contain token
 #   tests          path::test_name, the #[test] functions that exercise it
 #   service_tests  for operable and above: path.sh:line, a step of a script that drives
 #                  the running services, or path::test_name, a test that starts a service
@@ -129,7 +130,7 @@ area = "Core: fabric, identity and governance"
 claim = "An action the ontology marks as human-gated runs only with an approval that a second person granted to this requester for this action on this object, unexpired and unused; request, decision and redemption are bound in the signed ledger by approval id, requester, approver and target, and approvals survive a restart."
 status = "operable"
 limit = "Approvals are bounded (256 total, 16 open per requester, pending entries expire after 24 hours); a full queue refuses new requests with 429."
-evidence = ["services/http-gateway/src/enclosure.rs:987", "services/http-gateway/src/enclosure.rs:750"]
+evidence = ["services/http-gateway/src/enclosure.rs:987", "services/http-gateway/src/enclosure.rs:750", "services/http-gateway/src/enclosure.rs:606:fn redeemable"]
 tests = ["services/http-gateway/tests/fabric_edge.rs::a_gated_action_without_a_human_gate_token_is_refused_and_changes_nothing", "services/http-gateway/tests/fabric_edge.rs::an_approval_is_bound_to_its_requester_action_and_object_and_redeems_once", "services/http-gateway/tests/fabric_edge.rs::the_ledger_binds_request_decision_and_redemption_to_the_approval", "services/http-gateway/tests/fabric_edge.rs::pending_and_approved_gates_are_not_evicted_by_a_flood_of_requests", "services/http-gateway/tests/fabric_edge.rs::a_pending_approval_expires_and_is_audited", "services/http-gateway/tests/durable_enclosure.rs::approvals_survive_a_restart_and_redeem_once"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip"]
 stated_in = ["docs/launch/pipeline/build-deck.js:333"]
@@ -228,9 +229,9 @@ id = "consoles"
 area = "Admin"
 claim = "Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin and Clients."
 status = "reference"
-evidence = ["products/admin/ui/src/main.tsx:17"]
+evidence = ["products/admin/ui/src/main.tsx:33:new AdminMock"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
-fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
+fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data under a demonstration banner, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
 stated_in = ["README.md:816", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544", "README.md:812", "CHANGELOG.md:112", "README.md:824", "README.md:814", "CHANGELOG.md:116"]
 
@@ -386,9 +387,9 @@ area = "Bifrost"
 claim = "Ring-by-ring rollout with health gates between rings and automatic rollback, without downtime."
 status = "reference"
 criteria = ["AC-M-7", "AC-B-2"]
-evidence = ["bifrost/rollout/src/orchestrator.rs:101"]
-tests = ["bifrost/rollout/tests/rollout.rs::ac_b_2_broad_ring_gate_failure_rolls_back_automatically_no_downtime", "services/scheduler/tests/rollout_real.rs::rolling_upgrade_serves_every_request_with_real_replicas"]
-fallback = "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (AC-M-7, AC-B-2). Deployed services run one replica each and restart on their recovered state (RC-40.1); upgrading one interrupts it."
+evidence = ["bifrost/rollout/src/orchestrator.rs:160:fn roll_out_live"]
+tests = ["services/scheduler/tests/rollout_real.rs::rolling_upgrade_serves_every_request_with_real_replicas"]
+fallback = "Rolling and blue-green upgrade logic with health-gated rollback is implemented and tested as a library (AC-M-7, AC-B-2). Only roll_out_live observes availability, from live install counts; the roll_out model reports the fleet size by construction and is not evidence of zero downtime. Deployed services run one replica each and restart on their recovered state (RC-40.1); upgrading one interrupts it."
 milestone = "RF-CA-9, after the replica-model decision: the fleet manager drives a rollout against real agents (RF-B-2, RF-B-3)."
 stated_in = ["docs/releases/v0.1.0-rc.1.md:119", "docs/launch/pipeline/build-deck.js:545"]
 
@@ -560,7 +561,7 @@ area = "Deployment and operations"
 claim = "Personal data can be erased and exported per subject, and each durable store enforces a retention period: the directory, object and dataset journals seal each record under its own data key, erasure destroys the key and leaves a tombstone, and compaction drops shredded records."
 status = "spec"
 limit = "The audit ledger is immutable by design and is not subject to erasure."
-evidence = ["docs/compliance/RETENTION.md:1", "services/iam/src/directory.rs:67", "docs/compliance/DATA_RESIDENCY.md:57"]
+evidence = ["docs/compliance/RETENTION.md:1", "services/iam/src/directory.rs:67", "docs/compliance/DATA_RESIDENCY.md:57:Act as data controller"]
 fallback = "Every durable store is an append-only sealed journal: access control, encryption at rest and in transit and an immutable audit trail are provided, but no record is deleted, compacted or exported, and a replaced record (such as an earlier password hash) stays in the journal. Retention targets are documented in docs/compliance/RETENTION.md and are not enforced; subject erasure and export are not implemented."
 milestone = "The follow-on to ANUBIS WP-29: per-record data keys with crypto-shred tombstones for the directory, object and dataset journals, then erasure, export and retention through mg-admin (VLD-ANB-MIDGARD-0070)."
 
