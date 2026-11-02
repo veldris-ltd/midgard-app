@@ -334,6 +334,11 @@ CONTRIBUTING.md for the version policy.
   publishes `deploy/trust/allowed_signers` and authors sign, the job fails every
   change; the owner enables the required-signatures rule on `main`.
   [VLD-ANB-MIDGARD-0088]
+- **Gitleaks suppressions are scoped to a file (WP-25 E).** `.gitleaks.toml` has no
+  global stopword list: each of the four prose literals is allowed only in the one file
+  it occurs in (`condition = "AND"`), and the two fixture tokens of a branch outside
+  this tree are gone; that branch adds its own scoped entry when it merges.
+  [VLD-ANB-MIDGARD-0089]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator

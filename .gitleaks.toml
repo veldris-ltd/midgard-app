@@ -23,29 +23,37 @@ is not ours to edit.
 """
 paths = ['''^vendor/''']
 
+# The default `generic-api-key` rule is keyword-proximity based: it flags a slash-joined
+# token that happens to follow a word like "secret", "credential", "token" or "api". The
+# four entries below are English prose and product names, not secrets. Each pairs the
+# literal with the one file it occurs in (condition AND), so the same literal anywhere
+# else, or any other value in that file, still fails the scan. There is no global
+# stopword list: a stopword would suppress a real secret containing it in any file.
+# [ASVS V14.3] (VLD-ANB-MIDGARD-0089) [AC-25.5]
+
 [[allowlists]]
-description = """
-The default `generic-api-key` rule is keyword-proximity based: it flags a
-slash-joined token that happens to follow a word like "secret", "credential",
-"token" or "api". These four matches are English prose and product names, not
-secrets. Listed literally so any other high-entropy value in the same files
-still fails the scan.
-"""
-stopwords = [
-  # BUILD_PLAYBOOK.md — "…Keychain, Keystore, TPM/DPAPI, Secret Service, WebCrypto/enclave…"
-  "WebCrypto/enclave",
-  # admin/identity/src/error.rs — "…wrong credential, forged/absent signature…"
-  "forged/absent",
-  # SAD_02b — "…Gemma template/tokenizer, GGUF/quantised formats…"
-  "GGUF/quantised",
-  # SAD_02b — "…behind the existing inference API, Forge/Bifrost/Heimdall are unchanged…"
-  "Forge/Bifrost/Heimdall",
-  # Fixture tokens in tests on branch md_mixedfeeds_3d, which CI scans with every
-  # branch: tools/mac-app/test_prepare_answers.py and, asserting that a session never
-  # prints its token, apps/mac/Tests/MidgardShellCoreTests/SessionTests.swift.
-  "tok-abcdef-123456",
-  "tok-SECRET-123",
-]
+description = "BUILD_PLAYBOOK.md: '...Keychain, Keystore, TPM/DPAPI, Secret Service, WebCrypto/enclave...'"
+condition = "AND"
+paths = ['''^BUILD_PLAYBOOK\.md$''']
+regexes = ['''WebCrypto/enclave''']
+
+[[allowlists]]
+description = "admin/identity/src/error.rs: '...wrong credential, forged/absent signature...'"
+condition = "AND"
+paths = ['''^admin/identity/src/error\.rs$''']
+regexes = ['''forged/absent''']
+
+[[allowlists]]
+description = "SAD_02b: '...Gemma template/tokenizer, GGUF/quantised formats...'"
+condition = "AND"
+paths = ['''^docs/dev/markdown/SAD_02b_Mimir_Model_Supply_Resolution\.md$''']
+regexes = ['''GGUF/quantised''']
+
+[[allowlists]]
+description = "SAD_02b: '...behind the existing inference API, Forge/Bifrost/Heimdall are unchanged...'"
+condition = "AND"
+paths = ['''^docs/dev/markdown/SAD_02b_Mimir_Model_Supply_Resolution\.md$''']
+regexes = ['''Forge/Bifrost/Heimdall''']
 
 [[allowlists]]
 description = """
