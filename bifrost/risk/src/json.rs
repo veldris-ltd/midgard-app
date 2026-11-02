@@ -76,12 +76,18 @@ impl JsonValue {
     }
 }
 
+/// Deepest nesting [`parse`] accepts: 64 nested arrays or objects parse, 65 are
+/// refused, and objects and arrays share one count. The parser recurses once per
+/// level, so the bound keeps hostile model output from exhausting the stack. The same
+/// number bounds every hand-rolled parser in the workspace. [VLD-ANB-MIDGARD-0006]
+const MAX_DEPTH: usize = 64;
+
 /// Parse a JSON document, returning the root value or an error message.
 pub fn parse(input: &str) -> Result<JsonValue, String> {
     let bytes = input.as_bytes();
     let mut p = Parser { bytes, pos: 0 };
     p.skip_ws();
-    let v = p.value()?;
+    let v = p.value(1)?;
     p.skip_ws();
     if p.pos != bytes.len() {
         return Err(format!("trailing content at byte {}", p.pos));
@@ -109,11 +115,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn value(&mut self) -> Result<JsonValue, String> {
+    fn value(&mut self, depth: usize) -> Result<JsonValue, String> {
+        if depth > MAX_DEPTH {
+            return Err(format!("nesting deeper than {MAX_DEPTH} levels"));
+        }
         self.skip_ws();
         match self.peek() {
-            Some(b'{') => self.object(),
-            Some(b'[') => self.array(),
+            Some(b'{') => self.object(depth),
+            Some(b'[') => self.array(depth),
             Some(b'"') => Ok(JsonValue::Str(self.string()?)),
             Some(b't') | Some(b'f') => self.boolean(),
             Some(b'n') => self.null(),
@@ -122,7 +131,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn object(&mut self) -> Result<JsonValue, String> {
+    fn object(&mut self, depth: usize) -> Result<JsonValue, String> {
         self.pos += 1; // '{'
         let mut entries = Vec::new();
         self.skip_ws();
@@ -138,7 +147,7 @@ impl<'a> Parser<'a> {
                 return Err(format!("expected ':' at byte {}", self.pos));
             }
             self.pos += 1;
-            let val = self.value()?;
+            let val = self.value(depth + 1)?;
             entries.push((key, val));
             self.skip_ws();
             match self.peek() {
@@ -161,7 +170,7 @@ impl<'a> Parser<'a> {
         Ok(JsonValue::Obj(entries))
     }
 
-    fn array(&mut self) -> Result<JsonValue, String> {
+    fn array(&mut self, depth: usize) -> Result<JsonValue, String> {
         self.pos += 1; // '['
         let mut items = Vec::new();
         self.skip_ws();
@@ -170,7 +179,7 @@ impl<'a> Parser<'a> {
             return Ok(JsonValue::Arr(items));
         }
         loop {
-            let val = self.value()?;
+            let val = self.value(depth + 1)?;
             items.push(val);
             self.skip_ws();
             match self.peek() {
@@ -294,5 +303,19 @@ fn utf8_len(b: u8) -> usize {
         3
     } else {
         4
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [VLD-ANB-MIDGARD-0006] [AC-30.3]
+    #[test]
+    fn nesting_past_the_limit_is_refused() {
+        let at_limit = "[".repeat(MAX_DEPTH) + &"]".repeat(MAX_DEPTH);
+        assert!(parse(&at_limit).is_ok());
+        let err = parse(&"[".repeat(100_000)).unwrap_err();
+        assert!(err.contains("nesting deeper"), "{err}");
     }
 }

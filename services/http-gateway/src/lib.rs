@@ -877,9 +877,22 @@ where
     serve_listener(TcpListener::bind(addr)?, gw)
 }
 
+/// The stack each connection thread is given, stated rather than left to the platform
+/// default. The request parser's nesting bound ([`json::MAX_DEPTH`]) is sized against
+/// it: a body nested to the bound parses in a small fraction of this, and one nested
+/// deeper is refused before it can overflow the stack and abort the process.
+/// [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
+const EDGE_THREAD_STACK: usize = 2 * 1024 * 1024;
+
 /// Serve `gw` on a bound listener until the process is killed, naming the address it
-/// actually listens on (a port of 0 binds an ephemeral one).
-fn serve_listener<S, L>(listener: TcpListener, gw: Arc<SecuredGateway<S, L>>) -> std::io::Result<()>
+/// actually listens on (a port of 0 binds an ephemeral one). Each connection is served
+/// on its own named thread with an explicit stack; a thread that cannot be created —
+/// a process or PID limit reached — is logged and its connection dropped, and the
+/// accept loop carries on. [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
+pub fn serve_listener<S, L>(
+    listener: TcpListener,
+    gw: Arc<SecuredGateway<S, L>>,
+) -> std::io::Result<()>
 where
     S: ObjectStore + Send + 'static,
     L: LedgerStore + Send + 'static,
@@ -892,11 +905,18 @@ where
         match stream {
             Ok(stream) => {
                 let gw = Arc::clone(&gw);
-                thread::spawn(move || {
-                    if let Err(e) = handle_connection(stream, &gw) {
-                        eprintln!("http-gateway: connection error: {e}");
-                    }
-                });
+                let spawned = thread::Builder::new()
+                    .name("http-edge".into())
+                    .stack_size(EDGE_THREAD_STACK)
+                    .spawn(move || {
+                        if let Err(e) = handle_connection(stream, &gw) {
+                            eprintln!("http-gateway: connection error: {e}");
+                        }
+                    });
+                // The closure, and the stream it owns, is dropped with the error.
+                if let Err(e) = spawned {
+                    eprintln!("http-gateway: cannot spawn connection thread: {e}");
+                }
             }
             Err(e) => eprintln!("http-gateway: accept error: {e}"),
         }

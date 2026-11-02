@@ -183,3 +183,17 @@ fn an_import_never_replaces_an_object_or_links_to_nothing() {
         "both ends already in the store"
     );
 }
+
+#[test]
+fn a_record_line_nested_past_the_limit_refuses_the_file() {
+    // [VLD-ANB-MIDGARD-0006] [AC-30.5]
+    let nested = "[".repeat(200) + &"]".repeat(200);
+    let text = format!("{GOOD}{nested}\n");
+    let bad_line = text.lines().count();
+    let error = parse_import(&text, &ontology()).expect_err("too deep to import");
+    assert!(
+        error.starts_with(&format!("import refused: line {bad_line}")),
+        "{error}"
+    );
+    assert!(error.contains("nesting deeper"), "{error}");
+}

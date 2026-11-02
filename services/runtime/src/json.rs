@@ -144,6 +144,15 @@ fn write_escaped(s: &str, out: &mut String) {
 
 // --- parsing (request bodies) ---
 
+/// Deepest nesting [`parse`] accepts: 64 nested arrays or objects parse, 65 are
+/// refused, and objects and arrays share one count. The parser recurses once per
+/// level, so without this bound a request body of brackets would exhaust the stack of
+/// the thread parsing it — the gateway's connection threads are sized against it —
+/// and a stack overflow aborts the whole process. No deployment file is deeper than
+/// eight levels. The same number bounds every hand-rolled parser in the workspace.
+/// [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
+pub const MAX_DEPTH: usize = 64;
+
 /// Parse a JSON document. Permissive enough for the small request bodies the
 /// console UIs send (objects of strings/numbers/bools/arrays/nested objects).
 pub fn parse(input: &str) -> Result<Json, String> {
@@ -152,7 +161,7 @@ pub fn parse(input: &str) -> Result<Json, String> {
         i: 0,
     };
     p.ws();
-    let v = p.value()?;
+    let v = p.value(1)?;
     p.ws();
     if p.i != p.b.len() {
         return Err("trailing characters after JSON value".into());
@@ -180,11 +189,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn value(&mut self) -> Result<Json, String> {
+    fn value(&mut self, depth: usize) -> Result<Json, String> {
+        if depth > MAX_DEPTH {
+            return Err(format!("nesting deeper than {MAX_DEPTH} levels"));
+        }
         self.ws();
         match self.peek() {
-            Some(b'{') => self.object(),
-            Some(b'[') => self.array(),
+            Some(b'{') => self.object(depth),
+            Some(b'[') => self.array(depth),
             Some(b'"') => Ok(Json::Str(self.string()?)),
             Some(b't') | Some(b'f') => self.boolean(),
             Some(b'n') => self.null(),
@@ -193,7 +205,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn object(&mut self) -> Result<Json, String> {
+    fn object(&mut self, depth: usize) -> Result<Json, String> {
         self.i += 1; // {
         let mut pairs = Vec::new();
         self.ws();
@@ -212,7 +224,7 @@ impl<'a> Parser<'a> {
                 return Err("expected ':' after key".into());
             }
             self.i += 1;
-            let val = self.value()?;
+            let val = self.value(depth + 1)?;
             pairs.push((key, val));
             self.ws();
             match self.peek() {
@@ -229,7 +241,7 @@ impl<'a> Parser<'a> {
         Ok(Json::Obj(pairs))
     }
 
-    fn array(&mut self) -> Result<Json, String> {
+    fn array(&mut self, depth: usize) -> Result<Json, String> {
         self.i += 1; // [
         let mut items = Vec::new();
         self.ws();
@@ -238,7 +250,7 @@ impl<'a> Parser<'a> {
             return Ok(Json::Arr(items));
         }
         loop {
-            let val = self.value()?;
+            let val = self.value(depth + 1)?;
             items.push(val);
             self.ws();
             match self.peek() {
@@ -402,5 +414,48 @@ mod tests {
     fn parses_utf8_and_escapes() {
         let v = parse(r#"{"s":"ML-DSA ✓ · ok"}"#).unwrap();
         assert_eq!(v.str_field("s"), Some("ML-DSA ✓ · ok"));
+    }
+
+    fn nested_arrays(levels: usize) -> String {
+        "[".repeat(levels) + &"]".repeat(levels)
+    }
+
+    // [VLD-ANB-MIDGARD-0006] [AC-30.2]
+    #[test]
+    fn nesting_at_the_limit_parses() {
+        assert!(parse(&nested_arrays(MAX_DEPTH)).is_ok());
+        let objects = "{\"a\":".repeat(MAX_DEPTH - 1) + "{}" + &"}".repeat(MAX_DEPTH - 1);
+        assert!(parse(&objects).is_ok());
+    }
+
+    // [VLD-ANB-MIDGARD-0006] [AC-30.2]
+    #[test]
+    fn nesting_past_the_limit_is_refused() {
+        let err = parse(&nested_arrays(MAX_DEPTH + 1)).unwrap_err();
+        assert!(err.contains("nesting deeper"), "{err}");
+    }
+
+    // [VLD-ANB-MIDGARD-0006] [AC-30.2]
+    #[test]
+    fn mixed_object_and_array_nesting_shares_one_count() {
+        let mixed = "{\"a\":".repeat(40) + &"[".repeat(30) + &"]".repeat(30) + &"}".repeat(40);
+        let err = parse(&mixed).unwrap_err();
+        assert!(err.contains("nesting deeper"), "{err}");
+    }
+
+    // [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
+    #[test]
+    fn a_hundred_thousand_brackets_are_refused_not_fatal() {
+        // A stack overflow aborts the test binary rather than failing an assertion, so
+        // reaching the assertion at all is half the proof.
+        let err = parse(&"[".repeat(100_000)).unwrap_err();
+        assert!(err.contains("nesting deeper"), "{err}");
+    }
+
+    // [VLD-ANB-MIDGARD-0006] [NFR-SEC-1]
+    #[test]
+    fn a_body_sized_flood_of_brackets_is_refused() {
+        let err = parse(&"[".repeat(1024 * 1024)).unwrap_err();
+        assert!(err.contains("nesting deeper"), "{err}");
     }
 }
