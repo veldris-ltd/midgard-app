@@ -3,8 +3,10 @@
 //! observation for another feed, one signed with an uncertified key, a submission by
 //! an analyst and a read by a source are all refused and audited; the analyst reads
 //! the fused picture; and after a hard kill the sealed picture and the ledger are
-//! recovered and fusion continues on the recovered tracks.
-//! [FR-H-1] [FR-H-3] [NFR-PQ-3] [RC-13] [NFR-SEC-1]
+//! recovered and fusion continues on the recovered tracks. The analyst reads the
+//! picture in pages, and a source bursting past its rate limit is throttled while
+//! another is served.
+//! [FR-H-1] [FR-H-3] [NFR-PQ-3] [RC-13] [NFR-SEC-1] [VLD-ANB-MIDGARD-0017]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -104,6 +106,10 @@ impl Drop for Running {
 }
 
 fn start(identity: &Path, state: &Path) -> Running {
+    start_with(identity, state, &[])
+}
+
+fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
     let mut child = Command::new(env!("CARGO_BIN_EXE_heimdall-feed"))
         .args([
             "--identity-dir",
@@ -115,6 +121,7 @@ fn start(identity: &Path, state: &Path) -> Running {
             "--health-bind",
             "127.0.0.1:0",
         ])
+        .args(extra)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -165,8 +172,10 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// The whole picture, as the analyst reads it: one page of at most `--page-size`
+/// entities at a time, joined by `heimdall-source`.
 fn picture(dir: &Path, addr: &str) -> Json {
-    let out = source(dir, "analyst", addr, &["--picture"]);
+    let out = source(dir, "analyst", addr, &["--picture", "--page-size", "1"]);
     assert!(out.status.success(), "{}", text(&out.stderr));
     parse(text(&out.stdout).trim()).expect("the picture is JSON")
 }
@@ -327,6 +336,83 @@ fn sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart() {
         Some(&Json::Int(3)),
         "fusion continues on the recovered track"
     );
+
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_source_bursting_past_its_rate_limit_is_throttled_and_the_other_is_served() {
+    // [VLD-ANB-MIDGARD-0017] [VLD-ANB-MIDGARD-0004] [NFR-SEC-1]
+    let root = scratch("burst");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "radar-1", &["feed-source"]);
+    issue(&idp, &clients, "radar-2", &["feed-source"]);
+    issue(&idp, &clients, "analyst", &["picture-reader"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+
+    // Ten records an identity, and no refill: the burst is a hard quota. A call is
+    // two records, the request and the end-of-stream marker, so five calls fit.
+    let server = start_with(
+        &server_identity,
+        &state,
+        &["--rate-burst", "10", "--rate-per-sec", "0"],
+    );
+    let observe = |service: &str, entity: &str| {
+        source(
+            &clients,
+            service,
+            &server.mesh,
+            &[
+                "--kind",
+                "air-track",
+                "--entity",
+                entity,
+                "--observed-at",
+                "100",
+            ],
+        )
+    };
+
+    for i in 0..5 {
+        let out = observe("radar-1", &format!("R1-{i}"));
+        assert!(out.status.success(), "{}", text(&out.stderr));
+    }
+    let throttled = observe("radar-1", "R1-5");
+    assert_eq!(throttled.status.code(), Some(1), "the sixth is throttled");
+    assert!(
+        text(&throttled.stderr).contains("closed the channel"),
+        "{}",
+        text(&throttled.stderr)
+    );
+    for entity in ["R2-0", "R2-1"] {
+        let out = observe("radar-2", entity);
+        assert!(
+            out.status.success(),
+            "the other source is served: {}",
+            text(&out.stderr)
+        );
+    }
+
+    // Seven entities, read two a page: four calls, within the analyst's own ten records.
+    let out = source(
+        &clients,
+        "analyst",
+        &server.mesh,
+        &["--picture", "--page-size", "2"],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let fused = parse(text(&out.stdout).trim()).unwrap();
+    assert_eq!(fused.get("total"), Some(&Json::Int(7)));
+    match fused.get("entities") {
+        Some(Json::Arr(items)) => assert_eq!(items.len(), 7, "{}", fused.encode()),
+        _ => panic!("no entities in {}", fused.encode()),
+    }
 
     drop(server);
     let _ = std::fs::remove_dir_all(&root);

@@ -6,8 +6,8 @@
 //! heimdall-source --identity-dir DIR --addr HOST:PORT --kind K --entity KEY
 //!                 [--attrs k=v,...] [--observed-at T] [--observation-id ID]
 //!                 [--service NAME] [--server NAME] [--feed-id FEED] [--purpose P]
-//! heimdall-source --identity-dir DIR --addr HOST:PORT --picture [--service NAME]
-//!                 [--server NAME] [--purpose P]
+//! heimdall-source --identity-dir DIR --addr HOST:PORT --picture [--page-size N]
+//!                 [--include-hidden] [--service NAME] [--server NAME] [--purpose P]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -15,16 +15,23 @@
 //! (default `heimdall-feed`); any other is refused before anything is sent. The observation's feed is NAME — `--feed-id` defaults to it, and
 //! the gateway refuses any other. `--observed-at` defaults to now. Exits 1 when the
 //! gateway refuses.
+//!
+//! `--picture` reads the picture page by page (`--page-size` entities a page, default
+//! the gateway's 500; entities on hidden layers only with `--include-hidden`) and
+//! prints one JSON object: the layers, every entity, and the total.
+//! [VLD-ANB-MIDGARD-0017]
 
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
-use heimdall_feed_server::{outcome, parse_attrs, INGEST, READ_PICTURE};
+use heimdall_feed_server::{outcome, parse_attrs, PageRequest, INGEST, READ_PICTURE};
 use heimdall_picture::{FeedId, Observation};
 use pqc_agility::backend::fips::FipsSig;
+use service_runtime::json::{parse, Json};
 use service_runtime::{client, unix_seconds, Args, ServiceIdentity};
 
 const USAGE: &str = "usage: heimdall-source --identity-dir DIR --addr HOST:PORT \
                      (--kind K --entity KEY [--attrs k=v,...] [--observed-at T] \
-                     [--observation-id ID] [--feed-id FEED] | --picture) \
+                     [--observation-id ID] [--feed-id FEED] | --picture [--page-size N] \
+                     [--include-hidden]) \
                      [--service NAME] [--server NAME] [--purpose P]";
 
 fn main() {
@@ -43,8 +50,9 @@ fn main() {
             "observed-at",
             "observation-id",
             "feed-id",
+            "page-size",
         ],
-        &["picture"],
+        &["picture", "include-hidden"],
     ) {
         Ok(args) => args,
         Err(e) => {
@@ -69,14 +77,26 @@ fn run(args: &Args) -> Result<String, String> {
     let server = args.get("server").unwrap_or("heimdall-feed");
 
     if args.flag("picture") {
-        return answer(&client::call(
-            &identity,
-            addr,
-            server,
-            purpose,
-            READ_PICTURE,
-            &[],
-        )?);
+        let mut page = PageRequest {
+            include_hidden: args.flag("include-hidden"),
+            ..PageRequest::default()
+        };
+        if let Some(n) = args.get("page-size") {
+            page.limit =
+                n.parse::<usize>().ok().filter(|&n| n > 0).ok_or_else(|| {
+                    format!("--page-size must be a whole number above 0, not '{n}'")
+                })?;
+        }
+        return read_picture(page, |request| {
+            answer(&client::call(
+                &identity,
+                addr,
+                server,
+                purpose,
+                READ_PICTURE,
+                &request.encode(),
+            )?)
+        });
     }
 
     let feed = args.get("feed-id").unwrap_or(service);
@@ -112,6 +132,42 @@ fn run(args: &Args) -> Result<String, String> {
         INGEST,
         &encode_signed_observation(&signed),
     )?)
+}
+
+/// Every page of the picture from `page.offset` on, joined: the first page's layers,
+/// every entity in order, and the total.
+fn read_picture(
+    mut page: PageRequest,
+    mut call: impl FnMut(&PageRequest) -> Result<String, String>,
+) -> Result<String, String> {
+    let mut layers = None;
+    let mut entities = Vec::new();
+    let mut total;
+    loop {
+        let body = parse(&call(&page)?)
+            .map_err(|e| format!("the feed gateway sent a page that is not JSON: {e}"))?;
+        let returned = match body.get("entities") {
+            Some(Json::Arr(items)) => {
+                entities.extend(items.iter().cloned());
+                items.len()
+            }
+            _ => return Err("the feed gateway sent a page with no entities".into()),
+        };
+        if layers.is_none() {
+            layers = body.get("layers").cloned();
+        }
+        total = body.get("total").cloned().unwrap_or(Json::Null);
+        if body.get("truncated") != Some(&Json::Bool(true)) || returned == 0 {
+            break;
+        }
+        page.offset += returned;
+    }
+    Ok(Json::obj(vec![
+        ("layers", layers.unwrap_or(Json::Arr(Vec::new()))),
+        ("entities", Json::Arr(entities)),
+        ("total", total),
+    ])
+    .encode())
 }
 
 /// The gateway's message on success; its refusal as an error.

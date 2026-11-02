@@ -4,8 +4,9 @@
 //! types, so the common operating picture and in-flight human-gated workflows
 //! survive a restart:
 //! - [`DurablePicture`] — the fused picture, KMS-sealed at rest (AES-256-GCM under
-//!   an ML-KEM-1024-wrapped key), snapshotted atomically on each change and
-//!   recovered on boot.
+//!   an ML-KEM-1024-wrapped key): a sealed journal frame per changed entity or
+//!   layer, compacted into an atomically written snapshot, and recovered on boot
+//!   as snapshot plus journal. [VLD-ANB-MIDGARD-0017]
 //! - [`DurableWorkflow`] — the workflow engine over a durable, PQ-signed audit
 //!   [`audit_writer::FileLedger`], with the in-flight action state snapshotted
 //!   KMS-sealed alongside it, so both the decision lineage and the pending
