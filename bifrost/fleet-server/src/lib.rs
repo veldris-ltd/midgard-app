@@ -221,21 +221,20 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         } else {
             "SetChannel:MALFORMED"
         };
-        let decision = match self.governance().authorize(
-            &self.context(peer),
-            &self.resource,
-            action,
-            now,
-        ) {
-            Ok(decision) => decision,
-            Err(_) => {
-                return self.reply(
-                    SET_CHANNEL,
-                    outcome::FAILED,
-                    "the channel assignment could not be audited",
-                )
-            }
-        };
+        let decision =
+            match self
+                .governance()
+                .authorize(&self.context(peer), &self.resource, action, now)
+            {
+                Ok(decision) => decision,
+                Err(_) => {
+                    return self.reply(
+                        SET_CHANNEL,
+                        outcome::FAILED,
+                        "the channel assignment could not be audited",
+                    )
+                }
+            };
         let assignment = match assignment {
             Ok(assignment) => assignment,
             Err(e) => return self.reply(SET_CHANNEL, outcome::MALFORMED, e),
@@ -247,7 +246,9 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
                 "policy does not permit this identity to move an installation",
             );
         }
-        let result = self.fleet().assign_channel(&assignment.install_id, &assignment.channel);
+        let result = self
+            .fleet()
+            .assign_channel(&assignment.install_id, &assignment.channel);
         match result {
             Ok(()) => {
                 let recorded = self.governance().record_event(

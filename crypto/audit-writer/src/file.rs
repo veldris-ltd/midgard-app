@@ -37,7 +37,7 @@ use crate::error::AuditError;
 use crate::ledger::{AuditWriter, LedgerStore};
 use crate::mirror::{check_against_mirror, write_atomic, CheckpointMirror};
 use crate::record::{
-    Action, Actor, AuditRecord, LedgerId, RecordId, Resource, SealedEntry, Timestamp,
+    Action, Actor, AuditContext, AuditRecord, LedgerId, RecordId, Resource, SealedEntry, Timestamp,
 };
 
 /// Seals and unseals opaque bytes at rest. Kept backend-agnostic so `audit-writer`
@@ -473,6 +473,7 @@ impl AuditWriter<FileLedger> {
             action: Action(action.into()),
             resource: Resource(resource),
             ts: Timestamp(ts.into()),
+            context: AuditContext::default(),
         })?;
         self.store_mut().recovered = None;
         Ok(Some(seq))

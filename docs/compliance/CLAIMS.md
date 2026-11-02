@@ -137,14 +137,13 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
 
 ### `audit-ledger` (operable)
 
-Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start. A partial final frame left by a crash during an append is cut off at start and the repair recorded in the ledger; a partial frame anywhere a crash cannot leave one still stops the start.
+Edge admission and every object-fabric call are written to one append-only ledger signed with ML-DSA-65. Each response carries the id of the ledger entry that authorised it, and the ledger is verified again at every start, under a pinned audit key, against a signed checkpoint of its length, so a shortened or deleted ledger does not start.
 
 **Limit.** The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime).
 
 - Source:
   - [`crypto/audit-writer/src/ledger.rs:5`](../../crypto/audit-writer/src/ledger.rs)
   - [`crypto/audit-writer/src/checkpoint.rs:1`](../../crypto/audit-writer/src/checkpoint.rs)
-  - [`crypto/audit-writer/src/file.rs:23`](../../crypto/audit-writer/src/file.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
   - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
@@ -153,9 +152,6 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart`](../../services/http-gateway/tests/durable_enclosure.rs)
-  - [`crypto/audit-writer/tests/torn_tail.rs::a_torn_final_frame_is_truncated_and_reported`](../../crypto/audit-writer/tests/torn_tail.rs)
-  - [`crypto/audit-writer/tests/torn_tail.rs::a_torn_frame_before_the_head_count_fails_closed`](../../crypto/audit-writer/tests/torn_tail.rs)
-  - [`crypto/audit-writer/tests/torn_tail.rs::a_torn_frame_after_an_entry_the_checkpoint_does_not_cover_fails_closed`](../../crypto/audit-writer/tests/torn_tail.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
@@ -805,19 +801,15 @@ Highly available clusters, replication between sites, zero-downtime operation an
 
 ### `telemetry` (operable)
 
-Each service exposes liveness, readiness and Prometheus metrics, and writes structured logs; a lock poisoned by a panic is recovered rather than failing later requests, and each recovery is counted and logged, with no dependency that could send telemetry out of the enclosure.
+Each service exposes liveness, readiness and Prometheus metrics, and writes structured logs, with no dependency that could send telemetry out of the enclosure.
 
 **Limit.** The tracing module is unused, the observability console shows fixed figures, and no service-level objective has been measured in a deployment.
 
 - Source:
   - [`services/telemetry/src/lib.rs:1`](../../services/telemetry/src/lib.rs)
-  - [`services/runtime/src/sync.rs:1`](../../services/runtime/src/sync.rs)
 - Tests:
   - [`services/telemetry/tests/telemetry.rs::metrics_render_prometheus_text`](../../services/telemetry/tests/telemetry.rs)
   - [`services/http-gateway/tests/rc_33.rs::service_exposes_liveness_readiness_metrics_and_an_observable_slo_breach`](../../services/http-gateway/tests/rc_33.rs)
-  - [`services/telemetry/tests/telemetry.rs::a_poisoned_metrics_lock_recovers_and_reports`](../../services/telemetry/tests/telemetry.rs)
-  - [`services/http-gateway/tests/rc_33.rs::a_poisoned_slo_lock_does_not_drop_responses`](../../services/http-gateway/tests/rc_33.rs)
-  - [`services/http-gateway/tests/rc_33.rs::a_poisoned_enclosure_lock_is_recovered_logged_and_audited`](../../services/http-gateway/tests/rc_33.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)
 - Stated at:
