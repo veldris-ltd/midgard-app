@@ -302,6 +302,18 @@ CONTRIBUTING.md for the version policy.
   `docs/compliance/DATA_PROTECTION_SCREENING.md` is the screening record, and leaves
   the full-DPIA decision, and the AIS observations sample, to the Data Protection
   Officer. [VLD-ANB-MIDGARD-0074]
+- **The mock gateway is out of the production console bundle (WP-25 B).** The mocks
+  and their fixtures (`MockGateway`, the six product mocks) move to the subpath entry
+  `@midgard/sdk/mock`; `@midgard/sdk` itself no longer reaches them, and the gateway
+  errors move to `sdk/ts/src/errors.ts`. The midgard console imports the mock
+  dynamically, only when built with `VITE_GATEWAY=mock`, so an http build holds none
+  of it (`tools/ci/tests/js-mock-bundle.test.sh`, run by the js-build job).
+  `AuthGate`'s `mockClient` is optional, and mock mode without one fails loudly. The
+  six mock-only consoles (admin, Bifrost, clients, Forge, Heimdall, Mimir) run under
+  `AuthGate mode="mock"` with the new `DemonstrationBanner` ("Demonstration data. This
+  console runs on built-in sample data and is not connected to an enclosure.") and
+  load their mock the same way, so moving one to http is its `mode` line.
+  [VLD-ANB-MIDGARD-0086]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator

@@ -16,6 +16,10 @@ import { signOutAtServer, type Logout } from './signOut';
  * design. Signing out tells the edge first (`logout`), which revokes the token so a
  * copy of it is refused too, and only then clears the session here.
  * [RC-37] [RC-29] [VLD-ANB-MIDGARD-0021] */
+ *
+ * The mock client is optional so that an http build need not construct, or bundle, a
+ * mock: a console in mock mode loads one from `@midgard/sdk/mock` and passes it here.
+ * [VLD-ANB-MIDGARD-0086] [AC-25.2] */
 
 const EXPIRED = 'Your session has ended. Sign in again.';
 
@@ -35,8 +39,8 @@ export interface AuthGateProps<C, S extends SessionIdentity = SessionIdentity> {
   mode: 'http' | 'mock';
   /** The edge API base, e.g. `http://127.0.0.1:7710/api/v1`. */
   baseUrl: string;
-  /** The client used in `mock` mode. */
-  mockClient: C;
+  /** The client used in `mock` mode; required there, and never needed in `http` mode. */
+  mockClient?: C;
   /** Build the authenticated client for a session (http mode, post-login). It must
    *  call `onUnauthorized` when the edge answers 401, which ends the session. */
   makeClient: (token: string, session: S, onUnauthorized: () => void) => C;
@@ -73,6 +77,11 @@ export function AuthGate<C, S extends SessionIdentity = SessionIdentity>(
   props: AuthGateProps<C, S>,
 ): React.ReactElement {
   const { mode, baseUrl, mockClient, makeClient, login, whoami, logout, children } = props;
+  if (mode === 'mock' && mockClient === undefined) {
+    throw new Error(
+      "AuthGate: mode 'mock' needs a mockClient; load one with await import('@midgard/sdk/mock')",
+    );
+  }
 
   // Memory only: a reload starts at sign-in.
   const [token, setToken] = React.useState<string | null>(null);
@@ -106,7 +115,7 @@ export function AuthGate<C, S extends SessionIdentity = SessionIdentity>(
     return () => clearTimeout(t);
   }, [session, expire]);
 
-  const client = React.useMemo<C>(
+  const client = React.useMemo<C | undefined>(
     () => (mode === 'mock' || !token || !session ? mockClient : makeClient(token, session, expire)),
     [mode, token, session, mockClient, makeClient, expire],
   );

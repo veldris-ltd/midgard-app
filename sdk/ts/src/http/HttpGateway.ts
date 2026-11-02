@@ -18,7 +18,7 @@ import type {
   SearchGraph,
   SloMetric,
 } from '../types';
-import { GatewayError, HumanGateRequiredError } from '../mock/MockGateway';
+import { GatewayError, HumanGateRequiredError } from '../errors';
 import { assertSafeBaseUrl } from './baseUrl';
 
 /**

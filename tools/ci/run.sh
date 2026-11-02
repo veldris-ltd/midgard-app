@@ -332,6 +332,9 @@ job_js_build() {
         corepack enable pnpm
     fi
     pnpm install --frozen-lockfile --prefer-offline
+    # The selftest job has no installed workspace, so the mock-bundle test runs here:
+    # an http build of the midgard console holds no mock fixture. [AC-25.2]
+    bash tools/ci/tests/js-mock-bundle.test.sh
     bash tools/ci/js-artefacts.sh build --all --out "${MIDGARD_JS_OUT:-target/js-out}"
 }
 

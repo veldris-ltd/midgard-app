@@ -29,19 +29,21 @@ the shared `ConsoleShell`.
 
 Every screen reads data through the `GatewayClient` interface (`@midgard/sdk`)
 via the `DataProvider` hooks (`useAsync`, `useGateway`, `useAuditStream`) — never
-a concrete client. The app is wired to `MockGateway` in
-[`src/main.tsx`](src/main.tsx):
+a concrete client. [`src/main.tsx`](src/main.tsx) wires it to the HTTP gateway behind
+`AuthGate`'s sign-in by default, and to `MockGateway` only when built or served with
+`VITE_GATEWAY=mock`:
 
 ```ts
-const gateway: GatewayClient = new MockGateway();
+const { MockGateway } = await import('@midgard/sdk/mock');
 ```
 
-The mock models real enclosure behaviour: policy-scoped `query`, **human-gated**
-`applyAction` that emits an ML-DSA-signed `AuditRecord`, a live audit stream, and
-a deny-by-default policy dry-run. When a browser-reachable bridge exists (a
-runnable Rust service exposing HTTP/JSON or gRPC-web over the enclosure crates —
-see `sdk/ts/src/http/HttpGateway.ts` for what that requires), swap that one line
-for `createHttpGateway({ baseUrl })`. No screen changes.
+The mocks and their fixtures are the separate entry `@midgard/sdk/mock`, loaded by
+dynamic import in mock mode only, so an http build does not contain them
+(`tools/ci/tests/js-mock-bundle.test.sh`). A mock-mode console shows a demonstration
+banner and asks for no sign-in. The mock models real enclosure behaviour:
+policy-scoped `query`, **human-gated** `applyAction` that emits an ML-DSA-signed
+`AuditRecord`, a live audit stream, and a deny-by-default policy dry-run. No screen
+changes between the two. [VLD-ANB-MIDGARD-0086]
 
 ## Structure
 

@@ -3,9 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Midgard TypeScript SDK — typed domain model + GatewayClient seam (mock now, HTTP bridge later)",
+  "description": "Midgard TypeScript SDK — typed domain model + GatewayClient seam (HTTP gateway; in-memory mocks under @midgard/sdk/mock)",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./mock": "./src/mock/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

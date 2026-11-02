@@ -400,7 +400,7 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev -- --strictPort
 
 ### The other consoles
 
-Six more consoles exist and run, but only against their in-browser `MockGateway` fixtures — the edge exposes neither their routes nor their origins:
+Six more consoles exist and run, but only against their in-browser mock gateways (`@midgard/sdk/mock`), under a demonstration banner and with no sign-in — the edge exposes neither their routes nor their origins:
 
 ```bash
 VITE_GATEWAY=mock pnpm --filter @midgard/console-forge    dev   # :5174
