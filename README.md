@@ -528,7 +528,7 @@ unset PASSWORD
 - Until the approval, olivia cannot log in.
 - alice cannot approve her own request, and an administrator without the IAM user capability cannot approve it.
 - A waiting request survives a gateway restart.
-- The password is hashed on alice's machine, and only the hash is sent. Each command signs a fresh single-use challenge.
+- The password is hashed on alice's machine, and only the hash is sent. Each command signs a fresh single-use challenge, issued to the administrator it names and answerable by no one else.
 - Requests, approvals and refusals all appear in the audit ledger.
 - `--gateway` must be a loopback address, because administration runs over plain HTTP.
 

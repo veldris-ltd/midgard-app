@@ -8,6 +8,7 @@
 //! [VLD-ANB-MIDGARD-0006] [VLD-ANB-MIDGARD-0004] [NFR-SEC-1] [AC-30.1] [AC-30.6]
 //! [AC-31.1] [AC-31.2] [VLD-ANB-MIDGARD-0005] [AC-11.1] [AC-11.2] [AC-11.3]
 //! [VLD-ANB-MIDGARD-0019] [AC-12.1] [AC-12.2] [AC-12.4]
+//! [VLD-ANB-MIDGARD-0020]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{Read, Write};
@@ -826,4 +827,15 @@ fn a_flood_of_names_does_not_unlock_a_locked_operator() {
         "{}",
         after.body
     );
+}
+
+// ---- WP-16: the administrator challenge body ---------------------------------------
+
+#[test]
+fn admin_challenge_without_administration_is_still_404_not_a_parse_hole() {
+    // [VLD-ANB-MIDGARD-0020] [VLD-ANB-MIDGARD-0006]
+    let addr = spawn_dev_gateway();
+    let (status, _, body) = post_json(addr, "/api/v1/admin/challenge", &"[".repeat(100_000));
+    assert!(status == 404 || status == 400, "{status}: {body}");
+    assert_healthy(addr);
 }

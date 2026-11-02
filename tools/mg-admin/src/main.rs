@@ -119,8 +119,8 @@ COMMANDS:
              hashes the password (read from a pipe) locally and asks the gateway at
              --gateway, a loopback URL such as http://127.0.0.1:7710, to enrol them;
              the request waits until a *different* IAM administrator runs `approve`.
-             `list` shows what is waiting. Each command signs a fresh challenge with
-             the administrator's passkey.
+             `list` shows what is waiting. Each command signs a fresh challenge,
+             issued to that administrator alone, with the administrator's passkey.
   mesh issue give a service its mesh identity in --out: its own identity and audit-signing
              keystores (secrets, for that service alone), a certificate for --roles signed
              by the enclosure's issuer, mesh.anchor, the trust anchor every service

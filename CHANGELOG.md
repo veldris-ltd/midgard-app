@@ -230,6 +230,26 @@ CONTRIBUTING.md for the version policy.
   - Anyone who can reach the edge can still lock any name, an operator's included;
     the per-source allowance is the compensating control, recorded in the
     residual-risk register.
+- **A flood of administrator challenges can no longer lock every administrator out.**
+  `POST /api/v1/admin/challenge` is unauthenticated, and the gateway kept at most 256
+  challenges, dropping the earliest whoever had asked for it: 256 cheap requests
+  evicted every outstanding challenge, so no enrolment request or approval could
+  complete while they continued. [VLD-ANB-MIDGARD-0020]
+  - The request body is now `{"admin": "<id>"}`, refused with 400 if it is missing,
+    not a string or joined by any other key. `mg-admin` sends it; an older
+    `mg-admin` gets 400 until it is upgraded. The response is unchanged.
+  - A challenge is bound to the administrator who asked: presented by anyone else it
+    is refused with the same 401 as an unknown one, and consumed.
+  - Each registered administrator holds at most four challenges
+    (`MAX_CHALLENGES_PER_ADMIN`); a fifth replaces their own oldest, never another
+    administrator's. A name with no passkey gets a nonce in the same shape, but
+    nothing is kept for it.
+  - The table holds at most 1,024 challenges; past that a new administrator is
+    refused with 429 and no one's challenge is dropped. The refusal is recorded in
+    the ledger at most once a minute (`ADMIN challenge refused, N refusals
+    suppressed`).
+  - The per-source allowance the administration routes share with login (above)
+    remains the rate control.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
