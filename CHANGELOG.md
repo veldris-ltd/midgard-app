@@ -292,6 +292,16 @@ CONTRIBUTING.md for the version policy.
     root with mode 0600 or 0400, as `answers.example` always said.
   - The installer can be sourced without running, and
     `tools/ci/tests/mg-install.test.sh` tests these checks unprivileged.
+- **The published samples have a data-protection screening (WP-25 A).** Every
+  published entry in `samples/catalogue.json` carries a `data_protection` record
+  (`personal_data` none, possible or yes; basis; date; screening role; notes), which
+  `convert.py check` enforces and `samples/NOTICE.md` shows. `convert.py screen` lists
+  the fields a reviewer must assess and counts the small craft (no IMO number, hull
+  under 24 m) in the AIS vessel snapshot; `--apply` pseudonymised the 212 it found
+  (name and call sign removed, MMSI replaced by `small-craft-<n>`).
+  `docs/compliance/DATA_PROTECTION_SCREENING.md` is the screening record, and leaves
+  the full-DPIA decision, and the AIS observations sample, to the Data Protection
+  Officer. [VLD-ANB-MIDGARD-0074]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator
