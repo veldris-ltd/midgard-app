@@ -1,7 +1,9 @@
 //! FR-MI-4: the no-code Logic builder and the pro-code builder produce the SAME
 //! agent contract and an equivalent governed loop. A Logic-authored agent and a
 //! pro-code-authored one behave identically for the same input; the pro-code
-//! builder additionally lets an author swap in custom components.
+//! builder additionally lets an author swap in custom components. A tool declares
+//! the parameter keys its proposals may carry (`LogicBuilder::params`); anything
+//! else is refused before the gate (VLD-ANB-MIDGARD-0077). [FR-MI-4]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -161,12 +163,14 @@ fn intent() -> Option<ActionIntent> {
 fn logic_builder_agent_runs_over_the_contract() {
     let spec: AgentSpec = LogicBuilder::new("triage-agent")
         .tool("triage", true)
+        .params("triage", &["case_id"])
         .preauthorise("triage", "investigation")
         .build();
     assert_eq!(spec.tool_names(), vec!["triage".to_string()]);
 
     let l = LogicBuilder::new("triage-agent")
         .tool("triage", true)
+        .params("triage", &["case_id"])
         .preauthorise("triage", "investigation")
         .build_loop(gov(), gate_resource());
 
@@ -186,6 +190,7 @@ fn logic_builder_agent_runs_over_the_contract() {
 fn pro_code_builder_from_same_spec_is_equivalent() {
     let spec = LogicBuilder::new("triage-agent")
         .tool("triage", true)
+        .params("triage", &["case_id"])
         .preauthorise("triage", "investigation")
         .build();
 
@@ -209,6 +214,7 @@ fn pro_code_override_changes_behaviour() {
     // No pre-authorisation this time → the human gate governs.
     let spec = LogicBuilder::new("triage-agent")
         .tool("triage", true)
+        .params("triage", &["case_id"])
         .build();
     let l = ProCodeBuilder::from_spec(spec.clone())
         .with_human(Box::new(DenyAll))

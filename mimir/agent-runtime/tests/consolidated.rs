@@ -1,7 +1,9 @@
 //! Consolidated per-EV report (Prompt 2.f): runs the A.1–A.5 Eval suites and
 //! prints PASS/FAIL per EV id with real output (`cargo test -- --nocapture`),
 //! failing closed if any eval fails. The per-AC report is driven by
-//! `deploy/acceptance/verify-mimir.sh`; this is its EV counterpart.
+//! `deploy/acceptance/verify-mimir.sh`; this is its EV counterpart. The loop-level
+//! agent declares triage's parameter key, as the catalogue now requires
+//! (VLD-ANB-MIDGARD-0077). [NFR-AI-1]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -190,10 +192,12 @@ fn ev_a1_loop_level() -> Vec<EvalResult> {
     .unwrap();
     let spec = LogicBuilder::new("triage-agent")
         .tool("triage", true)
+        .params("triage", &["case_id"])
         .preauthorise("triage", "investigation")
         .build();
     let l = LogicBuilder::new("triage-agent")
         .tool("triage", true)
+        .params("triage", &["case_id"])
         .preauthorise("triage", "investigation")
         .build_loop(gov, gate_resource());
     let ctx = PolicyContext {

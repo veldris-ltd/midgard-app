@@ -1,21 +1,29 @@
-//! Layer 8 of the assembly order: the input guardrail pass that screens the
-//! fully-assembled prompt **before** it reaches the model.
+//! Layer 8 of the assembly order: the input guardrail pass that screens untrusted
+//! text **before** it reaches the model.
 //!
 //! Prompt 2.c defines the seam and a permissive default; the self-defending
-//! classifier (prompt A.3) is wired here in Prompt 2.e. Keeping it as the last
-//! layer is the point — it inspects the final, authority-ordered text, so a
-//! lower-authority layer cannot smuggle an instruction past it. [FR-MI-7]
+//! classifier (prompt A.3) is wired here in Prompt 2.e. The pipeline calls
+//! [`InputGuardrail::inspect`] once per item of the untrusted layers (each
+//! grounding fact line, memory item and history turn, and the user message)
+//! before composition, so a classifier sees exactly the text that could carry an
+//! attack and a sanitise rewrite replaces only that item. The trusted layers are
+//! never inspected or rewritten. The governed loop also uses the trait as its
+//! output guardrail, over the model's whole contract output, actions included.
+//! [VLD-ANB-MIDGARD-0077] [VLD-ANB-MIDGARD-0078] [FR-MI-7]
 
-/// The guardrail's verdict on an assembled prompt.
+/// The guardrail's verdict on one inspected text (an untrusted item, or the
+/// model's output).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuardVerdict {
-    /// Let the prompt through unchanged.
+    /// Let the text through unchanged.
     Allow,
-    /// Let it through, but only **after replacing the assembled text with
+    /// Let it through, but only **after replacing the inspected item with
     /// `rewritten`** — the offending fragment is stripped/neutralised before the
-    /// model ever sees it. The pipeline substitutes the rewritten text. [FR-MI-7]
+    /// model ever sees it. The pipeline substitutes the rewrite for that item
+    /// alone; the governed loop treats a sanitise of model output as a block,
+    /// because output cannot be rewritten. [FR-MI-7] [VLD-ANB-MIDGARD-0078]
     Sanitise {
-        /// The rewritten prompt the model actually receives.
+        /// The rewritten item the model actually receives.
         rewritten: String,
         /// Why it was sanitised (never echoes the payload).
         reason: String,
@@ -27,9 +35,10 @@ pub enum GuardVerdict {
     },
 }
 
-/// Screens an assembled prompt before the model sees it.
+/// Screens untrusted text before the model sees it.
 pub trait InputGuardrail: Send + Sync {
-    /// Inspect the final assembled text.
+    /// Inspect one untrusted item (or, as the output guardrail, the model's
+    /// contract output).
     fn inspect(&self, assembled: &str) -> GuardVerdict;
 }
 

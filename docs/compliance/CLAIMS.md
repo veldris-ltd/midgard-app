@@ -451,7 +451,7 @@ Grounding an answer in the object fabric: a retrieval plan over declared types, 
 
 ### `agent-runtime` (reference)
 
-A governed agent loop: plan, ground, assemble (untrusted grounding, memory, history and user text as delimited, provenance-tagged data that cannot forge a layer header), guard, evaluate, check reversibility, pass a human gate for consequential or irreversible actions, audit, then execute.
+A governed agent loop: plan, ground, assemble, guard, evaluate, check reversibility, pass a human gate for consequential or irreversible actions, audit, then execute.
 
 **Until it is operable, say:** "The governed agent loop is implemented and tested as a library (AC-MI-3): a consequential action runs only after a recorded human decision. No service runs the loop, so no agent acts on a deployed enclosure."
 
@@ -460,34 +460,23 @@ A governed agent loop: plan, ground, assemble (untrusted grounding, memory, hist
 - Criteria: AC-MI-3
 - Source:
   - [`mimir/agent-runtime/src/govloop.rs:37`](../../mimir/agent-runtime/src/govloop.rs)
-  - [`mimir/agent-runtime/src/assembly.rs:295`](../../mimir/agent-runtime/src/assembly.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::mutation_is_denied_when_human_denies`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::irreversible_action_forces_human_even_if_preauthorised`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
-  - [`mimir/agent-runtime/tests/prompt_delimiting.rs::forged_header_in_grounding_is_data`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
-  - [`mimir/agent-runtime/tests/prompt_delimiting.rs::forged_header_in_user_memory_history_is_data`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
-  - [`mimir/agent-runtime/tests/prompt_delimiting.rs::token_accounting_is_exact_with_blocks`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
 
 ### `guardrails` (reference)
 
-Input guardrails against prompt injection: a deterministic filter with de-obfuscation, a classifier seam, and rewriting of a prompt that can be made safe; and every prompt assembler places untrusted text only in indented, provenance-tagged DATA blocks with control and zero-width characters removed, each field bounded and the per-request boundary neutralised.
+Input guardrails against prompt injection: a deterministic filter with de-obfuscation, a classifier seam, and rewriting of a prompt that can be made safe.
 
-**Until it is operable, say:** "Input guardrails and prompt delimiting are implemented and tested as a library against a small hand-written corpus. The classifier behind the seam is a test double, the data-handling rule the model is given is advisory, and no running service applies the guardrails."
+**Until it is operable, say:** "Input guardrails are implemented and tested as a library against a small hand-written corpus. The classifier behind the seam is a test double, and no running service applies the guardrails."
 
 **Milestone.** A classifier served by the model plane, a corpus with a stated block rate, and a service that applies them (RF-MI-7).
 
 - Source:
   - [`mimir/agent-runtime/src/defend.rs:317`](../../mimir/agent-runtime/src/defend.rs)
-  - [`mimir/prompts/src/delimit.rs:245`](../../mimir/prompts/src/delimit.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/guardrail_paraphrase.rs::obfuscated_paraphrases_are_blocked_even_though_not_literal_entries`](../../mimir/agent-runtime/tests/guardrail_paraphrase.rs)
   - [`mimir/agent-runtime/tests/guardrail_paraphrase.rs::sanitise_rewrites_the_prompt_instead_of_passing_it_through`](../../mimir/agent-runtime/tests/guardrail_paraphrase.rs)
-  - [`mimir/agent-runtime/tests/prompt_delimiting.rs::control_and_zero_width_characters_are_removed`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
-  - [`mimir/agent-runtime/tests/prompt_delimiting.rs::boundary_collision_is_neutralised`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
-  - [`mimir/agent-runtime/tests/prompt_delimiting.rs::oversized_field_is_bounded`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
-  - [`mimir/agent-runtime/tests/prompt_delimiting.rs::data_handling_rule_is_in_system_block`](../../mimir/agent-runtime/tests/prompt_delimiting.rs)
-  - [`bifrost/risk/tests/prompt_delimiting.rs::forged_header_in_release_context_is_data`](../../bifrost/risk/tests/prompt_delimiting.rs)
-  - [`clients/inference/tests/prompt_delimiting.rs::forged_header_in_user_message_or_context_id_is_data`](../../clients/inference/tests/prompt_delimiting.rs)
 
 ### `evals` (reference)
 
@@ -665,11 +654,9 @@ Decision support: ranked options, each cited and grounded against the picture, a
 - Source:
   - [`heimdall/decision-support/src/adapter.rs:62`](../../heimdall/decision-support/src/adapter.rs)
   - [`heimdall/workflow/src/engine.rs:131`](../../heimdall/workflow/src/engine.rs)
-  - [`heimdall/decision-support/src/prompt.rs:42`](../../heimdall/decision-support/src/prompt.rs)
 - Tests:
   - [`heimdall/decision-support/tests/ac_h_3.rs::ac_h_3_options_are_ranked_and_cite_evidence`](../../heimdall/decision-support/tests/ac_h_3.rs)
   - [`heimdall/workflow/tests/ac_h_4.rs::ac_h_4_consequential_action_needs_human_authorisation_and_is_audited`](../../heimdall/workflow/tests/ac_h_4.rs)
-  - [`heimdall/decision-support/tests/prompt_delimiting.rs::injected_entity_field_stays_inside_the_picture_block`](../../heimdall/decision-support/tests/prompt_delimiting.rs)
 
 ## Clients
 
