@@ -11,12 +11,18 @@
 //!    its certificate names, so one source cannot speak for another;
 //! 4. its signature verifies against the key that certificate binds, through the
 //!    feed gateway's admission check — the only way to a `VerifiedObservation`;
-//! 5. its `observed_at` lies inside the accepted window around the time the service
-//!    received it ([`IngestLimits`]), and its observation id has not already been
-//!    received from that feed. A feed's clock is its own assertion: without the
-//!    window one certified feed could date an observation years ahead and freeze any
-//!    entity, and without the replay check resubmitting it would inflate the count.
-//!    [VLD-ANB-MIDGARD-0015]
+//! 5. it is new, by the feed gateway's [`ReplayGuard`], which the service holds once
+//!    and shares across requests: its sequence (signed, observation format version 2)
+//!    is above the last one admitted from its feed, its `observed_at` lies inside the
+//!    accepted window around the time the service received it ([`IngestLimits`]), and
+//!    its id is not among the last [`REPLAY_RING_CAPACITY`] received from that feed. A
+//!    feed's clock is its own assertion: without the window one certified feed could
+//!    date an observation years ahead and freeze any entity, and without the replay
+//!    check resubmitting it would inflate the count. [VLD-ANB-MIDGARD-0015]
+//!    [VLD-ANB-MIDGARD-0041]
+//!
+//! Each feed's last sequence is sealed at rest ([`SequenceFile`]) before the
+//! observation is fused, so a restart does not reopen the replay window.
 //!
 //! A refusal at 3, 4 or 5 is audited too, with a reason code and the entity key.
 //! Admitted observations are fused and each changed entity is appended to the sealed
@@ -34,19 +40,20 @@
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
 //! [`READ_PICTURE`] a page of the picture as JSON.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::{LedgerStore, SealedEntry};
 use gateway::{RequestHandler, Router};
 use governance::{AuditContext, GovContext, Governance, Outcome};
 use heimdall_feed_gateway::{
-    decode_signed_observation, FeedGateway, FeedRegistry, VerifiedObservation,
+    decode_signed_observation, FeedError, FeedGateway, FeedRegistry, FreshnessPolicy, ReplayGuard,
+    VerifiedObservation, MAX_SEEN_PER_FEED,
 };
 use heimdall_fusion::FusionEngine;
 use heimdall_picture::{
-    Attr, ClassificationSource, EntityId, FeedId, LayerId, ObservationId, Picture, PictureDelta,
-    PictureLimits, TrackedEntity,
+    Attr, ClassificationSource, EntityId, FeedId, LayerId, Picture, PictureDelta, PictureLimits,
+    TrackedEntity,
 };
 use heimdall_store::{DurablePicture, StoreError};
 use policy::{ClassificationLevel, Clearance, Purpose, Resource};
@@ -54,6 +61,9 @@ use pq_mtls::WorkloadIdentity;
 use pqc_agility::SharedProvider;
 use service_runtime::json::{self, Json};
 use telemetry::MetricsRegistry;
+
+pub mod sequences;
+pub use sequences::SequenceFile;
 
 /// The method a source submits one encoded signed observation with.
 pub const INGEST: &str = "Ingest";
@@ -106,10 +116,13 @@ pub enum FuseOutcome {
 
 /// The reason code a refusal for an `observed_at` outside the window is audited with.
 pub const REASON_OUT_OF_WINDOW: &str = "observed-at-out-of-window";
-/// The reason code a refusal for a repeated observation id is audited with.
+/// The reason code a refusal for a repeated observation id, or a sequence not above
+/// the feed's last, is audited with.
 pub const REASON_REPLAY: &str = "replay";
+/// The reason code a refusal for an observation with no sequence is audited with.
+pub const REASON_SEQUENCE_UNSET: &str = "sequence-unset";
 /// How many recent observation ids are remembered per feed for replay refusal.
-pub const REPLAY_RING_CAPACITY: usize = 4096;
+pub const REPLAY_RING_CAPACITY: usize = MAX_SEEN_PER_FEED;
 
 /// How far a feed's `observed_at` may stray from the time the service receives the
 /// observation, and when an entity no longer received counts as stale. All in
@@ -140,8 +153,16 @@ impl IngestLimits {
     /// received at `received_at`: no more than `max_future_skew` ahead and no more
     /// than `max_age` behind.
     pub fn admits(&self, observed_at: u64, received_at: u64) -> bool {
-        observed_at <= received_at.saturating_add(self.max_future_skew)
-            && observed_at.saturating_add(self.max_age) >= received_at
+        self.freshness().admits(observed_at, received_at)
+    }
+
+    /// The window as the feed gateway's freshness policy, which enforces it.
+    /// [VLD-ANB-MIDGARD-0041]
+    pub fn freshness(&self) -> FreshnessPolicy {
+        FreshnessPolicy {
+            max_age_secs: self.max_age,
+            max_future_skew_secs: self.max_future_skew,
+        }
     }
 
     /// Whether an entity last received at `last_received` is stale at `now`.
@@ -150,42 +171,17 @@ impl IngestLimits {
     }
 }
 
-/// The observation ids most recently received from one feed: the order they came
-/// in, to forget the oldest, and a set to look them up in. Memory only, so a restart
-/// admits one more copy of each, which the window bounds. [VLD-ANB-MIDGARD-0015]
-#[derive(Default)]
-struct RecentIds {
-    order: VecDeque<ObservationId>,
-    seen: BTreeSet<ObservationId>,
-}
-
-impl RecentIds {
-    fn contains(&self, id: &ObservationId) -> bool {
-        self.seen.contains(id)
-    }
-
-    fn insert(&mut self, id: ObservationId) {
-        if !self.seen.insert(id.clone()) {
-            return;
-        }
-        self.order.push_back(id);
-        if self.order.len() > REPLAY_RING_CAPACITY {
-            if let Some(oldest) = self.order.pop_front() {
-                self.seen.remove(&oldest);
-            }
-        }
-    }
-}
-
 /// The fused picture and its sealed, durable copy, kept in step, within its limits,
-/// and the observation ids recently received from each feed.
+/// and the replay state every request is checked against, with where its sequences
+/// are saved.
 pub struct PictureState {
     engine: FusionEngine,
     durable: DurablePicture,
     limits: PictureLimits,
     /// Entities each feed has contributed to, kept in step with the picture.
     per_feed: BTreeMap<String, usize>,
-    recent_ids: BTreeMap<String, RecentIds>,
+    replay: Arc<ReplayGuard>,
+    sequences: Option<SequenceFile>,
 }
 
 impl PictureState {
@@ -206,7 +202,8 @@ impl PictureState {
             durable,
             limits: PictureLimits::default(),
             per_feed,
-            recent_ids: BTreeMap::new(),
+            replay: Arc::new(ReplayGuard::new()),
+            sequences: None,
         }
     }
 
@@ -227,6 +224,34 @@ impl PictureState {
         self.limits
     }
 
+    /// Keep each feed's last admitted sequence in `file`, resuming from the
+    /// `sequences` it held when opened, so replay protection survives a restart.
+    /// [VLD-ANB-MIDGARD-0041]
+    pub fn with_sequences(
+        mut self,
+        file: SequenceFile,
+        sequences: std::collections::BTreeMap<FeedId, u64>,
+    ) -> Self {
+        for (feed, last) in sequences {
+            self.replay.restore(feed, last);
+        }
+        self.sequences = Some(file);
+        self
+    }
+
+    /// The replay state, shared by every request. [VLD-ANB-MIDGARD-0041]
+    pub fn replay_guard(&self) -> Arc<ReplayGuard> {
+        self.replay.clone()
+    }
+
+    /// Save each feed's last admitted sequence, if the state has a sequence file.
+    pub fn save_sequences(&self) -> Result<(), StoreError> {
+        match &self.sequences {
+            Some(file) => file.save(&self.replay),
+            None => Ok(()),
+        }
+    }
+
     /// The current picture.
     pub fn picture(&self) -> &Picture {
         self.engine.picture()
@@ -240,22 +265,12 @@ impl PictureState {
         Ok(())
     }
 
-    /// Whether this observation's id has already been received from its feed (within
-    /// the last [`REPLAY_RING_CAPACITY`] from that feed). [VLD-ANB-MIDGARD-0015]
-    pub fn is_replay(&self, observation: &VerifiedObservation) -> bool {
-        let o = observation.observation();
-        self.recent_ids
-            .get(&o.feed_id.0)
-            .is_some_and(|ids| ids.contains(&o.id))
-    }
-
     /// Fuse a verified observation received at `now` and journal the entity it
-    /// changed. An observation that would open a new entity past the overall or its
+    /// changed. Its sequence and id were recorded when it was admitted, so a
+    /// resubmission is a replay even if journalling failed. An observation that would open a new entity past the overall or its
     /// feed's cap first evicts every entity not seen for `evict_after`, removing each
     /// from the journal too; if that makes no room it is [`FuseOutcome::Full`] and
-    /// the observation is not fused. [VLD-ANB-MIDGARD-0017] A fused observation's id is
-    /// remembered for its feed at once, so a resubmission is a replay even if sealing
-    /// failed. [VLD-ANB-MIDGARD-0015]
+    /// the observation is not fused. [VLD-ANB-MIDGARD-0017]
     pub fn fuse(
         &mut self,
         observation: &VerifiedObservation,
@@ -276,10 +291,6 @@ impl PictureState {
         }
 
         let id = self.engine.ingest(observation, now);
-        self.recent_ids
-            .entry(o.feed_id.0.clone())
-            .or_default()
-            .insert(o.id.clone());
         let Some(entity) = self.engine.picture().entity(&id).cloned() else {
             return Ok(FuseOutcome::Fused {
                 entity: id,
@@ -351,6 +362,7 @@ pub struct FeedService<S: LedgerStore> {
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     metrics: Arc<MetricsRegistry>,
     limits: IngestLimits,
+    replay: Arc<ReplayGuard>,
 }
 
 impl<S: LedgerStore + Send + 'static> FeedService<S> {
@@ -383,7 +395,9 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             &[],
             state.picture().entity_count() as f64,
         );
+        let replay = state.replay_guard();
         Arc::new(Self {
+            replay,
             state: Mutex::new(state),
             governance: Mutex::new(governance),
             provider,
@@ -462,20 +476,64 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 refusal("another-feed", &entity_key),
             );
         }
+        // The gateway is per request, but the replay state it records into is the
+        // service's, so sequences and seen ids persist across requests. The service's
+        // own clock is the receipt time; the feed's `observed_at` is only accepted near
+        // it. The guard checks and records under its own lock, so two concurrent copies
+        // cannot both pass. [VLD-ANB-MIDGARD-0015] [VLD-ANB-MIDGARD-0041]
+        let received_at = now;
         let mut registry = FeedRegistry::new();
         registry.register(FeedId(peer.id.0.clone()), peer.verifying_key.clone());
-        let verified = match FeedGateway::new(registry, self.provider.clone()).authenticate(&signed)
-        {
+        let gateway = FeedGateway::new(registry, self.provider.clone())
+            .with_replay_guard(self.replay.clone())
+            .with_clock(move || received_at)
+            .with_freshness(self.limits.freshness());
+        let verified = match gateway.authenticate_from(&signed, &peer.id) {
             Ok(verified) => verified,
             Err(e) => {
+                let (action, message, reason) = match &e {
+                    FeedError::Stale { .. } => (
+                        "Ingest refused: observed_at outside the accepted window",
+                        "the observation time is outside the accepted window".to_string(),
+                        REASON_OUT_OF_WINDOW,
+                    ),
+                    FeedError::Replayed { .. } => (
+                        "Ingest refused: replayed observation",
+                        "this observation has already been received from this feed".to_string(),
+                        REASON_REPLAY,
+                    ),
+                    FeedError::SequenceNotMonotonic { .. } => (
+                        "Ingest refused: replayed observation",
+                        format!(
+                            "this observation has already been received from this feed, or \
+                             the feed restarted its sequence: {e}"
+                        ),
+                        REASON_REPLAY,
+                    ),
+                    FeedError::SequenceUnset(_) => (
+                        "Ingest refused: observation has no sequence",
+                        format!("the observation was rejected: {e}"),
+                        REASON_SEQUENCE_UNSET,
+                    ),
+                    FeedError::NotFromPeer { .. } => (
+                        "Ingest refused: observation from another feed",
+                        "a source submits only its own feed's observations".to_string(),
+                        "another-feed",
+                    ),
+                    _ => (
+                        "Ingest refused: feed signature rejected",
+                        format!("the observation was rejected: {e}"),
+                        "signature",
+                    ),
+                };
                 return self.refuse(
                     peer,
                     now,
-                    "Ingest refused: feed signature rejected",
+                    action,
                     &feed,
-                    &format!("the observation was rejected: {e}"),
-                    refusal("signature", &entity_key),
-                )
+                    &message,
+                    refusal(reason, &entity_key),
+                );
             }
         };
 
@@ -484,40 +542,20 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             return self.reply(INGEST, outcome::MALFORMED, &e);
         }
 
-        // The service's own clock is the receipt time; the feed's `observed_at` is
-        // only accepted near it. [VLD-ANB-MIDGARD-0015]
-        let received_at = now;
-        if !self
-            .limits
-            .admits(verified.observation().observed_at, received_at)
-        {
-            return self.refuse(
-                peer,
-                now,
-                "Ingest refused: observed_at outside the accepted window",
-                &feed,
-                "the observation time is outside the accepted window",
-                refusal(REASON_OUT_OF_WINDOW, &entity_key),
-            );
-        }
-
-        // The replay check and the fusion that records the id happen under one lock,
-        // so two concurrent copies cannot both be fused.
-        let mut state = lock(&self.state);
-        if state.is_replay(&verified) {
-            drop(state);
-            return self.refuse(
-                peer,
-                now,
-                "Ingest refused: replayed observation",
-                &feed,
-                "this observation has already been received from this feed",
-                refusal(REASON_REPLAY, &entity_key),
-            );
-        }
-        let fused = state.fuse(&verified, received_at);
-        let entities = state.picture().entity_count();
-        drop(state);
+        // The feed's new sequence is saved before the observation is fused: after a
+        // crash it is never admitted twice.
+        let (fused, entities) = {
+            let mut state = lock(&self.state);
+            if let Err(e) = state.save_sequences() {
+                return self.reply(
+                    INGEST,
+                    outcome::FAILED,
+                    &format!("the feed's sequence was not persisted: {e:?}"),
+                );
+            }
+            let fused = state.fuse(&verified, received_at);
+            (fused, state.picture().entity_count())
+        };
         self.metrics
             .set_gauge("picture_entities", &[], entities as f64);
         match fused {
@@ -539,8 +577,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                     now,
                     "Ingest refused: picture full",
                     &feed,
-                    "picture-full: the picture holds as many entities as it may and none \
-                     is stale enough to evict",
+                    "picture-full: the picture holds as many entities as it may and none                      is stale enough to evict",
                     refusal("picture-full", &entity_key),
                 )
             }

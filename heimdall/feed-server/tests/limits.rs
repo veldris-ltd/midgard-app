@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use attest::Keystore;
@@ -157,6 +158,10 @@ fn submit(
     source: &Source,
     observation: Observation,
 ) -> (u8, String) {
+    // Every submission carries the next sequence, as a feed sequencer numbers them.
+    // [VLD-ANB-MIDGARD-0041]
+    static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+    let observation = observation.with_sequence(SEQUENCE.fetch_add(1, Ordering::SeqCst));
     let signed = sign_observation(&FipsSig::new(IDP_SIG_ALG), &source.key, observation).unwrap();
     let response = service.ingest(&source.peer, &encode_signed_observation(&signed));
     (

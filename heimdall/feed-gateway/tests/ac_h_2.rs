@@ -2,6 +2,10 @@
 //! rejected from the picture. Exercises the PQ source-signature gate with the real
 //! FIPS backend: only a correctly-signed observation from a registered feed becomes
 //! a `VerifiedObservation`. [FR-H-3] [NFR-PQ-3]
+//!
+//! Observations are numbered (sequence 1) and the gateway's clock is fixed at their
+//! `observed_at`, so the replay checks pass and only the signature gate is under
+//! test. [VLD-ANB-MIDGARD-0041] [AC-59.6]
 #![cfg(feature = "backend-fips")]
 
 use pqc_agility::backend::fips::FipsSig;
@@ -46,6 +50,7 @@ fn keypair(seed: u64) -> (VerifyingKey, pqc_agility::SigningKey) {
 
 fn observation(feed: &str, key: &str) -> Observation {
     Observation::new("obs-1", FeedId(feed.into()), "air-track", key, 100)
+        .with_sequence(1)
         .with_attr("speed", Attr::Float(480.0))
         .with_attr("callsign", Attr::Text("VIPER1".into()))
 }
@@ -59,7 +64,7 @@ fn ac_h_2_registered_feed_with_valid_signature_is_admitted() {
     let (vk, sk) = keypair(1);
     let mut registry = FeedRegistry::new();
     registry.register(FeedId("radar-1".into()), vk);
-    let gateway = FeedGateway::new(registry, provider());
+    let gateway = FeedGateway::new(registry, provider()).with_clock(|| 100);
 
     let signed = sign(observation("radar-1", "trk-9"), &sk);
     let verified = gateway.authenticate(&signed).expect("valid feed admitted");
@@ -71,7 +76,7 @@ fn ac_h_2_unregistered_feed_is_rejected() {
     let (vk, sk) = keypair(1);
     let mut registry = FeedRegistry::new();
     registry.register(FeedId("radar-1".into()), vk);
-    let gateway = FeedGateway::new(registry, provider());
+    let gateway = FeedGateway::new(registry, provider()).with_clock(|| 100);
 
     // A source not in the trust registry — even with a real signature — is rejected.
     let signed = sign(observation("rogue-emitter", "trk-9"), &sk);
@@ -86,7 +91,7 @@ fn ac_h_2_tampered_observation_is_rejected() {
     let (vk, sk) = keypair(1);
     let mut registry = FeedRegistry::new();
     registry.register(FeedId("radar-1".into()), vk);
-    let gateway = FeedGateway::new(registry, provider());
+    let gateway = FeedGateway::new(registry, provider()).with_clock(|| 100);
 
     // Sign a truthful observation, then tamper with the payload in flight.
     let mut signed = sign(observation("radar-1", "trk-9"), &sk);
@@ -109,7 +114,7 @@ fn ac_h_2_wrong_key_is_rejected() {
     let (_vk2, sk2) = keypair(2);
     let mut registry = FeedRegistry::new();
     registry.register(FeedId("radar-1".into()), vk1);
-    let gateway = FeedGateway::new(registry, provider());
+    let gateway = FeedGateway::new(registry, provider()).with_clock(|| 100);
 
     let signed = sign(observation("radar-1", "trk-9"), &sk2);
     assert_eq!(

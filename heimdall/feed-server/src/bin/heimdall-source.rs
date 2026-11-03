@@ -5,7 +5,8 @@
 //! ```text
 //! heimdall-source --identity-dir DIR --addr HOST:PORT --kind K --entity KEY
 //!                 [--attrs k=v,...] [--observed-at T] [--observation-id ID]
-//!                 [--service NAME] [--server NAME] [--feed-id FEED] [--purpose P]
+//!                 [--sequence N] [--service NAME] [--server NAME] [--feed-id FEED]
+//!                 [--purpose P]
 //! heimdall-source --identity-dir DIR --addr HOST:PORT --picture [--page-size N]
 //!                 [--include-hidden] [--service NAME] [--server NAME] [--purpose P]
 //! ```
@@ -16,12 +17,18 @@
 //! the gateway refuses any other. `--observed-at` defaults to now. Exits 1 when the
 //! gateway refuses.
 //!
+//! The observation is signed with its feed's sequence number, which the gateway admits
+//! only in increasing order per feed. `--sequence` defaults to the current Unix time in
+//! nanoseconds, so one invocation per observation (a replay, a smoke test) numbers them
+//! in the order they are sent, across restarts of either side, as long as the clock
+//! does not step back. [VLD-ANB-MIDGARD-0041]
+//!
 //! `--picture` reads the picture page by page (`--page-size` entities a page, default
 //! the gateway's 500; entities on hidden layers only with `--include-hidden`) and
 //! prints one JSON object: the layers, every entity, and the total.
 //! [VLD-ANB-MIDGARD-0017]
 
-use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
+use heimdall_feed_gateway::{encode_signed_observation, sign_observation, FeedSequencer};
 use heimdall_feed_server::{outcome, parse_attrs, PageRequest, INGEST, READ_PICTURE};
 use heimdall_picture::{FeedId, Observation};
 use pqc_agility::backend::fips::FipsSig;
@@ -30,8 +37,8 @@ use service_runtime::{client, unix_seconds, Args, ServiceIdentity};
 
 const USAGE: &str = "usage: heimdall-source --identity-dir DIR --addr HOST:PORT \
                      (--kind K --entity KEY [--attrs k=v,...] [--observed-at T] \
-                     [--observation-id ID] [--feed-id FEED] | --picture [--page-size N] \
-                     [--include-hidden]) \
+                     [--observation-id ID] [--sequence N] [--feed-id FEED] | --picture \
+                     [--page-size N] [--include-hidden]) \
                      [--service NAME] [--server NAME] [--purpose P]";
 
 fn main() {
@@ -49,6 +56,7 @@ fn main() {
             "attrs",
             "observed-at",
             "observation-id",
+            "sequence",
             "feed-id",
             "page-size",
         ],
@@ -107,6 +115,17 @@ fn run(args: &Args) -> Result<String, String> {
             .map_err(|_| format!("--observed-at must be a whole number, not '{t}'"))?,
         None => unix_seconds(),
     };
+    let sequence = match args.get("sequence") {
+        Some(n) => match n.parse::<u64>() {
+            Ok(n) if n > 0 => n,
+            _ => {
+                return Err(format!(
+                    "--sequence must be a whole number above 0, not '{n}'"
+                ))
+            }
+        },
+        None => FeedSequencer::from_clock().next(),
+    };
     let id = args
         .get("observation-id")
         .map_or_else(|| format!("{feed}-{entity}-{observed_at}"), str::to_string);
@@ -116,7 +135,8 @@ fn run(args: &Args) -> Result<String, String> {
         args.require("kind")?,
         entity,
         observed_at,
-    );
+    )
+    .with_sequence(sequence);
     for (key, value) in parse_attrs(args.get("attrs").unwrap_or(""))? {
         observation = observation.with_attr(key, value);
     }

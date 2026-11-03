@@ -5,8 +5,9 @@
 //! the fused picture; and after a hard kill the sealed picture and the ledger are
 //! recovered and fusion continues on the recovered tracks. The analyst reads the
 //! picture in pages, and a source bursting past its rate limit is throttled while
-//! another is served.
-//! [FR-H-1] [FR-H-3] [NFR-PQ-3] [RC-13] [NFR-SEC-1] [VLD-ANB-MIDGARD-0017]
+//! another is served. The same signed observation submitted in two requests is
+//! admitted once, also after a restart.
+//! [FR-H-1] [FR-H-3] [NFR-PQ-3] [RC-13] [NFR-SEC-1] [VLD-ANB-MIDGARD-0017] [AC-59.5]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -263,7 +264,8 @@ fn sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart() {
     let forged = sign_observation(
         &FipsSig::new(IDP_SIG_ALG),
         &rogue_key,
-        Observation::new("forged", FeedId("radar-1".into()), "air-track", "AC-1", 112),
+        Observation::new("forged", FeedId("radar-1".into()), "air-track", "AC-1", 112)
+            .with_sequence(1),
     )
     .unwrap();
     let radar_1 = ServiceIdentity::load(&clients, "radar-1").unwrap();
@@ -419,6 +421,57 @@ fn a_source_bursting_past_its_rate_limit_is_throttled_and_the_other_is_served() 
         Some(Json::Arr(items)) => assert_eq!(items.len(), 7, "{}", fused.encode()),
         _ => panic!("no entities in {}", fused.encode()),
     }
+
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Two Ingest requests carrying the same signed observation: the service holds one
+/// replay guard across requests, so the second is DENIED; and it seals each feed's
+/// last sequence, so after a restart the same bytes are still DENIED.
+/// [VLD-ANB-MIDGARD-0041] [AC-59.5]
+#[test]
+fn replay_state_persists_across_requests() {
+    let root = scratch("replay");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "radar-1", &["feed-source"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+
+    let radar_1 = ServiceIdentity::load(&clients, "radar-1").unwrap();
+    let signed = sign_observation(
+        &FipsSig::new(radar_1.cert.identity.sig_alg),
+        &radar_1.signing_key,
+        Observation::new("obs-1", FeedId("radar-1".into()), "air-track", "AC-1", 100)
+            .with_sequence(1),
+    )
+    .unwrap();
+    let body = encode_signed_observation(&signed);
+    let submit = |mesh: &str| {
+        let response =
+            client::call(&radar_1, mesh, "heimdall-feed", PURPOSE, INGEST, &body).unwrap();
+        (response[0], text(&response[1..]))
+    };
+
+    let server = start(&server_identity, &state);
+    let (code, message) = submit(&server.mesh);
+    assert_eq!(code, outcome::ACCEPTED, "{message}");
+    let (code, message) = submit(&server.mesh);
+    assert_eq!(code, outcome::DENIED, "{message}");
+    assert!(message.contains("already been received"), "{message}");
+
+    drop(server);
+    let server = start(&server_identity, &state);
+    let (code, message) = submit(&server.mesh);
+    assert_eq!(
+        code,
+        outcome::DENIED,
+        "a restart does not reopen replay: {message}"
+    );
 
     drop(server);
     let _ = std::fs::remove_dir_all(&root);

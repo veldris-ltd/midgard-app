@@ -612,20 +612,14 @@ mg-bundle packs gate-verified artefacts into one signed bundle and imports it of
 
 ### `heimdall-feed-and-picture` (operable)
 
-heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose certified identity it carries, and only with a valid signature. Observations are accepted only within a bounded window around the server's receipt time, a repeated observation id is refused, and the picture exposes per-entity staleness. Observations that share an entity key fuse into one tracked entity, and the picture is sealed at rest and recovered at restart.
+heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose certified identity it carries, and only with a valid signature. Observations that share an entity key fuse into one tracked entity, and the picture is sealed at rest and recovered at restart.
 
-**Limit.** Observations carry no marking, and a timestamp inside the accepted window is still the feed's own assertion.
+**Limit.** A resubmitted observation is counted again, observations carry no marking, and there is no feed-staleness indication.
 
 - Source:
-  - [`heimdall/feed-server/src/lib.rs:285`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/feed-server/src/lib.rs:353`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:166`](../../heimdall/feed-server/src/lib.rs)
 - Tests:
   - [`heimdall/picture-sync/tests/rc_26.rs::rc_26_unsigned_feed_is_rejected_at_the_boundary`](../../heimdall/picture-sync/tests/rc_26.rs)
-  - [`heimdall/feed-server/tests/limits.rs::an_observation_ten_years_ahead_is_refused_and_audited`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/feed-server/tests/limits.rs::an_observation_older_than_the_retention_window_is_refused`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/feed-server/tests/limits.rs::a_near_future_observation_does_not_freeze_the_track`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/feed-server/tests/limits.rs::a_replayed_observation_id_is_refused_once_per_feed_ring`](../../heimdall/feed-server/tests/limits.rs)
-  - [`heimdall/feed-server/tests/limits.rs::read_picture_exposes_staleness`](../../heimdall/feed-server/tests/limits.rs)
 - Service tests:
   - [`heimdall/feed-server/tests/serve.rs::sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart`](../../heimdall/feed-server/tests/serve.rs)
   - [`deploy/compose/smoke.sh:42`](../../deploy/compose/smoke.sh)
@@ -638,9 +632,9 @@ heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose
 
 Replication of the common picture between nodes over PQ-mTLS.
 
-**Until it is operable, say:** "Replication of the picture between two nodes over PQ-mTLS is implemented and tested as a library, and the merge converges when two nodes hold different state with the same timestamp. The running feed service does not replicate."
+**Until it is operable, say:** "Replication of the picture between two nodes over PQ-mTLS is implemented and tested as a library. The running feed service does not replicate, and the merge does not converge when two nodes hold different state with the same timestamp."
 
-**Milestone.** The feed service replicates (RF-H-3).
+**Milestone.** The merge is made convergent and the feed service replicates (RF-H-3).
 
 - Criteria: AC-H-5
 - Source:
