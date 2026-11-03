@@ -84,6 +84,16 @@ CONTRIBUTING.md for the version policy.
   that decodes to UTF-8. A hit in any of them blocks. Text with a `\x` or `\u` escape
   is now blocked rather than sanitised, since stripping cannot remove an escape.
   [VLD-ANB-MIDGARD-0078]
+- **A Forge connector reaches an allowed name only at a routable address.**
+  `net::connect` resolves the allowed `host:port` once and connects only to an address
+  that is not loopback, private, link-local, unspecified, shared (100.64/10),
+  unique-local, broadcast or multicast (a v4-mapped v6 address is judged as its v4
+  address); otherwise it fails "resolves to a non-routable address". An allowed IP
+  literal is connected to as written. **Upgrading:** a source inside the enclosure
+  named by a host name that resolves to a private address must now be named by its
+  IP address, and a job reaching the egress broker must name `127.0.0.1` (the worker's
+  `--egress-routes` check no longer accepts `localhost`). `live-connectors.sh` passes
+  the containers' addresses. [NFR-PRV-1] [FR-F-2]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

@@ -207,7 +207,9 @@ pub fn render_haproxy(routes: &[Route], bind: &str, ca_dir: &str) -> String {
 }
 
 /// Refuse any job whose source is on the network but is not one of the broker's local
-/// ports: with a broker, a connector reaches nothing else.
+/// ports: with a broker, a connector reaches nothing else. A local port is named
+/// `127.0.0.1`, not `localhost`: a connector connects to a name only at a routable
+/// address, so `localhost` would pass here and be refused at connect.
 pub fn check_jobs(jobs: &[Job], routes: &[Route]) -> Result<(), String> {
     for job in jobs {
         let target = match &job.source {
@@ -216,7 +218,7 @@ pub fn check_jobs(jobs: &[Job], routes: &[Route]) -> Result<(), String> {
             | Source::S3 { host, port, .. }
             | Source::Kafka { host, port, .. } => (host, *port),
         };
-        let local = matches!(target.0.as_str(), "127.0.0.1" | "localhost");
+        let local = target.0 == "127.0.0.1";
         if !local || !routes.iter().any(|r| r.listen == target.1) {
             return Err(format!(
                 "job {} reaches {}:{}, which is not an egress broker route (a local port the \
@@ -315,5 +317,11 @@ mod tests {
         assert!(e.contains("minio.example.org:9000"), "{e}");
         let undeclared = job(r#""kafka": { "host": "127.0.0.1", "port": 19092, "topic": "t" }"#);
         assert!(check_jobs(&undeclared, &routes).is_err());
+        // The broker's port by name: the connector would refuse to connect to it.
+        let named = job(
+            r#""s3": { "host": "localhost", "port": 19000, "region": "r", "bucket": "b",
+                "accessKey": "a", "secretKey": "s" }"#,
+        );
+        assert!(check_jobs(&named, &routes).is_err());
     }
 }
