@@ -223,8 +223,10 @@ masked CI/CD variable `MIDGARD_MR_TOKEN` with its environment scope set to
 `advisory-refresh` (the environment only that job enters, as `action: access`, so no
 other job can read the token), and creates the weekly pipeline schedule. The
 token reaches `git` through a credential helper and `curl` through a header file, never
-a command line. The bot's commit is unsigned; squash-merge it through the forge (which
-signs the result) or re-sign it before merging into a branch that requires signatures.
+a command line. The bot's commit is unsigned, and the `commits` job takes the forge's
+signature only on a two-parent merge, not on a squash: a maintainer re-signs it with a
+key in `deploy/trust/allowed_signers` (`git commit --amend -S --no-edit`, then push the
+branch) before it is merged.
 
 ## The gate record
 
