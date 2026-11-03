@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod admin_api;
+pub mod approval_journal;
 pub mod boot;
 pub mod cli;
 pub mod data;
@@ -1179,7 +1180,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         match result {
             Ok(json) => Response::ok(json.encode()),
             Err(e) => {
-                let resp = Response::json(e.status, e.body.encode());
+                let mut resp = Response::json(e.status, e.body.encode());
+                if let Some(seconds) = e.retry_after {
+                    resp = resp.with_retry_after(seconds);
+                }
                 match e.detail {
                     Some(detail) => resp.with_detail(detail),
                     None => resp,

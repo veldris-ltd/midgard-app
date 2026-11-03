@@ -13,6 +13,7 @@ tested procedure for all of them.
 |-------|-------|---------------|
 | Audit ledger | `crypto/audit-writer` (`FileLedger`) | the PQ-signed audit chain, and beside it `<ledger>.checkpoint`, the signed record of its length and last entry |
 | Object fabric | `services/fabric` | fabric objects/links |
+| Human-gate approvals | `services/http-gateway` (`approvals.journal`) | pending, approved, rejected and used approvals; without it a restored gateway forgets which gates were granted and which were used (VLD-ANB-MIDGARD-0039) |
 | Forge dataset store | `forge/dataset-store` | content-addressed datasets + lineage |
 | Bifrost registry / fleet | `bifrost/artefact`, `bifrost/fleet` | artefacts, fleet state |
 | Heimdall store | `heimdall/store` | picture + workflow state |

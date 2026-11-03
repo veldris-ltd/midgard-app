@@ -327,3 +327,85 @@ fn a_gateway_over_a_durable_enclosure_serves_connection_threads() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Boot as [`boot`] does, with the human-gate approvals journal in `dir` attached and
+/// replayed, as a served enclosure opens it. [VLD-ANB-MIDGARD-0039]
+fn boot_with_approvals(dir: &Path) -> DurableEnclosure {
+    let (journal, recovered) = audit_writer::SealedJournal::open(
+        dir.join("approvals.journal"),
+        Box::new(sealer()),
+        http_gateway::approval_journal::APPROVALS_DOMAIN,
+    )
+    .expect("approvals journal opens");
+    boot(dir)
+        .with_approval_journal(journal, recovered)
+        .expect("approvals replay")
+}
+
+/// An approved, unredeemed gate survives a restart and redeems once after it; the
+/// journal that carries it is sealed and readable by its owner only. [NFR-AI-1]
+/// [RC-09] [VLD-ANB-MIDGARD-0039] [AC-21.4]
+#[test]
+fn approvals_survive_a_restart_and_redeem_once() {
+    let dir = scratch("approvals");
+    let gate = {
+        let mut enclosure = boot_with_approvals(&dir);
+        enclosure.seed_dev_objects(PURPOSE);
+        approved_gate(&mut enclosure, "Ground aircraft", "aircraft/AC-2214")
+    }; // dropped: a simulated process exit.
+
+    let journal = dir.join("approvals.journal");
+    let bytes = std::fs::read(&journal).expect("the approvals journal exists");
+    for needle in ["AC-2214", "operator", "ground_aircraft"] {
+        assert!(
+            !contains(&bytes, needle),
+            "{needle} readable in the journal"
+        );
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&journal).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "approvals.journal mode {mode:o}");
+    }
+
+    let mut enclosure = boot_with_approvals(&dir);
+    let listed = enclosure.approvals(&operator(), NOW).encode();
+    assert!(listed.contains(r#""status":"approved""#), "{listed}");
+    let redeem = |enclosure: &mut DurableEnclosure| {
+        let params: BTreeMap<String, String> =
+            [("target".to_string(), "aircraft/AC-2214".to_string())].into();
+        enclosure.apply_action(
+            &operator(),
+            "Ground aircraft",
+            params,
+            Some(gate.as_str()),
+            NOW + 1,
+        )
+    };
+    let first = redeem(&mut enclosure)
+        .unwrap_or_else(|e| panic!("redemption refused: {}", e.body.encode()));
+    assert!(
+        first.encode().contains(r#""applied":true"#),
+        "{}",
+        first.encode()
+    );
+    let again = redeem(&mut enclosure);
+    assert_eq!(
+        again.err().map(|e| e.status),
+        Some(403),
+        "a gate is used once"
+    );
+    drop(enclosure);
+
+    // Used survives a restart too.
+    let mut enclosure = boot_with_approvals(&dir);
+    assert_eq!(redeem(&mut enclosure).err().map(|e| e.status), Some(403));
+    // A new approval does not reuse an id the journal already holds.
+    let next = enclosure
+        .request_approval(&operator(), "Ground aircraft", "aircraft/AC-2261", NOW + 2)
+        .unwrap_or_else(|e| panic!("approval request refused: {}", e.body.encode()));
+    assert_eq!(next.str_field("id"), Some("APR-2"));
+    drop(enclosure);
+    let _ = std::fs::remove_dir_all(&dir);
+}
