@@ -538,6 +538,24 @@ CONTRIBUTING.md for the version policy.
   release preflight fails closed on a self-hosted runner with no job-completed cleanup
   hook (`ACTIONS_RUNNER_HOOK_JOB_COMPLETED`); `docs/ops/PKI.md` "Signing runner" item 5
   is the owner action. [VLD-ANB-MIDGARD-0058] [VLD-ANB-MIDGARD-0081]
+- **Unsigned commits are refused by CI, and the branch rules are code with exported
+  evidence.** The documented `required_signatures` rule was not in force when unsigned
+  commits reached `main`, and nothing in the pipeline checked. A new `commits` job, in
+  both pipelines, runs `tools/ci/verify-commits.sh` on every commit between the change's
+  base and its head: each must verify against `deploy/trust/allowed_signers` as the base
+  has it (so a change cannot add the key that vouches for it), or be verified by GitHub,
+  or be a forge merge whose combined diff is empty; it names every failure, and with no
+  listed key and no forge to ask it fails closed. `tools/ci/github-rules.sh` adds a
+  `pull_request` rule to the `signed history` ruleset on `main` and `dev` (one approving
+  code-owner review after the last push, merge commits only, no bypass), and its
+  `--export` is tested for the normalised `docs/compliance/evidence/rulesets-<date>.json`.
+  CODEOWNERS names both maintainers for the trust set, the pipelines, `supply-chain/` and
+  `docs/compliance/`; CONTRIBUTING.md and `docs/ops/PKI.md` give the signing setup and
+  how `allowed_signers` is maintained. Owner actions: register the maintainers' SSH
+  signing keys on GitHub with vigilant mode, commit them to `allowed_signers` by a signed
+  and reviewed change, apply the rulesets and commit the export, and turn on CodeLab's
+  push rules (`docs/dev/CI.md`, "Repository rules"). Until the keys are committed the
+  job passes on GitHub only. [VLD-ANB-MIDGARD-0069]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

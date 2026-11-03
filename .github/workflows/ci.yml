@@ -41,6 +41,12 @@ jobs:
       # it per run, so here this only says so.
       - run: bash tools/ci/run.sh toolchain-publish
       - run: bash tools/ci/run.sh provenance
+      - run: bash tools/ci/run.sh commits
+        env:
+          # Read-only (the workflow's contents: read): GitHub's verdict on a commit
+          # signed by a key it knows but deploy/trust/allowed_signers does not list yet,
+          # and on the merges it signs itself. [VLD-ANB-MIDGARD-0069]
+          GITHUB_TOKEN: ${{ github.token }}
       - run: bash tools/ci/run.sh vendor
       - run: bash tools/ci/run.sh claims
       - run: bash tools/ci/run.sh gate-record

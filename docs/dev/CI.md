@@ -103,6 +103,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 |---|---|---|
 | `selftest` | host | the CI scripts' own tests pass and both pipelines call the same jobs |
 | `provenance` | host | changed sources under governed trees cite a requirement |
+| `commits` | host | every commit the change brings is signed by a key in `deploy/trust/allowed_signers`, or verified by GitHub, or is a forge merge that adds nothing of its own |
 | `vendor` | host | `/vendor` is exactly the crates `Cargo.lock` names, and Cargo is pinned to it |
 | `claims` | host | every row of `docs/compliance/claims.toml` cites files, lines and tests that exist, and `CLAIMS.md` is what it renders |
 | `gate-record` | host | the committed gate record is what its logs give, and the README and GA_READINESS status tables are what it gives |
@@ -404,10 +405,11 @@ generated from it.
 ### Repository rules
 
 The forge enforces what the scripts cannot: that history on the release path is
-signed, that a published tag stays put, and that only release managers create a `v*`
-tag, which is what starts a release on the signing runners (VLD-ANB-MIDGARD-0035).
-These are the repository owner's to set. On GitHub they are three rulesets (Settings →
-Rules → Rulesets), applied with a repository administrator's `gh` login by
+signed and reviewed, that a published tag stays put, and that only release managers
+create a `v*` tag, which is what starts a release on the signing runners
+(VLD-ANB-MIDGARD-0035, VLD-ANB-MIDGARD-0069). These are the repository owner's to set.
+On GitHub they are three rulesets (Settings → Rules → Rulesets), applied with a
+repository administrator's `gh` login by
 [`tools/ci/github-rules.sh`](../../tools/ci/github-rules.sh); `--dry-run` prints them
 first, and `--export` writes what is live for review:
 
@@ -418,9 +420,38 @@ bash tools/ci/github-rules.sh --repo veldris-ltd/midgard-app --export docs/compl
 
 | Ruleset | On | Rules | Bypass |
 |---|---|---|---|
-| signed history | `refs/heads/main`, `refs/heads/dev` | `required_signatures`, `non_fast_forward`, `deletion` | none |
+| signed history | `refs/heads/main`, `refs/heads/dev` | `required_signatures`, `non_fast_forward`, `deletion`, `pull_request` | none |
 | release tags are immutable | `refs/tags/v*` | `deletion`, `non_fast_forward`, `update` | none |
 | release tags are created by release managers | `refs/tags/v*` | `creation` | the `release-managers` team (`Team`, `always`) |
+
+The `pull_request` rule takes a change to `main` or `dev` only through a pull request
+with one approving review from a code owner (`.github/CODEOWNERS`), given after the
+last push and not by whoever pushed it, and merged with a merge commit: GitHub signs
+the merges it makes, and a merge commit is the one kind the CodeLab mirror's `commits`
+job can accept without asking GitHub. No one bypasses it; an emergency change goes
+through the second maintainer. Required status checks set on the repository outside
+these rulesets are left as they are.
+
+`docs/compliance/evidence/rulesets-<date>.json` is the evidence a reviewer checks this
+section against: what `--export` read from GitHub, each ruleset in full, sorted, with
+the fields that change on every read dropped, so two exports diff cleanly. A reviewer
+confirms the branch rules are live with
+`jq -e '.[] | select(.name == "signed history") | .enforcement == "active"' docs/compliance/evidence/rulesets-*.json`.
+Until a maintainer commits an export, nothing in the repository shows that the rulesets
+are live.
+
+The forge refuses a push; the `commits` job
+([`tools/ci/verify-commits.sh`](../../tools/ci/verify-commits.sh)) checks the same
+thing from inside the pipeline, on both forges, so a rule that was never applied, or
+was turned off, is noticed. It checks every commit between the change's base and its
+head: a commit passes when git verifies its SSH signature against
+`deploy/trust/allowed_signers` as the base commit has it (so a change cannot add the key
+that vouches for it), or, on GitHub, when GitHub reports it verified, or when it is a
+merge by the forge (`noreply@github.com`, or the identities in the CI variable
+`MIDGARD_MERGE_COMMITTERS`) whose combined diff is empty. It names every commit that
+fails. With no key in `allowed_signers` and no forge to ask it fails closed: until the
+maintainers' keys are committed there (docs/ops/PKI.md, "Git signing") the job can pass
+on GitHub only, and fails on CodeLab.
 
 Tag creation is a ruleset of its own because a bypass actor bypasses every rule in its
 ruleset: in the immutability ruleset it would let a release manager move or delete a
