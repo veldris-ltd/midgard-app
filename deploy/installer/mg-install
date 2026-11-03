@@ -20,7 +20,7 @@
 set -Eeuo pipefail
 
 MG_INSTALL_VERSION=0.1.0
-HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 DEFAULT_DIR=/opt/midgard
 TOOLCHAIN_IMAGE=midgard-acceptance:1.82.0
@@ -32,6 +32,12 @@ PROFILES=(legal medical military utilities)
 FEED_FAMILIES=(aviation maritime energy water transport communications hazards information)
 PICTURE_BUDGET_KB=1100
 COMPONENTS_ALL=(forge mimir bifrost heimdall)
+# The fingerprint of Docker's apt signing key, as Docker publishes it in the install
+# guides at docs.docker.com/engine/install/ubuntu/ and .../debian/ ("9DC8 5822 9FC7
+# DD38 854A E2D8 8D81 803C 0EBF CD88"). The key is installed only if the download has
+# this fingerprint. Should Docker rotate the key, check the new one on those pages and
+# change it here. [VLD-ANB-MIDGARD-0048]
+DOCKER_APT_KEY_FPR=9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 
 # ---- theme -----------------------------------------------------------------------------
 # The suite's palette (ui/design-system/src/tokens/colors.css): one accent per product,
@@ -367,7 +373,71 @@ PROFILE="" COMPONENTS="" MODEL=reference CONSOLE=yes SAMPLES_ZIP="" FEEDS="" OPE
 ADMIN_1="" ADMIN_2="" STATUS="" SOURCE_COMMIT="" INSTALLED_AT=""
 STATE_KEYS="INSTALL_DIR PROFILE COMPONENTS MODEL CONSOLE SAMPLES_ZIP FEEDS OPERATOR OPERATOR_TOTP ADMIN_1 ADMIN_2 STATUS SOURCE_COMMIT INSTALLED_AT"
 
+# validate_install_dir DIR: whether DIR may be the install folder, which the installer
+# fills as root and `uninstall --purge` deletes. Returns 0, or prints one reason to
+# stderr and returns 1; it changes nothing, so the tests call it unprivileged. DIR must
+# be absolute, at least two levels deep once canonical (so /, /home, /usr, /opt and
+# every other top-level folder are refused), free of `..` and newlines, not a symlink,
+# and must not be, hold, or sit inside the installer or the repository it runs from.
+# The one exception is the installed layout itself: run from /usr/local/bin/mg-install,
+# the repository is DIR/src. A DIR that exists must be a folder whose parent is owned
+# by root (or by whoever runs this) and not writable by others. [VLD-ANB-MIDGARD-0048]
+validate_install_dir() {
+    local dir="$1" canon parent own perms
+    [ -n "$dir" ] || { echo "no folder was given" >&2; return 1; }
+    [[ "$dir" == /* ]] || { echo "$dir is not an absolute path" >&2; return 1; }
+    [[ "$dir" != *$'\n'* ]] || { echo "the folder name contains a newline" >&2; return 1; }
+    [[ "/$dir/" != */../* ]] || { echo "$dir contains a '..' segment" >&2; return 1; }
+    while [[ "$dir" == */ && "$dir" != / ]]; do dir="${dir%/}"; done
+    canon="$(readlink -m -- "$dir")"
+    [[ "$canon" =~ ^/[^/]+/. ]] ||
+        { echo "$dir is a top-level folder; use a dedicated folder at least two levels deep, such as $DEFAULT_DIR" >&2; return 1; }
+    if [ "$(readlink -m -- "$REPO")" != "$canon/src" ]; then
+        for own in "$HERE" "$REPO"; do
+            own="$(readlink -m -- "$own")"
+            case "$own/" in "$canon"/*)
+                echo "$dir is or holds the installer or its repository ($own)" >&2; return 1 ;;
+            esac
+            case "$canon/" in "$own"/*)
+                echo "$dir is inside the installer's repository ($own)" >&2; return 1 ;;
+            esac
+        done
+    fi
+    if [ -L "$dir" ]; then echo "$dir is a symbolic link" >&2; return 1; fi
+    if [ -e "$dir" ]; then
+        [ -d "$dir" ] || { echo "$dir exists and is not a folder" >&2; return 1; }
+        parent="$(dirname -- "$canon")"
+        read -r own perms < <(stat -c '%u %A' -- "$parent")
+        [ "$own" = 0 ] || [ "$own" = "$(id -u)" ] ||
+            { echo "$parent, which holds $dir, is owned by uid $own, not root" >&2; return 1; }
+        [ "${perms:8:1}" != w ] ||
+            { echo "$parent, which holds $dir, is writable by everyone" >&2; return 1; }
+    fi
+    return 0
+}
+
+# purge_dir_is_safe DIR: whether `uninstall --purge` may delete DIR: a valid install
+# folder that holds the installer's marker install.env, as a regular file, and is owned
+# by root. Unprivileged (the tests), the owner check is skipped and says so on stderr.
+# [VLD-ANB-MIDGARD-0048]
+purge_dir_is_safe() {
+    local dir="$1"
+    validate_install_dir "$dir" || return 1
+    [ -d "$dir" ] || { echo "$dir is not a folder" >&2; return 1; }
+    [ -f "$dir/install.env" ] && [ ! -L "$dir/install.env" ] ||
+        { echo "$dir holds no install.env, so it is not a Midgard install folder" >&2; return 1; }
+    if [ "$(id -u)" = 0 ]; then
+        [ "$(stat -c %u -- "$dir")" = 0 ] || { echo "$dir is not owned by root" >&2; return 1; }
+    else
+        echo "not running as root, so the check that $dir is owned by root was skipped" >&2
+    fi
+    return 0
+}
+
 set_dirs() {
+    local reason
+    reason="$(validate_install_dir "$1" 2>&1)" ||
+        die "The install folder '$1' cannot be used: $reason. Set MG_INSTALL_DIR (or INSTALL_DIR in the answers file) to a dedicated folder."
     INSTALL_DIR="$1"
     SRC="$INSTALL_DIR/src"
     SITE="$INSTALL_DIR/site"
@@ -417,9 +487,15 @@ services_of() {
     echo "$s"
 }
 
+# Until the key ceremony commits the model-signing anchor, the model is signed with a
+# development key whose public half lives in a trust volume of its own, never in the
+# models volume. [VLD-ANB-MIDGARD-0028]
+model_dev() { [ ! -s "$SRC/deploy/trust/model-signing.pub" ]; }
+
 dc() {
     local files=(-f "$SRC/deploy/compose/compose.yaml")
     has mimir && [ "$MODEL" = granite ] && files+=(-f "$SRC/deploy/compose/compose.granite.yaml")
+    has mimir && [ "$MODEL" = granite ] && model_dev && files+=(-f "$SRC/deploy/compose/compose.dev-model.yaml")
     files+=(-f "$SITE/compose.site.yaml")
     docker compose "${files[@]}" "$@"
 }
@@ -465,17 +541,45 @@ run() {
 
 # ---- docker ----------------------------------------------------------------------------
 
+# docker_key_fingerprint_matches FILE [FPR]: whether FILE holds exactly one public key
+# and its fingerprint is FPR (default DOCKER_APT_KEY_FPR). Otherwise prints what it
+# found to stderr and returns 1. gpg reads the file in a throwaway home, so no keyring
+# on the server changes. [VLD-ANB-MIDGARD-0048]
+docker_key_fingerprint_matches() {
+    local file="$1" want="${2:-$DOCKER_APT_KEY_FPR}" home listing keys got
+    home="$(mktemp -d)"
+    listing="$(GNUPGHOME="$home" gpg --batch --show-keys --with-colons --with-fingerprint -- "$file" 2>/dev/null)" || true
+    rm -rf "$home"
+    keys="$(grep -c '^pub:' <<<"$listing")" || true
+    got="$(awk -F: '/^fpr:/ {print $10; exit}' <<<"$listing")"
+    if [ "$keys" != 1 ]; then
+        echo "$file holds $keys public keys, not one" >&2; return 1
+    fi
+    if [ "$got" != "$want" ]; then
+        echo "the key's fingerprint is $got, not $want" >&2; return 1
+    fi
+    return 0
+}
+
 install_docker() {
-    local family="$OS_ID"
+    local family="$OS_ID" key reason
     [ "$family" = linuxmint ] && family=ubuntu
     case "$family" in
         ubuntu | debian)
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
-            apt-get install -y ca-certificates curl
+            apt-get install -y ca-certificates curl gnupg
             install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL "https://download.docker.com/linux/$family/gpg" -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
+            # Only TLS protects the download, so the key is installed only if it is the
+            # one Docker publishes the fingerprint of.
+            key="$(mktemp)"
+            curl -fsSL "https://download.docker.com/linux/$family/gpg" -o "$key"
+            if ! reason="$(docker_key_fingerprint_matches "$key" 2>&1)"; then
+                rm -f "$key"
+                die "Docker's apt signing key did not verify, so it was not installed: $reason. Expected fingerprint $DOCKER_APT_KEY_FPR."
+            fi
+            install -m 0644 "$key" /etc/apt/keyrings/docker.asc
+            rm -f "$key"
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$family $OS_CODENAME stable" \
                 >/etc/apt/sources.list.d/docker.list
             apt-get update
@@ -488,6 +592,12 @@ install_docker() {
             dnf -y install dnf-plugins-core
             dnf config-manager --add-repo "https://download.docker.com/linux/$repo/docker-ce.repo" ||
                 dnf config-manager addrepo --from-repofile="https://download.docker.com/linux/$repo/docker-ce.repo"
+            # The repository file names Docker's key (gpgkey=) and, with gpgcheck=1, dnf
+            # refuses any package not signed by it, so no key is fetched or trusted here.
+            # Make sure the file that was installed keeps that check on.
+            grep -qE '^[[:space:]]*gpgcheck[[:space:]]*=[[:space:]]*1' /etc/yum.repos.d/docker-ce.repo &&
+                ! grep -qE '^[[:space:]]*gpgcheck[[:space:]]*=[[:space:]]*0' /etc/yum.repos.d/docker-ce.repo ||
+                die "/etc/yum.repos.d/docker-ce.repo does not set gpgcheck=1, so Docker's packages would not be checked. Nothing was installed from it."
             dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
             ;;
         *)
@@ -506,6 +616,119 @@ install_python() {
         *) echo "no automatic Python install for $OS_ID" >&2; return 1 ;;
     esac
     python3 --version
+}
+
+# ---- the edge firewall -----------------------------------------------------------------
+# The gateway and console are on compose's `edge` network only so their loopback ports
+# can be published. Its bridge does no masquerade, but a server that forwards or NATs
+# the bridge's subnet itself would still route the gateway out, so a rule in Docker's
+# DOCKER-USER chain drops whatever arrives from the bridge (a fixed interface name,
+# mg-edge0, set in compose.yaml) and would leave by any other interface. Replies to
+# connections already made are let through first. The loopback publish is untouched: it
+# goes through the server's own input and output path, not the forward path these rules
+# sit on. The rules carry a comment so they can be found and removed exactly; a small
+# systemd unit puts them back after every boot and Docker restart. [VLD-ANB-MIDGARD-0061]
+EDGE_BRIDGE=mg-edge0
+EDGE_RULE_TAG=midgard-edge-egress
+EDGE_HELPER=/usr/local/sbin/midgard-edge-egress
+EDGE_UNIT=/etc/systemd/system/midgard-edge-egress.service
+
+# remove_edge_egress_rules IPTABLES: delete every DOCKER-USER rule carrying our comment
+remove_edge_egress_rules() {
+    local ipt="$1" line spec lines=()
+    mapfile -t lines < <("$ipt" -S DOCKER-USER 2>/dev/null |
+        grep -E -- "--comment \"?$EDGE_RULE_TAG\"?( |\$)" || true)
+    for line in "${lines[@]}"; do
+        line="${line//\"/}"
+        read -ra spec <<<"${line/#-A /-D }"
+        "$ipt" "${spec[@]}"
+    done
+}
+
+# apply_edge_egress: put the rules in place, once, in iptables and (where Docker
+# manages it) ip6tables. Safe to repeat. Fails if there is no iptables or no
+# DOCKER-USER chain, as when Docker runs with iptables off or its nftables backend.
+apply_edge_egress() {
+    local ipt keep drop
+    keep=(-i "$EDGE_BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED
+        -m comment --comment "$EDGE_RULE_TAG" -j RETURN)
+    drop=(-i "$EDGE_BRIDGE" ! -o "$EDGE_BRIDGE" -m comment --comment "$EDGE_RULE_TAG" -j DROP)
+    if ! command -v iptables >/dev/null 2>&1; then
+        echo "iptables is not installed, so nothing stops the gateway's network ($EDGE_BRIDGE)" \
+            "routing out of this server. Install iptables and run the installer again." >&2
+        return 1
+    fi
+    if ! iptables -n -L DOCKER-USER >/dev/null 2>&1; then
+        echo "iptables has no DOCKER-USER chain, so nothing stops the gateway's network" \
+            "($EDGE_BRIDGE) routing out of this server. Start Docker with its iptables" \
+            "firewall (not \"iptables\": false, nor the nftables backend) and run the installer again." >&2
+        return 1
+    fi
+    for ipt in iptables ip6tables; do
+        if [ "$ipt" = ip6tables ] && ! { command -v ip6tables && ip6tables -n -L DOCKER-USER; } >/dev/null 2>&1; then
+            echo "ip6tables: no DOCKER-USER chain, so Docker routes no IPv6 here"
+            continue
+        fi
+        if "$ipt" -C DOCKER-USER "${keep[@]}" 2>/dev/null &&
+            "$ipt" -C DOCKER-USER "${drop[@]}" 2>/dev/null; then
+            echo "$ipt: the $EDGE_BRIDGE egress rules are already in place"
+            continue
+        fi
+        remove_edge_egress_rules "$ipt"
+        "$ipt" -I DOCKER-USER 1 "${drop[@]}"
+        "$ipt" -I DOCKER-USER 1 "${keep[@]}"
+        echo "$ipt: added the $EDGE_BRIDGE egress rules"
+    done
+}
+
+# install_edge_egress: apply the rules now, and install and enable the unit that
+# applies them at every boot and Docker restart. The unit runs a copy of the two
+# functions above, so it does not depend on the install folder.
+install_edge_egress() {
+    apply_edge_egress || return 1
+    {
+        echo '#!/usr/bin/env bash'
+        echo "# Written by mg-install: the gateway's edge network has no route out of this server."
+        echo '# Removed by: sudo mg-install uninstall. [VLD-ANB-MIDGARD-0061]'
+        echo 'set -euo pipefail'
+        declare -p EDGE_BRIDGE EDGE_RULE_TAG
+        declare -f remove_edge_egress_rules apply_edge_egress
+        echo 'apply_edge_egress'
+    } >"$EDGE_HELPER.tmp"
+    chmod 0755 "$EDGE_HELPER.tmp"
+    mv "$EDGE_HELPER.tmp" "$EDGE_HELPER"
+    cat >"$EDGE_UNIT" <<UNIT
+# Written by mg-install. [VLD-ANB-MIDGARD-0061]
+[Unit]
+Description=Midgard: the gateway's edge network ($EDGE_BRIDGE) has no route out of this server
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$EDGE_HELPER
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+    systemctl enable "$(basename "$EDGE_UNIT")"
+}
+
+# remove_edge_egress: undo install_edge_egress. Never fails: it runs while uninstalling.
+remove_edge_egress() {
+    local ipt
+    if [ -f "$EDGE_UNIT" ]; then
+        systemctl disable "$(basename "$EDGE_UNIT")" || true
+        rm -f "$EDGE_UNIT"
+        systemctl daemon-reload || true
+    fi
+    rm -f "$EDGE_HELPER"
+    for ipt in iptables ip6tables; do
+        if command -v "$ipt" >/dev/null 2>&1; then remove_edge_egress_rules "$ipt" || true; fi
+    done
+    return 0
 }
 
 # ---- the wizard ------------------------------------------------------------------------
@@ -913,6 +1136,11 @@ copy_source() {
         echo "running from the installed source; nothing to copy"
         return 0
     fi
+    # Only ever below the install folder set_dirs validated. [VLD-ANB-MIDGARD-0048]
+    case "$SRC" in
+        "$INSTALL_DIR"/?*) ;;
+        *) die "Refusing to replace $SRC: it is not inside the install folder '$INSTALL_DIR'." ;;
+    esac
     rm -rf "$SRC.new" "$SRC.old"
     mkdir -p "$SRC.new"
     tar -C "$REPO" --exclude=./.git --exclude=./target --exclude=node_modules \
@@ -965,6 +1193,30 @@ build_toolchain() {
     fi
 }
 
+# service_limits SERVICE: its cgroup limits on this server, as compose keys at service
+# depth. compose.yaml ships evaluation-sized limits; these replace them with ones sized
+# from the cores and memory found by facts(): the gateway min(1 GB, RAM/8); Mimir half
+# the memory with Granite (and llama.cpp the same), a quarter without, and every core
+# but two; everything else 512 MB and one core. No service gets less than 256 MB.
+# The descriptor limits stay compose.yaml's. [VLD-ANB-MIDGARD-0029]
+service_limits() {
+    local mem=512 cpus=1 pids=256 heavy=$((CPUS > 2 ? CPUS - 2 : 1))
+    case "$1" in
+        gateway)
+            mem=$((RAM_MB / 8)); [ "$mem" -gt 1024 ] && mem=1024
+            pids=512 ;;
+        mimir-server)
+            if [ "$MODEL" = granite ]; then mem=$((RAM_MB / 2)); else mem=$((RAM_MB / 4)); fi
+            cpus=$heavy ;;
+        mimir-llamacpp) mem=$((RAM_MB / 2)); cpus=$heavy ;;
+    esac
+    [ "$mem" -lt 256 ] && mem=256
+    echo "    mem_limit: ${mem}m"
+    echo "    memswap_limit: ${mem}m"
+    echo "    cpus: $cpus"
+    echo "    pids_limit: $pids"
+}
+
 write_site() {
     # shellcheck disable=SC1090
     . "$HERE/profiles/$PROFILE/profile.env"
@@ -1000,15 +1252,24 @@ write_site() {
         echo "    volumes:"
         echo "      - $SITE/ontology.json:/etc/midgard/core-ontology.json:ro"
         echo "      - $SITE/policy.json:/etc/midgard/core-policy.json:ro"
+        service_limits init
         echo "  gateway:"
-        echo "    entrypoint: [http-gateway, --state-dir, /state, --bind, \"0.0.0.0:7710\","
+        echo "    entrypoint: [http-gateway, --state-dir, /state, --bind, \"0.0.0.0:7710\", --allow-non-loopback,"
         echo "                 --mesh-bind, \"0.0.0.0:7711\", --mesh-identity-dir, /mesh-identity,"
         echo "                 --allow-origin, \"http://localhost:5173\", --allow-origin, \"http://127.0.0.1:5173\"]"
+        service_limits gateway
         if has forge; then
             echo "  forge-worker:"
             echo "    volumes:"
             echo "      - $SITE/forge:/etc/midgard/forge:ro"
+            service_limits forge-worker
         fi
+        local svc
+        for svc in mimir-server mimir-llamacpp bifrost-fleet heimdall-feed; do
+            [[ " $(services_of) " == *" $svc "* ]] || continue
+            echo "  $svc:"
+            service_limits "$svc"
+        done
         if [ "$CONSOLE" = yes ]; then
             cat <<EOF
   console:
@@ -1020,6 +1281,8 @@ write_site() {
     tmpfs: ["/tmp", "/var/cache/nginx"]
     environment:
       NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    ulimits:
+      nofile: { soft: 4096, hard: 4096 }
     networks: [edge]
     ports:
       - "127.0.0.1:5173:8080"
@@ -1030,6 +1293,7 @@ write_site() {
       timeout: 3s
       retries: 6
 EOF
+            service_limits console
         fi
     } >"$SITE/compose.site.yaml"
     dc config --quiet
@@ -1037,13 +1301,29 @@ EOF
 
 enrolled() { dc run --rm --no-deps -T --entrypoint mg-admin init user list --state-dir /vol/core-state 2>/dev/null | grep -qw -- "$1"; }
 
+# require_private_file FILE [UID]: whether FILE is a regular file, not a symlink, owned
+# by UID (default 0, root) with mode 0600 or 0400. Otherwise prints why to stderr and
+# returns 1. The tests pass their own uid. [VLD-ANB-MIDGARD-0048]
+require_private_file() {
+    local file="$1" uid="${2:-0}" got
+    [ -n "$file" ] || { echo "no file was given" >&2; return 1; }
+    [ -f "$file" ] && [ ! -L "$file" ] || { echo "$file is not a regular file" >&2; return 1; }
+    got="$(stat -c '%u %a' -- "$file")"
+    case "$got" in
+        "$uid 600" | "$uid 400") return 0 ;;
+        *) echo "$file is owned by uid ${got% *} with mode 0${got#* }, not uid $uid with mode 0600 or 0400" >&2
+           return 1 ;;
+    esac
+}
+
 enrol_operator() {
     # shellcheck disable=SC1090
     . "$HERE/profiles/$PROFILE/profile.env"
-    local out flags=() password
+    local out flags=() password reason
     if enrolled "$OPERATOR"; then ok "$OPERATOR is already enrolled."; return 0; fi
     if [ "$UNATTENDED" = 1 ]; then
-        [ -r "${ANSWER[OPERATOR_PASSWORD_FILE]:-}" ] || die "OPERATOR_PASSWORD_FILE is not a readable file"
+        reason="$(require_private_file "${ANSWER[OPERATOR_PASSWORD_FILE]:-}" 2>&1)" ||
+            die "OPERATOR_PASSWORD_FILE must be a regular file owned by root with mode 0600 (chown root:root FILE; chmod 0600 FILE): $reason"
         password="$(head -n 1 "${ANSWER[OPERATOR_PASSWORD_FILE]}")"
         [ "${#password}" -ge 12 ] || die "the operator's password must have at least 12 characters"
     else
@@ -1116,17 +1396,23 @@ enrol_admins() {
 }
 
 stage_model() {
-    local file="${ANSWER[MODEL_FILE]:-}" dl="$INSTALL_DIR/downloads"
+    local file="${ANSWER[MODEL_FILE]:-}" dl="$INSTALL_DIR/downloads" mode=()
+    model_dev && mode=(--development)
     # Staged means a format 2 manifest: one signed over its own bytes, which
     # mimir-server checks before parsing it. An older manifest is signed again. [MG-SEC-14]
+    # With a development key, its public half must be in midgard-model-trust as well:
+    # an install staged before the anchor left the models volume is signed again.
+    # [VLD-ANB-MIDGARD-0028]
     if docker run --rm -v midgard-models:/models "$DEV_IMAGE" sh -c \
-        'head -n 1 /models/granite/model.manifest 2>/dev/null | grep -qx "midgard-model-manifest 2"' 2>/dev/null; then
+        'head -n 1 /models/granite/model.manifest 2>/dev/null | grep -qx "midgard-model-manifest 2"' 2>/dev/null \
+        && { ! model_dev || docker run --rm -v midgard-model-trust:/model-trust:ro "$DEV_IMAGE" \
+            test -s /model-trust/model-signing.pub 2>/dev/null; }; then
         echo "the model is already staged"
         return 0
     fi
     if docker run --rm -v midgard-models:/models "$DEV_IMAGE" test -f "/models/granite/$GRANITE_GGUF" 2>/dev/null; then
-        echo "the model's manifest predates format 2; signing it again"
-        bash "$SRC/deploy/compose/stage-model.sh"
+        echo "the model is staged but not signed as this release expects; signing it again"
+        bash "$SRC/deploy/compose/stage-model.sh" "${mode[@]}"
         return 0
     fi
     if [ -z "$file" ]; then
@@ -1137,7 +1423,7 @@ stage_model() {
             mv "$file.part" "$file"
         fi
     fi
-    bash "$SRC/deploy/compose/stage-model.sh" "$file"
+    bash "$SRC/deploy/compose/stage-model.sh" "${mode[@]}" "$file"
     [ "$file" = "$dl/$GRANITE_GGUF" ] && rm -f "$file"
     return 0
 }
@@ -1154,12 +1440,37 @@ issue_feed_identities() {
             if [ -f "/vol/heimdall-clients/$feed.keystore" ]; then
                 # Kept keys, current certificate: a no-op unless an earlier
                 # release issued it. [MG-SEC-02]
-                mg-admin mesh upgrade --state-dir /vol/core-state --service "$feed"                     --roles feed-source --out /vol/heimdall-clients
+                mg-admin mesh upgrade --state-dir /vol/core-state --service "$feed"                     --roles feed-source --out /vol/heimdall-clients \
+                    --identity-passphrase-file /vol/heimdall-clients-passphrase/passphrase
             else
                 mg-admin mesh issue --state-dir /vol/core-state --service "$feed" \
-                    --roles feed-source --out /vol/heimdall-clients
+                    --roles feed-source --out /vol/heimdall-clients \
+                    --identity-passphrase-file /vol/heimdall-clients-passphrase/passphrase
             fi
         done' sh $feeds
+}
+
+# Restart heimdall-feed with --max-observation-age set to $1 seconds, or with its
+# compose defaults when called with no argument, and wait until it is healthy. The
+# override file lives only for the restart, so later dc calls never see it.
+replay_feed_server() {
+    local override="$SITE/compose.replay.yaml" rc
+    if [ -n "${1-}" ]; then
+        cat >"$override" <<EOF
+services:
+  heimdall-feed:
+    entrypoint: [heimdall-feed, --identity-dir, /identity, --state-dir, /state,
+                 --bind, "0.0.0.0:7730", --health-bind, "0.0.0.0:9090",
+                 --max-observation-age, "$1"]
+EOF
+        rc=0
+        dc -f "$override" up -d --no-deps --force-recreate --wait heimdall-feed || rc=$?
+        rm -f "$override"
+        return "$rc"
+    else
+        rm -f "$override"
+        dc up -d --no-deps --force-recreate --wait heimdall-feed
+    fi
 }
 
 # Replay the chosen feeds' observations into Heimdall, each signed by its feed's own
@@ -1180,6 +1491,17 @@ replay_feeds() {
         return 0
     fi
     echo "replaying $(wc -l <"$dir/observations.tsv") observations from: $feeds"
+    # heimdall-feed refuses observations more than seven days old (VLD-ANB-MIDGARD-0015),
+    # and the samples keep the times they were recorded at. For the replay only, restart it
+    # with --max-observation-age wide enough for the oldest sample; it goes back to the
+    # default afterwards, whether or not the replay succeeded.
+    local oldest age rc=0
+    oldest="$(cut -f4 "$dir/observations.tsv" | sort -n | head -n1)"
+    [ -n "$oldest" ] || { echo "no observations to replay"; return 1; }
+    age=$(( $(date +%s) - oldest + 86400 ))
+    [ "$age" -gt 604800 ] || age=604800
+    echo "allowing observations up to $(( age / 86400 )) days old while the samples replay"
+    replay_feed_server "$age"
     # shellcheck disable=SC2016
     dc run --rm --no-deps -T -v "$dir:/feeds:ro" --entrypoint sh feed-source -c '
         tab="$(printf "\t")"; ok=0; refused=0
@@ -1192,7 +1514,9 @@ replay_feeds() {
             fi
         done < /feeds/observations.tsv
         echo "accepted $ok, refused $refused"
-        [ "$ok" -gt 0 ] && [ "$refused" -eq 0 ]'
+        [ "$ok" -gt 0 ] && [ "$refused" -eq 0 ]' || rc=$?
+    replay_feed_server
+    [ "$rc" -eq 0 ] || return "$rc"
     echo "$digest" >"$dir/.replayed"
     local picture entities
     picture="$(dc run --rm -T picture 2>/dev/null)"
@@ -1271,6 +1595,26 @@ for t in json.load(sys.stdin):
     [ "$count" -gt 0 ] || { echo "$OPERATOR cannot read any synced $first: check clearance and purposes"; return 1; }
 }
 
+# The web console sends every header in its shared security-headers file on the page
+# and on a static asset: nginx drops the server block's headers in a location that
+# sets one of its own, as /assets/ does with Cache-Control. [VLD-ANB-MIDGARD-0064]
+check_console_headers() {
+    local base="${1:-http://127.0.0.1:5173}" names asset url response name absent=""
+    names="$(sed -n 's/^add_header \([A-Za-z-]*\) .*/\1/p' "$SRC/deploy/installer/console.security-headers.conf")"
+    [ -n "$names" ] || { echo "no header is named in console.security-headers.conf"; return 1; }
+    asset="$(curl -fsS "$base/" | { grep -o '/assets/[^"]*\.js' || true; } | sed -n 1p)"
+    [ -n "$asset" ] || { echo "the console page names no /assets/*.js"; return 1; }
+    for url in "$base/" "$base$asset"; do
+        response="$(curl -fsSI "$url")"
+        for name in $names; do
+            grep -qi "^$name:" <<<"$response" || absent+=" $name (${url#"$base"})"
+        done
+    done
+    grep -qi "^Cache-Control:" <<<"$response" || absent+=" Cache-Control ($asset)"
+    [ -z "$absent" ] || { echo "the console does not send:$absent"; return 1; }
+    echo "the console sends $(xargs <<<"$names") on / and $asset"
+}
+
 install_now() {
     step 9 "INSTALLING"
     STATUS=in-progress
@@ -1291,6 +1635,7 @@ install_now() {
     save_state
     run "Building the Rust toolchain image (first time only)" build_toolchain
     run "Writing this server's configuration" write_site
+    run "Closing the gateway's network off from outside this server" install_edge_egress
     run "Building the Midgard services from source" dc build init
     if [ "$CONSOLE" = yes ]; then
         if [ "$(docker image inspect -f '{{index .Config.Labels "org.midgard.source"}}' "$CONSOLE_IMAGE" 2>/dev/null)" = "$SOURCE_COMMIT" ] &&
@@ -1340,6 +1685,7 @@ install_now() {
         run "Replaying the Heimdall feeds and checking the picture" replay_feeds
     fi
     [ "$CONSOLE" = yes ] && run "Checking the web console is served" curl -fsS -o /dev/null http://127.0.0.1:5173/
+    [ "$CONSOLE" = yes ] && run "Checking the web console sends its security headers" check_console_headers
     ln -sf "$SRC/deploy/installer/mg-install" /usr/local/bin/mg-install
     STATUS=complete
     save_state
@@ -1612,7 +1958,7 @@ cmd_backup() {
     note "  sealed keys. Protect the backup as you would the server itself."
     echo
     dc stop >/dev/null 2>&1
-    for v in $(docker volume ls -q --filter label=com.docker.compose.project=midgard) midgard-models midgard-model-signing; do
+    for v in $(docker volume ls -q --filter label=com.docker.compose.project=midgard) midgard-models midgard-model-signing midgard-model-signing-passphrase midgard-model-trust; do
         docker volume inspect "$v" >/dev/null 2>&1 || continue
         docker run --rm --network none -u 0 -v "$v:/v:ro" -v "$dest:/b" "$DEV_IMAGE" \
             tar -C /v -czf "/b/$v.tar.gz" . && ok "$v" && n=$((n + 1))
@@ -1630,13 +1976,17 @@ cmd_uninstall() {
     need_root
     find_install
     banner
+    local reason
     if [ "${1:-}" = --purge ]; then
+        # Checked before anything is deleted, volumes included. [VLD-ANB-MIDGARD-0048]
+        reason="$(purge_dir_is_safe "$INSTALL_DIR" 2>&1)" ||
+            die "Refusing to delete $INSTALL_DIR: $reason. Nothing was deleted."
         warn "This deletes Midgard and ALL its data: keys, users, ledgers, datasets, models."
         say "There is no undo. Take a backup first (sudo mg-install backup) if in doubt."
         ask PURGE "Type DELETE to confirm:" ""
         [ "$REPLY" = DELETE ] || die "Nothing was deleted."
         dc down -v --remove-orphans
-        docker volume rm midgard-models midgard-model-signing >/dev/null 2>&1 || true
+        docker volume rm midgard-models midgard-model-signing midgard-model-signing-passphrase midgard-model-trust >/dev/null 2>&1 || true
         docker image rm "$DEV_IMAGE" "$CONSOLE_IMAGE" >/dev/null 2>&1 || true
         rm -f /usr/local/bin/mg-install
         rm -rf "$INSTALL_DIR"
@@ -1647,6 +1997,8 @@ cmd_uninstall() {
         ok "The services are removed. Data volumes and $INSTALL_DIR are kept."
         note "  Run the installer again to bring it back, or 'uninstall --purge' to delete everything."
     fi
+    remove_edge_egress >/dev/null 2>&1
+    ok "The firewall rule for the gateway's network and its system service are removed."
 }
 
 cmd_handed_over() {
@@ -1709,4 +2061,5 @@ main() {
     esac
 }
 
-main "$@"
+# Run when executed; when sourced (tools/ci/tests/mg-install.test.sh), only define.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

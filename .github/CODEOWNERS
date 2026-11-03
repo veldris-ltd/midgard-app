@@ -18,3 +18,15 @@
 # when an area gains its own maintainer.
 
 *       @jbb-kryo @phillips1707
+
+# What decides whether a change or a release is trusted: the pinned keys and signers,
+# the pipelines and their scripts, the release inputs and the compliance evidence. Both
+# maintainers own each, and the "signed history" ruleset requires a code owner's
+# approval, so a change here is always reviewed by the maintainer who did not make it.
+# Keep these after the default rule. [VLD-ANB-MIDGARD-0069]
+/deploy/trust/          @jbb-kryo @phillips1707
+/tools/ci/              @jbb-kryo @phillips1707
+/.github/               @jbb-kryo @phillips1707
+/.gitlab-ci.yml         @jbb-kryo @phillips1707
+/supply-chain/          @jbb-kryo @phillips1707
+/docs/compliance/       @jbb-kryo @phillips1707

@@ -42,7 +42,8 @@ pub enum FeedTransportError {
     Malformed(String),
     /// The observation payload failed to decode.
     Decode(PictureError),
-    /// The observation was not admitted (unknown feed / bad signature / mismatch).
+    /// The observation was not admitted (unknown feed / bad signature / mismatch /
+    /// another peer's feed / replayed or stale).
     Rejected(FeedError),
 }
 
@@ -209,7 +210,9 @@ impl FeedListener {
 /// `sink`. Returns the number admitted. **Fails closed**: an unknown feed, a bad
 /// signature, an algorithm mismatch, a tampered record, or a malformed frame returns
 /// an error and no further observations are read — an unsigned/unauthenticated feed
-/// is rejected, not fused. [FR-H-3] [NFR-PQ-3] [RC-26]
+/// is rejected, not fused. So is an observation for a feed that is neither the
+/// peer's own nor delegated to it, and a replayed or stale one.
+/// [FR-H-3] [NFR-PQ-3] [RC-26] [VLD-ANB-MIDGARD-0041]
 pub fn serve_feed_connection<F>(
     stream: TcpStream,
     responder: Responder,
@@ -221,6 +224,9 @@ where
 {
     let mut ch = TcpChannel::new(stream);
     let session = run_responder(responder, &mut ch)?;
+    // The certificate-authenticated peer: every observation on this connection must
+    // name its feed, or one delegated to it. [VLD-ANB-MIDGARD-0041]
+    let peer_id = session.peer().id.clone();
     let mut stream = ch.into_stream();
     let (_sealer, mut opener) = session.records(Role::Responder);
 
@@ -234,9 +240,10 @@ where
         let record = opener.open(FEED_AAD, &frame)?;
         // … reconstruct the signed observation …
         let signed = decode_signed_observation(&record)?;
-        // … and admit it only if its source signature verifies. A rejection stops
-        // the connection: an untrusted source is cut off, not merely skipped.
-        let verified = gateway.authenticate(&signed)?;
+        // … and admit it only if it names the peer's own (or a delegated) feed, its
+        // source signature verifies and it is new. A rejection stops the connection:
+        // an untrusted source is cut off, not merely skipped.
+        let verified = gateway.authenticate_from(&signed, &peer_id)?;
         sink(verified);
         admitted += 1;
     }

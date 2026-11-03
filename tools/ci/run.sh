@@ -14,7 +14,9 @@
 #
 # Jobs marked [toolchain] run inside the digest-pinned toolchain image with no network
 # (tools/ci/in-toolchain.sh); build it first with the `toolchain` job. The rest run on
-# the host.
+# the host. GitLab's merge-request jobs already run inside the published toolchain image
+# (MIDGARD_IN_TOOLCHAIN=1), so there the [toolchain] jobs run in place, offline by
+# `cargo --offline` and the vendor check rather than by a network sandbox.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -26,6 +28,8 @@ TOOLCHAIN_LABEL=dev.midgard.toolchain.dockerfile
 # Where a saved copy of the toolchain image is kept between jobs, when the CI system
 # caches this directory.
 CACHE_DIR="${MIDGARD_CI_CACHE:-.ci-cache}"
+# The digest of the published toolchain image GitLab's merge-request jobs run in.
+TOOLCHAIN_DIGEST_FILE=tools/ci/toolchain.digest
 
 # gitleaks, pinned by release and by the checksums that release publishes.
 GITLEAKS_VERSION=8.30.1
@@ -38,19 +42,23 @@ GITLEAKS_SHA256_darwin_arm64=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13
 JOBS='
 selftest|host|the CI scripts test themselves, and both pipelines call the same jobs
 provenance|host|changed sources under governed trees cite a requirement
+commits|host|every commit the change brings is signed by a key in deploy/trust/allowed_signers, or verified by the forge
 vendor|host|/vendor is exactly the crates Cargo.lock names, and Cargo is pinned to it
 claims|host|every row of the claims ledger cites files, lines and tests that exist
 gate-record|host|the committed gate record is what its logs give, and the status tables are what it gives
 numbers|host|docs/compliance/NUMBERS.md matches the tree, and no swept document quotes a figure that differs from it
 secrets|host|no credential is committed (gitleaks)
-k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders (needs helm)
-toolchain|host|build or restore the digest-pinned toolchain image (the only online step)
+k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders, and each secrets provider renders as it should (needs helm)
+toolchain|host|build or restore the digest-pinned toolchain image (the only online step); inside it, check it is the pinned one
+toolchain-publish|host|push the toolchain image to the GitLab project registry; its digest must be the committed one
 fmt|toolchain|formatting
 lint|toolchain|clippy at deny-warnings
 build|toolchain|release build of the workspace, whose graph never enables the test backend
+check-backends|toolchain|no release binary can carry the insecure test backend; the compile guard fires
 test|toolchain|the test suite, both crypto backends; its log is kept in target/gate
 repro|toolchain|two normalised builds of the workspace are bit-identical
 scan|toolchain|advisory and licence scan of the dependency graph, PR mode
+advisory-refresh|host|weekly: refresh both advisory snapshots, re-scan, and propose the change when they moved
 acceptance|host|the full acceptance suite under a genuine air gap; its log is kept in target/gate
 js-build|host|install the JS workspace and build every JavaScript artefact twice, bit-identical
 release-dry-run|toolchain|the whole release gate with throwaway keys, publishing nothing
@@ -85,18 +93,25 @@ release_name() {
 }
 
 # The arguments that hand the signing material to the toolchain container: each
-# keystore mounted read-only at a fixed path, the registry read-write, and the
-# variables renamed to match. Nothing else from the runner's environment goes in.
+# keystore and its passphrase file mounted read-only at a fixed path, the registry
+# read-write, and the variables renamed to match. Nothing else from the runner's
+# environment goes in. [VLD-ANB-MIDGARD-0007]
 signing_mounts() {
     local -n into="$1"
     into=()
     : "${MIDGARD_SIGNING_KEYSTORE:?the release signing keystore is not configured (docs/ops/PKI.md)}"
     : "${MIDGARD_BIFROST_KEYSTORE:?the Bifrost admission keystore is not configured (docs/ops/PKI.md)}"
     : "${MIDGARD_BIFROST_REGISTRY:?the Bifrost registry directory is not configured (docs/ops/PKI.md)}"
+    : "${MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE:?the release keystore passphrase is not configured (docs/ops/PKI.md)}"
+    : "${MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE:?the admission keystore passphrase is not configured (docs/ops/PKI.md)}"
     into+=(--mount "$MIDGARD_SIGNING_KEYSTORE:/keys/release.keystore:ro"
            --env MIDGARD_SIGNING_KEYSTORE=/keys/release.keystore
+           --mount "$MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE:/keys/release.passphrase:ro"
+           --env MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE=/keys/release.passphrase
            --mount "$MIDGARD_BIFROST_KEYSTORE:/keys/admission.keystore:ro"
            --env MIDGARD_BIFROST_KEYSTORE=/keys/admission.keystore
+           --mount "$MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE:/keys/admission.passphrase:ro"
+           --env MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=/keys/admission.passphrase
            --mount "$MIDGARD_BIFROST_REGISTRY:/registry"
            --env MIDGARD_BIFROST_REGISTRY=/registry)
 }
@@ -111,6 +126,10 @@ job_selftest() {
 }
 
 job_provenance() { bash tools/ci/provenance-lint.sh; }
+
+# The change set's commits are signed, so provenance starts at the change and not at the
+# tag. [VLD-ANB-MIDGARD-0069]
+job_commits() { bash tools/ci/verify-commits.sh "$@"; }
 
 job_vendor() { bash tools/ci/vendor-check.sh; }
 
@@ -148,9 +167,13 @@ job_secrets() {
     "$bin" detect --source . --config .gitleaks.toml --redact --no-banner
 }
 
+# Every commit in the change verifies against deploy/trust/allowed_signers. [AC-25.4]
+# (VLD-ANB-MIDGARD-0088)
+
 job_k8s_render() {
     need "${HELM:-helm}" "k8s-render: helm is not on PATH"
     bash deploy/k8s/render.sh --check
+    bash deploy/helm/midgard/tests/render-providers.sh
 }
 
 # Restore the toolchain image from the cache directory when the CI system kept one for
@@ -161,13 +184,54 @@ toolchain_built_from() {
     docker image inspect --format "{{ index .Config.Labels \"$TOOLCHAIN_LABEL\" }}" "$IMAGE" 2>/dev/null || true
 }
 
+# The first 16 hex digits of the Dockerfile's SHA-256: the label an image carries, and
+# the tag the published image is pushed under.
+toolchain_key() {
+    (sha256sum deploy/acceptance/Dockerfile 2>/dev/null || shasum -a 256 deploy/acceptance/Dockerfile) | cut -c1-16
+}
+
+# The digest tools/ci/toolchain.digest pins: its first line that is not a comment, when
+# that is a sha256 digest; empty when the file holds none.
+committed_toolchain_digest() {
+    local line
+    line="$(tr -d '\r' < "$TOOLCHAIN_DIGEST_FILE" 2>/dev/null | sed 's/#.*//' | awk 'NF { print $1; exit }')"
+    [[ "$line" =~ ^sha256:[0-9a-f]{64}$ ]] && echo "$line"
+    return 0
+}
+
+# Inside the published image (GitLab's merge-request jobs) there is nothing to build:
+# the job is the check that the image GitLab started is the one this commit pins. The
+# image is chosen from the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST before any script
+# runs, so a variable left behind when the file moved on fails here, closed.
+# [VLD-ANB-MIDGARD-0043]
+toolchain_assert_pinned() {
+    local want recorded
+    want="$(committed_toolchain_digest)"
+    [ -n "$want" ] || {
+        ci_error "toolchain: $TOOLCHAIN_DIGEST_FILE pins no published digest yet; run toolchain-publish on main and commit the digest it prints" "$TOOLCHAIN_DIGEST_FILE"
+        exit 1
+    }
+    [ "${MIDGARD_TOOLCHAIN_DIGEST:-}" = "$want" ] || {
+        ci_error "toolchain: this job runs in toolchain@${MIDGARD_TOOLCHAIN_DIGEST:-<unset>}, but $TOOLCHAIN_DIGEST_FILE pins $want; set the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST from $TOOLCHAIN_DIGEST_FILE" "$TOOLCHAIN_DIGEST_FILE"
+        exit 1
+    }
+    recorded="$(sed -n 's/^# *dockerfile-sha16: *\([0-9a-f]\{16\}\).*/\1/p' "$TOOLCHAIN_DIGEST_FILE" | head -1)"
+    [ "$recorded" = "$(toolchain_key)" ] ||
+        ci_warning "toolchain: $TOOLCHAIN_DIGEST_FILE was published from Dockerfile ${recorded:-<unrecorded>}, not this one ($(toolchain_key)); run toolchain-publish once this is merged"
+    echo "toolchain: running in the pinned toolchain image, $want"
+}
+
 job_toolchain() {
     local key tarball
+    if [ "${MIDGARD_IN_TOOLCHAIN:-}" = 1 ]; then
+        toolchain_assert_pinned
+        return
+    fi
     need docker "toolchain: docker is not available"
     # The tag names the Rust version and says nothing about the rest of the Dockerfile,
     # so an image built before the Dockerfile last changed still answers to it. The
     # label does say: an image is current only when it records this Dockerfile.
-    key="$( (sha256sum deploy/acceptance/Dockerfile 2>/dev/null || shasum -a 256 deploy/acceptance/Dockerfile) | cut -c1-16)"
+    key="$(toolchain_key)"
     if [ "$(toolchain_built_from)" = "$key" ]; then
         echo "toolchain: $IMAGE is already present and current"
         return
@@ -191,6 +255,57 @@ job_toolchain() {
     fi
 }
 
+# Build the toolchain image and push it to the GitLab project registry, where the
+# merge-request jobs run it by digest. Runs only on the privileged runner, by hand, on a
+# protected branch. The digest a push gets cannot be known before it, so the job fails,
+# printing it, until it is committed to tools/ci/toolchain.digest; once it is, a rerun
+# finds that image already published from this Dockerfile and pushes nothing.
+# [VLD-ANB-MIDGARD-0043]
+job_toolchain_publish() {
+    local key repo want got line
+    if [ "$(ci_platform)" = github ]; then
+        echo "toolchain-publish: not applicable: GitHub builds the toolchain per run"
+        return 0
+    fi
+    need docker "toolchain-publish: docker is not available"
+    [ -n "${CI_REGISTRY_IMAGE:-}" ] || {
+        ci_error "toolchain-publish: CI_REGISTRY_IMAGE is not set; this job publishes to a GitLab project registry"
+        exit 1
+    }
+    key="$(toolchain_key)"
+    repo="$CI_REGISTRY_IMAGE/toolchain"
+    want="$(committed_toolchain_digest)"
+    if [ -n "${CI_REGISTRY:-}" ] && [ -n "${CI_REGISTRY_USER:-}" ]; then
+        printf '%s' "${CI_REGISTRY_PASSWORD:-${CI_JOB_TOKEN:-}}" |
+            docker login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" >/dev/null
+    fi
+    if [ -n "$want" ] && docker pull "$repo@$want" >/dev/null 2>&1 &&
+        [ "$(docker image inspect --format "{{ index .Config.Labels \"$TOOLCHAIN_LABEL\" }}" "$repo@$want" 2>/dev/null)" = "$key" ]; then
+        echo "toolchain-publish: $repo@$want is published, built from this Dockerfile ($key); nothing to push"
+        return 0
+    fi
+    MIDGARD_CI_SAVE_TOOLCHAIN=0 job_toolchain
+    docker tag "$IMAGE" "$repo:$key"
+    docker push "$repo:$key"
+    got=""
+    while IFS= read -r line; do
+        line="${line%$'\r'}"
+        [[ "$line" == "$repo@"* ]] && { got="${line#"$repo@"}"; break; }
+    done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$repo:$key")
+    [[ "$got" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+        ci_error "toolchain-publish: pushed $repo:$key but could not read the digest it was given"
+        exit 1
+    }
+    echo "toolchain-publish: pushed $repo:$key as $repo@$got"
+    if [ "$got" != "$want" ]; then
+        ci_error "toolchain-publish: the pushed image is $got, but $TOOLCHAIN_DIGEST_FILE pins ${want:-nothing}; commit the new digest to $TOOLCHAIN_DIGEST_FILE, then set MIDGARD_TOOLCHAIN_DIGEST to it" "$TOOLCHAIN_DIGEST_FILE"
+        echo "$TOOLCHAIN_DIGEST_FILE should end:"
+        echo "# dockerfile-sha16: $key"
+        echo "$got"
+        exit 1
+    fi
+}
+
 job_fmt() { in_toolchain just fmt-check; }
 job_lint() { in_toolchain just lint; }
 # The release build, then the check that nothing in its graph enables the insecure
@@ -199,6 +314,10 @@ job_build() {
     in_toolchain just build-rust
     in_toolchain bash tools/ci/no-test-backend.sh
 }
+# Every package in the release matrix resolves without the test backend, a release
+# build with it fails on the compile guard, and the FIPS release build succeeds.
+# [RT-08] [VLD-ANB-MIDGARD-0067]
+job_check_backends() { in_toolchain just check-backends; }
 # The two parts of the acceptance gate go through gate-run.sh, which runs them exactly
 # as before and keeps the log and its metadata in target/gate. The pipelines keep that
 # directory; tools/ci/gate-record.sh makes the gate record from it.
@@ -211,6 +330,149 @@ job_repro() { in_toolchain just repro "" 4; }
 # The SBOM is derived from Cargo.lock, so it needs no built binary to describe.
 job_scan() {
     in_toolchain bash -c 'mkdir -p target/ci && just sbom target/ci/workspace && just scan-advisory target/ci/workspace'
+}
+
+# --- the weekly advisory refresh [AC-P4.5] (VLD-ANB-MIDGARD-0076) --------------------
+# The vendored snapshots are only as good as their last refresh, so a schedule runs
+# this every week on both forges. The two downloads happen here on the runner; the
+# offline toolchain then rewrites vendor/advisory-db and vendor/advisory-db-npm from
+# them (the same just recipes a maintainer runs). If either snapshot moved, the change
+# is committed to deps/advisory-refresh-<date> and proposed as a pull or merge request
+# whose body carries the scan diff. Nothing is merged here: a person reviews it.
+RUSTSEC_REPO=https://github.com/rustsec/advisory-db.git
+NPM_OSV_EXPORT=https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip
+
+# What the scan says about every workspace SBOM against the snapshots as they stand:
+# the Rust workspace (the scan job, PR mode) and each JavaScript artefact's production
+# closure. Findings and summaries only, so two runs compare line by line; a scan that
+# fails still has a result.
+advisory_scan_result() {
+    local js
+    js="$(bash tools/ci/js-artefacts.sh --rows | awk 'NF { print $2, $3 }')"
+    {
+        echo "== workspace (Cargo.lock)"
+        job_scan 2>&1 || true
+        in_toolchain bash -c '
+            while read -r id dir; do
+                [ -n "$id" ] || continue
+                echo "== $id ($dir)"
+                cargo run -q --release -p mg-sbom -- --pnpm-lock pnpm-lock.yaml --importer "$dir" \
+                    --out "target/ci/$id.sbom.cdx.json" "$id" >/dev/null 2>&1
+                cargo run -q --release -p mg-scan -- "target/ci/$id.sbom.cdx.json" --advisory-only 2>&1
+            done <<<"$1"
+            true' _ "$js"
+    } | tr -d '\r' | grep -E '^(== |BLOCK|note |mg-scan: )' | grep -v '^mg-scan: wrote ' || true
+}
+
+# A git credential helper that answers with a token read from the environment when
+# git asks, so the token is never on a command line or in .git/config.
+token_helper() { echo "!f() { echo username=$1; echo \"password=\$$2\"; }; f"; }
+
+job_advisory_refresh() {
+    local work=target/advisory-refresh date branch base remote user token
+    need git "advisory-refresh: git is needed"
+    need curl "advisory-refresh: curl is needed"
+    need unzip "advisory-refresh: unzip is needed"
+    date="$(date -u +%F)"
+    branch="deps/advisory-refresh-$date"
+    rm -rf "$work"
+    mkdir -p "$work/osv"
+
+    ci_group "fetch the RustSec database and the OSV npm export"
+    git clone -q --depth 1 "$RUSTSEC_REPO" "$work/rustsec"
+    curl -fsSL -o "$work/npm.zip" "$NPM_OSV_EXPORT"
+    unzip -q "$work/npm.zip" -d "$work/osv"
+    rm -f "$work/npm.zip"
+    ci_endgroup
+
+    ci_group "scan against the committed snapshots"
+    advisory_scan_result > "$work/scan-before.txt"
+    ci_endgroup
+    ci_group "refresh both snapshots, offline"
+    in_toolchain just advisory-db-refresh "$work/rustsec"
+    in_toolchain just advisory-db-npm-refresh "$work/osv"
+    ci_endgroup
+    ci_group "scan against the refreshed snapshots"
+    advisory_scan_result > "$work/scan-after.txt"
+    ci_endgroup
+
+    # The scan reads nothing but the snapshots and the lockfiles, so a scan result that
+    # moved without a snapshot moving cannot happen within one run: the snapshot
+    # directories decide.
+    if [ -z "$(git status --porcelain -- vendor/advisory-db vendor/advisory-db-npm)" ]; then
+        echo "advisory-refresh: both snapshots are already current; no change to propose"
+        return 0
+    fi
+
+    {
+        echo "Weekly refresh of the vendored advisory snapshots (\`tools/ci/run.sh advisory-refresh\`)."
+        echo
+        echo "| Snapshot | Date | Advisories |"
+        echo "|---|---|---|"
+        for db in vendor/advisory-db vendor/advisory-db-npm; do
+            echo "| \`$db\` | $(sed -n 's/^date = "\(.*\)"/\1/p' "$db/snapshot.toml" | head -1) | $(sed -n 's/^advisory_count = //p' "$db/snapshot.toml" | head -1) |"
+        done
+        echo
+        echo "Scan result before and after (the Rust workspace and every JavaScript artefact):"
+        echo
+        echo '```diff'
+        diff -u --label before --label after "$work/scan-before.txt" "$work/scan-after.txt" | head -c 60000 \
+            || true
+        echo '```'
+        echo
+        echo "Review the snapshot diff: a shrinking advisory count means something went wrong."
+    } > "$work/body.md"
+
+    case "$(ci_platform)" in
+        github)
+            : "${GH_TOKEN:?advisory-refresh: GH_TOKEN is not set}" "${GITHUB_REPOSITORY:?}"
+            remote="${GITHUB_SERVER_URL:-https://github.com}/$GITHUB_REPOSITORY.git"
+            base="${GITHUB_REF_NAME:?}"
+            user=x-access-token token=GH_TOKEN
+            ;;
+        gitlab)
+            # CI_JOB_TOKEN can neither push nor open a merge request: a project access
+            # token with api scope, given only to the scheduled pipeline, does both.
+            : "${MIDGARD_MR_TOKEN:?advisory-refresh: MIDGARD_MR_TOKEN is not set (docs/dev/CI.md)}"
+            : "${CI_SERVER_URL:?}" "${CI_PROJECT_PATH:?}" "${CI_API_V4_URL:?}" "${CI_PROJECT_ID:?}"
+            remote="$CI_SERVER_URL/$CI_PROJECT_PATH.git"
+            base="${CI_COMMIT_BRANCH:?}"
+            user=oauth2 token=MIDGARD_MR_TOKEN
+            ;;
+        *)
+            ci_error "advisory-refresh: the snapshots changed; commit vendor/advisory-db and vendor/advisory-db-npm (the scan diff is in $work/body.md)"
+            exit 1
+            ;;
+    esac
+
+    git checkout -q -B "$branch"
+    git add -A -- vendor/advisory-db vendor/advisory-db-npm
+    git -c user.name="${MIDGARD_BOT_NAME:-midgard-advisory-refresh}" \
+        -c user.email="${MIDGARD_BOT_EMAIL:-advisory-refresh@users.noreply.invalid}" \
+        commit -q -m "chore(advisories): refresh snapshots $date"
+    git -c credential.helper= -c credential.helper="$(token_helper "$user" "$token")" \
+        push -q --force "$remote" "HEAD:refs/heads/$branch"
+
+    case "$(ci_platform)" in
+        github)
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$base" --head "$branch" \
+                --title "chore(advisories): refresh snapshots $date" --body-file "$work/body.md"
+            ;;
+        gitlab)
+            local header="$work/mr-token.header"
+            (umask 077 && printf 'PRIVATE-TOKEN: %s\n' "$MIDGARD_MR_TOKEN" > "$header")
+            curl --fail --silent --show-error -H @"$header" \
+                --data-urlencode "source_branch=$branch" \
+                --data-urlencode "target_branch=$base" \
+                --data-urlencode "title=chore(advisories): refresh snapshots $date" \
+                --data-urlencode "description@$work/body.md" \
+                --data-urlencode "labels=dependencies" \
+                --data-urlencode "remove_source_branch=true" \
+                "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests" >/dev/null
+            rm -f "$header"
+            echo "advisory-refresh: merge request opened from $branch into $base"
+            ;;
+    esac
 }
 
 job_acceptance() { bash tools/ci/gate-run.sh acceptance; }
@@ -227,6 +489,9 @@ job_js_build() {
         corepack enable pnpm
     fi
     pnpm install --frozen-lockfile --prefer-offline
+    # The selftest job has no installed workspace, so the mock-bundle test runs here:
+    # an http build of the midgard console holds no mock fixture. [AC-25.2]
+    bash tools/ci/tests/js-mock-bundle.test.sh
     bash tools/ci/js-artefacts.sh build --all --out "${MIDGARD_JS_OUT:-target/js-out}"
 }
 
@@ -245,6 +510,9 @@ job_release() {
 
 # The images are built on the host (the toolchain container has no docker), from the
 # gated binaries; the lock file naming them is then signed like any other artefact.
+# The chart is rendered from the lock's digests, also on the host (helm), and the
+# values file and the rendering are signed beside it, so a release deploys each
+# service's signed image by digest and never by a tag. [VLD-ANB-MIDGARD-0012]
 job_release_images() {
     local version out=target/release-out mounts
     version="$(release_name)"
@@ -252,13 +520,20 @@ job_release_images() {
         ci_error "release-images: $out holds no completed release; run the release job first"
         exit 1
     }
+    need "${HELM:-helm}" "release-images: helm is not on PATH; it renders the release chart"
     bash deploy/images/build.sh --version "$version" --verified "$out" \
         --trust "${MIDGARD_TRUST_ANCHORS:-deploy/trust/release-trust.pub}" --out "$out/images"
+    bash deploy/helm/set-digests.sh "$out/images/images.lock" deploy/helm/midgard/values.yaml \
+        --out "$out/chart/values.yaml"
+    "${HELM:-helm}" template midgard deploy/helm/midgard -f "$out/chart/values.yaml" \
+        --namespace default | tr -d '\r' > "$out/chart/enclosure.yaml"
     signing_mounts mounts
     in_toolchain "${mounts[@]}" \
         --env "MIDGARD_TRUST_ANCHORS=${MIDGARD_TRUST_ANCHORS:-deploy/trust/release-trust.pub}" -- \
         bash -c "just sbom $out/images/images.lock && just scan $out/images/images.lock \
-                 && just sign $out/images/images.lock && just verify $out/images/images.lock"
+                 && just sign $out/images/images.lock && just verify $out/images/images.lock \
+                 && for f in $out/chart/values.yaml $out/chart/enclosure.yaml; do \
+                        just sbom \$f && just sign \$f && just verify \$f || exit 1; done"
 }
 
 # Every gated binary with its signature and provenance, packed and signed for import
@@ -305,7 +580,8 @@ job_release_publish() {
     while IFS= read -r f; do files+=("$f"); done < <(
         find "$out" -maxdepth 2 -type f \
             \( -name '*.sig' -o -name '*.att' -o -name '*.sbom.cdx.json' -o -name '*.repro.json' \
-               -o -name '*.mgbundle' -o -name 'images.lock' -o -name 'release-manifest.txt' \) | sort
+               -o -name '*.mgbundle' -o -name 'images.lock' -o -name 'release-manifest.txt' \
+               -o -path "$out/chart/*.yaml" \) | sort
         awk 'NF { print $4 }' "$out/artefacts.txt" | while read -r file; do echo "$out/$file"; done
     )
     # The gate run the release rests on, with its raw logs, and the numbers sheet: what a
@@ -363,10 +639,14 @@ job_shell_audit() {
             [ -f "$root/package.json" ] || no_project "$root/package.json"
             need node "shell-audit: node is needed for the $shell audit"
             (cd "$root" && npm ci && npm run build)
-            (cd "$root" && exec npx --yes http-server dist -p 4173 -s >/dev/null 2>&1) &
+            # The server and the wait come from the CI-owned lockfile, never fetched by
+            # name at run time: the record they help write gates the release. [VLD-ANB-MIDGARD-0058]
+            (cd tools/ci/shell-audit && npm ci --ignore-scripts --no-audit --no-fund)
+            local bin="$PWD/tools/ci/shell-audit/node_modules/.bin"
+            "$bin/http-server" "$root/dist" -p 4173 -s >/dev/null 2>&1 &
             local server=$!
             trap "kill $server 2>/dev/null || true" EXIT
-            npx --yes wait-on http://127.0.0.1:4173
+            "$bin/wait-on" http://127.0.0.1:4173
             node clients/shells/web/a11y/axe-audit.mjs --url http://127.0.0.1:4173 --shell "$shell" \
                 --release "$release" --out "$root/audits/$release.toml" --report "$report"
             ;;

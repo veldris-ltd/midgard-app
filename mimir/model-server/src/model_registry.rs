@@ -27,7 +27,9 @@ use crate::hardware::{HwProfile, NodeProfile};
 
 /// The lifecycle state of a registered artefact (SAD_02b §4.2). Only `Approved`
 /// and `Deprecated` are loadable; `Staged` is not yet imported-and-approved, and
-/// `Revoked` is a terminal kill-switch enforced at load time.
+/// `Revoked` is a terminal kill-switch enforced at load time. A running `mimir-server`
+/// also enforces revocation while it serves, from its revocation list
+/// ([`crate::parse_revocation_list`]). [VLD-ANB-MIDGARD-0057]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleState {
     /// Assembled/re-signed in staging, not yet imported to the enclosure.

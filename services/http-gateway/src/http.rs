@@ -2,9 +2,11 @@
 //! No external HTTP framework — just enough of HTTP/1.1 to serve a JSON API to
 //! the browser consoles. Thread-per-connection (see `lib.rs`).
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::time::{Duration, Instant};
+
+use service_runtime::ListenerLimits;
 
 /// A parsed HTTP request.
 pub struct Request {
@@ -66,14 +68,61 @@ pub enum Incoming {
     },
 }
 
-/// Read and parse one request. Returns `None` on a cleanly closed connection.
+/// [`read_request_within`] the edge's default head deadline,
+/// [`ListenerLimits::edge`].
+pub fn read_request(stream: &TcpStream) -> std::io::Result<Option<Incoming>> {
+    read_request_within(stream, ListenerLimits::edge().head_deadline)
+}
+
+/// Read and parse one request, all of it — head and body — within `head_deadline`.
+/// Returns `None` on a cleanly closed connection, and on one that has not sent its
+/// request when the deadline passes, however it spaces its bytes: the read timeout is
+/// set to the time remaining before every read from the socket. A read timeout already
+/// on the socket still bounds each read, so a client silent for that long is also
+/// `None`.
 ///
 /// The head is capped at [`MAX_HEAD_BYTES`] and the body at [`MAX_BODY_BYTES`], so a
 /// client cannot make the edge allocate what it declares; a chunked body, which
 /// carries no length up front, is refused rather than silently read as empty.
-/// [NFR-SEC-1]
-pub fn read_request(stream: &TcpStream) -> std::io::Result<Option<Incoming>> {
-    let mut reader = BufReader::new(stream);
+/// [NFR-SEC-1] [VLD-ANB-MIDGARD-0004]
+pub fn read_request_within(
+    stream: &TcpStream,
+    head_deadline: Duration,
+) -> std::io::Result<Option<Incoming>> {
+    let reader = DeadlineReader {
+        stream,
+        deadline: Instant::now() + head_deadline,
+        idle: stream.read_timeout()?,
+    };
+    match read_request_by(reader) {
+        Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => Ok(None),
+        other => other,
+    }
+}
+
+/// Socket reads that never wait past `deadline`, nor longer than `idle` each.
+struct DeadlineReader<'a> {
+    stream: &'a TcpStream,
+    deadline: Instant,
+    idle: Option<Duration>,
+}
+
+impl Read for DeadlineReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self
+            .deadline
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+            .ok_or_else(|| std::io::Error::from(ErrorKind::TimedOut))?;
+        let wait = self.idle.map_or(left, |idle| idle.min(left));
+        self.stream.set_read_timeout(Some(wait))?;
+        let mut stream = self.stream;
+        stream.read(buf)
+    }
+}
+
+fn read_request_by(reader: DeadlineReader<'_>) -> std::io::Result<Option<Incoming>> {
+    let mut reader = BufReader::new(reader);
     let mut head_left = MAX_HEAD_BYTES;
 
     let mut request_line = String::new();
@@ -162,7 +211,7 @@ pub fn read_request(stream: &TcpStream) -> std::io::Result<Option<Incoming>> {
 /// Read one head line within what is left of the head's budget. `Some(0)` is a
 /// closed connection; `None` means the head ran past [`MAX_HEAD_BYTES`].
 fn read_head_line(
-    reader: &mut BufReader<&TcpStream>,
+    reader: &mut impl BufRead,
     line: &mut String,
     left: &mut usize,
 ) -> std::io::Result<Option<usize>> {
@@ -213,6 +262,27 @@ pub fn linger(stream: &TcpStream) {
     }
 }
 
+/// Answer `response` on the accepting thread and close, without waiting on the client:
+/// how a connection the edge will not serve at all — over the connection cap, or from a
+/// source opening connections too fast — is refused. What the client has already sent
+/// is read and discarded first, so it reads the refusal rather than a reset.
+/// [VLD-ANB-MIDGARD-0004]
+pub fn refuse_at_once(stream: &TcpStream, response: &Response) {
+    let mut writer = stream;
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+    let _ = response.write(&mut writer);
+    let _ = stream.shutdown(Shutdown::Write);
+    if stream.set_nonblocking(true).is_ok() {
+        let mut sink = [0u8; 4096];
+        for _ in 0..(MAX_HEAD_BYTES / sink.len()) {
+            match writer.read(&mut sink) {
+                Ok(n) if n > 0 => {}
+                _ => break,
+            }
+        }
+    }
+}
+
 /// An HTTP response with a JSON (or text) body and **origin-locked** CORS: the
 /// `Access-Control-Allow-Origin` header is only emitted when the request's origin
 /// is on the configured allowlist (`allow_origin` is `Some`) — never `*`.
@@ -224,6 +294,12 @@ pub struct Response {
     pub allow_origin: Option<String>,
     /// Seconds before the client should retry, sent as `Retry-After`.
     pub retry_after: Option<u64>,
+    /// Further response headers a route sets, sent as given and exposed to an
+    /// allowlisted origin.
+    pub headers: Vec<(&'static str, String)>,
+    /// What went wrong, for the gateway's own log only: it is never written to the
+    /// client. [VLD-ANB-MIDGARD-0053]
+    pub detail: Option<String>,
 }
 
 impl Response {
@@ -234,6 +310,8 @@ impl Response {
             body,
             allow_origin: None,
             retry_after: None,
+            headers: Vec::new(),
+            detail: None,
         }
     }
 
@@ -248,6 +326,8 @@ impl Response {
             body: body.to_string(),
             allow_origin: None,
             retry_after: None,
+            headers: Vec::new(),
+            detail: None,
         }
     }
 
@@ -260,6 +340,26 @@ impl Response {
     /// Ask the client to wait `seconds` before retrying.
     pub fn with_retry_after(mut self, seconds: u64) -> Self {
         self.retry_after = Some(seconds);
+        self
+    }
+
+    /// Send header `name` with `value`. Only call with a fixed name and a value the
+    /// edge itself produced, never one taken from the request.
+    pub fn with_header(mut self, name: &'static str, value: &str) -> Self {
+        self.headers.push((name, value.to_string()));
+        self
+    }
+
+    /// A server error. The client reads only `{"error":"internal error"}` and the
+    /// request's reference, which the gateway adds; `detail` goes to its log under
+    /// the same reference. [VLD-ANB-MIDGARD-0053]
+    pub fn internal(detail: impl Into<String>) -> Response {
+        Response::json(500, r#"{"error":"internal error"}"#.to_string()).with_detail(detail)
+    }
+
+    /// Keep `detail` for the gateway's log; the client never reads it.
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
         self
     }
 
@@ -277,11 +377,12 @@ impl Response {
             429 => "Too Many Requests",
             431 => "Request Header Fields Too Large",
             500 => "Internal Server Error",
+            503 => "Service Unavailable",
             _ => "OK",
         }
     }
 
-    pub fn write(&self, stream: &mut TcpStream) -> std::io::Result<()> {
+    pub fn write(&self, stream: &mut impl Write) -> std::io::Result<()> {
         let body = self.body.as_bytes();
         let mut head = format!(
             "HTTP/1.1 {} {}\r\n\
@@ -300,12 +401,20 @@ impl Response {
         if let Some(seconds) = self.retry_after {
             head.push_str(&format!("Retry-After: {seconds}\r\n"));
         }
+        for (name, value) in &self.headers {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
         // Origin-locked CORS: echo only an allowlisted origin, never `*`.
         if let Some(origin) = &self.allow_origin {
             head.push_str(&format!("Access-Control-Allow-Origin: {origin}\r\n"));
             head.push_str("Vary: Origin\r\n");
             head.push_str("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
             head.push_str("Access-Control-Allow-Headers: Content-Type, Authorization\r\n");
+            if !self.headers.is_empty() {
+                let names: Vec<&str> = self.headers.iter().map(|(name, _)| *name).collect();
+                let names = names.join(", ");
+                head.push_str(&format!("Access-Control-Expose-Headers: {names}\r\n"));
+            }
         }
         head.push_str("\r\n");
         stream.write_all(head.as_bytes())?;

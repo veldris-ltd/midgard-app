@@ -3,8 +3,11 @@
 //! observation for another feed, one signed with an uncertified key, a submission by
 //! an analyst and a read by a source are all refused and audited; the analyst reads
 //! the fused picture; and after a hard kill the sealed picture and the ledger are
-//! recovered and fusion continues on the recovered tracks.
-//! [FR-H-1] [FR-H-3] [NFR-PQ-3] [RC-13] [NFR-SEC-1]
+//! recovered and fusion continues on the recovered tracks. The analyst reads the
+//! picture in pages, and a source bursting past its rate limit is throttled while
+//! another is served. The same signed observation submitted in two requests is
+//! admitted once, also after a restart.
+//! [FR-H-1] [FR-H-3] [NFR-PQ-3] [RC-13] [NFR-SEC-1] [VLD-ANB-MIDGARD-0017] [AC-59.5]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -12,7 +15,9 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
 use heimdall_feed_server::{outcome, INGEST};
 use heimdall_picture::{FeedId, Observation};
@@ -71,9 +76,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -104,7 +118,15 @@ impl Drop for Running {
 }
 
 fn start(identity: &Path, state: &Path) -> Running {
+    start_with(identity, state, &[])
+}
+
+fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
     let mut child = Command::new(env!("CARGO_BIN_EXE_heimdall-feed"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &identity.display().to_string(),
@@ -114,7 +136,13 @@ fn start(identity: &Path, state: &Path) -> Running {
             "127.0.0.1:0",
             "--health-bind",
             "127.0.0.1:0",
+            // The observations below are dated in logical time (100, 110, ...), so the
+            // window behind the server's clock is opened all the way; the window itself
+            // is proved in tests/ingest_window.rs. [VLD-ANB-MIDGARD-0015]
+            "--max-observation-age",
+            &u64::MAX.to_string(),
         ])
+        .args(extra)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -148,6 +176,10 @@ fn start(identity: &Path, state: &Path) -> Running {
 
 fn source(dir: &Path, service: &str, addr: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_heimdall-source"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &dir.display().to_string(),
@@ -165,8 +197,10 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// The whole picture, as the analyst reads it: one page of at most `--page-size`
+/// entities at a time, joined by `heimdall-source`.
 fn picture(dir: &Path, addr: &str) -> Json {
-    let out = source(dir, "analyst", addr, &["--picture"]);
+    let out = source(dir, "analyst", addr, &["--picture", "--page-size", "1"]);
     assert!(out.status.success(), "{}", text(&out.stderr));
     parse(text(&out.stdout).trim()).expect("the picture is JSON")
 }
@@ -249,10 +283,16 @@ fn sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart() {
     let forged = sign_observation(
         &FipsSig::new(IDP_SIG_ALG),
         &rogue_key,
-        Observation::new("forged", FeedId("radar-1".into()), "air-track", "AC-1", 112),
+        Observation::new("forged", FeedId("radar-1".into()), "air-track", "AC-1", 112)
+            .with_sequence(1),
     )
     .unwrap();
-    let radar_1 = ServiceIdentity::load(&clients, "radar-1").unwrap();
+    let radar_1 = ServiceIdentity::load(
+        &clients,
+        "radar-1",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let response = client::call(
         &radar_1,
         &server.mesh,
@@ -326,6 +366,140 @@ fn sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart() {
         entity(&fused, "AC-1").get("observations"),
         Some(&Json::Int(3)),
         "fusion continues on the recovered track"
+    );
+
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_source_bursting_past_its_rate_limit_is_throttled_and_the_other_is_served() {
+    // [VLD-ANB-MIDGARD-0017] [VLD-ANB-MIDGARD-0004] [NFR-SEC-1]
+    let root = scratch("burst");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "radar-1", &["feed-source"]);
+    issue(&idp, &clients, "radar-2", &["feed-source"]);
+    issue(&idp, &clients, "analyst", &["picture-reader"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+
+    // Five requests an identity, and no refill: the burst is a hard quota. The
+    // client's end-of-stream marker is not a request and is not counted
+    // [VLD-ANB-MIDGARD-0016], so five calls fit.
+    let server = start_with(
+        &server_identity,
+        &state,
+        &["--rate-burst", "5", "--rate-per-sec", "0"],
+    );
+    let observe = |service: &str, entity: &str| {
+        source(
+            &clients,
+            service,
+            &server.mesh,
+            &[
+                "--kind",
+                "air-track",
+                "--entity",
+                entity,
+                "--observed-at",
+                "100",
+            ],
+        )
+    };
+
+    for i in 0..5 {
+        let out = observe("radar-1", &format!("R1-{i}"));
+        assert!(out.status.success(), "{}", text(&out.stderr));
+    }
+    let throttled = observe("radar-1", "R1-5");
+    assert_eq!(throttled.status.code(), Some(1), "the sixth is throttled");
+    assert!(
+        text(&throttled.stderr).contains("closed the channel"),
+        "{}",
+        text(&throttled.stderr)
+    );
+    for entity in ["R2-0", "R2-1"] {
+        let out = observe("radar-2", entity);
+        assert!(
+            out.status.success(),
+            "the other source is served: {}",
+            text(&out.stderr)
+        );
+    }
+
+    // Seven entities, read two a page: four calls, within the analyst's own ten records.
+    let out = source(
+        &clients,
+        "analyst",
+        &server.mesh,
+        &["--picture", "--page-size", "2"],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let fused = parse(text(&out.stdout).trim()).unwrap();
+    assert_eq!(fused.get("total"), Some(&Json::Int(7)));
+    match fused.get("entities") {
+        Some(Json::Arr(items)) => assert_eq!(items.len(), 7, "{}", fused.encode()),
+        _ => panic!("no entities in {}", fused.encode()),
+    }
+
+    drop(server);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Two Ingest requests carrying the same signed observation: the service holds one
+/// replay guard across requests, so the second is DENIED; and it seals each feed's
+/// last sequence, so after a restart the same bytes are still DENIED.
+/// [VLD-ANB-MIDGARD-0041] [AC-59.5]
+#[test]
+fn replay_state_persists_across_requests() {
+    let root = scratch("replay");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let clients = root.join("clients");
+    let state = root.join("state");
+    issue(&idp, &server_identity, "heimdall-feed", &["feed-gateway"]);
+    issue(&idp, &clients, "radar-1", &["feed-source"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+
+    let radar_1 = ServiceIdentity::load(
+        &clients,
+        "radar-1",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
+    let signed = sign_observation(
+        &FipsSig::new(radar_1.cert.identity.sig_alg),
+        &radar_1.signing_key,
+        Observation::new("obs-1", FeedId("radar-1".into()), "air-track", "AC-1", 100)
+            .with_sequence(1),
+    )
+    .unwrap();
+    let body = encode_signed_observation(&signed);
+    let submit = |mesh: &str| {
+        let response =
+            client::call(&radar_1, mesh, "heimdall-feed", PURPOSE, INGEST, &body).unwrap();
+        (response[0], text(&response[1..]))
+    };
+
+    let server = start(&server_identity, &state);
+    let (code, message) = submit(&server.mesh);
+    assert_eq!(code, outcome::ACCEPTED, "{message}");
+    let (code, message) = submit(&server.mesh);
+    assert_eq!(code, outcome::DENIED, "{message}");
+    assert!(message.contains("already been received"), "{message}");
+
+    drop(server);
+    let server = start(&server_identity, &state);
+    let (code, message) = submit(&server.mesh);
+    assert_eq!(
+        code,
+        outcome::DENIED,
+        "a restart does not reopen replay: {message}"
     );
 
     drop(server);

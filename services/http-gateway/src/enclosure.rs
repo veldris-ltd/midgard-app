@@ -23,7 +23,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use audit_writer::{entry_hash, genesis_hash, signing_preimage, SealedEntry};
+use audit_writer::{
+    entry_hash, genesis_hash, signing_preimage, AuditContext, Outcome, SealedEntry, SealedJournal,
+};
 use fabric::{
     ActionFunction, ActionType, Cardinality, Effect, Fabric, FabricError, FunctionRuntime,
     Governance, InMemoryLedger, InMemoryStore, LedgerStore, LinkInstance, LinkType, ObjectInstance,
@@ -35,6 +37,7 @@ use policy::{
 };
 use pqc_agility::{CryptoProvider, VerifyingKey};
 
+use crate::approval_journal::ApprovalFrame;
 use crate::json::Json;
 use crate::ontology_file::{ActionEffect, Ontology};
 
@@ -53,8 +56,16 @@ const MAX_HOPS: i64 = 4;
 const MAX_PAGE: i64 = 500;
 /// How long an approved human gate can be redeemed (seconds).
 const APPROVAL_TTL: u64 = 900;
-/// Most approvals the enclosure holds; the oldest are dropped first.
+/// Most approvals the enclosure holds. Expired entries are pruned, then rejected
+/// and used ones make room, oldest first; a live (pending or approved) entry is never
+/// evicted, and a request that finds no room is refused with 429. [VLD-ANB-MIDGARD-0039]
 const MAX_APPROVALS: usize = 256;
+/// How long a pending approval waits for a decision before it expires (seconds).
+const PENDING_TTL: u64 = 86_400;
+/// Most open approvals (pending, or approved and unexpired) one requester may hold.
+const MAX_OPEN_PER_REQUESTER: usize = 16;
+/// How long a caller refused for a full approval queue is asked to wait (seconds).
+const APPROVAL_RETRY_AFTER: u64 = 60;
 
 /// A request the enclosure refused, already mapped to its HTTP status.
 pub struct EdgeError {
@@ -62,6 +73,12 @@ pub struct EdgeError {
     pub status: u16,
     /// JSON error body.
     pub body: Json,
+    /// What went wrong, for the gateway's log only; never sent to the client.
+    /// [VLD-ANB-MIDGARD-0053]
+    pub detail: Option<String>,
+    /// For a 429, the seconds the client is asked to wait (`Retry-After`).
+    /// [VLD-ANB-MIDGARD-0039]
+    pub retry_after: Option<u64>,
 }
 
 impl EdgeError {
@@ -69,6 +86,26 @@ impl EdgeError {
         Self {
             status,
             body: Json::obj(vec![("error", Json::s(message))]),
+            detail: None,
+            retry_after: None,
+        }
+    }
+
+    /// Too many requests: refused with 429 and a `Retry-After`. [VLD-ANB-MIDGARD-0039]
+    fn too_many(message: &str) -> Self {
+        Self {
+            retry_after: Some(APPROVAL_RETRY_AFTER),
+            ..Self::new(429, message)
+        }
+    }
+
+    /// A server error: the client reads `internal error` and the request's reference,
+    /// which the gateway adds, and `detail` goes to the gateway's log under that
+    /// reference. [VLD-ANB-MIDGARD-0053]
+    pub fn internal(detail: impl Into<String>) -> Self {
+        Self {
+            detail: Some(detail.into()),
+            ..Self::new(500, "internal error")
         }
     }
 
@@ -84,6 +121,8 @@ impl EdgeError {
                 ("error", Json::s("denied by policy")),
                 ("auditSeq", Json::s(&audit_seq.to_string())),
             ]),
+            detail: None,
+            retry_after: None,
         }
     }
 }
@@ -120,8 +159,15 @@ enum ApprovalState {
 ///
 /// The gate is a two-person rule: the requester asks, someone else approves, and only
 /// the requester can then redeem it — once, for that action on that object, before it
-/// expires. Approvals live in memory: a restart drops them, and the requester asks
-/// again.
+/// expires. A pending approval expires after [`PENDING_TTL`]. Each state change is
+/// written to the signed ledger as an `APPROVAL ...` row on `approval:<id>`, and, in a
+/// served enclosure, to the sealed approvals journal, so approvals survive a restart.
+/// [VLD-ANB-MIDGARD-0038] [VLD-ANB-MIDGARD-0039]
+///
+/// While an approval is pending, approved and unexpired, or redeemed, its target is
+/// protected from mesh sync ([`Enclosure::gated_targets`]) until the approval is
+/// pruned, so a sync cannot overwrite a change a named human authorised.
+/// [VLD-ANB-MIDGARD-0001]
 #[derive(Debug, Clone)]
 struct Approval {
     id: String,
@@ -220,6 +266,9 @@ pub struct Enclosure<S: ObjectStore = InMemoryStore, L: LedgerStore = InMemoryLe
     approvals: Vec<Approval>,
     /// The number the next approval id takes.
     next_approval: u64,
+    /// Where each approval state change is journalled; `None` keeps approvals in
+    /// memory only (the development gateway). [VLD-ANB-MIDGARD-0039]
+    approval_journal: Option<SealedJournal>,
 }
 
 impl<L: LedgerStore> Enclosure<InMemoryStore, L> {
@@ -244,7 +293,89 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             updated: BTreeMap::new(),
             approvals: Vec::new(),
             next_approval: 1,
+            approval_journal: None,
         }
+    }
+
+    /// Journal approvals to `journal`, first replaying the frames `recovered` from it
+    /// in order, so the approvals open when it was last written are open again. The
+    /// next approval id follows the highest one seen. A frame that does not decode, or
+    /// names an approval the journal never opened, refuses the boot.
+    /// [VLD-ANB-MIDGARD-0039]
+    pub fn with_approval_journal(
+        mut self,
+        journal: SealedJournal,
+        recovered: Vec<Vec<u8>>,
+    ) -> Result<Self, String> {
+        let mut approvals: Vec<Approval> = Vec::new();
+        let mut next = 1u64;
+        for bytes in &recovered {
+            let frame = ApprovalFrame::decode(bytes)?;
+            let unknown = |id: &str| format!("approval record names unknown approval {id}");
+            match frame {
+                ApprovalFrame::Request {
+                    id,
+                    action_id,
+                    action_title,
+                    target,
+                    requester,
+                    requested,
+                } => {
+                    if let Some(n) = id.strip_prefix("APR-").and_then(|n| n.parse::<u64>().ok()) {
+                        next = next.max(n.saturating_add(1));
+                    }
+                    approvals.push(Approval {
+                        id,
+                        action_id,
+                        action_title,
+                        target,
+                        requester,
+                        requested,
+                        state: ApprovalState::Pending,
+                    });
+                }
+                ApprovalFrame::Decide {
+                    id,
+                    approved,
+                    approver,
+                    expires,
+                } => {
+                    let a = approvals
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .ok_or_else(|| unknown(&id))?;
+                    a.state = if approved {
+                        ApprovalState::Approved { approver, expires }
+                    } else {
+                        ApprovalState::Rejected { approver }
+                    };
+                }
+                ApprovalFrame::Use { id } => {
+                    let a = approvals
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .ok_or_else(|| unknown(&id))?;
+                    let approver = match &a.state {
+                        ApprovalState::Approved { approver, .. } => approver.clone(),
+                        _ => {
+                            return Err(format!("approval record uses {id}, which is not approved"))
+                        }
+                    };
+                    a.state = ApprovalState::Used { approver };
+                }
+                ApprovalFrame::Prune { id } => {
+                    let i = approvals
+                        .iter()
+                        .position(|a| a.id == id)
+                        .ok_or_else(|| unknown(&id))?;
+                    approvals.remove(i);
+                }
+            }
+        }
+        self.approvals = approvals;
+        self.next_approval = next;
+        self.approval_journal = Some(journal);
+        Ok(self)
     }
 
     /// The fabric.
@@ -438,31 +569,67 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         let entry = self.catalog_action(action_type)?;
         let gate = human_gate_token.map(str::trim).filter(|t| !t.is_empty());
         if entry.human_gated && gate.is_none() {
-            return Err(EdgeError::new(
+            let target = params.get("target").map(String::as_str).unwrap_or_default();
+            let refused = EdgeError::new(
                 403,
                 &format!("Human gate required for action \"{}\"", entry.title),
+            );
+            return Err(self.refused(
+                ctx,
+                "Apply",
+                "human-gate-missing",
+                None,
+                target,
+                now,
+                refused,
             ));
         }
         let target = params.remove("target").unwrap_or_default();
         let target = self.readable_target(ctx, &entry.object_type, &target)?;
         let approval = match gate {
-            Some(id) if entry.human_gated => Some(self.redeemable(ctx, &entry, &target, id, now)?),
+            Some(id) if entry.human_gated => match self.redeemable(ctx, &entry, &target, id, now) {
+                Ok(i) => Some(i),
+                Err(refused) => {
+                    return Err(self.refused(
+                        ctx,
+                        "Apply",
+                        "human-gate-invalid",
+                        Some(id),
+                        &target,
+                        now,
+                        refused,
+                    ))
+                }
+            },
             _ => None,
+        };
+        // A gated action's lineage row names the approval that authorised it, its
+        // approver and its target. [VLD-ANB-MIDGARD-0038]
+        let audit = match approval {
+            Some(i) => {
+                let a = &self.approvals[i];
+                AuditContext {
+                    approval_id: Some(a.id.clone()),
+                    approver: approver_of(a).map(str::to_string),
+                    target: Some(target.clone()),
+                    ..AuditContext::default()
+                }
+            }
+            None => AuditContext::default(),
         };
         params.insert("targets".into(), target);
 
-        let resp = match self.fabric.apply_action(ctx, &entry.id, &params, now) {
+        let resp = match self
+            .fabric
+            .apply_action_with(ctx, &entry.id, &params, now, audit)
+        {
             Ok(resp) => resp,
             Err(e) => return Err(self.refusal(e)),
         };
         if resp.applied {
             self.updated.insert(entry.object_type, now);
             if let Some(i) = approval {
-                let a = &mut self.approvals[i];
-                if let ApprovalState::Approved { approver, .. } = &a.state {
-                    let approver = approver.clone();
-                    a.state = ApprovalState::Used { approver };
-                }
+                self.redeem(ctx, i, now)?;
             }
         }
         Ok(Json::obj(vec![
@@ -523,8 +690,28 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             )));
         }
         let target = self.readable_target(ctx, &entry.object_type, target)?;
-        if self.approvals.len() >= MAX_APPROVALS {
-            self.approvals.remove(0);
+        self.prune_approvals(now)?;
+        let open = self
+            .approvals
+            .iter()
+            .filter(|a| a.requester == ctx.subject && is_open(a, now))
+            .count();
+        let refusal = if open >= MAX_OPEN_PER_REQUESTER {
+            Some((
+                "approval-quota",
+                "too many open approval requests for this user",
+            ))
+        } else if self.approvals.len() >= MAX_APPROVALS {
+            Some((
+                "approval-queue-full",
+                "the approval queue is full; try again later",
+            ))
+        } else {
+            None
+        };
+        if let Some((reason, message)) = refusal {
+            let refused = EdgeError::too_many(message);
+            return Err(self.refused(ctx, "Apply", reason, None, &target, now, refused));
         }
         let approval = Approval {
             id: format!("APR-{}", self.next_approval),
@@ -535,10 +722,121 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             requested: now,
             state: ApprovalState::Pending,
         };
+        // Journalled first, so an id that reaches the ledger is never handed out again
+        // after a restart; if the ledger then refuses the row, the journal entry is
+        // withdrawn and the approval is not kept. [VLD-ANB-MIDGARD-0038]
+        // [VLD-ANB-MIDGARD-0039]
+        self.journal_approval(&ApprovalFrame::Request {
+            id: approval.id.clone(),
+            action_id: approval.action_id.clone(),
+            action_title: approval.action_title.clone(),
+            target: approval.target.clone(),
+            requester: approval.requester.clone(),
+            requested: approval.requested,
+        })?;
         self.next_approval += 1;
+        if let Err(e) = self.approval_row(&ctx.subject, "APPROVAL requested", &approval, now) {
+            let _ = self.journal_approval(&ApprovalFrame::Prune {
+                id: approval.id.clone(),
+            });
+            return Err(e);
+        }
         let json = approval_json(&approval, now, &ctx.subject);
         self.approvals.push(approval);
         Ok(json)
+    }
+
+    /// Make room in the approval store. Every expired entry (pending past
+    /// [`PENDING_TTL`], or approved past its redemption window) is removed and written
+    /// to the ledger as `APPROVAL expired`; then, while the store is full, rejected and
+    /// then used entries are removed, oldest first. A live entry is never removed.
+    /// Each removal is journalled; a failure stops the prune and fails the request.
+    /// [VLD-ANB-MIDGARD-0039]
+    fn prune_approvals(&mut self, now: u64) -> Result<(), EdgeError> {
+        while let Some(i) = self.approvals.iter().position(|a| is_expired(a, now)) {
+            let a = self.approvals[i].clone();
+            // The row is the requester's: it is their request that lapsed.
+            self.approval_row(&a.requester, "APPROVAL expired", &a, now)?;
+            self.journal_approval(&ApprovalFrame::Prune { id: a.id })?;
+            self.approvals.remove(i);
+        }
+        let settled: [fn(&ApprovalState) -> bool; 2] = [
+            |s| matches!(s, ApprovalState::Rejected { .. }),
+            |s| matches!(s, ApprovalState::Used { .. }),
+        ];
+        for is_settled in settled {
+            while self.approvals.len() >= MAX_APPROVALS {
+                let Some(i) = self.approvals.iter().position(|a| is_settled(&a.state)) else {
+                    break;
+                };
+                let id = self.approvals[i].id.clone();
+                self.journal_approval(&ApprovalFrame::Prune { id })?;
+                self.approvals.remove(i);
+            }
+        }
+        Ok(())
+    }
+
+    /// Mark approval `i` used once its action has run: journalled, so it cannot be
+    /// redeemed again after a restart, and written to the ledger as `APPROVAL
+    /// redeemed`. The action has already applied, so if either write fails the
+    /// approval is still marked used here and the request reports a server error.
+    /// [VLD-ANB-MIDGARD-0038] [VLD-ANB-MIDGARD-0039]
+    fn redeem(&mut self, ctx: &PolicyContext, i: usize, now: u64) -> Result<(), EdgeError> {
+        let a = &mut self.approvals[i];
+        let ApprovalState::Approved { approver, .. } = &a.state else {
+            return Ok(());
+        };
+        a.state = ApprovalState::Used {
+            approver: approver.clone(),
+        };
+        let a = a.clone();
+        let journalled = self
+            .journal_approval(&ApprovalFrame::Use { id: a.id.clone() })
+            .map_err(|e| {
+                EdgeError::internal(format!(
+                    "applied, but the redemption was not journalled: {}",
+                    e.detail.unwrap_or_default()
+                ))
+            });
+        let audited = self.approval_row(&ctx.subject, "APPROVAL redeemed", &a, now);
+        journalled.and(audited)
+    }
+
+    /// Write one approval lifecycle row, `event` on `approval:<id>`, with the
+    /// approval's id, its approver (once decided), its target and, as the reason, the
+    /// action it gates. [VLD-ANB-MIDGARD-0038]
+    fn approval_row(
+        &mut self,
+        actor: &str,
+        event: &str,
+        a: &Approval,
+        now: u64,
+    ) -> Result<(), EdgeError> {
+        let context = AuditContext {
+            outcome: Outcome::Info,
+            reason: Some(a.action_id.clone()),
+            approval_id: Some(a.id.clone()),
+            approver: approver_of(a).map(str::to_string),
+            target: Some(a.target.clone()),
+            ..AuditContext::default()
+        };
+        self.fabric
+            .governance_mut()
+            .record_event_with(actor, event, &format!("approval:{}", a.id), now, context)
+            .map(|_| ())
+            .map_err(|e| EdgeError::internal(format!("approval not audited: {e}")))
+    }
+
+    /// Append one approval state change to the journal, if there is one.
+    /// [VLD-ANB-MIDGARD-0039]
+    fn journal_approval(&mut self, frame: &ApprovalFrame) -> Result<(), EdgeError> {
+        match &mut self.approval_journal {
+            None => Ok(()),
+            Some(journal) => journal
+                .append(&frame.encode())
+                .map_err(|e| EdgeError::internal(format!("approval not journalled: {e}"))),
+        }
     }
 
     /// `POST /approvals/{id}/approve` or `/reject`: a second person decides a pending
@@ -561,29 +859,117 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         if !self.can_read_id(ctx, &self.approvals[i].target) {
             return Err(unknown());
         }
-        let a = &mut self.approvals[i];
-        if a.state != ApprovalState::Pending {
-            return Err(EdgeError::new(
+        let a = &self.approvals[i];
+        let target = a.target.clone();
+        if a.state != ApprovalState::Pending || is_expired(a, now) {
+            let refused = EdgeError::new(
                 409,
                 &format!("approval {id} is already {}", approval_status(a, now)),
+            );
+            return Err(self.refused(
+                ctx,
+                "Approve",
+                "approval-not-pending",
+                Some(id),
+                &target,
+                now,
+                refused,
             ));
         }
         if a.requester == ctx.subject {
-            return Err(EdgeError::new(
+            let refused = EdgeError::new(
                 403,
                 "an approval must be decided by someone other than its requester",
+            );
+            return Err(self.refused(
+                ctx,
+                "Approve",
+                "self-approval",
+                Some(id),
+                &target,
+                now,
+                refused,
             ));
         }
         let approver = ctx.subject.clone();
-        a.state = if approve {
+        let expires = now.saturating_add(APPROVAL_TTL);
+        let mut decided = self.approvals[i].clone();
+        decided.state = if approve {
             ApprovalState::Approved {
-                approver,
-                expires: now.saturating_add(APPROVAL_TTL),
+                approver: approver.clone(),
+                expires,
             }
         } else {
-            ApprovalState::Rejected { approver }
+            ApprovalState::Rejected {
+                approver: approver.clone(),
+            }
         };
-        Ok(approval_json(a, now, &ctx.subject))
+        // The decision is in the ledger, then the journal, before it takes effect; a
+        // failure of either leaves the approval pending. [VLD-ANB-MIDGARD-0038]
+        let event = if approve {
+            "APPROVAL approved"
+        } else {
+            "APPROVAL rejected"
+        };
+        self.approval_row(&ctx.subject, event, &decided, now)?;
+        self.journal_approval(&ApprovalFrame::Decide {
+            id: decided.id.clone(),
+            approved: approve,
+            approver,
+            expires: if approve { expires } else { 0 },
+        })?;
+        let json = approval_json(&decided, now, &ctx.subject);
+        self.approvals[i] = decided;
+        Ok(json)
+    }
+
+    /// Record a refusal in the ledger before it is returned: the edge has already
+    /// written its PERMIT row for the request, so without this the ledger would show a
+    /// permit and nothing of the refusal. The row is `REFUSED <verb> (<reason>)` on
+    /// the target, with the reason code, approval and target in its context. A
+    /// refusal the ledger cannot record is a server error. [NFR-AI-1] [AC-M-4]
+    /// [VLD-ANB-MIDGARD-0054]
+    #[allow(clippy::too_many_arguments)]
+    fn refused(
+        &mut self,
+        ctx: &PolicyContext,
+        verb: &str,
+        reason: &str,
+        approval_id: Option<&str>,
+        target: &str,
+        now: u64,
+        refusal: EdgeError,
+    ) -> EdgeError {
+        // A target the caller named but that was not resolved is recorded as given,
+        // stripped of control characters and capped.
+        let target: String = target
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(128)
+            .collect();
+        let resource = if target.is_empty() {
+            "/api/v1/actions".to_string()
+        } else {
+            target.clone()
+        };
+        let context = AuditContext {
+            outcome: Outcome::Refused,
+            reason: Some(reason.to_string()),
+            approval_id: approval_id
+                .map(|id| id.chars().filter(|c| !c.is_control()).take(64).collect()),
+            target: (!target.is_empty()).then_some(target),
+            ..AuditContext::default()
+        };
+        match self.fabric.governance_mut().record_event_with(
+            &ctx.subject,
+            &format!("REFUSED {verb} ({reason})"),
+            &resource,
+            now,
+            context,
+        ) {
+            Ok(_) => refusal,
+            Err(e) => EdgeError::internal(format!("refusal not audited: {e}")),
+        }
     }
 
     /// `GET /approvals`: every approval whose target the caller may read, newest first;
@@ -597,6 +983,22 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                 .map(|a| approval_json(a, now, &ctx.subject))
                 .collect(),
         )
+    }
+
+    /// The objects under a human gate at `now`: the target of every approval that is
+    /// pending, approved and unexpired, or redeemed. A mesh sync may not touch them.
+    /// A rejected or expired approval protects nothing. [NFR-AI-1]
+    /// [VLD-ANB-MIDGARD-0001]
+    pub fn gated_targets(&self, now: u64) -> BTreeSet<String> {
+        self.approvals
+            .iter()
+            .filter(|a| match &a.state {
+                ApprovalState::Pending | ApprovalState::Used { .. } => true,
+                ApprovalState::Approved { expires, .. } => now < *expires,
+                ApprovalState::Rejected { .. } => false,
+            })
+            .map(|a| a.target.clone())
+            .collect()
     }
 
     /// The index of approval `id` if the caller can redeem it now for `entry` on
@@ -651,6 +1053,10 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     /// reached — the response says so with `truncated`, so a partial graph is never
     /// shown as the whole. `seedObjects` counts the starting objects the caller may
     /// read. [DD-1]
+    ///
+    /// Seed resolution ([`Self::seed_roots`]), link collection ([`adjacent_links`])
+    /// and the per-node clearance filter ([`Walk::admit`]) are separate so each can be
+    /// reasoned about, and tested, on its own. [VLD-ANB-MIDGARD-0094]
     pub fn search_around(
         &mut self,
         ctx: &PolicyContext,
@@ -663,42 +1069,12 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         let node_limit = limit.unwrap_or(DEFAULT_NODE_LIMIT).clamp(1, MAX_NODE_LIMIT);
         let node_limit = usize::try_from(node_limit).unwrap_or(60);
 
-        let (roots, resource) = {
-            let gov = self.fabric.governance();
-            let store = self.fabric.store();
-            match seed.split_once('/') {
-                Some((ty, "*")) => {
-                    if self.fabric.registry().object_type(ty).is_none() {
-                        return Err(EdgeError::new(404, &format!("unknown object type: {ty}")));
-                    }
-                    let ids: Vec<String> = store
-                        .objects_of_type(ty)
-                        .into_iter()
-                        .filter(|o| can_read(gov, ctx, o))
-                        .map(|o| o.id.clone())
-                        .collect();
-                    let resource = Resource {
-                        id: ResourceId(ty.to_string()),
-                        marking: Marking {
-                            level: ClassificationLevel::UNCLASSIFIED,
-                            compartments: BTreeSet::new(),
-                        },
-                        allowed_purposes: [ctx.purpose.clone()].into_iter().collect(),
-                    };
-                    (ids, resource)
-                }
-                _ => match store.get_object(seed) {
-                    Some(o) if can_read(gov, ctx, o) => (vec![o.id.clone()], resource_of(o)),
-                    _ => return Err(EdgeError::new(404, &format!("unknown seed object: {seed}"))),
-                },
-            }
-        };
-
+        let (roots, resource) = self.seed_roots(ctx, seed)?;
         let decision = self
             .fabric
             .governance_mut()
             .authorize(ctx, &resource, "Read", now)
-            .map_err(|e| EdgeError::new(500, &format!("audit failure: {e}")))?;
+            .map_err(|e| EdgeError::internal(format!("audit failure: {e}")))?;
         if !decision.permitted {
             return Err(EdgeError::denied(decision.audit_seq));
         }
@@ -706,91 +1082,56 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
         let reg = self.fabric.registry();
         let store = self.fabric.store();
         let gov = self.fabric.governance();
-        let mut seen: BTreeSet<String> = BTreeSet::new();
-        let mut edge_keys: BTreeSet<(String, String, String)> = BTreeSet::new();
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-        let mut frontier: Vec<String> = Vec::new();
-        let seed_objects = roots.len();
-        let mut truncated = roots.len() > node_limit;
-
-        for id in roots.iter().take(node_limit) {
-            if let Some(o) = store.get_object(id) {
-                if seen.insert(o.id.clone()) {
-                    nodes.push(node_json(reg, o, 0));
-                    frontier.push(o.id.clone());
-                }
-            }
-        }
-
+        let readable = |o: &ObjectInstance| can_read(gov, ctx, o);
+        let mut walk = Walk::new(node_limit);
+        walk.seed(reg, store, &roots);
         for hop in 1..=hops {
-            let mut next = Vec::new();
-            for id in &frontier {
-                let Some(node) = store.get_object(id) else {
+            // Nodes admitted on this hop become the next hop's frontier.
+            for id in std::mem::take(&mut walk.frontier) {
+                let Some(node) = store.get_object(&id) else {
                     continue;
                 };
-                // (link type, source, target) for every link touching this node.
-                let mut adjacent: Vec<(&LinkType, &ObjectInstance, &ObjectInstance)> = Vec::new();
-                for lt in reg.link_types() {
-                    if lt.source_type == node.type_id {
-                        for target in store.neighbors(&node.id, &lt.id) {
-                            adjacent.push((lt, node, target));
-                        }
-                    }
-                    if lt.target_type == node.type_id {
-                        for source in store.objects_of_type(&lt.source_type) {
-                            if store
-                                .neighbors(&source.id, &lt.id)
-                                .iter()
-                                .any(|t| t.id == node.id)
-                            {
-                                adjacent.push((lt, source, node));
-                            }
-                        }
-                    }
-                }
-                for (lt, source, target) in adjacent {
-                    let other = if source.id == node.id { target } else { source };
-                    if !can_read(gov, ctx, other) {
-                        continue;
-                    }
-                    let is_new = !seen.contains(&other.id);
-                    if is_new && nodes.len() >= node_limit {
-                        truncated = true;
-                        continue;
-                    }
-                    if edge_keys.insert((lt.id.clone(), source.id.clone(), target.id.clone())) {
-                        edges.push(Json::obj(vec![
-                            ("from", Json::s(&source.id)),
-                            ("to", Json::s(&target.id)),
-                            ("label", Json::s(&link_label(reg, lt))),
-                        ]));
-                    }
-                    if is_new {
-                        seen.insert(other.id.clone());
-                        nodes.push(node_json(reg, other, hop));
-                        next.push(other.id.clone());
-                    }
+                for link in adjacent_links(reg, store, node) {
+                    walk.admit(&readable, reg, node, link, hop);
                 }
             }
-            frontier = next;
         }
+        Ok(walk.into_json(seed, roots.len(), decision.audit_seq))
+    }
 
-        Ok(Json::obj(vec![
-            ("seed", Json::s(seed)),
-            ("nodes", Json::Arr(nodes)),
-            ("edges", Json::Arr(edges)),
-            ("truncated", Json::Bool(truncated)),
-            (
-                "nodeLimit",
-                Json::Int(i64::try_from(node_limit).unwrap_or(i64::MAX)),
-            ),
-            (
-                "seedObjects",
-                Json::Int(i64::try_from(seed_objects).unwrap_or(i64::MAX)),
-            ),
-            ("auditId", Json::s(&audit_id(decision.audit_seq))),
-        ]))
+    /// The objects a search-around starts from and the resource its one audited
+    /// decision is taken on. `<type>/*` starts from every object of the type the
+    /// caller may read, authorised on the type; anything else names one object, which
+    /// must exist and be readable, and is authorised as [`seed_resource`] says. An
+    /// unknown type, or a seed that is missing or unreadable, is 404 before anything
+    /// is audited, so the ledger does not reveal that a hidden seed exists.
+    fn seed_roots(
+        &self,
+        ctx: &PolicyContext,
+        seed: &str,
+    ) -> Result<(Vec<String>, Resource), EdgeError> {
+        let gov = self.fabric.governance();
+        let store = self.fabric.store();
+        match seed.split_once('/') {
+            Some((ty, "*")) => {
+                if self.fabric.registry().object_type(ty).is_none() {
+                    return Err(EdgeError::new(404, &format!("unknown object type: {ty}")));
+                }
+                let ids: Vec<String> = store
+                    .objects_of_type(ty)
+                    .into_iter()
+                    .filter(|o| can_read(gov, ctx, o))
+                    .map(|o| o.id.clone())
+                    .collect();
+                Ok((ids, fabric::type_resource(ty, &ctx.purpose)))
+            }
+            _ => match store.get_object(seed) {
+                Some(o) if can_read(gov, ctx, o) => {
+                    Ok((vec![o.id.clone()], seed_resource(gov, ctx, o)))
+                }
+                _ => Err(EdgeError::new(404, &format!("unknown seed object: {seed}"))),
+            },
+        }
     }
 
     // ---- governance -------------------------------------------------------------
@@ -801,14 +1142,31 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     /// previous entry checked, and its ML-DSA signature verified — and marked `✓` only
     /// if all three hold. The cost is per row served, not per ledger entry, so a
     /// console polling this view does not pay for the whole chain on every poll.
-    pub fn audit(&self, provider: &CryptoProvider, limit: usize) -> Json {
+    ///
+    /// The view is scoped to the caller (see [`Self::audit_row_visible`]). Rows the
+    /// caller may not see are omitted, not redacted, and are dropped before `limit` is
+    /// applied, so up to `limit` visible rows come back. The response stays a bare
+    /// array; the second value says whether any row was omitted, which the edge sends
+    /// as the `X-Audit-Filtered` header. [VLD-ANB-MIDGARD-0031]
+    pub fn audit(
+        &self,
+        ctx: &PolicyContext,
+        provider: &CryptoProvider,
+        limit: usize,
+    ) -> (Json, bool) {
         let entries = self.fabric.audit_entries();
         let key = self.fabric.audit_verifying_key();
         let genesis = genesis_hash(self.fabric.audit_ledger_id());
-        Json::Arr(
+        let mut filtered = false;
+        let rows = Json::Arr(
             entries
                 .iter()
                 .rev()
+                .filter(|e| {
+                    let visible = self.audit_row_visible(ctx, e);
+                    filtered |= !visible;
+                    visible
+                })
                 .take(limit.clamp(1, 500))
                 .map(|e| {
                     let linked = match e.seq.checked_sub(1) {
@@ -824,17 +1182,64 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                     } else {
                         format!("{alg} ✗ unverified")
                     };
-                    Json::obj(vec![
+                    let mut row = vec![
                         ("id", Json::s(&audit_id(e.seq))),
                         ("actor", Json::s(&e.record.actor.0)),
                         ("action", Json::s(&e.record.action.0)),
                         ("resource", Json::s(&e.record.resource.0)),
                         ("ts", Json::s(&time_of_day(&e.record.ts.0))),
                         ("pqSignature", Json::s(&marker)),
-                    ])
+                    ];
+                    // The row's context, where it states one: how it ended, why, and
+                    // for a human gate the approval, its approver and its target.
+                    // [VLD-ANB-MIDGARD-0038]
+                    let c = &e.record.context;
+                    if c.outcome != Outcome::Unspecified {
+                        row.push(("outcome", Json::s(c.outcome.as_str())));
+                    }
+                    for (key, value) in [
+                        ("reason", &c.reason),
+                        ("approvalId", &c.approval_id),
+                        ("approver", &c.approver),
+                        ("target", &c.target),
+                    ] {
+                        if let Some(value) = value {
+                            row.push((key, Json::s(value)));
+                        }
+                    }
+                    Json::obj(row)
                 })
                 .collect(),
-        )
+        );
+        (rows, filtered)
+    }
+
+    /// Whether the caller may see ledger row `entry`. A row about an object is shown
+    /// only if the caller may read that object now (the same non-auditing check that
+    /// filters query results), so the view is not an oracle for hidden objects. A login
+    /// row about another principal needs `ReadAudit` on `audit-ledger:sessions`. Every
+    /// other row (route admissions, dry-runs, the caller's own logins) is shown to any
+    /// caller the edge admitted. [VLD-ANB-MIDGARD-0031]
+    fn audit_row_visible(&self, ctx: &PolicyContext, entry: &SealedEntry) -> bool {
+        let resource = entry.record.resource.0.as_str();
+        if let Some(id) = resource.strip_prefix(fabric::OBJECT_PREFIX) {
+            return self.can_read_id(ctx, id);
+        }
+        if resource == "session" && entry.record.actor.0 != ctx.subject {
+            let sessions = Resource {
+                id: ResourceId(crate::AUDIT_SESSIONS_RESOURCE.into()),
+                marking: Marking {
+                    level: ClassificationLevel::UNCLASSIFIED,
+                    compartments: BTreeSet::new(),
+                },
+                allowed_purposes: [ctx.purpose.clone()].into_iter().collect(),
+            };
+            return self
+                .fabric
+                .governance()
+                .permits(ctx, &sessions, crate::ACTION_READ_AUDIT);
+        }
+        true
     }
 
     /// `GET /policies`: the rule set the PDP enforces.
@@ -941,7 +1346,7 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
             FabricError::MissingRequiredParam(_) | FabricError::BadParamType { .. } => {
                 EdgeError::new(400, &e.to_string())
             }
-            _ => EdgeError::new(500, &e.to_string()),
+            _ => EdgeError::internal(e.to_string()),
         }
     }
 
@@ -1392,14 +1797,178 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
     }
 }
 
+// ---- search-around ---------------------------------------------------------------
+
+/// A link touching a node: (link type, source, target).
+type Adjacent<'a> = (&'a LinkType, &'a ObjectInstance, &'a ObjectInstance);
+
+/// The resource a single-seed search-around is authorised and audited on.
+///
+/// The seed has already passed [`can_read`], so no rule denies it by its object id
+/// or by its type's id, and a permit on one of the two grants it. The audited
+/// decision is taken on the object's own id (`object:<type>/<key>`) when a rule
+/// permits that, and otherwise on its type's id (`object-type:<type>`), always under
+/// the object's own marking and purposes so mandatory access control applies to the
+/// seed. A policy that permits only `object-type:<type>` therefore walks from one
+/// object of the type exactly as it reads that object, instead of refusing the walk.
+/// [VLD-ANB-MIDGARD-0023] [VLD-ANB-MIDGARD-0094] [NFR-SEC-2]
+fn seed_resource<L: LedgerStore>(
+    gov: &Governance<L>,
+    ctx: &PolicyContext,
+    obj: &ObjectInstance,
+) -> Resource {
+    let instance = resource_of(obj);
+    if gov.permits(ctx, &instance, "Read") {
+        return instance;
+    }
+    Resource {
+        id: fabric::type_resource_id(&obj.type_id),
+        ..instance
+    }
+}
+
+/// Every link touching `node`, in the order a search-around meets them: for each link
+/// type in registry order, the node's outbound links (through `neighbors`) and then
+/// its inbound ones (by scanning the link type's source objects). Edge order in a
+/// response follows this order. [VLD-ANB-MIDGARD-0094]
+fn adjacent_links<'a>(
+    reg: &'a TypeRegistry,
+    store: &'a dyn ObjectStore,
+    node: &'a ObjectInstance,
+) -> Vec<Adjacent<'a>> {
+    let mut adjacent = Vec::new();
+    for lt in reg.link_types() {
+        if lt.source_type == node.type_id {
+            for target in store.neighbors(&node.id, &lt.id) {
+                adjacent.push((lt, node, target));
+            }
+        }
+        if lt.target_type == node.type_id {
+            for source in store.objects_of_type(&lt.source_type) {
+                if store
+                    .neighbors(&source.id, &lt.id)
+                    .iter()
+                    .any(|t| t.id == node.id)
+                {
+                    adjacent.push((lt, source, node));
+                }
+            }
+        }
+    }
+    adjacent
+}
+
+/// One search-around in progress: the nodes and edges admitted so far, in discovery
+/// order, and the frontier the next hop walks from.
+struct Walk {
+    seen: BTreeSet<String>,
+    edge_keys: BTreeSet<(String, String, String)>,
+    nodes: Vec<Json>,
+    edges: Vec<Json>,
+    frontier: Vec<String>,
+    truncated: bool,
+    node_limit: usize,
+}
+
+impl Walk {
+    fn new(node_limit: usize) -> Self {
+        Self {
+            seen: BTreeSet::new(),
+            edge_keys: BTreeSet::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            frontier: Vec::new(),
+            truncated: false,
+            node_limit,
+        }
+    }
+
+    /// Admit the starting objects as hop-0 nodes, at most `node_limit` of them; more
+    /// than that marks the walk truncated.
+    fn seed(&mut self, reg: &TypeRegistry, store: &dyn ObjectStore, roots: &[String]) {
+        self.truncated = roots.len() > self.node_limit;
+        for id in roots.iter().take(self.node_limit) {
+            if let Some(o) = store.get_object(id) {
+                if self.seen.insert(o.id.clone()) {
+                    self.nodes.push(node_json(reg, o, 0));
+                    self.frontier.push(o.id.clone());
+                }
+            }
+        }
+    }
+
+    /// The clearance filter, applied to one link touching `node` on hop `hop`.
+    ///
+    /// The neighbour (the link's other end) is checked with `readable` first: one the
+    /// caller may not read contributes neither a node nor an edge. A neighbour not yet
+    /// seen when the node limit is reached marks the walk truncated and is skipped
+    /// together with its edge. Otherwise the edge is recorded once, however often it
+    /// is met, and a new neighbour joins the nodes and the next frontier.
+    ///
+    /// DESIGN DECISION: readability is an injected predicate rather than a
+    /// [`Governance`], so the filter is unit-tested on its own; production passes a
+    /// closure over [`can_read`], the same per-object check a fabric query applies.
+    /// [VLD-ANB-MIDGARD-0094] [NFR-SEC-2]
+    fn admit(
+        &mut self,
+        readable: &dyn Fn(&ObjectInstance) -> bool,
+        reg: &TypeRegistry,
+        node: &ObjectInstance,
+        (lt, source, target): Adjacent<'_>,
+        hop: u64,
+    ) {
+        let other = if source.id == node.id { target } else { source };
+        if !readable(other) {
+            return;
+        }
+        let is_new = !self.seen.contains(&other.id);
+        if is_new && self.nodes.len() >= self.node_limit {
+            self.truncated = true;
+            return;
+        }
+        if self
+            .edge_keys
+            .insert((lt.id.clone(), source.id.clone(), target.id.clone()))
+        {
+            self.edges.push(Json::obj(vec![
+                ("from", Json::s(&source.id)),
+                ("to", Json::s(&target.id)),
+                ("label", Json::s(&link_label(reg, lt))),
+            ]));
+        }
+        if is_new {
+            self.seen.insert(other.id.clone());
+            self.nodes.push(node_json(reg, other, hop));
+            self.frontier.push(other.id.clone());
+        }
+    }
+
+    /// The search-around response body.
+    fn into_json(self, seed: &str, seed_objects: usize, audit_seq: u64) -> Json {
+        Json::obj(vec![
+            ("seed", Json::s(seed)),
+            ("nodes", Json::Arr(self.nodes)),
+            ("edges", Json::Arr(self.edges)),
+            ("truncated", Json::Bool(self.truncated)),
+            (
+                "nodeLimit",
+                Json::Int(i64::try_from(self.node_limit).unwrap_or(i64::MAX)),
+            ),
+            (
+                "seedObjects",
+                Json::Int(i64::try_from(seed_objects).unwrap_or(i64::MAX)),
+            ),
+            ("auditId", Json::s(&audit_id(audit_seq))),
+        ])
+    }
+}
+
 // ---- projection helpers ---------------------------------------------------------
 
+/// One object as a policy resource, under the fabric's scheme (`object:<type>/<key>`).
+/// [VLD-ANB-MIDGARD-0023]
 fn resource_of(obj: &ObjectInstance) -> Resource {
-    Resource {
-        id: ResourceId(obj.id.clone()),
-        marking: obj.marking.clone(),
-        allowed_purposes: obj.allowed_purposes.clone(),
-    }
+    fabric::object_resource(obj)
 }
 
 /// The per-object read check, exactly as the fabric's query engine applies it.
@@ -1408,7 +1977,7 @@ fn can_read<L: LedgerStore>(
     ctx: &PolicyContext,
     obj: &ObjectInstance,
 ) -> bool {
-    gov.permits(ctx, &resource_of(obj), "Read")
+    fabric::can_read_object(gov, ctx, obj)
 }
 
 fn audit_id(seq: u64) -> String {
@@ -1418,12 +1987,41 @@ fn audit_id(seq: u64) -> String {
 /// An approval's state as the console shows it.
 fn approval_status(a: &Approval, now: u64) -> &'static str {
     match &a.state {
+        _ if is_expired(a, now) => "expired",
         ApprovalState::Pending => "pending",
-        ApprovalState::Approved { expires, .. } if now >= *expires => "expired",
         ApprovalState::Approved { .. } => "approved",
         ApprovalState::Rejected { .. } => "rejected",
         ApprovalState::Used { .. } => "used",
     }
+}
+
+/// Who decided an approval, once someone has.
+fn approver_of(a: &Approval) -> Option<&str> {
+    match &a.state {
+        ApprovalState::Pending => None,
+        ApprovalState::Approved { approver, .. }
+        | ApprovalState::Rejected { approver }
+        | ApprovalState::Used { approver } => Some(approver),
+    }
+}
+
+/// Whether an approval has lapsed: pending past [`PENDING_TTL`], or approved and not
+/// redeemed in time. [VLD-ANB-MIDGARD-0039]
+fn is_expired(a: &Approval, now: u64) -> bool {
+    match &a.state {
+        ApprovalState::Pending => now >= a.requested.saturating_add(PENDING_TTL),
+        ApprovalState::Approved { expires, .. } => now >= *expires,
+        ApprovalState::Rejected { .. } | ApprovalState::Used { .. } => false,
+    }
+}
+
+/// Whether an approval still counts against its requester: pending, or approved and
+/// redeemable, and not expired. [VLD-ANB-MIDGARD-0039]
+fn is_open(a: &Approval, now: u64) -> bool {
+    matches!(
+        a.state,
+        ApprovalState::Pending | ApprovalState::Approved { .. }
+    ) && !is_expired(a, now)
 }
 
 /// An approval as the console shows it to `subject`.
@@ -1737,5 +2335,345 @@ impl ActionFunction for ScheduleMaintenance {
             }));
         }
         Ok(effects)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fabric::Governance;
+    use policy::{Clearance, DefaultPdp, Role};
+    use pqc_agility::OsRng;
+
+    const NOW: u64 = 1_800_000_000;
+    const PURPOSE: &str = "operations";
+
+    /// The development enclosure, with its human-gated actions and seeded aircraft.
+    fn dev_enclosure() -> Enclosure {
+        let governance =
+            Governance::new(DefaultPdp::new(crate::dev_login_policy()), &mut OsRng).unwrap();
+        let mut enclosure = Enclosure::new(governance);
+        enclosure.seed_dev(PURPOSE, NOW).unwrap();
+        enclosure
+    }
+
+    fn person(subject: &str, role: &str) -> PolicyContext {
+        PolicyContext {
+            subject: subject.into(),
+            roles: [Role(role.into())].into_iter().collect(),
+            clearance: Clearance {
+                level: level_of("confidential").unwrap(),
+                compartments: [Compartment("OPS-N".into())].into_iter().collect(),
+            },
+            purpose: Purpose(PURPOSE.into()),
+        }
+    }
+
+    fn approval_id(json: &Json) -> String {
+        json.str_field("id").expect("approval id").to_string()
+    }
+
+    /// A target is under a human gate while its approval is pending, approved and
+    /// unexpired, or redeemed, and not once it is rejected or expired. [NFR-AI-1]
+    /// [VLD-ANB-MIDGARD-0001] [AC-18.4]
+    #[test]
+    fn gated_targets_cover_live_and_redeemed_approvals() {
+        const TARGET: &str = "aircraft/AC-2214";
+        let operator = person("olivia", "operator");
+        let approver = person("victor", "approver");
+        let mut enclosure = dev_enclosure();
+        assert!(enclosure.gated_targets(NOW).is_empty());
+
+        // Pending, approved, then redeemed: protected throughout.
+        let pending = enclosure
+            .request_approval(&operator, "Ground aircraft", TARGET, NOW)
+            .map(|j| approval_id(&j))
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure.gated_targets(NOW).contains(TARGET), "pending");
+        enclosure
+            .decide_approval(&approver, &pending, true, NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure.gated_targets(NOW).contains(TARGET), "approved");
+        let params = [("target".to_string(), TARGET.to_string())].into();
+        enclosure
+            .apply_action(&operator, "Ground aircraft", params, Some(&pending), NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(
+            enclosure.gated_targets(NOW + APPROVAL_TTL).contains(TARGET),
+            "redeemed, whenever it was"
+        );
+
+        // Rejected, or approved and expired: not protected.
+        let mut enclosure = dev_enclosure();
+        let rejected = enclosure
+            .request_approval(&operator, "Ground aircraft", TARGET, NOW)
+            .map(|j| approval_id(&j))
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        enclosure
+            .decide_approval(&approver, &rejected, false, NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure.gated_targets(NOW).is_empty(), "rejected");
+        let expiring = enclosure
+            .request_approval(&operator, "Ground aircraft", TARGET, NOW)
+            .map(|j| approval_id(&j))
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        enclosure
+            .decide_approval(&approver, &expiring, true, NOW)
+            .unwrap_or_else(|e| panic!("{}", e.body.encode()));
+        assert!(enclosure
+            .gated_targets(NOW + APPROVAL_TTL - 1)
+            .contains(TARGET));
+        assert!(
+            enclosure.gated_targets(NOW + APPROVAL_TTL).is_empty(),
+            "an approval past its time protects nothing"
+        );
+    }
+}
+
+/// The search-around building blocks on their own: the clearance filter with an
+/// injected readability predicate, link collection order, and seed resolution.
+/// [VLD-ANB-MIDGARD-0094] [AC-43.2] [AC-43.3] [DD-1] [NFR-SEC-2]
+#[cfg(test)]
+mod search_around_tests {
+    use super::*;
+    use policy::{Action, Clearance, DefaultPdp, PolicySet, Role, Rule, RuleId};
+    use pqc_agility::OsRng;
+
+    const NOW: u64 = 1_800_000_000;
+    const PURPOSE: &str = "operations";
+
+    /// One object type, `thing`, and one link type, `thing` to `thing`.
+    fn registry() -> TypeRegistry {
+        let mut reg = TypeRegistry::new();
+        reg.register_object_type(ObjectType {
+            id: "thing".into(),
+            api_name: "thing".into(),
+            title: "Thing".into(),
+            properties: vec![],
+            interfaces: vec![],
+        })
+        .expect("object type registers");
+        reg.register_link_type(LinkType {
+            id: "rel".into(),
+            api_name: "rel".into(),
+            source_type: "thing".into(),
+            target_type: "thing".into(),
+            cardinality: Cardinality::ManyToMany,
+        })
+        .expect("link type registers");
+        reg
+    }
+
+    /// An in-memory store holding `thing/<key>` for every key and the `rel` links
+    /// given as (source key, target key).
+    fn store(keys: &[&str], links: &[(&str, &str)]) -> InMemoryStore {
+        let mut store = InMemoryStore::new();
+        for key in keys {
+            store.put_object(ObjectInstance {
+                id: format!("thing/{key}"),
+                type_id: "thing".into(),
+                properties: BTreeMap::new(),
+                marking: marking("open", &[]),
+                allowed_purposes: [Purpose(PURPOSE.into())].into_iter().collect(),
+            });
+        }
+        for (source, target) in links {
+            store.put_link(LinkInstance {
+                link_type: "rel".into(),
+                source_id: format!("thing/{source}"),
+                target_id: format!("thing/{target}"),
+            });
+        }
+        store
+    }
+
+    fn get<'a>(store: &'a InMemoryStore, key: &str) -> &'a ObjectInstance {
+        store
+            .get_object(&format!("thing/{key}"))
+            .unwrap_or_else(|| panic!("no thing/{key}"))
+    }
+
+    fn node_ids(walk: &Walk) -> Vec<&str> {
+        walk.nodes
+            .iter()
+            .map(|n| n.str_field("id").expect("id"))
+            .collect()
+    }
+
+    fn edge_ends(walk: &Walk) -> Vec<(&str, &str)> {
+        walk.edges
+            .iter()
+            .map(|e| {
+                (
+                    e.str_field("from").expect("from"),
+                    e.str_field("to").expect("to"),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn admit_drops_an_unreadable_neighbour_and_records_no_edge_to_it() {
+        let reg = registry();
+        let store = store(&["A", "B"], &[("A", "B")]);
+        let lt = reg.link_type("rel").expect("rel");
+        let (a, b) = (get(&store, "A"), get(&store, "B"));
+        let readable = |o: &ObjectInstance| o.id != "thing/B";
+
+        let mut walk = Walk::new(10);
+        walk.seed(&reg, &store, &["thing/A".to_string()]);
+        walk.admit(&readable, &reg, a, (lt, a, b), 1);
+
+        assert_eq!(node_ids(&walk), ["thing/A"]);
+        assert!(walk.edges.is_empty(), "no edge to an unreadable neighbour");
+        assert!(
+            !walk.truncated,
+            "a hidden neighbour does not truncate the walk"
+        );
+        assert_eq!(walk.frontier, ["thing/A"], "nor joins the frontier");
+    }
+
+    #[test]
+    fn admit_marks_truncated_at_the_node_limit_and_keeps_edges_between_seen_nodes() {
+        let reg = registry();
+        let store = store(
+            &["A", "B", "C", "D"],
+            &[("A", "B"), ("A", "C"), ("A", "D"), ("B", "A")],
+        );
+        let lt = reg.link_type("rel").expect("rel");
+        let [a, b, c, d] = ["A", "B", "C", "D"].map(|k| get(&store, k));
+        let readable = |_: &ObjectInstance| true;
+
+        let mut walk = Walk::new(2);
+        walk.seed(&reg, &store, &["thing/A".to_string()]);
+        // Three readable neighbours; only one fits beside the seed.
+        walk.admit(&readable, &reg, a, (lt, a, b), 1);
+        walk.admit(&readable, &reg, a, (lt, a, c), 1);
+        walk.admit(&readable, &reg, a, (lt, a, d), 1);
+        // A link between two admitted nodes, met twice.
+        walk.admit(&readable, &reg, a, (lt, b, a), 1);
+        walk.admit(&readable, &reg, a, (lt, b, a), 1);
+
+        assert_eq!(node_ids(&walk), ["thing/A", "thing/B"]);
+        assert!(walk.truncated);
+        assert_eq!(
+            edge_ends(&walk),
+            [("thing/A", "thing/B"), ("thing/B", "thing/A")],
+            "the cut neighbours bring no edge, and the repeated edge is recorded once"
+        );
+    }
+
+    #[test]
+    fn adjacent_links_finds_outbound_then_inbound_links_in_registry_order() {
+        let reg = registry();
+        let store = store(&["A", "B", "C"], &[("A", "B"), ("C", "A")]);
+
+        let found: Vec<(&str, &str, &str)> = adjacent_links(&reg, &store, get(&store, "A"))
+            .into_iter()
+            .map(|(lt, s, t)| (lt.id.as_str(), s.id.as_str(), t.id.as_str()))
+            .collect();
+
+        assert_eq!(
+            found,
+            [("rel", "thing/A", "thing/B"), ("rel", "thing/C", "thing/A")]
+        );
+    }
+
+    /// The demo operator's session context.
+    fn operator() -> PolicyContext {
+        let user = crate::demo_operator();
+        PolicyContext {
+            subject: "operator".into(),
+            roles: user.roles,
+            clearance: Clearance {
+                level: user.clearance.level,
+                compartments: user.clearance.compartments,
+            },
+            purpose: Purpose(PURPOSE.into()),
+        }
+    }
+
+    /// An enclosure over the development data, enforcing `rules`.
+    fn enclosure(rules: Vec<Rule>) -> Enclosure {
+        let pdp = DefaultPdp::new(PolicySet::new(rules).expect("valid policy"));
+        let governance = Governance::new(pdp, &mut OsRng).expect("governance keygen");
+        let mut enclosure = Enclosure::new(governance);
+        enclosure.seed_dev(PURPOSE, NOW).expect("dev data seeds");
+        enclosure
+    }
+
+    fn read_rule(id: &str, selector: Selector, effect: RuleEffect) -> Rule {
+        Rule {
+            id: RuleId(id.into()),
+            role: Role("operator".into()),
+            action: Action("Read".into()),
+            purpose: None,
+            selector,
+            effect,
+        }
+    }
+
+    #[test]
+    fn seed_roots_reports_an_unreadable_seed_as_unknown() {
+        let mut rules = crate::dev_login_policy().rules().to_vec();
+        rules.push(read_rule(
+            "deny-seed",
+            Selector::Resource(fabric::object_resource_id("aircraft/AC-2214")),
+            RuleEffect::Deny,
+        ));
+        let mut enclosure = enclosure(rules);
+        let ctx = operator();
+        let before = enclosure.audit_len();
+
+        let err = enclosure
+            .seed_roots(&ctx, "aircraft/AC-2214")
+            .expect_err("an unreadable seed is refused");
+        assert_eq!(err.status, 404);
+        assert!(err.body.encode().contains("unknown seed object"));
+        let err = enclosure
+            .search_around(&ctx, "aircraft/AC-2214", 1, None, NOW)
+            .expect_err("and so is a walk from it");
+        assert_eq!(err.status, 404);
+        assert_eq!(
+            enclosure.audit_len(),
+            before,
+            "no audit row reveals the seed"
+        );
+    }
+
+    /// The follow-up WP-19 left for WP-43: a single-seed walk is authorised as the
+    /// seed is read, on its object id or else its type's id, so a policy that permits
+    /// only `object-type:<type>` walks from one object of that type.
+    /// [VLD-ANB-MIDGARD-0023] [AC-19.2]
+    #[test]
+    fn a_type_scoped_permit_lets_a_walk_start_from_one_object_of_the_type() {
+        let type_only = read_rule(
+            "read-aircraft",
+            Selector::Resource(fabric::type_resource_id("aircraft")),
+            RuleEffect::Permit,
+        );
+        let mut enclosure = enclosure(vec![type_only]);
+        let ctx = operator();
+
+        let graph = enclosure
+            .search_around(&ctx, "aircraft/AC-2214", 2, None, NOW)
+            .unwrap_or_else(|e| panic!("{}: {}", e.status, e.body.encode()));
+        let nodes: Vec<&str> = match graph.get("nodes") {
+            Some(Json::Arr(nodes)) => nodes
+                .iter()
+                .map(|n| n.str_field("id").expect("id"))
+                .collect(),
+            other => panic!("no nodes: {other:?}"),
+        };
+        assert!(nodes.contains(&"aircraft/AC-2214"), "{nodes:?}");
+        assert!(
+            nodes.iter().all(|id| id.starts_with("aircraft/")),
+            "only objects of the permitted type are reached: {nodes:?}"
+        );
+        let last = enclosure.fabric().audit_entries().last().expect("a row");
+        assert_eq!(
+            last.record.resource.0, "object-type:aircraft",
+            "the decision is recorded on the id that permitted it"
+        );
     }
 }

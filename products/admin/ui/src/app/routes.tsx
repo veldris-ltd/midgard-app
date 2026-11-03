@@ -1,4 +1,4 @@
-import { createHashRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router'; // v7, one router package [AC-P4.2]
 import { OverviewScreen } from '../screens/OverviewScreen';
 import { ApprovalsScreen } from '../screens/ApprovalsScreen';
 import { IamScreen } from '../screens/IamScreen';

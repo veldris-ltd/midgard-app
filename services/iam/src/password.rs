@@ -49,7 +49,7 @@
 
 use argon2::password_hash::{PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString};
 use argon2::{Algorithm, Argon2, Params, Version, ARGON2ID_IDENT};
-use pqc_agility::hash::{ct_eq, pbkdf2_hmac_sha256};
+use pqc_agility::hash::{ct_eq, pbkdf2_hmac_sha256_32};
 use pqc_agility::{OsRng, Rng};
 
 use crate::enc::{hex, unhex};
@@ -261,10 +261,10 @@ fn argon2id() -> Argon2<'static> {
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
 }
 
+/// The legacy entries' derived key: the shared PBKDF2 in `pqc_agility::hash`, byte
+/// for byte what this module computed before. [VLD-ANB-MIDGARD-0007]
 fn pbkdf2_32(password: &[u8], salt: &[u8], iterations: u32) -> [u8; DK_LEN] {
-    let mut out = [0u8; DK_LEN];
-    pbkdf2_hmac_sha256(password, salt, iterations, &mut out);
-    out
+    pbkdf2_hmac_sha256_32(password, salt, iterations)
 }
 
 /// A parsed stored hash.

@@ -10,7 +10,7 @@ This folder holds the **openly licensed part** of the set. The full set, `midgar
 | `2-forge-datasets/` | Forge source tables as typed JSON | 10 | 11, plus `regions.json` from here |
 | `3-heimdall-feed-snapshots/` | The latest cached response from each live source, in that source's own format | 26 | 49 |
 | `4-heimdall-observations/` | Up to 500 normalised Heimdall observations per feed, from a 5-minute recording | 10 | 25 |
-| `catalogue.json` · `NOTICE.md` | Source, licence, credit, feed family and publication status of every file | | |
+| `catalogue.json` · `NOTICE.md` | Source, licence, credit, feed family, publication status and data-protection screening ([record](../docs/compliance/DATA_PROTECTION_SCREENING.md)) of every file | | |
 | `convert.py` | Turns the data into what Midgard ingests (Python 3.8+, standard library only) | | |
 
 `regions.json` was written for this repository: four ISO 3166-2 regions, so the datasets' links to `region` resolve.

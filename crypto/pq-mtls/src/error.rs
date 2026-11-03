@@ -122,12 +122,17 @@ impl std::error::Error for MtlsError {}
 pub enum AuthzError {
     /// The policy decision point denied the request.
     Denied,
+    /// The peer declared a purpose its certificate does not bind. [VLD-ANB-MIDGARD-0063]
+    PurposeNotCertified,
 }
 
 impl fmt::Display for AuthzError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AuthzError::Denied => write!(f, "denied by policy"),
+            AuthzError::PurposeNotCertified => {
+                write!(f, "the declared purpose is not one the certificate binds")
+            }
         }
     }
 }

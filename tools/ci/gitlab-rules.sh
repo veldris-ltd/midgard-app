@@ -10,7 +10,9 @@
 #
 #   - main and dev are protected: maintainers push and merge, nobody force-pushes;
 #   - v* tags are protected: only maintainers create them, and once pushed they are not
-#     moved;
+#     moved. A v* tag starts the release on the signing runner, so this is the GitLab
+#     form of the GitHub tag-creation ruleset (tools/ci/github-rules.sh), and
+#     maintainers are the release managers here (VLD-ANB-MIDGARD-0035);
 #   - push rules reject unsigned commits and the deletion of tags. Push rules are a
 #     GitLab Premium feature; on a tier without them the call fails and says so, and the
 #     rest still applies.
@@ -26,7 +28,7 @@ while [ "$#" -gt 0 ]; do
         --url) url="${2:?--url needs the GitLab base URL}"; shift 2 ;;
         --project) project="${2:?--project needs group/name}"; shift 2 ;;
         --dry-run) dry=1; shift ;;
-        -h | --help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h | --help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "gitlab-rules: unknown argument '$1'" >&2; exit 2 ;;
     esac
 done

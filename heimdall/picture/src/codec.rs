@@ -12,8 +12,20 @@ use crate::id::{EntityId, LayerId};
 use crate::layer::Layer;
 use crate::observation::{Attr, Observation};
 
-/// Format version — bump only on a breaking encoding change.
-const FORMAT_VERSION: u8 = 0x01;
+/// Observation format version: bump only on a breaking encoding change. Version 2
+/// adds the feed's monotonic `sequence` after `observed_at`, inside the bytes a feed
+/// signs. Version 1 carried no sequence, so a replayed version-1 observation could not
+/// be told from a fresh one; it is refused, not upgraded. [VLD-ANB-MIDGARD-0041]
+const FORMAT_VERSION: u8 = 0x02;
+/// The observation layout before the sequence: refused at decode.
+const FORMAT_VERSION_V1: u8 = 0x01;
+
+/// The delta (and sealed picture) layout: version 2 adds each track's
+/// `last_received`. Version 1 still decodes, with `last_received` taken as
+/// `last_seen`, so a picture sealed before the change opens. [VLD-ANB-MIDGARD-0015]
+const DELTA_FORMAT_VERSION: u8 = 0x02;
+/// The delta layout before tracks carried `last_received`.
+const DELTA_FORMAT_VERSION_V1: u8 = 0x01;
 
 // Attribute value tags.
 const TAG_TEXT: u8 = 1;
@@ -72,6 +84,7 @@ pub(crate) fn encode_observation(o: &Observation) -> Vec<u8> {
     put_str(&mut out, &o.kind);
     put_str(&mut out, &o.entity_key);
     put_u64(&mut out, o.observed_at);
+    put_u64(&mut out, o.sequence);
     put_attrs(&mut out, &o.attrs);
     out
 }
@@ -80,6 +93,7 @@ fn put_track(out: &mut Vec<u8>, t: &Track) {
     put_u64(out, t.first_seen);
     put_u64(out, t.last_seen);
     put_u64(out, t.observation_count);
+    put_u64(out, t.last_received);
 }
 
 fn put_classification(out: &mut Vec<u8>, c: &Option<Classification>) {
@@ -92,6 +106,13 @@ fn put_classification(out: &mut Vec<u8>, c: &Option<Classification>) {
             put_str(out, &c.rationale);
         }
     }
+}
+
+/// One entity's canonical bytes, as a delta carries it: the merge's last tie-breaker.
+pub(crate) fn encode_entity(e: &TrackedEntity) -> Vec<u8> {
+    let mut out = Vec::new();
+    put_entity(&mut out, e);
+    out
 }
 
 fn put_entity(out: &mut Vec<u8>, e: &TrackedEntity) {
@@ -111,7 +132,7 @@ fn put_entity(out: &mut Vec<u8>, e: &TrackedEntity) {
 /// Encode a picture delta to its canonical replication bytes.
 pub(crate) fn encode_delta(d: &PictureDelta) -> Vec<u8> {
     let mut out = Vec::new();
-    out.push(FORMAT_VERSION);
+    out.push(DELTA_FORMAT_VERSION);
     put_u64(&mut out, d.layers.len() as u64);
     for l in &d.layers {
         put_str(&mut out, &l.id.0);
@@ -199,11 +220,18 @@ impl<'a> Reader<'a> {
         Ok(map)
     }
 
-    fn track(&mut self) -> Result<Track, PictureError> {
+    /// A track; `v1` is the layout without `last_received`, which then reads as
+    /// `last_seen`.
+    fn track(&mut self, v1: bool) -> Result<Track, PictureError> {
+        let first_seen = self.u64()?;
+        let last_seen = self.u64()?;
+        let observation_count = self.u64()?;
+        let last_received = if v1 { last_seen } else { self.u64()? };
         Ok(Track {
-            first_seen: self.u64()?,
-            last_seen: self.u64()?,
-            observation_count: self.u64()?,
+            first_seen,
+            last_seen,
+            observation_count,
+            last_received,
         })
     }
 
@@ -236,13 +264,13 @@ impl<'a> Reader<'a> {
         Ok(set)
     }
 
-    fn entity(&mut self) -> Result<TrackedEntity, PictureError> {
+    fn entity(&mut self, v1: bool) -> Result<TrackedEntity, PictureError> {
         let id = EntityId(self.string()?);
         let entity_key = self.string()?;
         let kind = self.string()?;
         let layer = LayerId(self.string()?);
         let sources = self.sources()?;
-        let track = self.track()?;
+        let track = self.track(v1)?;
         let classification = self.classification()?;
         let latest_attrs = self.attrs()?;
         Ok(TrackedEntity {
@@ -261,12 +289,15 @@ impl<'a> Reader<'a> {
 /// Decode canonical bytes into a picture delta. Fails closed on any malformed input.
 pub(crate) fn decode_delta(buf: &[u8]) -> Result<PictureDelta, PictureError> {
     let mut r = Reader::new(buf);
-    let version = r.u8()?;
-    if version != FORMAT_VERSION {
-        return Err(PictureError::Decode(format!(
-            "unsupported delta format version {version}"
-        )));
-    }
+    let v1 = match r.u8()? {
+        DELTA_FORMAT_VERSION => false,
+        DELTA_FORMAT_VERSION_V1 => true,
+        version => {
+            return Err(PictureError::Decode(format!(
+                "unsupported delta format version {version}"
+            )))
+        }
+    };
     let layer_count = r.u64()? as usize;
     let mut layers = Vec::with_capacity(layer_count.min(1024));
     for _ in 0..layer_count {
@@ -277,7 +308,7 @@ pub(crate) fn decode_delta(buf: &[u8]) -> Result<PictureDelta, PictureError> {
     let entity_count = r.u64()? as usize;
     let mut entities = Vec::with_capacity(entity_count.min(1024));
     for _ in 0..entity_count {
-        entities.push(r.entity()?);
+        entities.push(r.entity(v1)?);
     }
     if r.pos != buf.len() {
         return Err(PictureError::Decode("trailing bytes after delta".into()));
@@ -292,17 +323,25 @@ pub(crate) fn decode_observation(buf: &[u8]) -> Result<Observation, PictureError
     use crate::id::{FeedId, ObservationId};
 
     let mut r = Reader::new(buf);
-    let version = r.u8()?;
-    if version != FORMAT_VERSION {
-        return Err(PictureError::Decode(format!(
-            "unsupported observation format version {version}"
-        )));
+    match r.u8()? {
+        FORMAT_VERSION => {}
+        FORMAT_VERSION_V1 => {
+            return Err(PictureError::Decode(
+                "unsupported observation format version 1 (no sequence)".into(),
+            ))
+        }
+        version => {
+            return Err(PictureError::Decode(format!(
+                "unsupported observation format version {version}"
+            )))
+        }
     }
     let feed_id = FeedId(r.string()?);
     let id = ObservationId(r.string()?);
     let kind = r.string()?;
     let entity_key = r.string()?;
     let observed_at = r.u64()?;
+    let sequence = r.u64()?;
     let attrs = r.attrs()?;
     if r.pos != buf.len() {
         return Err(PictureError::Decode(
@@ -316,6 +355,7 @@ pub(crate) fn decode_observation(buf: &[u8]) -> Result<Observation, PictureError
         entity_key,
         attrs,
         observed_at,
+        sequence,
     })
 }
 
@@ -342,6 +382,7 @@ mod tests {
                 first_seen: 10,
                 last_seen,
                 observation_count: 4,
+                last_received: last_seen + 5,
             },
             classification: Some(Classification {
                 label: "fast-mover".into(),
@@ -402,7 +443,8 @@ mod tests {
         .with_attr("speed", Attr::Float(500.0))
         .with_attr("callsign", Attr::Text("VIPER1".into()))
         .with_attr("hostile", Attr::Bool(true))
-        .with_attr("count", Attr::Int(-7));
+        .with_attr("count", Attr::Int(-7))
+        .with_sequence(9);
         let bytes = o.canonical_bytes();
         let back = Observation::from_canonical_bytes(&bytes).expect("decodes");
         assert_eq!(o, back);
@@ -410,6 +452,84 @@ mod tests {
         let mut extra = bytes.clone();
         extra.push(0);
         assert!(Observation::from_canonical_bytes(&extra).is_err());
+    }
+
+    /// The delta layout before `last_received`, written by hand as the previous
+    /// encoder did: a picture sealed then still opens, each track's `last_received`
+    /// read as its `last_seen`. [VLD-ANB-MIDGARD-0015] [AC-23.5]
+    #[test]
+    fn the_previous_entity_layout_decodes_with_last_received_as_last_seen() {
+        let entity = sample_entity("e1", 20);
+        let mut old = vec![DELTA_FORMAT_VERSION_V1];
+        put_u64(&mut old, 1);
+        put_str(&mut old, "air");
+        put_str(&mut old, "Air");
+        put_u64(&mut old, 1);
+        put_str(&mut old, &entity.id.0);
+        put_str(&mut old, &entity.entity_key);
+        put_str(&mut old, &entity.kind);
+        put_str(&mut old, &entity.layer.0);
+        put_u64(&mut old, entity.sources.len() as u64);
+        for s in &entity.sources {
+            put_str(&mut old, s);
+        }
+        put_u64(&mut old, entity.track.first_seen);
+        put_u64(&mut old, entity.track.last_seen);
+        put_u64(&mut old, entity.track.observation_count);
+        put_classification(&mut old, &entity.classification);
+        put_attrs(&mut old, &entity.latest_attrs);
+
+        let back = PictureDelta::from_canonical_bytes(&old).expect("the old layout decodes");
+        let decoded = &back.entities[0];
+        assert_eq!(decoded.track.last_received, decoded.track.last_seen);
+        assert_eq!(decoded.track.last_seen, 20);
+        assert_eq!(decoded.latest_attrs, entity.latest_attrs);
+        // Written again, it is in the current layout, which round-trips.
+        let current = back.canonical_bytes();
+        assert_eq!(current[0], DELTA_FORMAT_VERSION);
+        assert_eq!(PictureDelta::from_canonical_bytes(&current).unwrap(), back);
+        // An unknown version still fails closed.
+        old[0] = 0x03;
+        assert!(PictureDelta::from_canonical_bytes(&old).is_err());
+    }
+
+    /// The sequence is inside the signed bytes, right after `observed_at`: two
+    /// observations that differ only in sequence encode differently, so a signature
+    /// over one does not cover the other. [VLD-ANB-MIDGARD-0041] [AC-59.6]
+    #[test]
+    fn canonical_bytes_include_sequence() {
+        let o = Observation::new("o1", crate::id::FeedId("radar-1".into()), "air", "k", 42);
+        let first = o.clone().with_sequence(1).canonical_bytes();
+        let second = o.with_sequence(2).canonical_bytes();
+        assert_ne!(first, second);
+        assert_eq!(first[0], FORMAT_VERSION);
+        // version, then four length-prefixed strings, then observed_at, then sequence.
+        let at = 1 + (8 + 7) + (8 + 2) + (8 + 3) + (8 + 1);
+        assert_eq!(&first[at..at + 8], &42u64.to_le_bytes());
+        assert_eq!(&first[at + 8..at + 16], &1u64.to_le_bytes());
+        assert_eq!(&second[at + 8..at + 16], &2u64.to_le_bytes());
+    }
+
+    /// A version-1 observation, written as the previous encoder did (no sequence), is
+    /// refused at decode with a reason that names the missing sequence.
+    /// [VLD-ANB-MIDGARD-0041] [AC-59.6]
+    #[test]
+    fn observation_format_v1_is_refused() {
+        let mut old = vec![FORMAT_VERSION_V1];
+        put_str(&mut old, "radar-1");
+        put_str(&mut old, "o1");
+        put_str(&mut old, "air");
+        put_str(&mut old, "k");
+        put_u64(&mut old, 42);
+        put_attrs(&mut old, &BTreeMap::new());
+        let err = Observation::from_canonical_bytes(&old).expect_err("version 1 is refused");
+        assert_eq!(
+            err,
+            PictureError::Decode("unsupported observation format version 1 (no sequence)".into())
+        );
+        // An unknown version still fails closed.
+        old[0] = 0x07;
+        assert!(Observation::from_canonical_bytes(&old).is_err());
     }
 
     #[test]

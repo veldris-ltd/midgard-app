@@ -1,12 +1,23 @@
-# Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default,
-# release values: a default-deny, egress-denied namespace (NFR-PRV-1), a resource
-# quota, and one hardened, verify-before-run StatefulSet per service — non-root,
-# read-only rootfs, dropped capabilities, probes, resource limits, its own volume —
-# with per-port ingress and egress NetworkPolicies. [NFR-SEC-1] [AC-B-1] [RC-18]
+# Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default
+# values and image.allowTag=true: a default-deny, egress-denied namespace
+# (NFR-PRV-1), a resource quota, and one hardened, verify-before-run StatefulSet per
+# service — non-root, read-only rootfs, dropped capabilities, probes, resource limits,
+# its own volume — with per-port ingress and egress NetworkPolicies. [NFR-SEC-1]
+# [AC-B-1] [RC-18]
 #
-# Every service expects Secrets "<service>-identity" (and "<service>-seed" where it
-# seeds state) and the forge-jobs ConfigMap to exist; provision them from your key
-# custody. Apply with:  kubectl apply -f deploy/k8s/enclosure.yaml
+# This is a development rendering: images are referenced by tag with pullPolicy
+# Always because no release has produced digests yet; the signed release rendering
+# is target/release-out/chart/enclosure.yaml, pinned by digest.
+# [VLD-ANB-MIDGARD-0012]
+#
+# Every service expects Secrets "<service>-identity" and
+# "<service>-keystore-passphrase" (and "<service>-seed" where it seeds state) and the
+# forge-jobs ConfigMap to exist; provision them from your key custody. Rendered with
+# secrets.acknowledgeEtcdEncryption=true: apply it only to a cluster whose etcd
+# encrypts Secrets at rest (EncryptionConfiguration with a KMS v2 provider), or render
+# the chart with the csi or externalSecrets provider instead
+# (deploy/helm/midgard/README.md). [VLD-ANB-MIDGARD-0018]
+# Apply with:  kubectl apply -f deploy/k8s/enclosure.yaml
 #
 # GENERATED — do not edit. Regenerate with:  bash deploy/k8s/render.sh
 # (CI fails if this file is not what the chart renders.)
@@ -207,6 +218,12 @@ spec:
                 values: ["mimir-probe"]
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # Who may reach bifrost-fleet, port by port.
@@ -231,6 +248,12 @@ spec:
                 values: ["fleet-agent","fleet-operator"]
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # Who may reach heimdall-feed, port by port.
@@ -255,6 +278,12 @@ spec:
                 values: ["feed-source","picture-analyst"]
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # Who may reach forge-worker, port by port.
@@ -271,6 +300,12 @@ spec:
   ingress:
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # The service ports forge-worker may reach.
@@ -428,6 +463,10 @@ spec:
       labels:
         app.kubernetes.io/name: http-gateway
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -440,11 +479,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -460,14 +504,48 @@ spec:
           volumeMounts:
             - { name: state, mountPath: /state }
             - { name: seed, mountPath: /seed, readOnly: true }
+        # The keystore passphrase, copied into memory as a file the service's own user
+        # owns, mode 0400: a secret or CSI volume reaches a non-root pod only as a
+        # root-owned, group-readable file, which the service refuses (a passphrase file
+        # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
+        # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
+        - name: keystore-passphrase
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: http-gateway
           image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: http-gateway
-          args: ["--state-dir","/state","--bind","0.0.0.0:7710","--mesh-bind","0.0.0.0:7711","--mesh-identity-dir","/identity"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - name: MIDGARD_KEYSTORE_PASSPHRASE_FILE
+              value: /keystore-passphrase/passphrase
+          args: ["--state-dir","/state","--bind","0.0.0.0:7710","--allow-non-loopback","--mesh-bind","0.0.0.0:7711","--mesh-identity-dir","/identity"]
           ports:
             - name: http
               containerPort: 7710
@@ -499,12 +577,18 @@ spec:
             - { name: tmp, mountPath: /tmp }
             - { name: state, mountPath: /state }
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
             - { name: trust, mountPath: /trust, readOnly: true }
       volumes:
         - name: tmp
           emptyDir: {}
         - name: identity
           secret: { secretName: http-gateway-identity, defaultMode: 288 }
+        - name: keystore-passphrase-source
+          secret: { secretName: http-gateway-keystore-passphrase, defaultMode: 288 }
+        # Memory only, and only the passphrase init container writes it.
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
           secret: { secretName: http-gateway-seed, defaultMode: 288 }
         - name: trust
@@ -538,6 +622,10 @@ spec:
       labels:
         app.kubernetes.io/name: mimir-server
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -550,11 +638,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -570,14 +663,48 @@ spec:
           volumeMounts:
             - { name: state, mountPath: /state }
             - { name: seed, mountPath: /seed, readOnly: true }
+        # The keystore passphrase, copied into memory as a file the service's own user
+        # owns, mode 0400: a secret or CSI volume reaches a non-root pod only as a
+        # root-owned, group-readable file, which the service refuses (a passphrase file
+        # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
+        # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
+        - name: keystore-passphrase
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: mimir-server
           image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: mimir-server
-          args: ["--identity-dir","/identity","--state-dir","/state","--purposes","investigation","--bind","0.0.0.0:7720","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - name: MIDGARD_KEYSTORE_PASSPHRASE_FILE
+              value: /keystore-passphrase/passphrase
+          args: ["--identity-dir","/identity","--state-dir","/state","--purposes","investigation","--bind","0.0.0.0:7720","--health-bind","$(POD_IP):9090","--max-tokens","1024","--max-prompt-bytes","262144","--max-concurrent","4","--max-concurrent-per-identity","2","--infer-timeout","60","--reload-interval","60","--model-marking","UNCLASSIFIED"]
           ports:
             - name: mesh
               containerPort: 7720
@@ -609,12 +736,18 @@ spec:
             - { name: tmp, mountPath: /tmp }
             - { name: state, mountPath: /state }
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
             - { name: trust, mountPath: /trust, readOnly: true }
       volumes:
         - name: tmp
           emptyDir: {}
         - name: identity
           secret: { secretName: mimir-server-identity, defaultMode: 288 }
+        - name: keystore-passphrase-source
+          secret: { secretName: mimir-server-keystore-passphrase, defaultMode: 288 }
+        # Memory only, and only the passphrase init container writes it.
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
           secret: { secretName: mimir-server-seed, defaultMode: 288 }
         - name: trust
@@ -648,6 +781,10 @@ spec:
       labels:
         app.kubernetes.io/name: bifrost-fleet
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -660,11 +797,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -680,14 +822,48 @@ spec:
           volumeMounts:
             - { name: state, mountPath: /state }
             - { name: seed, mountPath: /seed, readOnly: true }
+        # The keystore passphrase, copied into memory as a file the service's own user
+        # owns, mode 0400: a secret or CSI volume reaches a non-root pod only as a
+        # root-owned, group-readable file, which the service refuses (a passphrase file
+        # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
+        # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
+        - name: keystore-passphrase
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: bifrost-fleet
           image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: bifrost-fleet
-          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7740","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - name: MIDGARD_KEYSTORE_PASSPHRASE_FILE
+              value: /keystore-passphrase/passphrase
+          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7740","--health-bind","$(POD_IP):9090"]
           ports:
             - name: mesh
               containerPort: 7740
@@ -719,12 +895,18 @@ spec:
             - { name: tmp, mountPath: /tmp }
             - { name: state, mountPath: /state }
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
             - { name: trust, mountPath: /trust, readOnly: true }
       volumes:
         - name: tmp
           emptyDir: {}
         - name: identity
           secret: { secretName: bifrost-fleet-identity, defaultMode: 288 }
+        - name: keystore-passphrase-source
+          secret: { secretName: bifrost-fleet-keystore-passphrase, defaultMode: 288 }
+        # Memory only, and only the passphrase init container writes it.
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
           secret: { secretName: bifrost-fleet-seed, defaultMode: 288 }
         - name: trust
@@ -758,6 +940,10 @@ spec:
       labels:
         app.kubernetes.io/name: heimdall-feed
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -770,11 +956,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -790,14 +981,48 @@ spec:
           volumeMounts:
             - { name: state, mountPath: /state }
             - { name: seed, mountPath: /seed, readOnly: true }
+        # The keystore passphrase, copied into memory as a file the service's own user
+        # owns, mode 0400: a secret or CSI volume reaches a non-root pod only as a
+        # root-owned, group-readable file, which the service refuses (a passphrase file
+        # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
+        # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
+        - name: keystore-passphrase
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: heimdall-feed
           image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: heimdall-feed
-          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7730","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - name: MIDGARD_KEYSTORE_PASSPHRASE_FILE
+              value: /keystore-passphrase/passphrase
+          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7730","--health-bind","$(POD_IP):9090"]
           ports:
             - name: mesh
               containerPort: 7730
@@ -829,12 +1054,18 @@ spec:
             - { name: tmp, mountPath: /tmp }
             - { name: state, mountPath: /state }
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
             - { name: trust, mountPath: /trust, readOnly: true }
       volumes:
         - name: tmp
           emptyDir: {}
         - name: identity
           secret: { secretName: heimdall-feed-identity, defaultMode: 288 }
+        - name: keystore-passphrase-source
+          secret: { secretName: heimdall-feed-keystore-passphrase, defaultMode: 288 }
+        # Memory only, and only the passphrase init container writes it.
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
           secret: { secretName: heimdall-feed-seed, defaultMode: 288 }
         - name: trust
@@ -868,6 +1099,10 @@ spec:
       labels:
         app.kubernetes.io/name: forge-worker
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: "false"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -877,14 +1112,49 @@ spec:
         fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # The keystore passphrase, copied into memory as a file the service's own user
+        # owns, mode 0400: a secret or CSI volume reaches a non-root pod only as a
+        # root-owned, group-readable file, which the service refuses (a passphrase file
+        # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
+        # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
+        - name: keystore-passphrase
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: forge-worker
           image: registry.enclosure.local/midgard/forge-worker:0.1.0-rc.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
               value: forge-worker
-          args: ["--identity-dir","/identity","--state-dir","/state","--jobs","/jobs/jobs.json","--gateway","http-gateway:7711","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - name: MIDGARD_KEYSTORE_PASSPHRASE_FILE
+              value: /keystore-passphrase/passphrase
+          args: ["--identity-dir","/identity","--state-dir","/state","--jobs","/jobs/jobs.json","--gateway","http-gateway:7711","--health-bind","$(POD_IP):9090"]
           ports:
             - name: health
               containerPort: 9090
@@ -914,6 +1184,7 @@ spec:
             - { name: tmp, mountPath: /tmp }
             - { name: state, mountPath: /state }
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
             - { name: jobs, mountPath: /jobs, readOnly: true }
             - { name: trust, mountPath: /trust, readOnly: true }
       volumes:
@@ -921,6 +1192,11 @@ spec:
           emptyDir: {}
         - name: identity
           secret: { secretName: forge-worker-identity, defaultMode: 288 }
+        - name: keystore-passphrase-source
+          secret: { secretName: forge-worker-keystore-passphrase, defaultMode: 288 }
+        # Memory only, and only the passphrase init container writes it.
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: jobs
           configMap: { name: forge-jobs }
         - name: trust

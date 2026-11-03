@@ -7,13 +7,21 @@
 #   bash deploy/compose/granite-smoke.sh [PATH/TO/granite-3.3-2b-instruct-Q4_K_M.gguf]
 #
 # Runs as its own compose project, so an enclosure started with compose-up is left
-# alone. Everything but the external models and signing-key volumes is removed on exit.
+# alone. Everything but the external models, signing-key and trust volumes is removed
+# on exit. Until the key ceremony commits deploy/trust/model-signing.pub, it stages with
+# a development key (stage-model.sh --development) and adds compose.dev-model.yaml.
+# [VLD-ANB-MIDGARD-0028]
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
 cd "$(dirname "$0")/../.."
 COMPOSE=(docker compose -p midgard-granite -f deploy/compose/compose.yaml
          -f deploy/compose/compose.granite.yaml)
+stage=()
+if [ ! -s deploy/trust/model-signing.pub ]; then
+    stage=(--development)
+    COMPOSE+=(-f deploy/compose/compose.dev-model.yaml)
+fi
 cleanup() { "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true; }
 on_exit() {
     local status=$?
@@ -29,7 +37,7 @@ cleanup
 echo "--- building the development image"
 "${COMPOSE[@]}" build init
 echo "--- staging and verifying the model"
-bash deploy/compose/stage-model.sh "$@"
+bash deploy/compose/stage-model.sh "${stage[@]}" "$@"
 
 echo "--- starting mimir-server and llama.cpp"
 started=$(date +%s)

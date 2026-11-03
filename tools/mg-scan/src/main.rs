@@ -991,6 +991,8 @@ fn import_osv(argv: &[String]) -> Result<ExitCode, Failure> {
         .map_err(|e| Failure::Refused(format!("cannot write packages.txt: {e}")))?;
     // A snapshot with no advisories is legitimate: it says these packages were
     // looked up and nothing is recorded against them. packages.txt is the proof.
+    // The hard stop is six weeks: the weekly advisory-refresh job keeps the data
+    // under seven days old, and a refresh must not loosen it. (VLD-ANB-MIDGARD-0076)
     let manifest = format!(
         "# Pinned snapshot of the OSV advisories for the npm packages this workspace locks.\n\
          #\n\
@@ -1006,7 +1008,7 @@ fn import_osv(argv: &[String]) -> Result<ExitCode, Failure> {
          \n\
          [staleness]\n\
          warn_after_days = 30\n\
-         fail_after_days = 180\n",
+         fail_after_days = 45\n",
         packages.len()
     );
     std::fs::write(out.join("snapshot.toml"), manifest)

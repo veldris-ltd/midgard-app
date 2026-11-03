@@ -38,7 +38,8 @@ RUN --mount=type=cache,target=/src/target,id=midgard-compose-target \
 FROM ${RUNTIME}
 
 # A dedicated non-root, no-login service account, and the mount points its volumes
-# are created from (a new named volume takes this ownership).
+# are created from (a new named volume takes this ownership). The keystore passphrase
+# volumes are owner-only. [VLD-ANB-MIDGARD-0007]
 # -K lets this system account take uid 10001 without useradd warning that it is above
 # the distribution's system range.
 RUN useradd --system -K SYS_UID_MAX=10001 --uid 10001 --no-create-home --shell /usr/sbin/nologin midgard \
@@ -46,11 +47,24 @@ RUN useradd --system -K SYS_UID_MAX=10001 --uid 10001 --no-create-home --shell /
                 /vol/probe-identity /vol/fleet-identity /vol/fleet-state /vol/fleet-clients \
                 /vol/heimdall-identity /vol/heimdall-state /vol/heimdall-clients \
                 /vol/gateway-identity /vol/forge-identity /mesh-identity /serve \
+                /vol/core-passphrase /vol/mimir-passphrase /vol/probe-passphrase \
+                /vol/fleet-passphrase /vol/fleet-clients-passphrase \
+                /vol/heimdall-passphrase /vol/heimdall-clients-passphrase \
+                /vol/forge-passphrase /keystore-passphrase \
     && chown 10001:10001 /state /identity /vol/core-state /vol/mimir-identity \
                          /vol/mimir-state /vol/probe-identity /vol/fleet-identity \
                          /vol/fleet-state /vol/fleet-clients /vol/heimdall-identity \
                          /vol/heimdall-state /vol/heimdall-clients /vol/gateway-identity \
                          /vol/forge-identity /mesh-identity /serve \
+                         /vol/core-passphrase /vol/mimir-passphrase \
+                         /vol/probe-passphrase /vol/fleet-passphrase \
+                         /vol/fleet-clients-passphrase /vol/heimdall-passphrase \
+                         /vol/heimdall-clients-passphrase /vol/forge-passphrase \
+                         /keystore-passphrase \
+    && chmod 0700 /vol/core-passphrase /vol/mimir-passphrase /vol/probe-passphrase \
+                  /vol/fleet-passphrase /vol/fleet-clients-passphrase \
+                  /vol/heimdall-passphrase /vol/heimdall-clients-passphrase \
+                  /vol/forge-passphrase /keystore-passphrase \
     && chmod 0755 /serve
 
 COPY --from=build /out/ /usr/local/bin/
@@ -60,6 +74,11 @@ COPY deploy/compose/mimir-policy.json deploy/compose/fleet-policy.json \
      deploy/compose/fleet-channels.json deploy/compose/heimdall-policy.json \
      deploy/compose/core-ontology.json deploy/compose/core-policy.json /etc/midgard/
 COPY deploy/compose/forge/ /etc/midgard/forge/
+# The pinned public trust set, read-only: mimir-server's --model-trust is
+# /etc/midgard/trust/model-signing.pub, never a file in the models volume. Until the key
+# ceremony commits deploy/trust/model-signing.pub, a Granite deployment fails closed.
+# [VLD-ANB-MIDGARD-0028]
+COPY deploy/trust/ /etc/midgard/trust/
 RUN chmod 0755 /usr/local/bin/midgard-init /usr/local/bin/midgard-ready
 
 USER 10001

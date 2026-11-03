@@ -111,8 +111,10 @@ impl ModelBackend for LocalReference {
         let mut kv = self.kv.lock().expect("kv cache poisoned");
         let mut out = Vec::with_capacity(batch.len());
         for req in batch {
-            let prompt_tokens = Self::token_count(&req.prompt);
-            let key = Self::prefix_hash(&req.prompt);
+            // No chat template here: the system text and the prompt are read as one.
+            let prompt = req.flat_prompt();
+            let prompt_tokens = Self::token_count(&prompt);
+            let key = Self::prefix_hash(&prompt);
             let cache_hit = kv.contains(&key);
             kv.insert(key);
 
@@ -123,7 +125,7 @@ impl ModelBackend for LocalReference {
             }
             .round() as u32;
 
-            let (text, completion_tokens) = Self::synthesise(&req.prompt, req.max_tokens);
+            let (text, completion_tokens) = Self::synthesise(&prompt, req.max_tokens);
             out.push(RawCompletion {
                 text,
                 first_token_ms,

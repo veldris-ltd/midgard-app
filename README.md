@@ -128,7 +128,7 @@ midgard/
 |---|---|
 | Design system only | Any static file server (Python, `npx serve`, …) |
 | Building / testing the platform | **Docker** (recommended — the pinned image is self-contained), *or* Rust **1.82** + [`just`](https://github.com/casey/just) locally |
-| Running a console | **Node ≥ 22** (`engines`) and **pnpm 9.12.0** (`packageManager`) |
+| Running a console | **Node ≥ 22.12** (`engines`; Vite 7 needs it) and **pnpm 9.12.0** (`packageManager`) |
 
 The Cargo workspace is pinned to Rust 1.82 (`rust-toolchain.toml`) with every dependency **vendored** (`vendor/` + `.cargo/config.toml`), so builds and tests need no network. Where a command below must reach the network, it says so.
 
@@ -158,6 +158,8 @@ The Cargo workspace is pinned to Rust 1.82 (`rust-toolchain.toml`) with every de
    ```bash
    ssh -N -L 5173:127.0.0.1:5173 -L 7710:127.0.0.1:7710 you@your-server
    ```
+
+   The gateway edge speaks plaintext HTTP, and the console sends your password and its session token to it. That is safe only through this tunnel, or behind TLS termination off the host: terminating TLS is mandatory for any other route to the edge. The gateway refuses to bind an address that is not loopback unless it is started with `--allow-non-loopback` (as the shipped container manifests do, behind the host's loopback or a TLS terminator), and the console refuses a gateway URL that is plaintext `http://` to anything but `127.0.0.1`, `localhost` or `[::1]`. [VLD-ANB-MIDGARD-0014] [VLD-ANB-MIDGARD-0032]
 
 Run `deploy/installer/mg-install check` first to see whether a server is suitable, without changing anything.
 
@@ -296,7 +298,9 @@ docker run --rm -v "$PWD":/work -w /work midgard-acceptance:1.82.0 \
 just gateway-http                 # equivalent to: cargo run -p http-gateway -- --dev 127.0.0.1:7710
 ```
 
-Development mode needs the explicit `--dev` flag. Started with no arguments, or with only an address, the gateway refuses to start: it serves a state directory (`--state-dir`, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data)) or nothing. `--dev` listens on a loopback address only and refuses any other, such as `0.0.0.0`. [MG-SEC-06]
+Development mode needs the explicit `--dev` flag. Started with no arguments, or with only an address, the gateway refuses to start: it serves a state directory (`--state-dir`, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data)) or nothing. `--dev` listens on a loopback address only and refuses any other, such as `0.0.0.0`, with no override. [MG-SEC-06]
+
+A state-directory gateway also binds loopback only by default. Because the edge speaks plaintext HTTP, binding another interface needs `--allow-non-loopback`, and production must front it with PQ-mTLS or TLS 1.3 termination. The console likewise refuses `VITE_GATEWAY_URL` when it is plaintext `http://` to anything but loopback, both when it is built and when it starts: use `https://` for any other edge. [VLD-ANB-MIDGARD-0014] [VLD-ANB-MIDGARD-0032]
 
 It prints `http-gateway (secured) listening on http://127.0.0.1:7710`. Confirm it is up:
 
@@ -386,15 +390,17 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev -- --strictPort
 
 **`Connection refused` on 7710.** The edge isn't running. Development mode listens on loopback only, so a gateway started with `--dev` inside a container cannot be reached from outside it.
 
+**`401` when logging in again straight after a successful login.** A one-time code is accepted once. Logging in a second time within the same 30 seconds (from a second console, say) with the code just used is refused like a wrong code; wait for your authenticator app to show the next code and use that.
+
 **`429 Too Many Requests` when logging in.** Too many wrong passwords for that username. Wait the number of seconds the message gives (also sent as `Retry-After`), then log in with the right one. Restarting the gateway also clears it.
 
-**The console went back to sign-in saying "Your session has ended".** Either the token's hour ran out or the gateway was restarted: its IdP keypair is generated fresh on every start, so earlier tokens no longer verify. The console checks its token with `GET /api/v1/whoami` when it loads and returns to sign-in on any `401`. Sign in again. **Account → Sign out** ends a session on purpose.
+**The console went back to sign-in saying "Your session has ended".** Either the token's hour ran out or the gateway was restarted: its IdP keypair is generated fresh on every start, so earlier tokens no longer verify. The console returns to sign-in on any `401`. Sign in again. **Account → Sign out** ends a session on purpose, at the server: the gateway revokes the token (`POST /api/v1/logout`), so a copy of it is refused too. The console keeps its token in memory only, so reloading the page also returns to sign-in.
 
 **`401` on every login attempt.** The credentials are exactly `operator` / `midgard-demo` or `approver` / `midgard-approve`; there are no other accounts and no way to add one in this mode.
 
 ### The other consoles
 
-Six more consoles exist and run, but only against their in-browser `MockGateway` fixtures — the edge exposes neither their routes nor their origins:
+Six more consoles exist and run, but only against their in-browser mock gateways (`@midgard/sdk/mock`), under a demonstration banner and with no sign-in — the edge exposes neither their routes nor their origins:
 
 ```bash
 VITE_GATEWAY=mock pnpm --filter @midgard/console-forge    dev   # :5174
@@ -425,11 +431,13 @@ cargo build --release -p http-gateway -p mg-admin
 ./target/release/mg-admin init --state-dir ./enclosure
 ```
 
+Every command that opens a keystore (`mg-admin`, `http-gateway`, the mesh services, `mg-sign`, `mg-register`, `mg-bundle`, `mg-model`) reads its passphrase from `--keystore-passphrase-file FILE`, or from the file `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names, and refuses to run with neither. The file must be at least 16 bytes and readable by its owner only. Never pass a passphrase on the command line, and never keep the file beside the keystore. A keystore written by an earlier release (format version 1, which held the root in the clear) is refused until `mg-admin keystore migrate --keystore FILE` converts it; `mg-admin keystore verify --keystore FILE` checks one unlocks.
+
 This writes:
 
 | Path | What it is |
 |---|---|
-| `keys/idp.keystore`, `keys/audit.keystore` | the ML-DSA-65 issuer and audit keys, each sealed under its own ML-KEM-1024 custody root. **Protect `keys/` as a secret**: whoever can read it can sign as the enclosure and read its data. |
+| `keys/idp.keystore`, `keys/audit.keystore` | the ML-DSA-65 issuer and audit keys, each sealed under its own ML-KEM-1024 custody root. The root is in the file only wrapped under the keystore passphrase (PBKDF2-HMAC-SHA256, 600,000 iterations, AES-256-GCM; keystore format version 2). `keys/` is created 0700 and each keystore 0600. **Keep the passphrase apart from `keys/` and its backups**: the passphrase and the file together sign as the enclosure and read its data, and a lost passphrase is a lost enclosure. |
 | `trust/idp.pub`, `trust/audit.pub` | their verifying keys, safe to distribute. Keep a copy of `trust/audit.pub` **outside** the state directory: it is the key the gateway checks the audit ledger with (`--audit-pin`). |
 | `governance.ledger`, `governance.ledger.checkpoint` | the audit ledger, created empty, and the signed checkpoint of its length and last entry |
 | `policy.json` | the discretionary rules the PDP enforces. The starter file lets role `operator` Read and Apply. |
@@ -500,35 +508,47 @@ Tokens and the audit ledger survive a restart.
 
 ### Administrators and online enrolment
 
-Users can also be enrolled **while the gateway runs**, under dual control. One administrator requests, and a different one approves. Administrators prove who they are with a post-quantum passkey (ML-DSA-65), not a password.
+Users can also be enrolled **while the gateway runs**, under dual control. One administrator requests, and a different one approves. Administrators prove who they are with two factors on every request: a post-quantum passkey (ML-DSA-65) and a one-time code from their authenticator app, not a password.
 
-Make two administrators first, with the gateway stopped. Each gets a passkey in a sealed keystore file that is **theirs to keep**. Only its public half is registered in the state directory:
+Make two administrators first, with the gateway stopped. Each gets a passkey in a sealed keystore file that is **theirs to keep**, and a TOTP second factor whose `otpauth` URI is printed once for their authenticator app. Only the passkey's public half is registered in the state directory:
 
 ```bash
 ./target/release/mg-admin admin add --state-dir ./enclosure --admin alice --role IAM-Admin --keystore ./alice.passkey
 ./target/release/mg-admin admin add --state-dir ./enclosure --admin bob   --role IAM-Admin --keystore ./bob.passkey
 ```
 
-Roles are `IAM-Admin`, `Security-Officer`, `Model-Steward`, `Release-Manager` and `Auditor`. A binding covers `--scope` (default `iam`) for `--days` (default 365). Enrolling needs `IAM-Admin`.
+Roles are `IAM-Admin`, `Security-Officer`, `Model-Steward`, `Release-Manager` and `Auditor`. A binding covers `--scope` (default `iam`) for `--days` (default 365). Enrolling needs `IAM-Admin`. An administrator who loses their authenticator gets a new secret with `mg-admin admin totp-reset --state-dir ./enclosure --admin <name>`, with the gateway stopped; administrators made by an earlier release need one too before they can administer.
 
-Then, with the gateway running, alice requests and bob approves:
+Then, with the gateway running, alice requests and bob approves. Each command asks for the current code from the administrator's authenticator app, or takes it as `--totp <code>`:
 
 ```bash
-read -rs PASSWORD
-printf '%s\n' "$PASSWORD" | ./target/release/mg-admin enrol request \
+./target/release/mg-admin enrol request \
   --gateway http://127.0.0.1:7710 --admin alice --keystore ./alice.passkey \
   --subject olivia --roles operator --clearance internal --purposes operations \
   --justification "new duty operator"
-unset PASSWORD
 
 ./target/release/mg-admin enrol list    --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey
-./target/release/mg-admin enrol approve --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey --id <enrolment id>
+./target/release/mg-admin enrol approve --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey \
+  --id <enrolment id> --subject olivia
 ```
 
-- Until the approval, olivia cannot log in.
-- alice cannot approve her own request, and an administrator without the IAM user capability cannot approve it.
-- A waiting request survives a gateway restart.
-- The password is hashed on alice's machine, and only the hash is sent. Each command signs a fresh single-use challenge.
+The approval prints a single-use activation code. bob hands it to olivia himself, out of band, and discards it. olivia then chooses her password and receives her TOTP second factor:
+
+```bash
+read -rs PASSWORD
+curl -s -X POST http://127.0.0.1:7710/api/v1/activate -H 'content-type: application/json' \
+  -d "{\"username\":\"olivia\",\"activationCode\":\"<code>\",\"password\":\"$PASSWORD\"}"
+unset PASSWORD
+```
+
+The reply's `otpauth` URI goes into her authenticator app; she logs in with her password and its code.
+
+- Until the approval, and then until she activates, olivia cannot log in.
+- No password or second factor passes through either administrator. The request names only who olivia is and what she may do, with roles and purposes the served `policy.json` names; the gateway creates her credentials at approval.
+- The code works once, and expires 72 hours after the approval. A password must be at least 12 characters.
+- alice cannot approve her own request, and an administrator without the IAM user capability cannot approve it. `enrol list` shows each waiting request in full, and `enrol approve` names the subject being approved.
+- `enrol reject --id <enrolment id> --reason <text>` discards a waiting request. If the approval cannot be written, the same approver runs `enrol approve` again.
+- A waiting request survives a gateway restart. Each command signs a fresh single-use challenge, issued to the administrator it names and answerable by no one else, and the gateway accepts each one-time code once, so a second command within the same 30 seconds waits for the next code. The passkey alone is refused.
 - Requests, approvals and refusals all appear in the audit ledger.
 - `--gateway` must be a loopback address, because administration runs over plain HTTP.
 
@@ -541,7 +561,7 @@ unset PASSWORD
 | **Schema and policy changes need a restart** | The gateway reads `ontology.json` and `policy.json` at startup. |
 | **Most administration is offline** | Enrolment works while the gateway runs, but `init`, `user add`, `import` and `admin add` need `midgard.lock`, which the gateway holds, so stop it first. A gateway killed outright leaves the lock behind. On Linux the next start detects that its holder is gone and takes it over; elsewhere you remove it after confirming nothing is running. |
 | **No administration console** | Online enrolment is command-line only. A browser cannot produce the post-quantum passkey assertions administrators sign with. |
-| **Software key custody** | The keystores are files. HSM-backed custody is not wired in. |
+| **Software key custody** | The keystores are files, their custody roots wrapped under an operator passphrase (PBKDF2-HMAC-SHA256, 600,000 iterations, AES-256-GCM). The keystore format also takes a root sealed to an external trust root (`RootWrap::External` over `kms::TrustRoot`), tested against the SoftHSM stand-in, but no HSM or TPM driver is wired in: hardware custody remains the GA target. |
 | **Platform views are still fixed data** | Identities, keys, compute, observability and resilience views come from `data.rs`. |
 
 ---
@@ -646,7 +666,7 @@ Staging uses `mg-model`, and does the following:
 2. Signs a manifest over the weights' digest, file name, format, quantisation and size, the family, the licence and the hardware the model needs. The manifest file is format 2: its signature covers the file's own bytes, so it is checked before the file is parsed. A format 1 manifest, from before, is refused; sign the model again.
 3. Verifies the model directory the way `mimir-server` will.
 
-The signing key it creates is a development key, kept in the `midgard-model-signing` volume on the same machine. In production the key stays in staging, and only the signed manifest and the public key enter the enclosure.
+`mimir-server` trusts only the pinned anchor `deploy/trust/model-signing.pub`, which the key ceremony publishes and the image carries at `/etc/midgard/trust`; the key is never taken from the models volume, and a trust key inside the model directory is refused. Until the ceremony has committed that file, stage with a development key instead: `just model-stage --development granite-3.3-2b-instruct-Q4_K_M.gguf`. It generates the key into the `midgard-model-signing` volume on this machine, puts its public half in a volume of its own, `midgard-model-trust`, and warns that the deployment trusts a local key; add `-f deploy/compose/compose.dev-model.yaml` to the compose commands below. In production the key stays in staging, and only the signed manifest enters the enclosure.
 
 Then start the enclosure with the Granite override and make a call:
 
@@ -690,7 +710,7 @@ On Kubernetes, the chart's `modelServing` values for `mimir-server` run the same
 | **The picture stays in Heimdall** | Fused entities are not projected into the enclosure's object fabric, and no classifier is attached, so entities are unclassified. The whole picture is re-sealed after every observation, which will not scale to a large picture. |
 | **A feed is a mesh identity** | A source's feed id is the service its certificate names, and it signs with its mesh key. Separate feed-device keys are not supported. |
 | **The fleet manager only records** | It reports drift but does not push upgrades: nothing drives the rollout orchestrator from it yet. A channel removed from `channels.json` stays declared. |
-| **One real model, on CPU** | Without the Granite override, `mimir-server` serves the deterministic reference backend. Granite on llama.cpp has run end to end. vLLM on GPUs is wired in the code and the chart but has not been run, because no GPU was available, so the 800 ms first-token target is unproven. The model-signing key `stage-model.sh` creates is a development key. |
+| **One real model, on CPU** | Without the Granite override, `mimir-server` serves the deterministic reference backend. Granite on llama.cpp has run end to end. vLLM on GPUs is wired in the code and the chart but has not been run, because no GPU was available, so the 800 ms first-token target is unproven. Until the key ceremony commits `deploy/trust/model-signing.pub`, a real model is served only under a development key (`stage-model.sh --development`). |
 | **Nothing calls Mimir yet** | The gateway does not route AI requests to `mimir-server`. Only `mimir-probe` does. |
 | **Not the release image** | The image is built from source and unsigned. |
 | **Certificates are renewed by hand** | Certificates expire after 30 days. Nothing in compose renews them yet: run `mg-admin mesh renew --within 10` for each service (see [docs/ops/PKI.md](docs/ops/PKI.md)) and restart it, or the service stops at expiry. |
@@ -710,14 +730,14 @@ just kind-up
 1. Creates the cluster, a control plane and two workers.
 2. Builds the image from this checkout and loads it into the cluster.
 3. Installs the chart into the `midgard-enclosure` namespace.
-4. Provisions the secrets: the same `init` as compose mints the enclosure's keys and every mesh identity, and each becomes a Kubernetes Secret.
+4. Provisions the secrets: the same `init` as compose mints the enclosure's keys, every mesh identity and each keystore's passphrase, and each becomes a Kubernetes Secret, the passphrase in a Secret of its own. `deploy/kind/bootstrap-secrets.sh` refuses any kubectl context that is not a kind cluster: on a real cluster the identities come from your key custody through the chart's `csi` or `externalSecrets` provider, and the `kubernetes` provider needs etcd encrypted at rest ([deploy/helm/midgard/README.md](deploy/helm/midgard/README.md)).
 5. Waits for every service.
 
 What the chart deploys:
 
 - **One single-replica `StatefulSet` per service, on its own volume.** Each service holds a single-writer, locked state directory, so a second replica would be refused, not share the load.
 - **Hardened pods.** Every pod runs non-root with a read-only root filesystem, no capabilities and the restricted pod-security profile.
-- **Seeded state.** On first start an init container unpacks the service's provisioned state from its seed Secret.
+- **Seeded state.** On first start an init container unpacks the service's seed: its keys, trust anchors and configuration (and, for the gateway, the governance ledger `mg-admin init` created), never a directory, object store or other journal, which the service creates empty. Another init container copies the keystore passphrase into memory as a file only the service's user can read.
 - **Default-deny networking.** The namespace allows nothing in or out except cluster DNS. Each port is opened only to the pods the chart names: `mimir-server` accepts only `mimir-probe`, and the gateway's mesh door only `forge-worker`.
 
 Then run every mesh client against it:
@@ -762,10 +782,10 @@ The deployment-tier acceptance suite runs its checks against this deployment:
 The HSM check skips too, so the best result on kind is a partial pass, never a promotion:
 
 ```bash
-ALLOW_SKIP=1 MIDGARD_PROBE_IMAGE=midgard/dev:local just deploy-accept
+ALLOW_SKIP=1 MIDGARD_PROBE_IMAGE=<registry>/midgard/dev@sha256:<digest> just deploy-accept
 ```
 
-`deploy/k8s/enclosure.yaml` is the chart rendered with its release values, for `kubectl apply` without Helm. `just render-k8s` regenerates it, and CI fails if it is not exactly what the chart renders. Those values expect signed per-service images, which are not built yet.
+`deploy/k8s/enclosure.yaml` is the chart rendered for development, for `kubectl apply` without Helm: no release has produced image digests yet, so its images are referenced by tag and pulled every time (`image.allowTag=true`). `just render-k8s` regenerates it, and CI fails if it is not exactly what the chart renders. The release chart pins each signed per-service image by digest and does not render without them; the release outputs carry that rendering, signed. The probe image is given by digest too.
 
 ### Reach sources outside the enclosure
 
@@ -909,7 +929,7 @@ Both pipelines call the same jobs in `tools/ci/run.sh`; see [docs/dev/CI.md](doc
 
 See [the release candidate notes](docs/releases/v0.1.0-rc.1.md) and `docs/ops/PKI.md`.
 
-At run time, `deploy/images/entrypoint.sh` re-verifies the signature, SBOM and provenance against the pinned release trust key before exec'ing any service — a tampered or unsigned binary refuses to start.
+At run time, each release image's entrypoint, `mg-verify --run-service` on a distroless runtime with no shell, re-verifies the signature, SBOM and provenance against the pinned release trust key before exec'ing any service — a tampered or unsigned binary refuses to start.
 
 ---
 

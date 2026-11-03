@@ -11,5 +11,10 @@ description = "In-enclosure observability: structured logging, metrics (Promethe
 # the shipped implementations are all in-process (buffer / stdout). [NFR-PRV-1]
 [dependencies]
 
+# Tests only: the log-escaping test reads lines back with the repository's own JSON
+# parser. A dev-dependency never reaches the shipped library. [AC-27.1]
+[dev-dependencies]
+service-runtime = { path = "../runtime" }
+
 [lib]
 path = "src/lib.rs"

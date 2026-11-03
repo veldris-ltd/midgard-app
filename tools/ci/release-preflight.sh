@@ -1,30 +1,45 @@
 #!/usr/bin/env bash
 # Signing-runner preflight for the release workflow. [NFR-PQ-3] [AC-B-1] [RC-07]
+# [VLD-ANB-MIDGARD-0035]
 #
 # Asserts the runner is provisioned as docs/ops/PKI.md ("Signing runner") requires, and
 # fails closed naming every item that is missing, before any job builds or signs.
 #
 #   bash tools/ci/release-preflight.sh
 #
+# The release pipeline runs this from a checkout of main beside the tagged one
+# (.ci-trusted), so the job's workspace, not this script's checkout, is what key
+# material must stay out of.
+#
 # Environment (the workflow maps runner secrets onto these; none has a default):
 #   MIDGARD_SIGNING_KEYSTORE   the release signing keystore (ML-DSA-87)
+#   MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE, MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE
+#                              the passphrases those keystores' roots are wrapped under
 #   MIDGARD_BIFROST_KEYSTORE   the Bifrost admission keystore (ML-DSA-65): registry
 #                              admission and the air-gap bundle
 #   MIDGARD_BIFROST_REGISTRY   the Bifrost artefact registry directory
+#   MIDGARD_ALLOWED_SIGNERS_PATH
+#                              the runner's own copy of allowed_signers, which release
+#                              tags are verified against (tools/ci/verify-tag.sh)
 #   TOOLCHAIN_IMAGE            the toolchain image (default midgard-acceptance:1.82.0)
 set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 . tools/ci/lib.sh
 TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE:-midgard-acceptance:1.82.0}"
+workspace="${GITHUB_WORKSPACE:-${CI_PROJECT_DIR:-$PWD}}"
+workspace="$(cd "$workspace" 2>/dev/null && pwd -P || echo "$workspace")"
 problems=0
 ok() { echo "preflight: ok — $*"; }
 bad() {
     ci_error "preflight: $* (see docs/ops/PKI.md, \"Signing runner\")"
     problems=$((problems + 1))
 }
+# in_workspace PATH: whether PATH lies in the job's workspace, where a checkout, and
+# whatever the checked-out code chooses to read, can reach it.
+in_workspace() { [[ "$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/" == "$workspace/"* ]]; }
 
-# 1. The pinned toolchain and the service image base, provisioned while connected:
+# 1. The pinned toolchain and the service image bases, provisioned while connected:
 #    every build runs in the toolchain image with no network.
 if ! command -v docker >/dev/null 2>&1; then
     bad "docker is not installed"
@@ -39,11 +54,29 @@ else
     else
         bad "the toolchain image $TOOLCHAIN_IMAGE is not present; build it from deploy/acceptance/Dockerfile while connected"
     fi
-    base="$(sed -n 's/^ARG BASE=//p' deploy/images/service.Dockerfile | head -1)"
-    if docker image inspect "$base" >/dev/null 2>&1; then
-        ok "service image base $base"
+    # Both stages of the service image: the toolchain base its prep stage lays files out
+    # on, and the distroless RUNTIME base it runs on. [VLD-ANB-MIDGARD-0068]
+    for arg in BASE RUNTIME; do
+        base="$(sed -n "s/^ARG $arg=//p" deploy/images/service.Dockerfile | tr -d '\r' | head -1)"
+        if [ -z "$base" ]; then
+            bad "deploy/images/service.Dockerfile declares no ARG $arg"
+        elif docker image inspect "$base" >/dev/null 2>&1; then
+            ok "service image $arg $base"
+        else
+            bad "the service image $arg $base is not present; pull it while connected"
+        fi
+    done
+    # The chart's seed image (seedImage), which unpacks a service's first state: pinned
+    # by digest, and present, so it can be carried into the enclosure's registry.
+    seed_value() { sed -n "/^seedImage:/,/^[^ ]/s/^  $1: *//p" deploy/helm/midgard/values.yaml | tr -d '\r' | head -1; }
+    seed_repo="$(seed_value repository)"
+    seed_digest="$(seed_value digest)"
+    if ! grep -qE '^sha256:[0-9a-f]{64}$' <<<"$seed_digest" || [ -z "$seed_repo" ]; then
+        bad "deploy/helm/midgard/values.yaml seedImage must name a repository and a sha256 digest"
+    elif docker image inspect "$seed_repo@$seed_digest" >/dev/null 2>&1; then
+        ok "seed image $seed_repo@$seed_digest"
     else
-        bad "the service image base $base is not present; pull it while connected"
+        bad "the seed image $seed_repo@$seed_digest is not present; pull it while connected"
     fi
 fi
 
@@ -71,15 +104,31 @@ else
     bad "node and pnpm (or corepack) are not installed; the UI bundles and the SDK package cannot be built"
 fi
 
+# 2c. The release chart: rendered on the runner with helm, its images pinned by the
+#     digests set-digests.sh lifts from the signed images.lock. [VLD-ANB-MIDGARD-0012]
+if command -v "${HELM:-helm}" >/dev/null 2>&1; then
+    ok "helm, to render the digest-pinned release chart"
+else
+    bad "helm is not installed; the release chart cannot be rendered"
+fi
+if [ -f deploy/helm/set-digests.sh ] && [ -x deploy/helm/set-digests.sh ]; then
+    ok "deploy/helm/set-digests.sh"
+else
+    bad "deploy/helm/set-digests.sh is missing or not executable"
+fi
+
 # 3. Key material: named explicitly, readable, and never inside the checkout.
-for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE; do
+# Each keystore's passphrase is a separate secret, mounted read-only like the keystore;
+# without it the keystore does not open. [VLD-ANB-MIDGARD-0007]
+for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE \
+    MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
     path="${!var:-}"
     if [ -z "$path" ]; then
         bad "$var is not configured (runner secret ${var}_PATH)"
     elif [ ! -r "$path" ] || [ -d "$path" ]; then
         bad "$var names $path, which is not a readable file"
-    elif [[ "$(cd "$(dirname "$path")" && pwd)/" == "$PWD/"* ]]; then
-        bad "$var names a file inside the repository checkout"
+    elif in_workspace "$path"; then
+        bad "$var names a file inside the job's workspace ($workspace); keep key material outside it"
     else
         ok "$var is configured"
     fi
@@ -108,6 +157,53 @@ anchor() { # anchor FILE ALG WHAT
 }
 anchor deploy/trust/release-trust.pub ML-DSA-87 "release signing key"
 anchor deploy/trust/bifrost-trust.pub ML-DSA-65 "Bifrost admission key"
+# The anchor mimir-server's load gate and `mg-model verify` trust, carried in the images
+# at /etc/midgard/trust: never a key from the volume that holds the weights.
+# [VLD-ANB-MIDGARD-0028]
+anchor deploy/trust/model-signing.pub ML-DSA-65 "model signing key"
+
+# 5. Nothing outlives a job on a self-hosted runner: a job-completed hook removes the work
+#    directory, so no checkout, token or build output is left beside the signing
+#    material for the next job. (Checkouts no longer persist the workflow token either.)
+#    [VLD-ANB-MIDGARD-0081]
+if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+    hook="${ACTIONS_RUNNER_HOOK_JOB_COMPLETED:-}"
+    if [ -z "$hook" ]; then
+        bad "ACTIONS_RUNNER_HOOK_JOB_COMPLETED is not set on this self-hosted runner; install the job-completed cleanup hook so no workspace outlives a job"
+    elif [ ! -r "$hook" ]; then
+        bad "ACTIONS_RUNNER_HOOK_JOB_COMPLETED names $hook, which is not a readable file"
+    else
+        ok "job-completed hook $hook"
+    fi
+fi
+
+# 6. The runner is isolated from what it releases. [VLD-ANB-MIDGARD-0035]
+#    - Release tags verify against the runner's own copy of allowed_signers, outside the
+#      workspace, so a key the tagged commit adds cannot verify that tag.
+#    - The docker daemon answers, and every build step goes through in-toolchain.sh,
+#      which starts the toolchain container with no network.
+signers="${MIDGARD_ALLOWED_SIGNERS_PATH:-}"
+if [ -z "$signers" ]; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH is not configured (runner secret MIDGARD_ALLOWED_SIGNERS_PATH): release tags are verified against the runner's copy of allowed_signers"
+elif [ ! -s "$signers" ] || [ -d "$signers" ]; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH names $signers, which is not a non-empty file"
+elif in_workspace "$signers"; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH names a file inside the job's workspace ($workspace); the runner's copy must live outside it"
+elif grep -q 'PRIVATE KEY' "$signers"; then
+    bad "MIDGARD_ALLOWED_SIGNERS_PATH names a file holding private key material"
+else
+    ok "MIDGARD_ALLOWED_SIGNERS_PATH is configured, outside the workspace"
+fi
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    ok "the docker daemon is reachable"
+else
+    bad "the docker daemon is not reachable (docker info failed)"
+fi
+if grep -Eq '^exec docker run [^#]*--network none' "$workspace/tools/ci/in-toolchain.sh" 2>/dev/null; then
+    ok "builds run in the toolchain container with --network none"
+else
+    bad "$workspace/tools/ci/in-toolchain.sh does not start the toolchain container with --network none"
+fi
 
 if [ "$problems" -gt 0 ]; then
     echo "preflight: $problems problem(s); the release stops here, before anything is built or signed"

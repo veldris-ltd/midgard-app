@@ -5,6 +5,7 @@
 //! the fabric's own authorisation, not by the retriever. [FR-MI-2]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
 use agent_runtime::{respond, Pipeline, RespondConfig};
 use fabric::{
@@ -12,10 +13,13 @@ use fabric::{
     ObjectInstance, ObjectStore, ObjectType, PolicyContext, PropertyType, TypeRegistry, Value,
     ValueType,
 };
-use model_server::{reference_registry, NodeProfile, Server};
+use model_server::{
+    reference_registry, BackendDescriptor, InferError, LocalReference, ModelBackend, NodeProfile,
+    PreparedRequest, RawCompletion, Server,
+};
 use policy::{
-    Action, ClassificationLevel, Clearance, DefaultPdp, Effect, Marking, PolicySet, Purpose, Role,
-    Rule, RuleId, Selector,
+    Action, ClassificationLevel, Clearance, Compartment, DefaultPdp, Effect, Marking, PolicySet,
+    Purpose, Role, Rule, RuleId, Selector,
 };
 use pqc_agility::Rng;
 
@@ -207,4 +211,87 @@ fn ungroundable_task_refuses_without_fabricating() {
     assert!(resp.answer.is_none());
     assert!(resp.citations.is_empty());
     assert!(!resp.plan.groundable);
+}
+
+/// The reference engine, recording the marking of every request it serves.
+struct RecordingEngine {
+    inner: LocalReference,
+    seen: Mutex<Vec<Marking>>,
+}
+
+impl ModelBackend for RecordingEngine {
+    fn descriptor(&self) -> &BackendDescriptor {
+        self.inner.descriptor()
+    }
+    fn infer_batch(&self, batch: &[PreparedRequest]) -> Result<Vec<RawCompletion>, InferError> {
+        let mut seen = self.seen.lock().unwrap();
+        seen.extend(batch.iter().map(|r| r.marking.clone()));
+        self.inner.infer_batch(batch)
+    }
+}
+
+// [VLD-ANB-MIDGARD-0034] [AC-65.5]
+#[test]
+fn respond_marking_is_the_highest_included_fact_level() {
+    let engine = Arc::new(RecordingEngine {
+        inner: LocalReference::new(),
+        seen: Mutex::new(Vec::new()),
+    });
+    let registry: Vec<Arc<dyn ModelBackend>> = vec![engine.clone()];
+    let srv = Server::bootstrap(NodeProfile::cpu_only(4), &registry, None).unwrap();
+    let alpha: BTreeSet<Compartment> = [Compartment("ALPHA".into())].into_iter().collect();
+    let cfg = RespondConfig {
+        budget_tokens: 4096,
+        tools: vec![],
+        max_tokens: 16,
+    };
+
+    // A SECRET caller reads the level-0 and the level-2 cases: the prompt holds both,
+    // so the request is marked at level 2, with the caller's compartments.
+    let mut cleared = ctx();
+    cleared.clearance = Clearance {
+        level: ClassificationLevel::SECRET,
+        compartments: alpha.clone(),
+    };
+    let resp = respond(
+        "who is assigned to the case?",
+        &cleared,
+        &mut build_fabric(),
+        &srv,
+        &Pipeline::new(),
+        &cfg,
+        1,
+    )
+    .expect("assembles and serves");
+    assert!(resp.refusal.is_none(), "{:?}", resp.refusal);
+    assert!(resp.citations.contains(&"obj:case-1".to_string()));
+    assert!(resp.citations.contains(&"obj:secret-9".to_string()));
+    assert_eq!(
+        engine.seen.lock().unwrap().last(),
+        Some(&Marking {
+            level: ClassificationLevel(2),
+            compartments: alpha,
+        })
+    );
+
+    // The unclassified caller never reads the level-2 case: its request is level 0.
+    let resp = respond(
+        "who is assigned to the case?",
+        &ctx(),
+        &mut build_fabric(),
+        &srv,
+        &Pipeline::new(),
+        &cfg,
+        1,
+    )
+    .expect("assembles and serves");
+    assert!(resp.refusal.is_none(), "{:?}", resp.refusal);
+    assert!(!resp.citations.contains(&"obj:secret-9".to_string()));
+    assert_eq!(
+        engine.seen.lock().unwrap().last(),
+        Some(&Marking {
+            level: ClassificationLevel::UNCLASSIFIED,
+            compartments: BTreeSet::new(),
+        })
+    );
 }

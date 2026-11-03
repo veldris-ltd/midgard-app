@@ -76,6 +76,8 @@ members = [
     "clients/delivery",
     "clients/core",
 ]
+# A developer tool on the nightly toolchain, never part of the offline build. [NFR-SEC-1]
+exclude = ["crypto/pq-mtls/fuzz"]
 
 [workspace.package]
 version = "0.1.0-rc.1"
@@ -86,8 +88,28 @@ repository = "https://github.com/veldris-ltd/midgard-app"
 homepage = "https://veldris.io"
 publish = false
 
+# Keystores wrap their custody root under PBKDF2-HMAC-SHA256 at 600 000 iterations
+# (attest::keystore). Unoptimised, that work dominates every test that opens a
+# keystore, so the digest crates are built optimised in dev and test builds too.
+# Release builds are unaffected. [VLD-ANB-MIDGARD-0007]
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.block-buffer]
+opt-level = 3
+
 [profile.release]
 # Deterministic release profile — no incremental artefacts, stable codegen.
 # Supports bit-reproducible builds. [AC-M-6] [NFR-OSS-1]
 incremental = false
 codegen-units = 1
+# Wrapping arithmetic on a network-supplied length must panic, not wrap, in every
+# hand-rolled parser in the workspace. Defence in depth: the parsers check their own
+# lengths. The flag is deterministic, so reproducibility is unaffected.
+# [NFR-SEC-1] [VLD-ANB-MIDGARD-0009] (ANUBIS WP-34)
+overflow-checks = true

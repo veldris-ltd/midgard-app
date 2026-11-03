@@ -7,7 +7,7 @@
 //! only, so the admin panel stays usable via the guarded, dual-controlled path when
 //! Mimir is absent. [AC-AD-11] [DD-6]
 
-use mimir_bridge::{Inference, InferenceRequest, WorkloadClass};
+use mimir_bridge::{ClassificationLevel, Inference, InferenceRequest, Marking, WorkloadClass};
 
 use crate::copilot::{AssembledCopilotPrompt, CopilotAdvisor};
 use crate::error::AdviceError;
@@ -17,6 +17,7 @@ pub struct MimirCopilot<I: Inference> {
     inference: I,
     purpose: String,
     max_tokens: u32,
+    marking: Marking,
 }
 
 impl<I: Inference> MimirCopilot<I> {
@@ -26,6 +27,10 @@ impl<I: Inference> MimirCopilot<I> {
             inference,
             purpose: "administration".into(),
             max_tokens: 1024,
+            marking: Marking {
+                level: ClassificationLevel::UNCLASSIFIED,
+                compartments: Default::default(),
+            },
         }
     }
     /// Override the declared purpose of access.
@@ -38,17 +43,28 @@ impl<I: Inference> MimirCopilot<I> {
         self.max_tokens = max_tokens;
         self
     }
+    /// Declare the marking of what this product renders into the prompt: the
+    /// caller's posture (level and compartments), which bounds everything the
+    /// product can show it and so everything the prompt can hold. Mimir refuses a
+    /// marking its model is not accredited for. Default: UNCLASSIFIED, no
+    /// compartments. [VLD-ANB-MIDGARD-0034]
+    pub fn with_marking(mut self, marking: Marking) -> Self {
+        self.marking = marking;
+        self
+    }
 }
 
 impl<I: Inference> CopilotAdvisor for MimirCopilot<I> {
     fn draft(&self, prompt: &AssembledCopilotPrompt) -> Result<String, AdviceError> {
         let request = InferenceRequest {
             purpose: self.purpose.clone(),
+            system_prompt: prompt.system_text(),
             workload_class: WorkloadClass::Balanced,
             quant_pref: None,
             backend_override: None,
             max_tokens: self.max_tokens,
-            prompt: prompt.full_text(),
+            marking: self.marking.clone(),
+            prompt: prompt.body_text(),
         };
         let completion = self
             .inference
@@ -93,9 +109,13 @@ mod tests {
             seen: RefCell::new(None),
         };
         let copilot = MimirCopilot::new(fake);
-        assert_eq!(copilot.draft(&prompt()).unwrap(), "{\"changes\":[]}");
+        let sent = prompt();
+        assert_eq!(copilot.draft(&sent).unwrap(), "{\"changes\":[]}");
         let seen = copilot.inference.seen.borrow();
         let req = seen.as_ref().unwrap();
+        // The system text travels apart from the delimited body. [VLD-ANB-MIDGARD-0060]
+        assert_eq!(req.system_prompt, sent.system_text());
+        assert_eq!(req.prompt, sent.body_text());
         assert_eq!(req.workload_class, WorkloadClass::Balanced);
         assert!(req.prompt.contains("rotate the signing key"));
     }
@@ -111,5 +131,32 @@ mod tests {
             copilot.draft(&prompt()),
             Err(AdviceError::Advisor(_))
         ));
+    }
+
+    // [VLD-ANB-MIDGARD-0034]
+    #[test]
+    fn the_request_carries_the_declared_marking() {
+        let fake = || FakeInference {
+            reply: Ok(text_completion("{}")),
+            seen: RefCell::new(None),
+        };
+        // Undeclared, the prompt is marked UNCLASSIFIED with no compartments.
+        let bare = MimirCopilot::new(fake());
+        bare.draft(&prompt()).unwrap();
+        let seen = bare.inference.seen.borrow();
+        let marking = &seen.as_ref().unwrap().marking;
+        assert_eq!(marking.level, ClassificationLevel::UNCLASSIFIED);
+        assert!(marking.compartments.is_empty());
+
+        let posture = Marking {
+            level: ClassificationLevel::SECRET,
+            compartments: [mimir_bridge::Compartment("ALPHA".into())]
+                .into_iter()
+                .collect(),
+        };
+        let marked = MimirCopilot::new(fake()).with_marking(posture.clone());
+        marked.draft(&prompt()).unwrap();
+        let seen = marked.inference.seen.borrow();
+        assert_eq!(seen.as_ref().unwrap().marking, posture);
     }
 }

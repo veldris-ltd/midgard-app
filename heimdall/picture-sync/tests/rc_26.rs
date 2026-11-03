@@ -7,7 +7,10 @@
 //! - `heimdall-feed-gateway`'s `FeedClient` → `serve_feed_connection` over PQ-mTLS,
 //! - `heimdall-picture-sync`'s `SessionLink` + `replicate_round` over PQ-mTLS,
 //!
-//! with signature verification and last-write-wins merge kept intact.
+//! with signature verification and last-write-wins merge kept intact. The feed's
+//! channel identity `feed-src` submits feed `radar`'s observations through a registry
+//! delegation, numbered and dated in the gateway's fixed clock.
+//! [VLD-ANB-MIDGARD-0041] [AC-59.4] [AC-59.6]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
@@ -190,6 +193,7 @@ fn radar_obs(key: &str, t: u64, speed: f64) -> Observation {
         t,
     )
     .with_attr("speed", Attr::Float(speed))
+    .with_sequence(1)
 }
 
 #[test]
@@ -219,10 +223,12 @@ fn rc_26_feed_over_pqmtls_converges_across_two_nodes() {
 
     let feed_pdp = permit_pdp(&["feed"]);
     let anchor_srv = anchor.clone();
-    // Node A's feed-gateway trusts feed "radar" → feed_vk.
+    // Node A's feed-gateway trusts feed "radar" → feed_vk, submitted by the channel
+    // identity feed-src.
     let mut registry = FeedRegistry::new();
     registry.register(FeedId("radar".into()), feed_vk);
-    let gateway = FeedGateway::new(registry, shared_fips());
+    registry.delegate(ServiceId("feed-src".into()), FeedId("radar".into()));
+    let gateway = FeedGateway::new(registry, shared_fips()).with_clock(|| 100);
 
     let feed_server = thread::spawn(move || {
         let (stream, _) = feed_listener.accept().unwrap();
@@ -275,7 +281,7 @@ fn rc_26_feed_over_pqmtls_converges_across_two_nodes() {
     // Node A fuses the admitted observation.
     let mut node_a = FusionEngine::new();
     for v in &admitted {
-        node_a.ingest(v);
+        node_a.ingest(v, v.observation().observed_at);
     }
     assert!(
         node_a.picture().entity(&EntityId("trk-1".into())).is_some(),
@@ -344,7 +350,8 @@ fn rc_26_unsigned_feed_is_rejected_at_the_boundary() {
     let feed_pdp = permit_pdp(&["feed"]);
     let mut registry = FeedRegistry::new();
     registry.register(FeedId("radar".into()), feed_vk);
-    let gateway = FeedGateway::new(registry, shared_fips());
+    registry.delegate(ServiceId("feed-src".into()), FeedId("radar".into()));
+    let gateway = FeedGateway::new(registry, shared_fips()).with_clock(|| 100);
 
     let feed_server = thread::spawn(move || {
         let (stream, _) = feed_listener.accept().unwrap();

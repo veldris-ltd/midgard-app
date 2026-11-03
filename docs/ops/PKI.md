@@ -172,26 +172,48 @@ Officer and a second witness (dual control), recorded in the audit chain:
 Artefacts are signed with ML-DSA; git cannot verify that, so tags and commits are
 signed with SSH keys, and the ceremony publishes which ones count.
 
-1. Each person who may cut a release tag holds an SSH signing key (ed25519) in a
-   custodian of their own — a hardware key where available — and configures git with
-   it (`gpg.format = ssh`, `user.signingkey`).
+1. Each person who may cut a release tag, and each maintainer, holds an SSH signing
+   key (ed25519) in a custodian of their own — a hardware key where available — and
+   configures git with it (`gpg.format = ssh`, `user.signingkey`, `commit.gpgsign` and
+   `tag.gpgsign` true; CONTRIBUTING.md, "Branches and the public tree").
 2. The ceremony collects the public halves and commits them as
    `deploy/trust/allowed_signers`, in git's allowed-signers format, each for the
-   namespace `git`:
+   namespace `git`: the release tag keys and the maintainers' commit keys, one line
+   each, under the email the person commits as:
 
    ```text
    release@example.org namespaces="git" ssh-ed25519 AAAA...
+   maintainer@example.org namespaces="git" ssh-ed25519 AAAA...
    ```
 
 3. The fingerprint of each key (`ssh-keygen -lf key.pub`) is published through a
    second channel, so a reader can tell the committed file was not swapped.
 4. The same keys are registered on the forge as signing keys, so the branch rule that
-   requires signed commits accepts them.
+   requires signed commits accepts them, and each maintainer turns on *vigilant mode*
+   on GitHub, so a commit that claims to be theirs without their signature shows as
+   unverified.
 
 `tools/ci/verify-tag.sh` verifies a release tag against that file, and the release's
 `release-tag` job runs it before anything is built: with no file, no tag verifies.
-Rotating a key is a commit to `deploy/trust/allowed_signers`, itself signed by a key
-already listed there.
+The `commits` CI job (`tools/ci/verify-commits.sh`) verifies every commit a pull
+request or push brings against the same file, as the base of the change has it, and
+fails closed while it lists no key (VLD-ANB-MIDGARD-0069).
+
+The file is changed only by a pull request whose commits are signed by a key already
+listed there, reviewed by the other maintainer (CODEOWNERS names both for
+`/deploy/trust/`, and the ruleset requires a code owner's approval). Because the job
+reads the file as the base has it, a key takes effect for the commits after the change
+that adds it is merged, never for that change itself. Rotating a key is such a change:
+add the new line, and remove the old one once nothing still to be merged is signed by
+it. A removal is recorded in `CHANGELOG.md` with the key's fingerprint and the reason.
+The first keys go in the same way, verified by GitHub instead (the job accepts GitHub's
+verification while the file lists no key); until they are in, the job fails on CodeLab.
+
+On the signing runners the committed file is not the authority: a commit that added a
+key would otherwise verify a tag on itself. The runner holds its own copy, and the tag
+verifies only when the committed file is byte-for-byte that copy (see "Signing runner",
+item 6). So a key change takes effect for releases only once the release manager has
+put it on the runners too.
 
 ## Rotation cadence
 
@@ -231,31 +253,89 @@ here if any is missing:
    runner 2.327.1 or later (`./config.sh --version` on the runner).
 1. **Pinned toolchain image.** Build `midgard-acceptance:1.82.0` from
    `deploy/acceptance/Dockerfile` (Rust `1.82.0` and `just`, on a digest-pinned base),
-   and pull the service image base `deploy/images/service.Dockerfile` names. Do both
-   while connected. Every build and signing step runs in that image with
+   and pull both bases `deploy/images/service.Dockerfile` names: `BASE`, the toolchain
+   image its prep stage lays files out on, and `RUNTIME`, the distroless
+   `cc-debian12:nonroot` image it runs on. Pull the chart's seed image too
+   (`seedImage` in `deploy/helm/midgard/values.yaml`, distroless
+   `base-debian12:debug-nonroot`, by digest), which the enclosure's registry must
+   carry for first start. Do all of this while connected. Every build and signing step runs in that image with
    `--network none`. The runner itself only reaches GitHub.
 2. **Offline advisory database.** The RustSec database is vendored at
    `vendor/advisory-db`, with the licence policy and exception tables in
    `supply-chain/`. The scan stage (`mg-scan`) reads nothing else.
+   Helm, on the runner itself, renders the release chart with its images pinned by
+   the digests `deploy/helm/set-digests.sh` lifts from the signed `images.lock`.
 3. **Key material, as runner secrets naming files outside the checkout:**
    - `MIDGARD_SIGNING_KEYSTORE_PATH`: the release keystore (ML-DSA-87);
    - `MIDGARD_BIFROST_KEYSTORE_PATH`: the Bifrost admission keystore (ML-DSA-65), for
      registry admission and the air-gap bundle;
+   - `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`: the passphrase each keystore's custody
+     root is wrapped under, a separate secret from the keystore;
    - `MIDGARD_BIFROST_REGISTRY_PATH`: the registry directory.
 
-   Each keystore file is mounted read-only into the container that uses it.
+   Each keystore file and its passphrase file is mounted read-only into the container
+   that uses it.
 4. **Pinned trust anchors.** The public halves from the ceremony, committed as
    `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub` (see
    `deploy/trust/README.md`).
+5. **Nothing outlives a job.** No checkout, token or build output may be left beside
+   the key material for the next job. Install a job-completed hook that removes the
+   work directory (`ACTIONS_RUNNER_HOOK_JOB_COMPLETED` in the runner's `.env`, naming
+   the script), and better still run the runner ephemeral (`./config.sh --ephemeral`,
+   re-registered for each job) as well. The preflight asserts the hook: on a self-hosted
+   runner it fails closed unless that variable names a readable script. The workflows'
+   checkouts set `persist-credentials: false`, so the job token is not written into
+   `.git/config` either (VLD-ANB-MIDGARD-0081). Run it **ephemeral**: the preflight
+   cannot see that a runner was registered with `--ephemeral`, so it is the owner's to
+   confirm.
+6. **The runner's own `allowed_signers`, outside the checkout** (VLD-ANB-MIDGARD-0035).
+   A release tag is verified against signers the tagged commit cannot choose. The
+   release manager copies the ceremony's `allowed_signers` onto each runner, outside the
+   work directory and beside the keystores, checks it against the committed file
+   (`sha256sum` of both must agree), and names it with the runner secret
+   `MIDGARD_ALLOWED_SIGNERS_PATH` (on GitLab, the CI/CD variable of that name).
+   `tools/ci/verify-tag.sh` then refuses a tag unless the committed
+   `deploy/trust/allowed_signers` is byte-for-byte that copy: "the committed
+   allowed_signers differs from the runner-pinned copy; a key change must be
+   provisioned on the runner first". On a self-hosted runner with the variable unset it
+   refuses every tag. Rotating a key is therefore two steps: the signed, reviewed
+   commit, then the same file on every runner. The preflight asserts the variable names
+   a non-empty file of public keys outside the job's workspace, and that every keystore
+   lies outside the workspace too.
+7. **A gate that is not the tag's.** The release starts from a pushed `v*` tag, but the
+   checks that decide whether anything else runs do not come from it: the preflight job
+   checks out `main` a second time into `.ci-trusted` and runs `release-tag` and
+   `release-preflight` from there, judging the tagged checkout. Only then do the tagged
+   commit's own scripts run, by then proven signed and on `main` (`verify-tag.sh` refuses
+   a tag whose commit is not an ancestor of `origin/main`). The preflight also asserts
+   that the docker daemon answers and that `tools/ci/in-toolchain.sh` starts every build
+   with `--network none`.
+8. **Only release managers create release tags.** The tag ruleset that admits a `v*`
+   tag is the forge's to enforce, not the repository's: on GitHub, the "release tags are
+   created by release managers" ruleset (`tools/ci/github-rules.sh`) with the
+   `release-managers` team as its only bypass actor; on GitLab, `v*` protected so that
+   only maintainers create one (`tools/ci/gitlab-rules.sh`). Nothing on the runner can
+   check this; the exported ruleset evidence in `docs/compliance/evidence/` is the
+   record.
 
 If any is absent, the preflight **fails closed**, so a release never ships unsigned,
 unscanned, or from a half-provisioned runner.
 
-**Custody today is software.** The keystores are files, sealed under an ML-KEM root in
-the same file (see `crypto/attest/src/keystore.rs`). The HSM path above (keys generated
-on-device, never exportable) is the target, and is not wired in: signing from a
-PKCS#11 token needs a signer behind the same custody seam. Until then, protect the
-keystore files as the keys themselves.
+**Custody today is software.** The keystores are files: the signing key sealed under
+an ML-KEM-1024 root, and the root wrapped under an operator passphrase with
+PBKDF2-HMAC-SHA256 (600,000 iterations, a fresh 32-byte salt) and AES-256-GCM, bound to
+the key id (keystore format version 2, `crypto/attest/src/keystore.rs`). The file
+alone, or a backup of it, does not yield the root; the file and its passphrase
+together are the key, so keep them in separate secrets. The format also takes a root
+sealed to an external `kms::TrustRoot` (`RootWrap::External`), the seam an HSM or TPM
+slots into, tested against the SoftHSM stand-in. The HSM path above (keys generated
+on-device, never exportable) is the GA target and is not wired in: signing from a
+PKCS#11 token needs a signer behind the same custody seam. Keystores written before
+format version 2 hold the root in the clear; every reader refuses them, `mg-admin
+keystore migrate` converts each once, and every other copy of the old file (backups,
+volumes, Secrets) must then be destroyed. Where a version 1 copy may have been exposed,
+re-initialise rather than migrate: migration keeps the same root. [VLD-ANB-MIDGARD-0007]
 
 ## Tested
 

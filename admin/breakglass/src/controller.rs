@@ -11,6 +11,10 @@
 //! the approver, then the `breakglass-grant` entry whose actor is the requester.
 //! Both must hold their capability (`breakglass.request`, `breakglass.approve`) over
 //! the grant's scope in the identity directory, or nothing is issued. [MG-SEC-07]
+//!
+//! Review and close revoke the grant's capability before sealing their entry, so a
+//! grant that has been reviewed, or ended early, no longer elevates anyone even
+//! though its time-box has not run out. [VLD-ANB-MIDGARD-0055]
 
 use admin_identity::{AdminSession, IdentityDirectory};
 use audit_writer::{
@@ -103,7 +107,9 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
         Ok(expired)
     }
 
-    /// Record the mandatory post-hoc review and seal a `breakglass-review` entry.
+    /// Record the mandatory post-hoc review, revoke the grant's capability, and seal
+    /// a `breakglass-review` entry. A grant reviewed before its time-box runs out
+    /// stops elevating at once. [VLD-ANB-MIDGARD-0055]
     pub fn review(
         &mut self,
         id: &str,
@@ -113,7 +119,25 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
         ts: &str,
     ) -> Result<(), BreakGlassError> {
         self.service.review(id, reviewer, note, now)?;
+        self.authority.revoke(id);
         self.audit(reviewer, "breakglass-review", id, ts)?;
+        Ok(())
+    }
+
+    /// End a grant early: cut its time-box to `now` (via the service, so it enters
+    /// the review backlog at once), revoke its capability, and seal a
+    /// `breakglass-closed` entry whose actor is `closer`. The post-hoc review is
+    /// still required. [VLD-ANB-MIDGARD-0055]
+    pub fn close(
+        &mut self,
+        id: &str,
+        closer: &str,
+        now: u64,
+        ts: &str,
+    ) -> Result<(), BreakGlassError> {
+        self.service.close(id, now)?;
+        self.authority.revoke(id);
+        self.audit(closer, "breakglass-closed", id, ts)?;
         Ok(())
     }
 
@@ -130,6 +154,7 @@ impl<A: Alerter, S: LedgerStore> BreakGlassController<A, S> {
             action: Action(action.to_string()),
             resource: Resource(grant_id.to_string()),
             ts: Timestamp(ts.to_string()),
+            context: Default::default(),
         };
         self.audit
             .append(record)

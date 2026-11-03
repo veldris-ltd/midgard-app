@@ -11,21 +11,35 @@
 //! names. Accepted check-ins are journalled in a sealed [`DurableFleet`], so a restart
 //! recovers them. [RC-12]
 //!
+//! A check-in must name a channel the fleet declares (`channels.json`), and an
+//! installation's channel is the one it registered on (first sight registers it on the
+//! channel it reports); a report naming another is refused with [`outcome::DENIED`],
+//! and the refusal is audited as `CheckIn refused: unknown channel` or `CheckIn
+//! refused: channel mismatch`. Moving an installation is an operator action: the
+//! [`SET_CHANNEL`] method (policy action `SetChannel`), whose payload is an encoded
+//! [`ChannelAssignment`]; `bifrost-agent --set-channel` sends it. It is a mesh route
+//! rather than an `mg-admin` command because the state directory is locked while the
+//! service runs. [VLD-ANB-MIDGARD-0042]
+//!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
 //! [`FLEET_STATUS`] the fleet as JSON.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::LedgerStore;
-use bifrost_fleet::{AgentReport, DurableFleet, NodeStatus};
+use bifrost_fleet::{
+    AgentReport, ChannelAssignment, DurableFleet, DurableFleetError, FleetError, NodeStatus,
+};
 use bifrost_rollout::VersionId;
-use gateway::{RequestHandler, Router};
-use governance::{GovContext, Governance};
-use policy::{ClassificationLevel, Clearance, Purpose, Resource};
-use pq_mtls::WorkloadIdentity;
+use gateway::{Authorised, RequestHandler, Router};
+use governance::Governance;
+use policy::{Purpose, Resource};
+use pq_mtls::{Authorization, WorkloadIdentity};
 use service_runtime::json::{parse, Json};
+use service_runtime::mesh_context;
 use service_runtime::strict_json::{no_repeated_keys, object, only_keys};
-use telemetry::MetricsRegistry;
+use service_runtime::sync::{lock_resource, recover_noting, RECOVERED_POISONED_LOCK};
+use telemetry::{Logger, MetricsRegistry, StdoutJsonSink};
 
 /// The method an agent checks in with; its payload is an encoded [`AgentReport`].
 pub const CHECK_IN: &str = "CheckIn";
@@ -35,6 +49,11 @@ pub const FLEET_STATUS: &str = "FleetStatus";
 pub const ACTION_CHECK_IN: &str = "CheckIn";
 /// The policy action a fleet read is authorised as.
 pub const ACTION_READ_FLEET: &str = "ReadFleet";
+/// The method an operator moves an installation to another channel with; its payload
+/// is an encoded [`ChannelAssignment`]. [VLD-ANB-MIDGARD-0042]
+pub const SET_CHANNEL: &str = "SetChannel";
+/// The policy action a channel assignment is authorised as.
+pub const ACTION_SET_CHANNEL: &str = "SetChannel";
 
 /// The first byte of every fleet response.
 pub mod outcome {
@@ -87,21 +106,41 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         })
     }
 
-    /// The router the PQ-mTLS gateway serves: [`CHECK_IN`] and [`FLEET_STATUS`].
+    /// The router the PQ-mTLS gateway serves: [`CHECK_IN`], [`FLEET_STATUS`] and
+    /// [`SET_CHANNEL`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
-        let check_in: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.check_in(peer, body));
+        let check_in: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.check_in(peer, auth, body)
+            },
+        ));
         let service = self.clone();
-        let status: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, _: &[u8]| service.status(peer));
+        let status: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, _: &[u8]| {
+                service.status(peer, auth)
+            },
+        ));
+        let service = self.clone();
+        let set_channel: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.set_channel(peer, auth, body)
+            },
+        ));
         Router::new()
             .route(CHECK_IN, check_in)
             .route(FLEET_STATUS, status)
+            .route(SET_CHANNEL, set_channel)
     }
 
-    /// Record an agent's check-in.
-    pub fn check_in(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+    /// Record an agent's check-in from `peer`, which the channel authorised as
+    /// `authorization`.
+    pub fn check_in(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        body: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
         let report = AgentReport::decode(body);
         // A malformed check-in is still an authenticated call, and is still audited.
@@ -110,8 +149,8 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         } else {
             "CheckIn:MALFORMED"
         };
-        let decision = match lock(&self.governance).authorize(
-            &self.context(peer),
+        let decision = match self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
             &self.resource,
             action,
             now,
@@ -137,7 +176,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             );
         }
         if report.install_id != peer.id.0 {
-            let recorded = lock(&self.governance).record_event(
+            let recorded = self.governance().record_event(
                 &peer.id.0,
                 "CheckIn refused: reported for another installation",
                 &format!("installation:{}", report.install_id),
@@ -149,13 +188,38 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             };
             return self.reply(CHECK_IN, outcome::DENIED, message);
         }
-        match lock(&self.fleet).check_in(report, now) {
+        let install_id = report.install_id.clone();
+        let result = self.fleet().check_in(report, now);
+        match result {
             Ok(()) => self.reply(
                 CHECK_IN,
                 outcome::ACCEPTED,
                 &format!("recorded at audit sequence {}", decision.audit_seq),
             ),
-            Err(e) => self.reply(
+            Err(DurableFleetError::Refused(refusal)) => {
+                let (action, message) = match refusal {
+                    FleetError::ChannelMismatch { .. } => (
+                        "CheckIn refused: channel mismatch",
+                        "an installation checks in only on the channel it is registered on",
+                    ),
+                    _ => (
+                        "CheckIn refused: unknown channel",
+                        "the check-in names a channel this fleet does not serve",
+                    ),
+                };
+                let recorded = self.governance().record_event(
+                    &peer.id.0,
+                    action,
+                    &format!("installation:{install_id}"),
+                    now,
+                );
+                let message = match recorded {
+                    Ok(_) => message.to_string(),
+                    Err(_) => format!("{message} (not audited)"),
+                };
+                self.reply(CHECK_IN, outcome::DENIED, &message)
+            }
+            Err(DurableFleetError::Io(e)) => self.reply(
                 CHECK_IN,
                 outcome::FAILED,
                 &format!("the check-in was not recorded: {e}"),
@@ -163,11 +227,89 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         }
     }
 
-    /// The fleet as JSON: channels, installations with liveness, drift, convergence.
-    pub fn status(&self, peer: &WorkloadIdentity) -> Vec<u8> {
+    /// Move an installation to another configured channel: the operator's action, and
+    /// the only way an installation's channel changes after it registers. The move is
+    /// audited against the installation. [VLD-ANB-MIDGARD-0042]
+    pub fn set_channel(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        body: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
-        let decision = lock(&self.governance).authorize(
-            &self.context(peer),
+        let assignment = ChannelAssignment::decode(body);
+        let action = if assignment.is_ok() {
+            ACTION_SET_CHANNEL
+        } else {
+            "SetChannel:MALFORMED"
+        };
+        let decision = match self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
+            &self.resource,
+            action,
+            now,
+        ) {
+            Ok(decision) => decision,
+            Err(_) => {
+                return self.reply(
+                    SET_CHANNEL,
+                    outcome::FAILED,
+                    "the channel assignment could not be audited",
+                )
+            }
+        };
+        let assignment = match assignment {
+            Ok(assignment) => assignment,
+            Err(e) => return self.reply(SET_CHANNEL, outcome::MALFORMED, e),
+        };
+        if !decision.permitted {
+            return self.reply(
+                SET_CHANNEL,
+                outcome::DENIED,
+                "policy does not permit this identity to move an installation",
+            );
+        }
+        let result = self
+            .fleet()
+            .assign_channel(&assignment.install_id, &assignment.channel);
+        match result {
+            Ok(()) => {
+                let recorded = self.governance().record_event(
+                    &peer.id.0,
+                    &format!("SetChannel: moved to {}", assignment.channel),
+                    &format!("installation:{}", assignment.install_id),
+                    now,
+                );
+                let audited = if recorded.is_ok() {
+                    ""
+                } else {
+                    " (not audited)"
+                };
+                self.reply(
+                    SET_CHANNEL,
+                    outcome::ACCEPTED,
+                    &format!(
+                        "{} moved to {} at audit sequence {}{audited}",
+                        assignment.install_id, assignment.channel, decision.audit_seq
+                    ),
+                )
+            }
+            Err(DurableFleetError::Refused(e)) => {
+                self.reply(SET_CHANNEL, outcome::DENIED, &e.to_string())
+            }
+            Err(DurableFleetError::Io(e)) => self.reply(
+                SET_CHANNEL,
+                outcome::FAILED,
+                &format!("the channel assignment was not recorded: {e}"),
+            ),
+        }
+    }
+
+    /// The fleet as JSON: channels, installations with liveness, drift, convergence.
+    pub fn status(&self, peer: &WorkloadIdentity, authorization: &Authorization) -> Vec<u8> {
+        let now = (self.clock)();
+        let decision = self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
             &self.resource,
             ACTION_READ_FLEET,
             now,
@@ -190,7 +332,7 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             }
         }
 
-        let durable = lock(&self.fleet);
+        let durable = self.fleet();
         let fleet = durable.fleet();
         let channels = fleet
             .channels()
@@ -244,16 +386,33 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         self.reply(FLEET_STATUS, outcome::ACCEPTED, &body.encode())
     }
 
-    fn context(&self, peer: &WorkloadIdentity) -> GovContext {
-        GovContext {
-            subject: peer.id.0.clone(),
-            roles: peer.roles.clone(),
-            clearance: Clearance {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: Default::default(),
-            },
-            purpose: self.purpose.clone(),
+    /// The governance spine, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded through the recovered guard.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn governance(&self) -> MutexGuard<'_, Governance<S>> {
+        let (mut governance, poisoned) = recover_noting(
+            &self.governance,
+            "fleet-governance",
+            &self.metrics,
+            &logger(),
+        );
+        if poisoned {
+            record_recovery(&mut governance, "fleet-governance", (self.clock)());
         }
+        governance
+    }
+
+    /// The fleet state, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded in the ledger. Every write is
+    /// journalled before memory changes, so the state behind a poisoned lock is still
+    /// the journalled state.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn fleet(&self) -> MutexGuard<'_, DurableFleet> {
+        let (state, poisoned) = recover_noting(&self.fleet, "fleet", &self.metrics, &logger());
+        if poisoned {
+            record_recovery(&mut self.governance(), "fleet", (self.clock)());
+        }
+        state
     }
 
     fn reply(&self, method: &str, code: u8, message: &str) -> Vec<u8> {
@@ -273,12 +432,9 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
     }
 }
 
-/// A lock that stays usable after a panic elsewhere: every write is journalled before
-/// memory changes, so the state behind a poisoned lock is still the journalled state.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// The service's structured log, on stdout for the in-enclosure collector.
+fn logger() -> Logger<'static> {
+    Logger::new("bifrost-fleet", &StdoutJsonSink)
 }
 
 fn status_name(status: NodeStatus) -> &'static str {
@@ -336,6 +492,20 @@ pub fn parse_channels(text: &str) -> Result<Vec<(String, VersionId)>, String> {
             }
         })
         .collect()
+}
+
+/// Record in the ledger that the lock `name` was recovered after a panic poisoned it.
+/// A ledger that cannot take the entry is logged; the recovery is already counted and
+/// logged. [VLD-ANB-MIDGARD-0030]
+fn record_recovery<S: LedgerStore>(governance: &mut Governance<S>, name: &str, now: u64) {
+    if let Err(e) =
+        governance.record_event("system", RECOVERED_POISONED_LOCK, &lock_resource(name), now)
+    {
+        logger().error(
+            "poisoned lock recovery not recorded",
+            &[("lock", name), ("reason", &e.to_string())],
+        );
+    }
 }
 
 #[cfg(test)]

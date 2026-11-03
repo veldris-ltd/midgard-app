@@ -19,5 +19,11 @@ pqc-agility = { path = "../../crypto/pqc-agility" }
 # source to the gateway's listener. [FR-H-3] [NFR-PQ-1]
 pq-mtls = { path = "../../crypto/pq-mtls" }
 
+[dev-dependencies]
+# The replay tests run a real PQ-mTLS feed connection: the IdP certifies the channel
+# identities and the policy crate opens the channel. [VLD-ANB-MIDGARD-0041]
+iam = { path = "../../services/iam" }
+policy = { path = "../../crypto/policy" }
+
 [lib]
 path = "src/lib.rs"

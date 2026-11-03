@@ -13,15 +13,20 @@
 //! - [`log`] — structured JSON logging to a buffered / stdout sink;
 //! - [`slo`] — availability + latency SLO trackers whose breaches surface as metrics.
 
+pub mod escape;
 pub mod health;
 pub mod log;
 pub mod metrics;
 pub mod slo;
 pub mod trace;
 
+pub use escape::{json_escape, label_value};
 pub use health::{CheckResult, HealthRegistry, HealthReport, ReadinessCheck, Toggle};
 pub use log::{BufferSink, Level, LogRecord, LogSink, Logger, StdoutJsonSink};
-pub use metrics::{MetricsRegistry, DEFAULT_BUCKETS_MS};
+pub use metrics::{
+    MetricsRegistry, DEFAULT_BUCKETS_MS, DROPPED_SERIES, MAX_LABEL_VALUE_CHARS,
+    MAX_SERIES_PER_FAMILY,
+};
 pub use slo::{AvailabilitySlo, LatencySlo};
 pub use trace::{
     BufferExporter, IdGenerator, SpanContext, SpanExporter, SpanId, SpanRecord, TraceId,

@@ -3,16 +3,25 @@
 //! control, actions that genuinely mutate the store, policies and dry-runs from the
 //! enforcing PDP, and an audit view that is the PQ-signed ledger itself — driven end
 //! to end through a logged-in development gateway.
-//! [DD-1] [NFR-SEC-2] [NFR-AI-1] [NFR-PQ-3] [AC-M-4]
+//! The ledger view itself is scoped to the caller. [VLD-ANB-MIDGARD-0031]
+//! [DD-1] [NFR-SEC-2] [NFR-AI-1] [NFR-PQ-3] [AC-M-4] [AC-20.1] [AC-20.2] [AC-20.3]
 #![cfg(feature = "backend-fips")]
 
+use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use governance::Governance;
+use http_gateway::enclosure::Enclosure;
 use http_gateway::http::{Request, Response};
 use http_gateway::json::{parse, Json};
 use http_gateway::{
-    SecuredGateway, DEMO_APPROVER_PASSWORD, DEMO_APPROVER_USERNAME, DEMO_PASSWORD, DEMO_USERNAME,
+    demo_approver, demo_operator, dev_login_policy, SecuredGateway, ACTION_READ_AUDIT,
+    DEMO_APPROVER_PASSWORD, DEMO_APPROVER_USERNAME, DEMO_PASSWORD, DEMO_USERNAME,
 };
+use iam::{Idp, UserRecord};
+use policy::{Clearance, DefaultPdp, PolicySet, Purpose, Rule};
+use pqc_agility::backend::fips::provider as fips_provider;
+use pqc_agility::OsRng;
 
 fn now() -> u64 {
     SystemTime::now()
@@ -494,6 +503,122 @@ fn search_around_walks_real_links_in_both_directions_under_access_control() {
     assert!(!other.encode().contains("SF-NORTH-2"), "{}", other.encode());
 }
 
+/// The search-around response, node for node and edge for edge, as the code produced
+/// it before WP-43 split `search_around` into seed resolution, link collection and a
+/// clearance filter. Order is pinned, not only membership: nodes in discovery order,
+/// edges in the order their links were first met. [VLD-ANB-MIDGARD-0094] [AC-43.1]
+/// [DD-1] [NFR-SEC-2]
+#[test]
+fn search_around_output_is_stable_across_the_refactor() {
+    let (gw, token) = session();
+    let walk = |seed: &str, hops: i64, limit: Option<i64>| {
+        let body = match limit {
+            Some(limit) => format!(r#"{{"seedId":"{seed}","hops":{hops},"limit":{limit}}}"#),
+            None => format!(r#"{{"seedId":"{seed}","hops":{hops}}}"#),
+        };
+        let r = call(
+            &gw,
+            "POST",
+            "/api/v1/search-around",
+            "",
+            &body,
+            Some(&token),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        json(&r)
+    };
+    let node_ids = |g: &Json| -> Vec<String> {
+        items(g.get("nodes").expect("nodes"))
+            .iter()
+            .map(|n| field(n, "id").to_string())
+            .collect()
+    };
+    let edges = |g: &Json| -> Vec<(String, String, String)> {
+        items(g.get("edges").expect("edges"))
+            .iter()
+            .map(|e| {
+                (
+                    field(e, "from").to_string(),
+                    field(e, "to").to_string(),
+                    field(e, "label").to_string(),
+                )
+            })
+            .collect()
+    };
+    let shape = |g: &Json| {
+        (
+            matches!(g.get("truncated"), Some(Json::Bool(true))),
+            g.get("nodeLimit").and_then(Json::as_i64),
+            g.get("seedObjects").and_then(Json::as_i64),
+        )
+    };
+
+    let one = walk("aircraft/AC-2214", 2, None);
+    assert_eq!(
+        node_ids(&one),
+        [
+            "aircraft/AC-2214",
+            "facility/FAC-NORTH",
+            "crew_member/CR-101",
+            "crew_member/CR-102",
+            "route/RT-N-S",
+            "maintenance_event/ME-88121",
+            "sensor_feed/SF-TRANSPONDER-4",
+            "aircraft/AC-2261",
+        ]
+    );
+    let edge =
+        |from: &str, to: &str, label: &str| (from.to_string(), to.to_string(), label.to_string());
+    assert_eq!(
+        edges(&one),
+        [
+            edge(
+                "aircraft/AC-2214",
+                "facility/FAC-NORTH",
+                "based at → Facility"
+            ),
+            edge(
+                "aircraft/AC-2214",
+                "crew_member/CR-101",
+                "assigned → Crew Member"
+            ),
+            edge(
+                "aircraft/AC-2214",
+                "crew_member/CR-102",
+                "assigned → Crew Member"
+            ),
+            edge("aircraft/AC-2214", "route/RT-N-S", "operates → Route"),
+            edge(
+                "maintenance_event/ME-88121",
+                "aircraft/AC-2214",
+                "on → Aircraft"
+            ),
+            edge(
+                "sensor_feed/SF-TRANSPONDER-4",
+                "aircraft/AC-2214",
+                "observes → Aircraft"
+            ),
+            edge(
+                "aircraft/AC-2261",
+                "facility/FAC-NORTH",
+                "based at → Facility"
+            ),
+            edge("aircraft/AC-2261", "route/RT-N-S", "operates → Route"),
+        ]
+    );
+    assert_eq!(shape(&one), (false, Some(60), Some(1)));
+
+    // Four readable aircraft, three admitted in id order; every neighbour would be a
+    // fourth node, so it and its edge are cut and the walk says so.
+    let all = walk("aircraft/*", 1, Some(3));
+    assert_eq!(
+        node_ids(&all),
+        ["aircraft/AC-2198", "aircraft/AC-2214", "aircraft/AC-2261"]
+    );
+    assert!(edges(&all).is_empty(), "{:?}", edges(&all));
+    assert_eq!(shape(&all), (true, Some(3), Some(4)));
+}
+
 #[test]
 fn every_audit_row_is_verified_against_its_ml_dsa_signature() {
     let (gw, token) = session();
@@ -605,4 +730,395 @@ fn edge_admission_and_fabric_decisions_share_one_ledger() {
         before + 2,
         "one admission decision at the edge and one read decision in the fabric, same chain"
     );
+}
+
+/// The value of response header `name`, if the edge sent it.
+fn header<'a>(r: &'a Response, name: &str) -> Option<&'a str> {
+    r.headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
+/// The audit view as `token` sees it, with the response it came in.
+fn audit_view(gw: &SecuredGateway, token: &str) -> (Response, Vec<Json>) {
+    let r = call(gw, "GET", "/api/v1/audit", "limit=500", "", Some(token));
+    assert_eq!(r.status, 200, "{}", r.body);
+    let rows = items(&json(&r)).to_vec();
+    (r, rows)
+}
+
+/// A search-around from a compartmented seed writes the seed's object id to the
+/// ledger. A principal cleared to the same level but without the OPS-N compartment
+/// does not see that row, and is told the view was filtered; the operator, who holds
+/// OPS-N, still sees it. [VLD-ANB-MIDGARD-0031] [AC-20.1] [NFR-SEC-2]
+#[test]
+fn the_audit_view_hides_rows_about_objects_the_caller_cannot_read() {
+    let (mut gw, token) = session();
+    let uncompartmented = UserRecord {
+        clearance: Clearance {
+            level: demo_approver().clearance.level,
+            compartments: BTreeSet::new(),
+        },
+        ..demo_approver()
+    };
+    gw.provision_login("analyst", "analyst-password", uncompartmented)
+        .expect("the analyst provisions in memory");
+
+    let seed = "aircraft/AC-2214";
+    let body = format!(r#"{{"seedId":"{seed}","hops":1}}"#);
+    let r = call(
+        &gw,
+        "POST",
+        "/api/v1/search-around",
+        "",
+        &body,
+        Some(&token),
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let (_, operator_rows) = audit_view(&gw, &token);
+    assert!(
+        operator_rows
+            .iter()
+            .any(|row| field(row, "resource") == format!("object:{seed}")),
+        "the cleared operator should see the search-around row"
+    );
+
+    let analyst = login(&gw, "analyst", "analyst-password");
+    let (r, rows) = audit_view(&gw, &analyst);
+    assert!(!rows.is_empty(), "the analyst still sees the rows they may");
+    for row in &rows {
+        assert!(
+            !field(row, "resource").contains(seed),
+            "compartmented object leaked: {}",
+            row.encode()
+        );
+    }
+    assert_eq!(header(&r, "X-Audit-Filtered"), Some("true"));
+}
+
+/// A role that may Read anything but holds no ReadAudit rule is refused the ledger
+/// view, and the refusal is itself a ledger row. [VLD-ANB-MIDGARD-0031] [AC-20.2]
+#[test]
+fn reading_the_audit_needs_the_read_audit_permission() {
+    const NOW: u64 = 1_800_000_000;
+    // The dev policy, less the operator's ReadAudit rules: the operator keeps Read on
+    // `*`, the approver keeps ReadAudit and inspects the ledger.
+    let rules: Vec<Rule> = dev_login_policy()
+        .rules()
+        .iter()
+        .filter(|r| !(r.role.0 == "operator" && r.action.0 == ACTION_READ_AUDIT))
+        .cloned()
+        .collect();
+    let mut rng = OsRng;
+    let mut idp = Idp::generate("test-idp", &mut rng).expect("idp keygen");
+    idp.store_mut().upsert("operator", demo_operator());
+    idp.store_mut().upsert("approver", demo_approver());
+    let issue = |idp: &Idp, who: &str| {
+        let token = idp
+            .issue_token(who, Purpose("operations".into()), NOW, 3_600)
+            .expect("issue token");
+        token.iter().fold(String::new(), |mut hex, b| {
+            hex.push_str(&format!("{b:02x}"));
+            hex
+        })
+    };
+    let operator = issue(&idp, "operator");
+    let approver = issue(&idp, "approver");
+    let policy = PolicySet::new(rules).expect("valid policy");
+    let governance = Governance::new(DefaultPdp::new(policy), &mut rng).expect("governance");
+    let gw = SecuredGateway::with_enclosure(
+        fips_provider(),
+        idp.verifying_key().clone(),
+        Enclosure::new(governance),
+        vec![],
+    );
+
+    let r = call_at(&gw, "GET", "/api/v1/audit", "", "", Some(&operator), NOW);
+    assert_eq!(r.status, 403, "{}", r.body);
+    let r = call_at(&gw, "GET", "/api/v1/whoami", "", "", Some(&operator), NOW);
+    assert_eq!(r.status, 200, "the operator still holds Read: {}", r.body);
+
+    let r = call_at(
+        &gw,
+        "GET",
+        "/api/v1/audit",
+        "limit=500",
+        "",
+        Some(&approver),
+        NOW,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+    let ledger = json(&r);
+    assert!(
+        items(&ledger)
+            .iter()
+            .any(|row| field(row, "actor") == "operator"
+                && field(row, "action") == "DENY ReadAudit"
+                && field(row, "resource") == "audit-ledger"),
+        "no DENY ReadAudit row on audit-ledger: {}",
+        ledger.encode()
+    );
+}
+
+/// Login rows about other principals need ReadAudit on `audit-ledger:sessions`: the
+/// approver sees only their own, the operator (who holds that grant in the dev policy)
+/// sees both. [VLD-ANB-MIDGARD-0031] [AC-20.3]
+#[test]
+fn other_principals_login_rows_need_the_sessions_grant() {
+    let (gw, operator) = session();
+    let approver = approver(&gw);
+    let session_actors = |token: &str| -> BTreeSet<String> {
+        let (_, rows) = audit_view(&gw, token);
+        rows.iter()
+            .filter(|row| field(row, "resource") == "session")
+            .map(|row| field(row, "actor").to_string())
+            .collect()
+    };
+
+    let seen_by_approver = session_actors(&approver);
+    assert_eq!(
+        seen_by_approver,
+        ["approver".to_string()].into_iter().collect(),
+        "the approver should see only their own login rows"
+    );
+    let seen_by_operator = session_actors(&operator);
+    assert_eq!(
+        seen_by_operator,
+        ["approver".to_string(), "operator".to_string()]
+            .into_iter()
+            .collect(),
+        "the operator holds the sessions grant"
+    );
+}
+
+/// The edge writes its PERMIT row before the enclosure checks the human gate, so a
+/// refusal there is written too: a gated action without a token, and a requester
+/// deciding their own approval, each leave a `REFUSED` row with its reason code and
+/// target. [NFR-AI-1] [AC-M-4] [VLD-ANB-MIDGARD-0054] [AC-26.6]
+#[test]
+fn a_refused_human_gate_and_a_self_approval_are_in_the_ledger() {
+    let (mut gw, token) = session();
+    // One principal holding both roles, so the self-approval reaches the enclosure
+    // rather than being denied by policy at the edge.
+    gw.provision_login(
+        "both",
+        "both-password",
+        iam::UserRecord {
+            roles: [
+                policy::Role("operator".into()),
+                policy::Role("approver".into()),
+            ]
+            .into_iter()
+            .collect(),
+            ..http_gateway::demo_operator()
+        },
+    )
+    .unwrap();
+
+    let r = call(
+        &gw,
+        "POST",
+        "/api/v1/actions",
+        "",
+        r#"{"actionType":"Ground aircraft","params":{"target":"aircraft/AC-2214"}}"#,
+        Some(&token),
+    );
+    assert_eq!(r.status, 403, "{}", r.body);
+
+    let both = login(&gw, "both", "both-password");
+    let id = request_approval(&gw, &both, "Ground aircraft", "aircraft/AC-2214");
+    let own = decide(&gw, &both, &id, "approve");
+    assert_eq!(own.status, 403, "{}", own.body);
+
+    let rows = audit(&gw, &token);
+    let row = |actor: &str, action: &str| {
+        items(&rows).iter().any(|r| {
+            field(r, "actor") == actor
+                && field(r, "action") == action
+                && field(r, "resource") == "aircraft/AC-2214"
+        })
+    };
+    assert!(
+        row(DEMO_USERNAME, "REFUSED Apply (human-gate-missing)"),
+        "{}",
+        rows.encode()
+    );
+    assert!(
+        row("both", "REFUSED Approve (self-approval)"),
+        "{}",
+        rows.encode()
+    );
+}
+
+/// The row in `rows` with `action` on `resource`, if any.
+fn audit_row<'a>(rows: &'a Json, action: &str, resource: &str) -> Option<&'a Json> {
+    items(rows)
+        .iter()
+        .find(|r| field(r, "action") == action && field(r, "resource") == resource)
+}
+
+/// Who asked, who approved and which action ran on what are all in the signed ledger,
+/// bound by the approval id: the request, the decision and the redemption each leave
+/// an `APPROVAL` row on `approval:<id>`, and the fabric's own row for the action names
+/// the approval and its approver. [NFR-AI-1] [AC-M-4] [VLD-ANB-MIDGARD-0038] [AC-21.1]
+#[test]
+fn the_ledger_binds_request_decision_and_redemption_to_the_approval() {
+    let (gw, token) = session();
+    let id = approved(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+    assert_eq!(id, "APR-1");
+    let r = act(&gw, &token, "Ground aircraft", "aircraft/AC-2214", &id);
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let rows = audit(&gw, &token);
+    let lifecycle = [
+        ("APPROVAL requested", DEMO_USERNAME, None),
+        (
+            "APPROVAL approved",
+            DEMO_APPROVER_USERNAME,
+            Some(DEMO_APPROVER_USERNAME),
+        ),
+        (
+            "APPROVAL redeemed",
+            DEMO_USERNAME,
+            Some(DEMO_APPROVER_USERNAME),
+        ),
+    ];
+    for (action, actor, approver) in lifecycle {
+        let row = audit_row(&rows, action, "approval:APR-1")
+            .unwrap_or_else(|| panic!("no {action} row: {}", rows.encode()));
+        assert_eq!(field(row, "actor"), actor, "{}", row.encode());
+        assert_eq!(field(row, "approvalId"), "APR-1", "{}", row.encode());
+        assert_eq!(field(row, "target"), "aircraft/AC-2214", "{}", row.encode());
+        assert_eq!(field(row, "reason"), "ground_aircraft", "{}", row.encode());
+        assert_eq!(row.str_field("approver"), approver, "{}", row.encode());
+    }
+
+    let fabric_row = audit_row(&rows, "PERMIT groundAircraft", "ground_aircraft")
+        .unwrap_or_else(|| panic!("no fabric action row: {}", rows.encode()));
+    assert_eq!(field(fabric_row, "actor"), DEMO_USERNAME);
+    assert_eq!(field(fabric_row, "approvalId"), "APR-1");
+    assert_eq!(field(fabric_row, "approver"), DEMO_APPROVER_USERNAME);
+    assert_eq!(field(fabric_row, "target"), "aircraft/AC-2214");
+    assert_eq!(field(fabric_row, "outcome"), "permit");
+}
+
+/// A flood of approval requests cannot push a live gate out: each requester holds at
+/// most 16 open requests, and once the store is full a request is refused with 429 and
+/// a Retry-After rather than evicting a pending or approved entry, both of which still
+/// work afterwards. [NFR-AI-1] [VLD-ANB-MIDGARD-0039] [AC-21.2]
+#[test]
+fn pending_and_approved_gates_are_not_evicted_by_a_flood_of_requests() {
+    let (mut gw, token) = session();
+    let pending = request_approval(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+    let live = approved(&gw, &token, "Schedule maintenance", "aircraft/AC-2214");
+
+    let flooders: Vec<String> = (0..16).map(|n| format!("flood-{n}")).collect();
+    for name in &flooders {
+        gw.provision_login(name, "flood-password", http_gateway::demo_operator())
+            .unwrap();
+    }
+    let body = r#"{"actionType":"Ground aircraft","target":"aircraft/AC-2214"}"#;
+    let mut accepted_by = Vec::new();
+    let mut queue_full = None;
+    for name in &flooders {
+        let flood = login(&gw, name, "flood-password");
+        let mut accepted = 0;
+        let refusal = loop {
+            let r = call(&gw, "POST", "/api/v1/approvals", "", body, Some(&flood));
+            if r.status != 200 {
+                break r;
+            }
+            accepted += 1;
+            assert!(accepted <= 16, "more than 16 open requests for {name}");
+        };
+        assert_eq!(refusal.status, 429, "{}", refusal.body);
+        assert_eq!(refusal.retry_after, Some(60), "{}", refusal.body);
+        accepted_by.push(accepted);
+        if refusal.body.contains("queue") {
+            queue_full = Some(refusal);
+            break;
+        }
+        assert!(
+            refusal.body.contains("too many open approval requests"),
+            "{}",
+            refusal.body
+        );
+        assert_eq!(accepted, 16, "the per-requester cap is 16");
+    }
+    let queue_full = queue_full.expect("the store filled and refused");
+    assert!(
+        queue_full.body.contains("approval queue is full"),
+        "{}",
+        queue_full.body
+    );
+    // 256 in all: the operator's two and the flood's 254.
+    assert_eq!(accepted_by.iter().sum::<usize>(), 254, "{accepted_by:?}");
+
+    let listed = json(&call(&gw, "GET", "/api/v1/approvals", "", "", Some(&token)));
+    let still_pending = items(&listed)
+        .iter()
+        .find(|a| field(a, "id") == pending)
+        .expect("the pending approval is still listed");
+    assert_eq!(field(still_pending, "status"), "pending");
+    let r = act(
+        &gw,
+        &token,
+        "Schedule maintenance",
+        "aircraft/AC-2214",
+        &live,
+    );
+    assert_eq!(r.status, 200, "the approved gate still redeems: {}", r.body);
+}
+
+/// A pending approval nobody decides expires after 24 hours: the next request prunes
+/// it, it is no longer listed, and the ledger says it expired. [NFR-AI-1]
+/// [VLD-ANB-MIDGARD-0039] [AC-21.3]
+#[test]
+fn a_pending_approval_expires_and_is_audited() {
+    let (gw, token) = session();
+    let first = request_approval(&gw, &token, "Ground aircraft", "aircraft/AC-2214");
+
+    // A day and a second later, with a fresh session.
+    let later = now() + 86_401;
+    let body = format!(r#"{{"username":"{DEMO_USERNAME}","password":"{DEMO_PASSWORD}"}}"#);
+    let r = call_at(&gw, "POST", "/api/v1/login", "", &body, None, later);
+    assert_eq!(r.status, 200, "{}", r.body);
+    let token = field(&json(&r), "token").to_string();
+    let body = r#"{"actionType":"Ground aircraft","target":"aircraft/AC-2261"}"#;
+    let r = call_at(
+        &gw,
+        "POST",
+        "/api/v1/approvals",
+        "",
+        body,
+        Some(&token),
+        later,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let listed = call_at(&gw, "GET", "/api/v1/approvals", "", "", Some(&token), later);
+    assert!(
+        !items(&json(&listed))
+            .iter()
+            .any(|a| field(a, "id") == first),
+        "{}",
+        listed.body
+    );
+    let rows = call_at(
+        &gw,
+        "GET",
+        "/api/v1/audit",
+        "limit=200",
+        "",
+        Some(&token),
+        later,
+    );
+    let rows = json(&rows);
+    let expired = audit_row(&rows, "APPROVAL expired", &format!("approval:{first}"))
+        .unwrap_or_else(|| panic!("no expiry row: {}", rows.encode()));
+    assert_eq!(field(expired, "actor"), DEMO_USERNAME);
+    assert_eq!(field(expired, "target"), "aircraft/AC-2214");
+    assert_eq!(field(expired, "approvalId"), first);
 }

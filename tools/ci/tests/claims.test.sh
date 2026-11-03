@@ -115,6 +115,37 @@ root="$(tree line)"
 edit "$root" 's#services/edge/src/lib.rs:1#services/edge/src/lib.rs:40#'
 expect_fail "a line anchor past the end of the file fails" "$root" "points past the end of the file"
 
+# --- token anchors: path:line:token (VLD-ANB-MIDGARD-0087) [AC-25.3] -------------------
+root="$(tree token-match)"
+edit "$root" 's#services/edge/src/lib.rs:1"#services/edge/src/lib.rs:1:fn serve"#'
+if out="$(run "$root" --check)" && grep -q '3 claims' <<<"$out"; then
+    pass "a token anchor whose line contains the token passes"
+else
+    fail "a matching token anchor: $out"
+fi
+
+root="$(tree token-mismatch)"
+edit "$root" 's#services/edge/src/lib.rs:1"#services/edge/src/lib.rs:2:fn serve"#'
+expect_fail "a token anchor whose line does not contain the token fails, naming both" "$root" \
+    "evidence services/edge/src/lib.rs:2:fn serve: line 2 does not contain 'fn serve'"
+
+root="$(tree token-empty)"
+edit "$root" 's#services/edge/src/lib.rs:1"#services/edge/src/lib.rs:1:"#'
+expect_fail "a token anchor with an empty token fails" "$root" "has an empty token after its line anchor"
+
+root="$(tree token-past-end)"
+edit "$root" 's#services/edge/src/lib.rs:1"#services/edge/src/lib.rs:40:fn serve"#'
+expect_fail "a token anchor past the end of the file fails as a line anchor does" "$root" \
+    "points past the end of the file"
+
+root="$(tree no-token)"
+edit "$root" 's#services/edge/src/lib.rs:1"#services/edge/src/lib.rs:2"#'
+if out="$(run "$root" --check)" && grep -q '3 claims' <<<"$out"; then
+    pass "an anchor without a token is checked for its line only, as before"
+else
+    fail "an anchor without a token: $out"
+fi
+
 root="$(tree test)"
 edit "$root" 's#tests = \["services/edge/tests/serve.rs::it_serves"\]#tests = ["services/edge/tests/serve.rs::it_flies"]#'
 expect_fail "a test that does not exist fails" "$root" "it_flies is not a #[test] function"

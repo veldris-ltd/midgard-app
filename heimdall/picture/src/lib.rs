@@ -25,6 +25,7 @@ pub mod entity;
 pub mod error;
 pub mod id;
 pub mod layer;
+pub mod limits;
 pub mod observation;
 pub mod picture;
 
@@ -33,5 +34,6 @@ pub use entity::{Classification, ClassificationSource, Track, TrackedEntity};
 pub use error::PictureError;
 pub use id::{EntityId, FeedId, LayerId, ObservationId};
 pub use layer::Layer;
+pub use limits::PictureLimits;
 pub use observation::{Attr, Observation};
 pub use picture::Picture;

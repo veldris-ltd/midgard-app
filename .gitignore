@@ -1,6 +1,10 @@
 # --- Rust ---
 /target
 **/target
+# Fuzzer output and the fuzz crate's own lockfile (crypto/pq-mtls/fuzz/README.md).
+crypto/pq-mtls/fuzz/corpus
+crypto/pq-mtls/fuzz/artifacts
+crypto/pq-mtls/fuzz/Cargo.lock
 
 # --- Go ---
 /bin
@@ -40,6 +44,7 @@ result-*
 # committed (deploy/trust/README.md). They hold public keys only.
 !/deploy/trust/release-trust.pub
 !/deploy/trust/bifrost-trust.pub
+!/deploy/trust/model-signing.pub
 
 # --- Secrets: never in the repo. Keys are issued at runtime by KMS/HSM. ---
 # [STD:OWASP ASVS V14.3]
@@ -59,6 +64,8 @@ result-*
 
 # The saved toolchain image and pinned tools CI keeps between jobs (tools/ci/run.sh).
 .ci-cache/
+# The release gate's checkout of main, beside the tagged one (tools/ci/verify-tag.sh).
+.ci-trusted/
 # Raw audit-tool reports; the records under clients/shells/*/audits are what is kept.
 /shell-audit/
 # GitLab dotenv report written by tools/ci/lib.sh.

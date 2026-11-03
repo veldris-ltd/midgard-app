@@ -209,18 +209,56 @@ fn dec_cert(r: &mut Reader) -> Result<IdentityCert, TransportError> {
             not_before,
             not_after,
             clearance,
+            purposes: None,
         },
         ca_sig_alg,
         ca_signature,
     })
 }
 
+/// The purposes a version 3 certificate binds, written after the version 2 encoding.
+/// [VLD-ANB-MIDGARD-0063]
+fn enc_purposes(o: &mut Vec<u8>, purposes: &BTreeSet<Purpose>) {
+    put_u32(o, purposes.len() as u32);
+    for p in purposes {
+        put_str(o, &p.0);
+    }
+}
+fn dec_purposes(r: &mut Reader) -> Result<BTreeSet<Purpose>, TransportError> {
+    let n = r.count(4)?;
+    let mut purposes = BTreeSet::new();
+    for _ in 0..n {
+        purposes.insert(Purpose(r.string()?));
+    }
+    Ok(purposes)
+}
+
+/// A certificate of either version: the version 2 encoding, then the purposes if it
+/// binds any. Whether they follow is said by the caller's framing (the file magic, the
+/// message tag or the certificate presence byte), never guessed from what remains.
+fn enc_cert_any(o: &mut Vec<u8>, c: &IdentityCert) {
+    enc_cert(o, c);
+    if let Some(p) = &c.terms.purposes {
+        enc_purposes(o, p);
+    }
+}
+fn dec_cert_v3(r: &mut Reader) -> Result<IdentityCert, TransportError> {
+    let mut cert = dec_cert(r)?;
+    cert.terms.purposes = Some(dec_purposes(r)?);
+    Ok(cert)
+}
+
 // ---- identity files -------------------------------------------------------
 
 /// File magic of a stored [`IdentityCert`]. Version 2 carries the certificate terms
 /// (serial, validity, clearance); version-1 files are refused and must be reissued.
+/// A certificate that binds purposes is written under [`CERT3_MAGIC`] instead.
 /// [MG-SEC-02] [MG-SEC-04]
 pub const CERT_MAGIC: &[u8; 7] = b"MGCERT2";
+/// File magic of a stored version 3 [`IdentityCert`]: version 2 plus the purposes the
+/// holder may declare. A release before version 3 refuses these files; a certificate
+/// without purposes is still written as version 2. [VLD-ANB-MIDGARD-0063]
+pub const CERT3_MAGIC: &[u8; 7] = b"MGCERT3";
 /// File magic of a stored [`TrustAnchor`]. Version 2 is the CA key alone: revocations
 /// travel separately in a CA-signed list ([`crate::revocation`]), never unsigned
 /// beside the key as version 1 carried them. [MG-SEC-03]
@@ -230,19 +268,32 @@ pub const ANCHOR_MAGIC: &[u8; 9] = b"MGANCHOR2";
 /// encoding the handshake carries, so a service loads exactly what it will present.
 /// [NFR-SEC-1]
 pub fn encode_cert(cert: &IdentityCert) -> Vec<u8> {
-    let mut o = CERT_MAGIC.to_vec();
-    enc_cert(&mut o, cert);
+    let magic = if cert.terms.purposes.is_some() {
+        CERT3_MAGIC
+    } else {
+        CERT_MAGIC
+    };
+    let mut o = magic.to_vec();
+    enc_cert_any(&mut o, cert);
     o
 }
 
 /// Decode a stored workload certificate. A wrong magic, truncated or trailing input,
 /// or a verifying key whose algorithm is not the one the identity declares is refused.
 pub fn decode_cert(bytes: &[u8]) -> Result<IdentityCert, TransportError> {
-    let body = bytes
-        .strip_prefix(CERT_MAGIC.as_slice())
-        .ok_or_else(|| TransportError::Malformed("not a certificate file".into()))?;
+    let (body, v3) = if let Some(body) = bytes.strip_prefix(CERT3_MAGIC.as_slice()) {
+        (body, true)
+    } else if let Some(body) = bytes.strip_prefix(CERT_MAGIC.as_slice()) {
+        (body, false)
+    } else {
+        return Err(TransportError::Malformed("not a certificate file".into()));
+    };
     let mut r = Reader::new(body);
-    let cert = dec_cert(&mut r)?;
+    let cert = if v3 {
+        dec_cert_v3(&mut r)?
+    } else {
+        dec_cert(&mut r)?
+    };
     r.finish()?;
     if cert.identity.verifying_key.alg() != cert.identity.sig_alg {
         return Err(TransportError::Malformed(
@@ -290,13 +341,30 @@ fn enc_caps(o: &mut Vec<u8>, c: &Capabilities) {
         o.push(a.as_u8());
     }
 }
+/// The most KEM suites or signature algorithms a peer may advertise. pqc-agility
+/// defines four suites and four signature algorithms, so a longer list can only be
+/// hostile; it is refused before anything is reserved for it. [VLD-ANB-MIDGARD-0010]
+const MAX_CAPABILITY_ENTRIES: usize = 16;
+
+/// A capability list's length: bounded by the frame (one byte per entry) and by
+/// [`MAX_CAPABILITY_ENTRIES`].
+fn capability_count(r: &mut Reader) -> Result<usize, TransportError> {
+    let n = r.count(1)?;
+    if n > MAX_CAPABILITY_ENTRIES {
+        return Err(TransportError::Malformed(
+            "too many capability entries".into(),
+        ));
+    }
+    Ok(n)
+}
+
 fn dec_caps(r: &mut Reader) -> Result<Capabilities, TransportError> {
-    let nk = r.count(1)?;
+    let nk = capability_count(r)?;
     let mut kem_suites = Vec::with_capacity(nk);
     for _ in 0..nk {
         kem_suites.push(dec_suite(r)?);
     }
-    let ns = r.count(1)?;
+    let ns = capability_count(r)?;
     let mut sig_algs = Vec::with_capacity(ns);
     for _ in 0..ns {
         sig_algs.push(dec_sig_id(r)?);
@@ -333,6 +401,14 @@ const TAG_CLIENT_HELLO: u8 = 1;
 const TAG_SERVER_HELLO: u8 = 2;
 const TAG_CKE: u8 = 3;
 const TAG_FINISHED: u8 = 4;
+/// A `ServerHello` whose certificate binds purposes (version 3). A certificate that
+/// binds none travels under [`TAG_SERVER_HELLO`], byte for byte as before.
+/// [VLD-ANB-MIDGARD-0063]
+const TAG_SERVER_HELLO_CERT3: u8 = 5;
+/// Certificate presence bytes in a `ClientKeyExchange`: none, version 2, version 3.
+const CKE_NO_CERT: u8 = 0;
+const CKE_CERT2: u8 = 1;
+const CKE_CERT3: u8 = 2;
 
 /// Encode a handshake message to its canonical byte body (no length prefix).
 pub fn encode_message(m: &HandshakeMessage) -> Vec<u8> {
@@ -347,11 +423,15 @@ pub fn encode_message(m: &HandshakeMessage) -> Vec<u8> {
             enc_posture(&mut o, &m.posture);
         }
         HandshakeMessage::ServerHello(m) => {
-            o.push(TAG_SERVER_HELLO);
+            o.push(if m.cert.terms.purposes.is_some() {
+                TAG_SERVER_HELLO_CERT3
+            } else {
+                TAG_SERVER_HELLO
+            });
             o.extend_from_slice(&m.nonce_s);
             o.push(m.suite.as_u8());
             enc_kem_pk(&mut o, &m.kem_pk);
-            enc_cert(&mut o, &m.cert);
+            enc_cert_any(&mut o, &m.cert);
             o.push(m.sig_alg.as_u8());
             enc_sig(&mut o, &m.sig_r);
         }
@@ -360,10 +440,14 @@ pub fn encode_message(m: &HandshakeMessage) -> Vec<u8> {
             enc_ct(&mut o, &m.ct);
             match &m.cert {
                 Some(c) => {
-                    o.push(1);
-                    enc_cert(&mut o, c);
+                    o.push(if c.terms.purposes.is_some() {
+                        CKE_CERT3
+                    } else {
+                        CKE_CERT2
+                    });
+                    enc_cert_any(&mut o, c);
                 }
-                None => o.push(0),
+                None => o.push(CKE_NO_CERT),
             }
             o.push(m.sig_alg.as_u8());
             enc_sig(&mut o, &m.sig_i);
@@ -396,11 +480,15 @@ pub fn decode_message(body: &[u8]) -> Result<HandshakeMessage, TransportError> {
                 posture,
             })
         }
-        TAG_SERVER_HELLO => {
+        TAG_SERVER_HELLO | TAG_SERVER_HELLO_CERT3 => {
             let nonce_s = r.arr32()?;
             let suite = dec_suite(&mut r)?;
             let kem_pk = dec_kem_pk(&mut r)?;
-            let cert = dec_cert(&mut r)?;
+            let cert = if tag == TAG_SERVER_HELLO_CERT3 {
+                dec_cert_v3(&mut r)?
+            } else {
+                dec_cert(&mut r)?
+            };
             let sig_alg = dec_sig_id(&mut r)?;
             let sig_r = dec_sig(&mut r)?;
             HandshakeMessage::ServerHello(ServerHello {
@@ -415,8 +503,9 @@ pub fn decode_message(body: &[u8]) -> Result<HandshakeMessage, TransportError> {
         TAG_CKE => {
             let ct = dec_ct(&mut r)?;
             let cert = match r.u8()? {
-                0 => None,
-                1 => Some(dec_cert(&mut r)?),
+                CKE_NO_CERT => None,
+                CKE_CERT2 => Some(dec_cert(&mut r)?),
+                CKE_CERT3 => Some(dec_cert_v3(&mut r)?),
                 _ => return Err(TransportError::Malformed("bad cert presence".into())),
             };
             let sig_alg = dec_sig_id(&mut r)?;

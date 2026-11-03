@@ -3,8 +3,9 @@
 //! Emergency access is the panel's most dangerous capability, so it is the most
 //! heavily controlled. A break-glass grant is `[FR-AD-8]` `[AC-AD-8]`:
 //!
-//! - **time-boxed** — it carries an explicit expiry and stops being active the
-//!   moment it passes;
+//! - **time-boxed** — it carries an explicit expiry of at most four hours
+//!   ([`MAX_TTL_SECS`]) and stops being active the moment it passes;
+//!   `[VLD-ANB-MIDGARD-0055]`
 //! - **justified** — a non-empty justification is mandatory;
 //! - **two-person** — the requester and the approver each come as an
 //!   [`AdminSession`](admin_identity::AdminSession), which exists only after that
@@ -20,7 +21,9 @@
 //!   that has not yet been reviewed raises another;
 //! - **forced post-hoc review** — an expired grant remains outstanding until a
 //!   reviewer signs it off; [`BreakGlassService::pending_reviews`] surfaces the
-//!   backlog so review cannot be quietly skipped.
+//!   backlog so review cannot be quietly skipped. Reviewing a grant, or closing it
+//!   early, revokes its capability at once through the [`BreakGlassController`], so a
+//!   reviewed or closed grant cannot still elevate. `[VLD-ANB-MIDGARD-0055]`
 //!
 //! It is a pure state machine over an injected clock and an [`Alerter`] sink, with
 //! no network or storage of its own, so it functions fully in-enclosure /
@@ -43,5 +46,5 @@ pub use controller::BreakGlassController;
 pub use durable::DurableBreakGlass;
 pub use error::BreakGlassError;
 pub use grant::{BreakGlassGrant, BreakGlassState, GrantRequest, Review};
-pub use service::{BreakGlassService, CAP_APPROVE, CAP_REQUEST};
+pub use service::{BreakGlassService, CAP_APPROVE, CAP_REQUEST, MAX_TTL_SECS};
 pub use token::{BreakGlassAuthority, CapabilityToken};

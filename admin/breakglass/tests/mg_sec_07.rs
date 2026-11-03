@@ -4,6 +4,10 @@
 //! cannot authenticate is refused, and a valid grant seals both authenticated
 //! identities into the audit ledger. [MG-SEC-07] [FR-AD-8]
 //!
+//! Both sessions must satisfy MFA: the passkey plus the second factor the relying
+//! party verified. A passkey alone, user-verified or not, is refused.
+//! [VLD-ANB-MIDGARD-0008]
+//!
 //! There is no "approver" field to type into any more: `GrantRequest` names only the
 //! principal, and the approver recorded is read from the approving session.
 //!
@@ -149,17 +153,27 @@ fn an_unauthenticated_approver_is_refused() {
             .unwrap_err(),
         IdentityError::UnknownAdmin
     );
-    // The right passkey without user verification is one factor, not a sign-in.
-    assert_eq!(
-        admins
-            .try_sign_in("secoff", "secoff", false, NOW)
-            .unwrap_err(),
-        IdentityError::MfaRequired
-    );
+    // The right passkey alone is one factor, whatever its user-verification flag
+    // claims: it opens a session, but not one that can approve break-glass, nor
+    // request it. [AC-10.1] [VLD-ANB-MIDGARD-0008]
+    let mallory = admins.sign_in("mallory", NOW);
+    let secoff = admins.sign_in("secoff", NOW);
+    for uv in [true, false] {
+        let approver = admins.try_sign_in("secoff", "secoff", uv, NOW).unwrap();
+        let requester = admins.try_sign_in("mallory", "mallory", uv, NOW).unwrap();
+        assert!(!approver.has_mfa() && !requester.has_mfa());
+        for (req_s, appr_s) in [(&mallory, &approver), (&requester, &secoff)] {
+            let (mut c, _) = controller();
+            assert_eq!(
+                grant(&mut c, request("mallory"), req_s, appr_s).unwrap_err(),
+                BreakGlassError::MfaRequired
+            );
+            nothing_happened(&c);
+        }
+    }
 
     // A session the approver opened long ago is not an approval now: they must
     // re-authenticate with their passkey at the moment of approving.
-    let mallory = admins.sign_in("mallory", NOW);
     let stale = admins.sign_in("secoff", NOW - APPROVAL_MAX_AGE);
     let (mut c, _) = controller();
     assert_eq!(

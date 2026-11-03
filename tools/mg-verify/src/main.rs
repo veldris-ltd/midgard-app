@@ -3,7 +3,8 @@
 //!
 //! This binary is argument handling and an exit code over
 //! [`attest::verify_artefact`], the file-level verifier. It runs in CI (stage 7,
-//! pre-publish) and in every image's entrypoint before the service starts.
+//! pre-publish) and, as `--run-service`, as every release image's entrypoint:
+//! it verifies the service binary and only then becomes it.
 //! Bifrost's pre-deploy check (AC-B-1) and Mimir's model load (AC-MS-2) verify
 //! their own manifests rather than files, so they do not call this — but all of
 //! them reach the same signature decision, `attest::accept::accept`: one
@@ -11,6 +12,7 @@
 //!
 //! ```text
 //! mg-verify <artefact> --trust-anchor <path> [--trust-anchor <path>…] [--quiet]
+//! mg-verify --trust-anchor <path> --run-service <service options>…
 //! ```
 //!
 //! Trust anchors are mandatory and explicit. There is no default anchor location
@@ -24,7 +26,18 @@
 //! ```
 //!
 //! Everything else goes to stderr with a non-zero exit. There is no soft pass.
+//!
+//! `--run-service` is verify-before-run for a release image, whose runtime stage is
+//! distroless and has no shell to run a script in (deploy/images/service.Dockerfile).
+//! It verifies `<MIDGARD_APP_DIR, default /app>/<MIDGARD_SERVICE>` exactly as above
+//! and, only when that passes, replaces itself with the binary, handing it every
+//! argument after `--run-service`. Those arguments are the service's, never this
+//! tool's: the trust anchor is the one on the image's own command line, and nothing
+//! in the environment or the container's arguments can name another. A service
+//! started with no options is refused rather than started on a default address.
+//! [AC-B-1] [NFR-PQ-3] [MG-SEC-06] [MG-SEC-14] [VLD-ANB-MIDGARD-0068]
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -33,6 +46,7 @@ use attest::{verify_artefact, TrustAnchors};
 const USAGE: &str = "\
 usage:
   mg-verify <artefact> --trust-anchor <path> [--trust-anchor <path>...] [--quiet]
+  mg-verify --trust-anchor <path> [--quiet] --run-service [--] <service options>...
 
 Verifies, and refuses unless every one of these holds:
   * <artefact>.sig, <artefact>.sbom.cdx.json and <artefact>.att all exist
@@ -48,6 +62,12 @@ Verifies, and refuses unless every one of these holds:
 Trust anchors are lines of `<alg> <key-id> <hex>`, as written by
 `mg-sign keygen --export-verifying-key`. They are mandatory: with none supplied,
 verification refuses.
+
+--run-service verifies $MIDGARD_APP_DIR/$MIDGARD_SERVICE ($MIDGARD_APP_DIR is /app
+when unset) the same way and, only if it verifies, runs it in place of mg-verify
+with every argument after --run-service (a leading `--` is dropped). It takes no
+artefact path, and a service given no options is refused (exit 2). A binary that
+does not verify is refused (exit 1) and never started.
 ";
 
 /// See `mg-sign`: ML-DSA verification holds large fixed-size arrays by value, so
@@ -73,21 +93,16 @@ fn verify_main() -> ExitCode {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
     }
+    if let Some(at) = argv.iter().position(|a| a == RUN_SERVICE) {
+        return run_service(&argv[..at], &argv[at + 1..]);
+    }
     match run(&argv) {
         Ok(line) => {
             // stdout carries ONLY the verdict, so callers can parse it.
             println!("{line}");
             ExitCode::SUCCESS
         }
-        Err(Failure::Usage(m)) => {
-            eprintln!("mg-verify: {m}\n");
-            eprint!("{USAGE}");
-            ExitCode::from(2)
-        }
-        Err(Failure::Refused(m)) => {
-            eprintln!("mg-verify: REFUSED — {m}");
-            ExitCode::FAILURE
-        }
+        Err(failure) => failure.report(),
     }
 }
 
@@ -97,11 +112,46 @@ enum Failure {
     Refused(String),
 }
 
+impl Failure {
+    /// Print the failure to stderr and give its exit code: 2 for a usage error, 1
+    /// for a refusal.
+    fn report(self) -> ExitCode {
+        match self {
+            Failure::Usage(m) => {
+                eprintln!("mg-verify: {m}\n");
+                eprint!("{USAGE}");
+                ExitCode::from(2)
+            }
+            Failure::Refused(m) => {
+                eprintln!("mg-verify: REFUSED — {m}");
+                ExitCode::FAILURE
+            }
+        }
+    }
+}
+
+const RUN_SERVICE: &str = "--run-service";
+
 fn is_help(arg: &str) -> bool {
     arg == "-h" || arg == "--help"
 }
 
+/// The tool's own arguments: the artefact (if named), the anchor files and `--quiet`.
+struct Options {
+    artefact: Option<PathBuf>,
+    anchor_paths: Vec<PathBuf>,
+    quiet: bool,
+}
+
 fn run(argv: &[String]) -> Result<String, Failure> {
+    let opts = parse(argv)?;
+    let artefact = opts
+        .artefact
+        .ok_or_else(|| Failure::Usage("no artefact given".into()))?;
+    verify(&artefact, &opts.anchor_paths, opts.quiet)
+}
+
+fn parse(argv: &[String]) -> Result<Options, Failure> {
     let mut artefact: Option<PathBuf> = None;
     let mut anchor_paths: Vec<PathBuf> = Vec::new();
     let mut quiet = false;
@@ -141,7 +191,15 @@ fn run(argv: &[String]) -> Result<String, Failure> {
         }
     }
 
-    let artefact = artefact.ok_or_else(|| Failure::Usage("no artefact given".into()))?;
+    Ok(Options {
+        artefact,
+        anchor_paths,
+        quiet,
+    })
+}
+
+/// Verify one artefact against the anchor files, giving its verdict line.
+fn verify(artefact: &Path, anchor_paths: &[PathBuf], quiet: bool) -> Result<String, Failure> {
     if anchor_paths.is_empty() {
         // Explicit, because "I forgot the anchors" and "this artefact is fine"
         // must never look the same to an operator or a script.
@@ -150,8 +208,8 @@ fn run(argv: &[String]) -> Result<String, Failure> {
         ));
     }
 
-    let anchors = load_anchors(&anchor_paths)?;
-    let verdict = verify_artefact(&artefact, &anchors)
+    let anchors = load_anchors(anchor_paths)?;
+    let verdict = verify_artefact(artefact, &anchors)
         .map_err(|e| Failure::Refused(format!("{} — {e}", artefact.display())))?;
 
     if !quiet {
@@ -162,6 +220,124 @@ fn run(argv: &[String]) -> Result<String, Failure> {
         );
     }
     Ok(verdict.line())
+}
+
+/// What `--run-service` starts once the binary has verified.
+struct ServicePlan<'a> {
+    bin: PathBuf,
+    name: String,
+    args: &'a [String],
+    opts: Options,
+}
+
+/// `--run-service`: verify-before-run, the release image's entrypoint. `own` is
+/// what came before `--run-service` (this tool's options), `service` what came
+/// after (the service's). The messages are the ones deploy/images/build.sh looks
+/// for when it starts each binary through its image. [AC-B-1] [NFR-PQ-3]
+fn run_service(own: &[String], service: &[String]) -> ExitCode {
+    let plan = match service_plan(own, service) {
+        Ok(plan) => plan,
+        Err(failure) => return failure.report(),
+    };
+    let name = &plan.name;
+    // Safe by default: a service started with no options is refused, never started
+    // on a default address. The gateway in particular needs its state directory
+    // (--state-dir); its development mode (--dev) listens on loopback only, so it is
+    // of no use in an image. [MG-SEC-06]
+    if plan.args.is_empty() {
+        eprintln!(
+            "::fatal:: {name} was started with no options — refusing to start. Pass the \
+             service's own options as the container's arguments (for http-gateway: \
+             --state-dir DIR --bind 0.0.0.0:7710 --allow-non-loopback ...)."
+        );
+        return ExitCode::from(2);
+    }
+
+    let anchors: Vec<String> = plan
+        .opts
+        .anchor_paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    println!(
+        "verify-before-run: checking {} against {}",
+        plan.bin.display(),
+        anchors.join(" ")
+    );
+    match verify(&plan.bin, &plan.opts.anchor_paths, plan.opts.quiet) {
+        Ok(line) => println!("{line}"),
+        Err(failure) => {
+            let code = failure.report();
+            eprintln!(
+                "::fatal:: {name} failed PQ signature/SBOM/provenance verification — refusing to start"
+            );
+            return code;
+        }
+    }
+    println!("verify-before-run: OK — starting {name}");
+    // Nothing printed above may be lost when the process image is replaced.
+    let _ = std::io::stdout().flush();
+    exec(&plan.bin, name, plan.args)
+}
+
+/// Work out what `--run-service` would start, refusing anything it must not.
+fn service_plan<'a>(own: &[String], service: &'a [String]) -> Result<ServicePlan<'a>, Failure> {
+    let opts = parse(own)?;
+    if opts.artefact.is_some() {
+        return Err(Failure::Usage(format!(
+            "{RUN_SERVICE} verifies $MIDGARD_SERVICE; it takes no artefact path"
+        )));
+    }
+    // A leading `--` separates explicitly. Without it the service's arguments are its
+    // options, so a bare path straight after --run-service is a mistaken attempt to
+    // name an artefact, not something to hand to the service.
+    let args = match service {
+        [sep, rest @ ..] if sep == "--" => rest,
+        [first, ..] if !first.starts_with('-') => {
+            return Err(Failure::Usage(format!(
+                "{RUN_SERVICE} verifies $MIDGARD_SERVICE; it takes no artefact path \
+                 (the service's options follow it, or follow `--`)"
+            )))
+        }
+        all => all,
+    };
+    let name = std::env::var("MIDGARD_SERVICE").unwrap_or_default();
+    if name.is_empty() {
+        return Err(Failure::Usage(
+            "MIDGARD_SERVICE (the service binary name) must be set".into(),
+        ));
+    }
+    // A name, not a path: the binary is always one the image's app directory holds.
+    if name.contains('/') || name == "." || name == ".." {
+        return Err(Failure::Usage(format!(
+            "MIDGARD_SERVICE must name a binary, not a path: {name:?}"
+        )));
+    }
+    let app_dir = std::env::var_os("MIDGARD_APP_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/app"));
+    Ok(ServicePlan {
+        bin: app_dir.join(&name),
+        name,
+        args,
+        opts,
+    })
+}
+
+/// Become the verified service. Returns only if it could not be started.
+#[cfg(unix)]
+fn exec(bin: &Path, name: &str, args: &[String]) -> ExitCode {
+    use std::os::unix::process::CommandExt;
+    let err = std::process::Command::new(bin).args(args).exec();
+    eprintln!("::fatal:: {name} verified but could not be started: {err}");
+    ExitCode::FAILURE
+}
+
+#[cfg(not(unix))]
+fn exec(_bin: &Path, name: &str, _args: &[String]) -> ExitCode {
+    eprintln!("::fatal:: {name} verified, but {RUN_SERVICE} starts services on Unix only");
+    ExitCode::FAILURE
 }
 
 /// Load and merge every anchor file. A malformed file is a refusal, never a

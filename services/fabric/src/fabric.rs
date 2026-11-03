@@ -5,17 +5,18 @@
 //! evaluation or audit signing (KDD-1). This is the Rust SDK surface mirroring the
 //! `ObjectFabric` proto service. [DD-1] [DD-6] [NFR-SEC-2] [NFR-AI-1]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use audit_writer::{InMemoryLedger, LedgerId, LedgerStore, SealedEntry};
-use governance::{GovContext, Governance};
-use policy::{ClassificationLevel, Marking, Resource, ResourceId};
+use governance::{AuditContext, GovContext, Governance};
+use policy::{Resource, ResourceId};
 use pqc_agility::VerifyingKey;
 
 use crate::action::{Effect, FunctionRuntime};
 use crate::error::FabricError;
 use crate::object::ObjectInstance;
 use crate::query::{run_query, Query};
+use crate::resource::type_resource;
 use crate::search::{run_search, Search, SearchPage};
 use crate::store::ObjectStore;
 use crate::types::TypeRegistry;
@@ -120,14 +121,7 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         q: &Query,
         now: u64,
     ) -> Result<QueryResponse, FabricError> {
-        let type_resource = Resource {
-            id: ResourceId(q.object_type.clone()),
-            marking: Marking {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: BTreeSet::new(),
-            },
-            allowed_purposes: [ctx.purpose.clone()].into_iter().collect(),
-        };
+        let type_resource = type_resource(&q.object_type, &ctx.purpose);
         let decision = self
             .governance
             .authorize(ctx, &type_resource, "Read", now)
@@ -151,14 +145,7 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         s: &Search,
         now: u64,
     ) -> Result<SearchPage, FabricError> {
-        let type_resource = Resource {
-            id: ResourceId(s.object_type.clone()),
-            marking: Marking {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: BTreeSet::new(),
-            },
-            allowed_purposes: [ctx.purpose.clone()].into_iter().collect(),
-        };
+        let type_resource = type_resource(&s.object_type, &ctx.purpose);
         let decision = self
             .governance
             .authorize(ctx, &type_resource, "Read", now)
@@ -184,6 +171,27 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         action_type_id: &str,
         raw_params: &BTreeMap<String, String>,
         now: u64,
+    ) -> Result<ApplyActionResponse, FabricError> {
+        self.apply_action_with(
+            ctx,
+            action_type_id,
+            raw_params,
+            now,
+            AuditContext::default(),
+        )
+    }
+
+    /// [`apply_action`](Self::apply_action), recording `audit` on the action's
+    /// lineage row: for a human-gated action, the approval that authorised it, its
+    /// approver and its target. The row's outcome is the decision's, Permit or Deny.
+    /// [NFR-AI-1] [VLD-ANB-MIDGARD-0038]
+    pub fn apply_action_with(
+        &mut self,
+        ctx: &GovContext,
+        action_type_id: &str,
+        raw_params: &BTreeMap<String, String>,
+        now: u64,
+        audit: AuditContext,
     ) -> Result<ApplyActionResponse, FabricError> {
         let at = self
             .registry
@@ -219,7 +227,7 @@ impl<S: ObjectStore, L: LedgerStore> Fabric<S, L> {
         };
         let decision = self
             .governance
-            .authorize(ctx, &resource, &at.api_name, now)
+            .authorize_with(ctx, &resource, &at.api_name, now, audit)
             .map_err(|e| FabricError::Audit(e.to_string()))?;
         if !decision.permitted {
             return Err(FabricError::Denied);

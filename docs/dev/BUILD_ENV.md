@@ -9,6 +9,9 @@ two supported ways to get that toolchain; both build the *same* vendored sources
 - No C toolchain, CMake, or system libraries are required: the post-quantum
   backend is **pure-Rust** (FIPS 203/204/205 + X25519). This is why liboqs was
   dropped in Phase 1.
+- **Node `22.12` or later** and **pnpm `9.12.0`**, for the consoles and the TypeScript
+  SDK only — pinned in the root [`package.json`](../../package.json) (`engines`,
+  `packageManager`); Vite 7 needs that Node or later.
 
 ## Offline / vendored dependencies (sovereign posture) [NFR-PRV-1] [NFR-OSS-1]
 
@@ -31,6 +34,31 @@ Dependencies are pinned to Rust 1.82-compatible versions. Notably `zeroize` is
 held at `1.8.1` (1.9's `zeroize_derive` requires edition 2024 / Cargo ≥ 1.85), and
 `base64ct` (pulled in by `argon2` / `password-hash`) at `1.6.0`, because later
 releases need edition 2024 (`cargo update -p base64ct --precise 1.6.0`).
+
+### The weekly advisory refresh [AC-25.6] [AC-P4.5]
+
+The advisory data the scan judges dependencies against is vendored too:
+`vendor/advisory-db` (RustSec) and `vendor/advisory-db-npm` (OSV, filtered to what
+`pnpm-lock.yaml` pins). The snapshots are refreshed on a schedule, and dependencies
+by Renovate, both as pull or merge requests a person reviews
+([CI.md](CI.md), "Dependency updates"):
+
+- **Weekly**, Mondays at 03:17 UTC, `.github/workflows/advisory-refresh.yml` (and a
+  GitLab pipeline schedule calling the `advisory-refresh` job) runs
+  `bash tools/ci/run.sh advisory-refresh`. It downloads both sources on the runner,
+  rewrites the two snapshots offline in the toolchain with `just advisory-db-refresh`
+  and `just advisory-db-npm-refresh`, re-scans, and, when either snapshot moved,
+  opens a pull or merge request whose body is the scan diff.
+- **The review is a person's.** A maintainer reviews that request within the week:
+  the snapshot diff (a shrinking advisory count means something went wrong), any new
+  advisory the scan reports against a pinned crate or package, and what to update,
+  vendor or waive. A pull request opened with the workflow token does not start the CI
+  workflows on GitHub; close and reopen it, or push to it, so the gates run before
+  merge.
+- On GitLab the job needs `MIDGARD_MR_TOKEN`, a project access token with api scope,
+  as a protected, masked CI/CD variable; `CI_JOB_TOKEN` can neither push nor open a
+  merge request. Create the schedule on the default branch.
+  (VLD-ANB-MIDGARD-0090) (VLD-ANB-MIDGARD-0076)
 
 ## Option A — Docker (canonical; used by CI) [AC-M-5] [AC-M-6]
 
@@ -105,3 +133,20 @@ The crypto crates gate their backend tests behind mutually-exclusive features, s
 | `cargo test -p pqc-agility -p pq-mtls -p audit-writer --features test-backend` | agility shim, handshake, audit chain (deterministic INSECURE backend) |
 | `cargo test -p pqc-agility --features backend-fips --test fips_backend` | production FIPS 203/204/205 + X25519 backend |
 | `cargo test -p policy` | policy decision point |
+
+## Fuzzing the handshake decoder [NFR-SEC-1]
+
+`crypto/pq-mtls/fuzz` holds a libFuzzer target for `pq_mtls::decode_message`, the
+decoder every mesh listener runs on a peer's frames before any certificate is checked.
+It is a developer job, and a release-runner job before each release, not part of CI:
+cargo-fuzz needs a nightly toolchain and fetches `libfuzzer-sys` from the network, so
+the workspace excludes the directory and the offline build never sees it.
+
+```sh
+cargo +nightly install cargo-fuzz
+cd crypto/pq-mtls/fuzz
+cargo +nightly fuzz run --fuzz-dir . decode_message -- -max_total_time=600
+```
+
+`crypto/pq-mtls/fuzz/README.md` says where the corpus and any crashing inputs land. A
+crash is a security finding: report it as `SECURITY.md` describes.

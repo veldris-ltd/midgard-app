@@ -221,7 +221,7 @@ You can also check files before you import, with any JSON Schema (draft 2020-12)
 
 ## 6 — Allow the actions
 
-The starter `policy.json` lets role `operator` `Read` and `Apply`, and role `approver` `Read` and `Approve` the human gates that gated actions need. Each action also needs a rule granting its **`name`**, otherwise it is refused. [`examples/utility/policy.json`](examples/utility/policy.json) adds one for each example action:
+The starter `policy.json` lets role `operator` `Read` and `Apply`, and role `approver` `Read` and `Approve` the human gates that gated actions need. Both may `ReadAudit` on `audit-ledger`, which opens the audit view, and `operator` also on `audit-ledger:sessions`, which shows other people's login rows in it. Each action also needs a rule granting its **`name`**, otherwise it is refused. [`examples/utility/policy.json`](examples/utility/policy.json) adds one for each example action:
 
 ```json
 {
@@ -231,6 +231,9 @@ The starter `policy.json` lets role `operator` `Read` and `Apply`, and role `app
     { "id": "operator-apply",   "role": "operator", "action": "Apply",             "resource": "*", "effect": "permit" },
     { "id": "approver-read",    "role": "approver", "action": "Read",              "resource": "*", "effect": "permit" },
     { "id": "approver-approve", "role": "approver", "action": "Approve",           "resource": "*", "effect": "permit" },
+    { "id": "operator-audit",   "role": "operator", "action": "ReadAudit",         "resource": "audit-ledger", "effect": "permit" },
+    { "id": "operator-audit-sessions", "role": "operator", "action": "ReadAudit",  "resource": "audit-ledger:sessions", "effect": "permit" },
+    { "id": "approver-audit",   "role": "approver", "action": "ReadAudit",         "resource": "audit-ledger", "effect": "permit" },
     { "id": "operator-flag",    "role": "operator", "action": "flagTransformer",   "resource": "*", "effect": "permit" },
     { "id": "operator-isolate", "role": "operator", "action": "isolateSubstation", "resource": "*", "effect": "permit" }
   ]
@@ -322,7 +325,7 @@ curl -s -X POST "${AUTH[@]}" http://127.0.0.1:7710/api/v1/actions \
 # {"auditId":"AUD-14","applied":true}
 ```
 
-A human-gated action without a `humanGateToken` is refused with `Human gate required for action "Isolate substation"`. The token is the id of an approval a second person granted: request it with `POST /api/v1/approvals {"actionType":"isolate_substation","target":"substation/SS-ELM"}`, have a user whose role your policy grants `Approve` call `POST /api/v1/approvals/<id>/approve`, then send `"humanGateToken":"<id>"` with the action. It works once, only for the user who asked, only for that action on that object, and only for 15 minutes. An action whose marking, compartments or purposes the caller does not hold is refused with `denied by policy`. Every read and every action, allowed or refused, is written to the audit ledger; `GET /api/v1/audit` lists it.
+A human-gated action without a `humanGateToken` is refused with `Human gate required for action "Isolate substation"`. The token is the id of an approval a second person granted: request it with `POST /api/v1/approvals {"actionType":"isolate_substation","target":"substation/SS-ELM"}`, have a user whose role your policy grants `Approve` call `POST /api/v1/approvals/<id>/approve`, then send `"humanGateToken":"<id>"` with the action. It works once, only for the user who asked, only for that action on that object, and only for 15 minutes. An action whose marking, compartments or purposes the caller does not hold is refused with `denied by policy`. Every read and every action, allowed or refused, is written to the audit ledger; `GET /api/v1/audit` lists it to a caller holding `ReadAudit`, leaving out rows about objects that caller cannot read and, without the `audit-ledger:sessions` grant, other people's login rows. The `X-Audit-Filtered: true` header says when rows were left out.
 
 ---
 

@@ -29,7 +29,8 @@ pub use agent::{
     ReferenceAgent, RefusalCode,
 };
 pub use assembly::{
-    AssembledPrompt, AssemblyConfig, AssemblyError, Layers, Pipeline, TokenCounter, WordCounter,
+    random_boundary, AssembledPrompt, AssemblyConfig, AssemblyError, Boundary, Layers, Pipeline,
+    TokenCounter, WordCounter,
 };
 pub use defend::{
     Classifier, DefenseCategory, DefenseVerdict, ModelBackedGuardrail, SelfDefending, Severity,
@@ -46,7 +47,7 @@ pub use evals::{
 pub use govloop::{
     default_gate_resource, ActionCatalog, ActionExecutor, ActionMeta, ActionOutcome, AgentTask,
     Applied, ApproveAll, DenyAll, GovernedLoop, HaltReason, HealingRecord, HumanDecision,
-    HumanGate, LoopOutcome, Preauth, StepBudget,
+    HumanGate, LoopOutcome, Preauth, StepBudget, DEFAULT_MAX_VALUE_LEN,
 };
 pub use guardrail::{AllowAll, GuardVerdict, InputGuardrail};
 pub use heal::{

@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 
 use audit_writer::{verify_chain, AuditError};
-use governance::{GovContext, Governance, GOV_SIG_ALG};
+use governance::{GovContext, Governance, Outcome, GOV_SIG_ALG};
 use policy::{
     Action, ClassificationLevel, Clearance, Compartment, DefaultPdp, Effect, Marking, PolicySet,
     Purpose, Resource, ResourceId, Role, Rule, RuleId, Selector,
@@ -201,4 +201,63 @@ fn permits_does_not_audit() {
     // And an audited call then records exactly one entry.
     gov.authorize(&alice, &doc, "Read", 5000).unwrap();
     assert_eq!(gov.audit_entries().len(), 1);
+}
+
+/// Two decisions in the same second get distinct ids: each row's id is its place in
+/// the ledger, the `AUD-<seq>` the edge shows. [VLD-ANB-MIDGARD-0052] [AC-26.2]
+#[test]
+fn record_ids_are_unique_and_sequential() {
+    let mut gov = Governance::new(analyst_read_pdp(), &mut SeedRng(6)).unwrap();
+    let alice = ctx(
+        "alice",
+        "analyst",
+        ClassificationLevel::SECRET,
+        "investigation",
+    );
+    let doc = marked_resource("doc:8", ClassificationLevel::UNCLASSIFIED, "investigation");
+    gov.authorize(&alice, &doc, "Read", 6000).unwrap();
+    gov.authorize(&alice, &doc, "Read", 6000).unwrap();
+    let ids: Vec<&str> = gov
+        .audit_entries()
+        .iter()
+        .map(|e| e.record.id.0.as_str())
+        .collect();
+    assert_eq!(ids, ["AUD-0", "AUD-1"]);
+    verify(&gov).expect("chain verifies");
+}
+
+/// The decision is a structured field, not only words in the action text, and the
+/// action text is unchanged for the dashboards that read it. [VLD-ANB-MIDGARD-0052]
+/// [AC-26.2]
+#[test]
+fn authorize_sets_the_outcome_field() {
+    let mut gov = Governance::new(analyst_read_pdp(), &mut SeedRng(7)).unwrap();
+    let alice = ctx(
+        "alice",
+        "analyst",
+        ClassificationLevel::SECRET,
+        "investigation",
+    );
+    let open = marked_resource("doc:9", ClassificationLevel::UNCLASSIFIED, "investigation");
+    let secret = marked_resource("doc:10", ClassificationLevel::TOP_SECRET, "investigation");
+    assert!(
+        gov.authorize(&alice, &open, "Read", 7000)
+            .unwrap()
+            .permitted
+    );
+    assert!(
+        !gov.authorize(&alice, &secret, "Read", 7000)
+            .unwrap()
+            .permitted
+    );
+    let rows = gov.audit_entries();
+    assert_eq!(rows[0].record.context.outcome, Outcome::Permit);
+    assert_eq!(rows[0].record.action.0, "PERMIT Read");
+    assert_eq!(rows[1].record.context.outcome, Outcome::Deny);
+    assert_eq!(rows[1].record.action.0, "DENY Read");
+    // An event with no context is written exactly as before.
+    gov.record_event("alice", "LOGIN succeeded", "session", 7001)
+        .unwrap();
+    assert!(gov.audit_entries()[2].record.context.is_empty());
+    verify(&gov).expect("chain verifies");
 }

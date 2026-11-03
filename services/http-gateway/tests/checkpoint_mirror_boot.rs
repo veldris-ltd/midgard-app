@@ -8,7 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use audit_writer::{checkpoint_path, CheckpointMirror, FileCheckpointMirror, LedgerId};
 use http_gateway::boot::{
     init_audit_ledger_mirrored, mirror_audit_ledger, open_state_dir, open_state_dir_mirrored,
@@ -56,10 +58,26 @@ fn provision(tag: &str) -> Dirs {
     std::fs::create_dir_all(state.trust()).unwrap();
     let idp = Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
-    idp.write(&state.idp_keystore()).unwrap();
-    audit.write(&state.audit_keystore()).unwrap();
+    idp.write(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
+    audit
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
+        .unwrap();
     std::fs::write(state.audit_trust_anchor(), audit.export_verifying_key()).unwrap();
-    init_audit_ledger_mirrored(&state, Some(&mirror)).unwrap();
+    init_audit_ledger_mirrored(
+        &state,
+        Some(&mirror),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
 
     let policy = PolicySet::new(vec![Rule {
         id: RuleId("operator-read".into()),
@@ -102,9 +120,12 @@ fn provision(tag: &str) -> Dirs {
 
 fn pin(state: &StateDir) -> audit_writer::PinnedKey {
     audit_writer::PinnedKey::new(
-        Keystore::read(&state.audit_keystore())
-            .unwrap()
-            .verifying_key,
+        Keystore::read(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .verifying_key,
     )
 }
 
@@ -119,8 +140,14 @@ fn mirrored(dir: &Path) -> Option<u64> {
 
 /// Boot with the mirror, log in once (an audited event), and shut down.
 fn serve_once(d: &Dirs) -> usize {
-    let served = open_state_dir_mirrored(&d.state, Vec::new(), &pin(&d.state), Some(&d.mirror))
-        .expect("boots with its mirror");
+    let served = open_state_dir_mirrored(
+        &d.state,
+        Vec::new(),
+        &pin(&d.state),
+        Some(&d.mirror),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots with its mirror");
     login(&served.gateway);
     served.gateway.audit_len()
 }
@@ -141,7 +168,13 @@ fn login(gw: &DurableGateway) {
 }
 
 fn refused(d: &Dirs) -> String {
-    match open_state_dir_mirrored(&d.state, Vec::new(), &pin(&d.state), Some(&d.mirror)) {
+    match open_state_dir_mirrored(
+        &d.state,
+        Vec::new(),
+        &pin(&d.state),
+        Some(&d.mirror),
+        &RootWrap::Passphrase(&test_passphrase()),
+    ) {
         Ok(_) => panic!("this enclosure must not boot"),
         Err(e) => e,
     }
@@ -175,7 +208,15 @@ fn a_ledger_rolled_back_with_its_checkpoint_refuses_to_boot_with_a_mirror() {
     // An older backup of both files is consistent on its own: without the mirror it
     // boots, and the entries since are gone unnoticed.
     restore(&d.state, &backup);
-    drop(open_state_dir(&d.state, Vec::new(), &pin(&d.state)).expect("consistent locally"));
+    drop(
+        open_state_dir(
+            &d.state,
+            Vec::new(),
+            &pin(&d.state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("consistent locally"),
+    );
     // With the mirror it does not.
     let e = refused(&d);
     assert!(e.contains("rolled back"), "{e}");
@@ -203,7 +244,13 @@ fn a_missing_mirrored_checkpoint_fails_closed_until_it_is_re_seeded() {
     assert!(e.contains("mg-admin audit checkpoint"), "{e}");
 
     // The documented recovery: verify under the pin, then re-seed.
-    let vouched = mirror_audit_ledger(&d.state, &pin(&d.state), &d.mirror).unwrap();
+    let vouched = mirror_audit_ledger(
+        &d.state,
+        &pin(&d.state),
+        &d.mirror,
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert_eq!(vouched, entries);
     assert_eq!(mirrored(&d.mirror), Some(entries as u64));
     serve_once(&d);
@@ -212,7 +259,13 @@ fn a_missing_mirrored_checkpoint_fails_closed_until_it_is_re_seeded() {
     let backup = back_up(&d.state);
     serve_once(&d);
     restore(&d.state, &backup);
-    let e = mirror_audit_ledger(&d.state, &pin(&d.state), &d.mirror).unwrap_err();
+    let e = mirror_audit_ledger(
+        &d.state,
+        &pin(&d.state),
+        &d.mirror,
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap_err();
     assert!(e.contains("rolled back"), "{e}");
 }
 
@@ -224,6 +277,7 @@ fn a_mirror_must_exist_and_lie_outside_the_state_directory() {
         Vec::new(),
         &pin(&d.state),
         Some(&d.root.join("not-mounted")),
+        &RootWrap::Passphrase(&test_passphrase()),
     ) {
         Ok(_) => panic!("a missing mirror directory must not boot"),
         Err(e) => e,
@@ -232,7 +286,13 @@ fn a_mirror_must_exist_and_lie_outside_the_state_directory() {
 
     let inside = d.state.root().join("mirror");
     std::fs::create_dir_all(&inside).unwrap();
-    let e = match open_state_dir_mirrored(&d.state, Vec::new(), &pin(&d.state), Some(&inside)) {
+    let e = match open_state_dir_mirrored(
+        &d.state,
+        Vec::new(),
+        &pin(&d.state),
+        Some(&inside),
+        &RootWrap::Passphrase(&test_passphrase()),
+    ) {
         Ok(_) => panic!("a mirror inside the state directory must not boot"),
         Err(e) => e,
     };
@@ -268,6 +328,10 @@ fn the_command_line_passes_the_mirror_to_the_ledger() {
     serve_once(&d);
     restore(&d.state, &backup);
     let out = Command::new(env!("CARGO_BIN_EXE_http-gateway"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--state-dir",
             d.state.root().to_str().unwrap(),

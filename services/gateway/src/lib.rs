@@ -17,8 +17,19 @@
 //! (fabric / governance / KMS). A [`RateLimiter`] enforces per-identity token
 //! buckets and a per-connection request quota, so an abusive peer is throttled.
 //! With a [`TicketKey`] configured, the gateway also issues PQ-mTLS **resumption
-//! tickets** and accepts abbreviated (resumed) handshakes that skip the KEM +
-//! signature flights — amortising the handshake across connections too.
+//! tickets** and accepts abbreviated (resumed) handshakes that skip the signature
+//! flights — amortising the handshake across connections too.
+//!
+//! ## Resumption (VLD-ANB-MIDGARD-0046)
+//! The ticket travels inside the session's record layer, sealed under
+//! [`pq_mtls::NEW_TICKET_AAD`] as the first record the gateway sends. Each resumption
+//! runs a fresh KEM exchange and re-verifies the client's certificate against the
+//! gateway's live trust anchor and revocation list. Ticket keys rotate once per
+//! ticket TTL; the previous key is kept so tickets issued before a rotation still
+//! open while they are in date. Seen tickets are remembered as SHA-256 digests until
+//! they expire, at most [`MAX_SEEN_TICKETS`] of them; when the set is full a
+//! resumption is refused (the client falls back to a full handshake) and counted.
+//! Resumption is opt-in ([`Gateway::with_resumption`]) and no service enables it.
 //!
 //! ## Pre-authentication limits (MG-SEC-13)
 //! Everything before the handshake completes is reachable by anyone who can open a
@@ -35,20 +46,20 @@
 //! connection that simply stops is reported as [`MtlsError::StreamTruncated`], so a
 //! cut connection is never mistaken for a finished one.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use policy::{PolicyDecisionPoint, Resource};
 use pq_mtls::{
-    issue_ticket, read_frame, run_responder, run_resume_responder, write_frame, IdentityCert,
-    MtlsError, Record, Responder, Role, TcpChannel, TicketKey, TransportError, TrustAnchor,
-    WorkloadIdentity, MODE_FULL, MODE_RESUME,
+    issue_ticket, read_frame, run_responder, run_resume_responder, write_frame, Authorization,
+    IdentityCert, MtlsError, Record, Responder, Role, TcpChannel, TicketKey, TransportError,
+    TrustAnchor, WorkloadIdentity, MODE_FULL, MODE_RESUME, NEW_TICKET_AAD,
 };
-use pqc_agility::{CryptoProvider, OsRng, SigningKey};
+use pqc_agility::{sha256, CryptoProvider, OsRng, Rng, SigningKey};
 
 /// AAD binding every application record to this gateway's record context. A
 /// client must seal/open its records under the same value.
@@ -70,30 +81,67 @@ pub fn close_stream(
     write_frame(stream, &sealer.seal_close(RECORD_AAD)?).map_err(MtlsError::Transport)
 }
 
+/// What a responder session authorised its peer for. Every responder session has one;
+/// a session without it is never served. [VLD-ANB-MIDGARD-0063]
+fn authorization_of(session: &pq_mtls::Session) -> Result<Authorization, MtlsError> {
+    session
+        .authorization()
+        .cloned()
+        .ok_or_else(|| MtlsError::Protocol("the session carries no authorisation".into()))
+}
+
 // ---- request handling & routing -------------------------------------------
 
 /// Handles an authenticated request. The gateway has already established the
 /// peer's identity and authorised the connection before this is called.
 pub trait RequestHandler: Send + Sync {
-    /// Produce a response for `request` from the authenticated `peer`.
-    fn handle(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8>;
+    /// Produce a response for `request` from the authenticated `peer`, which the
+    /// channel authorised as `authorization`: the clearance its certificate grants
+    /// (capped by what it asked for), its declared purpose, and the purposes its
+    /// certificate binds. [MG-SEC-04] [VLD-ANB-MIDGARD-0063]
+    fn handle(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8>;
 }
 
 /// Any `Fn(peer, request) -> response` is a handler — convenient for wiring
-/// control-plane services (fabric / governance / KMS) as closures.
+/// control-plane services (fabric / governance / KMS) as closures. A handler that
+/// needs the channel's authorisation is wrapped in [`Authorised`] instead.
 impl<F> RequestHandler for F
 where
     F: Fn(&WorkloadIdentity, &[u8]) -> Vec<u8> + Send + Sync,
 {
-    fn handle(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    fn handle(&self, peer: &WorkloadIdentity, _: &Authorization, request: &[u8]) -> Vec<u8> {
         self(peer, request)
+    }
+}
+
+/// A `Fn(peer, authorization, request) -> response` handler: one whose decisions use
+/// what the channel authorised the peer for, such as a mesh service building its
+/// per-request policy context from the certified clearance. [VLD-ANB-MIDGARD-0063]
+pub struct Authorised<F>(pub F);
+
+impl<F> RequestHandler for Authorised<F>
+where
+    F: Fn(&WorkloadIdentity, &Authorization, &[u8]) -> Vec<u8> + Send + Sync,
+{
+    fn handle(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8> {
+        (self.0)(peer, authorization, request)
     }
 }
 
 /// A trivial echo handler (useful as a health/loopback endpoint and in tests).
 pub struct EchoHandler;
 impl RequestHandler for EchoHandler {
-    fn handle(&self, _peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    fn handle(&self, _peer: &WorkloadIdentity, _: &Authorization, request: &[u8]) -> Vec<u8> {
         request.to_vec()
     }
 }
@@ -162,7 +210,12 @@ impl Router {
 }
 
 impl RequestHandler for Router {
-    fn handle(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    fn handle(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8> {
         let (method, payload) = match parse_request(request) {
             Some(x) => x,
             None => return vec![status::BAD_REQUEST],
@@ -171,7 +224,7 @@ impl RequestHandler for Router {
             Some(h) => {
                 let mut out = Vec::with_capacity(1 + payload.len());
                 out.push(status::OK);
-                out.extend_from_slice(&h.handle(peer, payload));
+                out.extend_from_slice(&h.handle(peer, authorization, payload));
                 out
             }
             None => vec![status::NO_ROUTE],
@@ -190,10 +243,24 @@ struct Bucket {
 /// cannot escape its limit by reconnecting). `capacity` is the burst size;
 /// `refill_per_sec` the sustained rate (0.0 makes it a pure hard quota of
 /// `capacity` requests). [RT-25]
+///
+/// A bucket that has refilled to `capacity` is the same as no bucket, so once the map
+/// reaches [`RATE_LIMITER_PRUNE_AT`] identities (and each time it doubles from what a
+/// prune left) such buckets are dropped: the map holds only the identities seen within
+/// one refill period, not every identity ever seen. [VLD-ANB-MIDGARD-0005]
 pub struct RateLimiter {
     capacity: f64,
     refill_per_sec: f64,
-    buckets: Mutex<HashMap<String, Bucket>>,
+    buckets: Mutex<Buckets>,
+}
+
+/// How many identities a [`RateLimiter`] holds before it first drops refilled buckets.
+pub const RATE_LIMITER_PRUNE_AT: usize = 1024;
+
+struct Buckets {
+    map: HashMap<String, Bucket>,
+    /// The size at which the next new identity prunes the map first.
+    prune_at: usize,
 }
 
 impl RateLimiter {
@@ -202,15 +269,23 @@ impl RateLimiter {
         Self {
             capacity,
             refill_per_sec,
-            buckets: Mutex::new(HashMap::new()),
+            buckets: Mutex::new(Buckets {
+                map: HashMap::new(),
+                prune_at: RATE_LIMITER_PRUNE_AT,
+            }),
         }
     }
 
     /// Consume one token for `id`. Returns `false` (throttle) if the bucket is dry.
     pub fn allow(&self, id: &str) -> bool {
         let now = Instant::now();
-        let mut m = self.buckets.lock().expect("rate-limiter lock");
-        let b = m.entry(id.to_string()).or_insert(Bucket {
+        let mut guard = self.buckets.lock().expect("rate-limiter lock");
+        let buckets = &mut *guard;
+        if buckets.map.len() >= buckets.prune_at && !buckets.map.contains_key(id) {
+            self.prune(&mut buckets.map, now);
+            buckets.prune_at = (2 * buckets.map.len()).max(RATE_LIMITER_PRUNE_AT);
+        }
+        let b = buckets.map.entry(id.to_string()).or_insert(Bucket {
             tokens: self.capacity,
             last: now,
         });
@@ -226,11 +301,141 @@ impl RateLimiter {
             false
         }
     }
+
+    /// How many identities the limiter holds a bucket for.
+    pub fn tracked(&self) -> usize {
+        self.buckets.lock().expect("rate-limiter lock").map.len()
+    }
+
+    /// Drop every bucket that has refilled to capacity by `now`. A hard quota (no
+    /// refill) never refills, so it keeps every bucket.
+    fn prune(&self, map: &mut HashMap<String, Bucket>, now: Instant) {
+        if self.refill_per_sec <= 0.0 {
+            return;
+        }
+        map.retain(|_, b| {
+            let dt = now.duration_since(b.last).as_secs_f64();
+            b.tokens + dt * self.refill_per_sec < self.capacity
+        });
+    }
+}
+
+// ---- resumption state ------------------------------------------------------
+
+/// The most seen-ticket digests the gateway remembers. When the set is full (and
+/// nothing in it has expired) a resumption is refused and the client falls back to a
+/// full handshake. [VLD-ANB-MIDGARD-0046]
+pub const MAX_SEEN_TICKETS: usize = 65_536;
+
+/// What [`SeenTickets::admit`] decided about a ticket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TicketAdmission {
+    /// First presentation: the ticket is now marked as used.
+    Fresh,
+    /// The ticket was presented before.
+    Replayed,
+    /// The set is at [`MAX_SEEN_TICKETS`]; the ticket is refused unrecorded.
+    Full,
+}
+
+/// The single-use guard for resumption tickets: SHA-256 digests of the tickets
+/// presented so far, each kept until the ticket's own expiry. Expired entries are
+/// pruned on insert, and the set never holds more than [`MAX_SEEN_TICKETS`].
+/// [VLD-ANB-MIDGARD-0046]
+#[derive(Debug)]
+pub struct SeenTickets {
+    entries: HashMap<[u8; 32], u64>,
+    /// The earliest expiry in `entries` (`u64::MAX` when empty), so pruning only
+    /// walks the set once something in it can have expired.
+    earliest: u64,
+}
+
+impl Default for SeenTickets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SeenTickets {
+    /// An empty set.
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            earliest: u64::MAX,
+        }
+    }
+
+    /// Record `ticket` (valid until `expires_at`, inclusive) as used at `now`, after
+    /// pruning the entries that expired before `now`.
+    pub fn admit(&mut self, ticket: &[u8], expires_at: u64, now: u64) -> TicketAdmission {
+        self.prune(now);
+        let digest = sha256(ticket);
+        if self.entries.contains_key(&digest) {
+            return TicketAdmission::Replayed;
+        }
+        if self.entries.len() >= MAX_SEEN_TICKETS {
+            return TicketAdmission::Full;
+        }
+        self.entries.insert(digest, expires_at);
+        self.earliest = self.earliest.min(expires_at);
+        TicketAdmission::Fresh
+    }
+
+    /// How many tickets are remembered.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether no ticket is remembered.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn prune(&mut self, now: u64) {
+        if now <= self.earliest {
+            return;
+        }
+        self.entries.retain(|_, expires_at| *expires_at >= now);
+        self.earliest = self.entries.values().copied().min().unwrap_or(u64::MAX);
+    }
+}
+
+/// The gateway's ticket keys: the one new tickets are sealed under and the one before
+/// it. The current key is replaced once it is older than the ticket TTL, so every
+/// ticket still in date was sealed under one of the two. [VLD-ANB-MIDGARD-0046]
+struct TicketKeys {
+    current: Arc<TicketKey>,
+    previous: Option<Arc<TicketKey>>,
+    /// When `current` came into use (`None` until the first connection, so a clock
+    /// injected after [`Gateway::with_resumption`] is honoured).
+    rotated_at: Option<u64>,
+    ttl: u64,
+}
+
+impl TicketKeys {
+    /// Rotate if the current key has been in use for longer than the TTL, then return
+    /// the current and previous keys.
+    fn at(&mut self, now: u64, rng: &mut dyn Rng) -> (Arc<TicketKey>, Option<Arc<TicketKey>>) {
+        match self.rotated_at {
+            None => self.rotated_at = Some(now),
+            Some(at) if now.saturating_sub(at) > self.ttl => {
+                let next = TicketKey::generate(rng).with_id(self.current.id().wrapping_add(1));
+                self.previous = Some(std::mem::replace(&mut self.current, Arc::new(next)));
+                self.rotated_at = Some(now);
+            }
+            Some(_) => {}
+        }
+        (self.current.clone(), self.previous.clone())
+    }
 }
 
 // ---- the gateway ----------------------------------------------------------
 
 type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+/// Told the identity of every request the rate limit refuses, for the service's
+/// metrics. [VLD-ANB-MIDGARD-0016]
+pub type ThrottleHook = Arc<dyn Fn(&WorkloadIdentity) + Send + Sync>;
 
 fn system_clock() -> Clock {
     Arc::new(|| {
@@ -253,17 +458,73 @@ pub struct Gateway {
     resource: Resource,
     handler: Arc<dyn RequestHandler>,
     rate_limiter: Option<Arc<RateLimiter>>,
+    on_throttle: Option<ThrottleHook>,
     max_requests_per_conn: usize,
-    ticket: Option<(Arc<TicketKey>, u64)>, // (key, ttl secs)
-    seen_tickets: Arc<Mutex<HashSet<Vec<u8>>>>,
+    ticket: Option<Arc<Mutex<TicketKeys>>>,
+    seen_tickets: Arc<Mutex<SeenTickets>>,
+    replay_cache_full: Arc<AtomicU64>,
     clock: Clock,
-    max_connections: usize,
-    active: Arc<AtomicUsize>,
+    gate: ConnectionGate,
     handshake_timeout: Duration,
     idle_timeout: Duration,
 }
 
-/// A slot under the gateway's connection cap, released when dropped. [MG-SEC-13]
+/// A cap on concurrent connections: a counter of live ones, shared by every clone,
+/// and the most it lets in. The one connection cap in the workspace — the mesh gateway
+/// and the HTTP edge's bounded listener both count against one of these, rather than
+/// each keeping its own. [MG-SEC-13] [VLD-ANB-MIDGARD-0004]
+#[derive(Clone)]
+pub struct ConnectionGate {
+    max: usize,
+    active: Arc<AtomicUsize>,
+}
+
+impl ConnectionGate {
+    /// A gate letting in at most `max` connections at once.
+    pub fn new(max: usize) -> Self {
+        Self {
+            max,
+            active: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Take a slot, or `None` if the gate is full. Accept loops call this before
+    /// spending a thread on a connection.
+    pub fn admit(&self) -> Option<ConnectionPermit> {
+        let mut current = self.active.load(Ordering::Acquire);
+        loop {
+            if current >= self.max {
+                return None;
+            }
+            match self.active.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Some(ConnectionPermit {
+                        active: self.active.clone(),
+                    })
+                }
+                Err(seen) => current = seen,
+            }
+        }
+    }
+
+    /// Connections currently holding a slot.
+    pub fn live_connections(&self) -> usize {
+        self.active.load(Ordering::Acquire)
+    }
+
+    /// The most connections the gate lets in at once.
+    pub fn max_connections(&self) -> usize {
+        self.max
+    }
+}
+
+/// A slot under a [`ConnectionGate`], released when dropped — so a handler that
+/// panics still gives its slot back. [MG-SEC-13]
 pub struct ConnectionPermit {
     active: Arc<AtomicUsize>,
 }
@@ -285,6 +546,8 @@ impl Gateway {
     ///
     /// Rate limiting, request quotas, and resumption are opt-in via the builder
     /// methods; a bare `new` gateway keeps the original single-surface behaviour.
+    /// Every service binary turns them on through `service_runtime::apply_mesh_limits`.
+    /// [VLD-ANB-MIDGARD-0004]
     pub fn new(
         provider: Arc<CryptoProvider>,
         cert: IdentityCert,
@@ -303,12 +566,13 @@ impl Gateway {
             resource,
             handler,
             rate_limiter: None,
+            on_throttle: None,
             max_requests_per_conn: 0,
             ticket: None,
-            seen_tickets: Arc::new(Mutex::new(HashSet::new())),
+            seen_tickets: Arc::new(Mutex::new(SeenTickets::new())),
+            replay_cache_full: Arc::new(AtomicU64::new(0)),
             clock: system_clock(),
-            max_connections: DEFAULT_MAX_CONNECTIONS,
-            active: Arc::new(AtomicUsize::new(0)),
+            gate: ConnectionGate::new(DEFAULT_MAX_CONNECTIONS),
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
         }
@@ -317,7 +581,7 @@ impl Gateway {
     /// Serve at most `max` connections at once; further ones are refused with
     /// [`MtlsError::Overloaded`] before any handshake work. [MG-SEC-13]
     pub fn with_max_connections(mut self, max: usize) -> Self {
-        self.max_connections = max;
+        self.gate = ConnectionGate::new(max);
         self
     }
 
@@ -336,35 +600,31 @@ impl Gateway {
     /// Take a slot under the connection cap, or `None` if the gateway is full. Accept
     /// loops call this before spending a thread on a connection. [MG-SEC-13]
     pub fn admit(&self) -> Option<ConnectionPermit> {
-        let mut current = self.active.load(Ordering::Acquire);
-        loop {
-            if current >= self.max_connections {
-                return None;
-            }
-            match self.active.compare_exchange_weak(
-                current,
-                current + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    return Some(ConnectionPermit {
-                        active: self.active.clone(),
-                    })
-                }
-                Err(seen) => current = seen,
-            }
-        }
+        self.gate.admit()
     }
 
     /// Connections currently being served.
     pub fn active_connections(&self) -> usize {
-        self.active.load(Ordering::Acquire)
+        self.gate.live_connections()
+    }
+
+    /// The gate this gateway's connections count against, for an accept loop that
+    /// takes slots itself before calling [`Gateway::handle_admitted`]. Clones share
+    /// the count. [VLD-ANB-MIDGARD-0004]
+    pub fn connection_gate(&self) -> ConnectionGate {
+        self.gate.clone()
     }
 
     /// Enforce a per-identity token-bucket rate limit.
     pub fn with_rate_limiter(mut self, limiter: RateLimiter) -> Self {
         self.rate_limiter = Some(Arc::new(limiter));
+        self
+    }
+
+    /// Call `hook` with the peer of every request the rate limit refuses, before its
+    /// connection is dropped. [VLD-ANB-MIDGARD-0016]
+    pub fn on_throttle(mut self, hook: ThrottleHook) -> Self {
+        self.on_throttle = Some(hook);
         self
     }
 
@@ -375,10 +635,37 @@ impl Gateway {
     }
 
     /// Enable PQ-mTLS session resumption: issue tickets valid for `ttl_secs` and
-    /// accept abbreviated handshakes that present a valid one.
+    /// accept abbreviated handshakes that present a valid one. `key` seals tickets
+    /// first; the gateway replaces it with a fresh random key (the next key id) once
+    /// it is older than `ttl_secs`, keeping the previous one to open tickets issued
+    /// before. [VLD-ANB-MIDGARD-0046]
     pub fn with_resumption(mut self, key: TicketKey, ttl_secs: u64) -> Self {
-        self.ticket = Some((Arc::new(key), ttl_secs));
+        self.ticket = Some(Arc::new(Mutex::new(TicketKeys {
+            current: Arc::new(key),
+            previous: None,
+            rotated_at: None,
+            ttl: ttl_secs,
+        })));
         self
+    }
+
+    /// How many resumptions were refused because the seen-ticket set was full (each
+    /// client fell back to a full handshake). [VLD-ANB-MIDGARD-0046]
+    pub fn resumptions_refused_replay_cache_full(&self) -> u64 {
+        self.replay_cache_full.load(Ordering::Relaxed)
+    }
+
+    /// The current and previous ticket keys and the ticket TTL at `now`, rotating
+    /// first if due.
+    fn ticket_keys(
+        keys: &Mutex<TicketKeys>,
+        now: u64,
+    ) -> (Arc<TicketKey>, Option<Arc<TicketKey>>, u64) {
+        let mut keys = keys
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (current, previous) = keys.at(now, &mut OsRng);
+        (current, previous, keys.ttl)
     }
 
     /// Override the wall clock (seconds) used for ticket issuance/expiry — for
@@ -451,48 +738,69 @@ impl Gateway {
         let mut ch = TcpChannel::new(stream);
         let session = run_responder(responder, &mut ch)?;
         let peer = session.peer().clone();
+        let authorization = authorization_of(&session)?;
         let mut stream = ch.into_stream();
 
-        // Hand the client a resumption ticket before the request loop. The ticket
-        // carries what this handshake authorised — the clearance capped by the
-        // client's certificate and its declared purpose. [MG-SEC-04]
+        let (mut sealer, opener) = session.records(Role::Responder);
+        // Hand the client a resumption ticket before the request loop, as the first
+        // sealed record, never in clear. The ticket carries the client's certificate
+        // and what this handshake authorised: the clearance capped by the
+        // certificate and the declared purpose. [MG-SEC-04] [VLD-ANB-MIDGARD-0046]
         if issue {
-            if let Some((key, ttl)) = &self.ticket {
+            if let Some(keys) = &self.ticket {
                 let now = (self.clock)();
-                let ticket = issue_ticket(key, &session, now, *ttl, &mut rng)?;
-                write_frame(&mut stream, &ticket).map_err(MtlsError::Transport)?;
+                let (key, _, ttl) = Self::ticket_keys(keys, now);
+                let ticket = issue_ticket(&key, &session, now, ttl, &mut rng)?;
+                write_frame(&mut stream, &sealer.seal(NEW_TICKET_AAD, &ticket)?)
+                    .map_err(MtlsError::Transport)?;
             }
         }
 
-        let (sealer, opener) = session.records(Role::Responder);
-        self.serve_requests(&mut stream, &peer, sealer, opener)?;
+        self.serve_requests(&mut stream, &peer, &authorization, sealer, opener)?;
         Ok(peer)
     }
 
-    /// Abbreviated (resumed) handshake, then serve — no KEM, no signatures.
+    /// Abbreviated (resumed) handshake, then serve: a fresh KEM exchange and a
+    /// certificate re-check, but no signature flights. [VLD-ANB-MIDGARD-0046]
     fn serve_resumed(&self, stream: TcpStream) -> Result<WorkloadIdentity, MtlsError> {
-        let (key, _ttl) = self
+        let keys = self
             .ticket
             .as_ref()
             .ok_or_else(|| MtlsError::Protocol("resumption not configured".into()))?;
         let mut stream = stream;
         let mut rng = OsRng;
         let now = (self.clock)();
-        let seen = self.seen_tickets.clone();
+        let (current, previous, _) = Self::ticket_keys(keys, now);
+        let mut open_with: Vec<&TicketKey> = vec![&current];
+        open_with.extend(previous.as_deref());
         let resumed = run_resume_responder(
             &mut stream,
-            key,
+            &open_with,
+            // The anchor's revocation state is shared by every clone, so this is the
+            // list in force now, reloaded live. [MG-SEC-03]
             &self.trust_anchor,
+            self.provider.as_ref(),
             self.pdp.as_ref(),
             &self.resource,
             now,
-            // Single-use: `insert` returns true only if the ticket is unseen.
-            |t| seen.lock().expect("ticket set").insert(t.to_vec()),
+            // Single-use, and only reached once the binder has verified.
+            |t, expires_at| {
+                let admission = self
+                    .seen_tickets
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .admit(t, expires_at, now);
+                if admission == TicketAdmission::Full {
+                    self.replay_cache_full.fetch_add(1, Ordering::Relaxed);
+                }
+                admission == TicketAdmission::Fresh
+            },
             &mut rng,
         )?;
         let peer = resumed.client.clone();
+        let authorization = authorization_of(&resumed.session)?;
         let (sealer, opener) = resumed.session.records(Role::Responder);
-        self.serve_requests(&mut stream, &peer, sealer, opener)?;
+        self.serve_requests(&mut stream, &peer, &authorization, sealer, opener)?;
         Ok(peer)
     }
 
@@ -506,6 +814,7 @@ impl Gateway {
         &self,
         stream: &mut TcpStream,
         peer: &WorkloadIdentity,
+        authorization: &Authorization,
         mut sealer: pq_mtls::RecordSealer,
         mut opener: pq_mtls::RecordOpener,
     ) -> Result<(), MtlsError> {
@@ -522,9 +831,18 @@ impl Gateway {
                 Ok(f) if !f.is_empty() => f,
                 _ => return Err(MtlsError::StreamTruncated),
             };
+            // The client's end-of-stream marker is not a request: it is neither
+            // rate-limited nor counted against the quota. [VLD-ANB-MIDGARD-0016]
+            let request = match opener.open_record(RECORD_AAD, &frame)? {
+                Record::Data(request) => request,
+                Record::Close => break,
+            };
             // Per-identity rate limit.
             if let Some(rl) = &self.rate_limiter {
                 if !rl.allow(&peer.id.0) {
+                    if let Some(hook) = &self.on_throttle {
+                        hook(peer);
+                    }
                     break; // throttled: drop the connection
                 }
             }
@@ -533,11 +851,7 @@ impl Gateway {
             if self.max_requests_per_conn != 0 && served > self.max_requests_per_conn {
                 break;
             }
-            let request = match opener.open_record(RECORD_AAD, &frame)? {
-                Record::Data(request) => request,
-                Record::Close => break,
-            };
-            let response = self.handler.handle(peer, &request);
+            let response = self.handler.handle(peer, authorization, &request);
             write_frame(stream, &sealer.seal(RECORD_AAD, &response)?)
                 .map_err(MtlsError::Transport)?;
         }
@@ -572,5 +886,32 @@ impl Gateway {
                 Err(_) => break,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rate_limiter_drops_refilled_buckets_rather_than_growing() {
+        // [VLD-ANB-MIDGARD-0005]
+        let limiter = RateLimiter::new(1.0, 1_000.0);
+        for i in 0..RATE_LIMITER_PRUNE_AT {
+            assert!(limiter.allow(&format!("10.0.{}.{}", i / 256, i % 256)));
+        }
+        assert_eq!(limiter.tracked(), RATE_LIMITER_PRUNE_AT);
+        // Every bucket refills within a millisecond; the next new identity prunes them.
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(limiter.allow("10.9.9.9"));
+        assert_eq!(limiter.tracked(), 1, "only the new identity is held");
+
+        // A hard quota never refills, so its buckets are kept and still refuse.
+        let quota = RateLimiter::new(1.0, 0.0);
+        for i in 0..=RATE_LIMITER_PRUNE_AT {
+            assert!(quota.allow(&format!("peer-{i}")));
+        }
+        assert_eq!(quota.tracked(), RATE_LIMITER_PRUNE_AT + 1);
+        assert!(!quota.allow("peer-0"), "a spent quota stays spent");
     }
 }

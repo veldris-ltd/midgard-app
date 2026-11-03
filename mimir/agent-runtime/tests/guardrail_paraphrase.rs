@@ -130,8 +130,10 @@ fn model_seam_catches_semantic_paraphrase_the_prefilter_misses() {
 #[test]
 fn sanitise_rewrites_the_prompt_instead_of_passing_it_through() {
     let sd = SelfDefending::new();
-    // A long encoded blob triggers obfuscation → Sanitise (strip, then pass).
-    let blob = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // >40 chars
+    // A long encoded blob triggers obfuscation → Sanitise (strip, then pass). Since
+    // VLD-ANB-MIDGARD-0078 the signal is a base64 run of 64 or more characters with
+    // a '+', '/' or '=' (a hex run or an object id is not), so the blob is 70.
+    let blob = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5+=";
     let input = format!("Summarise this: {blob} thanks");
     let v = sd.classify(&input);
     assert_eq!(v.verdict, Verdict::Sanitise);

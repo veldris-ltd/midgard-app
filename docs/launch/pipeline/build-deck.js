@@ -328,7 +328,7 @@ async function productSlide({ num, product, label, heading, points, shot, side =
     points: [
       'Objects, properties and links: aircraft, facilities, crew, sensor feeds as real things, not rows in a table.',
       'Markings (clearance band plus compartment) and purposes are enforced per object at query time. What you cannot read never appears.',
-      'Actions are typed and policy-authorised, and gated by default: refused without a human-gate token. Tying that token to a named person is still to do.',
+      'Actions are typed and policy-authorised, and gated by default: refused without a second person's approval for that requester, action and object, bound in the signed ledger.',
       'Every response carries the audit id of the signed ledger entry that authorised it.',
       'Schema comes from an ontology file; data is imported offline and validated against it, all or nothing.',
     ],

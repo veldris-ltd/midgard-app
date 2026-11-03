@@ -1,4 +1,4 @@
-import { createHashRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router'; // v7, one router package [AC-P4.2]
 import { AgentStudioScreen } from '../screens/AgentStudioScreen';
 import { LogicBuilderScreen } from '../screens/LogicBuilderScreen';
 import { SessionTracesScreen } from '../screens/SessionTracesScreen';

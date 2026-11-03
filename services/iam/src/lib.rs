@@ -19,23 +19,30 @@ pub mod mesh_ca;
 pub mod mfa;
 pub mod oidc;
 pub mod password;
+pub mod revocation;
 pub mod store;
 pub mod token;
 
 pub use auth::{
-    AuthError, Authenticator, Login, MfaProof, PasswordUpgrade, UpgradingAuthenticator,
+    AuthError, AuthOutcome, Authenticator, Login, MfaProof, PasswordUpgrade, UpgradingAuthenticator,
 };
-pub use directory::{Credentials, Directory, DurableDirectory, Enrollment, InMemoryDirectory};
+pub use directory::{
+    Activation, Credentials, Directory, DurableDirectory, Enrollment, InMemoryDirectory,
+};
 pub use federation::{
     federated_login, FederatedClaims, FederatedIdp, FederationError, PqFederation,
 };
 pub use idp::{Idp, IssueError, IDP_SIG_ALG};
 pub use mesh_ca::{CaError, CertStatus, IssuedCert, MeshCa};
-pub use mfa::{AuthAssertion, TotpSecret, WebAuthnCredential, WebAuthnError, PASSKEY_SIG_ALG};
+pub use mfa::{
+    AuthAssertion, ClientData, TotpSecret, WebAuthnCredential, WebAuthnError, WebAuthnPolicy,
+    PASSKEY_SIG_ALG,
+};
 pub use oidc::jwks_json;
 pub use password::{
     check_enrolment_hash, Argon2idHasher, PasswordHasher, Pbkdf2Hasher, DEFAULT_ITERATIONS,
     MIN_PBKDF2_ITERATIONS,
 };
+pub use revocation::RevocationList;
 pub use store::{IdentityStore, UserRecord};
 pub use token::{sign_token, verify_token, TokenClaims, TokenError};

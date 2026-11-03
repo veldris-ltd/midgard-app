@@ -149,10 +149,12 @@ fn build_gateway(
 fn request() -> InferenceRequest {
     InferenceRequest {
         purpose: "investigation".into(),
+        system_prompt: "You are Mimir.".into(),
         workload_class: WorkloadClass::Balanced,
         quant_pref: None,
         backend_override: None,
         max_tokens: 16,
+        marking: model_server::marking::unclassified(),
         prompt: "who is assigned to case 42?".into(),
     }
 }

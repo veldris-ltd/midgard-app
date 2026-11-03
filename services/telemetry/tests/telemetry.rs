@@ -3,7 +3,8 @@
 
 use telemetry::{
     AvailabilitySlo, BufferExporter, BufferSink, HealthRegistry, IdGenerator, LatencySlo, Level,
-    Logger, MetricsRegistry, SpanContext, SpanExporter, SpanRecord, Toggle,
+    Logger, MetricsRegistry, SpanContext, SpanExporter, SpanRecord, Toggle, DROPPED_SERIES,
+    MAX_SERIES_PER_FAMILY,
 };
 
 #[test]
@@ -163,4 +164,186 @@ fn trace_context_propagates_via_w3c_traceparent() {
     });
     assert_eq!(exp.len(), 1);
     assert_eq!(exp.spans()[0].duration(), 150);
+}
+
+// ---- WP-33: bounded cardinality ------------------------------------------------
+
+#[test]
+fn a_family_stops_growing_at_the_series_cap() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.3]
+    let m = MetricsRegistry::new();
+    for i in 0..1_500 {
+        m.inc("flood", &[("path", &format!("/probe/{i}"))]);
+    }
+    assert_eq!(m.series_count("flood"), MAX_SERIES_PER_FAMILY);
+    assert_eq!(m.counter_value(DROPPED_SERIES, &[("family", "flood")]), 500);
+    assert_eq!(m.counter_value("flood", &[("path", "/probe/1499")]), 0);
+
+    // A series the family already holds still counts.
+    m.inc("flood", &[("path", "/probe/0")]);
+    assert_eq!(m.counter_value("flood", &[("path", "/probe/0")]), 2);
+    assert_eq!(m.series_count("flood"), MAX_SERIES_PER_FAMILY);
+    assert!(m
+        .render()
+        .contains("metrics_series_dropped_total{family=\"flood\"} 500"));
+}
+
+#[test]
+fn histograms_are_capped_too() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.3]
+    let m = MetricsRegistry::new();
+    for i in 0..1_500 {
+        m.observe("flood_ms", &[("path", &format!("/probe/{i}"))], 3.0);
+    }
+    assert_eq!(m.series_count("flood_ms"), MAX_SERIES_PER_FAMILY);
+    assert_eq!(
+        m.counter_value(DROPPED_SERIES, &[("family", "flood_ms")]),
+        500
+    );
+    m.observe("flood_ms", &[("path", "/probe/0")], 3.0);
+    assert!(m.render().contains("flood_ms_count{path=\"/probe/0\"} 2"));
+
+    // Gauges are held to the same cap.
+    for i in 0..1_200 {
+        m.set_gauge("flood_gauge", &[("id", &i.to_string())], 1.0);
+    }
+    assert_eq!(m.series_count("flood_gauge"), MAX_SERIES_PER_FAMILY);
+    assert_eq!(
+        m.counter_value(DROPPED_SERIES, &[("family", "flood_gauge")]),
+        200
+    );
+}
+
+#[test]
+fn the_dropped_counter_is_never_capped() {
+    // [VLD-ANB-MIDGARD-0003] [AC-33.3]
+    let m = MetricsRegistry::new();
+    // The dropped counter holds one series per family that overflowed, so it is exempt
+    // from the cap: past the cap's worth of families, every one is still counted.
+    let families = MAX_SERIES_PER_FAMILY + 500;
+    for f in 0..families {
+        m.inc(DROPPED_SERIES, &[("family", &format!("family_{f}"))]);
+    }
+    assert_eq!(m.series_count(DROPPED_SERIES), families);
+    assert_eq!(
+        m.counter_value(
+            DROPPED_SERIES,
+            &[("family", &format!("family_{}", families - 1))]
+        ),
+        1
+    );
+
+    // And a real overflow on top of that is still counted.
+    for i in 0..=MAX_SERIES_PER_FAMILY {
+        m.inc("flood", &[("i", &i.to_string())]);
+    }
+    assert_eq!(m.series_count(DROPPED_SERIES), families + 1);
+    assert_eq!(m.counter_value(DROPPED_SERIES, &[("family", "flood")]), 1);
+}
+
+#[test]
+fn long_label_values_are_truncated_in_the_rendering() {
+    // [VLD-ANB-MIDGARD-0003]
+    let m = MetricsRegistry::new();
+    let long = "a".repeat(20_000);
+    m.inc("long", &[("path", &long)]);
+    let text = m.render();
+    let expected = format!("long{{path=\"{}...\"}} 1\n", "a".repeat(256));
+    assert!(text.contains(&expected), "{}", &text[..text.len().min(600)]);
+    assert!(!text.contains(&"a".repeat(257)));
+
+    // A value at the limit is left alone.
+    m.inc("short", &[("path", &"b".repeat(256))]);
+    assert!(m
+        .render()
+        .contains(&format!("short{{path=\"{}\"}} 1\n", "b".repeat(256))));
+}
+
+/// Every control character in a log field is escaped: CR by name, ESC and NUL as
+/// `\u00XX`, U+2028 as `\u2028`, so no raw control byte reaches the line and the line
+/// parses back to the original value. [RC-33] [AC-27.1] [VLD-ANB-MIDGARD-0033]
+#[test]
+fn log_lines_escape_every_control_character() {
+    let value = format!("a{}b{}c{}d{}e", '\r', '\u{1b}', '\u{2028}', '\u{0}');
+    let sink = BufferSink::new();
+    let logger = Logger::new("http-gateway", &sink);
+    logger.warn(
+        &value,
+        &[(value.as_str(), value.as_str()), ("path", "/x\u{7f}\t")],
+    );
+
+    let line = sink.records()[0].to_json();
+    for escaped in [r"\r", r"\u001b", r"\u2028", r"\u0000", r"\u007f", r"\t"] {
+        assert!(line.contains(escaped), "{escaped} missing from {line}");
+    }
+    assert!(
+        !line
+            .chars()
+            .any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}'),
+        "raw control character in {line:?}"
+    );
+    let parsed = service_runtime::json::parse(&line).expect("the line is valid JSON");
+    assert_eq!(parsed.str_field("message"), Some(value.as_str()));
+    assert_eq!(parsed.str_field(&value), Some(value.as_str()));
+    assert_eq!(parsed.str_field("path"), Some("/x\u{7f}\t"));
+}
+
+/// A label value carrying CR and ESC renders with no raw control byte, and every line
+/// of the exposition is still a comment or one `name{labels} value` sample.
+/// [RC-33] [AC-27.2] [VLD-ANB-MIDGARD-0033]
+#[test]
+fn metric_labels_never_contain_raw_controls() {
+    let m = MetricsRegistry::new();
+    m.describe("http_requests_total", "total HTTP requests");
+    m.inc(
+        "http_requests_total",
+        &[("route", "/a\r\nforged_total 99\u{1b}[0m"), ("code", "200")],
+    );
+    m.inc(
+        "http_requests_total",
+        &[("route", "/b\"\\"), ("code", "200")],
+    );
+
+    let text = m.render();
+    assert!(
+        !text.chars().any(|c| c.is_control() && c != '\n'),
+        "raw control character in {text:?}"
+    );
+    assert!(
+        !text.lines().any(|l| l.starts_with("forged_total")),
+        "{text}"
+    );
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        if line.starts_with('#') {
+            continue;
+        }
+        let (series, value) = line.rsplit_once(' ').expect("a sample has a value");
+        assert!(value.parse::<f64>().is_ok(), "{line}");
+        assert!(series.starts_with("http_requests_total{"), "{line}");
+        assert!(series.ends_with('}'), "{line}");
+    }
+    assert!(text.contains("route=\"/b\\\"\\\\\""), "{text}");
+}
+
+// A panic while the metrics lock is held no longer makes every later instrumented
+// call panic: the registry recovers, keeps counting, and says so in the exposition.
+// [VLD-ANB-MIDGARD-0030] [AC-28.4]
+#[test]
+fn a_poisoned_metrics_lock_recovers_and_reports() {
+    let m = MetricsRegistry::new();
+    m.inc("http_requests_total", &[("code", "200")]);
+    assert!(!m.render().contains("metrics_lock_poisoned"));
+
+    m.poison_for_tests();
+    m.inc("http_requests_total", &[("code", "200")]);
+    assert_eq!(
+        m.counter_value("http_requests_total", &[("code", "200")]),
+        2
+    );
+    let text = m.render();
+    assert!(
+        text.contains("# TYPE metrics_lock_poisoned gauge"),
+        "{text}"
+    );
+    assert!(text.contains("\nmetrics_lock_poisoned 1\n"), "{text}");
 }

@@ -1,7 +1,9 @@
 //! The workflow engine. Drives a proposed action through propose → authorise/deny →
-//! execute, sealing every transition into a PQ-signed audit chain and refusing to
-//! execute a consequential action that a human has not authorised. [FR-H-5]
-//! [NFR-AI-1]
+//! execute, sealing every transition into a PQ-signed audit chain. It classifies
+//! each proposal from the deployment's [`ActionTypeCatalog`] (refusing a type the
+//! catalogue does not list) and refuses to execute **any** action a human has not
+//! authorised, so every execution has a recorded human decision in the lineage.
+//! [FR-H-5] [NFR-AI-1] [VLD-ANB-MIDGARD-0045]
 
 use std::collections::BTreeMap;
 
@@ -13,6 +15,7 @@ use pqc_agility::VerifyingKey;
 
 use crate::action::ProposedAction;
 use crate::actuator::{ActuationOutcome, Actuator};
+use crate::catalog::ActionTypeCatalog;
 use crate::error::WorkflowError;
 
 /// Where an action sits in its lifecycle.
@@ -55,25 +58,57 @@ pub struct ActionRecord {
 pub struct WorkflowEngine<S: LedgerStore> {
     writer: AuditWriter<S>,
     actions: BTreeMap<String, ActionRecord>,
+    catalog: ActionTypeCatalog,
 }
 
 impl<S: LedgerStore> WorkflowEngine<S> {
-    /// Build an engine over an audit writer (the workflow's ledger).
+    /// Build an engine over an audit writer (the workflow's ledger). The engine
+    /// starts with an empty action-type catalogue, which refuses every proposal
+    /// until [`WorkflowEngine::with_catalog`] supplies one (fail closed).
     pub fn new(writer: AuditWriter<S>) -> Self {
         Self {
             writer,
             actions: BTreeMap::new(),
+            catalog: ActionTypeCatalog::new(),
         }
     }
 
-    /// Propose an action. Records a `propose-action` audit entry and parks the
-    /// action in `Proposed` — nothing executes here. Fails if the id is reused.
+    /// Use `catalog` as the deployment's action-type catalogue (builder). Records
+    /// already held (a restored engine) are re-classified from it, so a class read
+    /// back from storage is never trusted over the catalogue's. A held record whose
+    /// type the catalogue does not list keeps its class, and the actuator refuses
+    /// to run it. [VLD-ANB-MIDGARD-0045]
+    pub fn with_catalog(mut self, catalog: ActionTypeCatalog) -> Self {
+        for r in self.actions.values_mut() {
+            if let Some(class) = catalog.class_of(&r.action.action_type) {
+                r.action.classify(class);
+            }
+        }
+        self.catalog = catalog;
+        self
+    }
+
+    /// The deployment's action-type catalogue.
+    pub fn catalog(&self) -> &ActionTypeCatalog {
+        &self.catalog
+    }
+
+    /// Propose an action. Its class is looked up in the catalogue — a type the
+    /// catalogue does not list fails with [`WorkflowError::UnknownActionType`]
+    /// before anything is audited — then a `propose-action` audit entry is recorded
+    /// and the action parks in `Proposed`; nothing executes here. Fails if the id is
+    /// reused. [VLD-ANB-MIDGARD-0045]
     pub fn propose(
         &mut self,
         proposer: &str,
-        action: ProposedAction,
+        mut action: ProposedAction,
         ts: &str,
     ) -> Result<(), WorkflowError> {
+        let class = self
+            .catalog
+            .class_of(&action.action_type)
+            .ok_or_else(|| WorkflowError::UnknownActionType(action.action_type.clone()))?;
+        action.classify(class);
         let id = action.id.clone();
         if self.actions.contains_key(&id) {
             return Err(WorkflowError::DuplicateAction(id));
@@ -130,10 +165,12 @@ impl<S: LedgerStore> WorkflowEngine<S> {
     /// Execute an authorised action by **invoking a real [`Actuator`]** and sealing
     /// the outcome into the audit chain. [RT-44] [RC-44]
     ///
-    /// A **consequential action can only execute from the `Authorised` state** —
-    /// from `Proposed` it fails closed with [`WorkflowError::NotAuthorised`]; a
-    /// denied or already-executed action cannot run. Only after those gates pass is
-    /// the actuator called. The audit lineage is sealed in two phases so even a
+    /// **Every action can only execute from the `Authorised` state**, informational
+    /// or consequential — from `Proposed` it fails closed with
+    /// [`WorkflowError::NotAuthorised`], so the sealed lineage of every execution
+    /// shows a human decision; a denied or already-executed action cannot run. The
+    /// action's class is not a shortcut round the gate. Only after those gates pass
+    /// is the actuator called. The audit lineage is sealed in two phases so even a
     /// crash mid-actuation leaves evidence of the attempt:
     /// 1. an `execute-action` **intent** entry before the effector is touched, then
     /// 2. an `actuation-succeeded` / `actuation-failed` entry with the effector's
@@ -141,7 +178,7 @@ impl<S: LedgerStore> WorkflowEngine<S> {
     ///    `actuation-error` entry, after which the action stays `Authorised`
     ///    (retryable) and the call returns [`WorkflowError::Actuation`].
     ///
-    /// [FR-H-5] [NFR-AI-1] [AC-H-4]
+    /// [FR-H-5] [NFR-AI-1] [AC-H-4] [VLD-ANB-MIDGARD-0045]
     pub fn execute(
         &mut self,
         executor: &str,
@@ -158,11 +195,12 @@ impl<S: LedgerStore> WorkflowEngine<S> {
                 WorkflowState::Denied { .. } => {
                     return Err(WorkflowError::Denied(ticket.to_string()))
                 }
-                // The core invariant: a consequential action requires authorisation.
-                WorkflowState::Proposed if r.action.consequential => {
+                // The core invariant: every execution requires a recorded human
+                // authorisation, whatever the action's class.
+                WorkflowState::Proposed => {
                     return Err(WorkflowError::NotAuthorised(ticket.to_string()))
                 }
-                WorkflowState::Proposed | WorkflowState::Authorised { .. } => {}
+                WorkflowState::Authorised { .. } => {}
             },
         }
 
@@ -223,9 +261,16 @@ impl<S: LedgerStore> WorkflowEngine<S> {
 
     /// Rebuild an engine from a durable audit writer and a previously-snapshotted
     /// set of in-flight records — the recovery path for [RC-13]. The audit chain is
-    /// the writer's (a durable `FileLedger`); `actions` is the recovered state.
+    /// the writer's (a durable `FileLedger`); `actions` is the recovered state. Like
+    /// [`WorkflowEngine::new`] it starts with an empty catalogue; chain
+    /// [`WorkflowEngine::with_catalog`] to re-classify the records and accept new
+    /// proposals.
     pub fn restore(writer: AuditWriter<S>, actions: BTreeMap<String, ActionRecord>) -> Self {
-        Self { writer, actions }
+        Self {
+            writer,
+            actions,
+            catalog: ActionTypeCatalog::new(),
+        }
     }
 
     /// The sealed audit entries (the tamper-evident decision lineage). [FR-H-5]
@@ -257,6 +302,7 @@ impl<S: LedgerStore> WorkflowEngine<S> {
             action: Action(action_name.to_string()),
             resource: Resource(resource_id.to_string()),
             ts: Timestamp(ts.to_string()),
+            context: Default::default(),
         };
         self.writer
             .append(record)

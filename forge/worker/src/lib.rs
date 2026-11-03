@@ -652,15 +652,13 @@ impl CredentialResolver for SecretsDir {
     fn resolve(&self, cref: &CredentialRef) -> Result<Secret, ConnectorError> {
         let name = &cref.0;
         if !valid_secret_name(name) {
-            return Err(ConnectorError::Credential(format!(
-                "'{name}' is not a secret name"
-            )));
+            return Err(ConnectorError::secret(name, "is not a secret name"));
         }
         let mut bytes = std::fs::read(self.0.join(name)).map_err(|e| {
-            ConnectorError::Credential(format!(
-                "secret '{name}' cannot be read from {}: {e}",
-                self.0.display()
-            ))
+            ConnectorError::secret(
+                name,
+                format!("cannot be read from {}: {e}", self.0.display()),
+            )
         })?;
         if bytes.last() == Some(&b'\n') {
             bytes.pop();
@@ -825,6 +823,56 @@ pub struct Run {
     pub checkpoint: Option<String>,
 }
 
+/// Why a job run failed. Its display is the reason fit for any log and the job's
+/// status, so a connector failure appears in it only in its redacted form; the class
+/// is what the failure is counted and audited under; the diagnostic is the full
+/// detail, for the worker's `--diagnostics` debug log alone. [VLD-ANB-MIDGARD-0071]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunFailure {
+    reason: String,
+    class: String,
+    diagnostic: String,
+}
+
+impl RunFailure {
+    /// A connector failure while doing `what`: classed by the connector, shown
+    /// redacted, with the connector's full detail kept as the diagnostic.
+    pub fn connector(what: &str, e: &ConnectorError) -> Self {
+        Self {
+            reason: format!("{what}: {e}"),
+            class: e.class().to_string(),
+            diagnostic: format!("{what}: {}", e.diagnostic()),
+        }
+    }
+
+    /// The class the failure is counted and audited under.
+    pub fn class(&self) -> &str {
+        &self.class
+    }
+
+    /// The full detail, for a debug log the operator asked for.
+    pub fn diagnostic(&self) -> &str {
+        &self.diagnostic
+    }
+}
+
+impl std::fmt::Display for RunFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+/// A failure the worker described itself, classed by [`error_class`].
+impl From<String> for RunFailure {
+    fn from(reason: String) -> Self {
+        Self {
+            class: error_class(&reason),
+            diagnostic: reason.clone(),
+            reason,
+        }
+    }
+}
+
 /// Run `job` against the worker's dataset store: sync the source from `checkpoint`
 /// with `credentials`, commit what it read with lineage, and project it.
 pub fn run_job<R: TrustRoot>(
@@ -832,7 +880,7 @@ pub fn run_job<R: TrustRoot>(
     store: &mut DurableDatasetStore<R>,
     credentials: &dyn CredentialResolver,
     checkpoint: Option<&str>,
-) -> Result<Run, String> {
+) -> Result<Run, RunFailure> {
     let connector = job.connector();
     let sandbox = connector
         .egress_hosts()
@@ -846,7 +894,7 @@ pub fn run_job<R: TrustRoot>(
     }
     let outcome = connector
         .sync_incremental(&ctx)
-        .map_err(|e| format!("the source does not sync: {e}"))?;
+        .map_err(|e| RunFailure::connector("the source does not sync", &e))?;
     let dataset = outcome.dataset;
 
     let previous = store.branch_head(&job.id);
@@ -879,6 +927,47 @@ pub fn run_job<R: TrustRoot>(
         records: records(&collected),
         checkpoint: outcome.checkpoint,
     })
+}
+
+/// The class a failed run's reason is audited under: the text before its first `:`,
+/// stripped of control characters and capped at 64 characters, so the ledger row
+/// names what failed without carrying the source's own error text.
+/// [VLD-ANB-MIDGARD-0072]
+pub fn error_class(reason: &str) -> String {
+    let prefix = reason.split(':').next().unwrap_or_default();
+    let class: String = prefix
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect();
+    match class.trim() {
+        "" => "failed".to_string(),
+        class => class.to_string(),
+    }
+}
+
+/// Record a failed run in the worker's ledger: `RUN forge job failed` on the job,
+/// with outcome Failed and the reason's [`error_class`]. The caller must not ignore
+/// the result: a run the ledger did not record is logged as not audited.
+/// [AC-M-4] [VLD-ANB-MIDGARD-0072]
+pub fn record_failed_run<L: fabric::LedgerStore>(
+    audit: &mut governance::Governance<L>,
+    service: &str,
+    job_id: &str,
+    reason: &str,
+    now: u64,
+) -> Result<u64, governance::GovernanceError> {
+    audit.record_event_with(
+        service,
+        "RUN forge job failed",
+        &format!("job:{job_id}"),
+        now,
+        governance::AuditContext {
+            outcome: governance::Outcome::Failed,
+            reason: Some(error_class(reason)),
+            ..governance::AuditContext::default()
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1114,6 +1203,89 @@ mod tests {
              \"compartments\":[\"OPS-N\"],\"purposes\":[\"operations\"],\
              \"properties\":{\"flight_hours\":6412,\"tail\":\"AC-1\"}}\n\
              {\"link\":\"aircraft_base\",\"from\":\"AC-1\",\"to\":\"FAC-N\"}\n"
+        );
+    }
+
+    /// A ledger that refuses every write.
+    struct RefusingLedger;
+    impl fabric::LedgerStore for RefusingLedger {
+        fn append(&mut self, _: audit_writer::SealedEntry) -> Result<(), audit_writer::AuditError> {
+            Err(audit_writer::AuditError::Store("disk full".into()))
+        }
+        fn last(&self) -> Option<&audit_writer::SealedEntry> {
+            None
+        }
+        fn entries(&self) -> &[audit_writer::SealedEntry] {
+            &[]
+        }
+        fn record_checkpoint(
+            &mut self,
+            _: audit_writer::LedgerCheckpoint,
+        ) -> Result<(), audit_writer::AuditError> {
+            Err(audit_writer::AuditError::Store("disk full".into()))
+        }
+        fn checkpoint(&self) -> Option<&audit_writer::LedgerCheckpoint> {
+            None
+        }
+    }
+
+    fn governance_over<L: fabric::LedgerStore>(ledger: L) -> governance::Governance<L> {
+        use pqc_agility::backend::fips::{provider, FipsSig};
+        let alg = governance::GOV_SIG_ALG;
+        let (vk, sk) = provider()
+            .sig_for(alg)
+            .unwrap()
+            .keypair(&mut OsRng)
+            .unwrap();
+        let writer = audit_writer::AuditWriter::new(
+            ledger,
+            Box::new(FipsSig::new(alg)),
+            sk,
+            vk,
+            audit_writer::LedgerId("forge-worker-audit".into()),
+        );
+        governance::Governance::with_audit(
+            policy::DefaultPdp::new(policy::PolicySet::new(vec![]).unwrap()),
+            writer,
+        )
+    }
+
+    /// A failed run is recorded with outcome Failed and a class with no control
+    /// characters and none of the source's own text; a ledger that refuses the row is
+    /// reported, not ignored. [AC-M-4] [VLD-ANB-MIDGARD-0072] [AC-26.7]
+    #[test]
+    fn a_failed_run_is_audited_with_its_class_or_reported_as_not_audited() {
+        let reason = "connect: boom\u{1b}[0m";
+        assert_eq!(error_class(reason), "connect");
+        assert_eq!(error_class("\u{7}"), "failed");
+        assert_eq!(error_class(&"x".repeat(100)).len(), 64);
+
+        let mut audit = governance_over(fabric::InMemoryLedger::new());
+        record_failed_run(
+            &mut audit,
+            "forge-worker",
+            "aircraft",
+            reason,
+            1_800_000_000,
+        )
+        .expect("an open ledger records the failure");
+        let row = &audit.audit_entries()[0].record;
+        assert_eq!(row.action.0, "RUN forge job failed");
+        assert_eq!(row.resource.0, "job:aircraft");
+        assert_eq!(row.context.outcome, governance::Outcome::Failed);
+        assert_eq!(row.context.reason.as_deref(), Some("connect"));
+
+        let mut refusing = governance_over(RefusingLedger);
+        assert!(
+            record_failed_run(
+                &mut refusing,
+                "forge-worker",
+                "aircraft",
+                reason,
+                1_800_000_000
+            )
+            .is_err(),
+            "the failure to audit reaches the caller, which logs it and fails the run"
         );
     }
 }

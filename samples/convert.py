@@ -10,6 +10,7 @@
     convert.py feeds        --samples DIR [--families a,b]
     convert.py credits      --samples DIR [--datasets a,b] [--feeds a,b]
     convert.py notice       > NOTICE.md
+    convert.py screen       --samples DIR [--apply]
 
 `import` writes JSON Lines for `mg-admin import` (docs/guides/IMPORT_YOUR_OWN_DATA.md):
 one object record per dataset row, then the link records whose both ends exist.
@@ -23,7 +24,10 @@ refusing an id that two files define differently. `feeds` lists, from
 catalogue.json, each observation feed's family and whether DIR holds it; with
 --families, only the names of the feeds DIR holds in those families. `credits` prints
 the attribution each chosen dataset and feed's licence requires. `check` validates the datasets
-against the configuration's jobs and ontology.
+against the configuration's jobs and ontology, and that every published entry in catalogue.json
+carries a data-protection screening. `screen` reports what a data-protection reviewer must
+assess (docs/compliance/DATA_PROTECTION_SCREENING.md); with --apply it pseudonymises the small
+craft in the AIS vessel snapshot.
 
 Each conversion is driven by 1-configuration/forge/jobs.json: a dataset is ingested
 with its job's object type, key column, marking, purposes and property mapping, so
@@ -364,22 +368,147 @@ def cmd_notice(args):
                 ("observations", "Heimdall observations", "4-heimdall-observations"))
     for key, title, folder in sections:
         rows = cat[key]
-        out += [f"## {title} (`{folder}/`)", "", "| File | In this repository | Licence | Credit to keep |", "|---|---|---|---|"]
+        out += [f"## {title} (`{folder}/`)", "",
+                "| File | In this repository | Licence | Credit to keep | Personal data |", "|---|---|---|---|---|"]
         for name, e in sorted(rows.items(), key=lambda kv: (not kv[1]["publish"], kv[0])):
             if e["publish"]:
-                out.append(f"| `{name}.json` | yes | {e['licence']} | {e['credit']} |")
+                out.append(f"| `{name}.json` | yes | {e['licence']} | {e['credit']} | "
+                           f"{e['data_protection']['personal_data']} |")
             else:
-                out.append(f"| `{name}.json` | no: {e['excluded_because']} | | |")
+                out.append(f"| `{name}.json` | no: {e['excluded_because']} | | | |")
         out.append("")
     out += ["Files marked 'no' are in midgard-sample-datasets.zip only. `mg-install` can load them from a local copy; "
             "check each source's terms before any use beyond evaluation. Cloudflare Radar and openAIP data are licensed "
-            "CC BY-NC 4.0, for non-commercial use only.", ""]
+            "CC BY-NC 4.0, for non-commercial use only.", "",
+            "Personal data is the data-protection screening of each published file: `none`, `possible` or `yes`. "
+            "The screening record, with the basis for publishing and the small craft pseudonymised in the AIS vessel "
+            "snapshot, is [docs/compliance/DATA_PROTECTION_SCREENING.md](../docs/compliance/DATA_PROTECTION_SCREENING.md); "
+            "`python3 samples/convert.py screen` repeats the count.", ""]
     print("\n".join(out))
+
+
+# Data-protection screening (VLD-ANB-MIDGARD-0074). The record and the decision are in
+# docs/compliance/DATA_PROTECTION_SCREENING.md; this code only counts and, on request,
+# applies the pseudonymisation that record decided on.
+PERSONAL_DATA = ("none", "possible", "yes")
+SCREENING_KEYS = ("personal_data", "basis", "screened_on", "screened_by", "notes")
+SCREENED_SECTIONS = ("forge_datasets", "feed_snapshots", "observations")
+# Field names that can identify a natural person, compared without case or punctuation.
+# "name" must match exactly (it would otherwise match "hostname"); the rest may be part of a
+# longer name ("licence_plate", "registration_number").
+IDENTIFYING = ("callsign", "mmsi", "email", "phone", "address", "registration", "plate")
+# Under 24 metres a hull is conventionally small craft (the load line and tonnage
+# conventions start there), and small craft without an IMO number are the ones most likely
+# to be owned and sailed by a private person. A screening aid, not a legal test.
+SMALL_CRAFT_METRES = 24
+VESSELS = "3-heimdall-feed-snapshots/digitraffic_vessels.json"
+PSEUDONYM = re.compile(r"^small-craft-([0-9]+)$")
+
+
+def screening_problems(cat):
+    """Each published entry needs a data_protection object with a known personal_data value."""
+    problems = []
+    for section in SCREENED_SECTIONS:
+        for name, e in cat[section].items():
+            if not e["publish"]:
+                continue
+            dp = e.get("data_protection")
+            if not isinstance(dp, dict):
+                problems.append(f"catalogue {section}.{name}: published without a data_protection screening")
+                continue
+            for key in SCREENING_KEYS:
+                if not isinstance(dp.get(key), str) or not dp[key].strip():
+                    problems.append(f"catalogue {section}.{name}: data_protection.{key} is missing or empty")
+            if dp.get("personal_data") not in PERSONAL_DATA:
+                problems.append(f"catalogue {section}.{name}: data_protection.personal_data "
+                                f"{dp.get('personal_data')!r} is not one of {', '.join(PERSONAL_DATA)}")
+            if not re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", str(dp.get("screened_on", ""))):
+                problems.append(f"catalogue {section}.{name}: data_protection.screened_on is not an ISO date")
+    return problems
+
+
+def small_craft(by_mmsi):
+    """The keys of the records with no IMO number and a hull under SMALL_CRAFT_METRES
+    (reference points A and B are the distances from the antenna to bow and stern)."""
+    found = []
+    for key, r in by_mmsi.items():
+        length = (r.get("referencePointA") or 0) + (r.get("referencePointB") or 0)
+        if not r.get("imo") and length < SMALL_CRAFT_METRES:
+            found.append(key)
+    return found
+
+
+def pseudonymise(doc):
+    """Drop name and call sign from the small craft and key them small-craft-<n> instead of
+    by MMSI (the record's own mmsi field too). Numbers go to the MMSIs in ascending order,
+    after any pseudonym already present, and every record keeps its place, so the result is
+    deterministic and a second run changes nothing. Returns the number of records changed."""
+    by_mmsi = doc["by_mmsi"]
+    taken = [int(m.group(1)) for m in map(PSEUDONYM.match, by_mmsi) if m]
+    pending = sorted((k for k in small_craft(by_mmsi) if not PSEUDONYM.match(k)), key=lambda k: (len(k), k))
+    renamed = {k: f"small-craft-{n}" for n, k in enumerate(pending, start=max(taken, default=0) + 1)}
+    out = {}
+    for key, r in by_mmsi.items():
+        if key in renamed:
+            r = {k: v for k, v in r.items() if k not in ("name", "callSign")}
+            r["mmsi"] = renamed[key]
+            key = renamed[key]
+        out[key] = r
+    doc["by_mmsi"] = out
+    return len(renamed)
+
+
+def identifying_fields(doc):
+    """The field names anywhere in doc that could identify a natural person, with counts."""
+    seen = {}
+    stack = [doc]
+    while stack:
+        o = stack.pop()
+        if isinstance(o, dict):
+            for k, v in o.items():
+                plain = re.sub(r"[^a-z0-9]", "", k.lower())
+                if plain == "name" or any(t in plain for t in IDENTIFYING):
+                    seen[k] = seen.get(k, 0) + 1
+                stack.append(v)
+        elif isinstance(o, list):
+            stack.extend(o)
+    return dict(sorted(seen.items()))
+
+
+def cmd_screen(args):
+    """Report what a reviewer must assess. Writes nothing unless --apply."""
+    path = os.path.join(args.samples, VESSELS)
+    if os.path.exists(path):
+        doc = load(path)
+        by_mmsi = doc["by_mmsi"]
+        small = small_craft(by_mmsi)
+        named = [k for k in small if not PSEUDONYM.match(k) or {"name", "callSign"} & set(by_mmsi[k])]
+        print(f"{VESSELS}: {len(by_mmsi)} records, {len(small)} small craft without an IMO number "
+              f"(under {SMALL_CRAFT_METRES} m), {len(named)} of them still keyed by MMSI or named")
+        if args.apply:
+            n = pseudonymise(doc)
+            if n:
+                with open(path, "w", encoding="utf-8", newline="\n") as f:
+                    # The snapshot's own layout, so the diff is the changed records only.
+                    f.write(json.dumps(doc, indent=1))
+            print(f"{VESSELS}: removed name and callSign from, and pseudonymised the MMSI of, {n} record(s)")
+    for folder in ("2-forge-datasets", "3-heimdall-feed-snapshots", "4-heimdall-observations"):
+        directory = os.path.join(args.samples, folder)
+        if not os.path.isdir(directory):
+            continue
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith(".json") or f"{folder}/{name}" == VESSELS:
+                continue
+            fields = identifying_fields(load(os.path.join(directory, name)))
+            listed = ", ".join(f"{k} ({n})" for k, n in fields.items()) or "none"
+            print(f"{folder}/{name}: fields to assess: {listed}")
 
 
 def cmd_check(args):
     jobs, data, types = plan(args.samples, None)
     problems = 0
+    for line in screening_problems(catalogue()):
+        print(line); problems += 1
     for name, job in jobs.items():
         o = job["objects"]
         props = types.get(o["type"])
@@ -428,12 +557,16 @@ def main():
     cr.add_argument("--datasets", default="")
     cr.add_argument("--feeds", default="")
     sub.add_parser("notice")
+    sc = sub.add_parser("screen")
+    sc.add_argument("--samples", default=os.path.dirname(os.path.abspath(__file__)))
+    sc.add_argument("--apply", action="store_true",
+                    help="pseudonymise the small craft in the AIS vessel snapshot (rewrites the file)")
     m = sub.add_parser("merge")
     m.add_argument("files", nargs="+")
     args = p.parse_args()
     {"check": cmd_check, "import": cmd_import, "forge": cmd_forge,
      "observations": cmd_observations, "merge": cmd_merge, "ontology": cmd_ontology,
-     "feeds": cmd_feeds, "credits": cmd_credits, "notice": cmd_notice}[args.cmd](args)
+     "feeds": cmd_feeds, "credits": cmd_credits, "notice": cmd_notice, "screen": cmd_screen}[args.cmd](args)
 
 
 if __name__ == "__main__":

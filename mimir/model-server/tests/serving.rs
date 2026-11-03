@@ -14,10 +14,12 @@ use model_server::{
 fn req(prompt: &str, quant: Option<Quant>) -> InferenceRequest {
     InferenceRequest {
         purpose: "investigation".to_string(),
+        system_prompt: String::new(),
         workload_class: WorkloadClass::Balanced,
         quant_pref: quant,
         backend_override: None,
         max_tokens: 32,
+        marking: model_server::marking::unclassified(),
         prompt: prompt.to_string(),
     }
 }

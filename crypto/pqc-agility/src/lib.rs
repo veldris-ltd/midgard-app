@@ -37,8 +37,11 @@ pub use kem::{Ciphertext, Kem, KemPublicKey, KemSecretKey, KemSizes, SharedSecre
 pub use negotiate::{negotiate_kem, negotiate_sig, Capabilities};
 pub use registry::{shared, CryptoProvider, SharedProvider};
 pub use rng::Rng;
-pub use secret::{mlock_failures, SecretArray, SecretBytes};
+pub use secret::{lock_process_memory, mlock_failures, SecretArray, SecretBytes};
 pub use sign::{Signature, SignatureScheme, SigningKey, VerifyingKey};
+/// Re-exported so downstream crates wrap by-value secrets (derived keys, DEKs) without
+/// a dependency line of their own. [VLD-ANB-MIDGARD-0036]
+pub use zeroize::Zeroizing;
 
 #[cfg(any(test, feature = "test-backend"))]
 pub use rng::SeedRng;

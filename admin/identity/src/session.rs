@@ -1,12 +1,21 @@
 //! Admin sessions: **WebAuthn-gated** sign-in and per-scope step-up re-authentication.
 //!
 //! An [`AdminSession`] is only obtainable from [`AdminAuthenticator::sign_in`], which
-//! verifies a real, user-verified WebAuthn assertion (see [`crate::webauthn`]) before
-//! the session exists. There is no other constructor — a session **cannot** be built
+//! verifies a real WebAuthn assertion (see [`crate::webauthn`]) before the session
+//! exists. There is no other constructor — a session **cannot** be built
 //! "authenticated" without a verified assertion. Entering an admin scope, and a fresh
 //! re-auth at the moment of a high-risk approval, likewise require a freshly-verified
 //! phishing-resistant assertion. The clock is injected (Unix seconds) so the state
 //! machine is deterministic. [AC-AD-1] [RC-30] [STD:OWASP ASVS V2] [STD:FIDO2]
+//!
+//! ## What counts as MFA
+//! The assertion's `user_verified` flag is chosen and signed by the client, so it is an
+//! audit hint ([`AdminSession::uv_claimed`]), never a factor. A session satisfies MFA
+//! only with two distinct factors, one of them phishing-resistant: the passkey, plus a
+//! second factor the relying party verified itself and recorded with
+//! [`AdminSession::record_factor`] (the gateway checks a one-time code). A passkey
+//! alone, whatever it claims, is one factor: possession of one keystore file.
+//! [VLD-ANB-MIDGARD-0008]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,8 +34,9 @@ pub enum AuthFactor {
     Password,
     /// A time-based one-time code.
     Totp,
-    /// A phishing-resistant WebAuthn / passkey assertion. With user verification it
-    /// is itself multi-factor (possession + inherence). [STD:FIDO2]
+    /// A phishing-resistant WebAuthn / passkey assertion: possession of the passkey.
+    /// Its user-verification flag is client-asserted, so it is one factor, not two.
+    /// [VLD-ANB-MIDGARD-0008]
     WebAuthn,
 }
 
@@ -35,10 +45,20 @@ impl AuthFactor {
     pub fn is_phishing_resistant(&self) -> bool {
         matches!(self, AuthFactor::WebAuthn)
     }
+
+    /// The factor's name in an audit record: `password`, `totp` or `webauthn`.
+    pub fn name(&self) -> &'static str {
+        match self {
+            AuthFactor::Password => "password",
+            AuthFactor::Totp => "totp",
+            AuthFactor::WebAuthn => "webauthn",
+        }
+    }
 }
 
-/// An admin's registered credential: their passkey. (Password/TOTP factors can be
-/// added here later; a user-verified passkey already satisfies MFA.)
+/// An admin's registered credential: their passkey. The second factor is verified by
+/// the relying party, outside this crate, and recorded on the session.
+/// [VLD-ANB-MIDGARD-0008]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminCredential {
     /// The admin's registered passkey (verifies every assertion).
@@ -77,9 +97,11 @@ impl AdminAuthenticator {
     }
 
     /// Sign in by presenting a WebAuthn assertion that answers `challenge`. The
-    /// assertion must verify **and** carry user verification (a user-verified passkey
-    /// is MFA). Only on success does an [`AdminSession`] come into existence.
-    /// [AC-AD-1] [RC-30]
+    /// assertion must verify; only then does an [`AdminSession`] come into existence,
+    /// holding the one factor [`AuthFactor::WebAuthn`], which is not MFA. The signed
+    /// `user_verified` flag is recorded as [`AdminSession::uv_claimed`] for the audit
+    /// record and gates nothing: the client sets it. [AC-AD-1] [RC-30]
+    /// [VLD-ANB-MIDGARD-0008]
     pub fn sign_in(
         &self,
         admin: &AdminId,
@@ -90,23 +112,22 @@ impl AdminAuthenticator {
         let cred = self.credential(admin)?;
         // The WebAuthn assertion is mandatory: verify it before anything else.
         verify_admin_assertion(&cred.passkey, challenge, assertion, &self.provider)?;
-        // A passkey without user verification is single-factor — reject it as MFA.
-        if !assertion.user_verified {
-            return Err(IdentityError::MfaRequired);
-        }
         let mut factors = BTreeSet::new();
         factors.insert(AuthFactor::WebAuthn);
         Ok(AdminSession {
             admin: admin.clone(),
             factors,
+            uv_claimed: assertion.user_verified,
             authenticated_at: now,
             stepped_up: BTreeMap::new(),
             last_reauth: now,
         })
     }
 
-    /// Enter an admin scope by performing a step-up: verify a **fresh** user-verified
-    /// assertion, then record the step-up and refresh the re-auth clock. [AC-AD-1]
+    /// Enter an admin scope by performing a step-up: a **fresh** assertion must verify
+    /// and the session must already satisfy MFA; then the step-up is recorded and the
+    /// re-auth clock refreshed. A session holding the passkey alone is
+    /// [`IdentityError::WeakStepUpFactor`]. [AC-AD-1] [VLD-ANB-MIDGARD-0008]
     pub fn step_up(
         &self,
         session: &mut AdminSession,
@@ -117,7 +138,7 @@ impl AdminAuthenticator {
     ) -> Result<(), IdentityError> {
         let cred = self.credential(&session.admin)?;
         verify_admin_assertion(&cred.passkey, challenge, assertion, &self.provider)?;
-        if !assertion.user_verified {
+        if !session.has_mfa() {
             return Err(IdentityError::WeakStepUpFactor);
         }
         session.stepped_up.insert(scope, now);
@@ -126,8 +147,8 @@ impl AdminAuthenticator {
     }
 
     /// A fresh re-authentication (required at the moment of approving a high-risk
-    /// action): verify a fresh user-verified assertion and refresh the clock.
-    /// [AC-AD-1]
+    /// action): on a session that satisfies MFA, verify a fresh assertion and refresh
+    /// the clock. [AC-AD-1] [VLD-ANB-MIDGARD-0008]
     pub fn reauth(
         &self,
         session: &mut AdminSession,
@@ -137,7 +158,7 @@ impl AdminAuthenticator {
     ) -> Result<(), IdentityError> {
         let cred = self.credential(&session.admin)?;
         verify_admin_assertion(&cred.passkey, challenge, assertion, &self.provider)?;
-        if !assertion.user_verified {
+        if !session.has_mfa() {
             return Err(IdentityError::WeakStepUpFactor);
         }
         session.last_reauth = now;
@@ -152,6 +173,7 @@ impl AdminAuthenticator {
 pub struct AdminSession {
     admin: AdminId,
     factors: BTreeSet<AuthFactor>,
+    uv_claimed: bool,
     authenticated_at: u64,
     stepped_up: BTreeMap<ResourceScope, u64>,
     last_reauth: u64,
@@ -173,10 +195,31 @@ impl AdminSession {
         self.authenticated_at
     }
 
-    /// Whether the session satisfies MFA. A user-verified passkey does (possession +
-    /// inherence), so a verified WebAuthn factor is sufficient. [STD:FIDO2]
+    /// Record a second factor on this session. Only the relying party calls this, and
+    /// only after it has itself verified `factor` for this administrator (the gateway
+    /// checks a one-time code against the secret it holds); a client's say-so is never
+    /// a factor. [VLD-ANB-MIDGARD-0008]
+    pub fn record_factor(&mut self, factor: AuthFactor) {
+        self.factors.insert(factor);
+    }
+
+    /// The verified factors' names, in order, for the audit record.
+    pub fn factor_names(&self) -> Vec<&'static str> {
+        self.factors.iter().map(AuthFactor::name).collect()
+    }
+
+    /// Whether the signed assertion that opened the session claimed user verification.
+    /// The client sets the flag, so it is recorded for audit and trusted for nothing.
+    /// [VLD-ANB-MIDGARD-0008]
+    pub fn uv_claimed(&self) -> bool {
+        self.uv_claimed
+    }
+
+    /// Whether the session satisfies MFA: at least two distinct verified factors, one
+    /// of them phishing-resistant. A passkey alone never does, whatever its
+    /// `user_verified` flag says. [VLD-ANB-MIDGARD-0008] [STD:OWASP ASVS V6]
     pub fn has_mfa(&self) -> bool {
-        self.factors.iter().any(AuthFactor::is_phishing_resistant)
+        self.factors.len() >= 2 && self.factors.iter().any(AuthFactor::is_phishing_resistant)
     }
 
     /// Assert the session has a fresh step-up for `scope`. Fails closed if the scope

@@ -8,7 +8,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use audit_writer::{verify_chain, FileLedger, LedgerId, LedgerStore};
 use http_gateway::boot::open_state_dir;
 use http_gateway::http::Request;
@@ -54,6 +56,10 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn mg_admin(args: &[&str], stdin: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_mg-admin"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -154,7 +160,11 @@ fn an_import_fills_a_real_enclosure_that_a_gateway_then_serves() {
 
     // The ledger records the one import that happened and the enrolment, and verifies.
     {
-        let audit = Keystore::read(&state.audit_keystore()).expect("audit keystore");
+        let audit = Keystore::read(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("audit keystore");
         let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
         let ledger = FileLedger::open(state.ledger(), Box::new(sealer), LedgerId(LEDGER_ID.into()))
             .expect("the ledger opens");
@@ -178,7 +188,13 @@ fn an_import_fills_a_real_enclosure_that_a_gateway_then_serves() {
     }
 
     // A gateway over the directory serves the imported objects, under their markings.
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("the enclosure boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("the enclosure boots");
     let gw = &served.gateway;
     let request = |method: &str, path: &str, body: &str, token: Option<&str>| {
         gw.handle(

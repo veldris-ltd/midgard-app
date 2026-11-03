@@ -6,12 +6,16 @@
 //!
 //! The provider is a deterministic mock standing in for the Mimir bridge — the same
 //! seam-with-mock pattern as the A.6/A.7 suites.
+//!
+//! WP-64: ungrounded options are rejected rather than offered, the offered set is
+//! re-ranked contiguously, and a mis-ranked response fails to parse. [AC-64.5]
+//! [VLD-ANB-MIDGARD-0079]
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use heimdall_decision_support::{
     ev_a8_advisory, ev_a8_cited, ev_a8_grounded, ev_a8_insuff, ev_a8_neutral, ev_a8_ranked,
-    request_options, DecisionError, MockOptionProvider, UnavailableOptionProvider,
+    request_options, DecisionError, MockOptionProvider, OptionSet, UnavailableOptionProvider,
 };
 use heimdall_picture::{
     Classification, ClassificationSource, EntityId, LayerId, Picture, Track, TrackedEntity,
@@ -38,6 +42,7 @@ fn entity(id: &str, kind: &str, layer: &str, feed: &str, label: &str) -> Tracked
             first_seen: 100,
             last_seen: 105,
             observation_count: 2,
+            last_received: 105,
         },
         classification: Some(Classification {
             label: label.into(),
@@ -95,7 +100,8 @@ fn ac_h_3_options_are_ranked_and_cite_evidence() {
 #[test]
 fn ev_a8_grounded_catches_invented_evidence() {
     // An option citing an entity that is NOT in the picture (a hallucinated
-    // reference) must be reported ungrounded — EV-A8-grounded catches it.
+    // reference) is rejected, not offered — and EV-A8-grounded catches it.
+    // [AC-64.5] [VLD-ANB-MIDGARD-0079]
     let picture = sample_picture();
     let invented = r#"{"options":[{"rank":1,"title":"Strike GHOST","summary":"act on a phantom",
         "citations":["entity:GHOST"],"expected_effect":"","risks":[]}],"unsupported":null}"#;
@@ -106,9 +112,100 @@ fn ev_a8_grounded_catches_invented_evidence() {
     // It still *cited* something, so the cited-eval passes — the two evals catch
     // different failure modes.
     assert!(ev_a8_cited(&advisory).passed());
-    let g = advisory.grounding_for(1).unwrap();
-    assert_eq!(g.unresolved.len(), 1);
-    assert_eq!(g.unresolved[0].id, "GHOST");
+    // The invented option is absent from what is offered...
+    assert!(advisory.option_set.options.is_empty());
+    assert!(advisory.grounded.is_empty());
+    assert!(advisory.grounding_for(1).is_none());
+    // ...and present in `rejected` with its unresolved citation.
+    assert_eq!(advisory.rejected.len(), 1);
+    let r = &advisory.rejected[0];
+    assert_eq!(r.option.title, "Strike GHOST");
+    assert_eq!(r.unresolved.len(), 1);
+    assert_eq!(r.unresolved[0].id, "GHOST");
+    assert_eq!(r.unresolved[0].raw, "entity:GHOST");
+}
+
+#[test]
+fn misranked_options_fail_parse() {
+    // Duplicate ranks (1,1,3) and gapped ranks (1,3) are malformed responses: they
+    // fail to parse rather than being offered in an order the model did not mean.
+    // [AC-64.5] [VLD-ANB-MIDGARD-0079]
+    let picture = sample_picture();
+    let opt = |rank: u32| {
+        format!(
+            r#"{{"rank":{rank},"title":"t{rank}","summary":"s","citations":["entity:A123"],"expected_effect":"","risks":["r"]}}"#
+        )
+    };
+    for ranks in [vec![1, 1, 3], vec![1, 3]] {
+        let body: Vec<String> = ranks.iter().map(|r| opt(*r)).collect();
+        let text = format!(r#"{{"options":[{}],"unsupported":null}}"#, body.join(","));
+        let want =
+            DecisionError::Parse("options must be ranked 1..n without gaps or duplicates".into());
+        assert_eq!(
+            OptionSet::parse(&text).unwrap_err(),
+            want,
+            "ranks {ranks:?}"
+        );
+        assert_eq!(
+            request_options(&picture, "decide", &MockOptionProvider::new(text.as_str()))
+                .unwrap_err(),
+            want,
+            "ranks {ranks:?}"
+        );
+    }
+}
+
+#[test]
+fn grounded_options_are_reranked_contiguously() {
+    // Ranks 1 and 3 are grounded, rank 2 invents evidence: the offered set is the
+    // grounded two, in the model's order, ranked 1 and 2. [AC-64.5]
+    // [VLD-ANB-MIDGARD-0079]
+    let picture = sample_picture();
+    let mixed = r#"{"options":[
+        {"rank":1,"title":"Cue radar on A123","summary":"look","citations":["entity:A123","feed:radar"],"expected_effect":"","risks":["cost"]},
+        {"rank":2,"title":"Strike GHOST","summary":"phantom","citations":["entity:A123","feed:lidar"],"expected_effect":"","risks":["cost"]},
+        {"rank":3,"title":"Hold and watch S9","summary":"watch","citations":["entity:S9"],"expected_effect":"","risks":["late"]}
+    ],"unsupported":null}"#;
+    let advisory = request_options(&picture, "decide", &MockOptionProvider::new(mixed)).unwrap();
+
+    let titles: Vec<&str> = advisory
+        .option_set
+        .options
+        .iter()
+        .map(|o| o.title.as_str())
+        .collect();
+    assert_eq!(titles, vec!["Cue radar on A123", "Hold and watch S9"]);
+    let ranks: Vec<u32> = advisory.option_set.options.iter().map(|o| o.rank).collect();
+    assert_eq!(ranks, vec![1, 2]);
+    assert!(advisory.option_set.is_well_ranked());
+    // The GroundedOption view agrees with the option set.
+    let granks: Vec<(u32, &str)> = advisory
+        .grounded
+        .iter()
+        .map(|g| (g.rank(), g.title()))
+        .collect();
+    assert_eq!(
+        granks,
+        vec![(1, "Cue radar on A123"), (2, "Hold and watch S9")]
+    );
+    assert_eq!(
+        advisory.grounding_for(2).unwrap().title(),
+        "Hold and watch S9"
+    );
+
+    // The rejected option keeps its original rank and names only the citation that
+    // did not resolve (feed:lidar contributed to nothing in the picture).
+    assert_eq!(advisory.rejected.len(), 1);
+    assert_eq!(advisory.rejected[0].option.rank, 2);
+    let unresolved: Vec<&str> = advisory.rejected[0]
+        .unresolved
+        .iter()
+        .map(|c| c.raw.as_str())
+        .collect();
+    assert_eq!(unresolved, vec!["feed:lidar"]);
+    assert!(!advisory.all_grounded());
+    assert!(!ev_a8_grounded(&advisory).passed());
+    assert!(ev_a8_ranked(&advisory).passed());
 }
 
 #[test]
@@ -119,6 +216,10 @@ fn ev_a8_cited_catches_uncited_option() {
     let advisory = request_options(&picture, "decide", &MockOptionProvider::new(uncited)).unwrap();
 
     assert!(!ev_a8_cited(&advisory).passed());
+    // An option resting on nothing is not offered either. [VLD-ANB-MIDGARD-0079]
+    assert!(advisory.option_set.options.is_empty());
+    assert_eq!(advisory.rejected.len(), 1);
+    assert!(advisory.rejected[0].unresolved.is_empty());
 }
 
 #[test]

@@ -19,6 +19,13 @@
 //! server ([`FileLedger::open_mirrored`], [`FileLedger::create_mirrored`]), so that a
 //! ledger rolled back together with its local checkpoint still fails closed. See
 //! [`crate::mirror`]. [MG-SEC-05]
+//!
+//! An append writes all of its frame or none of it: a failed write is cut back off.
+//! A crash part-way through an append can still leave a partial final frame; open
+//! cuts it off when it is the frame after the checkpointed ones, the only one a crash
+//! can tear, and reports [`Recovered::TornTailTruncated`], which the caller records
+//! in the ledger with [`AuditWriter::record_recovery`]. Any other partial frame fails
+//! closed. [VLD-ANB-MIDGARD-0040]
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -27,9 +34,11 @@ use std::path::{Path, PathBuf};
 use crate::checkpoint::LedgerCheckpoint;
 use crate::codec::{decode_sealed_entry, encode_sealed_entry};
 use crate::error::AuditError;
-use crate::ledger::LedgerStore;
+use crate::ledger::{AuditWriter, LedgerStore};
 use crate::mirror::{check_against_mirror, write_atomic, CheckpointMirror};
-use crate::record::{LedgerId, SealedEntry};
+use crate::record::{
+    Action, Actor, AuditContext, AuditRecord, LedgerId, RecordId, Resource, SealedEntry, Timestamp,
+};
 
 /// Seals and unseals opaque bytes at rest. Kept backend-agnostic so `audit-writer`
 /// does not depend on a KEM backend; the KMS binding lives in the `kms` crate.
@@ -78,6 +87,42 @@ pub struct FileLedger {
     /// The last checkpoint could not be published to the mirror: no entry is appended
     /// until it is. [MG-SEC-05]
     mirror_failed: bool,
+    /// What opening the ledger repaired, until it is recorded in the ledger.
+    /// [VLD-ANB-MIDGARD-0040]
+    recovered: Option<Recovered>,
+}
+
+/// A repair [`FileLedger::open`] made to the ledger file before loading it, which
+/// the caller records in the ledger ([`AuditWriter::record_recovery`]).
+/// [VLD-ANB-MIDGARD-0040]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Recovered {
+    /// The file ended in a partial frame, the one a crash during an append leaves,
+    /// and was cut back to the end of the last complete frame. `bytes` were removed.
+    TornTailTruncated { bytes: usize },
+}
+
+/// The audit action a repair is recorded under.
+pub const LEDGER_REPAIRED_TORN_TAIL: &str = "LEDGER repaired: torn tail";
+
+/// The frames of a ledger file, and where an incomplete final frame starts, if the
+/// file ends in one.
+struct Loaded {
+    entries: Vec<SealedEntry>,
+    torn_at: Option<usize>,
+    len: usize,
+}
+
+impl Loaded {
+    /// The entries, refusing a file that ends in a partial frame: for the paths with
+    /// no checkpoint to say which frame a crash could have torn.
+    fn whole(self) -> Result<Vec<SealedEntry>, AuditError> {
+        match self.torn_at {
+            None => Ok(self.entries),
+            Some(_) => Err(AuditError::Store("truncated frame".into())),
+        }
+    }
 }
 
 /// Where a ledger's signed checkpoint lives: `<ledger path>.checkpoint`.
@@ -128,6 +173,7 @@ impl FileLedger {
             checkpoint: None,
             mirror: None,
             mirror_failed: false,
+            recovered: None,
         })
     }
 
@@ -147,7 +193,7 @@ impl FileLedger {
         if !path.exists() {
             return Err(AuditError::LedgerMissing(path.display().to_string()));
         }
-        let entries = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
+        let loaded = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
         let checkpoint = read_checkpoint(&path)?.ok_or(AuditError::CheckpointMissing)?;
         if checkpoint.ledger_id != ledger_id {
             return Err(AuditError::CheckpointInvalid(format!(
@@ -155,7 +201,24 @@ impl FileLedger {
                 checkpoint.ledger_id.0, ledger_id.0
             )));
         }
-        checkpoint.check_covers(&entries)?;
+        checkpoint.check_covers(&loaded.entries)?;
+        // A partial final frame is what a crash during an append leaves. Only the
+        // frame the checkpoint does not cover yet can be torn that way, so it is cut
+        // off only when the complete frames are exactly the checkpointed ones; a torn
+        // frame the checkpoint vouches for, or one after an entry it does not, fails
+        // closed rather than dropping a complete entry. [VLD-ANB-MIDGARD-0040]
+        let mut recovered = None;
+        if let Some(at) = loaded.torn_at {
+            let found = loaded.entries.len() as u64;
+            if found != checkpoint.count {
+                return Err(AuditError::TornFrame {
+                    checkpoint: checkpoint.count,
+                    found,
+                });
+            }
+            recovered = Some(cut_torn_tail(&path, at, loaded.len)?);
+        }
+        let entries = loaded.entries;
         let file = append_handle(&path, false)?;
         Ok(Self {
             path,
@@ -166,6 +229,7 @@ impl FileLedger {
             checkpoint: Some(checkpoint),
             mirror: None,
             mirror_failed: false,
+            recovered,
         })
     }
 
@@ -190,8 +254,15 @@ impl FileLedger {
             return Self::create(path, sealer, ledger_id);
         }
         if path.exists() && !has_checkpoint {
-            let entries = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
-            if entries.is_empty() {
+            let loaded = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
+            if loaded.entries.is_empty() {
+                // A creation that stopped before its first checkpoint may also have
+                // stopped part-way through its first frame. [VLD-ANB-MIDGARD-0040]
+                let recovered = match loaded.torn_at {
+                    Some(at) => Some(cut_torn_tail(&path, at, loaded.len)?),
+                    None => None,
+                };
+                let entries = loaded.entries;
                 let file = append_handle(&path, false)?;
                 return Ok(Self {
                     path,
@@ -202,6 +273,7 @@ impl FileLedger {
                     checkpoint: None,
                     mirror: None,
                     mirror_failed: false,
+                    recovered,
                 });
             }
         }
@@ -226,7 +298,7 @@ impl FileLedger {
         if checkpoint.exists() {
             return Err(AuditError::LedgerExists(checkpoint.display().to_string()));
         }
-        let entries = read_ledger(&path, sealer.as_ref(), &ledger_id)?;
+        let entries = read_ledger(&path, sealer.as_ref(), &ledger_id)?.whole()?;
         let file = append_handle(&path, false)?;
         Ok(Self {
             path,
@@ -237,6 +309,7 @@ impl FileLedger {
             checkpoint: None,
             mirror: None,
             mirror_failed: false,
+            recovered: None,
         })
     }
 
@@ -370,13 +443,48 @@ impl FileLedger {
     pub fn ledger_id(&self) -> &LedgerId {
         &self.ledger_id
     }
+
+    /// The repair opening the ledger made, if any, until
+    /// [`AuditWriter::record_recovery`] records it. [VLD-ANB-MIDGARD-0040]
+    pub fn recovered(&self) -> Option<&Recovered> {
+        self.recovered.as_ref()
+    }
+}
+
+impl AuditWriter<FileLedger> {
+    /// Record in the ledger the repair opening it made ([`FileLedger::recovered`]),
+    /// once, as a `system` entry under [`LEDGER_REPAIRED_TORN_TAIL`], so a cut-off
+    /// partial frame leaves lineage. Returns the entry's sequence number, or `None`
+    /// when nothing was repaired. Call it after the ledger has been verified.
+    /// [VLD-ANB-MIDGARD-0040]
+    pub fn record_recovery(&mut self, ts: &str) -> Result<Option<u64>, AuditError> {
+        let Some(recovered) = self.store_mut().recovered.clone() else {
+            return Ok(None);
+        };
+        let (action, resource) = match recovered {
+            Recovered::TornTailTruncated { bytes } => (
+                LEDGER_REPAIRED_TORN_TAIL,
+                format!("ledger:{}, {bytes} bytes cut", self.ledger_id().0),
+            ),
+        };
+        let seq = self.append(AuditRecord {
+            id: RecordId(format!("{action}:{resource}:{ts}")),
+            actor: Actor("system".into()),
+            action: Action(action.into()),
+            resource: Resource(resource),
+            ts: Timestamp(ts.into()),
+            context: AuditContext::default(),
+        })?;
+        self.store_mut().recovered = None;
+        Ok(Some(seq))
+    }
 }
 
 fn read_ledger(
     path: &Path,
     sealer: &dyn Sealer,
     ledger_id: &LedgerId,
-) -> Result<Vec<SealedEntry>, AuditError> {
+) -> Result<Loaded, AuditError> {
     let mut buf = Vec::new();
     File::open(path)
         .map_err(io)?
@@ -403,17 +511,25 @@ fn write_checkpoint(ledger: &Path, checkpoint: &LedgerCheckpoint) -> Result<(), 
 /// Parse the length-framed file into decrypted, decoded entries. The positional
 /// counter is the expected sequence: it feeds the AAD, so a reordered or spliced
 /// frame fails AEAD authentication here.
+///
+/// A final frame whose header or body runs past the end of the file is not an
+/// error here: its offset is reported as `torn_at`, for the caller to judge against
+/// the checkpoint. Running past the end is what makes it incomplete, so nothing can
+/// follow it. [VLD-ANB-MIDGARD-0040]
 fn load_frames(
     buf: &[u8],
     sealer: &dyn Sealer,
     ledger_id: &LedgerId,
-) -> Result<Vec<SealedEntry>, AuditError> {
+) -> Result<Loaded, AuditError> {
     let mut out = Vec::new();
     let mut pos = 0usize;
     let mut seq = 0u64;
+    let mut torn_at = None;
     while pos < buf.len() {
+        let start = pos;
         if pos + 4 > buf.len() {
-            return Err(AuditError::Store("truncated frame header".into()));
+            torn_at = Some(start);
+            break;
         }
         let len = u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]) as usize;
         pos += 4;
@@ -421,7 +537,8 @@ fn load_frames(
             .checked_add(len)
             .ok_or_else(|| AuditError::Store("frame length overflow".into()))?;
         if end > buf.len() {
-            return Err(AuditError::Store("truncated frame body".into()));
+            torn_at = Some(start);
+            break;
         }
         let sealed = &buf[pos..end];
         pos = end;
@@ -431,7 +548,57 @@ fn load_frames(
         out.push(decode_sealed_entry(&plaintext)?);
         seq += 1;
     }
-    Ok(out)
+    Ok(Loaded {
+        entries: out,
+        torn_at,
+        len: buf.len(),
+    })
+}
+
+/// Cut the ledger file back to `at`, the start of its partial final frame, and make
+/// that durable. `len` is the file's length as it was read. [VLD-ANB-MIDGARD-0040]
+fn cut_torn_tail(path: &Path, at: usize, len: usize) -> Result<Recovered, AuditError> {
+    let file = OpenOptions::new().write(true).open(path).map_err(io)?;
+    file.set_len(at as u64).map_err(io)?;
+    file.sync_all().map_err(io)?;
+    Ok(Recovered::TornTailTruncated { bytes: len - at })
+}
+
+/// The file operations an append makes, so that taking back a failed write can be
+/// tested without filling a disk.
+trait FrameFile {
+    fn len(&self) -> std::io::Result<u64>;
+    fn write_all(&mut self, frame: &[u8]) -> std::io::Result<()>;
+    fn sync_all(&self) -> std::io::Result<()>;
+    fn set_len(&self, len: u64) -> std::io::Result<()>;
+}
+
+impl FrameFile for File {
+    fn len(&self) -> std::io::Result<u64> {
+        Ok(self.metadata()?.len())
+    }
+    fn write_all(&mut self, frame: &[u8]) -> std::io::Result<()> {
+        Write::write_all(self, frame)
+    }
+    fn sync_all(&self) -> std::io::Result<()> {
+        File::sync_all(self)
+    }
+    fn set_len(&self, len: u64) -> std::io::Result<()> {
+        File::set_len(self, len)
+    }
+}
+
+/// Write and `fsync` one frame, or none of it: on a failed write or sync (a full
+/// disk, say) the file is cut back to its length before the write, so the file and
+/// the entries in memory stay in step. Should that fail too, the partial frame is
+/// left for the next open to cut off as a torn tail. [VLD-ANB-MIDGARD-0040]
+fn append_frame(file: &mut impl FrameFile, frame: &[u8]) -> std::io::Result<()> {
+    let before = file.len()?;
+    let written = file.write_all(frame).and_then(|()| file.sync_all());
+    if written.is_err() {
+        let _ = file.set_len(before).and_then(|()| file.sync_all());
+    }
+    written
 }
 
 impl LedgerStore for FileLedger {
@@ -448,8 +615,8 @@ impl LedgerStore for FileLedger {
         let mut frame = Vec::with_capacity(4 + sealed.len());
         frame.extend_from_slice(&(sealed.len() as u32).to_le_bytes());
         frame.extend_from_slice(&sealed);
-        self.file.write_all(&frame).map_err(io)?;
-        self.file.sync_all().map_err(io)?; // per-entry fsync: durable before we ack
+        // Per-entry fsync: durable before we ack. All of the frame or none of it.
+        append_frame(&mut self.file, &frame).map_err(io)?;
 
         self.entries.push(entry);
         Ok(())
@@ -474,5 +641,54 @@ impl LedgerStore for FileLedger {
     }
     fn checkpoint(&self) -> Option<&LedgerCheckpoint> {
         self.checkpoint.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// A file on a disk with `room` bytes left: it takes what fits of a frame and
+    /// then fails, as a full disk does.
+    struct FullDisk {
+        bytes: RefCell<Vec<u8>>,
+        room: usize,
+    }
+
+    impl FrameFile for FullDisk {
+        fn len(&self) -> std::io::Result<u64> {
+            Ok(self.bytes.borrow().len() as u64)
+        }
+        fn write_all(&mut self, frame: &[u8]) -> std::io::Result<()> {
+            let fits = frame.len().min(self.room);
+            self.bytes.borrow_mut().extend_from_slice(&frame[..fits]);
+            self.room -= fits;
+            if fits < frame.len() {
+                return Err(std::io::Error::other("no space left on device"));
+            }
+            Ok(())
+        }
+        fn sync_all(&self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn set_len(&self, len: u64) -> std::io::Result<()> {
+            self.bytes.borrow_mut().truncate(len as usize);
+            Ok(())
+        }
+    }
+
+    // A write that fails part-way is taken back: no partial frame is left behind for
+    // the next open to trip over, and the frames before it are untouched.
+    // [VLD-ANB-MIDGARD-0040] [AC-28.3]
+    #[test]
+    fn a_failed_append_leaves_no_partial_frame() {
+        let mut disk = FullDisk {
+            bytes: RefCell::new(Vec::new()),
+            room: 30,
+        };
+        append_frame(&mut disk, &[1u8; 20]).unwrap();
+        assert!(append_frame(&mut disk, &[2u8; 20]).is_err());
+        assert_eq!(*disk.bytes.borrow(), vec![1u8; 20]);
     }
 }

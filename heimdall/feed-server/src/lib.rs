@@ -10,41 +10,81 @@
 //! 3. the observation names the source's own feed — a feed's identity is the service
 //!    its certificate names, so one source cannot speak for another;
 //! 4. its signature verifies against the key that certificate binds, through the
-//!    feed gateway's admission check — the only way to a `VerifiedObservation`.
+//!    feed gateway's admission check — the only way to a `VerifiedObservation`;
+//! 5. it is new, by the feed gateway's [`ReplayGuard`], which the service holds once
+//!    and shares across requests: its sequence (signed, observation format version 2)
+//!    is above the last one admitted from its feed, its `observed_at` lies inside the
+//!    accepted window around the time the service received it ([`IngestLimits`]), and
+//!    its id is not among the last [`REPLAY_RING_CAPACITY`] received from that feed. A
+//!    feed's clock is its own assertion: without the window one certified feed could
+//!    date an observation years ahead and freeze any entity, and without the replay
+//!    check resubmitting it would inflate the count. [VLD-ANB-MIDGARD-0015]
+//!    [VLD-ANB-MIDGARD-0041]
 //!
-//! A refusal at 3 or 4 is audited too. Admitted observations are fused and the
-//! picture is sealed at rest after each one, so a restart recovers it. [RC-13]
+//! Each feed's last sequence is sealed at rest ([`SequenceFile`]) before the
+//! observation is fused, so a restart does not reopen the replay window.
+//!
+//! A refusal at 3, 4 or 5 is audited too, with a reason code and the entity key.
+//! Admitted observations are fused and each changed entity is appended to the sealed
+//! picture journal, so a restart recovers it. [RC-13] The picture records when each entity was last
+//! received, and [`READ_PICTURE`] says which entities have gone stale.
+//!
+//! The picture is bounded by [`PictureLimits`]: an observation with too many or too
+//! large attributes is malformed, and a new entity that would pass the entity cap,
+//! overall or for its feed, first evicts tracks quiet for longer than `evict_after`
+//! and is otherwise refused as `picture-full` and audited. Ingest is rate limited per
+//! identity by the gateway's limiter, which the binary turns on. A picture read is
+//! paged and never answers with more than [`MAX_PAGE_BODY`] bytes, so the analyst
+//! client's frame cap is never reached. [VLD-ANB-MIDGARD-0017]
 //!
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
-//! [`READ_PICTURE`] the picture as JSON.
+//! [`READ_PICTURE`] a page of the picture as JSON.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use audit_writer::LedgerStore;
-use gateway::{RequestHandler, Router};
-use governance::{GovContext, Governance};
+use audit_writer::{LedgerStore, SealedEntry};
+use gateway::{Authorised, RequestHandler, Router};
+use governance::{AuditContext, Governance, Outcome};
 use heimdall_feed_gateway::{
-    decode_signed_observation, FeedGateway, FeedRegistry, VerifiedObservation,
+    decode_signed_observation, FeedError, FeedGateway, FeedRegistry, FreshnessPolicy, ReplayGuard,
+    VerifiedObservation, MAX_SEEN_PER_FEED,
 };
 use heimdall_fusion::FusionEngine;
 use heimdall_picture::{
-    Attr, ClassificationSource, EntityId, FeedId, Picture, PictureDelta, TrackedEntity,
+    Attr, ClassificationSource, EntityId, FeedId, LayerId, Picture, PictureDelta, PictureLimits,
+    TrackedEntity,
 };
 use heimdall_store::{DurablePicture, StoreError};
-use policy::{ClassificationLevel, Clearance, Purpose, Resource};
-use pq_mtls::WorkloadIdentity;
+use policy::{Purpose, Resource};
+use pq_mtls::{Authorization, WorkloadIdentity};
 use pqc_agility::SharedProvider;
-use service_runtime::json::Json;
-use telemetry::MetricsRegistry;
+use service_runtime::json::{self, Json};
+use service_runtime::mesh_context;
+use service_runtime::sync::{lock_resource, recover_noting, RECOVERED_POISONED_LOCK};
+use telemetry::{Logger, MetricsRegistry, StdoutJsonSink};
+
+pub mod sequences;
+pub use sequences::SequenceFile;
 
 /// The method a source submits one encoded signed observation with.
 pub const INGEST: &str = "Ingest";
-/// The method an analyst reads the picture with; its payload is empty.
+/// The method an analyst reads the picture with. Its payload is empty for the first
+/// page, or a JSON object `{"offset": n, "limit": m, "includeHidden": bool}`, every
+/// field optional.
 pub const READ_PICTURE: &str = "ReadPicture";
 /// The policy action a submission is authorised as.
 pub const ACTION_INGEST: &str = "Ingest";
 /// The policy action a picture read is authorised as.
 pub const ACTION_READ_PICTURE: &str = "ReadPicture";
+
+/// Entities a picture page holds when the request does not say.
+pub const DEFAULT_PAGE_LIMIT: usize = 500;
+/// Entities a picture page holds at most, whatever the request says.
+pub const MAX_PAGE_LIMIT: usize = 2_000;
+/// The most bytes a picture page's body may take: well under the mesh record frame
+/// cap (`pq_mtls::MAX_RECORD_FRAME`, 1 MiB) once the record is sealed and framed.
+pub const MAX_PAGE_BODY: usize = 900 * 1024;
 
 /// The first byte of every feed response.
 pub mod outcome {
@@ -58,15 +98,98 @@ pub mod outcome {
     pub const FAILED: u8 = 3;
 }
 
-/// The fused picture and its sealed, durable copy, kept in step.
+/// What fusing an observation did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FuseOutcome {
+    /// Fused into `entity`, after evicting `evicted` stale entities to make room.
+    Fused {
+        /// The entity the observation updated or opened.
+        entity: EntityId,
+        /// Stale entities evicted to make room for it.
+        evicted: usize,
+    },
+    /// Refused: the observation would open a new entity past a cap, and evicting
+    /// `evicted` stale entities did not make room.
+    Full {
+        /// Stale entities evicted before it was refused.
+        evicted: usize,
+    },
+}
+
+/// The reason code a refusal for an `observed_at` outside the window is audited with.
+pub const REASON_OUT_OF_WINDOW: &str = "observed-at-out-of-window";
+/// The reason code a refusal for a repeated observation id, or a sequence not above
+/// the feed's last, is audited with.
+pub const REASON_REPLAY: &str = "replay";
+/// The reason code a refusal for an observation with no sequence is audited with.
+pub const REASON_SEQUENCE_UNSET: &str = "sequence-unset";
+/// How many recent observation ids are remembered per feed for replay refusal.
+pub const REPLAY_RING_CAPACITY: usize = MAX_SEEN_PER_FEED;
+
+/// How far a feed's `observed_at` may stray from the time the service receives the
+/// observation, and when an entity no longer received counts as stale. All in
+/// seconds. [VLD-ANB-MIDGARD-0015]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IngestLimits {
+    /// How far ahead of receipt `observed_at` may be (feed clock drift).
+    pub max_future_skew: u64,
+    /// How far behind receipt `observed_at` may be (delayed or backfilled feeds).
+    pub max_age: u64,
+    /// How long after its last receipt an entity is reported as stale.
+    pub stale_after: u64,
+}
+
+impl Default for IngestLimits {
+    /// Five minutes ahead, seven days behind, stale after fifteen minutes.
+    fn default() -> Self {
+        Self {
+            max_future_skew: 300,
+            max_age: 604_800,
+            stale_after: 900,
+        }
+    }
+}
+
+impl IngestLimits {
+    /// Whether an observation the feed dates `observed_at` may be fused when it is
+    /// received at `received_at`: no more than `max_future_skew` ahead and no more
+    /// than `max_age` behind.
+    pub fn admits(&self, observed_at: u64, received_at: u64) -> bool {
+        self.freshness().admits(observed_at, received_at)
+    }
+
+    /// The window as the feed gateway's freshness policy, which enforces it.
+    /// [VLD-ANB-MIDGARD-0041]
+    pub fn freshness(&self) -> FreshnessPolicy {
+        FreshnessPolicy {
+            max_age_secs: self.max_age,
+            max_future_skew_secs: self.max_future_skew,
+        }
+    }
+
+    /// Whether an entity last received at `last_received` is stale at `now`.
+    pub fn is_stale(&self, last_received: u64, now: u64) -> bool {
+        now.saturating_sub(last_received) > self.stale_after
+    }
+}
+
+/// The fused picture and its sealed, durable copy, kept in step, within its limits,
+/// and the replay state every request is checked against, with where its sequences
+/// are saved.
 pub struct PictureState {
     engine: FusionEngine,
     durable: DurablePicture,
+    limits: PictureLimits,
+    /// Entities each feed has contributed to, kept in step with the picture.
+    per_feed: BTreeMap<String, usize>,
+    replay: Arc<ReplayGuard>,
+    sequences: Option<SequenceFile>,
 }
 
 impl PictureState {
     /// Resume fusion over a recovered picture: the engine starts from everything the
-    /// durable picture holds, so later observations extend the recovered tracks.
+    /// durable picture holds, so later observations extend the recovered tracks. The
+    /// limits are [`PictureLimits::default`] until [`PictureState::with_limits`].
     pub fn recover(durable: DurablePicture) -> Self {
         let mut engine = FusionEngine::new();
         PictureDelta::snapshot(durable.picture()).merge_into(engine.picture_mut());
@@ -75,7 +198,60 @@ impl PictureState {
                 engine.picture_mut().set_layer_visible(&layer.id, false);
             }
         }
-        Self { engine, durable }
+        let per_feed = engine.picture().entities_by_feed_count();
+        Self {
+            engine,
+            durable,
+            limits: PictureLimits::default(),
+            per_feed,
+            replay: Arc::new(ReplayGuard::new()),
+            sequences: None,
+        }
+    }
+
+    /// The same state held to `limits`.
+    pub fn with_limits(mut self, limits: PictureLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    /// Hold the picture to `limits` from now on. Entities already held past a lower
+    /// cap stay until they are evicted.
+    pub fn set_limits(&mut self, limits: PictureLimits) {
+        self.limits = limits;
+    }
+
+    /// The limits the picture is held to.
+    pub fn limits(&self) -> PictureLimits {
+        self.limits
+    }
+
+    /// Keep each feed's last admitted sequence in `file`, resuming from the
+    /// `sequences` it held when opened, so replay protection survives a restart.
+    /// [VLD-ANB-MIDGARD-0041]
+    pub fn with_sequences(
+        mut self,
+        file: SequenceFile,
+        sequences: std::collections::BTreeMap<FeedId, u64>,
+    ) -> Self {
+        for (feed, last) in sequences {
+            self.replay.restore(feed, last);
+        }
+        self.sequences = Some(file);
+        self
+    }
+
+    /// The replay state, shared by every request. [VLD-ANB-MIDGARD-0041]
+    pub fn replay_guard(&self) -> Arc<ReplayGuard> {
+        self.replay.clone()
+    }
+
+    /// Save each feed's last admitted sequence, if the state has a sequence file.
+    pub fn save_sequences(&self) -> Result<(), StoreError> {
+        match &self.sequences {
+            Some(file) => file.save(&self.replay),
+            None => Ok(()),
+        }
     }
 
     /// The current picture.
@@ -83,12 +259,49 @@ impl PictureState {
         self.engine.picture()
     }
 
-    /// Fuse a verified observation and seal the entity it changed.
-    pub fn fuse(&mut self, observation: &VerifiedObservation) -> Result<EntityId, StoreError> {
-        let id = self.engine.ingest(observation);
+    /// Show or hide a layer, durably: entities on a hidden layer are left out of a
+    /// picture read unless it asks for them.
+    pub fn set_layer_visible(&mut self, layer: &LayerId, visible: bool) -> Result<(), StoreError> {
+        self.durable.set_layer_visible(layer, visible)?;
+        self.engine.picture_mut().set_layer_visible(layer, visible);
+        Ok(())
+    }
+
+    /// Fuse a verified observation received at `now` and journal the entity it
+    /// changed. Its sequence and id were recorded when it was admitted, so a
+    /// resubmission is a replay even if journalling failed. An observation that would open a new entity past the overall or its
+    /// feed's cap first evicts every entity not seen for `evict_after`, removing each
+    /// from the journal too; if that makes no room it is [`FuseOutcome::Full`] and
+    /// the observation is not fused. [VLD-ANB-MIDGARD-0017]
+    pub fn fuse(
+        &mut self,
+        observation: &VerifiedObservation,
+        now: u64,
+    ) -> Result<FuseOutcome, StoreError> {
+        let o = observation.observation();
+        let before = self
+            .engine
+            .picture()
+            .entity(&EntityId(o.entity_key.clone()))
+            .map(|e| e.sources.clone());
+        let mut evicted = 0;
+        if before.is_none() && self.at_cap(&o.feed_id.0) {
+            evicted = self.evict_stale(now)?;
+            if self.at_cap(&o.feed_id.0) {
+                return Ok(FuseOutcome::Full { evicted });
+            }
+        }
+
+        let id = self.engine.ingest(observation, now);
         let Some(entity) = self.engine.picture().entity(&id).cloned() else {
-            return Ok(id);
+            return Ok(FuseOutcome::Fused {
+                entity: id,
+                evicted,
+            });
         };
+        for feed in entity.sources.difference(&before.unwrap_or_default()) {
+            *self.per_feed.entry(feed.clone()).or_insert(0) += 1;
+        }
         if !self
             .durable
             .picture()
@@ -106,7 +319,38 @@ impl PictureState {
             }
         }
         self.durable.upsert_entity(entity)?;
-        Ok(id)
+        Ok(FuseOutcome::Fused {
+            entity: id,
+            evicted,
+        })
+    }
+
+    /// Whether a new entity from `feed` would pass a cap.
+    fn at_cap(&self, feed: &str) -> bool {
+        self.engine.picture().entity_count() >= self.limits.max_entities
+            || self.per_feed.get(feed).copied().unwrap_or(0) >= self.limits.max_entities_per_feed
+    }
+
+    /// Evict every stale entity from the engine and the journal; how many went.
+    fn evict_stale(&mut self, now: u64) -> Result<usize, StoreError> {
+        let stale = self.engine.evict_stale(now, self.limits.evict_after);
+        for id in &stale {
+            if let Some(entity) = self.durable.remove_entity(id)? {
+                self.forget_sources(&entity.sources);
+            }
+        }
+        Ok(stale.len())
+    }
+
+    fn forget_sources(&mut self, sources: &BTreeSet<String>) {
+        for feed in sources {
+            if let Some(n) = self.per_feed.get_mut(feed) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    self.per_feed.remove(feed);
+                }
+            }
+        }
     }
 }
 
@@ -119,12 +363,16 @@ pub struct FeedService<S: LedgerStore> {
     purpose: Purpose,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     metrics: Arc<MetricsRegistry>,
+    limits: IngestLimits,
+    replay: Arc<ReplayGuard>,
 }
 
 impl<S: LedgerStore + Send + 'static> FeedService<S> {
     /// Assemble the service. `resource` is what requests are authorised against and
     /// `purpose` the purpose they are audited under; `provider` verifies feed
-    /// signatures.
+    /// signatures; `clock` gives the receipt time observations are bounded against
+    /// under `limits`.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: PictureState,
         governance: Governance<S>,
@@ -133,12 +381,25 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         purpose: Purpose,
         clock: Arc<dyn Fn() -> u64 + Send + Sync>,
         metrics: Arc<MetricsRegistry>,
+        limits: IngestLimits,
     ) -> Arc<Self> {
         metrics.describe(
             "feed_requests_total",
             "Feed requests, by method and outcome.",
         );
+        metrics.describe("picture_entities", "Entities the picture holds.");
+        metrics.describe(
+            "picture_evictions_total",
+            "Stale entities evicted to keep the picture within its caps.",
+        );
+        metrics.set_gauge(
+            "picture_entities",
+            &[],
+            state.picture().entity_count() as f64,
+        );
+        let replay = state.replay_guard();
         Arc::new(Self {
+            replay,
             state: Mutex::new(state),
             governance: Mutex::new(governance),
             provider,
@@ -146,24 +407,42 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             purpose,
             clock,
             metrics,
+            limits,
         })
+    }
+
+    /// The audit ledger's sealed entries, oldest first (for verification and tests).
+    pub fn audit_entries(&self) -> Vec<SealedEntry> {
+        self.governance().audit_entries().to_vec()
     }
 
     /// The router the PQ-mTLS gateway serves: [`INGEST`] and [`READ_PICTURE`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
-        let ingest: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.ingest(peer, body));
+        let ingest: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.ingest(peer, auth, body)
+            },
+        ));
         let service = self.clone();
-        let read: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, _: &[u8]| service.read_picture(peer));
+        let read: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.read_picture(peer, auth, body)
+            },
+        ));
         Router::new()
             .route(INGEST, ingest)
             .route(READ_PICTURE, read)
     }
 
-    /// Admit, fuse and persist one signed observation.
-    pub fn ingest(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+    /// Admit, fuse and persist one signed observation from `peer`, which the channel
+    /// authorised as `authorization`.
+    pub fn ingest(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        body: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
         let signed = decode_signed_observation(body);
         // A malformed submission is still an authenticated call, and is still audited.
@@ -172,8 +451,8 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         } else {
             "Ingest:MALFORMED"
         };
-        let decision = match lock(&self.governance).authorize(
-            &self.context(peer),
+        let decision = match self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
             &self.resource,
             action,
             now,
@@ -200,6 +479,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
 
         let feed = signed.observation.feed_id.0.clone();
+        let entity_key = signed.observation.entity_key.clone();
         if feed != peer.id.0 {
             return self.refuse(
                 peer,
@@ -207,33 +487,114 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 "Ingest refused: observation from another feed",
                 &feed,
                 "a source submits only its own feed's observations",
+                refusal("another-feed", &entity_key),
             );
         }
+        // The gateway is per request, but the replay state it records into is the
+        // service's, so sequences and seen ids persist across requests. The service's
+        // own clock is the receipt time; the feed's `observed_at` is only accepted near
+        // it. The guard checks and records under its own lock, so two concurrent copies
+        // cannot both pass. [VLD-ANB-MIDGARD-0015] [VLD-ANB-MIDGARD-0041]
+        let received_at = now;
         let mut registry = FeedRegistry::new();
         registry.register(FeedId(peer.id.0.clone()), peer.verifying_key.clone());
-        let verified = match FeedGateway::new(registry, self.provider.clone()).authenticate(&signed)
-        {
+        let gateway = FeedGateway::new(registry, self.provider.clone())
+            .with_replay_guard(self.replay.clone())
+            .with_clock(move || received_at)
+            .with_freshness(self.limits.freshness());
+        let verified = match gateway.authenticate_from(&signed, &peer.id) {
             Ok(verified) => verified,
             Err(e) => {
+                let (action, message, reason) = match &e {
+                    FeedError::Stale { .. } => (
+                        "Ingest refused: observed_at outside the accepted window",
+                        "the observation time is outside the accepted window".to_string(),
+                        REASON_OUT_OF_WINDOW,
+                    ),
+                    FeedError::Replayed { .. } => (
+                        "Ingest refused: replayed observation",
+                        "this observation has already been received from this feed".to_string(),
+                        REASON_REPLAY,
+                    ),
+                    FeedError::SequenceNotMonotonic { .. } => (
+                        "Ingest refused: replayed observation",
+                        format!(
+                            "this observation has already been received from this feed, or \
+                             the feed restarted its sequence: {e}"
+                        ),
+                        REASON_REPLAY,
+                    ),
+                    FeedError::SequenceUnset(_) => (
+                        "Ingest refused: observation has no sequence",
+                        format!("the observation was rejected: {e}"),
+                        REASON_SEQUENCE_UNSET,
+                    ),
+                    FeedError::NotFromPeer { .. } => (
+                        "Ingest refused: observation from another feed",
+                        "a source submits only its own feed's observations".to_string(),
+                        "another-feed",
+                    ),
+                    _ => (
+                        "Ingest refused: feed signature rejected",
+                        format!("the observation was rejected: {e}"),
+                        "signature",
+                    ),
+                };
                 return self.refuse(
                     peer,
                     now,
-                    "Ingest refused: feed signature rejected",
+                    action,
                     &feed,
-                    &format!("the observation was rejected: {e}"),
-                )
+                    &message,
+                    refusal(reason, &entity_key),
+                );
             }
         };
 
-        match lock(&self.state).fuse(&verified) {
-            Ok(entity) => self.reply(
-                INGEST,
-                outcome::ACCEPTED,
-                &format!(
-                    "fused into entity {} at audit sequence {}",
-                    entity.0, decision.audit_seq
-                ),
-            ),
+        let limits = self.state().limits();
+        if let Err(e) = limits.check_observation(verified.observation()) {
+            return self.reply(INGEST, outcome::MALFORMED, &e);
+        }
+
+        // The feed's new sequence is saved before the observation is fused: after a
+        // crash it is never admitted twice.
+        let (fused, entities) = {
+            let mut state = self.state();
+            if let Err(e) = state.save_sequences() {
+                return self.reply(
+                    INGEST,
+                    outcome::FAILED,
+                    &format!("the feed's sequence was not persisted: {e:?}"),
+                );
+            }
+            let fused = state.fuse(&verified, received_at);
+            (fused, state.picture().entity_count())
+        };
+        self.metrics
+            .set_gauge("picture_entities", &[], entities as f64);
+        match fused {
+            Ok(FuseOutcome::Fused { entity, evicted }) => {
+                self.count_evictions(evicted);
+                self.reply(
+                    INGEST,
+                    outcome::ACCEPTED,
+                    &format!(
+                        "fused into entity {} at audit sequence {}",
+                        entity.0, decision.audit_seq
+                    ),
+                )
+            }
+            Ok(FuseOutcome::Full { evicted }) => {
+                self.count_evictions(evicted);
+                self.refuse(
+                    peer,
+                    now,
+                    "Ingest refused: picture full",
+                    &feed,
+                    "picture-full: the picture holds as many entities as it may and none                      is stale enough to evict",
+                    refusal("picture-full", &entity_key),
+                )
+            }
             Err(e) => self.reply(
                 INGEST,
                 outcome::FAILED,
@@ -242,11 +603,47 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
     }
 
-    /// The picture as JSON: layers with visibility, and every tracked entity.
-    pub fn read_picture(&self, peer: &WorkloadIdentity) -> Vec<u8> {
+    /// Hold the picture to `limits` from now on.
+    pub fn set_picture_limits(&self, limits: PictureLimits) {
+        self.state().set_limits(limits);
+    }
+
+    /// Show or hide a layer of the picture, durably.
+    pub fn set_layer_visible(&self, layer: &LayerId, visible: bool) -> Result<(), StoreError> {
+        self.state().set_layer_visible(layer, visible)
+    }
+
+    /// The action of every audit entry so far, oldest first.
+    pub fn audited_actions(&self) -> Vec<String> {
+        self.governance()
+            .audit_entries()
+            .iter()
+            .map(|e| e.record.action.0.clone())
+            .collect()
+    }
+
+    fn count_evictions(&self, evicted: usize) {
+        if evicted > 0 {
+            self.metrics
+                .inc_by("picture_evictions_total", &[], evicted as u64);
+        }
+    }
+
+    /// A page of the picture as JSON: layers with visibility, and the tracked
+    /// entities from `offset` in id order, at most `limit` of them (default
+    /// [`DEFAULT_PAGE_LIMIT`], at most [`MAX_PAGE_LIMIT`]), leaving out entities on
+    /// hidden layers unless `includeHidden`. The limit is halved until the body fits
+    /// in [`MAX_PAGE_BODY`]; the page says `total`, `offset`, the `limit` it used and
+    /// whether it is `truncated` (more follow). [VLD-ANB-MIDGARD-0017]
+    pub fn read_picture(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
-        match lock(&self.governance).authorize(
-            &self.context(peer),
+        match self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
             &self.resource,
             ACTION_READ_PICTURE,
             now,
@@ -268,24 +665,12 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             }
         }
 
-        let state = lock(&self.state);
-        let picture = state.picture();
-        let layers = picture
-            .layers()
-            .map(|layer| {
-                Json::obj(vec![
-                    ("id", Json::s(&layer.id.0)),
-                    ("name", Json::s(&layer.name)),
-                    ("visible", Json::Bool(picture.is_layer_visible(&layer.id))),
-                ])
-            })
-            .collect();
-        let entities = picture.entities().map(entity_json).collect();
-        let body = Json::obj(vec![
-            ("layers", Json::Arr(layers)),
-            ("entities", Json::Arr(entities)),
-        ]);
-        self.reply(READ_PICTURE, outcome::ACCEPTED, &body.encode())
+        let page = match PageRequest::parse(request) {
+            Ok(page) => page,
+            Err(e) => return self.reply(READ_PICTURE, outcome::MALFORMED, &e),
+        };
+        let body = picture_page(self.state().picture(), &page, now, &self.limits);
+        self.reply(READ_PICTURE, outcome::ACCEPTED, &body)
     }
 
     fn refuse(
@@ -295,9 +680,15 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         action: &str,
         feed: &str,
         message: &str,
+        audit: AuditContext,
     ) -> Vec<u8> {
-        let recorded =
-            lock(&self.governance).record_event(&peer.id.0, action, &format!("feed:{feed}"), now);
+        let recorded = self.governance().record_event_with(
+            &peer.id.0,
+            action,
+            &format!("feed:{feed}"),
+            now,
+            audit,
+        );
         let message = match recorded {
             Ok(_) => message.to_string(),
             Err(_) => format!("{message} (not audited)"),
@@ -305,16 +696,32 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         self.reply(INGEST, outcome::DENIED, &message)
     }
 
-    fn context(&self, peer: &WorkloadIdentity) -> GovContext {
-        GovContext {
-            subject: peer.id.0.clone(),
-            roles: peer.roles.clone(),
-            clearance: Clearance {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: Default::default(),
-            },
-            purpose: self.purpose.clone(),
+    /// The governance spine, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded through the recovered guard.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn governance(&self) -> MutexGuard<'_, Governance<S>> {
+        let (mut governance, poisoned) = recover_noting(
+            &self.governance,
+            "feed-governance",
+            &self.metrics,
+            &logger(),
+        );
+        if poisoned {
+            record_recovery(&mut governance, "feed-governance", (self.clock)());
         }
+        governance
+    }
+
+    /// The picture state, staying usable after a panic elsewhere: a recovery from
+    /// poisoning is counted, logged, and recorded in the ledger.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn state(&self) -> MutexGuard<'_, PictureState> {
+        let (state, poisoned) =
+            recover_noting(&self.state, "picture-state", &self.metrics, &logger());
+        if poisoned {
+            record_recovery(&mut self.governance(), "picture-state", (self.clock)());
+        }
+        state
     }
 
     fn reply(&self, method: &str, code: u8, message: &str) -> Vec<u8> {
@@ -334,18 +741,38 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     }
 }
 
-/// A lock that stays usable after a panic elsewhere.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+/// The service's structured log, on stdout for the in-enclosure collector.
+fn logger() -> Logger<'static> {
+    Logger::new("heimdall-feed", &StdoutJsonSink)
+}
+
+/// The audit context of an ingest refusal: outcome, reason code and the entity key
+/// the observation named. [VLD-ANB-MIDGARD-0015]
+fn refusal(reason: &str, entity_key: &str) -> AuditContext {
+    AuditContext {
+        outcome: Outcome::Refused,
+        reason: Some(reason.to_string()),
+        target: Some(
+            entity_key
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(128)
+                .collect(),
+        ),
+        ..AuditContext::default()
+    }
 }
 
 fn count(value: u64) -> Json {
     Json::Int(i64::try_from(value).unwrap_or(i64::MAX))
 }
 
-fn entity_json(entity: &TrackedEntity) -> Json {
+fn entity_json(
+    entity: &TrackedEntity,
+    omit_attributes: bool,
+    now: u64,
+    limits: &IngestLimits,
+) -> Json {
     let classification = entity.classification.as_ref().map_or(Json::Null, |c| {
         Json::obj(vec![
             ("label", Json::s(&c.label)),
@@ -362,6 +789,7 @@ fn entity_json(entity: &TrackedEntity) -> Json {
     let attributes = entity
         .latest_attrs
         .iter()
+        .filter(|_| !omit_attributes)
         .map(|(key, value)| {
             let value = match value {
                 Attr::Text(t) => Json::Str(t.clone()),
@@ -372,7 +800,7 @@ fn entity_json(entity: &TrackedEntity) -> Json {
             (key.clone(), value)
         })
         .collect();
-    Json::obj(vec![
+    let mut fields = vec![
         ("id", Json::s(&entity.id.0)),
         ("kind", Json::s(&entity.kind)),
         ("layer", Json::s(&entity.layer.0)),
@@ -382,10 +810,141 @@ fn entity_json(entity: &TrackedEntity) -> Json {
         ),
         ("firstSeen", count(entity.track.first_seen)),
         ("lastSeen", count(entity.track.last_seen)),
+        ("lastReceived", count(entity.track.last_received)),
+        (
+            "stale",
+            Json::Bool(limits.is_stale(entity.track.last_received, now)),
+        ),
         ("observations", count(entity.track.observation_count)),
         ("classification", classification),
         ("attributes", Json::Obj(attributes)),
-    ])
+    ];
+    if omit_attributes {
+        fields.push(("attributesOmitted", Json::Bool(true)));
+    }
+    Json::obj(fields)
+}
+
+/// What a [`READ_PICTURE`] request asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageRequest {
+    /// Entities to skip, in id order.
+    pub offset: usize,
+    /// Entities to return at most, within `1..=MAX_PAGE_LIMIT`.
+    pub limit: usize,
+    /// Whether entities on hidden layers are included.
+    pub include_hidden: bool,
+}
+
+impl Default for PageRequest {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            limit: DEFAULT_PAGE_LIMIT,
+            include_hidden: false,
+        }
+    }
+}
+
+impl PageRequest {
+    /// Parse a request body: empty is the first page with the defaults; otherwise a
+    /// JSON object whose `offset`, `limit` and `includeHidden` are each optional. A
+    /// limit is clamped to `1..=MAX_PAGE_LIMIT`; a negative or mistyped field is an
+    /// error.
+    pub fn parse(body: &[u8]) -> Result<Self, String> {
+        let mut page = Self::default();
+        if body.iter().all(u8::is_ascii_whitespace) {
+            return Ok(page);
+        }
+        let text = std::str::from_utf8(body).map_err(|_| "the page request is not UTF-8")?;
+        let request = json::parse(text).map_err(|e| format!("the page request: {e}"))?;
+        if !matches!(request, Json::Obj(_)) {
+            return Err("the page request is not a JSON object".into());
+        }
+        let whole = |key: &str| -> Result<Option<usize>, String> {
+            match request.get(key) {
+                None | Some(Json::Null) => Ok(None),
+                Some(v) => v
+                    .as_i64()
+                    .and_then(|n| usize::try_from(n).ok())
+                    .map(Some)
+                    .ok_or_else(|| format!("'{key}' must be a whole number")),
+            }
+        };
+        if let Some(offset) = whole("offset")? {
+            page.offset = offset;
+        }
+        if let Some(limit) = whole("limit")? {
+            page.limit = limit.clamp(1, MAX_PAGE_LIMIT);
+        }
+        match request.get("includeHidden") {
+            None | Some(Json::Null) => {}
+            Some(Json::Bool(b)) => page.include_hidden = *b,
+            Some(_) => return Err("'includeHidden' must be true or false".into()),
+        }
+        Ok(page)
+    }
+
+    /// The request as a [`READ_PICTURE`] payload.
+    pub fn encode(&self) -> Vec<u8> {
+        Json::obj(vec![
+            ("offset", count(self.offset as u64)),
+            ("limit", count(self.limit as u64)),
+            ("includeHidden", Json::Bool(self.include_hidden)),
+        ])
+        .encode()
+        .into_bytes()
+    }
+}
+
+/// The JSON body of one picture page, at most [`MAX_PAGE_BODY`] bytes: the limit is
+/// halved until it fits. An entity too large to fit on a page by itself is sent
+/// with its attributes left out and `attributesOmitted` set.
+fn picture_page(picture: &Picture, page: &PageRequest, now: u64, limits: &IngestLimits) -> String {
+    let layers: Vec<Json> = picture
+        .layers()
+        .map(|layer| {
+            Json::obj(vec![
+                ("id", Json::s(&layer.id.0)),
+                ("name", Json::s(&layer.name)),
+                ("visible", Json::Bool(picture.is_layer_visible(&layer.id))),
+            ])
+        })
+        .collect();
+    let shown = |e: &&TrackedEntity| page.include_hidden || picture.is_layer_visible(&e.layer);
+    let total = picture.entities().filter(shown).count();
+    let encode = |limit: usize, omit_attributes: bool| {
+        let entities: Vec<Json> = picture
+            .entities()
+            .filter(shown)
+            .skip(page.offset)
+            .take(limit)
+            .map(|e| entity_json(e, omit_attributes, now, limits))
+            .collect();
+        let returned = entities.len();
+        Json::obj(vec![
+            ("layers", Json::Arr(layers.clone())),
+            ("entities", Json::Arr(entities)),
+            ("total", count(total as u64)),
+            ("offset", count(page.offset as u64)),
+            ("limit", count(limit as u64)),
+            (
+                "truncated",
+                Json::Bool(page.offset.saturating_add(returned) < total),
+            ),
+        ])
+        .encode()
+    };
+    let mut limit = page.limit;
+    let mut body = encode(limit, false);
+    while body.len() > MAX_PAGE_BODY && limit > 1 {
+        limit /= 2;
+        body = encode(limit, false);
+    }
+    if body.len() > MAX_PAGE_BODY {
+        body = encode(1, true);
+    }
+    body
 }
 
 /// Parse `key=value,key=value` observation attributes: `true`/`false` are booleans, a
@@ -417,6 +976,20 @@ pub fn parse_attrs(text: &str) -> Result<Vec<(String, Attr)>, String> {
             Ok((key.to_string(), attr))
         })
         .collect()
+}
+
+/// Record in the ledger that the lock `name` was recovered after a panic poisoned it.
+/// A ledger that cannot take the entry is logged; the recovery is already counted and
+/// logged. [VLD-ANB-MIDGARD-0030]
+fn record_recovery<S: LedgerStore>(governance: &mut Governance<S>, name: &str, now: u64) {
+    if let Err(e) =
+        governance.record_event("system", RECOVERED_POISONED_LOCK, &lock_resource(name), now)
+    {
+        logger().error(
+            "poisoned lock recovery not recorded",
+            &[("lock", name), ("reason", &e.to_string())],
+        );
+    }
 }
 
 #[cfg(test)]

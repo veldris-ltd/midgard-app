@@ -1,6 +1,8 @@
 //! The eight-layer assembly pipeline (BUILD_PLAYBOOK §0.1): authority ordering,
 //! per-layer token budgets, OAG truncation by relevance rank, the
 //! reject-don't-trim rule for the non-trimmable core, and the layer-8 guardrail.
+//! Token counts include the DATA-block marker lines and the data-handling rule
+//! (VLD-ANB-MIDGARD-0080). [FR-MI-7] [NFR-AI-1] [AC-60.5]
 
 use agent_runtime::{
     AssemblyConfig, AssemblyError, GuardVerdict, InputGuardrail, Layers, Pipeline,
@@ -23,6 +25,11 @@ fn grounding(n: usize) -> Grounding {
         facts,
         audit_seqs: vec![],
     }
+}
+
+/// Words in the data-handling rule the SYSTEM block carries.
+fn rule_words() -> usize {
+    mimir_prompts::DATA_HANDLING_RULE.split_whitespace().count()
 }
 
 fn tiny_layers<'a>(g: &'a Grounding, user: &'a str) -> Layers<'a> {
@@ -77,7 +84,8 @@ fn layers_are_emitted_in_authority_order() {
 fn rejects_when_core_exceeds_budget() {
     let g = grounding(0);
     let layers = tiny_layers(&g, "U");
-    // core = sys(8) + policy(4) + user(4) = 16 tokens; budget 5 cannot hold it.
+    // core = sys(8 + rule) + policy(4) + user(3 header + 4 DATA + 1 + 2 END = 10)
+    // = 22 + rule tokens; budget 5 cannot hold it.
     let err = Pipeline::new()
         .assemble(&layers, &AssemblyConfig { budget_tokens: 5 })
         .unwrap_err();
@@ -86,7 +94,7 @@ fn rejects_when_core_exceeds_budget() {
             core_tokens,
             budget,
         } => {
-            assert_eq!(core_tokens, 16);
+            assert_eq!(core_tokens, 22 + rule_words());
             assert_eq!(budget, 5);
         }
         other => panic!("expected CoreExceedsBudget, got {other:?}"),
@@ -97,12 +105,19 @@ fn rejects_when_core_exceeds_budget() {
 fn oag_truncates_by_relevance_never_the_core() {
     let g = grounding(4); // ids 0..3, relevance 100..97
     let layers = tiny_layers(&g, "U");
-    // core=16; grounding header=3, each fact line=4. Budget 27 => header + 2 facts.
+    // core=22+rule; grounding header=3 plus DATA (4) and END (2) lines, each fact
+    // line=4. Budget core+17 => header + markers + 2 facts.
+    let budget = 22 + rule_words() + 17;
     let out = Pipeline::new()
-        .assemble(&layers, &AssemblyConfig { budget_tokens: 27 })
+        .assemble(
+            &layers,
+            &AssemblyConfig {
+                budget_tokens: budget,
+            },
+        )
         .expect("assembles within budget");
 
-    assert_eq!(out.token_count, 27);
+    assert_eq!(out.token_count, budget);
     assert_eq!(out.dropped_facts, 2, "two lowest-relevance facts dropped");
     // The two highest-relevance facts survive, in order.
     assert_eq!(

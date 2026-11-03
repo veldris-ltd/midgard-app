@@ -30,7 +30,8 @@
 #     MIDGARD_NAMESPACE         default: midgard-enclosure
 #     MIDGARD_PKCS11_MODULE     path to the HSM PKCS#11 .so (HSM signing check)
 #     MIDGARD_HSM_KEY_LABEL     token key label to sign with
-#     MIDGARD_PROBE_IMAGE       optional: an image carrying pqmtls-probe and mimir-probe
+#     MIDGARD_PROBE_IMAGE       the image carrying pqmtls-probe and mimir-probe, as
+#                               <image>@sha256:<digest> or a tag docker resolves to one
 # ============================================================================
 set -uo pipefail
 
@@ -70,6 +71,51 @@ have() { command -v "$1" >/dev/null 2>&1; }
 native() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else echo "$1"; fi; }
 
 banner() { echo; echo "============================================================"; echo "$1"; }
+
+# --- the probe images, by digest [VLD-ANB-MIDGARD-0012] ----------------------
+# A tag can be moved in the registry to another image; a digest cannot. The probe
+# manifests carry an all-zero digest as a visible sentinel, which is never applied:
+# MIDGARD_PROBE_IMAGE names the image, and a tag is resolved to its digest first.
+DOCKER="${DOCKER:-docker}"
+SENTINEL_DIGEST="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+# resolve_probe_image REF: print REF pinned by digest, or fail closed saying why.
+resolve_probe_image() {
+    local ref="$1" resolved
+    if [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]]; then
+        echo "$ref"; return 0
+    fi
+    if ! have "$DOCKER"; then
+        echo "probe image '$ref' has no @sha256: digest, and docker is not on PATH to resolve one;" \
+             "set MIDGARD_PROBE_IMAGE=<image>@sha256:<digest>" >&2
+        return 1
+    fi
+    resolved="$("$DOCKER" image inspect --format '{{index .RepoDigests 0}}' "$ref" 2>/dev/null)"
+    if [[ "$resolved" =~ @sha256:[0-9a-f]{64}$ ]]; then
+        echo "$resolved"; return 0
+    fi
+    echo "probe image '$ref' has no digest docker can resolve (it has not been pushed or pulled);" \
+         "set MIDGARD_PROBE_IMAGE=<image>@sha256:<digest>" >&2
+    return 1
+}
+# probe_manifest MANIFEST PROBE: print the path of a copy of MANIFEST with PROBE's
+# sentinel image replaced by MIDGARD_PROBE_IMAGE, pinned by digest. Fails, writing
+# nothing to apply, when the image cannot be pinned or a sentinel would be applied.
+probe_manifest() {
+    local manifest="$1" probe="$2" image rendered
+    image="$(resolve_probe_image "${MIDGARD_PROBE_IMAGE:-}")" || return 1
+    rendered="$(mktemp)"
+    sed "s#registry.enclosure.local/midgard/$probe@$SENTINEL_DIGEST#$image#" "$manifest" > "$rendered"
+    if grep -q "@$SENTINEL_DIGEST" "$rendered"; then
+        echo "$manifest still names the all-zero sentinel digest; refusing to apply it" >&2
+        rm -f "$rendered"
+        return 1
+    fi
+    echo "probe image: $image" >&2
+    echo "$rendered"
+}
+
+# tools/ci/tests/helm-digests.test.sh sources this script for the functions above.
+if [ "${MIDGARD_DEPLOYMENT_TIER_FUNCTIONS_ONLY:-0}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
 
 # --- PREFLIGHT: no green without the real thing -----------------------------
 banner "PREFLIGHT — probing real staging dependencies"
@@ -136,15 +182,29 @@ check_cross_host_mtls() {
     # genuine FIPS handshake + record round-trip; Job success == cross-host mTLS ok.
     local manifest="$HERE/pqmtls-probe.yaml"
     [ -f "$manifest" ] || { missing "$id" "$desc" "probe manifest $manifest"; return; }
-    # MIDGARD_PROBE_IMAGE: another image carrying /usr/local/bin/pqmtls-probe — the
-    # locally built development image on a kind cluster.
-    if [ -n "${MIDGARD_PROBE_IMAGE:-}" ]; then
-        local rendered
-        rendered="$(mktemp)"
-        sed "s#registry.enclosure.local/midgard/pqmtls-probe:0.0.0#${MIDGARD_PROBE_IMAGE}#" \
-            "$manifest" > "$rendered"
-        manifest="$rendered"
-        note "probe image: ${MIDGARD_PROBE_IMAGE}"
+    # The CA seed both sides derive their anchor from is drawn afresh for each run and
+    # logged, so a run can be reproduced from its log without a fixed anchor published
+    # in the tree. A manifest still holding the placeholder is never applied.
+    # [VLD-ANB-MIDGARD-0075]
+    local seed seeded
+    seed="$(od -An -N4 -tu4 /dev/urandom | tr -d ' \n')"
+    case "$seed" in
+        '' | *[!0-9]*) note "could not draw a probe CA seed from /dev/urandom"; record FAIL "$id" "$desc"; return ;;
+    esac
+    # MIDGARD_PROBE_IMAGE: the image carrying /usr/local/bin/pqmtls-probe, by digest or
+    # by a tag docker resolves to one (the locally built development image on a kind
+    # cluster). The manifest's own image is a sentinel that is never applied.
+    # [VLD-ANB-MIDGARD-0012]
+    [ -n "${MIDGARD_PROBE_IMAGE:-}" ] \
+        || { missing "$id" "$desc" "MIDGARD_PROBE_IMAGE, the probe image (pinned by digest)"; return; }
+    seeded="$(mktemp)"
+    sed "s#__CA_SEED__#${seed}#g" "$manifest" > "$seeded"
+    manifest="$seeded"
+    note "probe CA seed: $seed"
+    manifest="$(probe_manifest "$manifest" pqmtls-probe)" || { record FAIL "$id" "$desc"; return; }
+    if grep -q "__CA_SEED__" "$manifest"; then
+        note "the probe manifest still holds the __CA_SEED__ placeholder; refusing to apply it"
+        record FAIL "$id" "$desc"; return
     fi
     manifest="$(native "$manifest")"
     kubectl -n "$NS" delete -f "$manifest" --ignore-not-found >/dev/null 2>&1
@@ -228,13 +288,9 @@ check_live_inference() {
     # One certified call, the way a product makes it: PQ-mTLS, authorised, audited.
     local manifest="$HERE/inference-probe.yaml"
     [ -f "$manifest" ] || { missing "$id" "$desc" "probe manifest $manifest"; return; }
-    if [ -n "${MIDGARD_PROBE_IMAGE:-}" ]; then
-        local rendered
-        rendered="$(mktemp)"
-        sed "s#registry.enclosure.local/midgard/mimir-probe:0.0.0#${MIDGARD_PROBE_IMAGE}#" \
-            "$manifest" > "$rendered"
-        manifest="$rendered"
-    fi
+    [ -n "${MIDGARD_PROBE_IMAGE:-}" ] \
+        || { missing "$id" "$desc" "MIDGARD_PROBE_IMAGE, the probe image (pinned by digest)"; return; }
+    manifest="$(probe_manifest "$manifest" mimir-probe)" || { record FAIL "$id" "$desc"; return; }
     manifest="$(native "$manifest")"
     kubectl -n "$NS" delete -f "$manifest" --ignore-not-found >/dev/null 2>&1
     kubectl -n "$NS" apply -f "$manifest" >/dev/null || { record FAIL "$id" "$desc"; return; }

@@ -40,10 +40,15 @@ There are two startup modes:
   comes from `ontology.json` (`ontology_file`), registered on every boot. Data is added
   offline with `mg-admin import`, checked against the ontology by `import_file`.
   Principals can also be enrolled online under dual control (`admin_api`):
-  `POST /api/v1/admin/challenge`, `enrolments`, `enrolments/approve` and
-  `enrolments/list` are authenticated by administrators' ML-DSA-65 passkey
-  assertions rather than bearer tokens, and a request waits for a second, distinct
-  administrator.
+  `POST /api/v1/admin/challenge`, `enrolments`, `enrolments/approve`,
+  `enrolments/reject` and `enrolments/list` are authenticated by administrators'
+  ML-DSA-65 passkey assertions rather than bearer tokens, and a request waits for a
+  second, distinct administrator. The approval creates the principal's credentials
+  and returns a single-use activation code; the principal presents it to
+  `POST /api/v1/activate` (`activation`) to set their password and receive their TOTP
+  secret. A challenge request names its
+  administrator (`{"admin": ...}`); the challenge is theirs alone, each holds at most
+  four, and a flood naming one cannot evict another's.
 - **Mesh door** (`mesh_sync`, `--mesh-bind` with `--mesh-identity-dir`): certified
   workloads — the Forge worker — sync objects and links into the fabric over PQ-mTLS.
   Each `SyncRecords` call is authorised by `policy.json` and audited in the one ledger.
@@ -69,7 +74,8 @@ Options of the state-directory mode:
 | `--state-dir DIR` | the state directory `mg-admin init` created (required) |
 | `--audit-pin FILE` | the audit verifying key the ledger is checked under, kept outside `DIR`; default `DIR/trust/audit.pub`, with a warning [MG-SEC-05] |
 | `--checkpoint-mirror DIR` | a directory on another mount (NFS, an object-store FUSE mount, a separate volume) that every audit ledger checkpoint is also written to. The ledger must not be behind it at boot; an append whose checkpoint it does not take fails. It must exist and lie outside the state directory; give each enclosure its own. Default: none, the checkpoint is kept beside the ledger only. See `docs/ops/BACKUP_RESTORE.md` [MG-SEC-05] |
-| `--bind ADDR` | the HTTP bind address (default `127.0.0.1:7710`) |
+| `--bind ADDR` | the HTTP bind address (default `127.0.0.1:7710`); loopback only unless `--allow-non-loopback` is given |
+| `--allow-non-loopback` | let `--bind` name an address that is not loopback, for a container behind PQ-mTLS or TLS 1.3 termination. The edge speaks plaintext HTTP; without the flag such an address is a usage error. Development mode has no such override [RC-24] [VLD-ANB-MIDGARD-0032] |
 | `--allow-origin URL` | a browser origin for the CORS allowlist, repeatable |
 | `--mesh-bind ADDR`, `--mesh-identity-dir DIR` | serve the PQ-mTLS mesh door (together) |
 | `--mesh-service NAME`, `--mesh-purpose P` | the mesh identity's service name and the purpose of mesh calls |
@@ -84,7 +90,8 @@ Point a console at it (Midgard core surface):
 
 ```bash
 VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
-# or set VITE_GATEWAY_URL to a non-default edge, e.g. http://127.0.0.1:8080/api/v1
+# or set VITE_GATEWAY_URL to a non-default edge, e.g. http://127.0.0.1:8080/api/v1;
+# plaintext http:// is accepted for loopback only, anything else must be https://
 ```
 
 ## Endpoints (`/api/v1`)
@@ -96,6 +103,7 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
 | POST | `/query` | `query` — `filter` (exact), `where` (`eq` `ne` `lt` `lte` `gt` `gte` `contains`; `*` = any text property), `orderBy` + `descending`, `offset` + `limit`/`maxResults` (≤ 500). Returns `total`, the readable matches. A property, value or operator the schema can't answer is **400** |
 | POST | `/actions` | `applyAction` — on one object (`params.target` = `<type>/<id>`; a wildcard is **400**). A gated action needs `humanGateToken` = the id of an approval granted for this caller, action and object, else **403** |
 | GET | `/whoami` | `whoami` — the caller's subject, roles, clearance, compartments, purpose and `expiresAt`, read from their verified token |
+| POST | `/logout` | `logout` — revokes the bearer token until its expiry: **204**, and from then on that token is **401** `token revoked`. Recorded in the ledger as `LOGOUT` |
 | GET | `/approvals` | `listApprovals` — approvals whose object the caller can read |
 | POST | `/approvals` | `requestApproval` — `{actionType, target}` → a pending approval |
 | POST | `/approvals/{id}/approve` · `/approvals/{id}/reject` | `decideApproval` — needs the policy's `Approve` action; never the requester. **409** once decided |
@@ -106,7 +114,9 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
 | GET | `/identities` `/keys` `/compute` `/observability` `/resilience` `/sdk-surface` | the platform reads |
 
 Every route except `/health`, `/ready`, `/metrics` and `/login` needs a bearer
-token from `POST /login`. A missing, wrong or forged token returns `401`.
+token from `POST /login`. A missing, wrong, forged or signed-out token returns `401`,
+and so does one whose subject is no longer enrolled. A gateway serving a state
+directory keeps revocations in `revocations.journal`, so they survive a restart.
 A permitted request is audited before it is served; a denied one is audited and
 returns `403`.
 CORS is locked to `http://localhost:5173`.

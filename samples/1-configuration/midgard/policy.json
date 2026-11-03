@@ -30,6 +30,27 @@
    "effect": "permit"
   },
   {
+   "id": "operator-audit",
+   "role": "operator",
+   "action": "ReadAudit",
+   "resource": "audit-ledger",
+   "effect": "permit"
+  },
+  {
+   "id": "operator-audit-sessions",
+   "role": "operator",
+   "action": "ReadAudit",
+   "resource": "audit-ledger:sessions",
+   "effect": "permit"
+  },
+  {
+   "id": "approver-audit",
+   "role": "approver",
+   "action": "ReadAudit",
+   "resource": "audit-ledger",
+   "effect": "permit"
+  },
+  {
    "id": "operator-toggle-airport",
    "role": "operator",
    "action": "toggleAirportStatus",

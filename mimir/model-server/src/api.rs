@@ -11,7 +11,12 @@
 //! serde** — matching the sovereign/air-gap posture of the rest of the suite.
 //! Decoding is bounds-checked and **fails closed** on any malformed input.
 
+use std::collections::BTreeSet;
+
+use policy::{ClassificationLevel, Compartment, Marking};
+
 use crate::backend::Locality;
+use crate::marking::{is_valid_compartment, MAX_LEVEL};
 use crate::quant::Quant;
 
 /// The class of work a request represents. The selector/router maps this to an
@@ -59,6 +64,12 @@ impl WorkloadClass {
 pub struct InferenceRequest {
     /// The declared purpose of access (audited, and checked by policy).
     pub purpose: String,
+    /// The system text: the consumer's system prompt, the only text with system
+    /// authority (`AssembledPrompt::system_text` from the assembly pipeline). The
+    /// family adapter places it in the family's system turn, apart from
+    /// [`InferenceRequest::prompt`]. May be empty: the prompt is then rendered
+    /// alone, in the single-turn shape. [VLD-ANB-MIDGARD-0060]
+    pub system_prompt: String,
     /// The workload class, used to route to an eligible engine.
     pub workload_class: WorkloadClass,
     /// An explicit quantisation preference, honoured only if the selected engine
@@ -70,8 +81,15 @@ pub struct InferenceRequest {
     pub backend_override: Option<String>,
     /// Generation budget.
     pub max_tokens: u32,
-    /// The prompt (already assembled by the caller; the 8-layer assembly pipeline
-    /// arrives in Prompt 2.c).
+    /// The marking of the data in the prompt (system text and body): the level and
+    /// compartments of everything the consumer rendered into it. The handler
+    /// authorises the call against a resource with this marking, so a prompt the
+    /// model is not accredited for is refused by the PDP's dominance check, and the
+    /// ledger's completion entry names it. [VLD-ANB-MIDGARD-0034]
+    pub marking: Marking,
+    /// The prompt body (already assembled by the caller): everything after the
+    /// system text — policy and the DATA-delimited untrusted layers. Rendered in
+    /// the user turn.
     pub prompt: String,
 }
 
@@ -144,6 +162,14 @@ fn put_opt_quant(o: &mut Vec<u8>, q: Option<Quant>) {
         None => o.push(0),
     }
 }
+fn put_marking(o: &mut Vec<u8>, m: &Marking) {
+    o.push(m.level.0);
+    put_u32(o, m.compartments.len() as u32);
+    // A `BTreeSet` iterates in sorted order: the encoding is canonical.
+    for c in &m.compartments {
+        put_str(o, &c.0);
+    }
+}
 fn put_opt_str(o: &mut Vec<u8>, s: &Option<String>) {
     match s {
         Some(s) => {
@@ -212,6 +238,33 @@ impl<'a> Reader<'a> {
             _ => Err(Malformed("bad option flag".into())),
         }
     }
+    /// A marking: a known level, then compartments in strictly ascending order
+    /// (so a repeat or a reordering is refused, keeping the encoding canonical),
+    /// each a valid compartment name. [VLD-ANB-MIDGARD-0034]
+    fn marking(&mut self) -> Result<Marking, Malformed> {
+        let level = ClassificationLevel(self.u8()?);
+        if level > MAX_LEVEL {
+            return Err(Malformed("unknown classification level".into()));
+        }
+        let count = self.u32()?;
+        let mut compartments = BTreeSet::new();
+        let mut last: Option<String> = None;
+        for _ in 0..count {
+            let name = self.string()?;
+            if !is_valid_compartment(&name) {
+                return Err(Malformed("invalid compartment".into()));
+            }
+            if last.as_ref().is_some_and(|prev| *prev >= name) {
+                return Err(Malformed("repeated or unsorted compartment".into()));
+            }
+            last = Some(name.clone());
+            compartments.insert(Compartment(name));
+        }
+        Ok(Marking {
+            level,
+            compartments,
+        })
+    }
     fn finish(self) -> Result<(), Malformed> {
         if self.pos == self.b.len() {
             Ok(())
@@ -228,10 +281,12 @@ impl InferenceRequest {
     pub fn encode(&self) -> Vec<u8> {
         let mut o = Vec::new();
         put_str(&mut o, &self.purpose);
+        put_str(&mut o, &self.system_prompt);
         o.push(self.workload_class.as_u8());
         put_opt_quant(&mut o, self.quant_pref);
         put_opt_str(&mut o, &self.backend_override);
         put_u32(&mut o, self.max_tokens);
+        put_marking(&mut o, &self.marking);
         put_str(&mut o, &self.prompt);
         o
     }
@@ -239,19 +294,23 @@ impl InferenceRequest {
     pub fn decode(b: &[u8]) -> Result<Self, Malformed> {
         let mut r = Reader::new(b);
         let purpose = r.string()?;
+        let system_prompt = r.string()?;
         let workload_class =
             WorkloadClass::from_u8(r.u8()?).ok_or_else(|| Malformed("unknown workload".into()))?;
         let quant_pref = r.opt_quant()?;
         let backend_override = r.opt_string()?;
         let max_tokens = r.u32()?;
+        let marking = r.marking()?;
         let prompt = r.string()?;
         r.finish()?;
         Ok(Self {
             purpose,
+            system_prompt,
             workload_class,
             quant_pref,
             backend_override,
             max_tokens,
+            marking,
             prompt,
         })
     }
@@ -330,5 +389,134 @@ impl InferenceResponse {
         };
         r.finish()?;
         Ok(resp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request() -> InferenceRequest {
+        InferenceRequest {
+            purpose: "investigation".into(),
+            system_prompt: "You are Mimir.".into(),
+            workload_class: WorkloadClass::Balanced,
+            quant_pref: Some(Quant::Gguf),
+            backend_override: Some("llama-cpp/granite".into()),
+            max_tokens: 16,
+            marking: crate::marking::unclassified(),
+            prompt: "who is assigned to case 42?".into(),
+        }
+    }
+
+    fn compartmented() -> InferenceRequest {
+        let mut req = request();
+        req.marking = crate::marking::parse_marking("SECRET:ALPHA,BRAVO").unwrap();
+        req
+    }
+
+    /// `req` encoded with its marking replaced by `marking_bytes`, verbatim.
+    fn with_marking_bytes(req: &InferenceRequest, marking_bytes: &[u8]) -> Vec<u8> {
+        let mut o = Vec::new();
+        put_str(&mut o, &req.purpose);
+        put_str(&mut o, &req.system_prompt);
+        o.push(req.workload_class.as_u8());
+        put_opt_quant(&mut o, req.quant_pref);
+        put_opt_str(&mut o, &req.backend_override);
+        put_u32(&mut o, req.max_tokens);
+        o.extend_from_slice(marking_bytes);
+        put_str(&mut o, &req.prompt);
+        o
+    }
+
+    // [VLD-ANB-MIDGARD-0060] [AC-61.3]
+    #[test]
+    fn codec_round_trips_the_system_prompt() {
+        let req = request();
+        assert_eq!(InferenceRequest::decode(&req.encode()), Ok(req));
+
+        // An empty system prompt (mimir-probe, the reference path) round-trips too.
+        let mut bare = request();
+        bare.system_prompt.clear();
+        assert_eq!(InferenceRequest::decode(&bare.encode()), Ok(bare));
+    }
+
+    // [VLD-ANB-MIDGARD-0060] [AC-61.3]
+    #[test]
+    fn codec_refuses_a_legacy_frame_without_the_system_prompt() {
+        // The pre-WP-61 layout: purpose, workload, quant, backend, budget, prompt.
+        let req = request();
+        let mut legacy = Vec::new();
+        put_str(&mut legacy, &req.purpose);
+        legacy.push(req.workload_class.as_u8());
+        put_opt_quant(&mut legacy, req.quant_pref);
+        put_opt_str(&mut legacy, &req.backend_override);
+        put_u32(&mut legacy, req.max_tokens);
+        put_str(&mut legacy, &req.prompt);
+        assert!(InferenceRequest::decode(&legacy).is_err());
+
+        // And the same with no options set, the shape every bridge sent.
+        let mut legacy = Vec::new();
+        put_str(&mut legacy, "investigation");
+        legacy.push(WorkloadClass::Balanced.as_u8());
+        put_opt_quant(&mut legacy, None);
+        put_opt_str(&mut legacy, &None);
+        put_u32(&mut legacy, 1024);
+        put_str(&mut legacy, "a prompt");
+        assert!(InferenceRequest::decode(&legacy).is_err());
+    }
+
+    // [VLD-ANB-MIDGARD-0034] [AC-65.1]
+    #[test]
+    fn codec_round_trips_the_marking_with_compartments() {
+        let req = compartmented();
+        assert_eq!(InferenceRequest::decode(&req.encode()), Ok(req.clone()));
+
+        // Layout after the budget: u8 level, u32 count, then each compartment as a
+        // length-prefixed string, in sorted order.
+        let mut marking = vec![2u8];
+        put_u32(&mut marking, 2);
+        put_str(&mut marking, "ALPHA");
+        put_str(&mut marking, "BRAVO");
+        assert_eq!(with_marking_bytes(&req, &marking), req.encode());
+    }
+
+    // [VLD-ANB-MIDGARD-0034] [AC-65.1]
+    #[test]
+    fn codec_refuses_an_unknown_level_and_a_repeated_compartment() {
+        let req = request();
+        let mut unknown = vec![MAX_LEVEL.0 + 1];
+        put_u32(&mut unknown, 0);
+        assert!(InferenceRequest::decode(&with_marking_bytes(&req, &unknown)).is_err());
+
+        let mut repeated = vec![2u8];
+        put_u32(&mut repeated, 2);
+        put_str(&mut repeated, "ALPHA");
+        put_str(&mut repeated, "ALPHA");
+        assert!(InferenceRequest::decode(&with_marking_bytes(&req, &repeated)).is_err());
+
+        // Out of order is not canonical, and refused too.
+        let mut unsorted = vec![2u8];
+        put_u32(&mut unsorted, 2);
+        put_str(&mut unsorted, "BRAVO");
+        put_str(&mut unsorted, "ALPHA");
+        assert!(InferenceRequest::decode(&with_marking_bytes(&req, &unsorted)).is_err());
+
+        // A compartment that could break a ledger entry's fields is refused.
+        let mut spaced = vec![2u8];
+        put_u32(&mut spaced, 1);
+        put_str(&mut spaced, "A completion_sha256=0");
+        assert!(InferenceRequest::decode(&with_marking_bytes(&req, &spaced)).is_err());
+    }
+
+    // [VLD-ANB-MIDGARD-0034] [AC-65.1]
+    #[test]
+    fn codec_refuses_a_frame_without_the_marking() {
+        // The WP-61 layout: the system prompt, but no marking. A consumer built
+        // before this change is refused, never served as unmarked.
+        let req = request();
+        assert!(InferenceRequest::decode(&with_marking_bytes(&req, &[])).is_err());
+        let req = compartmented();
+        assert!(InferenceRequest::decode(&with_marking_bytes(&req, &[])).is_err());
     }
 }

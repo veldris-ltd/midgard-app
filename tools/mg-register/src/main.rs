@@ -57,7 +57,8 @@ mg-register — admit a gate-verified artefact to the Bifrost artefact registry
 USAGE:
   mg-register [register] --registry <dir> --artefact <path> --id <id> --version <ver> \\
                          [--component <kind>] [--repro <path>] --keystore <path> \\
-                         --release-anchor <file> --admission-anchor <file>
+                         --release-anchor <file> --admission-anchor <file> \\
+                         [--keystore-passphrase-file <file>]
   mg-register list       --registry <dir> --admission-anchor <file> [--key-id <id>]
 
 REGISTER:
@@ -72,6 +73,9 @@ REGISTER:
                       beside it as <id>.repro.json.
   --keystore          sealed keystore holding the registry's ADMISSION key
                       (ML-DSA-65). Not the release signing key.
+  --keystore-passphrase-file
+                      the passphrase the keystore's root is wrapped under (default:
+                      the file MIDGARD_KEYSTORE_PASSPHRASE_FILE names).
   --release-anchor    the pinned release trust anchor(s) (deploy/trust/release-trust.pub).
                       The artefact's bundle must verify against it, or nothing is admitted.
   --admission-anchor  the pinned admission anchor (deploy/trust/bifrost-trust.pub).
@@ -192,6 +196,7 @@ fn register(argv: &[String]) -> Result<String, Failure> {
         "component",
         "repro",
         "keystore",
+        "keystore-passphrase-file",
         "release-anchor",
         "admission-anchor",
     ];
@@ -266,8 +271,18 @@ fn register(argv: &[String]) -> Result<String, Failure> {
     };
 
     // --- 2. The admission key, which must be the pinned one --------------------
-    let keystore = attest::Keystore::read(Path::new(keystore_path))
-        .map_err(|e| Failure::Run(format!("cannot open keystore {keystore_path}: {e}")))?;
+    let passphrase_path = attest::keystore::passphrase_file(
+        get(&args, "keystore-passphrase-file"),
+        std::env::var(attest::keystore::PASSPHRASE_ENV).ok(),
+    )
+    .map_err(Failure::Usage)?;
+    let passphrase = attest::RootWrap::passphrase_from_file(&passphrase_path)
+        .map_err(|e| Failure::Run(e.to_string()))?;
+    let keystore = attest::Keystore::read(
+        Path::new(keystore_path),
+        &attest::RootWrap::Passphrase(&passphrase),
+    )
+    .map_err(|e| Failure::Run(format!("cannot open keystore {keystore_path}: {e}")))?;
     let signing_root = keystore
         .into_signing_root()
         .map_err(|e| Failure::Run(format!("cannot unseal the admission key: {e}")))?;

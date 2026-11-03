@@ -4,7 +4,7 @@
 //! ```text
 //! forge-worker --identity-dir DIR --state-dir DIR --jobs FILE --gateway HOST:PORT
 //!              [--service NAME] [--gateway-service NAME] [--purpose P] [--secrets-dir DIR]
-//!              [--egress-routes FILE] [--health-bind ADDR] [--once]
+//!              [--egress-routes FILE] [--health-bind ADDR] [--once] [--diagnostics]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -23,7 +23,10 @@
 //! from the job's checkpoint, and the new checkpoint is recorded once the gateway has
 //! accepted the records. Each run is audited and logged as one JSON line. With `--once`,
 //! every job runs once and the worker exits, 1 if any failed. `/healthz`, `/readyz` and
-//! `/metrics` are served on `--health-bind` when given.
+//! `/metrics` are served on `--health-bind` when given. A failed run is logged with its
+//! class and a redacted reason; `--diagnostics` adds a debug line with the full
+//! detail (hosts, secret names, the source's own text), for an operator diagnosing a
+//! source, not for routine running. [VLD-ANB-MIDGARD-0071]
 
 use std::path::Path;
 use std::sync::Arc;
@@ -32,17 +35,17 @@ use std::time::Duration;
 use fabric::LedgerStore;
 use forge_connector_sdk::{CredentialResolver, NoCredentials};
 use forge_dataset_store::DurableDatasetStore;
-use forge_worker::{parse_jobs, run_job, Checkpoints, Job, SecretsDir};
+use forge_worker::{parse_jobs, record_failed_run, run_job, Checkpoints, Job, SecretsDir};
 use governance::Governance;
 use kms::TrustRoot;
 use policy::{DefaultPdp, PolicySet};
 use service_runtime::{client, spawn_health_port, unix_seconds, Args, DirLock, ServiceIdentity};
-use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
+use telemetry::{HealthRegistry, Level, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
-const USAGE: &str = "usage: forge-worker --identity-dir DIR --state-dir DIR --jobs FILE \
+const USAGE: &str = "usage: forge-worker --identity-dir DIR [--keystore-passphrase-file PATH] --state-dir DIR --jobs FILE \
                      --gateway HOST:PORT [--service NAME] [--gateway-service NAME] \
                      [--purpose P] [--secrets-dir DIR] \
-                     [--egress-routes FILE] [--health-bind ADDR] [--once]";
+                     [--egress-routes FILE] [--health-bind ADDR] [--once] [--diagnostics]";
 
 /// The id of the worker's audit ledger.
 const LEDGER_ID: &str = "forge-worker-audit";
@@ -54,11 +57,13 @@ const ACCEPTED: u8 = 0;
 const RETRY_AFTER_FAILURE: u64 = 10;
 
 fn main() {
+    service_runtime::harden_process("forge-worker");
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match Args::parse(
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "state-dir",
             "jobs",
             "gateway",
@@ -69,7 +74,7 @@ fn main() {
             "secrets-dir",
             "egress-routes",
         ],
-        &["once"],
+        &["once", "diagnostics"],
     ) {
         Ok(args) => args,
         Err(e) => {
@@ -109,6 +114,12 @@ fn run(args: &Args) -> Result<(), String> {
         "Forge job runs, by job and outcome.",
     );
     if let Some(bind) = args.get("health-bind") {
+        if bind.starts_with("0.0.0.0") || bind.starts_with("[::]") {
+            eprintln!(
+                "forge-worker: WARNING health port binds every interface ({bind}); restrict \
+                 it with NetworkPolicy or a pod address. [VLD-ANB-MIDGARD-0027]"
+            );
+        }
         let mut health = HealthRegistry::new();
         health.register(Box::new(Toggle::new("jobs", true)));
         spawn_health_port(bind, Arc::new(health), metrics.clone())
@@ -118,7 +129,14 @@ fn run(args: &Args) -> Result<(), String> {
     std::fs::create_dir_all(state_dir)
         .map_err(|e| format!("cannot create {}: {e}", state_dir.display()))?;
     let _lock = DirLock::acquire(state_dir, "worker.lock", service)?;
-    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let identity = ServiceIdentity::load(
+        args.require("identity-dir")?,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
     let writer = identity.audit_writer(state_dir.join("worker.ledger"), LEDGER_ID)?;
     // The worker decides nothing itself — the gateway authorises every sync — so its
     // governance holds no rules and is used only to record runs.
@@ -143,6 +161,7 @@ fn run(args: &Args) -> Result<(), String> {
         service,
         metrics: &metrics,
         credentials: credentials.as_ref(),
+        diagnostics: args.flag("diagnostics"),
     };
     let mut synced: Vec<Option<String>> = vec![None; jobs.len()];
 
@@ -164,13 +183,23 @@ fn run(args: &Args) -> Result<(), String> {
     loop {
         for (i, job) in jobs.iter().enumerate() {
             if unix_seconds() >= due[i] {
-                let ok = worker.run(
-                    job,
-                    &mut store,
-                    &mut audit,
-                    &mut synced[i],
-                    &mut checkpoints,
-                );
+                // A panic in one job's connector is a failed run, retried like any other,
+                // not the end of the scheduler and every other job with it.
+                // [NFR-SEC-1] [VLD-ANB-MIDGARD-0009]
+                let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    worker.run(
+                        job,
+                        &mut store,
+                        &mut audit,
+                        &mut synced[i],
+                        &mut checkpoints,
+                    )
+                }))
+                .unwrap_or_else(|_| {
+                    Logger::new(service, &StdoutJsonSink)
+                        .error("job run panicked", &[("job", &job.id)]);
+                    false
+                });
                 // A failed run — the gateway not reachable yet, or a link to an object
                 // another job has not synced yet — is retried soon, not a whole
                 // interval later.
@@ -194,6 +223,8 @@ struct Worker<'a> {
     service: &'a str,
     metrics: &'a MetricsRegistry,
     credentials: &'a dyn CredentialResolver,
+    /// Whether a failed run's full detail is logged at debug level.
+    diagnostics: bool,
 }
 
 impl Worker<'_> {
@@ -232,7 +263,7 @@ impl Worker<'_> {
                 .ok_or_else(|| "the gateway sent an empty response".to_string())?;
             let message = String::from_utf8_lossy(body).into_owned();
             if *code != ACCEPTED {
-                return Err(format!("the gateway refused the sync: {message}"));
+                return Err(format!("the gateway refused the sync: {message}").into());
             }
             *synced = Some(run.version.clone());
             Ok((run, "synced", message))
@@ -280,17 +311,34 @@ impl Worker<'_> {
                 true
             }
             Err(reason) => {
-                let _ = audit.record_event(
-                    self.service,
-                    "RUN forge job failed",
-                    &format!("job:{}", job.id),
-                    now,
-                );
+                let recorded = record_failed_run(audit, self.service, &job.id, reason.class(), now);
                 self.metrics.inc(
                     "forge_job_runs_total",
                     &[("job", &job.id), ("outcome", "failed")],
                 );
-                logger.error("job run failed", &[("job", &job.id), ("reason", &reason)]);
+                logger.error(
+                    "job run failed",
+                    &[
+                        ("job", &job.id),
+                        ("class", reason.class()),
+                        ("reason", &reason.to_string()),
+                    ],
+                );
+                if self.diagnostics {
+                    logger.log(
+                        Level::Debug,
+                        "job run failed",
+                        &[("job", &job.id), ("diagnostic", reason.diagnostic())],
+                    );
+                }
+                // As on success: a failure the ledger did not record is said so.
+                // [VLD-ANB-MIDGARD-0072]
+                if let Err(e) = recorded {
+                    logger.error(
+                        "job run not audited",
+                        &[("job", &job.id), ("reason", &format!("{e:?}"))],
+                    );
+                }
                 false
             }
         }

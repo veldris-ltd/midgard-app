@@ -1,11 +1,17 @@
-//! Unit coverage for the credential primitives: PBKDF2 password hashing, TOTP, and
-//! WebAuthn assertion verification. [RC-29]
+//! Unit coverage for the credential primitives: password hashing (Argon2id, and
+//! legacy PBKDF2 within its cost bounds), TOTP, and WebAuthn assertion verification,
+//! with its origin, user-verification and signature counter checks. [RC-29]
+//! [NFR-SEC-2] [MG-SEC-11] [VLD-ANB-MIDGARD-0025] [VLD-ANB-MIDGARD-0084]
 #![cfg(feature = "backend-fips")]
 
-use iam::mfa::{AuthAssertion, WebAuthnCredential, PASSKEY_SIG_ALG};
-use iam::{PasswordHasher, Pbkdf2Hasher, TotpSecret};
+use iam::mfa::{
+    AuthAssertion, ClientData, WebAuthnCredential, WebAuthnError, WebAuthnPolicy, PASSKEY_SIG_ALG,
+};
+use std::time::{Duration, Instant};
+
+use iam::{Argon2idHasher, PasswordHasher, Pbkdf2Hasher, TotpSecret, MIN_PBKDF2_ITERATIONS};
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::Rng;
+use pqc_agility::{Rng, SigningKey};
 
 struct SeedRng(u64);
 impl Rng for SeedRng {
@@ -39,6 +45,57 @@ fn pbkdf2_hash_verifies_and_rejects_wrong_password() {
     assert!(!h.verify(b"s3cret-pass", "not-a-hash"));
 }
 
+/// AC-56.1: the production hasher writes Argon2id at the OWASP minimum, with a fresh
+/// salt each time, and fails closed on a wrong password or a malformed entry.
+#[test]
+fn argon2id_hashes_verify_and_fail_closed() {
+    let h = Argon2idHasher::production();
+    let enc = h.hash(b"s3cret-pass");
+    assert!(enc.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"), "{enc}");
+    assert!(h.verify(b"s3cret-pass", &enc));
+    assert!(!h.verify(b"s3cret-Pass", &enc));
+    assert!(!h.verify(b"", &enc));
+    assert_ne!(enc, h.hash(b"s3cret-pass"), "two hashes share a salt");
+    for bad in ["not-a-hash", "$argon2id$", &enc[..enc.len() - 4]] {
+        assert!(!h.verify(b"s3cret-pass", bad), "{bad:?}");
+    }
+}
+
+/// AC-56.3: a stored PBKDF2 iteration count outside the bounds is refused before any
+/// work is done, whichever way it was tampered with; the legacy cost still verifies;
+/// and the debug-build cost knob holds its own count as the floor.
+#[test]
+fn pbkdf2_iteration_floor_and_ceiling_are_enforced() {
+    let production = Pbkdf2Hasher::production();
+    // Inert literals: an all-zero 16-byte salt and 32-byte hash.
+    let zeros = |n: usize| "0".repeat(n * 2);
+    for iterations in [1u32, u32::MAX] {
+        let tampered = format!("pbkdf2-sha256$i={iterations}${}${}", zeros(16), zeros(32));
+        let started = Instant::now();
+        assert!(
+            !production.verify(b"s3cret-pass", &tampered),
+            "i={iterations}"
+        );
+        let took = started.elapsed();
+        assert!(
+            took < Duration::from_millis(50),
+            "i={iterations} took {took:?}: the bound must be checked before the work"
+        );
+    }
+
+    let legacy = Pbkdf2Hasher::new(MIN_PBKDF2_ITERATIONS).hash(b"s3cret-pass");
+    assert!(legacy.starts_with("pbkdf2-sha256$i=210000$"), "{legacy}");
+    assert!(production.verify(b"s3cret-pass", &legacy));
+
+    let knob = Pbkdf2Hasher::new(1_000);
+    assert!(knob.verify(b"s3cret-pass", &knob.hash(b"s3cret-pass")));
+    let below = Pbkdf2Hasher::new(999).hash(b"s3cret-pass");
+    assert!(
+        !knob.verify(b"s3cret-pass", &below),
+        "999 is below the floor of 1,000"
+    );
+}
+
 #[test]
 fn totp_matches_within_skew_and_rejects_outside() {
     let secret = TotpSecret::new(b"0123456789abcdef0123456789abcdef".to_vec());
@@ -54,59 +111,244 @@ fn totp_matches_within_skew_and_rejects_outside() {
     assert!(!secret.verify("000000", t));
 }
 
+/// [AC-57.3] [VLD-ANB-MIDGARD-0026] `verify_step` returns the step a code matched and
+/// refuses that step and every earlier one once it is the last accepted, while the
+/// next step's code still verifies within the one-step skew.
 #[test]
-fn webauthn_assertion_verifies_and_fails_closed() {
+fn totp_verify_step_returns_the_step_and_refuses_used_or_older_steps() {
+    let secret = TotpSecret::new(b"0123456789abcdef0123456789abcdef".to_vec());
+    let t = 1_700_000_000u64;
+    let step = t / 30;
+    // With nothing accepted yet, each code within the skew returns its own step.
+    assert_eq!(secret.verify_step(&secret.code_at(t), t, None), Some(step));
+    assert_eq!(
+        secret.verify_step(&secret.code_at(t - 30), t, None),
+        Some(step - 1)
+    );
+    // Once the current step is the last accepted, it and the one before are refused.
+    let last = Some(step);
+    assert_eq!(secret.verify_step(&secret.code_at(t), t, last), None);
+    assert_eq!(secret.verify_step(&secret.code_at(t - 30), t, last), None);
+    // The next step's code is still accepted, and reported as the next step.
+    assert_eq!(
+        secret.verify_step(&secret.code_at(t + 30), t, last),
+        Some(step + 1)
+    );
+    // Outside the skew, or a wrong code, nothing matches.
+    assert_eq!(secret.verify_step(&secret.code_at(t + 61), t, None), None);
+    assert_eq!(secret.verify_step("000000", t, None), None);
+    // The stateless form is unchanged for existing callers.
+    assert!(secret.verify(&secret.code_at(t), t));
+}
+
+/// The origin the WebAuthn tests' relying party serves.
+const ORIGIN: &str = "https://console.enclosure.local";
+/// The challenge the WebAuthn tests' server issued.
+const CHALLENGE: &[u8] = b"server-issued-challenge-bytes";
+/// The user-present and user-verified flags.
+const UP: u8 = 0x01;
+const UV: u8 = 0x04;
+
+/// A passkey with its signing key, as a local authenticator holds it.
+fn passkey(seed: u64) -> (WebAuthnCredential, SigningKey) {
     let provider = fips_provider();
     let sig = provider.sig_for(PASSKEY_SIG_ALG).unwrap();
-    let (vk, sk) = sig.keypair(&mut SeedRng(7)).unwrap();
-
+    let (vk, sk) = sig.keypair(&mut SeedRng(seed)).unwrap();
     let cred = WebAuthnCredential {
         credential_id: b"cred-1".to_vec(),
         public_key: vk,
         rp_id: "midgard.local".into(),
+        sign_count: 0,
     };
-    let challenge = b"server-issued-challenge-bytes";
+    (cred, sk)
+}
 
-    // The authenticator builds client-data + authenticator-data and signs.
-    let client_data = WebAuthnCredential::client_data_json(challenge, "https://midgard.local");
-    let auth_data = cred.authenticator_data(0x01 /* user present */, 1);
-    let payload = WebAuthnCredential::signed_payload(&auth_data, &client_data);
-    let signature = sig.sign(&sk, &payload).unwrap();
+/// The relying party's policy: this origin, user verification required.
+fn policy() -> WebAuthnPolicy {
+    WebAuthnPolicy {
+        origins: vec![ORIGIN.into()],
+        require_uv: true,
+    }
+}
 
-    let good = AuthAssertion {
-        credential_id: b"cred-1".to_vec(),
-        authenticator_data: auth_data.clone(),
-        client_data_json: client_data.clone(),
-        signature: signature.clone(),
-    };
-    cred.verify_assertion(&provider, challenge, &good)
-        .expect("genuine assertion verifies");
+/// An assertion `sk` signs over authenticator data with `flags` and `count`, and
+/// client data of `type_` for `challenge` at `origin`.
+fn assertion(
+    cred: &WebAuthnCredential,
+    sk: &SigningKey,
+    flags: u8,
+    count: u32,
+    client_data: ClientData,
+) -> AuthAssertion {
+    let provider = fips_provider();
+    let sig = provider.sig_for(PASSKEY_SIG_ALG).unwrap();
+    let client_data_json =
+        WebAuthnCredential::client_data_json(&client_data.challenge, &client_data.origin);
+    let authenticator_data = cred.authenticator_data(flags, count);
+    let payload = WebAuthnCredential::signed_payload(&authenticator_data, &client_data_json);
+    AuthAssertion {
+        credential_id: cred.credential_id.clone(),
+        authenticator_data,
+        client_data_json,
+        client_data,
+        signature: sig.sign(sk, &payload).unwrap(),
+    }
+}
+
+/// Client data of a `get` for `challenge` at `origin`, as the edge parses it.
+fn get(challenge: &[u8], origin: &str) -> ClientData {
+    ClientData {
+        type_: "webauthn.get".into(),
+        challenge: challenge.to_vec(),
+        origin: origin.into(),
+    }
+}
+
+/// [RC-29] [VLD-ANB-MIDGARD-0084] A genuine assertion verifies and returns its
+/// counter; each altered part is refused with its own error.
+#[test]
+fn webauthn_assertion_verifies_and_fails_closed() {
+    let provider = fips_provider();
+    let (cred, sk) = passkey(7);
+
+    let good = assertion(&cred, &sk, UP | UV, 1, get(CHALLENGE, ORIGIN));
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &good),
+        Ok(1),
+        "a genuine assertion verifies and presents its counter"
+    );
 
     // Wrong challenge → rejected.
-    assert!(cred
-        .verify_assertion(&provider, b"different-challenge", &good)
-        .is_err());
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), b"different-challenge", &good),
+        Err(WebAuthnError::ChallengeMismatch)
+    );
 
-    // User-present flag clear → rejected.
-    let no_up = AuthAssertion {
-        authenticator_data: cred.authenticator_data(0x00, 1),
+    // Client data of another ceremony type → rejected.
+    let create = AuthAssertion {
+        client_data: ClientData {
+            type_: "webauthn.create".into(),
+            ..get(CHALLENGE, ORIGIN)
+        },
         ..good.clone()
     };
-    // Re-sign for the altered authenticator data so only the UP flag is at fault.
-    let np_payload = WebAuthnCredential::signed_payload(&no_up.authenticator_data, &client_data);
-    let no_up = AuthAssertion {
-        signature: sig.sign(&sk, &np_payload).unwrap(),
-        ..no_up
-    };
-    assert!(cred.verify_assertion(&provider, challenge, &no_up).is_err());
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &create),
+        Err(WebAuthnError::BadClientData)
+    );
+
+    // User-present flag clear, re-signed so only the UP flag is at fault → rejected.
+    let no_up = assertion(&cred, &sk, UV, 1, get(CHALLENGE, ORIGIN));
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &no_up),
+        Err(WebAuthnError::UserNotPresent)
+    );
 
     // Tampered signature → rejected.
-    let (_vk2, sk2) = sig.keypair(&mut SeedRng(8)).unwrap();
+    let (_, sk2) = passkey(8);
     let forged = AuthAssertion {
-        signature: sig.sign(&sk2, &payload).unwrap(),
-        ..good
+        signature: assertion(&cred, &sk2, UP | UV, 1, get(CHALLENGE, ORIGIN)).signature,
+        ..good.clone()
     };
-    assert!(cred
-        .verify_assertion(&provider, challenge, &forged)
-        .is_err());
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &forged),
+        Err(WebAuthnError::BadSignature)
+    );
+
+    // The default policy names no origin, so nothing verifies until one is configured.
+    assert_eq!(
+        cred.verify_assertion(&provider, &WebAuthnPolicy::default(), CHALLENGE, &good),
+        Err(WebAuthnError::OriginMismatch)
+    );
+}
+
+/// [AC-58.1] [VLD-ANB-MIDGARD-0084] A correctly signed assertion from an origin the
+/// policy does not name is refused.
+#[test]
+fn webauthn_origin_mismatch_is_refused() {
+    let provider = fips_provider();
+    let (cred, sk) = passkey(7);
+    let phished = assertion(
+        &cred,
+        &sk,
+        UP | UV,
+        1,
+        get(CHALLENGE, "https://evil.example"),
+    );
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &phished),
+        Err(WebAuthnError::OriginMismatch)
+    );
+    // The origin must match exactly, not by prefix.
+    let lookalike = assertion(
+        &cred,
+        &sk,
+        UP | UV,
+        1,
+        get(CHALLENGE, "https://console.enclosure.local.evil.example"),
+    );
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &lookalike),
+        Err(WebAuthnError::OriginMismatch)
+    );
+}
+
+/// [AC-58.2] [VLD-ANB-MIDGARD-0084] An assertion with the user present but not
+/// verified is refused when the policy requires verification, and accepted when it
+/// does not.
+#[test]
+fn webauthn_uv_is_required_by_policy() {
+    let provider = fips_provider();
+    let (cred, sk) = passkey(7);
+    let unverified = assertion(&cred, &sk, UP, 1, get(CHALLENGE, ORIGIN));
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &unverified),
+        Err(WebAuthnError::UserNotVerified)
+    );
+    let lenient = WebAuthnPolicy {
+        require_uv: false,
+        ..policy()
+    };
+    assert_eq!(
+        cred.verify_assertion(&provider, &lenient, CHALLENGE, &unverified),
+        Ok(1)
+    );
+}
+
+/// [AC-58.3] [VLD-ANB-MIDGARD-0084] Against a stored counter of 10, assertions with
+/// counters 10 and 5 are refused and 11 is accepted, returning 11; when both the
+/// stored and the presented counter are 0 the check is skipped.
+#[test]
+fn webauthn_sign_count_must_increase() {
+    let provider = fips_provider();
+    let (cred, sk) = passkey(7);
+    let used = WebAuthnCredential {
+        sign_count: 10,
+        ..cred.clone()
+    };
+    for count in [10, 5] {
+        let replayed = assertion(&used, &sk, UP | UV, count, get(CHALLENGE, ORIGIN));
+        assert_eq!(
+            used.verify_assertion(&provider, &policy(), CHALLENGE, &replayed),
+            Err(WebAuthnError::CounterRegression),
+            "counter {count} is not past 10"
+        );
+    }
+    let next = assertion(&used, &sk, UP | UV, 11, get(CHALLENGE, ORIGIN));
+    assert_eq!(
+        used.verify_assertion(&provider, &policy(), CHALLENGE, &next),
+        Ok(11)
+    );
+
+    // An authenticator that keeps no counter presents 0 every time.
+    let counterless = assertion(&cred, &sk, UP | UV, 0, get(CHALLENGE, ORIGIN));
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &counterless),
+        Ok(0)
+    );
+    // But once a counter has been seen, 0 is a regression.
+    assert_eq!(
+        used.verify_assertion(&provider, &policy(), CHALLENGE, &counterless),
+        Err(WebAuthnError::CounterRegression)
+    );
 }

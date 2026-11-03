@@ -10,10 +10,27 @@
 #   docker compose -f deploy/compose/compose.yaml run --rm picture
 #
 # `init` runs first: it creates the enclosure (issuer and audit keys) and issues every
-# mesh workload its identity. Each service mounts only its own volumes — no service
-# sees the enclosure's keys. The mesh network is internal: nothing on it can reach
-# outside the host, and no mesh service is published on a host port; each is reachable
-# only over PQ-mTLS by a certified workload.
+# mesh workload its identity. Each mesh service mounts only its own identity volume.
+# The gateway mounts core-state, which holds the enclosure's keys/ (the issuer and audit
+# keystores, passphrase-wrapped since keystore format version 2): the gateway is the
+# enclosure, and signs and unseals as it. Compose is for development and evaluation
+# only; a production deployment provisions identities from key custody
+# (deploy/helm/midgard/README.md). [VLD-ANB-MIDGARD-0018]
+#
+# Every keystore's custody root is wrapped under a passphrase. `init` generates one
+# random passphrase per keystore holder into a volume of its own, `<holder>-passphrase`,
+# never the volume the keystores are in; each service mounts only its own, read-only, at
+# /keystore-passphrase, and finds it through MIDGARD_KEYSTORE_PASSPHRASE_FILE (set for
+# every service below, so overlays that replace an entrypoint keep it). Back the
+# passphrase volumes up apart from the data volumes: a lost passphrase is a lost
+# enclosure. [VLD-ANB-MIDGARD-0007]
+#
+# The mesh network is internal and no mesh service is published on a host port; each is
+# reachable only over PQ-mTLS by a certified workload. The gateway is also on `edge`,
+# for the 127.0.0.1 publish only: `edge` does no masquerade and carries no
+# container-to-container traffic, and on a server mg-install's firewall rule drops
+# anything forwarded out of it, so neither network routes anything out of the host.
+# [VLD-ANB-MIDGARD-0061]
 #
 # The image is built locally from source and is NOT the signed release image
 # (deploy/images/service.Dockerfile verifies a release signature before it runs).
@@ -21,6 +38,12 @@
 
 name: midgard
 
+# Every service runs under cgroup limits, so a flood of idle connections, growing
+# metrics or inference load exhausts one container, not the host. These sizes are for
+# evaluation: services override them below where they need more, and mg-install
+# writes values sized from the server's cores and memory into the site overlay
+# (compose.site.yaml), which compose merges over these. Raise them the same way, in
+# an overlay of your own. [VLD-ANB-MIDGARD-0029]
 x-service: &service
   image: midgard/dev:local
   build:
@@ -31,6 +54,14 @@ x-service: &service
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   tmpfs: ["/tmp"]
+  mem_limit: 512m
+  memswap_limit: 512m
+  cpus: 1.0
+  pids_limit: 256
+  ulimits:
+    nofile: { soft: 4096, hard: 4096 }
+  environment:
+    MIDGARD_KEYSTORE_PASSPHRASE_FILE: /keystore-passphrase/passphrase
 
 services:
   init:
@@ -51,6 +82,19 @@ services:
       - gateway-identity:/vol/gateway-identity
       - forge-identity:/vol/forge-identity
       - forge-state:/vol/forge-state
+      - core-passphrase:/vol/core-passphrase
+      - mimir-passphrase:/vol/mimir-passphrase
+      - probe-passphrase:/vol/probe-passphrase
+      - fleet-passphrase:/vol/fleet-passphrase
+      - fleet-clients-passphrase:/vol/fleet-clients-passphrase
+      - heimdall-passphrase:/vol/heimdall-passphrase
+      - heimdall-clients-passphrase:/vol/heimdall-clients-passphrase
+      - forge-passphrase:/vol/forge-passphrase
+    # mg-admin's own operations on the state directory use the enclosure's passphrase;
+    # init.sh names each service's passphrase explicitly where it writes that service's
+    # keystores.
+    environment:
+      MIDGARD_KEYSTORE_PASSPHRASE_FILE: /vol/core-passphrase/passphrase
 
   # The edge on the host port, and on the mesh the door certified workloads sync
   # records into the fabric through.
@@ -62,6 +106,9 @@ services:
       - /state
       - --bind
       - 0.0.0.0:7710
+      # The plaintext edge on the container's interface, published to the host's
+      # loopback only; TLS termination fronts it off-host. [VLD-ANB-MIDGARD-0032]
+      - --allow-non-loopback
       - --mesh-bind
       - 0.0.0.0:7711
       - --mesh-identity-dir
@@ -72,9 +119,16 @@ services:
     volumes:
       - core-state:/state
       - gateway-identity:/mesh-identity:ro
+      - core-passphrase:/keystore-passphrase:ro
     networks: [edge, mesh]
     ports:
       - "127.0.0.1:7710:7710"
+    # The edge holds every client connection: more memory, threads and descriptors.
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 512
+    ulimits:
+      nofile: { soft: 8192, hard: 8192 }
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "midgard-ready", "7710", "/api/v1/health"]
@@ -101,8 +155,13 @@ services:
         condition: service_completed_successfully
     volumes:
       - mimir-identity:/identity:ro
+      - mimir-passphrase:/keystore-passphrase:ro
       - mimir-state:/state
     networks: [mesh]
+    # Inference, and with Granite the verification and staging of the weights.
+    mem_limit: 4g
+    memswap_limit: 4g
+    cpus: 4.0
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "midgard-ready", "9090", "/readyz"]
@@ -128,6 +187,7 @@ services:
         condition: service_healthy
     volumes:
       - probe-identity:/identity:ro
+      - probe-passphrase:/keystore-passphrase:ro
     networks: [mesh]
 
   bifrost-fleet:
@@ -147,6 +207,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - fleet-identity:/identity:ro
+      - fleet-passphrase:/keystore-passphrase:ro
       - fleet-state:/state
     networks: [mesh]
     restart: unless-stopped
@@ -175,6 +236,7 @@ services:
         condition: service_healthy
     volumes:
       - fleet-clients:/identity:ro
+      - fleet-clients-passphrase:/keystore-passphrase:ro
     networks: [mesh]
 
   # The fleet as an operator sees it: versions, liveness, drift.
@@ -195,6 +257,7 @@ services:
         condition: service_healthy
     volumes:
       - fleet-clients:/identity:ro
+      - fleet-clients-passphrase:/keystore-passphrase:ro
     networks: [mesh]
 
   heimdall-feed:
@@ -214,6 +277,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - heimdall-identity:/identity:ro
+      - heimdall-passphrase:/keystore-passphrase:ro
       - heimdall-state:/state
     networks: [mesh]
     restart: unless-stopped
@@ -242,6 +306,7 @@ services:
         condition: service_healthy
     volumes:
       - heimdall-clients:/identity:ro
+      - heimdall-clients-passphrase:/keystore-passphrase:ro
     networks: [mesh]
 
   # The fused picture as an analyst reads it.
@@ -262,6 +327,7 @@ services:
         condition: service_healthy
     volumes:
       - heimdall-clients:/identity:ro
+      - heimdall-clients-passphrase:/keystore-passphrase:ro
     networks: [mesh]
 
   # Syncs the sample sources in deploy/compose/forge into versioned datasets and on
@@ -285,6 +351,7 @@ services:
         condition: service_healthy
     volumes:
       - forge-identity:/identity:ro
+      - forge-passphrase:/keystore-passphrase:ro
       - forge-state:/state
     networks: [mesh]
     restart: unless-stopped
@@ -295,7 +362,21 @@ services:
       retries: 12
 
 networks:
-  edge: {}
+  # Only for publishing the gateway on 127.0.0.1: no masquerade, so nothing on it is
+  # routed out of the host, and no traffic between its containers (the console's
+  # browser reaches the gateway through the published port). `internal: true` would
+  # deny egress outright, but Docker publishes no port from an internal network. A
+  # host that NATs or forwards this subnet itself (Docker Desktop's VM does) would
+  # still route it, so the bridge has a fixed interface name, mg-edge0, and mg-install
+  # adds a firewall rule (DOCKER-USER) that drops anything forwarded from it to another
+  # interface. Without the installer, only the bridge setting applies. The name is at
+  # most 15 characters; MIDGARD_EDGE_BRIDGE changes it, so a second project (smoke.sh)
+  # can run beside this one. [VLD-ANB-MIDGARD-0061]
+  edge:
+    driver_opts:
+      com.docker.network.bridge.name: ${MIDGARD_EDGE_BRIDGE:-mg-edge0}
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.enable_icc: "false"
   mesh:
     internal: true
 
@@ -313,3 +394,11 @@ volumes:
   gateway-identity: {}
   forge-identity: {}
   forge-state: {}
+  core-passphrase: {}
+  mimir-passphrase: {}
+  probe-passphrase: {}
+  fleet-passphrase: {}
+  fleet-clients-passphrase: {}
+  heimdall-passphrase: {}
+  heimdall-clients-passphrase: {}
+  forge-passphrase: {}

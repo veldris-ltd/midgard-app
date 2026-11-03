@@ -8,7 +8,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use audit_writer::{FileLedger, LedgerId, LedgerStore};
 use http_gateway::state_dir::{StateDir, LEDGER_ID};
 use kms::{Kms, KmsSealer};
@@ -27,6 +29,10 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn mg_admin(args: &[&str]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_mg-admin"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -80,19 +86,30 @@ fn mesh_issue_writes_a_verifiable_identity_and_never_overwrites_one() {
         .contains(&Role("inference-server".into())));
     assert_eq!(cert.identity.roles.len(), 2);
 
-    let identity = Keystore::read(&out.join("mimir-server.keystore")).expect("identity keystore");
+    let identity = Keystore::read(
+        &out.join("mimir-server.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("identity keystore");
     assert_eq!(
         identity.verifying_key, cert.identity.verifying_key,
         "the certificate binds the service's own key"
     );
-    let audit_key =
-        Keystore::read(&out.join("mimir-server.audit.keystore")).expect("audit keystore");
+    let audit_key = Keystore::read(
+        &out.join("mimir-server.audit.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("audit keystore");
     assert_ne!(
         audit_key.verifying_key, identity.verifying_key,
         "audit signing uses a separate key"
     );
     let state = StateDir::new(&dir);
-    let issuer = Keystore::read(&state.idp_keystore()).unwrap();
+    let issuer = Keystore::read(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert_eq!(
         anchor.ca_key, issuer.verifying_key,
         "the anchor is the enclosure's issuer"
@@ -105,7 +122,11 @@ fn mesh_issue_writes_a_verifiable_identity_and_never_overwrites_one() {
     let bad = issue("mimir/server");
     assert_eq!(bad.status.code(), Some(2), "{}", stderr(&bad));
 
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let ledger = FileLedger::open(state.ledger(), Box::new(sealer), LedgerId(LEDGER_ID.into()))
         .expect("the ledger opens");
@@ -289,11 +310,134 @@ fn mesh_certificates_expire_revoke_and_renew() {
         cert_b.identity.verifying_key
     );
     assert_eq!(renewed.identity.roles, cert_b.identity.roles);
-    let key = Keystore::read(&out_b.join("svc-b.keystore")).unwrap();
+    let key = Keystore::read(
+        &out_b.join("svc-b.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert_eq!(key.verifying_key, renewed.identity.verifying_key);
     verify_cert(&renewed, &anchor, &fips_provider(), t).unwrap();
 
     for d in [&dir, &out_a, &out_b] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+/// VLD-ANB-MIDGARD-0063: `--clearance`, `--compartments` and `--purposes` are signed
+/// into the certificate (version 3) and named in the summary; without `--purposes`
+/// the certificate binds none and is still written as version 2; and a renewal keeps
+/// the purposes it bound.
+#[test]
+fn mesh_issue_binds_clearance_and_purposes_into_the_certificate() {
+    // [VLD-ANB-MIDGARD-0063] [AC-22.5]
+    let dir = scratch("attributes");
+    let dir_arg = dir.display().to_string();
+    let out = dir.with_extension("feed-clients");
+    let out_arg = out.display().to_string();
+    assert!(mg_admin(&["init", "--state-dir", &dir_arg])
+        .status
+        .success());
+
+    let issued = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "feed-source-1",
+        "--roles",
+        "feed-source",
+        "--out",
+        &out_arg,
+        "--clearance",
+        "internal",
+        "--compartments",
+        "OPS-N",
+        "--purposes",
+        "situational-awareness,training",
+    ]);
+    assert!(issued.status.success(), "{}", stderr(&issued));
+    let summary = String::from_utf8_lossy(&issued.stdout).into_owned();
+    assert!(
+        summary.contains("clearance internal:OPS-N, purposes situational-awareness,training"),
+        "{summary}"
+    );
+    let path = out.join("feed-source-1.cert");
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(pq_mtls::CERT3_MAGIC));
+    let cert = decode_cert(&bytes).unwrap();
+    assert_eq!(
+        cert.terms.clearance.level,
+        http_gateway::enclosure::level_of("internal").unwrap()
+    );
+    assert_eq!(
+        cert.terms.clearance.compartments,
+        [policy::Compartment("OPS-N".into())].into_iter().collect()
+    );
+    let purposes: std::collections::BTreeSet<policy::Purpose> = [
+        policy::Purpose("situational-awareness".into()),
+        policy::Purpose("training".into()),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(cert.terms.purposes, Some(purposes.clone()));
+    let anchor = decode_anchor(&std::fs::read(out.join("mesh.anchor")).unwrap()).unwrap();
+    verify_cert(&cert, &anchor, &fips_provider(), now()).unwrap();
+
+    // A renewal on a timer keeps what the certificate bound.
+    let renewed = mg_admin(&[
+        "mesh",
+        "renew",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "feed-source-1",
+        "--out",
+        &out_arg,
+        "--clearance",
+        "internal",
+    ]);
+    assert!(renewed.status.success(), "{}", stderr(&renewed));
+    let renewed = decode_cert(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(renewed.terms.purposes, Some(purposes));
+
+    // Without --purposes, nothing is bound and the certificate is version 2.
+    let plain = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "picture-analyst",
+        "--roles",
+        "picture-reader",
+        "--out",
+        &out_arg,
+    ]);
+    assert!(plain.status.success(), "{}", stderr(&plain));
+    assert!(String::from_utf8_lossy(&plain.stdout).contains("purposes any (none bound)"));
+    let bytes = std::fs::read(out.join("picture-analyst.cert")).unwrap();
+    assert!(bytes.starts_with(pq_mtls::CERT_MAGIC));
+    assert_eq!(decode_cert(&bytes).unwrap().terms.purposes, None);
+
+    // An empty purpose list is a usage error.
+    let empty = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "svc-empty",
+        "--roles",
+        "r",
+        "--out",
+        &out_arg,
+        "--purposes",
+        ",",
+    ]);
+    assert_eq!(empty.status.code(), Some(2), "{}", stderr(&empty));
+
+    for d in [&dir, &out] {
         let _ = std::fs::remove_dir_all(d);
     }
 }
@@ -361,7 +505,11 @@ fn mesh_upgrade_recertifies_the_existing_keys_in_place() {
     let anchor = decode_anchor(&std::fs::read(out.join("mesh.anchor")).unwrap()).unwrap();
     let cert = decode_cert(&std::fs::read(out.join("svc-old.cert")).unwrap()).unwrap();
     verify_cert(&cert, &anchor, &fips_provider(), now()).expect("the new certificate verifies");
-    let key = Keystore::read(&out.join("svc-old.keystore")).unwrap();
+    let key = Keystore::read(
+        &out.join("svc-old.keystore"),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert_eq!(
         cert.identity.verifying_key, key.verifying_key,
         "the key it already had"
@@ -386,6 +534,134 @@ fn mesh_upgrade_recertifies_the_existing_keys_in_place() {
     let refused = upgrade();
     assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
     assert!(stderr(&refused).contains("keeps a service's keys"));
+
+    for d in [&dir, &out] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+/// VLD-ANB-MIDGARD-0063: upgrading a current certificate to bind purposes, or to a
+/// different clearance or roles, reissues it for the same key with what was asked for;
+/// only a certificate that already grants exactly that is kept. A flag left out keeps
+/// what the certificate grants, and `--no-purposes` drops the binding.
+#[test]
+fn mesh_upgrade_reissues_a_current_certificate_whose_grant_differs() {
+    let dir = scratch("upgrade-grant");
+    let dir_arg = dir.display().to_string();
+    let out = dir.with_extension("svc");
+    let out_arg = out.display().to_string();
+    assert!(mg_admin(&["init", "--state-dir", &dir_arg])
+        .status
+        .success());
+    let issued = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "svc-grant",
+        "--roles",
+        "inference-server",
+        "--out",
+        &out_arg,
+    ]);
+    assert!(issued.status.success(), "{}", stderr(&issued));
+    let cert_path = out.join("svc-grant.cert");
+    let before = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_eq!(before.terms.purposes, None, "issued binding no purposes");
+
+    let upgrade = |extra: &[&str]| {
+        let mut args = vec![
+            "mesh",
+            "upgrade",
+            "--state-dir",
+            &dir_arg,
+            "--service",
+            "svc-grant",
+            "--out",
+            &out_arg,
+        ];
+        args.extend_from_slice(extra);
+        mg_admin(&args)
+    };
+    let bound = upgrade(&["--roles", "inference-server", "--purposes", "investigation"]);
+    assert!(bound.status.success(), "{}", stderr(&bound));
+    assert!(
+        !String::from_utf8_lossy(&bound.stdout).contains("already current"),
+        "{}",
+        String::from_utf8_lossy(&bound.stdout)
+    );
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    let investigation: std::collections::BTreeSet<policy::Purpose> =
+        [policy::Purpose("investigation".into())].into();
+    assert_eq!(cert.terms.purposes, Some(investigation.clone()));
+    assert_eq!(cert.identity.verifying_key, before.identity.verifying_key);
+    assert_ne!(cert.terms.serial, before.terms.serial, "a new certificate");
+
+    let again = upgrade(&["--roles", "inference-server", "--purposes", "investigation"]);
+    assert!(again.status.success(), "{}", stderr(&again));
+    assert!(String::from_utf8_lossy(&again.stdout).contains("already current"));
+
+    let cleared = upgrade(&[
+        "--roles",
+        "inference-server",
+        "--purposes",
+        "investigation",
+        "--clearance",
+        "internal",
+    ]);
+    assert!(cleared.status.success(), "{}", stderr(&cleared));
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_ne!(
+        cert.terms.clearance, before.terms.clearance,
+        "the new clearance"
+    );
+    assert_eq!(cert.terms.purposes, Some(investigation.clone()));
+    let internal = cert.terms.clearance.clone();
+
+    // The routine upgrade, with only --roles: a flag left out keeps what the
+    // certificate grants, so nothing is widened and nothing reissued.
+    let routine = upgrade(&["--roles", "inference-server"]);
+    assert!(routine.status.success(), "{}", stderr(&routine));
+    assert!(
+        String::from_utf8_lossy(&routine.stdout).contains("already current"),
+        "{}",
+        String::from_utf8_lossy(&routine.stdout)
+    );
+    let kept = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_eq!(
+        kept, cert,
+        "the purpose-bound certificate is kept as it was"
+    );
+
+    let roles = upgrade(&["--roles", "inference-server,retriever"]);
+    assert!(roles.status.success(), "{}", stderr(&roles));
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert!(cert.identity.roles.contains(&Role("retriever".into())));
+    assert_eq!(
+        cert.terms.purposes,
+        Some(investigation),
+        "a reissue keeps the purposes"
+    );
+    assert_eq!(cert.terms.clearance, internal, "and the clearance");
+
+    // Dropping the binding takes an explicit flag, and not alongside --purposes.
+    let both = upgrade(&[
+        "--roles",
+        "inference-server,retriever",
+        "--purposes",
+        "investigation",
+        "--no-purposes",
+    ]);
+    assert_eq!(both.status.code(), Some(2), "{}", stderr(&both));
+    let dropped = upgrade(&["--roles", "inference-server,retriever", "--no-purposes"]);
+    assert!(dropped.status.success(), "{}", stderr(&dropped));
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_eq!(cert.terms.purposes, None, "--no-purposes binds none");
+    assert_eq!(
+        cert.terms.clearance, internal,
+        "the clearance is still kept"
+    );
 
     for d in [&dir, &out] {
         let _ = std::fs::remove_dir_all(d);
@@ -434,16 +710,27 @@ fn audit_checkpoint_adopts_a_mesh_services_own_ledger() {
         action: Action("Infer".into()),
         resource: Resource("model:granite".into()),
         ts: Timestamp("2026-10-30T00:00:00Z".into()),
+        context: Default::default(),
     };
     {
-        let identity = ServiceIdentity::load(&out, "mimir-server").expect("the identity loads");
+        let identity = ServiceIdentity::load(
+            &out,
+            "mimir-server",
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("the identity loads");
         let mut writer = identity.audit_writer(&ledger, "mimir-inference").unwrap();
         writer.append(record("r1")).unwrap();
         writer.append(record("r2")).unwrap();
     }
     // What an earlier release left: the same entries, no checkpoint.
     std::fs::remove_file(checkpoint_path(&ledger)).unwrap();
-    let identity = ServiceIdentity::load(&out, "mimir-server").unwrap();
+    let identity = ServiceIdentity::load(
+        &out,
+        "mimir-server",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     assert!(
         identity.audit_writer(&ledger, "mimir-inference").is_err(),
         "a ledger without its checkpoint stops the service"

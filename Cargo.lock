@@ -163,6 +163,7 @@ dependencies = [
 name = "attest"
 version = "0.1.0-rc.1"
 dependencies = [
+ "attest",
  "kms",
  "pqc-agility",
 ]
@@ -233,6 +234,7 @@ version = "0.1.0-rc.1"
 dependencies = [
  "mimir-bridge",
  "mimir-prompts",
+ "pqc-agility",
 ]
 
 [[package]]
@@ -554,6 +556,7 @@ dependencies = [
  "heimdall-picture",
  "mimir-bridge",
  "mimir-prompts",
+ "pqc-agility",
 ]
 
 [[package]]
@@ -561,6 +564,8 @@ name = "heimdall-feed-gateway"
 version = "0.1.0-rc.1"
 dependencies = [
  "heimdall-picture",
+ "iam",
+ "policy",
  "pq-mtls",
  "pqc-agility",
 ]
@@ -819,6 +824,7 @@ dependencies = [
 name = "midgard-client-core"
 version = "0.1.0-rc.1"
 dependencies = [
+ "kms",
  "midgard-client-enclosure",
  "midgard-client-keystore",
  "midgard-client-store",
@@ -925,6 +931,8 @@ dependencies = [
  "policy",
  "pq-mtls",
  "pqc-agility",
+ "service-runtime",
+ "telemetry",
 ]
 
 [[package]]
@@ -1123,6 +1131,9 @@ dependencies = [
 [[package]]
 name = "telemetry"
 version = "0.1.0-rc.1"
+dependencies = [
+ "service-runtime",
+]
 
 [[package]]
 name = "typenum"

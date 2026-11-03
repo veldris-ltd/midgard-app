@@ -3,9 +3,17 @@
 //! point (thread-safe), so instrumentation is a one-liner and rendering is
 //! deterministic. Nothing is pushed anywhere — a scraper *inside the enclosure*
 //! pulls `/metrics`; there is no outbound client. [NFR-PRV-1] [RC-33]
+//!
+//! The registry is bounded whatever its callers label with: a family holds at most
+//! [`MAX_SERIES_PER_FAMILY`] series, a label set past that is dropped and counted in
+//! `metrics_series_dropped_total{family}`, and a rendered label value is cut at
+//! [`MAX_LABEL_VALUE_CHARS`] characters. [VLD-ANB-MIDGARD-0003]
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
+
+use crate::escape::label_value;
 
 /// A label set, kept sorted so a metric series has one canonical key.
 type Labels = Vec<(String, String)>;
@@ -18,6 +26,18 @@ fn norm(labels: &[(&str, &str)]) -> Labels {
     v.sort();
     v
 }
+
+/// The most series one family holds. A new label set past it is not recorded; the
+/// drop is counted in [`DROPPED_SERIES`]. [VLD-ANB-MIDGARD-0003]
+pub const MAX_SERIES_PER_FAMILY: usize = 1_000;
+
+/// The counter family that counts series refused at the cap, labelled by `family`.
+/// It is exempt from the cap: it holds at most one series per family. [VLD-ANB-MIDGARD-0003]
+pub const DROPPED_SERIES: &str = "metrics_series_dropped_total";
+
+/// The longest label value rendered; a longer one is cut there and ends `...`.
+/// [VLD-ANB-MIDGARD-0003]
+pub const MAX_LABEL_VALUE_CHARS: usize = 256;
 
 /// Fixed histogram bucket upper bounds (milliseconds), covering sub-ms to ~30s.
 pub const DEFAULT_BUCKETS_MS: &[f64] = &[
@@ -65,10 +85,20 @@ struct Family {
     series: BTreeMap<Labels, Series>,
 }
 
+#[derive(Default)]
+struct Families {
+    by_name: BTreeMap<String, Family>,
+    /// Help text described before its family recorded anything.
+    help: BTreeMap<String, String>,
+}
+
 /// A thread-safe metrics registry.
 #[derive(Default)]
 pub struct MetricsRegistry {
-    families: Mutex<BTreeMap<String, Family>>,
+    families: Mutex<Families>,
+    /// The families lock has been recovered after a panic poisoned it, rendered as
+    /// `metrics_lock_poisoned 1`. [VLD-ANB-MIDGARD-0030]
+    poisoned_once: AtomicBool,
 }
 
 impl MetricsRegistry {
@@ -77,24 +107,89 @@ impl MetricsRegistry {
         Self::default()
     }
 
-    fn family<'a>(
-        map: &'a mut BTreeMap<String, Family>,
-        name: &str,
-        kind: &'static str,
-    ) -> &'a mut Family {
-        map.entry(name.to_string()).or_insert_with(|| Family {
-            kind,
-            help: format!("{name} {kind}"),
-            series: BTreeMap::new(),
+    /// Lock the families, recovering from poisoning rather than panicking every later
+    /// caller: a panic elsewhere must not turn every instrumented request into one.
+    /// The recovery is remembered and rendered as `metrics_lock_poisoned 1` (this
+    /// registry cannot count it in itself). [VLD-ANB-MIDGARD-0030]
+    fn lock_or_recover(&self) -> MutexGuard<'_, Families> {
+        self.families.lock().unwrap_or_else(|poisoned| {
+            self.poisoned_once.store(true, Ordering::Relaxed);
+            poisoned.into_inner()
         })
     }
 
-    /// Register help text for a metric family (optional).
-    pub fn describe(&self, name: &str, help: &str) {
-        let mut map = self.families.lock().expect("metrics lock");
-        if let Some(f) = map.get_mut(name) {
-            f.help = help.to_string();
+    /// Poison the families lock the way a panicking caller would. Tests only.
+    #[doc(hidden)]
+    pub fn poison_for_tests(&self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = self.families.lock();
+            panic!("simulated panic while holding the metrics lock");
+        }));
+    }
+
+    fn family<'a>(map: &'a mut Families, name: &str, kind: &'static str) -> &'a mut Family {
+        let help = &map.help;
+        map.by_name
+            .entry(name.to_string())
+            .or_insert_with(|| Family {
+                kind,
+                help: help
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{name} {kind}")),
+                series: BTreeMap::new(),
+            })
+    }
+
+    /// The series `labels` of family `name`, made by `new` if it is new and the family
+    /// has room. A family at [`MAX_SERIES_PER_FAMILY`] takes no new series: the drop
+    /// is counted in [`DROPPED_SERIES`] and `None` returned. [VLD-ANB-MIDGARD-0003]
+    fn series<'a>(
+        map: &'a mut Families,
+        name: &str,
+        kind: &'static str,
+        labels: &[(&str, &str)],
+        new: impl FnOnce() -> Series,
+    ) -> Option<&'a mut Series> {
+        let key = norm(labels);
+        let f = Self::family(map, name, kind);
+        if name != DROPPED_SERIES
+            && f.series.len() >= MAX_SERIES_PER_FAMILY
+            && !f.series.contains_key(&key)
+        {
+            let dropped = Self::family(map, DROPPED_SERIES, "counter")
+                .series
+                .entry(norm(&[("family", name)]))
+                .or_insert(Series::Counter(0));
+            if let Series::Counter(c) = dropped {
+                *c += 1;
+            }
+            return None;
         }
+        Some(
+            Self::family(map, name, kind)
+                .series
+                .entry(key)
+                .or_insert_with(new),
+        )
+    }
+
+    /// Register help text for a metric family (optional). It may come before the
+    /// family records anything.
+    pub fn describe(&self, name: &str, help: &str) {
+        let mut map = self.lock_or_recover();
+        match map.by_name.get_mut(name) {
+            Some(f) => f.help = help.to_string(),
+            None => {
+                map.help.insert(name.to_string(), help.to_string());
+            }
+        }
+    }
+
+    /// How many series family `name` holds (for assertions). [VLD-ANB-MIDGARD-0003]
+    pub fn series_count(&self, name: &str) -> usize {
+        let map = self.lock_or_recover();
+        map.by_name.get(name).map_or(0, |f| f.series.len())
     }
 
     /// Increment a counter by 1.
@@ -104,18 +199,20 @@ impl MetricsRegistry {
 
     /// Increment a counter by `n`.
     pub fn inc_by(&self, name: &str, labels: &[(&str, &str)], n: u64) {
-        let mut map = self.families.lock().expect("metrics lock");
-        let f = Self::family(&mut map, name, "counter");
-        if let Series::Counter(c) = f.series.entry(norm(labels)).or_insert(Series::Counter(0)) {
+        let mut map = self.lock_or_recover();
+        if let Some(Series::Counter(c)) =
+            Self::series(&mut map, name, "counter", labels, || Series::Counter(0))
+        {
             *c += n;
         }
     }
 
     /// Set a gauge to `v`.
     pub fn set_gauge(&self, name: &str, labels: &[(&str, &str)], v: f64) {
-        let mut map = self.families.lock().expect("metrics lock");
-        let f = Self::family(&mut map, name, "gauge");
-        f.series.insert(norm(labels), Series::Gauge(v));
+        let mut map = self.lock_or_recover();
+        if let Some(s) = Self::series(&mut map, name, "gauge", labels, || Series::Gauge(v)) {
+            *s = Series::Gauge(v);
+        }
     }
 
     /// Observe a value into a histogram (default ms buckets).
@@ -125,21 +222,22 @@ impl MetricsRegistry {
 
     /// Observe with explicit bucket bounds.
     pub fn observe_with(&self, name: &str, labels: &[(&str, &str)], v: f64, bounds: &[f64]) {
-        let mut map = self.families.lock().expect("metrics lock");
-        let f = Self::family(&mut map, name, "histogram");
-        if let Series::Hist(h) = f
-            .series
-            .entry(norm(labels))
-            .or_insert_with(|| Series::Hist(Histogram::new(bounds)))
-        {
+        let mut map = self.lock_or_recover();
+        if let Some(Series::Hist(h)) = Self::series(&mut map, name, "histogram", labels, || {
+            Series::Hist(Histogram::new(bounds))
+        }) {
             h.observe(v);
         }
     }
 
     /// The current counter value (for assertions / SLO reads).
     pub fn counter_value(&self, name: &str, labels: &[(&str, &str)]) -> u64 {
-        let map = self.families.lock().expect("metrics lock");
-        match map.get(name).and_then(|f| f.series.get(&norm(labels))) {
+        let map = self.lock_or_recover();
+        match map
+            .by_name
+            .get(name)
+            .and_then(|f| f.series.get(&norm(labels)))
+        {
             Some(Series::Counter(c)) => *c,
             _ => 0,
         }
@@ -147,9 +245,9 @@ impl MetricsRegistry {
 
     /// Render the whole registry in Prometheus text exposition format. [RC-33]
     pub fn render(&self) -> String {
-        let map = self.families.lock().expect("metrics lock");
+        let map = self.lock_or_recover();
         let mut out = String::new();
-        for (name, f) in map.iter() {
+        for (name, f) in map.by_name.iter() {
             out.push_str(&format!("# HELP {name} {}\n", f.help));
             out.push_str(&format!("# TYPE {name} {}\n", f.kind));
             for (labels, s) in &f.series {
@@ -193,6 +291,13 @@ impl MetricsRegistry {
                 }
             }
         }
+        if self.poisoned_once.load(Ordering::Relaxed) {
+            out.push_str(
+                "# HELP metrics_lock_poisoned The metrics lock was recovered after a panic.\n",
+            );
+            out.push_str("# TYPE metrics_lock_poisoned gauge\n");
+            out.push_str("metrics_lock_poisoned 1\n");
+        }
         out
     }
 }
@@ -207,15 +312,19 @@ fn render_labels(base: &Labels, extra: &[(&str, &str)]) -> String {
     }
     let inner: Vec<String> = all
         .iter()
-        .map(|(k, v)| format!("{k}=\"{}\"", escape(v)))
+        .map(|(k, v)| format!("{k}=\"{}\"", label_value(&truncate(v))))
         .collect();
     format!("{{{}}}", inner.join(","))
 }
 
-fn escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
+/// `v`, cut at [`MAX_LABEL_VALUE_CHARS`] characters with `...` appended if it is
+/// longer: a second line of defence for a caller that labels with input.
+/// [VLD-ANB-MIDGARD-0003]
+fn truncate(v: &str) -> std::borrow::Cow<'_, str> {
+    match v.char_indices().nth(MAX_LABEL_VALUE_CHARS) {
+        Some((cut, _)) => format!("{}...", &v[..cut]).into(),
+        None => v.into(),
+    }
 }
 
 fn fmt(v: f64) -> String {

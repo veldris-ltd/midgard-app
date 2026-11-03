@@ -8,7 +8,10 @@
 //!
 //! Certificates expire: the validity window (`--days`, default 30) and the clearance the
 //! service may be authorised at (`--clearance`, default open) are signed into the
-//! certificate. `mesh renew` reissues a service with a fresh key before expiry and is
+//! certificate. `--purposes` binds the purposes the service may open channels for, so a
+//! channel it declares for any other is refused (a version 3 certificate); without it
+//! the certificate binds none and is written as version 2, as before.
+//! [VLD-ANB-MIDGARD-0063] `mesh renew` reissues a service with a fresh key before expiry and is
 //! meant to run on a timer; `--within` makes it a no-op until the certificate is that
 //! close to expiring. [MG-SEC-02] [MG-SEC-04]
 //!
@@ -24,22 +27,36 @@
 //! keystores — the audit keystore signs the service's ledger and seals its state, so a
 //! new one would lock the service out of both. A service that is already current is
 //! left alone, apart from a missing revocation list, which is written. [MG-SEC-02]
+//! A certificate is current only if it also grants what the upgrade asks for, so
+//! `--roles`, `--clearance` or `--purposes` that differ from it reissue it. A flag left
+//! out asks for what the service's certificate already grants: an upgrade never drops
+//! a purpose binding or lowers a clearance unless told to (`--no-purposes`,
+//! `--clearance`). [VLD-ANB-MIDGARD-0063]
+//!
+//! The issuer keystore opens under the keystore passphrase; the service's own
+//! keystores are written (and, for `upgrade`, read) under `--identity-passphrase-file`,
+//! which defaults to it. The service directory is created owner-only (0700).
+//! [VLD-ANB-MIDGARD-0007]
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use attest::Keystore;
+use attest::keystore::create_private_dir;
+use attest::{Keystore, RootWrap};
 use http_gateway::enclosure::level_of;
 use http_gateway::state_dir::{StateDir, StateLock, IDP_KEY_ID};
 use iam::{Idp, IDP_SIG_ALG};
-use policy::{Compartment, Role};
+use policy::{Compartment, Purpose, Role};
 use pq_mtls::{
     cert_fingerprint, decode_anchor, decode_cert, decode_crl, encode_anchor, encode_cert,
     encode_crl, CertTerms, Posture, RevocationList, ServiceId, WorkloadIdentity,
 };
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
 
-use crate::{list, record_admin_event, Failure, Options};
+use crate::{list, passphrase, passphrase_or_default, record_admin_event, Failure, Options};
+
+/// The option naming the passphrase for a service's own keystores.
+const IDENTITY_PASSPHRASE: &str = "identity-passphrase-file";
 
 /// Default certificate lifetime in days. [MG-SEC-02]
 pub(crate) const DEFAULT_DAYS: u64 = 30;
@@ -63,8 +80,8 @@ fn now_secs() -> u64 {
 }
 
 /// The enclosure issuer, unsealed from the state directory.
-fn issuer(state: &StateDir) -> Result<Idp, Failure> {
-    let issuer = Keystore::read(&state.idp_keystore()).map_err(|e| {
+fn issuer(state: &StateDir, wrap: &RootWrap) -> Result<Idp, Failure> {
+    let issuer = Keystore::read(&state.idp_keystore(), wrap).map_err(|e| {
         Failure::Run(format!(
             "cannot open the issuer keystore (has `mg-admin init` been run?): {e}"
         ))
@@ -133,6 +150,41 @@ fn granted_clearance(o: &Options) -> Result<Posture, Failure> {
     })
 }
 
+/// `--purposes`: the purposes the certificate binds, or `None` if not given (the
+/// certificate binds none). [VLD-ANB-MIDGARD-0063]
+fn bound_purposes(o: &Options) -> Result<Option<BTreeSet<Purpose>>, Failure> {
+    let Some(given) = o.get("purposes") else {
+        return Ok(None);
+    };
+    let purposes: BTreeSet<Purpose> = list(given).into_iter().map(Purpose).collect();
+    if purposes.is_empty() {
+        return Err(Failure::Usage(
+            "--purposes needs at least one purpose".into(),
+        ));
+    }
+    Ok(Some(purposes))
+}
+
+/// How a summary names what a certificate grants: its clearance and purposes.
+fn describe_grant(clearance: &Posture, purposes: &Option<BTreeSet<Purpose>>) -> String {
+    let band = http_gateway::enclosure::band(clearance.level);
+    let compartments: Vec<&str> = clearance
+        .compartments
+        .iter()
+        .map(|c| c.0.as_str())
+        .collect();
+    let clearance = if compartments.is_empty() {
+        band.to_string()
+    } else {
+        format!("{band}:{}", compartments.join(","))
+    };
+    let purposes = match purposes {
+        None => "any (none bound)".to_string(),
+        Some(p) => p.iter().map(|p| p.0.as_str()).collect::<Vec<_>>().join(","),
+    };
+    format!("clearance {clearance}, purposes {purposes}")
+}
+
 fn random_serial() -> u64 {
     let mut b = [0u8; 8];
     OsRng.fill(&mut b);
@@ -192,8 +244,14 @@ fn certify_service(
     identity_key: &Keystore,
     days: u64,
     clearance: Posture,
+    purposes: Option<BTreeSet<Purpose>>,
 ) -> Result<pq_mtls::IdentityCert, Failure> {
     let now = now_secs();
+    // A minute of slack for clocks that run slightly behind this one.
+    let mut terms = CertTerms::new(random_serial(), now - 60, now + days * DAY, clearance);
+    if let Some(purposes) = purposes {
+        terms = terms.with_purposes(purposes);
+    }
     idp.certify(
         &WorkloadIdentity {
             id: ServiceId(service.to_string()),
@@ -201,8 +259,7 @@ fn certify_service(
             sig_alg: IDP_SIG_ALG,
             verifying_key: identity_key.verifying_key.clone(),
         },
-        // A minute of slack for clocks that run slightly behind this one.
-        CertTerms::new(random_serial(), now - 60, now + days * DAY, clearance),
+        terms,
     )
     .map_err(|e| Failure::Run(format!("cannot certify the service: {e:?}")))
 }
@@ -217,6 +274,7 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
     }
     let days = lifetime_days(o)?;
     let clearance = granted_clearance(o)?;
+    let purposes = bound_purposes(o)?;
     let out = Path::new(o.require("out")?);
     let key_path = identity_keystore(out, service);
     let audit_path = out.join(format!("{service}.audit.keystore"));
@@ -232,31 +290,45 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
         }
     }
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let identity_passphrase = passphrase_or_default(o, IDENTITY_PASSPHRASE)?;
+    let identity_wrap = RootWrap::Passphrase(&identity_passphrase);
+
     let _lock = StateLock::acquire(&state, "mg-admin mesh issue").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let crl = current_crl(&state, &idp)?;
 
     let identity_key = Keystore::generate(service, IDP_SIG_ALG, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot generate the identity key: {e}")))?;
     let audit_key = Keystore::generate(&format!("{service}-audit"), IDP_SIG_ALG, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot generate the audit key: {e}")))?;
-    let cert = certify_service(&idp, service, &roles, &identity_key, days, clearance)?;
+    let grant = describe_grant(&clearance, &purposes);
+    let cert = certify_service(
+        &idp,
+        service,
+        &roles,
+        &identity_key,
+        days,
+        clearance,
+        purposes,
+    )?;
     let role_names: Vec<&str> = roles.iter().map(|r| r.0.as_str()).collect();
     let role_names = role_names.join(",");
 
     // Audit first: an identity the ledger cannot record is not issued.
     record_admin_event(
         &state,
+        &wrap,
         "ISSUE workload certificate",
         &format!("service:{service}:{role_names}"),
     )?;
-    std::fs::create_dir_all(out)
-        .map_err(|e| Failure::Run(format!("cannot create {}: {e}", out.display())))?;
+    create_private_dir(out).map_err(|e| Failure::Run(e.to_string()))?;
     identity_key
-        .write(&key_path)
+        .write(&key_path, &identity_wrap, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", key_path.display())))?;
     audit_key
-        .write(&audit_path)
+        .write(&audit_path, &identity_wrap, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", audit_path.display())))?;
     write(&cert_path, &encode_cert(&cert))?;
     write(&anchor_path, &encode_anchor(&idp.trust_anchor()))?;
@@ -264,6 +336,7 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
 
     Ok(format!(
         "issued a mesh identity for '{service}' (roles {role_names}), valid for {days} days\n\
+         \x20 it grants {grant}\n\
          \x20 {}  its identity key — a secret\n\
          \x20 {}  its audit-signing key — a secret\n\
          \x20 {}  its certificate\n\
@@ -282,10 +355,16 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
 /// Upgrade a service whose certificate, trust anchor or revocation list predates the
 /// current formats, keeping both of its keystores. The certificate is reissued for the
 /// identity key already in `--out`, with `--roles` (an old certificate cannot be read
-/// for them) and the usual `--days` and `--clearance`. A certificate that is already
-/// current, issued to this service for this key by this enclosure, is kept; then only
-/// a trust anchor or revocation list that is missing or out of date is rewritten.
-/// [MG-SEC-02] [MG-SEC-03]
+/// for them) and the usual `--days`, `--clearance` and `--purposes`. A certificate that is already
+/// current, issued to this service for this key by this enclosure with the roles,
+/// clearance and purposes asked for, is kept; then only a trust anchor or revocation
+/// list that is missing or out of date is rewritten. [MG-SEC-02] [MG-SEC-03]
+///
+/// Without `--clearance` or `--compartments`, the clearance asked for is the one the
+/// service's existing certificate grants, and without `--purposes` its purposes:
+/// `--no-purposes` drops them. Only a certificate this enclosure signed, for this
+/// service and key, is read for them, expired or not; otherwise the defaults of
+/// `mesh issue` apply. [VLD-ANB-MIDGARD-0063]
 pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
     let state = StateDir::new(o.require("state-dir")?);
     let service = o.require("service")?;
@@ -295,7 +374,11 @@ pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
         return Err(Failure::Usage("--roles needs at least one role".into()));
     }
     let days = lifetime_days(o)?;
-    let clearance = granted_clearance(o)?;
+    if o.flag("no-purposes") && o.get("purposes").is_some() {
+        return Err(Failure::Usage(
+            "--purposes and --no-purposes cannot be given together".into(),
+        ));
+    }
     let out = Path::new(o.require("out")?);
     let key_path = identity_keystore(out, service);
     let audit_path = out.join(format!("{service}.audit.keystore"));
@@ -311,34 +394,72 @@ pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
             )));
         }
     }
-    let identity_key = Keystore::read(&key_path)
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let identity_passphrase = passphrase_or_default(o, IDENTITY_PASSPHRASE)?;
+    // A version 1 keystore is refused here with the `keystore migrate` hint: migrate
+    // first, then upgrade. [VLD-ANB-MIDGARD-0007]
+    let identity_key = Keystore::read(&key_path, &RootWrap::Passphrase(&identity_passphrase))
         .map_err(|e| Failure::Run(format!("cannot read {}: {e}", key_path.display())))?;
 
     let _lock = StateLock::acquire(&state, "mg-admin mesh upgrade").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let anchor = idp.trust_anchor();
     let crl = current_crl(&state, &idp)?;
 
-    let current = std::fs::read(&cert_path)
+    // The service's own certificate, from this enclosure, for this key: what a flag left
+    // out carries over from. It is checked at its own start, so an expired one still
+    // counts; one in an earlier format does not decode, and the defaults apply.
+    let existing = std::fs::read(&cert_path)
         .ok()
         .and_then(|bytes| decode_cert(&bytes).ok())
         .filter(|cert| {
             cert.identity.id.0 == service
                 && cert.identity.verifying_key == identity_key.verifying_key
-                && pq_mtls::verify_cert(cert, &anchor, idp.provider(), now_secs()).is_ok()
+                && pq_mtls::verify_cert(cert, &anchor, idp.provider(), cert.terms.not_before)
+                    .is_ok()
         });
+    let clearance = match &existing {
+        Some(cert) if o.get("clearance").is_none() && o.get("compartments").is_none() => {
+            cert.terms.clearance.clone()
+        }
+        _ => granted_clearance(o)?,
+    };
+    let purposes = match bound_purposes(o)? {
+        Some(purposes) => Some(purposes),
+        None if o.flag("no-purposes") => None,
+        None => existing
+            .as_ref()
+            .and_then(|cert| cert.terms.purposes.clone()),
+    };
+    let current = existing.filter(|cert| {
+        cert.identity.roles == roles
+            && cert.terms.clearance == clearance
+            && cert.terms.purposes == purposes
+            && pq_mtls::verify_cert(cert, &anchor, idp.provider(), now_secs()).is_ok()
+    });
     let mut done = Vec::new();
     if current.is_none() {
-        let cert = certify_service(&idp, service, &roles, &identity_key, days, clearance)?;
+        let grant = describe_grant(&clearance, &purposes);
+        let cert = certify_service(
+            &idp,
+            service,
+            &roles,
+            &identity_key,
+            days,
+            clearance,
+            purposes,
+        )?;
         let role_names: Vec<&str> = roles.iter().map(|r| r.0.as_str()).collect();
         record_admin_event(
             &state,
+            &wrap,
             "UPGRADE workload certificate",
             &format!("service:{service}:{}", role_names.join(",")),
         )?;
         replace(&cert_path, &encode_cert(&cert))?;
         done.push(format!(
-            "reissued {} for its existing key, valid for {days} days",
+            "reissued {} for its existing key, valid for {days} days ({grant})",
             cert_path.display()
         ));
     }
@@ -382,6 +503,7 @@ pub(crate) fn mesh_renew(o: &Options) -> Result<String, Failure> {
     check_service_name(service)?;
     let days = lifetime_days(o)?;
     let clearance = granted_clearance(o)?;
+    let purposes = bound_purposes(o)?;
     let out = Path::new(o.require("out")?);
     let key_path = identity_keystore(out, service);
     let cert_path = out.join(format!("{service}.cert"));
@@ -411,10 +533,18 @@ pub(crate) fn mesh_renew(o: &Options) -> Result<String, Failure> {
         }
     }
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let identity_passphrase = passphrase_or_default(o, IDENTITY_PASSPHRASE)?;
+
     let _lock = StateLock::acquire(&state, "mg-admin mesh renew").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let identity_key = Keystore::generate(service, IDP_SIG_ALG, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot generate the identity key: {e}")))?;
+    // A renewal keeps the purposes the old certificate bound unless told otherwise, so
+    // a timer never widens what a service may declare. [VLD-ANB-MIDGARD-0063]
+    let purposes = purposes.or(old.terms.purposes.clone());
+    let grant = describe_grant(&clearance, &purposes);
     let cert = certify_service(
         &idp,
         service,
@@ -422,21 +552,28 @@ pub(crate) fn mesh_renew(o: &Options) -> Result<String, Failure> {
         &identity_key,
         days,
         clearance,
+        purposes,
     )?;
     record_admin_event(
         &state,
+        &wrap,
         "RENEW workload certificate",
         &format!("service:{service}"),
     )?;
     let tmp_key = key_path.with_extension("keystore.tmp");
     identity_key
-        .write(&tmp_key)
+        .write(
+            &tmp_key,
+            &RootWrap::Passphrase(&identity_passphrase),
+            &mut OsRng,
+        )
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", tmp_key.display())))?;
     replace(&cert_path, &encode_cert(&cert))?;
     std::fs::rename(&tmp_key, &key_path)
         .map_err(|e| Failure::Run(format!("cannot replace {}: {e}", key_path.display())))?;
     Ok(format!(
-        "renewed '{service}': a new key and a certificate valid for {days} days. \
+        "renewed '{service}': a new key and a certificate valid for {days} days \
+         ({grant}). \
          Restart the service to present it."
     ))
 }
@@ -463,8 +600,10 @@ pub(crate) fn mesh_revoke(o: &Options) -> Result<String, Failure> {
     .map_err(|e| Failure::Run(format!("{} is not a certificate: {e}", cert_path.display())))?;
     let fingerprint = cert_fingerprint(&cert);
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
     let _lock = StateLock::acquire(&state, "mg-admin mesh revoke").map_err(Failure::Run)?;
-    let idp = issuer(&state)?;
+    let idp = issuer(&state, &wrap)?;
     let current = current_crl(&state, &idp)?;
     let crl = if current.revoked.contains(&fingerprint) {
         current
@@ -474,6 +613,7 @@ pub(crate) fn mesh_revoke(o: &Options) -> Result<String, Failure> {
         // Audit first: a revocation the ledger cannot record is not made.
         record_admin_event(
             &state,
+            &wrap,
             "REVOKE workload certificate",
             &format!(
                 "service:{}:serial:{}",

@@ -64,6 +64,7 @@ fn record(i: usize) -> AuditRecord {
         action: Action("PERMIT breakglass-grant".into()),
         resource: Resource(format!("vault/{i}")),
         ts: Timestamp("2026-07-24T00:00:00Z".into()),
+        context: Default::default(),
     }
 }
 

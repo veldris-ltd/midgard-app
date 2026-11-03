@@ -28,6 +28,7 @@ on:
       - 'bifrost/bundle/**'
       - 'supply-chain/**'
       - 'vendor/advisory-db/snapshot.toml'
+      - 'vendor/advisory-db-npm/snapshot.toml'
       - 'deploy/images/**'
       - 'deploy/air-gap-bundle/**'
       - 'deploy/acceptance/Dockerfile'
@@ -66,13 +67,22 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .ci-cache
           key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
       - run: bash tools/ci/run.sh toolchain
       # The JavaScript artefacts are built on the runner, where node is; the release
-      # then gates them inside the toolchain image with everything else.
+      # then gates them inside the toolchain image with everything else. Vite 7 needs
+      # Node 22.12 or later (package.json engines), above the runner's default. The
+      # latest 22.x, not 22.12.0 itself: that release's corepack only knows npm's old
+      # signing key and refuses to fetch pnpm.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
       - run: bash tools/ci/run.sh js-build
       - run: bash tools/ci/run.sh release-dry-run
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -84,17 +94,37 @@ jobs:
     name: signing-runner preflight
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
     runs-on: [self-hosted, kms]
+    # The protected `release` environment: v* tags only, and a second maintainer
+    # approves before anything runs on the signing runner. [VLD-ANB-MIDGARD-0035]
+    environment: release
     env:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+      # The runner's own copy of allowed_signers, outside the workspace: the tag is
+      # verified against it, not against the tagged commit's (docs/ops/PKI.md).
+      MIDGARD_ALLOWED_SIGNERS_PATH: ${{ secrets.MIDGARD_ALLOWED_SIGNERS_PATH }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          # The gate record names a commit; checking it needs the history.
+          persist-credentials: false
+          # The gate record names a commit, and the tag must be on main; checking
+          # either needs the history.
           fetch-depth: 0
-      - run: bash tools/ci/run.sh release-preflight
-      - run: bash tools/ci/run.sh release-tag
+      # The gate is not the tag's own code: the tag check and the preflight run from a
+      # checkout of main, the protected branch, and judge the tagged checkout from
+      # there. Only once they pass does anything from the tagged commit run, by then
+      # proven signed and on main. [VLD-ANB-MIDGARD-0035]
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: main
+          path: .ci-trusted
+          fetch-depth: 0
+          persist-credentials: false
+      - run: bash .ci-trusted/tools/ci/run.sh release-tag
+        env:
+          VERIFY_TAG_ROOT: ${{ github.workspace }}
+      - run: bash .ci-trusted/tools/ci/run.sh release-preflight
       - run: bash tools/ci/run.sh gate-record --release
       - run: bash tools/ci/run.sh numbers
 
@@ -107,12 +137,15 @@ jobs:
     name: gate, admit, account
     needs: [preflight, shell-audits]
     runs-on: [self-hosted, kms]
+    environment: release
     env:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - run: bash tools/ci/run.sh js-build
       - run: bash tools/ci/run.sh release
       - run: bash tools/ci/run.sh release-images
@@ -136,6 +169,8 @@ jobs:
       MIDGARD_PUBLISH_TAG: ${{ inputs.publish }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release

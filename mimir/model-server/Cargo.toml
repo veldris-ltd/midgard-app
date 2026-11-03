@@ -17,6 +17,7 @@ backend-fips = [
     "governance/backend-fips",
     "attest/backend-fips",
     "audit-writer/backend-fips",
+    "service-runtime/backend-fips",
 ]
 
 [dependencies]
@@ -36,6 +37,12 @@ audit-writer = { path = "../../crypto/audit-writer" }
 # Reuse the proven PQ-mTLS termination + RequestHandler seam rather than
 # re-deriving a responder loop. [NFR-SEC-1]
 gateway = { path = "../../services/gateway" }
+# The per-call policy context every mesh service builds from the peer's certified
+# clearance. [VLD-ANB-MIDGARD-0063]
+service-runtime = { path = "../../services/runtime" }
+# The zero-dependency structured log, for a governance lock recovered after a panic.
+# [VLD-ANB-MIDGARD-0030]
+telemetry = { path = "../../services/telemetry" }
 
 [dev-dependencies]
 # Tests wire an in-enclosure IdP as the mesh CA, exactly like the gateway tests.

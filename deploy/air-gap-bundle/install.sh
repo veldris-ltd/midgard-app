@@ -18,10 +18,15 @@
 #      container repeats before it starts its binary.
 #   3. The images go to the registry or the kind cluster; the release anchor becomes the
 #      chart's trust ConfigMap; `helm upgrade --install` deploys the version the bundle
-#      carries, which must be the chart's appVersion.
+#      carries, which must be the chart's appVersion, with every image pinned by digest
+#      [VLD-ANB-MIDGARD-0012]: deploy/helm/set-digests.sh writes the digests of the
+#      images just built into a values file. When the bundle carries the release's
+#      signed chart/values.yaml (as the artefact chart-values.yaml), that file is passed
+#      instead, and the images built here must have its digests: they are built
+#      reproducibly, so a difference means they are not the release's images.
 #
-# The enclosure's secrets — identities, seeds, forge-jobs — come from key custody, not
-# from a bundle; the services do not start until they exist.
+# The enclosure's secrets (identities, keystore passphrases, seeds, forge-jobs) come from
+# key custody through the chart's secrets.provider, never a bundle; services wait for them.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
@@ -101,15 +106,31 @@ else
     $KIND load docker-image $tags --name "$kind"
 fi
 
+echo ">>> pinning the images by digest"
+bash deploy/helm/set-digests.sh "$work/images/images.lock" deploy/helm/midgard/values.yaml \
+    --out "$work/chart-values.yaml"
+digests() { grep -E '^    [a-z0-9.-]+: sha256:[0-9a-f]{64}' "$1" | tr -d '\r' | sort; }
+chart_values="$work/chart-values.yaml"
+if [ -f "$work/verified/chart-values.yaml" ]; then
+    if [ "$(digests "$work/verified/chart-values.yaml")" != "$(digests "$chart_values")" ]; then
+        echo "install: the images built here do not have the digests the release signed:" >&2
+        diff <(digests "$work/verified/chart-values.yaml") <(digests "$chart_values") >&2 || true
+        exit 1
+    fi
+    chart_values="$work/verified/chart-values.yaml"
+    echo ">>> the images match the release's signed chart values"
+fi
+
 echo ">>> deploying $version"
 $HELM upgrade --install midgard deploy/helm/midgard "${HELM_CONTEXT[@]}" --namespace default \
-    --set image.registry="$registry" --set image.tag="$version" \
-    --set image.pullPolicy=IfNotPresent "${values[@]}"
+    -f "$(native "$chart_values")" \
+    --set image.registry="$registry" --set image.tag="$version" "${values[@]}"
 $KUBECTL -n "$NS" create configmap midgard-release-trust \
     --from-file=release-trust.pub="$(native "$release_trust")" --dry-run=client -o yaml \
     | $KUBECTL -n "$NS" apply -f - >/dev/null
 if ! $KUBECTL -n "$NS" get secret http-gateway-identity >/dev/null 2>&1; then
     echo ">>> NOTE: the enclosure's secrets are not provisioned in $NS; the services wait" \
-         "until they are (identities, seeds and forge-jobs, from key custody)."
+         "until they are (identities, keystore passphrases, seeds and forge-jobs, from key" \
+         "custody through the chart's secrets.provider: deploy/helm/midgard/README.md)."
 fi
 echo ">>> install complete: Midgard $version, from a verified bundle"

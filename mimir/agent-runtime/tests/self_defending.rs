@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use agent_runtime::{
     default_gate_resource, run_ev_a3, ActionCatalog, ActionIntent, AgentTask, ApproveAll,
     GovernedLoop, HaltReason, Pipeline, Preauth, SelfDefending, StepBudget, Verdict,
+    DEFAULT_MAX_VALUE_LEN,
 };
 use fabric::{
     ActionFunction, ActionType, Effect, Fabric, FabricError, FunctionRuntime, Governance,
@@ -170,7 +171,12 @@ fn ac_mi_6_injection_blocked_before_any_tool_executes() {
     .unwrap();
     let l = GovernedLoop::new(gov, default_gate_resource())
         .with_human(Box::new(ApproveAll)) // even with a permissive human...
-        .with_catalog(ActionCatalog::new().with("triage", true))
+        .with_catalog(ActionCatalog::new().with_schema(
+            "triage",
+            true,
+            &["case_id"],
+            DEFAULT_MAX_VALUE_LEN,
+        ))
         .with_preauth(Preauth::new().allow("triage", "investigation")); // ...and pre-auth
                                                                         // ...the injection must be blocked before the model/tool is ever reached.
     let l = GovernedLoop::with_pipeline(l, pipeline);

@@ -14,6 +14,7 @@ export { DataProvider, useGateway, useAsync, useAuditStream } from './DataProvid
 export type { AsyncState } from './DataProvider';
 export { AuthGate, useSession } from './AuthGate';
 export type { AuthGateProps, SessionIdentity } from './AuthGate';
+export { DemonstrationBanner, DEMONSTRATION_NOTICE } from './DemonstrationBanner';
 export { AccountMenu } from './AccountMenu';
 export { ModeToggle } from './ModeToggle';
 export { useResolvedMode } from './useResolvedMode';

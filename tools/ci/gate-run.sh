@@ -41,12 +41,25 @@ while [ "$#" -gt 0 ]; do
 done
 [ "${#parts[@]}" -gt 0 ] || parts=(acceptance test)
 
-command -v docker >/dev/null 2>&1 || { echo "gate-run: docker is not available" >&2; exit 2; }
+# Inside the published toolchain image (GitLab's merge-request jobs, MIDGARD_IN_TOOLCHAIN=1)
+# `just test` runs in place with no Docker daemon and no network sandbox, and the
+# metadata says so: `network=offline`, which tools/ci/gate-record.sh refuses to record.
+# The acceptance suite starts its own containers, so it cannot run there at all.
+# [VLD-ANB-MIDGARD-0043]
+in_place=0
+[ "${MIDGARD_IN_TOOLCHAIN:-}" = 1 ] && in_place=1
+if [ "$in_place" = 1 ]; then
+    for part in "${parts[@]}"; do
+        [ "$part" != acceptance ] || { echo "gate-run: the acceptance suite starts its own containers; it cannot run inside the toolchain image" >&2; exit 2; }
+    done
+else
+    command -v docker >/dev/null 2>&1 || { echo "gate-run: docker is not available" >&2; exit 2; }
+fi
 # The toolchain container runs as root, so a build step before this one leaves target/
 # owned by root, where the runner's user cannot make a directory. Make it there, as root,
 # and hand it back. A run whose log cannot be kept is no use to anyone, so if the
 # directory is still not writable this stops before running anything.
-if ! mkdir -p "$out" 2>/dev/null || [ ! -w "$out" ]; then
+if { ! mkdir -p "$out" 2>/dev/null || [ ! -w "$out" ]; } && [ "$in_place" = 0 ]; then
     docker run --rm --network none -v "$PWD:/work" -w /work "$IMAGE" sh -c "mkdir -p '$out' && chown $(id -u):$(id -g) '$out'" >/dev/null 2>&1 || true
 fi
 [ -d "$out" ] && [ -w "$out" ] || { echo "gate-run: cannot write to $out; nothing was run" >&2; exit 2; }
@@ -69,7 +82,7 @@ dockerfile_sha="$(sha256_of "$DOCKERFILE")"
 
 run_part() {
     local part="$1" log="$out/$1.log" meta="$out/$1.meta"
-    local started finished t0 t1 rc image_id rustc cargo
+    local started finished t0 t1 rc image image_id rustc cargo network
     rm -f "$log" "$meta"
     started="$(now)"
     t0="$(date +%s)"
@@ -89,20 +102,30 @@ run_part() {
     esac
     t1="$(date +%s)"
     finished="$(now)"
-    image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
-    rustc="$(docker run --rm --network none "$IMAGE" rustc --version 2>/dev/null | tr -d '\r' || true)"
-    cargo="$(docker run --rm --network none "$IMAGE" cargo --version 2>/dev/null | tr -d '\r' || true)"
+    if [ "$in_place" = 1 ]; then
+        image="${CI_REGISTRY_IMAGE:+$CI_REGISTRY_IMAGE/}toolchain@${MIDGARD_TOOLCHAIN_DIGEST:-unknown}"
+        image_id="${MIDGARD_TOOLCHAIN_DIGEST:-}"
+        rustc="$(rustc --version 2>/dev/null | tr -d '\r' || true)"
+        cargo="$(cargo --version 2>/dev/null | tr -d '\r' || true)"
+        network=offline
+    else
+        image="$IMAGE"
+        image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
+        rustc="$(docker run --rm --network none "$IMAGE" rustc --version 2>/dev/null | tr -d '\r' || true)"
+        cargo="$(docker run --rm --network none "$IMAGE" cargo --version 2>/dev/null | tr -d '\r' || true)"
+        network=none
+    fi
     {
         echo "part=$part"
         echo "commit=$commit"
         echo "tree=$tree"
-        echo "image=$IMAGE"
+        echo "image=$image"
         echo "image_id=$image_id"
         echo "base_image=$base_image"
         echo "dockerfile_sha256=$dockerfile_sha"
         echo "rustc=$rustc"
         echo "cargo=$cargo"
-        echo "network=none"
+        echo "network=$network"
         echo "started=$started"
         echo "finished=$finished"
         echo "seconds=$((t1 - t0))"

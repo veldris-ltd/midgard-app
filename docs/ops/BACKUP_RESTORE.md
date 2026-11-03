@@ -13,6 +13,7 @@ tested procedure for all of them.
 |-------|-------|---------------|
 | Audit ledger | `crypto/audit-writer` (`FileLedger`) | the PQ-signed audit chain, and beside it `<ledger>.checkpoint`, the signed record of its length and last entry |
 | Object fabric | `services/fabric` | fabric objects/links |
+| Human-gate approvals | `services/http-gateway` (`approvals.journal`) | pending, approved, rejected and used approvals; without it a restored gateway forgets which gates were granted and which were used (VLD-ANB-MIDGARD-0039) |
 | Forge dataset store | `forge/dataset-store` | content-addressed datasets + lineage |
 | Bifrost registry / fleet | `bifrost/artefact`, `bifrost/fleet` | artefacts, fleet state |
 | Heimdall store | `heimdall/store` | picture + workflow state |
@@ -42,21 +43,43 @@ log, which is always valid and re-verifiable).
      chain re-verify) on the backup host; a copy that does not re-verify is discarded
      and re-taken. **A backup is not "done" until it has been verified.**
 3. Retain snapshots per policy (e.g. 7 daily + 4 weekly); older snapshots are pruned.
+   Pruning removes whole snapshots; it is not erasure. The journals are append-only,
+   so a record stays in every later snapshot, and nothing yet removes one subject's
+   records: see the retention schedule, [RETENTION.md](../compliance/RETENTION.md).
+   [VLD-ANB-MIDGARD-0070]
 
-**Do not** back up decrypted state, and **do not** copy the trust-root secret into the
-data backup — the root lives in the HSM/TPM and is recovered separately (see
-[DR_PLAN.md](DR_PLAN.md) step 4). The backup is useless to an attacker without it, which
-is the point.
+**Do not** back up decrypted state. In the software tier the custody root is inside
+each keystore file (`keys/*.keystore`, and each mesh service's identity directory),
+wrapped under that keystore's passphrase (keystore format version 2: PBKDF2-HMAC-SHA256,
+600,000 iterations, AES-256-GCM). **The passphrase is the recovery secret**: hold it in
+the secret store, separately from the data backup and from the keystores, and never
+copy it into the backup vault. The backup is useless to an attacker without it, which
+is the point; without it the stores cannot be unsealed either, so a lost passphrase is
+a lost enclosure. Custody today is this software keystore and nothing else: no HSM or
+TPM holds the root. Keystore version 2 can also seal the root to an external trust root
+(`RootWrap::External`, tested against the SoftHSM stand-in), which is the GA target but
+is not yet wired to a device; once it is, the root is recovered from the device instead
+(see [DR_PLAN.md](DR_PLAN.md) step 4). [VLD-ANB-MIDGARD-0007] [VLD-ANB-MIDGARD-0087]
 
 ## Restore procedure — uniform
 
-1. Recover the **trust root** first (HSM/TPM / escrow) and confirm its attestation.
+1. Recover the **trust root** first: the keystore passphrases from the secret store
+   (the software keystore, which is the only custody implemented), or, once a hardware
+   root is wired, the device with its attestation confirmed. Check each restored
+   keystore unlocks with `mg-admin keystore verify --keystore FILE`.
 2. Copy the chosen snapshot's journal file(s) into the replacement node's data
    directory for that store.
 3. **Boot the store** via its `open()` — this **replays** the journal into memory and
    **re-verifies** the signed chain. Fail-closed: a corrupt/tampered snapshot is
    rejected here; fall back to the previous snapshot.
 4. Confirm the recovered head/version matches the snapshot checkpoint.
+
+A ledger that ends in a partial frame, which a crash during an append leaves, opens:
+the partial frame is cut off and the repair is recorded in the ledger as `LEDGER
+repaired: torn tail`. That holds only when the complete frames are exactly the ones
+its `.checkpoint` vouches for, so the ledger and its `.checkpoint` must still be
+copied and restored together; a partial frame the checkpoint vouches for is refused
+as truncated. [VLD-ANB-MIDGARD-0040]
 
 Restoring an older snapshot of an audit ledger rolls it back, and a checkpoint kept on
 the same disk cannot tell a restore from an attack: record each restore as an incident.

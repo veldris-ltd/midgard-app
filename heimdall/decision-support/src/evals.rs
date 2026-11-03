@@ -13,7 +13,10 @@
 //!
 //! In both shapes the result is advisory and offers no way to act (`EV-A8-advisory`).
 //! The populated-path evals (cited/grounded/ranked/neutral) are vacuously true on the
-//! empty set, which `EV-A8-insuff` owns. [FR-H-4] [NFR-AI-1]
+//! empty set, which `EV-A8-insuff` owns. The adapter offers only grounded options
+//! and returns the rest as rejected, so the cited, grounded and insufficiency evals
+//! judge everything the model returned — offered and rejected — and still catch an
+//! uncited or invented option. [FR-H-4] [NFR-AI-1] [VLD-ANB-MIDGARD-0079]
 
 use crate::adapter::AdvisoryOptions;
 
@@ -59,17 +62,19 @@ impl EvalResult {
 /// an adapter that surfaces an option resting on nothing. Vacuously true on an empty
 /// set — the insufficiency path is owned by [`ev_a8_insuff`].
 pub fn ev_a8_cited(a: &AdvisoryOptions) -> EvalResult {
-    let ok = a.option_set.options.iter().all(|o| !o.citations.is_empty());
+    let ok = a.option_set.options.iter().all(|o| !o.citations.is_empty())
+        && a.rejected.iter().all(|r| !r.option.citations.is_empty());
     EvalResult::of("EV-A8-cited", ok, "every option cites specific evidence")
 }
 
 /// EV-A8-grounded — every citation resolves to a real entity/feed in the picture;
 /// no invented evidence. Catches a hallucinated `entity:`/`feed:` reference passing
-/// through as if grounded. Vacuously true on an empty set. (Contrast
-/// [`AdvisoryOptions::all_grounded`], the stricter "non-empty *and* all grounded"
-/// predicate the adapter asserts on populated results.)
+/// through as if grounded: any option the adapter had to reject fails it.
+/// Vacuously true on an empty set. (Contrast [`AdvisoryOptions::all_grounded`], the
+/// stricter "non-empty *and* all grounded" predicate the adapter asserts on
+/// populated results.)
 pub fn ev_a8_grounded(a: &AdvisoryOptions) -> EvalResult {
-    let ok = a.grounding.iter().all(|g| g.grounded);
+    let ok = a.rejected.is_empty();
     EvalResult::of(
         "EV-A8-grounded",
         ok,
@@ -93,7 +98,8 @@ pub fn ev_a8_ranked(a: &AdvisoryOptions) -> EvalResult {
 /// an empty option list with `unsupported` set when the picture cannot support a
 /// decision. [FR-H-4]
 pub fn ev_a8_insuff(a: &AdvisoryOptions) -> EvalResult {
-    let has_options = !a.option_set.options.is_empty();
+    // The model offered options if any came back, whether grounded or rejected.
+    let has_options = !a.option_set.options.is_empty() || !a.rejected.is_empty();
     let has_reason = a
         .option_set
         .unsupported

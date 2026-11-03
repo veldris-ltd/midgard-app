@@ -227,7 +227,8 @@ fn agents_check_in_over_pqmtls_and_staleness_is_detected() {
                     sfleet
                         .lock()
                         .unwrap()
-                        .check_in(report, sclock.load(Ordering::Relaxed));
+                        .check_in(report, sclock.load(Ordering::Relaxed))
+                        .expect("a check-in on a configured channel");
                     write_frame(&mut stream, &seal.seal(ACK_AAD, b"ACK").unwrap()).unwrap();
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {

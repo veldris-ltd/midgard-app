@@ -46,7 +46,7 @@ pub use record::{Record, RecordOpener, RecordSealer, RekeyLimits, Role};
 #[cfg(feature = "backend-fips")]
 pub use resumption::{
     issue_ticket, run_resume_initiator, run_resume_responder, ClientTicket, Resumed, TicketKey,
-    MODE_FULL, MODE_RESUME,
+    MODE_FULL, MODE_RESUME, NEW_TICKET_AAD,
 };
 pub use revocation::{
     decode_crl, encode_crl, reload_crl_file, spawn_crl_reloader, RevocationList, CRL_MAGIC,
@@ -55,5 +55,6 @@ pub use session::{Authorization, Session};
 pub use wire::{
     decode_anchor, decode_cert, decode_message, encode_anchor, encode_cert, encode_message,
     read_frame, read_frame_limited, read_handshake_frame, run_initiator, run_responder,
-    write_frame, TcpChannel, ANCHOR_MAGIC, CERT_MAGIC, MAX_HANDSHAKE_FRAME, MAX_RECORD_FRAME,
+    write_frame, TcpChannel, ANCHOR_MAGIC, CERT3_MAGIC, CERT_MAGIC, MAX_HANDSHAKE_FRAME,
+    MAX_RECORD_FRAME,
 };

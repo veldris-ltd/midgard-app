@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use policy::Purpose;
 use pq_mtls::{certify, CertTerms, IdentityCert, RevocationList, TrustAnchor, WorkloadIdentity};
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::{CryptoError, CryptoProvider, Rng, SigId, SigningKey, VerifyingKey};
+use pqc_agility::{CryptoError, CryptoProvider, OsRng, Rng, SigId, SigningKey, VerifyingKey};
 
 use crate::store::IdentityStore;
 use crate::token::{sign_token, TokenClaims, TokenError};
@@ -188,7 +188,8 @@ impl Idp {
     /// used by the authenticator and the federation bridge, which resolve the
     /// principal's attributes from the durable directory or an upstream IdP rather
     /// than the in-memory store. The subject must be authorised for the purpose
-    /// (deny-by-default). Keeps the existing ML-DSA token format. [RC-29]
+    /// (deny-by-default). Each token gets a fresh random id from the OS RNG, the key a
+    /// revocation is recorded under. [RC-29] [VLD-ANB-MIDGARD-0021]
     pub fn mint_token(
         &self,
         subject: &str,
@@ -200,6 +201,10 @@ impl Idp {
         if !user.purposes.contains(&purpose) {
             return Err(IssueError::PurposeNotAuthorised);
         }
+        // A fresh random id per token, so one session can be revoked on its own.
+        // [VLD-ANB-MIDGARD-0021]
+        let mut token_id = [0u8; 16];
+        OsRng.fill(&mut token_id);
         let claims = TokenClaims {
             issuer: self.issuer_id.clone(),
             subject: subject.to_string(),
@@ -209,6 +214,7 @@ impl Idp {
             purpose,
             issued_at: now,
             expires_at: now.saturating_add(ttl_secs),
+            token_id,
         };
         sign_token(&self.provider, IDP_SIG_ALG, &self.signing_key, &claims)
             .map_err(IssueError::Token)

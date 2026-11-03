@@ -8,10 +8,15 @@
 #   docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.yaml \
 #       run --rm probe --prompt "What is an audit ledger?" --max-tokens 64
 #
-# stage-model.sh fills the external volume `midgard-models`: the weights, the manifest
-# signed by a development model key, and that key's public half. mimir-server verifies
-# the model before it serves: the signature, the family, and the weights' size, format
-# and SHA-256. It exits if any fails. The llama.cpp server joins mimir-server's network
+# stage-model.sh fills the external volume `midgard-models`: the weights and their signed
+# manifest, nothing else. mimir-server verifies the model before it serves: the
+# signature, the family, and the weights' size, format and SHA-256. It exits if any
+# fails. The key it trusts is never in that volume: it is the pinned anchor
+# deploy/trust/model-signing.pub, which the image carries at /etc/midgard/trust and the
+# key ceremony publishes. Until the ceremony has, mimir-server does not start (fail
+# closed). For a development key (stage-model.sh --development), add
+# deploy/compose/compose.dev-model.yaml, which reads the key from a trust volume of its
+# own instead. [VLD-ANB-MIDGARD-0028] The llama.cpp server joins mimir-server's network
 # namespace and listens only on its loopback address, so nothing else on the mesh can
 # reach it, and it cannot reach anything but mimir-server.
 #
@@ -36,16 +41,31 @@ services:
       - 0.0.0.0:7720
       - --health-bind
       - 0.0.0.0:9090
+      # The Granite demo model is not accredited for marked data: every prompt marked
+      # above UNCLASSIFIED is refused by policy, and the refusal audited.
+      # [VLD-ANB-MIDGARD-0034]
+      - --model-marking
+      - UNCLASSIFIED
       - --engine
       - llama-cpp
       - --model-dir
       - /models/granite
       - --model-trust
-      - /models/trust/model-signing.pub
+      - /etc/midgard/trust/model-signing.pub
       - --serve-dir
       - /serve
       - --sidecar
       - 127.0.0.1:8080
+      # Twice llama.cpp's --parallel 2 slots below: a call over it is refused BUSY.
+      # [VLD-ANB-MIDGARD-0016]
+      - --max-concurrent
+      - "4"
+      # How often STOP and revoked.list in /state, the model trust file and the
+      # verified manifest are re-checked: `touch /state/STOP`, or the model id in
+      # /state/revoked.list, stops inference within it (docs/ops/RUNBOOKS.md RB-8).
+      # [VLD-ANB-MIDGARD-0057]
+      - --reload-interval
+      - "60"
     volumes:
       - mimir-models:/models:ro
       - mimir-serve:/serve
@@ -57,6 +77,10 @@ services:
       retries: 120
 
   mimir-llamacpp:
+    # Trust assumption: mimir-server sends each prompt to llama.cpp, and receives the
+    # completion, in clear over the loopback inside the shared network namespace. Any
+    # process in that namespace can read them, so nothing else may ever join it.
+    # Recorded in docs/compliance/RESIDUAL_RISK_REGISTER.md. [VLD-ANB-MIDGARD-0034]
     # The multi-arch index, pinned by digest: each host pulls its native build.
     image: ghcr.io/ggml-org/llama.cpp:server@sha256:bbf6fde2eedbe1b6c8ee9d93a54ea4606e90a4eda18681a7f8b4b6ed0cbc9f00
     network_mode: "service:mimir-server"
@@ -65,6 +89,14 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: ["/tmp"]
+    # The weights (about 1.5 GB) and two 4096-token contexts, on up to four cores.
+    # mg-install sizes these from the server. [VLD-ANB-MIDGARD-0029]
+    mem_limit: 6g
+    memswap_limit: 6g
+    cpus: 4.0
+    pids_limit: 256
+    ulimits:
+      nofile: { soft: 4096, hard: 4096 }
     # Wait for mimir-server to stage the verified weights, then run the image's own
     # server on the staged copy. [MG-SEC-14]
     entrypoint:

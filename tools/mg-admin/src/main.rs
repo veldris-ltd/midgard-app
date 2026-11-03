@@ -2,8 +2,9 @@
 //!
 //! It creates the directory and its custody keys, and enrols the principals who log in
 //! to the gateway. Everything it writes stays under `--state-dir`; it never reaches the
-//! network, and the only secret it prints is a TOTP enrolment URI the operator asked
-//! for. [RC-29] [NFR-SEC-2] [NFR-PRV-1]
+//! network, and the only secrets it prints are a TOTP enrolment URI the operator asked
+//! for and, under dual control, the activation code an approver hands to the new
+//! principal. [RC-29] [NFR-SEC-2] [NFR-PRV-1]
 //!
 //! Usage:
 //!   mg-admin init --state-dir <dir> [--checkpoint-mirror <dir>]
@@ -12,17 +13,33 @@
 //!   mg-admin user list --state-dir <dir>
 //!   mg-admin import --state-dir <dir> --file <objects.jsonl>
 //!   mg-admin admin add --state-dir <dir> --admin <name> --role <role> --keystore <path>
-//!   mg-admin enrol request|approve|list --gateway <url> --admin <name> --keystore <path> ..
+//!   mg-admin admin totp-reset --state-dir <dir> --admin <name>
+//!   mg-admin enrol request|approve|reject|list --gateway <url> --admin <name> --keystore <path>
+//!                [--totp <code>] ..
 //!   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir>
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!                       [--purposes <p,..>]
 //!   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>]
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!                       [--purposes <p,..>]
 //!   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
 //!   mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir>
 //!                         [--days <n>] [--clearance <band>] [--compartments <c,..>]
+//!                         [--purposes <p,..> | --no-purposes]
 //!   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
 //!   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file>
 //!                             --ledger-id <id> [--audit-pin <file>]
+//!   mg-admin keystore migrate --keystore <file> [--state-dir <dir>]
+//!   mg-admin keystore verify --keystore <file> [--state-dir <dir>]
+//!
+//! Every command opens keystores, and every keystore's custody root is wrapped under a
+//! passphrase read from `--keystore-passphrase-file <file>`, or from the file named by
+//! `MIDGARD_KEYSTORE_PASSPHRASE_FILE`; with neither, the command refuses. `mesh
+//! issue|renew|upgrade` take `--identity-passphrase-file` for the service's own
+//! keystores, and `admin add` and `enrol` take `--passkey-passphrase-file` for the
+//! administrator's passkey; each defaults to the keystore passphrase. Version 1
+//! keystores, which held the root in the clear, are refused until `keystore migrate`
+//! converts them. [VLD-ANB-MIDGARD-0007]
 //!
 //! The password for `user add` is read from standard input, and only from a pipe or a
 //! file: std has no portable way to stop a terminal echoing it, so an interactive
@@ -34,11 +51,15 @@ mod mesh;
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, IsTerminal};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use attest::Keystore;
+use attest::keystore::{
+    create_private_dir, format_version, migrate_v1, passphrase_file, write_restricted,
+    PASSPHRASE_ENV, PASSPHRASE_FLAG, VERSION as KEYSTORE_VERSION,
+};
+use attest::{Keystore, RootWrap};
 use audit_writer::{
     Action as AuditAction, Actor, AuditRecord, AuditWriter, CheckpointMirror, FileCheckpointMirror,
     FileLedger, LedgerId, RecordId, Resource as AuditResource, Timestamp,
@@ -58,8 +79,8 @@ use iam::{
 };
 use kms::{Kms, KmsSealer};
 use policy::{
-    Action, Clearance, Compartment, Effect, PolicyError, PolicySet, Purpose, Role, Rule, RuleId,
-    Selector,
+    Action, Clearance, Compartment, Effect, PolicyError, PolicySet, Purpose, ResourceId, Role,
+    Rule, RuleId, Selector,
 };
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
@@ -76,27 +97,41 @@ USAGE:
   mg-admin import --state-dir <dir> --file <objects.jsonl>
   mg-admin admin add --state-dir <dir> --admin <name> --role <role> --keystore <path> \\
                      [--scope <subsystem>] [--days <n>]
-  mg-admin enrol request --gateway <url> --admin <name> --keystore <path> \\
+  mg-admin admin totp-reset --state-dir <dir> --admin <name>
+  mg-admin enrol request --gateway <url> --admin <name> --keystore <path> [--totp <code>] \\
                          --subject <name> --roles <r,..> --clearance <band> \\
-                         --purposes <p,..> --justification <text> [--compartments <c,..>] [--totp]
-  mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> --id <enrolment>
-  mg-admin enrol list    --gateway <url> --admin <name> --keystore <path>
+                         --purposes <p,..> --justification <text> [--compartments <c,..>]
+  mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> [--totp <code>] \\
+                         --id <enrolment> --subject <name>
+  mg-admin enrol reject  --gateway <url> --admin <name> --keystore <path> [--totp <code>] \\
+                         --id <enrolment> --reason <text>
+  mg-admin enrol list    --gateway <url> --admin <name> --keystore <path> [--totp <code>]
   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
-                      [--days <n>] [--clearance <band>] [--compartments <c,..>]
+                      [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
+                      [--purposes <p,..>]
   mg-admin mesh renew --state-dir <dir> --service <name> --out <dir> [--within <days>] \\
-                      [--days <n>] [--clearance <band>] [--compartments <c,..>]
+                      [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
+                      [--purposes <p,..>]
   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
   mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
-                        [--days <n>] [--clearance <band>] [--compartments <c,..>]
+                        [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
+                        [--purposes <p,..> | --no-purposes]
   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file> \\
                             --ledger-id <id> [--audit-pin <file>]
+  mg-admin keystore migrate --keystore <file> [--state-dir <dir>]
+  mg-admin keystore verify --keystore <file> [--state-dir <dir>]
+
+  Every command also takes --keystore-passphrase-file <file> (default: the file named
+  by MIDGARD_KEYSTORE_PASSPHRASE_FILE; with neither it refuses). mesh issue, renew and
+  upgrade take --identity-passphrase-file for the service's keystores, and admin add and
+  enrol take --passkey-passphrase-file for the passkey; both default to it.
 
 COMMANDS:
   init       create <dir> with fresh issuer and audit keystores, their verifying keys
              under trust/, a starter policy.json (role operator may Read and Apply;
-             role approver may Read and Approve human gates) and an empty
-             ontology.json. Refuses a directory that already has anything
+             role approver may Read and Approve human gates; both may read
+             the audit view) and an empty ontology.json. Refuses a directory that already has anything
              in it. --checkpoint-mirror also writes the audit ledger's signed
              checkpoint to that directory, which must exist on another mount; serve
              the gateway with the same --checkpoint-mirror.
@@ -114,21 +149,37 @@ COMMANDS:
              sealed keystore at --keystore (theirs to keep, never in the state
              directory), and bind a standard role — IAM-Admin, Security-Officer,
              Model-Steward, Release-Manager or Auditor — in --scope (default iam) for
-             --days (default 365). Recorded in the audit ledger.
+             --days (default 365). Also enrols their TOTP second factor and prints its
+             otpauth:// URI once. Recorded in the audit ledger.
+  admin totp-reset
+             give an administrator who lost their authenticator a new TOTP secret,
+             printed once; the old one stops working. Recorded in the audit ledger.
   enrol      enrol a principal while the gateway runs, under dual control. `request`
-             hashes the password (read from a pipe) locally and asks the gateway at
-             --gateway, a loopback URL such as http://127.0.0.1:7710, to enrol them;
-             the request waits until a *different* IAM administrator runs `approve`.
-             `list` shows what is waiting. Each command signs a fresh challenge with
-             the administrator's passkey.
+             asks the gateway at --gateway, a loopback URL such as
+             http://127.0.0.1:7710, to enrol them with roles and purposes the served
+             policy names; no password or second factor is sent. The request waits
+             until a *different* IAM administrator runs `approve`, naming the
+             --subject they approve: the gateway then creates the credentials and
+             prints a single-use activation code, valid for 72 hours, for the approver
+             to hand to the principal out of band. The principal sends it to
+             POST /api/v1/activate with the password they choose, and receives their
+             TOTP second factor; until then they cannot log in. `reject` discards a
+             waiting request with a --reason. `list` shows each waiting request in
+             full. Each command signs a fresh challenge, issued to that
+             administrator alone, with the administrator's passkey and sends a
+             one-time code from their authenticator app, from --totp or typed when
+             asked; each code is accepted once.
   mesh issue give a service its mesh identity in --out: its own identity and audit-signing
              keystores (secrets, for that service alone), a certificate for --roles signed
              by the enclosure's issuer, mesh.anchor, the trust anchor every service
              verifies its peers against, and mesh.crl, the signed revocation list. The
              certificate is valid for --days (default 30) and grants --clearance (a band
-             as for user add, default open) with --compartments. Never overwrites an
-             existing service's identity.
-  mesh renew give a service a fresh key and certificate in --out, keeping its roles.
+             as for user add, default open) with --compartments. With --purposes it
+             also binds the purposes the service may open channels for, and a channel
+             declared for any other is refused; without, it binds none. Never
+             overwrites an existing service's identity.
+  mesh renew give a service a fresh key and certificate in --out, keeping its roles
+             and, unless --purposes is given, the purposes its certificate binds.
              With --within, does nothing until the certificate expires within that many
              days, so it can run from a timer. Restart the service afterwards.
   mesh revoke
@@ -140,7 +191,9 @@ COMMANDS:
              certificate for the key it already holds (with --roles, as at issue), and
              rewrite mesh.anchor and mesh.crl in the current formats. Both keystores are
              kept, so its audit ledger and sealed state still open. A current service is
-             left alone. Run it for every service directory after upgrading.
+             left alone. Without --clearance or --purposes it keeps the clearance and
+             purposes its certificate grants; --no-purposes drops the purposes. Run it
+             for every service directory after upgrading.
   audit checkpoint
              on upgrade: verify the governance and dual-control ledgers written before
              ledgers had checkpoints under the audit key pinned in --audit-pin, and
@@ -154,9 +207,21 @@ COMMANDS:
              write its checkpoint to the mirror directory, adopting a ledger without
              a checkpoint at the same time. Enables a mirror for an existing ledger,
              or re-seeds a lost one; a mirror ahead of the ledger is never moved back.
+  keystore migrate
+             convert a version 1 keystore, which held its custody root in the clear, to
+             version 2, the root wrapped under the keystore passphrase: the new file
+             must unseal the same signing key before it replaces the old one. The root
+             is kept, so destroy every other copy of the version 1 file (backups,
+             volumes, Secrets), and re-initialise instead where one may have leaked. A
+             version 2 file is checked and left alone. With --state-dir the migration
+             is recorded in that enclosure's audit ledger.
+  keystore verify
+             unlock a keystore with the passphrase and print its key id, algorithm and
+             format version. With --state-dir the check is recorded in the audit ledger.
 
-init, user, import and admin add need the state directory's lock, which a running
-gateway holds: stop it first. The enrol commands talk to the running gateway instead.
+init, user, import, admin add and admin totp-reset need the state directory's lock, which a
+running gateway holds: stop it first. The enrol commands talk to the running gateway
+instead.
 ";
 
 /// The shortest password `user add` accepts.
@@ -217,12 +282,16 @@ fn run(argv: &[String]) -> Result<String, Failure> {
             &["state-dir", "admin", "role", "scope", "days", "keystore"],
             &[],
         )?),
+        ["admin", "totp-reset", rest @ ..] => {
+            admin::admin_totp_reset(&options(rest, &["state-dir", "admin"], &[])?)
+        }
         ["enrol", "request", rest @ ..] => admin::enrol_request(&options(
             rest,
             &[
                 "gateway",
                 "admin",
                 "keystore",
+                "totp",
                 "subject",
                 "roles",
                 "clearance",
@@ -230,16 +299,23 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "purposes",
                 "justification",
             ],
-            &["totp"],
+            &[],
         )?),
         ["enrol", "approve", rest @ ..] => admin::enrol_approve(&options(
             rest,
-            &["gateway", "admin", "keystore", "id"],
+            &["gateway", "admin", "keystore", "totp", "id", "subject"],
             &[],
         )?),
-        ["enrol", "list", rest @ ..] => {
-            admin::enrol_list(&options(rest, &["gateway", "admin", "keystore"], &[])?)
-        }
+        ["enrol", "reject", rest @ ..] => admin::enrol_reject(&options(
+            rest,
+            &["gateway", "admin", "keystore", "totp", "id", "reason"],
+            &[],
+        )?),
+        ["enrol", "list", rest @ ..] => admin::enrol_list(&options(
+            rest,
+            &["gateway", "admin", "keystore", "totp"],
+            &[],
+        )?),
         ["mesh", "issue", rest @ ..] => mesh::mesh_issue(&options(
             rest,
             &[
@@ -250,6 +326,7 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "days",
                 "clearance",
                 "compartments",
+                "purposes",
             ],
             &[],
         )?),
@@ -263,6 +340,7 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "days",
                 "clearance",
                 "compartments",
+                "purposes",
             ],
             &[],
         )?),
@@ -276,8 +354,9 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "days",
                 "clearance",
                 "compartments",
+                "purposes",
             ],
-            &[],
+            &["no-purposes"],
         )?),
         ["mesh", "revoke", rest @ ..] => {
             mesh::mesh_revoke(&options(rest, &["state-dir", "cert", "out"], &[])?)
@@ -295,6 +374,12 @@ fn run(argv: &[String]) -> Result<String, Failure> {
             ],
             &[],
         )?),
+        ["keystore", "migrate", rest @ ..] => {
+            keystore_migrate(&options(rest, &["keystore", "state-dir"], &[])?)
+        }
+        ["keystore", "verify", rest @ ..] => {
+            keystore_verify(&options(rest, &["keystore", "state-dir"], &[])?)
+        }
         [] => Err(Failure::Usage("no command given".into())),
         _ => Err(Failure::Usage(format!(
             "unknown command '{}'",
@@ -331,10 +416,14 @@ fn init(o: &Options) -> Result<String, Failure> {
             )));
         }
     }
-    for dir in [state.root().to_path_buf(), state.keys(), state.trust()] {
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    for dir in [state.root().to_path_buf(), state.trust()] {
         std::fs::create_dir_all(&dir)
             .map_err(|e| Failure::Run(format!("cannot create {}: {e}", dir.display())))?;
     }
+    // The keys directory is owner-only from the moment it exists. [VLD-ANB-MIDGARD-0007]
+    create_private_dir(&state.keys()).map_err(|e| Failure::Run(e.to_string()))?;
 
     let mut rng = OsRng;
     let idp = Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut rng)
@@ -346,7 +435,7 @@ fn init(o: &Options) -> Result<String, Failure> {
         (&audit, state.audit_keystore()),
     ] {
         keystore
-            .write(&path)
+            .write(&path, &wrap, &mut rng)
             .map_err(|e| Failure::Run(format!("cannot write {}: {e}", path.display())))?;
     }
     write_file(&state.idp_trust_anchor(), &idp.export_verifying_key())?;
@@ -354,7 +443,7 @@ fn init(o: &Options) -> Result<String, Failure> {
     // The governance ledger exists from the start, vouched for by a signed empty
     // checkpoint, so the gateway can refuse one that later goes missing; with a
     // mirror, a copy of it is kept off the server too. [MG-SEC-05]
-    init_audit_ledger_mirrored(&state, o.get("checkpoint-mirror").map(Path::new))
+    init_audit_ledger_mirrored(&state, o.get("checkpoint-mirror").map(Path::new), &wrap)
         .map_err(Failure::Run)?;
 
     let policy = starter_policy()
@@ -366,7 +455,9 @@ fn init(o: &Options) -> Result<String, Failure> {
 
     Ok(format!(
         "initialised {root}\n\
-         \x20 keys/        issuer and audit keystores — protect this directory as a secret\n\
+         \x20 keys/        issuer and audit keystores, roots wrapped under the keystore\n\
+         \x20              passphrase; keep the passphrase apart from this directory\n\
+         \x20              and its backups: it is the recovery secret\n\
          \x20 trust/       their verifying keys, safe to distribute; keep a copy of\n\
          \x20              trust/audit.pub outside {root} for http-gateway --audit-pin\n\
          \x20 governance.ledger  the audit ledger, vouched for by a signed checkpoint\n\
@@ -387,14 +478,17 @@ fn audit_checkpoint(o: &Options) -> Result<String, Failure> {
     }
     let state = StateDir::new(o.require("state-dir")?);
     let pin = read_audit_pin(Path::new(o.require("audit-pin")?)).map_err(Failure::Run)?;
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
     let _lock = StateLock::acquire(&state, "mg-admin audit checkpoint").map_err(Failure::Run)?;
     if let Some(mirror) = o.get("checkpoint-mirror") {
-        let entries = mirror_audit_ledger(&state, &pin, Path::new(mirror)).map_err(Failure::Run)?;
+        let entries =
+            mirror_audit_ledger(&state, &pin, Path::new(mirror), &wrap).map_err(Failure::Run)?;
         return Ok(format!(
             "the audit ledger verifies under the pinned key; its checkpoint, mirrored to              {mirror}, vouches for {entries} entries"
         ));
     }
-    let done = checkpoint_legacy_ledger(&state, &pin).map_err(Failure::Run)?;
+    let done = checkpoint_legacy_ledger(&state, &pin, &wrap).map_err(Failure::Run)?;
     Ok(done
         .iter()
         .map(|(name, adoption)| adoption_line(name, adoption))
@@ -425,10 +519,136 @@ fn service_ledger_checkpoint(o: &Options) -> Result<String, Failure> {
         .map(|p| read_audit_pin(Path::new(p)))
         .transpose()
         .map_err(Failure::Run)?;
-    let adoption =
-        checkpoint_service_ledger(identity_dir, service, ledger, ledger_id, pin.as_ref())
-            .map_err(Failure::Run)?;
+    let passphrase = passphrase(o)?;
+    let adoption = checkpoint_service_ledger(
+        identity_dir,
+        service,
+        ledger,
+        ledger_id,
+        pin.as_ref(),
+        &RootWrap::Passphrase(&passphrase),
+    )
+    .map_err(Failure::Run)?;
     Ok(adoption_line(&format!("{service} ledger"), &adoption))
+}
+
+/// `keystore migrate --keystore FILE`: convert a version 1 keystore (root in the
+/// clear) to version 2 under the keystore passphrase. The new file is written beside
+/// the old one as `FILE.v2`, owner-only, read back from disk with the passphrase and
+/// checked to unseal the same signing key, then renamed over `FILE`. A version 2 file
+/// is only checked, so the command is safe to repeat. [VLD-ANB-MIDGARD-0007]
+fn keystore_migrate(o: &Options) -> Result<String, Failure> {
+    let path = PathBuf::from(o.require("keystore")?);
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let bytes = std::fs::read(&path)
+        .map_err(|e| Failure::Run(format!("cannot read {}: {e}", path.display())))?;
+    match format_version(&bytes) {
+        Some(KEYSTORE_VERSION) => {
+            let keystore = Keystore::decode(&bytes, &wrap)
+                .map_err(|e| Failure::Run(format!("{}: {e}", path.display())))?;
+            return Ok(format!(
+                "{} ({}) is already keystore version {KEYSTORE_VERSION} and unlocks; nothing \
+                 changed",
+                path.display(),
+                keystore.key_id
+            ));
+        }
+        Some(1) => {}
+        _ => {
+            return Err(Failure::Run(format!(
+                "{} is not a keystore this tool can migrate",
+                path.display()
+            )))
+        }
+    }
+    use kms::SigningRoot as _;
+    // The original signing key, unsealed under the root the version 1 file holds.
+    let migrated = migrate_v1(&bytes, &wrap, &mut OsRng)
+        .map_err(|e| Failure::Run(format!("cannot migrate {}: {e}", path.display())))?;
+    let expected = Keystore::decode(&migrated, &wrap)
+        .and_then(|k| k.signing_root())
+        .map_err(|e| Failure::Run(format!("cannot migrate {}: {e}", path.display())))?;
+
+    let mut staged = path.as_os_str().to_os_string();
+    staged.push(".v2");
+    let staged = PathBuf::from(staged);
+    write_restricted(&staged, &migrated).map_err(|e| Failure::Run(e.to_string()))?;
+    // Prove the file on disk, not just the bytes in memory, before it takes the name.
+    let reread = Keystore::read(&staged, &wrap).and_then(|k| {
+        let root = k.signing_root()?;
+        Ok((k, root))
+    });
+    let keystore = match reread {
+        Ok((keystore, root))
+            if keystore.verifying_key == *expected.verifying_key()
+                && root.expose_signing_key().expose() == expected.expose_signing_key().expose() =>
+        {
+            keystore
+        }
+        _ => {
+            let _ = std::fs::remove_file(&staged);
+            return Err(Failure::Run(format!(
+                "{} does not read back to the original signing key; {} is unchanged",
+                staged.display(),
+                path.display()
+            )));
+        }
+    };
+    if let Some(state) = o.get("state-dir") {
+        let state = StateDir::new(state);
+        let recorded = StateLock::acquire(&state, "mg-admin keystore migrate")
+            .map_err(Failure::Run)
+            .and_then(|_lock| {
+                record_admin_event(
+                    &state,
+                    &wrap,
+                    "MIGRATE keystore",
+                    &format!("keystore:{}:v1-to-v{KEYSTORE_VERSION}", keystore.key_id),
+                )
+            });
+        if let Err(e) = recorded {
+            let _ = std::fs::remove_file(&staged);
+            return Err(e);
+        }
+    }
+    std::fs::rename(&staged, &path)
+        .map_err(|e| Failure::Run(format!("cannot replace {}: {e}", path.display())))?;
+    Ok(format!(
+        "migrated {} ({}, {}) to keystore version {KEYSTORE_VERSION}; destroy every other \
+         copy of the version 1 file (backups, volumes, Secrets): it holds the root in clear",
+        path.display(),
+        keystore.key_id,
+        keystore.alg.as_str()
+    ))
+}
+
+/// `keystore verify --keystore FILE`: unlock it with the passphrase, unseal its
+/// signing key, and say what it holds. [VLD-ANB-MIDGARD-0007]
+fn keystore_verify(o: &Options) -> Result<String, Failure> {
+    let path = PathBuf::from(o.require("keystore")?);
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let keystore = Keystore::read(&path, &wrap).map_err(|e| Failure::Run(e.to_string()))?;
+    keystore
+        .signing_root()
+        .map_err(|e| Failure::Run(format!("{}: {e}", path.display())))?;
+    if let Some(state) = o.get("state-dir") {
+        let state = StateDir::new(state);
+        let _lock = StateLock::acquire(&state, "mg-admin keystore verify").map_err(Failure::Run)?;
+        record_admin_event(
+            &state,
+            &wrap,
+            "VERIFY keystore",
+            &format!("keystore:{}", keystore.key_id),
+        )?;
+    }
+    Ok(format!(
+        "{}\n  key id: {}\n  algorithm: {}\n  format version: {KEYSTORE_VERSION}\n  unlocks: yes",
+        path.display(),
+        keystore.key_id,
+        keystore.alg.as_str()
+    ))
 }
 
 fn adoption_line(name: &str, adoption: &Adoption) -> String {
@@ -475,9 +695,11 @@ fn user_add(o: &Options) -> Result<String, Failure> {
         .map(Compartment)
         .collect();
     let password = read_password()?;
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
 
     let _lock = StateLock::acquire(&state, "mg-admin user add").map_err(Failure::Run)?;
-    let mut directory = open_directory(&state)?;
+    let mut directory = open_directory(&state, &wrap)?;
     if directory.get(subject).is_some() {
         return Err(Failure::Run(format!(
             "'{subject}' is already enrolled; enrolment never replaces a principal"
@@ -494,7 +716,12 @@ fn user_add(o: &Options) -> Result<String, Failure> {
         .map(|secret| secret.provisioning_uri(TOTP_ISSUER, subject));
 
     // Audit first: an enrolment the ledger cannot record does not happen.
-    record_admin_event(&state, "ENROLL principal", &format!("principal:{subject}"))?;
+    record_admin_event(
+        &state,
+        &wrap,
+        "ENROLL principal",
+        &format!("principal:{subject}"),
+    )?;
     directory
         .enroll(
             subject,
@@ -529,8 +756,9 @@ fn user_add(o: &Options) -> Result<String, Failure> {
 
 fn user_list(o: &Options) -> Result<String, Failure> {
     let state = StateDir::new(o.require("state-dir")?);
+    let passphrase = passphrase(o)?;
     let _lock = StateLock::acquire(&state, "mg-admin user list").map_err(Failure::Run)?;
-    let directory = open_directory(&state)?;
+    let directory = open_directory(&state, &RootWrap::Passphrase(&passphrase))?;
 
     let mut message = format!("{} principal(s)", directory.len());
     for subject in directory.subjects() {
@@ -582,7 +810,9 @@ fn import_data(o: &Options) -> Result<String, Failure> {
         return Err(Failure::Run(format!("{file} holds no objects or links")));
     }
 
-    let keystore = Keystore::read(&state.audit_keystore())
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let keystore = Keystore::read(&state.audit_keystore(), &wrap)
         .map_err(|e| Failure::Run(format!("cannot open the audit keystore: {e}")))?;
     let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
     let mut store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID)
@@ -595,6 +825,7 @@ fn import_data(o: &Options) -> Result<String, Failure> {
     let (objects, links) = (import.objects.len(), import.links.len());
     record_admin_event(
         &state,
+        &wrap,
         "IMPORT data",
         &format!("import:{objects}-objects:{links}-links"),
     )?;
@@ -619,8 +850,11 @@ fn import_data(o: &Options) -> Result<String, Failure> {
 // ---- helpers -----------------------------------------------------------------------
 
 /// The starter rules `init` writes: role `operator` may Read and Apply, and role
-/// `approver` may Read and Approve the human gates a gated action needs. Mandatory
-/// access control and the purpose gate still apply before any of them.
+/// `approver` may Read and Approve the human gates a gated action needs. Both may read
+/// the audit ledger view (`ReadAudit` on `audit-ledger`), and the operator also sees
+/// other principals' login rows in it (`audit-ledger:sessions`). Mandatory access
+/// control and the purpose gate still apply before any of them.
+/// [VLD-ANB-MIDGARD-0031]
 fn starter_policy() -> Result<PolicySet, PolicyError> {
     let rule = |id: &str, role: &str, action: &str| Rule {
         id: RuleId(id.into()),
@@ -630,17 +864,28 @@ fn starter_policy() -> Result<PolicySet, PolicyError> {
         selector: Selector::Any,
         effect: Effect::Permit,
     };
+    let audit = |id: &str, role: &str, resource: &str| Rule {
+        selector: Selector::Resource(ResourceId(resource.into())),
+        ..rule(id, role, "ReadAudit")
+    };
     PolicySet::new(vec![
         rule("operator-read", "operator", "Read"),
         rule("operator-apply", "operator", "Apply"),
         rule("approver-read", "approver", "Read"),
         rule("approver-approve", "approver", "Approve"),
+        audit("operator-audit", "operator", "audit-ledger"),
+        audit(
+            "operator-audit-sessions",
+            "operator",
+            "audit-ledger:sessions",
+        ),
+        audit("approver-audit", "approver", "audit-ledger"),
     ])
 }
 
 /// The identity directory, sealed under the issuer keystore's custody root.
-fn open_directory(state: &StateDir) -> Result<DurableDirectory, Failure> {
-    let keystore = Keystore::read(&state.idp_keystore()).map_err(|e| {
+fn open_directory(state: &StateDir, wrap: &RootWrap) -> Result<DurableDirectory, Failure> {
+    let keystore = Keystore::read(&state.idp_keystore(), wrap).map_err(|e| {
         Failure::Run(format!(
             "cannot open the issuer keystore (has `mg-admin init` been run?): {e}"
         ))
@@ -654,8 +899,13 @@ fn open_directory(state: &StateDir) -> Result<DurableDirectory, Failure> {
 /// ledger: the same PQ-signed chain the gateway writes every access decision to, under
 /// the same key and ledger id, so it appears in the audit view beside them.
 /// [AC-M-4] [RC-29]
-fn record_admin_event(state: &StateDir, action: &str, resource: &str) -> Result<u64, Failure> {
-    let keystore = Keystore::read(&state.audit_keystore())
+fn record_admin_event(
+    state: &StateDir,
+    wrap: &RootWrap,
+    action: &str,
+    resource: &str,
+) -> Result<u64, Failure> {
+    let keystore = Keystore::read(&state.audit_keystore(), wrap)
         .map_err(|e| Failure::Run(format!("cannot open the audit keystore: {e}")))?;
     let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
     let verifying_key = keystore.verifying_key.clone();
@@ -683,17 +933,44 @@ fn record_admin_event(state: &StateDir, action: &str, resource: &str) -> Result<
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    // A partial final frame a crash left was cut off when the ledger opened: record
+    // the repair first. [VLD-ANB-MIDGARD-0040]
+    writer
+        .record_recovery(&now.to_string())
+        .map_err(|e| Failure::Run(format!("cannot record the audit ledger repair: {e}")))?;
     // Shaped like the governance spine's own records, so the audit view reads it the
     // same way.
+    let id = RecordId(format!("AUD-{}", writer.entries().len()));
     writer
         .append(AuditRecord {
-            id: RecordId(format!("{action}:{resource}:{now}")),
+            id,
             actor: Actor("mg-admin".into()),
             action: AuditAction(action.into()),
             resource: AuditResource(resource.into()),
             ts: Timestamp(now.to_string()),
+            context: Default::default(),
         })
         .map_err(|e| Failure::Run(format!("cannot record {action} in the audit ledger: {e}")))
+}
+
+/// The keystore passphrase: from `--keystore-passphrase-file`, else the file
+/// `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names; with neither, a usage error naming both.
+/// [VLD-ANB-MIDGARD-0007]
+pub(crate) fn passphrase(o: &Options) -> Result<SecretBytes, Failure> {
+    let path = passphrase_file(o.get(PASSPHRASE_FLAG), std::env::var(PASSPHRASE_ENV).ok())
+        .map_err(Failure::Usage)?;
+    RootWrap::passphrase_from_file(&path).map_err(|e| Failure::Run(e.to_string()))
+}
+
+/// A passphrase with its own option (`--identity-passphrase-file`,
+/// `--passkey-passphrase-file`), falling back to [`passphrase`].
+pub(crate) fn passphrase_or_default(o: &Options, option: &str) -> Result<SecretBytes, Failure> {
+    match o.get(option) {
+        Some(path) => {
+            RootWrap::passphrase_from_file(Path::new(path)).map_err(|e| Failure::Run(e.to_string()))
+        }
+        None => passphrase(o),
+    }
 }
 
 /// One password line from standard input, refused from an echoing terminal.
@@ -736,6 +1013,13 @@ fn list(value: &str) -> Vec<String> {
 }
 
 // ---- argument parsing ----------------------------------------------------------------
+
+/// Passphrase options every command accepts. [VLD-ANB-MIDGARD-0007]
+const PASSPHRASE_OPTIONS: [&str; 3] = [
+    PASSPHRASE_FLAG,
+    "identity-passphrase-file",
+    "passkey-passphrase-file",
+];
 
 /// Parsed `--key value` options and bare `--flag`s.
 struct Options {
@@ -781,7 +1065,7 @@ fn options(argv: &[&str], valued: &[&str], flags: &[&str]) -> Result<Options, Fa
             i += 1;
             continue;
         }
-        if !valued.contains(&key) {
+        if !valued.contains(&key) && !PASSPHRASE_OPTIONS.contains(&key) {
             return Err(Failure::Usage(format!("unknown option '--{key}'")));
         }
         let value = argv

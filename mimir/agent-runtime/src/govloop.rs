@@ -3,7 +3,8 @@
 //!
 //! ```text
 //! ground → assemble(8-layer, INV-7 input) → model.decide
-//!        → INV-7 output guardrail → INV-4 evals precheck
+//!        → INV-7 output guardrail (answer and actions) → INV-4 evals precheck
+//!        → catalogue inspection of every proposed action
 //!        → for each proposed action:
 //!             INV-2 scoped · INV-5 reversible · INV-3 pre-act gate
 //!             (human auth unless pre-authorised evaluated scope)
@@ -19,14 +20,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use governance::Governance;
-use mimir_prompts::{A1_DEFAULT_OUTPUT_CONTRACT, A1_MIMIR_CORE_AGENT};
+use mimir_prompts::{delimit, A1_DEFAULT_OUTPUT_CONTRACT, A1_MIMIR_CORE_AGENT};
 use oag_retriever::{formulate_plan, ground, Grounding, GroundingSource, PolicyContext};
 use policy::{ClassificationLevel, Marking, Resource, ResourceId};
 
 use crate::agent::{AgentModel, AgentOutput, ModelInput, ProposedAction, ReferenceAgent};
 use crate::assembly::{AssemblyConfig, AssemblyError, Layers, Pipeline};
+use crate::defend::SelfDefending;
 use crate::evals::{EvalHarness, EvalResult, StarterEvals};
-use crate::guardrail::{AllowAll, GuardVerdict, InputGuardrail};
+use crate::guardrail::{GuardVerdict, InputGuardrail};
 use crate::heal::{FailureContext, FailureKind, RecoveryAction, RecoverySupervisor};
 use crate::respond::render_policy;
 
@@ -121,16 +123,25 @@ impl HumanGate for DenyAll {
     }
 }
 
+/// The default bound on one parameter value, in bytes.
+pub const DEFAULT_MAX_VALUE_LEN: usize = 4096;
+
 /// Per-action metadata the platform declares (not the model — the model cannot be
-/// trusted to self-report reversibility).
-#[derive(Debug, Clone, Copy)]
+/// trusted to self-report reversibility or choose its own parameters).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionMeta {
     /// Whether the action is reversible (INV-5).
     pub reversible: bool,
+    /// The parameter keys a proposal may carry. Empty means no parameters are
+    /// permitted. [VLD-ANB-MIDGARD-0077]
+    pub params: BTreeSet<String>,
+    /// The longest parameter value accepted, in bytes.
+    pub max_value_len: usize,
 }
 
-/// The catalogue of action metadata. Unknown actions are treated as
-/// **irreversible** (fail closed → always human-gated).
+/// The catalogue of action metadata. An unknown action is **not executable**:
+/// [`ActionCatalog::validate`] refuses it before the gate (fail closed), and
+/// [`ActionCatalog::reversible`] reports it irreversible. [VLD-ANB-MIDGARD-0077]
 #[derive(Debug, Default, Clone)]
 pub struct ActionCatalog(BTreeMap<String, ActionMeta>);
 
@@ -139,10 +150,27 @@ impl ActionCatalog {
     pub fn new() -> Self {
         Self::default()
     }
-    /// Declare an action's reversibility.
-    pub fn with(mut self, action_type: &str, reversible: bool) -> Self {
-        self.0
-            .insert(action_type.to_string(), ActionMeta { reversible });
+    /// Declare an action's reversibility, permitting no parameters.
+    pub fn with(self, action_type: &str, reversible: bool) -> Self {
+        self.with_schema(action_type, reversible, &[], DEFAULT_MAX_VALUE_LEN)
+    }
+    /// Declare an action's reversibility, the parameter keys a proposal may carry
+    /// and the longest value accepted (bytes). [VLD-ANB-MIDGARD-0077]
+    pub fn with_schema(
+        mut self,
+        action_type: &str,
+        reversible: bool,
+        params: &[&str],
+        max_value_len: usize,
+    ) -> Self {
+        self.0.insert(
+            action_type.to_string(),
+            ActionMeta {
+                reversible,
+                params: params.iter().map(|p| p.to_string()).collect(),
+                max_value_len,
+            },
+        );
         self
     }
     /// Whether an action is reversible (default false).
@@ -151,6 +179,39 @@ impl ActionCatalog {
             .get(action_type)
             .map(|m| m.reversible)
             .unwrap_or(false)
+    }
+    /// Inspect a proposed action against the catalogue before it reaches the gate:
+    /// the action type must be declared, every parameter key must be one the
+    /// action declares, every value must be within its bound, and no key or value
+    /// may carry a control or zero-width character (it must be unchanged by
+    /// [`mimir_prompts::delimit::clean`]). The fabric still parses the parameters
+    /// against the action schema at execution; this is the earlier, cheaper check.
+    /// The reason never echoes a model-supplied value. [VLD-ANB-MIDGARD-0077]
+    pub fn validate(&self, pa: &ProposedAction) -> Result<(), String> {
+        let Some(meta) = self.0.get(&pa.action_type) else {
+            return Err("action type is not in the catalogue".to_string());
+        };
+        for (key, value) in &pa.params {
+            if delimit::clean(key) != *key || delimit::clean(value) != *value {
+                return Err(format!(
+                    "{}: a parameter contains control characters",
+                    pa.action_type
+                ));
+            }
+            if !meta.params.contains(key) {
+                return Err(format!(
+                    "{}: a parameter key is not in the action's schema",
+                    pa.action_type
+                ));
+            }
+            if value.len() > meta.max_value_len {
+                return Err(format!(
+                    "{}: parameter '{key}' exceeds {} bytes",
+                    pa.action_type, meta.max_value_len
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -255,6 +316,10 @@ pub enum HaltReason {
     EvalFailed(String),
     /// The step budget was exhausted (halt to human).
     StepBudgetExhausted,
+    /// A proposed action failed catalogue inspection (unknown type, a parameter
+    /// key outside its schema, an oversized or control-bearing value) before the
+    /// gate. [VLD-ANB-MIDGARD-0077]
+    ActionRejected(String),
 }
 
 /// The result of one governed turn.
@@ -318,16 +383,18 @@ pub struct GovernedLoop {
 impl GovernedLoop {
     /// Build a loop over an audit spine, with fail-closed defaults: the reference
     /// agent, the starter evals, a **deny-all** human gate, no pre-authorisations,
-    /// and an empty (⇒ irreversible) action catalogue.
+    /// an empty action catalogue (⇒ no action is executable), and the A.3
+    /// [`SelfDefending`] pre-filter as both the input (layer-8) and the output
+    /// guardrail. [VLD-ANB-MIDGARD-0077]
     pub fn new(governance: Governance, gate_resource: Resource) -> Self {
         Self {
             model: Box::new(ReferenceAgent),
-            pipeline: Pipeline::new(),
+            pipeline: Pipeline::new().with_guardrail(Box::new(SelfDefending::new())),
             evals: Box::new(StarterEvals),
             human: Box::new(DenyAll),
             catalog: ActionCatalog::new(),
             preauth: Preauth::new(),
-            output_guardrail: Box::new(AllowAll),
+            output_guardrail: Box::new(SelfDefending::new()),
             supervisor: None,
             heal_budget: 3,
             governance: Mutex::new(governance),
@@ -351,13 +418,13 @@ impl GovernedLoop {
         self.evals = evals;
         self
     }
-    /// Set the assembly pipeline (e.g. with the A.3 self-defending guardrail at
-    /// layer 8).
+    /// Set the assembly pipeline. The default screens untrusted items with the A.3
+    /// self-defending pre-filter at layer 8; a replacement brings its own.
     pub fn with_pipeline(mut self, pipeline: Pipeline) -> Self {
         self.pipeline = pipeline;
         self
     }
-    /// Set the action catalogue (reversibility).
+    /// Set the action catalogue (reversibility, parameter schema).
     pub fn with_catalog(mut self, catalog: ActionCatalog) -> Self {
         self.catalog = catalog;
         self
@@ -367,7 +434,8 @@ impl GovernedLoop {
         self.preauth = preauth;
         self
     }
-    /// Set the output guardrail.
+    /// Set the output guardrail (default: the A.3 self-defending pre-filter). It
+    /// inspects the whole contract output, proposed actions included.
     pub fn with_output_guardrail(mut self, g: Box<dyn InputGuardrail>) -> Self {
         self.output_guardrail = g;
         self
@@ -396,6 +464,18 @@ impl GovernedLoop {
             .expect("gov poisoned")
             .audit_entries()
             .len()
+    }
+
+    /// The action names of the agent-ledger audit entries written so far, oldest
+    /// first (gate decisions, halts), so a caller can confirm what was recorded.
+    pub fn audit_actions(&self) -> Vec<String> {
+        self.governance
+            .lock()
+            .expect("gov poisoned")
+            .audit_entries()
+            .iter()
+            .map(|e| e.record.action.0.clone())
+            .collect()
     }
 
     fn audit(&self, ctx: &PolicyContext, action: &str, now: u64) -> u64 {
@@ -576,13 +656,17 @@ impl GovernedLoop {
         };
         let output = self.model.decide(&input);
 
-        // 4. INV-7 output guardrail.
-        let out_text = format!(
-            "{}\n{}",
-            output.answer.clone().unwrap_or_default(),
-            output.inferences.join("\n")
-        );
-        if let GuardVerdict::Block { reason } = self.output_guardrail.inspect(&out_text) {
+        // 4. INV-7 output guardrail, over the whole contract output: the answer and
+        // inferences, and every proposed action's type, parameters, rationale and
+        // citations, since an action becomes a side effect. A sanitise verdict is a
+        // block: output cannot be rewritten, and a rewritten action is not
+        // something the loop should execute. [VLD-ANB-MIDGARD-0077]
+        let blocked = match self.output_guardrail.inspect(&output.to_contract_json()) {
+            GuardVerdict::Allow => None,
+            GuardVerdict::Block { reason } => Some(reason),
+            GuardVerdict::Sanitise { .. } => Some("output cannot be rewritten".to_string()),
+        };
+        if let Some(reason) = blocked {
             audit.push(self.audit(ctx, "HALT:output-guardrail", now));
             return LoopOutcome {
                 output,
@@ -633,6 +717,31 @@ impl GovernedLoop {
                 healing,
                 agent_audit_seqs: audit,
             };
+        }
+
+        // Every proposed action is inspected against the platform's catalogue
+        // before any reaches the gate; one failure halts the turn with nothing
+        // gated or executed. The audit tag names the type only if the catalogue
+        // declares it, so no model-chosen text reaches the ledger.
+        // [VLD-ANB-MIDGARD-0077]
+        for pa in &output.proposed_actions {
+            if let Err(reason) = self.catalog.validate(pa) {
+                let declared = self.catalog.0.contains_key(&pa.action_type);
+                let tag = if declared {
+                    pa.action_type.as_str()
+                } else {
+                    "unknown"
+                };
+                audit.push(self.audit(ctx, &format!("HALT:action-rejected:{tag}"), now));
+                return LoopOutcome {
+                    output,
+                    actions: Vec::new(),
+                    evals,
+                    halted: Some(HaltReason::ActionRejected(reason)),
+                    healing,
+                    agent_audit_seqs: audit,
+                };
+            }
         }
 
         // 6. Gate + execute each proposed action.

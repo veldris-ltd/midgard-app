@@ -8868,7 +8868,7 @@ Source files, tests, operations documents and the compliance records cite task i
 | RT-05 | CI reproducibility check is a no-op | Carried | RF-SC-3 | `mg-repro workspace` now builds twice and compares; the CI criteria are open |
 | RT-06 | Release scan, provenance and bundle stages are `echo TODO` | Carried | RF-SC-4, RF-SC-6, RF-CMP-2 | Scan depth, enforced tag lint, SLSA distribution |
 | RT-07 | Release matrix covers only the four tools | Carried | RF-SC-5 | Coverage check exists (RC-07); gate criteria for every artefact are open |
-| RT-08 | No "real backend required" compile guard | Carried | RF-RT-5, RF-RT-7, RF-SEC-3 | Guards exist; the `just check-backends` gate a doc comment relies on does not |
+| RT-08 | No "real backend required" compile guard | Closed | RF-RT-5, RF-RT-7, RF-SEC-3 | Nothing: the release guard is keyed on the `midgard_release` cfg, and `just check-backends` runs as a CI job on both pipelines (VLD-ANB-MIDGARD-0067) |
 | RT-09 | Durable audit ledger | Carried | RF-PER-2 | Named tests for the remaining ledger criteria |
 | RT-10 | Durable, sealed object store | Carried | RF-PER-1, RF-PER-3 | Storage-substrate decision; indexes and query performance |
 | RT-11 | Durable dataset and version store | Carried | RF-PER-4, RF-F-5 | Versioning at scale |

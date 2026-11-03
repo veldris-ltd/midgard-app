@@ -8,13 +8,17 @@
 //! drops in (`mg-admin mesh revoke`) takes effect on the next handshake, with no
 //! restart. A list that does not verify, or is older than the one in force, is refused
 //! and logged, and the one in force stays. [MG-SEC-03]
+//!
+//! Both keystores are opened under the [`RootWrap`] the caller passes (the binary
+//! reads the operator's passphrase file); this crate never reads the environment.
+//! The audit keystore is unlocked once, at load, and kept. [VLD-ANB-MIDGARD-0007]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use attest::keystore::KeystoreRoot;
-use attest::Keystore;
+use attest::{Keystore, RootWrap};
 use audit_writer::{
     adopt_ledger, verify_chain, Adoption, AdoptionKeys, AuditWriter, FileLedger, LedgerId,
     PinnedKey, Sealer,
@@ -44,15 +48,17 @@ pub struct ServiceIdentity {
     pub signing_key: Arc<SigningKey>,
     /// The mesh trust anchor peers are verified against.
     pub anchor: TrustAnchor,
-    dir: PathBuf,
+    /// The audit keystore, unlocked at load, if the directory has one.
+    audit: Option<(Keystore, PathBuf)>,
 }
 
 impl ServiceIdentity {
     /// Load `service`'s identity from `dir`. Refuses a certificate that names another
     /// service, does not verify against the anchor, is outside its validity window or
     /// is revoked; a missing or unsigned revocation list; and an identity keystore that
-    /// does not hold the certified key. Starts the revocation list reloader.
-    pub fn load(dir: impl AsRef<Path>, service: &str) -> Result<Self, String> {
+    /// does not hold the certified key. Both keystores are unlocked under `wrap`.
+    /// Starts the revocation list reloader.
+    pub fn load(dir: impl AsRef<Path>, service: &str, wrap: &RootWrap) -> Result<Self, String> {
         let dir = dir.as_ref().to_path_buf();
         let cert_path = dir.join(format!("{service}.cert"));
         let cert = decode_cert(&read(&cert_path)?)
@@ -85,7 +91,7 @@ impl ServiceIdentity {
         })?;
 
         let keystore_path = dir.join(format!("{service}.keystore"));
-        let (verifying_key, signing_key, _) = unseal(&keystore_path)?;
+        let (verifying_key, signing_key, _) = unseal(&keystore_path, wrap)?;
         if verifying_key != cert.identity.verifying_key {
             return Err(format!(
                 "{} does not hold the key {} certifies",
@@ -93,6 +99,16 @@ impl ServiceIdentity {
                 cert_path.display()
             ));
         }
+
+        let audit_path = dir.join(format!("{service}.audit.keystore"));
+        let audit = if audit_path.exists() {
+            Some((
+                open_keystore(&audit_path, "audit keystore", wrap)?,
+                audit_path,
+            ))
+        } else {
+            None
+        };
 
         let log_service = service.to_string();
         spawn_crl_reloader(
@@ -114,7 +130,7 @@ impl ServiceIdentity {
             cert,
             signing_key: Arc::new(signing_key),
             anchor,
-            dir,
+            audit,
         })
     }
 
@@ -157,12 +173,12 @@ impl ServiceIdentity {
     ) -> Result<AuditWriter<FileLedger>, String> {
         let (keystore, keystore_path) = self.audit_keystore()?;
         let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
-        let (verifying_key, signing_key, alg) = unseal_keystore(keystore, &keystore_path)?;
+        let (verifying_key, signing_key, alg) = unseal_keystore(keystore, keystore_path)?;
 
         let ledger =
             FileLedger::open_or_create(path.as_ref(), Box::new(sealer), LedgerId(ledger_id.into()))
                 .map_err(|e| format!("the audit ledger does not open: {e}"))?;
-        let writer = AuditWriter::new(
+        let mut writer = AuditWriter::new(
             ledger,
             Box::new(FipsSig::new(alg)),
             signing_key,
@@ -178,14 +194,31 @@ impl ServiceIdentity {
             &resolver,
         )
         .map_err(|e| format!("the audit ledger does not re-verify: {e:?}"))?;
+        // A partial final frame a crash left was cut off when the ledger opened; the
+        // repair is recorded before anything else is. [VLD-ANB-MIDGARD-0040]
+        if writer
+            .record_recovery(&crate::unix_seconds().to_string())
+            .map_err(|e| format!("the audit ledger repair cannot be recorded: {e}"))?
+            .is_some()
+        {
+            Logger::new(&self.service, &StdoutJsonSink).warn(
+                "audit ledger repaired: a partial final frame left by a crash was cut off",
+                &[("ledger", ledger_id)],
+            );
+        }
         Ok(writer)
     }
 
-    fn audit_keystore(&self) -> Result<(Keystore, PathBuf), String> {
-        let path = self.dir.join(format!("{}.audit.keystore", self.service));
-        let keystore = Keystore::read(&path)
-            .map_err(|e| format!("cannot open the audit keystore {}: {e}", path.display()))?;
-        Ok((keystore, path))
+    fn audit_keystore(&self) -> Result<(&Keystore, &Path), String> {
+        self.audit
+            .as_ref()
+            .map(|(keystore, path)| (keystore, path.as_path()))
+            .ok_or_else(|| {
+                format!(
+                    "the identity directory has no {}.audit.keystore",
+                    self.service
+                )
+            })
     }
 }
 
@@ -196,23 +229,24 @@ impl ServiceIdentity {
 /// under `pin` when one is given (a copy of the audit key kept apart from the
 /// keystore), else under the keystore's own key, which is what the service itself
 /// checked them under before. A ledger already checkpointed, or absent, is left alone.
-/// `mg-admin audit checkpoint --identity-dir` calls this. [MG-SEC-05]
+/// `mg-admin audit checkpoint --identity-dir` calls this; the audit keystore is
+/// unlocked under `wrap`. [MG-SEC-05] [VLD-ANB-MIDGARD-0007]
 pub fn checkpoint_service_ledger(
     identity_dir: &Path,
     service: &str,
     ledger: &Path,
     ledger_id: &str,
     pin: Option<&PinnedKey>,
+    wrap: &RootWrap,
 ) -> Result<Adoption, String> {
     // A service that has not run yet has no ledger, and may have no keystore either.
     if !ledger.exists() && !audit_writer::checkpoint_path(ledger).exists() {
         return Ok(Adoption::Absent);
     }
     let path = identity_dir.join(format!("{service}.audit.keystore"));
-    let keystore = Keystore::read(&path)
-        .map_err(|e| format!("cannot open the audit keystore {}: {e}", path.display()))?;
+    let keystore = open_keystore(&path, "audit keystore", wrap)?;
     let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
-    let (verifying_key, signing_key, alg) = unseal_keystore(keystore, &path)?;
+    let (verifying_key, signing_key, alg) = unseal_keystore(&keystore, &path)?;
     if let Some(pin) = pin {
         pin.check(&verifying_key)
             .map_err(|_| format!("{} does not hold the pinned audit key", path.display()))?;
@@ -243,21 +277,24 @@ fn read(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
 }
 
-fn unseal(path: &Path) -> Result<(VerifyingKey, SigningKey, SigId), String> {
-    let keystore = Keystore::read(path)
-        .map_err(|e| format!("cannot open the keystore {}: {e}", path.display()))?;
-    unseal_keystore(keystore, path)
+fn open_keystore(path: &Path, what: &str, wrap: &RootWrap) -> Result<Keystore, String> {
+    Keystore::read(path, wrap)
+        .map_err(|e| format!("cannot open the {what} {}: {e}", path.display()))
+}
+
+fn unseal(path: &Path, wrap: &RootWrap) -> Result<(VerifyingKey, SigningKey, SigId), String> {
+    unseal_keystore(&open_keystore(path, "keystore", wrap)?, path)
 }
 
 /// A keystore's verifying key, its unsealed signing key, and their algorithm.
 fn unseal_keystore(
-    keystore: Keystore,
+    keystore: &Keystore,
     path: &Path,
 ) -> Result<(VerifyingKey, SigningKey, SigId), String> {
     let verifying_key = keystore.verifying_key.clone();
     let alg = keystore.alg;
     let root = keystore
-        .into_signing_root()
+        .signing_root()
         .map_err(|e| format!("cannot unseal {}: {e}", path.display()))?;
     let signing_key = SigningKey::new(
         alg,

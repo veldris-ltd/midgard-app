@@ -25,5 +25,11 @@ midgard-client-enclosure = { path = "../enclosure", default-features = false }
 policy = { path = "../../crypto/policy" }
 pqc-agility = { path = "../../crypto/pqc-agility", default-features = false }
 
+[dev-dependencies]
+# A test platform keystore declares its floor by wrapping a test-floor software
+# root; its TrustRoot impl names kms types. Tests only. [VLD-ANB-MIDGARD-0056]
+midgard-client-keystore = { path = "../keystore", features = ["test-floors"] }
+kms = { path = "../../services/kms" }
+
 [lib]
 path = "src/lib.rs"

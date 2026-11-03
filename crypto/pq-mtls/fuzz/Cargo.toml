@@ -1,0 +1,26 @@
+# libFuzzer harness for the PQ-mTLS handshake decoder. A developer and release-runner
+# tool, not part of the workspace or the CI gate: cargo-fuzz needs a nightly toolchain
+# and libfuzzer-sys, neither of which the pinned, vendored toolchain provides. See
+# README.md. [NFR-SEC-1] [VLD-ANB-MIDGARD-0010]
+
+[package]
+name = "pq-mtls-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace, so Cargo never folds it into the root one (which also excludes it).
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+pq-mtls = { path = "..", features = ["test-backend"] }
+
+[[bin]]
+name = "decode_message"
+path = "fuzz_targets/decode_message.rs"
+test = false
+doc = false

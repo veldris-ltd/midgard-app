@@ -327,6 +327,13 @@ impl ModelLoader {
         self.revoked.insert(id.to_string());
     }
 
+    /// This loader with `revoked` added to its revocation set: the ids a revocation
+    /// list names ([`parse_revocation_list`]). [VLD-ANB-MIDGARD-0057]
+    pub fn with_revoked(mut self, revoked: BTreeSet<String>) -> Self {
+        self.revoked.extend(revoked);
+        self
+    }
+
     /// Verify an artefact against the load invariant and, if every gate passes,
     /// return the loadable model. **Fails closed** on any mismatch. [AC-MI-7]
     pub fn verify_and_load(
@@ -410,6 +417,34 @@ impl ModelLoader {
         self.load_dir(dir, node, Some(floor))
     }
 
+    /// Check a manifest file this service verified earlier, from the bytes exactly as
+    /// they were verified ([`VerifiedModel::manifest_bytes`]): its signature against this
+    /// loader's trust key, then the family, revocation, licence and hardware gates. The
+    /// weights are not read again. A running service calls it on an interval with a
+    /// loader rebuilt from the current trust key and revocation list, so a withdrawn
+    /// anchor or a revoked id stops serving and not only the next load.
+    /// [VLD-ANB-MIDGARD-0057]
+    pub fn reverify_manifest(
+        &self,
+        bytes: &[u8],
+        node: &NodeProfile,
+    ) -> Result<LoadedModel, String> {
+        self.check_manifest_file(bytes, node)
+            .map(|(_, loaded)| loaded)
+    }
+
+    /// The signature over a manifest file's bytes as read — before any of them is
+    /// parsed — and then the gates on what it vouches for.
+    fn check_manifest_file(
+        &self,
+        bytes: &[u8],
+        node: &NodeProfile,
+    ) -> Result<(ModelManifest, LoadedModel), String> {
+        let manifest = verify_manifest_file(bytes, &self.trust_key).map_err(|e| e.to_string())?;
+        let loaded = self.gates(&manifest, node).map_err(|e| e.to_string())?;
+        Ok((manifest, loaded))
+    }
+
     fn load_dir(
         &self,
         dir: &Path,
@@ -430,12 +465,9 @@ impl ModelLoader {
                 path.display()
             ));
         }
-        // 1. The signature, over the bytes as read — before any of them is parsed.
-        let manifest = verify_manifest_file(&bytes, &self.trust_key)
-            .map_err(|e| format!("{}: refused: {e}", path.display()))?;
-        // 2–5. The gates on what the signature vouches for.
-        let loaded = self
-            .gates(&manifest, node)
+        // 1–5. The signature, then the gates on what it vouches for.
+        let (manifest, loaded) = self
+            .check_manifest_file(&bytes, node)
             .map_err(|e| format!("{}: refused: {e}", path.display()))?;
         // 6. Anti-rollback, before the weights are read; the floor rises only once
         // everything has passed.
@@ -961,7 +993,7 @@ fn check_file_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     bytes
         .iter()
@@ -1210,6 +1242,29 @@ fn parse_manifest_body(text: &str) -> Result<ModelManifest, String> {
             size: number(13)?,
         }),
     })
+}
+
+/// Parse a model revocation list: the artefact ids a running service must stop serving,
+/// one per line, each one word of printable ASCII (a manifest's `id`). Blank lines and
+/// lines starting with `#` are ignored; an empty list revokes nothing. `mimir-server`
+/// reads it from `revoked.list` in its state directory (or `--revocation-file`) on
+/// every reload interval. [VLD-ANB-MIDGARD-0057]
+///
+/// ```text
+/// # withdrawn 2026-11-01: eval regression, ticket MG-1234
+/// granite-3.3-8b-instruct
+/// ```
+pub fn parse_revocation_list(text: &str) -> Result<BTreeSet<String>, String> {
+    text.lines()
+        .map(str::trim)
+        .enumerate()
+        .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'))
+        .map(|(n, l)| {
+            check_token("id", l)
+                .map(|()| l.to_string())
+                .map_err(|e| format!("line {}: {e}", n + 1))
+        })
+        .collect()
 }
 
 /// Parse the model-signing trust key: the `<alg> <key-id> <hex>` line `mg-model keygen`

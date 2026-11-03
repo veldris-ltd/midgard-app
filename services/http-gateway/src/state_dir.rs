@@ -7,23 +7,30 @@
 //! <state-dir>/
 //!   keys/idp.keystore      ML-DSA-65 issuer key; its custody root seals the directory
 //!   keys/audit.keystore    ML-DSA-65 audit key; its custody root seals ledger and store
+//!   keys/actor-hash.key    HMAC key unenrolled usernames are hashed under (0600)
 //!   trust/idp.pub          issuer verifying key, `<alg> <key-id> <hex>`
 //!   trust/audit.pub        audit verifying key, same format
 //!   policy.json            the discretionary rules the PDP enforces
 //!   ontology.json          object types, link types and actions (registered each boot)
 //!   identity.directory     enrolled principals (sealed, append-only)
+//!   revocations.journal    session tokens signed out before expiry (sealed, append-only)
 //!   governance.ledger      the PQ-signed audit ledger (sealed, append-only)
 //!   objects.store          the object fabric's objects and links (sealed, append-only)
+//!   approvals.journal      human-gate approvals and their state changes (sealed)
 //!   admin/passkeys.journal administrators' public passkeys (sealed, append-only)
 //!   admin/roles.journal    administrators' role bindings (sealed, append-only)
 //!   admin/privilege/       the dual-control service's ledger and in-flight approvals
 //!   admin/pending.journal  enrolments waiting for a second administrator (sealed)
+//!   admin/totp.journal     administrators' TOTP secrets and last accepted steps (sealed)
 //!   midgard.lock           present while a gateway or mg-admin holds the directory
 //! ```
 //!
-//! The keystores are the custody devices (see `attest::keystore`): whoever can read
-//! `keys/` can sign as the enclosure and read its data, so protect that directory as a
-//! secret. `trust/` holds only public keys.
+//! The keystores are the custody devices (see `attest::keystore`). Each keystore's
+//! custody root is wrapped under the keystore passphrase (format version 2), so `keys/`
+//! alone, or a backup of it, does not unseal anything; `keys/` and the passphrase
+//! together sign as the enclosure and read its data, so keep the passphrase apart from
+//! this directory. `mg-admin init` creates `keys/` 0700 and each keystore 0600.
+//! `trust/` holds only public keys. [VLD-ANB-MIDGARD-0007]
 
 use std::path::{Path, PathBuf};
 
@@ -63,6 +70,14 @@ impl StateDir {
     /// Where the keystores live.
     pub fn keys(&self) -> PathBuf {
         self.root.join("keys")
+    }
+
+    /// The key unenrolled usernames are hashed under before they reach the ledger:
+    /// 32 random bytes, created on first boot. Back it up with the keystores, or
+    /// `unknown:` actors written before a restore stop matching those written after.
+    /// [AC-27.4] [VLD-ANB-MIDGARD-0065]
+    pub fn actor_hash_key(&self) -> PathBuf {
+        self.keys().join("actor-hash.key")
     }
 
     /// Where the exported verifying keys live.
@@ -105,6 +120,12 @@ impl StateDir {
         self.root.join("identity.directory")
     }
 
+    /// Session tokens signed out before their expiry, sealed under the issuer's root.
+    /// [VLD-ANB-MIDGARD-0021]
+    pub fn revocations(&self) -> PathBuf {
+        self.root.join("revocations.journal")
+    }
+
     /// The durable audit ledger.
     pub fn ledger(&self) -> PathBuf {
         self.root.join("governance.ledger")
@@ -113,6 +134,11 @@ impl StateDir {
     /// The durable object store.
     pub fn store(&self) -> PathBuf {
         self.root.join("objects.store")
+    }
+
+    /// The human-gate approvals journal. [VLD-ANB-MIDGARD-0039]
+    pub fn approvals(&self) -> PathBuf {
+        self.root.join("approvals.journal")
     }
 
     /// Where administration state lives.
@@ -138,6 +164,12 @@ impl StateDir {
     /// Enrolments waiting for a second administrator.
     pub fn admin_pending(&self) -> PathBuf {
         self.admin().join("pending.journal")
+    }
+
+    /// Administrators' TOTP secrets and last accepted steps: their second factor.
+    /// [VLD-ANB-MIDGARD-0008]
+    pub fn admin_totp(&self) -> PathBuf {
+        self.admin().join("totp.journal")
     }
 
     /// The lock file.

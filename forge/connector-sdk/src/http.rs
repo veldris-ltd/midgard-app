@@ -41,7 +41,7 @@ pub fn get(
     target: &str,
     headers: &[(String, String)],
 ) -> Result<Response, ConnectorError> {
-    let io = |e: std::io::Error| ConnectorError::Io(format!("HTTP: {e}"));
+    let io = |e: std::io::Error| ConnectorError::io(format!("HTTP: {e}"));
     let mut request = format!("GET {target} HTTP/1.1\r\n");
     for (name, value) in headers {
         if value.contains(['\r', '\n']) {
@@ -82,37 +82,9 @@ pub fn get(
     };
 
     let body = if find("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
-        let mut body = Vec::new();
-        loop {
-            let size_line = read_line(&mut reader)?;
-            let size = usize::from_str_radix(size_line.split(';').next().unwrap_or("").trim(), 16)
-                .map_err(|_| {
-                    ConnectorError::Parse(format!("a malformed chunk size: {size_line}"))
-                })?;
-            if size == 0 {
-                while !read_line(&mut reader)?.is_empty() {}
-                break;
-            }
-            if body.len() + size > MAX_BODY {
-                return Err(ConnectorError::Parse(
-                    "the response body is too large".into(),
-                ));
-            }
-            let start = body.len();
-            body.resize(start + size, 0);
-            reader.read_exact(&mut body[start..]).map_err(io)?;
-            read_line(&mut reader)?;
-        }
-        body
+        read_chunked(&mut reader)?
     } else if let Some(length) = find("content-length") {
-        let length: usize = length
-            .parse()
-            .ok()
-            .filter(|&l| l <= MAX_BODY)
-            .ok_or_else(|| ConnectorError::Parse(format!("an unusable content length {length}")))?;
-        let mut body = vec![0u8; length];
-        reader.read_exact(&mut body).map_err(io)?;
-        body
+        read_sized(&mut reader, &length)?
     } else {
         let mut body = Vec::new();
         reader
@@ -133,17 +105,61 @@ pub fn get(
     })
 }
 
+/// Read a chunked body. Every length is the server's, so none is added with `+`: a chunk
+/// is checked against what is left of the `MAX_BODY` budget before anything is
+/// allocated, and a size that wraps or does not fit a `usize` is refused as data, not
+/// a panic. [NFR-SEC-1] [VLD-ANB-MIDGARD-0009]
+fn read_chunked(reader: &mut BufReader<TcpStream>) -> Result<Vec<u8>, ConnectorError> {
+    let too_large = || ConnectorError::Parse("the response body is too large".into());
+    let mut body = Vec::new();
+    loop {
+        let size_line = read_line(reader)?;
+        let size = u64::from_str_radix(size_line.split(';').next().unwrap_or("").trim(), 16)
+            .map_err(|_| ConnectorError::Parse(format!("a malformed chunk size: {size_line}")))?;
+        if size == 0 {
+            while !read_line(reader)?.is_empty() {}
+            return Ok(body);
+        }
+        let size = usize::try_from(size).map_err(|_| too_large())?;
+        // `body` never exceeds MAX_BODY, so this cannot underflow. With an empty body it
+        // is MAX_BODY itself: no single chunk may exceed the whole budget either.
+        let remaining = MAX_BODY - body.len();
+        if size > remaining {
+            return Err(too_large());
+        }
+        let start = body.len();
+        let end = start.checked_add(size).ok_or_else(too_large)?;
+        body.resize(end, 0);
+        reader
+            .read_exact(&mut body[start..])
+            .map_err(|e| ConnectorError::io(format!("HTTP: {e}")))?;
+        read_line(reader)?;
+    }
+}
+
+/// Read a body of the `Content-Length` the server declared, at most `MAX_BODY`.
+fn read_sized(reader: &mut BufReader<TcpStream>, length: &str) -> Result<Vec<u8>, ConnectorError> {
+    let length: usize = length
+        .parse()
+        .ok()
+        .filter(|&l| l <= MAX_BODY)
+        .ok_or_else(|| ConnectorError::Parse(format!("an unusable content length {length}")))?;
+    let mut body = vec![0u8; length];
+    reader
+        .read_exact(&mut body)
+        .map_err(|e| ConnectorError::io(format!("HTTP: {e}")))?;
+    Ok(body)
+}
+
 fn read_line(reader: &mut BufReader<TcpStream>) -> Result<String, ConnectorError> {
     let mut line = Vec::new();
     let read = reader
         .by_ref()
         .take(MAX_LINE as u64)
         .read_until(b'\n', &mut line)
-        .map_err(|e| ConnectorError::Io(format!("HTTP: {e}")))?;
+        .map_err(|e| ConnectorError::io(format!("HTTP: {e}")))?;
     if read == 0 {
-        return Err(ConnectorError::Io(
-            "HTTP: the connection closed early".into(),
-        ));
+        return Err(ConnectorError::io("HTTP: the connection closed early"));
     }
     if line.last() != Some(&b'\n') {
         return Err(ConnectorError::Parse("an HTTP line is too long".into()));

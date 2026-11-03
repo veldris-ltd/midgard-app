@@ -1,0 +1,19 @@
+# Heimdall action-type catalogue (sample for the demo action types).
+#
+# One "<action_type> consequential|informational" per line. Blank lines and lines
+# starting with # are ignored; a type listed twice is refused. A hosting service
+# loads this file with heimdall_workflow::ActionTypeCatalog::parse and gives the
+# result to both the WorkflowEngine (with_catalog) and the DispatchActuator
+# (with_catalog). A type not listed here cannot be proposed, and an empty
+# catalogue refuses every proposal.
+#
+# The class is the deployment's decision, never the proposer's. Every execution
+# needs a recorded human decision whatever the class: an informational action is
+# acknowledged by a person before it runs, like any other.
+#
+# No running service hosts the Heimdall workflow engine yet; nothing in this
+# compose stack reads this file today. [VLD-ANB-MIDGARD-0045]
+
+cue-sensor consequential
+dispatch-asset consequential
+annotate-track informational

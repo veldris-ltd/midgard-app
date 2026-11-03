@@ -8,6 +8,10 @@
 //! the one handle they were hashed through. For an engine that loads by path they are
 //! staged from that handle into a read-only copy, and a swap at the model path after the
 //! check never reaches it. [MG-SEC-14]
+//!
+//! A running service re-checks the manifest it verified, from its bytes, against the
+//! current trust key and revocation list: a revoked id or another key refuses it.
+//! [VLD-ANB-MIDGARD-0057] [AC-67.1] [AC-67.3]
 #![cfg(feature = "backend-fips")]
 
 use std::io::Read;
@@ -15,9 +19,9 @@ use std::path::PathBuf;
 
 use attest::{ReleaseFloor, RollbackError};
 use model_server::{
-    manifest_file_with_signature, parse_trust_key, render_manifest_body, sign_manifest_file,
-    stage_verified_weights, verify_manifest_file, withdraw_staged, HwProfile, Licence,
-    LicencePolicy, LoadError, ManifestFileError, ModelLoader, ModelManifest, NodeProfile,
+    manifest_file_with_signature, parse_revocation_list, parse_trust_key, render_manifest_body,
+    sign_manifest_file, stage_verified_weights, verify_manifest_file, withdraw_staged, HwProfile,
+    Licence, LicencePolicy, LoadError, ManifestFileError, ModelLoader, ModelManifest, NodeProfile,
     WeightFormat, WeightsFile, MANIFEST_FILE, STAGED_MARKER, VELDRIS_MODEL_SIG_ALG,
 };
 use pqc_agility::backend::fips::FipsSig;
@@ -498,4 +502,70 @@ fn a_staged_copy_that_is_altered_is_caught() {
     assert_eq!(staged.verify_digest(), Err(LoadError::WeightsMismatch));
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&serve);
+}
+
+#[test]
+fn a_revocation_list_parses_strictly() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.1]
+    let list = parse_revocation_list(
+        "# withdrawn: eval regression
+
+  granite-test  
+mistral-7b
+# another
+",
+    )
+    .unwrap();
+    assert_eq!(
+        list.into_iter().collect::<Vec<_>>(),
+        ["granite-test", "mistral-7b"]
+    );
+    assert!(parse_revocation_list("").unwrap().is_empty());
+    assert!(parse_revocation_list(
+        "# nothing revoked
+"
+    )
+    .unwrap()
+    .is_empty());
+    let e = parse_revocation_list(
+        "granite-test
+two words
+",
+    )
+    .unwrap_err();
+    assert!(e.starts_with("line 2:"), "{e}");
+}
+
+#[test]
+fn a_verified_manifest_is_rechecked_against_the_current_key_and_revocations() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.1] [AC-67.3] [AC-MI-7]
+    let (dir, vk, _) = model_dir("recheck", "Granite");
+    let model = loader(vk.clone()).verify_dir(&dir, &node()).unwrap();
+    let bytes = &model.manifest_bytes;
+    let id = model.manifest.id.clone();
+
+    let loaded = loader(vk.clone())
+        .reverify_manifest(bytes, &node())
+        .unwrap();
+    assert_eq!(loaded, model.loaded);
+
+    let revoked = loader(vk.clone())
+        .with_revoked([id].into_iter().collect())
+        .reverify_manifest(bytes, &node())
+        .unwrap_err();
+    assert!(revoked.contains("revoked"), "{revoked}");
+    let other = loader(vk.clone())
+        .with_revoked(["some-other-model".to_string()].into_iter().collect())
+        .reverify_manifest(bytes, &node());
+    assert!(other.is_ok(), "another id's revocation changes nothing");
+
+    let (another_key, _) = keys();
+    let withdrawn = loader(another_key)
+        .reverify_manifest(bytes, &node())
+        .unwrap_err();
+    assert!(
+        withdrawn.contains("signature does not verify"),
+        "{withdrawn}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -10,6 +10,10 @@ description = "Air-gap bundle tool: pack signed artefacts into a portable, ML-DS
 default = ["backend-fips"]
 backend-fips = ["bifrost-bundle/backend-fips", "bifrost-artefact/backend-fips", "pqc-agility/backend-fips"]
 
+[dev-dependencies]
+# Keystore fixtures: the inert test passphrase. [VLD-ANB-MIDGARD-0007]
+attest = { path = "../../crypto/attest", features = ["test-support"] }
+
 [[bin]]
 name = "mg-bundle"
 path = "src/main.rs"

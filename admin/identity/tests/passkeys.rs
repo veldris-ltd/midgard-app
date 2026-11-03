@@ -93,7 +93,7 @@ fn a_registered_passkey_signs_in_after_a_restart() {
         .authenticator()
         .sign_in(&AdminId("alice".into()), &challenge, &assertion, NOW)
         .expect("a restarted registry still authenticates the admin");
-    assert!(session.has_mfa());
+    assert_eq!(session.factor_names(), vec!["webauthn"]);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

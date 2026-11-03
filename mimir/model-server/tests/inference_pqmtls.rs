@@ -193,10 +193,12 @@ fn call_inference(
 fn request() -> InferenceRequest {
     InferenceRequest {
         purpose: "investigation".to_string(),
+        system_prompt: String::new(),
         workload_class: WorkloadClass::Balanced,
         quant_pref: None,
         backend_override: None,
         max_tokens: 16,
+        marking: model_server::marking::unclassified(),
         prompt: "who is assigned to case 42?".to_string(),
     }
 }
@@ -260,8 +262,12 @@ fn ac_mi_8_consumer_calls_inference_over_pqmtls_and_is_audited() {
         assert_eq!(served.id, ServiceId("svc-forge".into()));
     });
 
-    // Exactly one PQ-signed audit entry was written for the call. [AC-MI-8]
-    assert_eq!(handler.audit_len(), 1, "every call writes one audit entry");
+    // Exactly one PQ-signed decision entry was written for the call, and the served
+    // completion one Infer:COMPLETE entry beside it. [AC-MI-8] [VLD-ANB-MIDGARD-0034]
+    let actions = handler.audit_actions();
+    assert_eq!(actions.len(), 2, "{actions:?}");
+    assert_eq!(actions[0], "PERMIT Infer");
+    assert!(actions[1].starts_with("Infer:COMPLETE decision_seq=0 "));
 }
 
 #[test]

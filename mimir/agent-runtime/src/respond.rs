@@ -12,6 +12,7 @@
 use mimir_prompts::{A1_DEFAULT_OUTPUT_CONTRACT, A1_MIMIR_CORE_AGENT};
 use model_server::{InferenceRequest, Server, WorkloadClass};
 use oag_retriever::{formulate_plan, ground, GroundingSource, PolicyContext, RetrievalPlan};
+use policy::{ClassificationLevel, Marking};
 
 use crate::assembly::{AssemblyConfig, AssemblyError, Layers, Pipeline};
 
@@ -159,11 +160,23 @@ pub fn respond(
 
     let req = InferenceRequest {
         purpose: ctx.purpose.0.clone(),
+        // The SYSTEM block travels in the family's system turn, apart from the body
+        // (policy, tools and the DATA-delimited layers). An empty system_text (a
+        // layer-8 rewrite reflowed it) leaves everything body, rendered alone.
+        // [VLD-ANB-MIDGARD-0060]
+        system_prompt: assembled.system_text.clone(),
         workload_class: WorkloadClass::Balanced,
         quant_pref: None,
         backend_override: None,
         max_tokens: cfg.max_tokens,
-        prompt: assembled.text.clone(),
+        // The marking of what the prompt holds: the highest level among the included
+        // facts, and the caller's compartments, which bound everything the fabric
+        // let them read. [VLD-ANB-MIDGARD-0034]
+        marking: Marking {
+            level: ClassificationLevel(assembled.max_marking_level),
+            compartments: ctx.clearance.compartments.clone(),
+        },
+        prompt: assembled.body_text.clone(),
     };
     match server.infer(server.prepare(&req)) {
         Ok(c) => Ok(GroundedResponse {

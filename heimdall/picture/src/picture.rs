@@ -40,6 +40,41 @@ impl Picture {
         self.entities.insert(entity.id.clone(), entity);
     }
 
+    /// Remove an entity, returning it if it was held. Its layer stays registered.
+    /// [VLD-ANB-MIDGARD-0017]
+    pub fn remove_entity(&mut self, id: &EntityId) -> Option<TrackedEntity> {
+        self.entities.remove(id)
+    }
+
+    /// How many entities each feed has contributed to (an entity fused from two
+    /// feeds counts for both).
+    pub fn entities_by_feed_count(&self) -> BTreeMap<String, usize> {
+        let mut counts = BTreeMap::new();
+        for entity in self.entities.values() {
+            for feed in &entity.sources {
+                *counts.entry(feed.clone()).or_insert(0) += 1;
+            }
+        }
+        counts
+    }
+
+    /// The `n` entities seen least recently, oldest first (ties in id order): the
+    /// first candidates for eviction. Ordered by `last_seen`, the only receipt-side
+    /// time an entity carries until it records when it was received.
+    pub fn stalest(&self, n: usize) -> Vec<EntityId> {
+        let mut by_age: Vec<(u64, &EntityId)> = self
+            .entities
+            .values()
+            .map(|e| (e.last_seen(), &e.id))
+            .collect();
+        by_age.sort();
+        by_age
+            .into_iter()
+            .take(n)
+            .map(|(_, id)| id.clone())
+            .collect()
+    }
+
     /// Borrow an entity by id.
     pub fn entity(&self, id: &EntityId) -> Option<&TrackedEntity> {
         self.entities.get(id)

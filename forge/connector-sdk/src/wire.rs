@@ -72,6 +72,13 @@ pub fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, len: us
 /// The fewest PBKDF2 iterations a SCRAM server may ask for (RFC 7677 §4).
 pub const SCRAM_MIN_ITERATIONS: u32 = 4096;
 
+/// The most PBKDF2 iterations a SCRAM server may ask for. RFC 7677 requires at least
+/// 4096 and PostgreSQL defaults to 4096; no known server asks for more than a few
+/// hundred thousand. The count is the server's, sent before it has proved anything, so
+/// without a ceiling a hostile or spoofed source could keep the worker hashing for
+/// hours. It is refused before any PBKDF2 work. [NFR-SEC-1] [VLD-ANB-MIDGARD-0011]
+pub const SCRAM_MAX_ITERATIONS: u32 = 1_000_000;
+
 /// The client side of one SCRAM-SHA-256 exchange, without channel binding. It proves
 /// knowledge of the password without sending it, and then requires the server to
 /// prove it holds the same verifier — a server that cannot is refused.
@@ -128,6 +135,12 @@ impl ScramSha256 {
             return Err(format!(
                 "the server asks for {iterations} SCRAM iterations; at least \
                  {SCRAM_MIN_ITERATIONS} are required"
+            ));
+        }
+        if iterations > SCRAM_MAX_ITERATIONS {
+            return Err(format!(
+                "the server asks for {iterations} SCRAM iterations; at most \
+                 {SCRAM_MAX_ITERATIONS} are accepted"
             ));
         }
 
@@ -246,5 +259,49 @@ mod tests {
         assert!(scram
             .client_final("m=ext,r=abcdef,s=c2FsdA==,i=4096", "p")
             .is_err());
+    }
+
+    // [VLD-ANB-MIDGARD-0011] [AC-34.3]
+    #[test]
+    fn scram_refuses_an_iteration_count_above_the_ceiling() {
+        for count in ["4000000000", "4294967295"] {
+            let mut scram = ScramSha256::new("user", "rOprNGfwEbeRWgbNEkqO");
+            let server_first =
+                format!("r=rOprNGfwEbeRWgbNEkqOhVYDpWAiFLwH,s=W22ZaJ0SNY7soEsUEjb6gQ==,i={count}");
+            let started = std::time::Instant::now();
+            let refused = scram.client_final(&server_first, "pencil").unwrap_err();
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(2),
+                "{count}"
+            );
+            assert!(refused.contains("SCRAM iterations"), "{refused}");
+        }
+    }
+
+    // [VLD-ANB-MIDGARD-0011] [AC-34.3]
+    #[test]
+    fn scram_boundary_counts() {
+        let challenge = |count: u32| {
+            format!("r=rOprNGfwEbeRWgbNEkqOhVYDpWAiFLwH,s=W22ZaJ0SNY7soEsUEjb6gQ==,i={count}")
+        };
+        for count in [SCRAM_MAX_ITERATIONS + 1, SCRAM_MIN_ITERATIONS - 1] {
+            let mut scram = ScramSha256::new("user", "rOprNGfwEbeRWgbNEkqO");
+            let started = std::time::Instant::now();
+            let refused = scram.client_final(&challenge(count), "pencil").unwrap_err();
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(2),
+                "{count}"
+            );
+            assert!(refused.contains("SCRAM iterations"), "{refused}");
+        }
+        // The RFC 7677 vector at the floor still produces its proof.
+        let mut scram = ScramSha256::new("user", "rOprNGfwEbeRWgbNEkqO");
+        let server_first =
+            "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096";
+        assert_eq!(
+            scram.client_final(server_first, "pencil").unwrap(),
+            "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,\
+             p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ="
+        );
     }
 }

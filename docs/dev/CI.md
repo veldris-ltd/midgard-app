@@ -28,13 +28,16 @@ out which system it is running under from the variables that system always sets
 | `tools/ci/run.sh` | every job, by name |
 | `tools/ci/lib.sh` | platform detection and the per-system helpers |
 | `tools/ci/pipelines.sh` | checks the two pipeline files call the same jobs |
-| `tools/ci/in-toolchain.sh` | runs a command in the pinned toolchain image, no network |
+| `tools/ci/in-toolchain.sh` | runs a command in the pinned toolchain image, no network; in place when already inside it |
+| `tools/ci/toolchain.digest` | the digest of the published toolchain image GitLab's merge-request jobs run in |
 | `tools/ci/release.sh` | the release, end to end, with a dry-run mode |
 | `tools/ci/release-artefacts.sh` | the release manifest's Rust binaries, derived from the workspace |
 | `tools/ci/js-artefacts.sh` | its JavaScript artefacts, and their reproducible build |
 | `tools/ci/release-preflight.sh` | asserts a signing runner is provisioned |
 | `tools/ci/vendor-check.sh` | checks `/vendor` is exactly what `Cargo.lock` names, and that Cargo is pinned to it |
 | `tools/ci/claims.sh` | renders the claims ledger and checks every row against the files, lines and tests it cites |
+| `renovate.json` | the weekly dependency updates for both ecosystems (see [Dependency updates](#dependency-updates)) |
+| `tools/ci/shell-audit/` | the exact versions, in a lockfile, of the tools the shell-audit job runs |
 | `tools/ci/tests/*.test.sh` | tests for the scripts above |
 
 ### Keeping the two in step
@@ -43,10 +46,33 @@ out which system it is running under from the variables that system always sets
 
 - a job is called by one pipeline and not the other;
 - either calls a job `run.sh` does not define, or `run.sh` defines one neither calls;
-- either pipeline runs something that is not a job (build logic in the YAML).
+- either pipeline runs something that is not a job (build logic in the YAML);
+- a GitLab `image:` or service is not pinned as `name:tag@sha256:<64 hex>` (after
+  expanding `$CI_REGISTRY_IMAGE`), or a GitHub `uses:` is not pinned to a 40-hex commit.
+  The one reference by variable allowed is the published toolchain image,
+  `$CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST`, whose jobs check the
+  variable first. Each offending line is printed. `[VLD-ANB-MIDGARD-0022]`
 
 It runs as part of the `selftest` job on both forges, so adding a job on one and
 forgetting the other turns both red.
+
+### Checkouts and the tools jobs fetch
+
+Every `actions/checkout` step sets `persist-credentials: false`. No job pushes, and
+`release-publish` passes its token to `gh` in the environment, so nothing needs the
+job token in `.git/config`, where it would otherwise stay for the rest of the job: on
+the self-hosted signing runner, beside the key material. The checkout fetches first,
+so `fetch-depth: 0` and the history checks are unaffected. `tools/ci/tests/workflows.test.sh`
+fails if a checkout step leaves the option out, and the signing runner's own cleanup
+is item 5 of [docs/ops/PKI.md](../ops/PKI.md) "Signing runner", asserted by the release
+preflight. (VLD-ANB-MIDGARD-0081)
+
+A job never runs a package fetched by name. The shell-audit job's `http-server` and
+`wait-on` are pinned to exact versions in `tools/ci/shell-audit/package-lock.json`,
+installed with `npm ci --ignore-scripts` and run from its `node_modules/.bin`; see that
+directory's README to bump them. `tools/ci/tests/npx-pin.test.sh` fails on `npx --yes`,
+`npx -y`, or an `npx` of a package with no exact version, anywhere under `tools/`,
+`.github/` or in `.gitlab-ci.yml`. (VLD-ANB-MIDGARD-0058)
 
 ## Running a job yourself
 
@@ -77,17 +103,21 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 |---|---|---|
 | `selftest` | host | the CI scripts' own tests pass and both pipelines call the same jobs |
 | `provenance` | host | changed sources under governed trees cite a requirement |
+| `commits` | host | every commit the change brings is signed by a key in `deploy/trust/allowed_signers`, or verified by GitHub, or is a forge merge that adds nothing of its own |
 | `vendor` | host | `/vendor` is exactly the crates `Cargo.lock` names, and Cargo is pinned to it |
 | `claims` | host | every row of `docs/compliance/claims.toml` cites files, lines and tests that exist, and `CLAIMS.md` is what it renders |
 | `gate-record` | host | the committed gate record is what its logs give, and the README and GA_READINESS status tables are what it gives |
 | `numbers` | host | [`docs/compliance/NUMBERS.md`](../compliance/NUMBERS.md) is what the tree gives, and no swept document quotes a crate, line, test or criteria count that differs from it |
 | `secrets` | host | no credential is committed (gitleaks, pinned by version and checksum) |
 | `k8s-render` | host | `deploy/k8s/enclosure.yaml` is what the Helm chart renders |
-| `toolchain` | host | builds or restores the toolchain image — the only online step |
+| `toolchain` | host | builds or restores the toolchain image — the only online step; inside the published image, checks it is the one `tools/ci/toolchain.digest` pins |
+| `toolchain-publish` | host | GitLab only: pushes the toolchain image to the project registry; fails until its digest is committed. On GitHub, a no-op |
 | `fmt`, `lint` | toolchain | formatting; clippy at deny-warnings |
 | `build`, `test` | toolchain | the release build; the test suite on both crypto backends, its log kept in `target/gate` |
+| `check-backends` | toolchain | `just check-backends`: neither the workspace build nor any package in the release matrix resolves the insecure `test-backend`, a release build with it fails on the compile guard, and the FIPS release build succeeds |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
+| `advisory-refresh` | host | weekly: both advisory snapshots refreshed, every SBOM re-scanned, and a pull or merge request opened with the scan diff when a snapshot moved |
 | `acceptance` | host | the full acceptance suite under a genuine air gap, its log kept in `target/gate` |
 | `js-build` | host | every UI bundle and npm package built twice, bit-identical |
 | `release-dry-run` | toolchain | the whole release gate, throwaway keys, nothing published |
@@ -107,7 +137,92 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | …that touches release machinery or a UI | `release.yml`: `js-build`, `release-dry-run` | `js-build`, `release-dry-run` |
 | a push to `main` or `dev` | `ci.yml`, plus `acceptance` | the same, plus `acceptance` |
 | a `v*` tag | `release.yml`: the release | the release |
+| weekly, Mondays 03:17 UTC | `advisory-refresh.yml`: `advisory-refresh` | a pipeline schedule: `advisory-refresh`, and nothing else |
 | by hand | *Run workflow* → `mode`: `dry-run` or `release` | *Run pipeline* → `MIDGARD_RELEASE_MODE`: `dry-run`, `release` or `audit` |
+| by hand on `main` or `dev`, no mode | — (the toolchain image is built per run) | `toolchain-publish` |
+
+## Dependency updates
+
+`[AC-P4.4]` `[AC-P4.5]` (VLD-ANB-MIDGARD-0076)
+
+Dependencies and the two advisory snapshots move every week, each as a pull or merge
+request a person reviews. Nothing floats: every update lands in a pinned file (the
+lockfiles, `Cargo.lock` with `/vendor`, an action's commit SHA, an image digest), and
+nothing merges itself.
+
+**Renovate** ([`renovate.json`](../../renovate.json)) runs on Monday mornings, at most
+three open at a time, labelled `dependencies`, and only for releases at least 14 days
+old (the same rule the lockfiles were built to). Its managers:
+
+| Manager | Covers |
+|---|---|
+| `npm` | the pnpm workspace (`pnpm-lock.yaml`), and `docs/launch/pipeline` with its own `package-lock.json`, grouped as "launch pipeline" |
+| `cargo` | every `Cargo.toml` in the workspace, re-vendored as described below |
+| `github-actions` | the actions in `.github/workflows/`, kept pinned to a full commit SHA (`pinDigests`) |
+| `gitlabci` | the images and services in `.gitlab-ci.yml`, kept pinned by digest (`pinDigests`) |
+| `custom.regex` | the digest-pinned base images of the Dockerfiles under `deploy/`: digest refreshes of the tag they name; a new Rust or Node line stays a deliberate change |
+
+Commits are made through the forge API (`platformCommit`), so they carry the forge's
+signature. `tools/ci/tests/renovate.test.sh` (part of `selftest`) checks this shape.
+The forge setup is the owner's: install the Renovate app on the GitHub repository, or
+run a self-hosted Renovate against both forges.
+
+**A Cargo update** cannot be finished by Renovate in place: crates are vendored, and
+`.cargo/config.toml` points Cargo at `/vendor`, so `Cargo.lock` cannot be resolved
+against the registry and `/vendor` would not match it anyway. On a **self-hosted**
+Renovate whose global `allowedCommands` admits them, the cargo rule's
+`postUpgradeTasks` do it: set the source replacement aside, `cargo update --package
+<crate> --precise <version>`, `cargo vendor --versioned-dirs vendor`, restore the
+replacement, run `tools/ci/vendor-check.sh`, and commit `Cargo.lock` and `/vendor`
+to the pull request. **Hosted** Renovate cannot run commands, so its pull request
+carries the manifest change only and the `vendor` job fails it, which is correct: it
+is not mergeable yet. A maintainer finishes it on the branch, online:
+
+```bash
+git switch <renovate-branch>
+# comment out the [source] block in .cargo/config.toml
+cargo update --package <crate> --precise <version>
+cargo vendor --versioned-dirs vendor > /dev/null
+# restore the [source] block
+bash tools/ci/vendor-check.sh
+git add Cargo.lock vendor && git commit -S -m "chore(vendor): vendor <crate> <version>"
+git push
+```
+
+Then let CI build and test it offline as usual. `zeroize` and `base64ct` are held below
+1.9 and 1.7 for Rust 1.82 ([BUILD_ENV.md](BUILD_ENV.md)); the toolchain build catches
+any other crate that needs a newer compiler.
+
+**An npm update that adds a package** passes CI but is refused by the release gate
+(`advisory-uncovered`): the npm advisory snapshot is filtered to the packages the
+lockfile named when it was made. Run `just advisory-db-npm-refresh` (online) on the
+branch and commit `vendor/advisory-db-npm` with it.
+
+**The advisory snapshots** are refreshed by the `advisory-refresh` job, every Monday at
+03:17 UTC: `.github/workflows/advisory-refresh.yml` on GitHub, and on GitLab a pipeline
+schedule on the default branch, which runs that job and nothing else. The job clones the
+RustSec database and downloads the OSV npm export on the runner, runs
+`just advisory-db-refresh` and `just advisory-db-npm-refresh` from those inside the
+offline toolchain image, scans the Rust workspace and every JavaScript artefact before
+and after, and, when either snapshot moved, commits them to
+`deps/advisory-refresh-<date>` as "chore(advisories): refresh snapshots <date>" and opens
+a pull or merge request whose body is the scan diff. When nothing moved it says so and
+opens nothing (`tools/ci/tests/advisory-refresh.test.sh`).
+
+Both snapshots warn at 30 days and the scan refuses them past 45
+(`fail_after_days` in each `snapshot.toml`), so a release attempted after six weeks
+without a refresh fails closed until someone runs one.
+
+The write access is the scheduled job's alone. On GitHub the workflow grants
+`contents: write` and `pull-requests: write` to that job, and passes the workflow
+token to it through the environment, never persisted in the checkout; a pull request
+opened with that token does not start other workflows, so close and reopen it (or push
+to it) to run CI. On GitLab `CI_JOB_TOKEN` can neither push nor open a merge request:
+the owner creates a project access token with `api` scope, stores it as the protected,
+masked CI/CD variable `MIDGARD_MR_TOKEN`, and creates the weekly pipeline schedule. The
+token reaches `git` through a credential helper and `curl` through a header file, never
+a command line. The bot's commit is unsigned; squash-merge it through the forge (which
+signs the result) or re-sign it before merging into a branch that requires signatures.
 
 ## The gate record
 
@@ -209,19 +324,47 @@ touches the release machinery, and by hand on any branch.
 ### A real release
 
 Needs a signing runner provisioned as [docs/ops/PKI.md](../ops/PKI.md) describes —
-labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with three settings
-naming files on that runner:
+labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with four settings
+naming files on that runner, all outside the job's workspace:
 
 | Setting | What |
 |---|---|
 | `MIDGARD_SIGNING_KEYSTORE_PATH` | the release signing keystore (ML-DSA-87) |
 | `MIDGARD_BIFROST_KEYSTORE_PATH` | the Bifrost admission keystore (ML-DSA-65) |
 | `MIDGARD_BIFROST_REGISTRY_PATH` | the Bifrost registry directory |
+| `MIDGARD_ALLOWED_SIGNERS_PATH` | the runner's own copy of `deploy/trust/allowed_signers`, which release tags are verified against |
 
 On GitHub these are repository secrets; on GitLab, CI/CD variables. The public halves
-are committed as `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub`.
+are committed as `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub`,
+beside `deploy/trust/model-signing.pub`, the model-signing key's public half. The
+preflight (`release-preflight`) refuses a release unless all three are committed, each
+with a key of the right algorithm and nothing private, so a release cannot ship without
+the anchor mimir-server's load gate trusts. [VLD-ANB-MIDGARD-0028]
 The keystores are mounted read-only into the toolchain container; nothing else of the
 runner's environment reaches it.
+
+The preflight job checks out the repository twice: the tagged commit, and `main` into
+`.ci-trusted`. The tag gate runs from the second, so the code that decides whether the
+tagged commit's scripts run is not the tagged commit's (VLD-ANB-MIDGARD-0035):
+
+1. `bash .ci-trusted/tools/ci/run.sh release-tag`, with `VERIFY_TAG_ROOT` naming the
+   tagged checkout: the tag is annotated, signed by a key in the runner's
+   `allowed_signers`, the committed `deploy/trust/allowed_signers` is byte-for-byte that
+   copy, and the tagged commit is an ancestor of `origin/main`, fetched afresh. A tag on
+   a commit that is not on `main` — a hotfix branch not yet merged, say — is refused:
+   merge first.
+2. `bash .ci-trusted/tools/ci/run.sh release-preflight`: the runner is provisioned and
+   isolated (docs/ops/PKI.md, "Signing runner").
+3. Only then the tagged commit's own `gate-record --release` and `numbers`, and after the
+   preflight job the `release` job, which builds exactly the tagged tree.
+
+On GitHub the second checkout is an `actions/checkout` step with `ref: main` and
+`path: .ci-trusted`; on GitLab, which has no such step, the job clones `main` with its
+read-only job token (`git clone --branch main --depth 50 "$CI_REPOSITORY_URL"
+.ci-trusted`). `tools/ci/pipelines.sh` counts a `.ci-trusted/tools/ci/run.sh <job>` call
+as a call of that job, and allows that one clone line, so both pipelines still call the
+same jobs and carry no other logic. `tools/ci/tests/workflows.test.sh` checks that in
+both pipelines the gate runs from `.ci-trusted` before anything else.
 
 A release also waits on the client shell audits, which fail closed until every shell
 has a buildable project (see [`clients/shells/AUDIT_SCHEMA.md`](../../clients/shells/AUDIT_SCHEMA.md)).
@@ -246,9 +389,11 @@ and is `origin/main`, the gate record covers the commit (`gate-record --release`
 numbers sheet and the claims ledger check, the release notes exist, and
 `deploy/trust/allowed_signers` is published. It does not push. On the runner, the
 `release-tag` job ([`tools/ci/verify-tag.sh`](../../tools/ci/verify-tag.sh)) verifies
-the tag against `deploy/trust/allowed_signers` before anything is built or signed, so
-an unsigned tag, a lightweight tag, or one signed by a key not listed there starts no
-release.
+the tag against the runner's copy of `deploy/trust/allowed_signers` before anything is
+built or signed, so an unsigned tag, a lightweight tag, one signed by a key not listed
+there, one whose commit changed the signers, or one on a commit not on `main` starts no
+release. `tag-release.sh` checks that the commit is the tip of `origin/main` on your
+side; the runner checks again, since a tag can be pushed by other means.
 
 Because the gate record names the commit it gated, the order is: merge to `main`; run
 the gate on that commit and record it (see "The gate record"); write the numbers sheet;
@@ -259,21 +404,60 @@ generated from it.
 ### Repository rules
 
 The forge enforces what the scripts cannot: that history on the release path is
-signed, and that a published tag stays put. These are the repository owner's to set.
-On GitHub, as rulesets (Settings → Rules → Rulesets), or with `gh`:
+signed and reviewed, that a published tag stays put, and that only release managers
+create a `v*` tag, which is what starts a release on the signing runners
+(VLD-ANB-MIDGARD-0035, VLD-ANB-MIDGARD-0069). These are the repository owner's to set.
+On GitHub they are three rulesets (Settings → Rules → Rulesets), applied with a
+repository administrator's `gh` login by
+[`tools/ci/github-rules.sh`](../../tools/ci/github-rules.sh); `--dry-run` prints them
+first, and `--export` writes what is live for review:
 
 ```bash
-gh api -X POST repos/veldris-ltd/midgard-app/rulesets --input - <<'EOF'
-{ "name": "signed history", "target": "branch", "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/heads/main", "refs/heads/dev"], "exclude": [] } },
-  "rules": [ { "type": "required_signatures" }, { "type": "non_fast_forward" }, { "type": "deletion" } ] }
-EOF
-gh api -X POST repos/veldris-ltd/midgard-app/rulesets --input - <<'EOF'
-{ "name": "release tags are immutable", "target": "tag", "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
-  "rules": [ { "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" } ] }
-EOF
+bash tools/ci/github-rules.sh --repo veldris-ltd/midgard-app --dry-run
+bash tools/ci/github-rules.sh --repo veldris-ltd/midgard-app --export docs/compliance/evidence
 ```
+
+| Ruleset | On | Rules | Bypass |
+|---|---|---|---|
+| signed history | `refs/heads/main`, `refs/heads/dev` | `required_signatures`, `non_fast_forward`, `deletion`, `pull_request` | none |
+| release tags are immutable | `refs/tags/v*` | `deletion`, `non_fast_forward`, `update` | none |
+| release tags are created by release managers | `refs/tags/v*` | `creation` | the `release-managers` team (`Team`, `always`) |
+
+The `pull_request` rule takes a change to `main` or `dev` only through a pull request
+with one approving review from a code owner (`.github/CODEOWNERS`), given after the
+last push and not by whoever pushed it, and merged with a merge commit: GitHub signs
+the merges it makes, and a merge commit is the one kind the CodeLab mirror's `commits`
+job can accept without asking GitHub. No one bypasses it; an emergency change goes
+through the second maintainer. Required status checks set on the repository outside
+these rulesets are left as they are.
+
+`docs/compliance/evidence/rulesets-<date>.json` is the evidence a reviewer checks this
+section against: what `--export` read from GitHub, each ruleset in full, sorted, with
+the fields that change on every read dropped, so two exports diff cleanly. A reviewer
+confirms the branch rules are live with
+`jq -e '.[] | select(.name == "signed history") | .enforcement == "active"' docs/compliance/evidence/rulesets-*.json`.
+Until a maintainer commits an export, nothing in the repository shows that the rulesets
+are live.
+
+The forge refuses a push; the `commits` job
+([`tools/ci/verify-commits.sh`](../../tools/ci/verify-commits.sh)) checks the same
+thing from inside the pipeline, on both forges, so a rule that was never applied, or
+was turned off, is noticed. It checks every commit between the change's base and its
+head: a commit passes when git verifies its SSH signature against
+`deploy/trust/allowed_signers` as the base commit has it (so a change cannot add the key
+that vouches for it), or, on GitHub, when GitHub reports it verified, or when it is a
+merge by the forge (`noreply@github.com`, or the identities in the CI variable
+`MIDGARD_MERGE_COMMITTERS`) whose combined diff is empty. It names every commit that
+fails. With no key in `allowed_signers` and no forge to ask it fails closed: until the
+maintainers' keys are committed there (docs/ops/PKI.md, "Git signing") the job can pass
+on GitHub only, and fails on CodeLab.
+
+Tag creation is a ruleset of its own because a bypass actor bypasses every rule in its
+ruleset: in the immutability ruleset it would let a release manager move or delete a
+published tag. The `release-managers` team must exist in the organisation first; the
+script stops, changing nothing, if it does not. The runner cannot see these settings,
+so `release-tag` does not rely on them: it checks the signature against the runner's
+own signers and the commit against `main` whoever pushed the tag.
 
 `non_fast_forward` on the branches also refuses force pushes, so a classic protection
 rule that allows them on `dev` must be turned off as well. On GitLab: protect `v*` under
@@ -288,12 +472,106 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
 
 ## What a GitLab instance needs
 
-- A Docker executor with Docker-in-Docker allowed, for the jobs that build and use the
-  toolchain image. The checkout is mounted into the toolchain container from the job's
-  build directory, which GitLab shares with the `dind` service.
-- A `kms`-tagged shell-executor runner with Docker, node and pnpm, for releases.
+`[VLD-ANB-MIDGARD-0022]` `[VLD-ANB-MIDGARD-0043]`
+
+- **An unprivileged Docker executor for merge requests.** The Rust jobs (`lint`,
+  `test`, `repro`, `scan`, `release-dry-run`: everything that `extends: .toolchain`)
+  run directly inside the published toolchain image,
+  `$CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST`, with no Docker service and
+  `MIDGARD_IN_TOOLCHAIN=1`, so `tools/ci/in-toolchain.sh` runs each command in place.
+  Their first step, `run.sh toolchain`, fails unless `MIDGARD_TOOLCHAIN_DIGEST` is the
+  digest committed in [`tools/ci/toolchain.digest`](../../tools/ci/toolchain.digest).
+- **A privileged Docker executor with Docker-in-Docker, for protected refs only.** Tag
+  it `protected` and make it available only to protected branches and tags. Two jobs
+  use it (`extends: .docker`): `toolchain-publish`, by hand, and `acceptance`, on
+  pushes to `main` and `dev`, which starts its own containers under `--network none`.
+  No merge-request job runs on it.
+- **The CI/CD variable `MIDGARD_TOOLCHAIN_DIGEST`** (protected; masking not needed),
+  set to the digest line of `tools/ci/toolchain.digest`.
+- **Pipelines for fork merge requests require a maintainer's approval** (Settings →
+  CI/CD → General pipelines), so code from a fork runs only once a maintainer has read
+  it.
+- A `kms`-tagged shell-executor runner with Docker, node 22.12 or later and pnpm, for releases. The
+  release jobs (`release`, `release-images`, `release-bundle`) use the Docker on that
+  host, not a `dind` service.
 - A `macos`-tagged runner for the `apple` shell audit. Without one that job waits, and
   the release with it.
+- For the weekly `advisory-refresh`: a pipeline schedule on the default branch and the
+  `MIDGARD_MR_TOKEN` variable ([Dependency updates](#dependency-updates)). The job uses
+  the Docker-in-Docker executor and needs to reach github.com and
+  osv-vulnerabilities.storage.googleapis.com.
+
+### Publishing the toolchain image
+
+Merge-request jobs no longer build the toolchain image; they run the one published
+from a protected branch. To publish it, the first time and whenever
+`deploy/acceptance/Dockerfile` changes:
+
+1. On `main` (or `dev`), *Run pipeline* with `MIDGARD_RELEASE_MODE` empty. The
+   `toolchain-publish` job builds the Dockerfile, pushes it as
+   `$CI_REGISTRY_IMAGE/toolchain:<dockerfile-sha16>` and prints the digest it was
+   given. It fails while that digest is not the one committed.
+2. Commit the two lines it prints to `tools/ci/toolchain.digest` through a merge
+   request, and set `MIDGARD_TOOLCHAIN_DIGEST` to the same digest. Until the variable
+   and the file agree, every `.toolchain` job fails, closed.
+3. Running it again is safe: it finds the committed image published from this
+   Dockerfile and pushes nothing. Keep that digest in the registry (exclude
+   `toolchain` from cleanup policies), or merge-request jobs cannot start.
+
+Until the first publish, merge-request pipelines on GitLab fail at that first step:
+the file holds no digest yet, by design.
+
+### Offline, without a network sandbox
+
+A job inside the published image has no Docker daemon to start a `--network none`
+container with, so on GitLab merge requests the offline property rests on Cargo: every
+crate resolves from `/vendor` (`.cargo/config.toml`, held to `Cargo.lock` by the
+`vendor` job in the hygiene stage), and `CARGO_NET_OFFLINE=true` (set by `.toolchain`
+and by `in-toolchain.sh` in place) makes every cargo invocation `--offline`, so a step
+that reached for a crate fails rather than fetching it. A script that opened a socket
+itself would not be stopped; that is the residual recorded as "CI runner compromise"
+in the [residual-risk register](../compliance/RESIDUAL_RISK_REGISTER.md).
+`--network none` stays wherever a daemon is: on GitHub, on developers' machines, on
+the `kms` release runners and in GitLab's `acceptance` job.
+
+The gate record still requires `--network none` for both its parts. GitLab's `test`
+job records `network=offline`, which `gate-record.sh` refuses, so make the record from
+a GitHub run or a local `just gate-run`.
+
+### Pinned images
+
+Every image and service in `.gitlab-ci.yml` is pinned by the multi-arch index digest
+the registry served for its tag on the date recorded beside it. Refresh a pin
+deliberately:
+
+```bash
+docker buildx imagetools inspect node:22-bookworm --format '{{json .Manifest.Digest}}'
+```
+
+and record the new date. `node:22-bookworm` must stay at Node 22.12 or later.
+
+The images are still pulled from Docker Hub. The owner should mirror them into the
+project registry and switch each reference to
+`$CI_REGISTRY_IMAGE/mirror/<name>:<tag>@sha256:<digest>`, keeping the same digest.
+
+### Owner actions, and the evidence they leave
+
+These are settings on the GitLab instance, not files in this repository. A CodeLab
+administrator:
+
+1. mirrors the pinned base images into the project registry, and switches the
+   references in `.gitlab-ci.yml` to the mirror;
+2. provides an unprivileged Docker executor for merge-request jobs;
+3. assigns the privileged Docker-in-Docker runner to protected branches and tags only,
+   and tags it `protected`;
+4. runs `toolchain-publish` on `main`, commits the digest, and sets the protected CI/CD
+   variable `MIDGARD_TOOLCHAIN_DIGEST` from `tools/ci/toolchain.digest`;
+5. turns on approval for pipelines from fork merge requests;
+6. exports the runner and project CI/CD settings to
+   `docs/compliance/evidence/gitlab-ci-settings-<YYYY-MM-DD>.md`, recording: each
+   runner, its executor, whether it is privileged, its tags and whether it runs only
+   on protected refs; the fork merge-request pipeline setting; and the
+   `MIDGARD_TOOLCHAIN_DIGEST` variable's value and protection.
 
 ## What has and has not been exercised
 
@@ -305,7 +583,9 @@ test. Three things to expect on that first run:
 
 - The hosted runners' disk. Two release builds of the workspace plus the debug build
   are large; if a job runs out of space, split it or use a larger runner.
-- The container images named in `.gitlab-ci.yml` are pinned by tag, not by digest.
+- The container images named in `.gitlab-ci.yml` are pinned by digest, but still
+  pulled from Docker Hub until they are mirrored, and the toolchain image has not yet
+  been published to a project registry.
 - `release-images`, `release-bundle` and `release-publish` have never run end to end:
   they need the signing runner, the service base image and real keys. The image
   build's reproducibility was checked here on a stand-in base image, not on the real

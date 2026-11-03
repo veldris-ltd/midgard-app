@@ -69,7 +69,7 @@ pub use release_floor::{Admission, ReleaseFloor, ReleaseVersion, RollbackError};
 #[cfg(feature = "custody")]
 pub use backend::{FileSigner, KmsSigner};
 #[cfg(feature = "custody")]
-pub use keystore::{DevKeyFile, Keystore};
+pub use keystore::{DevKeyFile, Keystore, RootWrap};
 
 /// The crypto provider this crate verifies and signs with.
 ///

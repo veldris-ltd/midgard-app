@@ -7,7 +7,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use audit_writer::{verify_chain, FileLedger, LedgerId, LedgerStore};
 use governance::Governance;
 use http_gateway::http::Request;
@@ -31,6 +33,10 @@ fn scratch(tag: &str) -> PathBuf {
 /// Run `mg-admin` with `args`, feeding `stdin` through a pipe.
 fn mg_admin(args: &[&str], stdin: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_mg-admin"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -108,7 +114,8 @@ fn init_lays_out_a_state_directory_and_never_overwrites_one() {
     }
     let policy = parse_policy(&std::fs::read_to_string(state.policy()).unwrap())
         .expect("the starter policy loads");
-    assert_eq!(policy.rules().len(), 4);
+    // Read, Apply and Approve, and ReadAudit on the ledger view. [VLD-ANB-MIDGARD-0031]
+    assert_eq!(policy.rules().len(), 7);
     let ontology = parse_ontology(&std::fs::read_to_string(state.ontology()).unwrap())
         .expect("the starter ontology loads");
     assert!(ontology.object_types.is_empty());
@@ -182,7 +189,11 @@ fn user_add_enrols_and_refuses_what_it_should() {
     // Exactly the two enrolments are in the governance ledger — none of the refused
     // attempts — and the chain verifies under the audit key.
     let state = StateDir::new(&dir);
-    let audit = Keystore::read(&state.audit_keystore()).expect("audit keystore");
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("audit keystore");
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let ledger = FileLedger::open(state.ledger(), Box::new(sealer), LedgerId(LEDGER_ID.into()))
         .expect("the ledger opens");
@@ -237,7 +248,11 @@ fn a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway() {
 
     // Open the directory the way a gateway serving this state directory does.
     let state = StateDir::new(&dir);
-    let keystore = Keystore::read(&state.idp_keystore()).expect("issuer keystore");
+    let keystore = Keystore::read(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("issuer keystore");
     let sealer = KmsSealer::new(Kms::new(fips_provider(), keystore.trust_root()));
     let directory =
         DurableDirectory::open(state.directory(), Box::new(sealer)).expect("directory opens");

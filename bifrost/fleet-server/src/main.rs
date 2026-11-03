@@ -5,6 +5,10 @@
 //! bifrost-fleet --identity-dir DIR --state-dir DIR
 //!               [--service NAME] [--purpose P] [--stale-after SECONDS]
 //!               [--bind ADDR] [--health-bind ADDR]
+//!               [--max-connections N] [--idle-timeout SECONDS]
+//!               [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
+//!               [--heartbeat-journal-interval SECONDS]
+//!               [--resource-marking BAND[:COMPARTMENT,...]]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
@@ -16,8 +20,27 @@
 //! (default 300) is reported stale. PQ-mTLS is served on `--bind` (default
 //! `0.0.0.0:7740`); `/healthz`, `/readyz` and `/metrics` on `--health-bind` (default
 //! `0.0.0.0:9090`).
+//!
+//! The mesh listener serves at most `--max-connections` connections at once (default
+//! 128), and closes one that sends nothing for `--idle-timeout` seconds (default 30).
+//! Each certified peer may make `--rate-burst` requests in a burst (default 10),
+//! refilled at `--rate-per-sec` a second (default 0.1, one check-in every 10 s; a
+//! burst and a rate of 0 turn the limit off), and a connection is closed after
+//! `--requests-per-conn` requests (default 1000; 0 is unlimited). These are the
+//! shared mesh limits with the fleet's own defaults: a fleet agent checks in rarely,
+//! so one identity cannot grow the journal and ledger faster than that. Raise
+//! `--rate-per-sec` for a dense fleet. A value that is not a number is a usage error.
+//! [VLD-ANB-MIDGARD-0004] [VLD-ANB-MIDGARD-0042]
+//!
+//! A check-in that changes nothing is journalled as a heartbeat at most once every
+//! `--heartbeat-journal-interval` seconds per installation (default `--stale-after`),
+//! so after a restart a node's last-seen time is known to within that interval.
+//! [VLD-ANB-MIDGARD-0042]
+//!
+//! The service's resources are marked `--resource-marking` (a band, optionally with
+//! compartments; default `open`): a peer is authorised against it at the clearance its
+//! certificate grants. [VLD-ANB-MIDGARD-0063]
 
-use std::collections::BTreeSet;
 use std::net::TcpListener;
 use std::path::Path;
 use std::sync::Arc;
@@ -26,36 +49,61 @@ use bifrost_fleet::DurableFleet;
 use bifrost_fleet_server::{parse_channels, FleetService};
 use gateway::Gateway;
 use governance::Governance;
-use policy::{
-    ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
-};
+use policy::{DefaultPdp, PolicyDecisionPoint, Purpose, Resource, ResourceId};
 use pqc_agility::backend::fips::provider as fips_provider;
+use service_runtime::marking::{open_marking, parse_marking};
 use service_runtime::policy_file::parse_policy;
 use service_runtime::{
-    serve_mesh, spawn_health_port, unix_seconds, Args, DirLock, ServiceIdentity,
+    apply_mesh_limits, mesh_limits_from_args_over, serve_mesh_with, spawn_health_port,
+    unix_seconds, Args, DirLock, MeshLimits, ServiceIdentity,
 };
 use telemetry::{HealthRegistry, Logger, MetricsRegistry, StdoutJsonSink, Toggle};
 
-const USAGE: &str = "usage: bifrost-fleet --identity-dir DIR --state-dir DIR [--service NAME] \
-                     [--purpose P] [--stale-after SECONDS] [--bind ADDR] [--health-bind ADDR]";
+const USAGE: &str = "usage: bifrost-fleet --identity-dir DIR [--keystore-passphrase-file PATH] \
+                     --state-dir DIR [--service NAME] \
+                     [--purpose P] [--stale-after SECONDS] \
+                     [--resource-marking BAND[:COMPARTMENT,...]] [--bind ADDR] [--health-bind ADDR] \
+                     [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
+                     [--rate-per-sec N] [--requests-per-conn N] \
+                     [--heartbeat-journal-interval SECONDS]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "bifrost-fleet-audit";
 /// The id the fleet journal is sealed under.
 const FLEET_ID: &str = "bifrost-fleet";
 
+/// The fleet's defaults for the shared mesh limits: a burst of 10 and one request
+/// every 10 s per identity, and 1,000 requests a connection. [VLD-ANB-MIDGARD-0042]
+fn fleet_limits() -> MeshLimits {
+    MeshLimits {
+        rate_burst: 10.0,
+        rate_per_sec: 0.1,
+        requests_per_conn: 1_000,
+        ..MeshLimits::default()
+    }
+}
+
 fn main() {
+    service_runtime::harden_process("bifrost-fleet");
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match Args::parse(
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "state-dir",
             "service",
             "purpose",
+            "resource-marking",
             "stale-after",
             "bind",
             "health-bind",
+            "max-connections",
+            "idle-timeout",
+            "rate-burst",
+            "rate-per-sec",
+            "requests-per-conn",
+            "heartbeat-journal-interval",
         ],
         &[],
     ) {
@@ -65,22 +113,41 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = run(&args) {
+    let limits = match mesh_limits_from_args_over(&args, fleet_limits()) {
+        Ok(limits) => limits,
+        Err(e) => {
+            eprintln!("bifrost-fleet: {e}\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = run(&args, &limits) {
         eprintln!("bifrost-fleet: {e}");
         std::process::exit(1);
     }
 }
 
-fn run(args: &Args) -> Result<(), String> {
+fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
     let service = args.get("service").unwrap_or("bifrost-fleet");
     let identity_dir = args.require("identity-dir")?;
     let state_dir = Path::new(args.require("state-dir")?);
     let purpose = args.get("purpose").unwrap_or("fleet-management");
+    // What the service's resources are marked at: a channel and a request are authorised
+    // against it with the peer's certified clearance. Default open. [VLD-ANB-MIDGARD-0063]
+    let marking = match args.get("resource-marking") {
+        Some(spec) => parse_marking(spec).map_err(|e| format!("--resource-marking: {e}"))?,
+        None => open_marking(),
+    };
     let stale_after = match args.get("stale-after") {
         Some(s) => s
             .parse::<u64>()
             .map_err(|_| format!("--stale-after must be a whole number of seconds, not '{s}'"))?,
         None => 300,
+    };
+    let heartbeat = match args.get("heartbeat-journal-interval") {
+        Some(s) => s.parse::<u64>().map_err(|_| {
+            format!("--heartbeat-journal-interval must be a whole number of seconds, not '{s}'")
+        })?,
+        None => stale_after,
     };
     let logger = Logger::new(service, &StdoutJsonSink);
 
@@ -90,15 +157,25 @@ fn run(args: &Args) -> Result<(), String> {
     health.register(Box::new(state_ready.clone()));
     health.register(Box::new(mesh_ready.clone()));
     let metrics = Arc::new(MetricsRegistry::new());
-    let health_addr = spawn_health_port(
-        args.get("health-bind").unwrap_or("0.0.0.0:9090"),
-        Arc::new(health),
-        metrics.clone(),
-    )
-    .map_err(|e| format!("cannot bind the health port: {e}"))?;
+    let health_bind = args.get("health-bind").unwrap_or("0.0.0.0:9090");
+    if health_bind.starts_with("0.0.0.0") || health_bind.starts_with("[::]") {
+        eprintln!(
+            "bifrost-fleet: WARNING health port binds every interface ({health_bind}); restrict \
+             it with NetworkPolicy or a pod address. [VLD-ANB-MIDGARD-0027]"
+        );
+    }
+    let health_addr = spawn_health_port(health_bind, Arc::new(health), metrics.clone())
+        .map_err(|e| format!("cannot bind the health port: {e}"))?;
 
     let _lock = DirLock::acquire(state_dir, "fleet.lock", service)?;
-    let identity = ServiceIdentity::load(identity_dir, service)?;
+    let identity = ServiceIdentity::load(
+        identity_dir,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
 
     let read = |name: &str| {
         let path = state_dir.join(name);
@@ -124,7 +201,8 @@ fn run(args: &Args) -> Result<(), String> {
         identity.data_sealer()?,
         FLEET_ID,
     )
-    .map_err(|e| format!("the fleet journal does not open: {e}"))?;
+    .map_err(|e| format!("the fleet journal does not open: {e}"))?
+    .with_heartbeat_interval(heartbeat);
     for (name, desired) in channels {
         if fleet.fleet().channel_desired(&name) != Some(&desired) {
             fleet
@@ -137,10 +215,7 @@ fn run(args: &Args) -> Result<(), String> {
 
     let resource = |id: &str| Resource {
         id: ResourceId(id.into()),
-        marking: Marking {
-            level: ClassificationLevel::UNCLASSIFIED,
-            compartments: BTreeSet::new(),
-        },
+        marking: marking.clone(),
         allowed_purposes: [Purpose(purpose.to_string())].into_iter().collect(),
     };
     let fleet_service = FleetService::new(
@@ -153,14 +228,17 @@ fn run(args: &Args) -> Result<(), String> {
         metrics.clone(),
     );
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
-    let gateway = Gateway::new(
-        Arc::new(fips_provider()),
-        identity.cert.clone(),
-        identity.signing_key.clone(),
-        identity.anchor.clone(),
-        channel_pdp,
-        resource("bifrost-fleet-channel"),
-        Arc::new(fleet_service.router()),
+    let gateway = apply_mesh_limits(
+        Gateway::new(
+            Arc::new(fips_provider()),
+            identity.cert.clone(),
+            identity.signing_key.clone(),
+            identity.anchor.clone(),
+            channel_pdp,
+            resource("bifrost-fleet-channel"),
+            Arc::new(fleet_service.router()),
+        ),
+        limits,
     );
 
     let listener = TcpListener::bind(args.get("bind").unwrap_or("0.0.0.0:7740"))
@@ -175,9 +253,10 @@ fn run(args: &Args) -> Result<(), String> {
             ("mesh", &mesh_addr.to_string()),
             ("health", &health_addr.to_string()),
             ("roles", &identity.roles().join(",")),
+            ("limits", &limits.to_string()),
             ("recovered_audit_entries", &recovered.to_string()),
             ("installations", &installations.to_string()),
         ],
     );
-    serve_mesh(service, listener, gateway, metrics)
+    serve_mesh_with(service, listener, gateway, metrics, limits.listener)
 }

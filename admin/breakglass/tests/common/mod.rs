@@ -1,10 +1,12 @@
 //! Passkey-enrolled administrators for the break-glass tests: every session here
 //! comes from a verified WebAuthn assertion, as it does in the panel. [MG-SEC-07]
+//! [`Admins::sign_in`] also records the second factor the relying party verified,
+//! since a passkey alone is not MFA. [VLD-ANB-MIDGARD-0008]
 #![allow(dead_code)]
 
 use admin_identity::{
-    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, IdentityDirectory, IdentityError,
-    ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator,
+    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, AuthFactor, IdentityDirectory,
+    IdentityError, ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::Rng;
@@ -102,7 +104,7 @@ impl Admins {
 
     /// Sign in as `claimed`, answering the challenge with `key_of`'s passkey and the
     /// given user-verification flag. Only a matching, verified assertion yields a
-    /// session.
+    /// session, and it holds the passkey factor alone: not MFA. [VLD-ANB-MIDGARD-0008]
     pub fn try_sign_in(
         &mut self,
         claimed: &str,
@@ -118,9 +120,13 @@ impl Admins {
             .sign_in(&AdminId(claimed.into()), &challenge, &assertion, now)
     }
 
-    /// `name` signs in with their own passkey at `now`.
+    /// `name` signs in with their own passkey at `now`, and the relying party verified
+    /// their one-time code: the second factor. [AC-10.2] [VLD-ANB-MIDGARD-0008]
     pub fn sign_in(&mut self, name: &str, now: u64) -> AdminSession {
-        self.try_sign_in(name, name, true, now)
-            .expect("an administrator signs in with their own passkey")
+        let mut s = self
+            .try_sign_in(name, name, true, now)
+            .expect("an administrator signs in with their own passkey");
+        s.record_factor(AuthFactor::Totp);
+        s
     }
 }

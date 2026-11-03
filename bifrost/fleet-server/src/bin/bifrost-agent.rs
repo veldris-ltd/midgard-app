@@ -8,21 +8,28 @@
 //!               [--purpose P]
 //! bifrost-agent --identity-dir DIR --addr HOST:PORT --status [--service NAME]
 //!               [--server NAME] [--purpose P]
+//! bifrost-agent --identity-dir DIR --addr HOST:PORT --set-channel ID --channel C
+//!               [--service NAME] [--server NAME] [--purpose P]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME defaults
 //! to `fleet-agent`). The manager at `--addr` must hold the mesh identity `--server`
 //! (default `bifrost-fleet`); any other is refused before anything is sent. An installation checks in under its own name: `--install-id`
 //! defaults to NAME, and the manager refuses a check-in for any other. `--status` prints
-//! the fleet as JSON. Exits 1 when the manager refuses.
+//! the fleet as JSON. `--set-channel ID`, as an operator, moves installation ID to
+//! the configured channel `--channel`: an installation checks in only on the channel
+//! it registered on until an operator moves it. [VLD-ANB-MIDGARD-0042] Exits 1 when
+//! the manager refuses.
 
-use bifrost_fleet::AgentReport;
-use bifrost_fleet_server::{outcome, CHECK_IN, FLEET_STATUS};
+use bifrost_fleet::{AgentReport, ChannelAssignment};
+use bifrost_fleet_server::{outcome, CHECK_IN, FLEET_STATUS, SET_CHANNEL};
 use bifrost_rollout::VersionId;
 use service_runtime::{client, Args, ServiceIdentity};
 
-const USAGE: &str = "usage: bifrost-agent --identity-dir DIR --addr HOST:PORT \
-                     (--channel C --version V [--install-id ID] [--unhealthy] | --status) \
+const USAGE: &str = "usage: bifrost-agent --identity-dir DIR [--keystore-passphrase-file PATH] \
+                     --addr HOST:PORT \
+                     (--channel C --version V [--install-id ID] [--unhealthy] | --status \
+                     | --set-channel ID --channel C) \
                      [--service NAME] [--server NAME] [--purpose P]";
 
 fn main() {
@@ -31,6 +38,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "addr",
             "server",
             "service",
@@ -38,6 +46,7 @@ fn main() {
             "channel",
             "version",
             "install-id",
+            "set-channel",
         ],
         &["unhealthy", "status"],
     ) {
@@ -58,13 +67,32 @@ fn main() {
 
 fn run(args: &Args) -> Result<String, String> {
     let service = args.get("service").unwrap_or("fleet-agent");
-    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let identity = ServiceIdentity::load(
+        args.require("identity-dir")?,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
     let addr = args.require("addr")?;
     let purpose = args.get("purpose").unwrap_or("fleet-management");
     let server = args.get("server").unwrap_or("bifrost-fleet");
 
     if args.flag("status") {
         let response = client::call(&identity, addr, server, purpose, FLEET_STATUS, &[])?;
+        return answer(&response);
+    }
+    if let Some(install_id) = args.get("set-channel") {
+        let assignment = ChannelAssignment::new(install_id, args.require("channel")?);
+        let response = client::call(
+            &identity,
+            addr,
+            server,
+            purpose,
+            SET_CHANNEL,
+            &assignment.encode(),
+        )?;
         return answer(&response);
     }
 

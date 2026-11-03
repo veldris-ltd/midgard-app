@@ -7,7 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use pqc_agility::{OsRng, SigId};
 
 fn scratch(tag: &str) -> PathBuf {
@@ -22,6 +24,10 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn mg_model(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mg-model"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .output()
         .unwrap()
@@ -49,6 +55,14 @@ fn signed_model(dir: &Path, name: &str) -> (PathBuf, PathBuf, Vec<u8>) {
     let mut weights = b"GGUF\x03\x00\x00\x00".to_vec();
     weights.extend((0..3_000_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8));
     std::fs::write(&weights_path, &weights).unwrap();
+    // The published digest `sign` requires. [VLD-ANB-MIDGARD-0028]
+    let digest = pqc_agility::hash::sha256(&weights)
+        .iter()
+        .fold(String::new(), |mut s, b| {
+            use std::fmt::Write;
+            let _ = write!(s, "{b:02x}");
+            s
+        });
     let keystore = keys.join("model-signing.keystore");
     let out = mg_model(&[
         "sign",
@@ -68,6 +82,8 @@ fn signed_model(dir: &Path, name: &str) -> (PathBuf, PathBuf, Vec<u8>) {
         "--redistributable",
         "--keystore",
         s(&keystore),
+        "--sha256",
+        &digest,
     ]);
     assert!(out.status.success(), "{}", text(&out));
     (model, keys.join("model-signing.pub"), weights)
@@ -78,7 +94,12 @@ fn admission(dir: &Path, name: &str) -> (PathBuf, PathBuf) {
     let key = Keystore::generate(name, SigId::MlDsa65, &mut OsRng).unwrap();
     let keystore = dir.join(format!("{name}.keystore"));
     let anchor = dir.join(format!("{name}.pub"));
-    key.write(&keystore).unwrap();
+    key.write(
+        &keystore,
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     std::fs::write(&anchor, key.export_verifying_key()).unwrap();
     (keystore, anchor)
 }

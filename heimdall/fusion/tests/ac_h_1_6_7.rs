@@ -7,7 +7,10 @@
 //!   concretely. [NFR-PRV-1]
 //!
 //! The whole path uses the real FIPS backend for feed signatures, so this is not a
-//! mock: unauthenticated observations could not have reached fusion.
+//! mock: unauthenticated observations could not have reached fusion. Each feed's
+//! observations are numbered by a feed sequencer and the gateway's clock is fixed in
+//! the tests' logical time, so the replay checks admit them. [VLD-ANB-MIDGARD-0041]
+//! [AC-59.6]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
@@ -20,7 +23,9 @@ use fabric::store::{InMemoryStore, ObjectStore};
 use policy::{ClassificationLevel, Marking, Purpose};
 
 use heimdall_classify::RulesClassifier;
-use heimdall_feed_gateway::{sign_observation, FeedGateway, FeedRegistry, VerifiedObservation};
+use heimdall_feed_gateway::{
+    sign_observation, FeedGateway, FeedRegistry, FeedSequencer, VerifiedObservation,
+};
 use heimdall_fusion::{sync_to_fabric, FusionEngine, ENTITY_TYPE_ID};
 use heimdall_picture::{Attr, EntityId, FeedId, LayerId, Observation};
 
@@ -59,6 +64,7 @@ struct Harness {
     gateway: FeedGateway,
     radar_sk: SigningKey,
     sonar_sk: SigningKey,
+    sequencer: FeedSequencer,
 }
 
 impl Harness {
@@ -69,9 +75,10 @@ impl Harness {
         registry.register(FeedId("radar".into()), radar_vk);
         registry.register(FeedId("sonar".into()), sonar_vk);
         Self {
-            gateway: FeedGateway::new(registry, provider()),
+            gateway: FeedGateway::new(registry, provider()).with_clock(|| 100),
             radar_sk,
             sonar_sk,
+            sequencer: FeedSequencer::new(),
         }
     }
 
@@ -81,6 +88,7 @@ impl Harness {
         } else {
             &self.sonar_sk
         };
+        let obs = obs.with_sequence(self.sequencer.next());
         let signed = sign_observation(&FipsSig::new(ALG), sk, obs).unwrap();
         self.gateway
             .authenticate(&signed)
@@ -107,10 +115,22 @@ fn ac_h_1_multiple_feeds_fuse_into_one_layered_picture_with_toggles() {
 
     // Two feeds, two domains. Entity "A123" is observed twice (once per sweep) and
     // must fuse into a single tracked entity, not two.
-    engine.ingest(&h.verified("radar", obs("radar", "air-track", "A123", 100, 480.0)));
-    engine.ingest(&h.verified("radar", obs("radar", "air-track", "A124", 101, 100.0)));
-    engine.ingest(&h.verified("sonar", obs("sonar", "sea-track", "S9", 102, 12.0)));
-    engine.ingest(&h.verified("radar", obs("radar", "air-track", "A123", 105, 490.0)));
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A123", 100, 480.0)),
+        100,
+    );
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A124", 101, 100.0)),
+        101,
+    );
+    engine.ingest(
+        &h.verified("sonar", obs("sonar", "sea-track", "S9", 102, 12.0)),
+        102,
+    );
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A123", 105, 490.0)),
+        105,
+    );
 
     let picture = engine.picture();
 
@@ -155,9 +175,18 @@ fn ac_h_6_rules_classification_without_mimir() {
     let mut engine =
         FusionEngine::new().with_classifier(Box::new(RulesClassifier::with_default_rules()));
 
-    engine.ingest(&h.verified("radar", obs("radar", "air-track", "A123", 100, 480.0)));
-    engine.ingest(&h.verified("radar", obs("radar", "air-track", "A124", 101, 100.0)));
-    engine.ingest(&h.verified("sonar", obs("sonar", "sea-track", "S9", 102, 12.0)));
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A123", 100, 480.0)),
+        100,
+    );
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A124", 101, 100.0)),
+        101,
+    );
+    engine.ingest(
+        &h.verified("sonar", obs("sonar", "sea-track", "S9", 102, 12.0)),
+        102,
+    );
 
     let picture = engine.picture();
 
@@ -184,8 +213,14 @@ fn ac_h_7_full_path_runs_offline_and_projects_to_fabric() {
     let h = Harness::new();
     let mut engine =
         FusionEngine::new().with_classifier(Box::new(RulesClassifier::with_default_rules()));
-    engine.ingest(&h.verified("radar", obs("radar", "air-track", "A123", 100, 480.0)));
-    engine.ingest(&h.verified("sonar", obs("sonar", "sea-track", "S9", 102, 12.0)));
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A123", 100, 480.0)),
+        100,
+    );
+    engine.ingest(
+        &h.verified("sonar", obs("sonar", "sea-track", "S9", 102, 12.0)),
+        102,
+    );
 
     // Project the fused, classified picture into the fabric with a marking.
     let marking = Marking {
@@ -211,4 +246,47 @@ fn ac_h_7_full_path_runs_offline_and_projects_to_fabric() {
         a123.properties.get("classification"),
         Some(&fabric::value::Value::Text("fast-mover".into()))
     );
+}
+
+/// The track records when the service received each observation beside when the feed
+/// says it was observed, and which observation is newest is still decided by
+/// `observed_at`: an out-of-order arrival extends the track but does not replace the
+/// latest attributes, while `last_received` still moves forward. [FR-H-2]
+/// [VLD-ANB-MIDGARD-0015]
+#[test]
+fn received_at_is_recorded_separately_from_observed_at() {
+    let h = Harness::new();
+    let mut engine = FusionEngine::new();
+
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A123", 100, 480.0)),
+        5_000,
+    );
+    let a123 = engine.picture().entity(&EntityId("A123".into())).unwrap();
+    assert_eq!(a123.track.last_seen, 100);
+    assert_eq!(a123.track.last_received, 5_000);
+    assert_eq!(a123.last_received(), 5_000);
+
+    // Observed earlier, received later: the track widens, receipt moves on, the
+    // attributes stay those of the newer observation.
+    engine.ingest(
+        &h.verified("sonar", obs("sonar", "air-track", "A123", 90, 300.0)),
+        5_010,
+    );
+    let a123 = engine.picture().entity(&EntityId("A123".into())).unwrap();
+    assert_eq!(a123.track.first_seen, 90);
+    assert_eq!(a123.track.last_seen, 100);
+    assert_eq!(a123.track.last_received, 5_010);
+    assert_eq!(a123.track.observation_count, 2);
+    assert_eq!(a123.latest_attrs["speed"], Attr::Float(480.0));
+
+    // A receipt time that goes backwards does not move `last_received` back.
+    engine.ingest(
+        &h.verified("radar", obs("radar", "air-track", "A123", 110, 490.0)),
+        4_000,
+    );
+    let a123 = engine.picture().entity(&EntityId("A123".into())).unwrap();
+    assert_eq!(a123.track.last_seen, 110);
+    assert_eq!(a123.track.last_received, 5_010);
+    assert_eq!(a123.latest_attrs["speed"], Attr::Float(490.0));
 }

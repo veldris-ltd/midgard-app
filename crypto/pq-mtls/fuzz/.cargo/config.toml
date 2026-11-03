@@ -1,0 +1,10 @@
+# This directory is a developer tool, never built by the air-gapped toolchain: the
+# workspace excludes it and CI does not run it. libfuzzer-sys is not vendored, so here,
+# and only here, crates.io points back at the live sparse index. Run cargo from this
+# directory for this file to apply (see README.md). [NFR-SEC-1]
+
+[source.crates-io]
+replace-with = "crates-io-live"
+
+[source.crates-io-live]
+registry = "sparse+https://index.crates.io/"

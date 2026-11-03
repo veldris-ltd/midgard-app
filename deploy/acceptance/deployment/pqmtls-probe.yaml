@@ -9,6 +9,11 @@
 # The image must carry the probe binary at /usr/local/bin/pqmtls-probe (built with
 # --features backend-fips). Both sides share --ca-seed so they mutually trust an
 # ephemeral anchor; this checks the transport+crypto path, not production PKI.
+# __CA_SEED__ is a placeholder: run-deployment-tier.sh draws a fresh seed for each
+# run, logs it (so a run can be reproduced from its log) and refuses to apply the
+# manifest while the placeholder remains, so no fixed anchor is published here.
+# Both pods run as user and group 10001, never the image's group 0.
+# [VLD-ANB-MIDGARD-0075]
 ---
 apiVersion: v1
 kind: Pod
@@ -24,13 +29,17 @@ spec:
   securityContext:
     runAsNonRoot: true
     runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
     seccompProfile:
       type: RuntimeDefault
   containers:
     - name: responder
-      image: registry.enclosure.local/midgard/pqmtls-probe:0.0.0
+      # A sentinel: run-deployment-tier.sh substitutes MIDGARD_PROBE_IMAGE, pinned by
+      # digest, and refuses to apply this all-zero one. [VLD-ANB-MIDGARD-0012]
+      image: registry.enclosure.local/midgard/pqmtls-probe@sha256:0000000000000000000000000000000000000000000000000000000000000000
       command: ["pqmtls-probe"]
-      args: ["responder", "--listen", "0.0.0.0:8443", "--ca-seed", "40402"]
+      args: ["responder", "--listen", "0.0.0.0:8443", "--ca-seed", "__CA_SEED__"]
       ports:
         - name: mtls
           containerPort: 8443
@@ -118,6 +127,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       # Force onto a different node than the responder → genuine cross-host.
@@ -130,13 +141,15 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: initiator
-          image: registry.enclosure.local/midgard/pqmtls-probe:0.0.0
+          # A sentinel: run-deployment-tier.sh substitutes MIDGARD_PROBE_IMAGE, pinned by
+          # digest, and refuses to apply this all-zero one. [VLD-ANB-MIDGARD-0012]
+          image: registry.enclosure.local/midgard/pqmtls-probe@sha256:0000000000000000000000000000000000000000000000000000000000000000
           command: ["/bin/sh", "-c"]
           # Wait for the responder Service to accept connections, then handshake.
           args:
             - |
               for i in $(seq 1 30); do
-                if pqmtls-probe initiator --connect pqmtls-responder:8443 --ca-seed 40402; then
+                if pqmtls-probe initiator --connect pqmtls-responder:8443 --ca-seed __CA_SEED__; then
                   exit 0
                 fi
                 sleep 2

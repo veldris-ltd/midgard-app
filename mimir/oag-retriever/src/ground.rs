@@ -31,15 +31,26 @@ pub struct GroundingFact {
 }
 
 impl GroundingFact {
-    /// A one-line rendering for the GROUNDING assembly layer.
+    /// A one-line rendering for the GROUNDING assembly layer. Every part (the
+    /// citation, the object type, each property name and value) is fabric data a
+    /// principal may have written, so each passes through
+    /// [`mimir_prompts::delimit::inline`]: control and zero-width characters are
+    /// removed and a newline cannot start a forged header line. The assembler then
+    /// places the line inside the GROUNDING DATA block. [VLD-ANB-MIDGARD-0080]
     pub fn line(&self) -> String {
+        use mimir_prompts::delimit::inline;
         let props = self
             .properties
             .iter()
-            .map(|(k, v)| format!("{k}: {v}"))
+            .map(|(k, v)| format!("{}: {}", inline(k), inline(v)))
             .collect::<Vec<_>>()
             .join(", ");
-        format!("[{}] {} {{ {} }}", self.citation, self.object_type, props)
+        format!(
+            "[{}] {} {{ {} }}",
+            inline(&self.citation),
+            inline(&self.object_type),
+            props
+        )
     }
 }
 

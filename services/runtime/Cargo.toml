@@ -15,6 +15,7 @@ backend-fips = [
     "audit-writer/backend-fips",
     "attest/backend-fips",
     "kms/backend-fips",
+    "governance/backend-fips",
 ]
 
 [dependencies]
@@ -29,13 +30,16 @@ gateway = { path = "../gateway" }
 audit-writer = { path = "../../crypto/audit-writer" }
 attest = { path = "../../crypto/attest" }
 kms = { path = "../kms" }
+# The per-request policy context every mesh service authorises under. [VLD-ANB-MIDGARD-0063]
+governance = { path = "../governance" }
 # Liveness, readiness and metrics — zero-dependency, cannot egress. [NFR-PRV-1]
 telemetry = { path = "../telemetry" }
 
 [dev-dependencies]
 # Tests certify service identities with a real issuer, as `mg-admin mesh issue` does.
 iam = { path = "../iam" }
-governance = { path = "../governance" }
+# Keystore fixtures: the inert test passphrase. [VLD-ANB-MIDGARD-0007]
+attest = { path = "../../crypto/attest", features = ["test-support"] }
 
 [lib]
 path = "src/lib.rs"

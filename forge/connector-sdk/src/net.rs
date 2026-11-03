@@ -23,7 +23,7 @@ pub fn connect(
     sandbox.check_egress(&target)?;
     let addrs = target
         .to_socket_addrs()
-        .map_err(|e| ConnectorError::Io(format!("cannot resolve {target}: {e}")))?;
+        .map_err(|e| ConnectorError::io_at(&target, format!("cannot resolve: {e}")))?;
     let mut last = None;
     for addr in addrs {
         match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
@@ -32,14 +32,17 @@ pub fn connect(
                     .set_read_timeout(Some(IO_TIMEOUT))
                     .and_then(|()| stream.set_write_timeout(Some(IO_TIMEOUT)))
                     .and_then(|()| stream.set_nodelay(true))
-                    .map_err(|e| ConnectorError::Io(format!("{target}: {e}")))?;
+                    .map_err(|e| ConnectorError::io_at(&target, e.to_string()))?;
                 return Ok(stream);
             }
             Err(e) => last = Some(e),
         }
     }
-    Err(ConnectorError::Io(match last {
-        Some(e) => format!("cannot connect to {target}: {e}"),
-        None => format!("{target} resolves to no address"),
-    }))
+    Err(ConnectorError::io_at(
+        &target,
+        match last {
+            Some(e) => format!("cannot connect: {e}"),
+            None => "resolves to no address".to_string(),
+        },
+    ))
 }

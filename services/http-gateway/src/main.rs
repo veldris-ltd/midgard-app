@@ -1,13 +1,27 @@
 //! http-gateway binary — the browser-facing HTTP/JSON edge for the console UIs.
 //!
 //! Usage:
-//!   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
-//!                [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
-//!                 [--mesh-purpose P]]
+//!   http-gateway --state-dir DIR [--keystore-passphrase-file FILE] [--audit-pin FILE]
+//!                [--checkpoint-mirror DIR] [--bind ADDR] [--allow-non-loopback]
+//!                [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR
+//!                 [--mesh-service NAME] [--mesh-purpose P]
+//!                 [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
 //!       origin to the CORS allowlist, which is otherwise empty.
+//!
+//!       ADDR (default 127.0.0.1:7710) must be loopback unless --allow-non-loopback is
+//!       given: the edge speaks plaintext HTTP, so another interface is only for a
+//!       gateway behind PQ-mTLS or TLS 1.3 termination, as in a container. Any other
+//!       address is a usage error. [RC-24] [VLD-ANB-MIDGARD-0032]
+//!
+//!       --keystore-passphrase-file names the file holding the passphrase the
+//!       keystores' custody roots are wrapped under (the state directory's and the
+//!       mesh identity's); without it the gateway reads the file named by
+//!       MIDGARD_KEYSTORE_PASSPHRASE_FILE, and with neither it refuses to start. Keep
+//!       the file off the state directory's volume and out of its backups.
+//!       [VLD-ANB-MIDGARD-0007]
 //!
 //!       --audit-pin names the audit verifying key the ledger is checked under — a
 //!       copy of `trust/audit.pub` kept outside DIR (a read-only mount, a config
@@ -27,6 +41,26 @@
 //!       --mesh-identity-dir (NAME defaults to `http-gateway`); policy.json decides
 //!       who may open the channel and `SyncRecords`, under --mesh-purpose (default
 //!       `data-integration`).
+//!
+//!       --max-connections (edge default 256, mesh door 128) and --idle-timeout
+//!       (seconds, default 30) bound both listeners. --edge-rate-per-sec (default 50; 0
+//!       is off) is how fast one source address may open connections to the edge.
+//!       --rate-burst (default 100), --rate-per-sec (default 20) and
+//!       --requests-per-conn (default 10000) limit each certified peer of the mesh
+//!       door. A value that is not a number is a usage error. [VLD-ANB-MIDGARD-0004]
+//!
+//!       --login-burst (default 20; 0 is off) and --login-per-sec (default 0.5) limit
+//!       login and administration attempts from one source address; past them the edge
+//!       answers 429 before checking any password. Under compose every client shares
+//!       the proxy's address, so this is one allowance for the whole site there.
+//!       [VLD-ANB-MIDGARD-0005]
+//!
+//!       --mesh-sync-clearance is the highest marking a sync may write: a band (`open`,
+//!       `internal`, `restricted`, `confidential`) and, after a colon, the compartments
+//!       it may carry, comma-separated. The default is the highest band with no
+//!       compartments, so syncing a compartmented object needs an explicit grant. A sync
+//!       may also never lower an object's marking, widen its purposes or touch an
+//!       object under a human gate. [VLD-ANB-MIDGARD-0001]
 //!   http-gateway --dev [ADDR]
 //!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
 //!       into an in-memory fabric, the published demo logins, an ephemeral issuer key.
@@ -48,9 +82,10 @@ use http_gateway::mesh_sync::spawn_mesh_listener;
 use http_gateway::policy_file::parse_policy;
 use http_gateway::state_dir::StateDir;
 use policy::DefaultPdp;
-use service_runtime::ServiceIdentity;
+use service_runtime::{MeshLimits, RootWrap, ServiceIdentity};
 
 fn main() {
+    service_runtime::harden_process("http-gateway");
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match cli::parse(&argv) {
         Ok(Command::Help) => {
@@ -68,20 +103,40 @@ fn main() {
             }
             return;
         }
-        Ok(Command::Serve(args)) => args,
+        Ok(Command::Serve(args)) => *args,
         Err(message) => fail_usage(&message),
     };
     let ServeArgs {
         state_dir,
+        keystore_passphrase_file,
         audit_pin,
         checkpoint_mirror,
         bind,
+        bind_policy,
         origins,
         mesh_bind,
         mesh_identity_dir,
         mesh_service,
         mesh_purpose,
+        edge,
+        mesh,
+        login_burst,
+        login_per_sec,
+        mesh_sync_clearance,
     } = args;
+
+    // Fail closed before touching anything: no passphrase, no keystore. [VLD-ANB-MIDGARD-0007]
+    let passphrase = match service_runtime::load_passphrase(
+        keystore_passphrase_file.as_deref(),
+        std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+    ) {
+        Ok(passphrase) => passphrase,
+        Err(e) => {
+            eprintln!("http-gateway: cannot serve {state_dir}: {e}");
+            exit(2);
+        }
+    };
+    let wrap = RootWrap::Passphrase(&passphrase);
 
     let state = StateDir::new(&state_dir);
     let pin_path = match audit_pin {
@@ -107,7 +162,7 @@ fn main() {
         }
     };
     let mirror = checkpoint_mirror.as_deref().map(std::path::Path::new);
-    let served = match open_state_dir_mirrored(&state, origins, &pin, mirror) {
+    let served = match open_state_dir_mirrored(&state, origins, &pin, mirror, &wrap) {
         Ok(served) => served,
         Err(e) => {
             eprintln!("http-gateway: cannot serve {state_dir}: {e}");
@@ -116,14 +171,25 @@ fn main() {
     };
     eprintln!(
         "http-gateway: serving the enclosure in {state_dir} — {} principal(s) enrolled, {} \
-         administrator(s), {} object type(s) and {} action(s) registered, {} audit entries \
-         recovered and re-verified",
+         administrator(s) ({} with a one-time-code secret), {} object type(s) and {} \
+         action(s) registered, {} audit entries recovered and re-verified",
         served.principals,
         served.administrators,
+        served.administrators_with_totp,
         served.object_types,
         served.actions,
         served.audit_entries
     );
+    if served.administrators_with_totp < served.administrators {
+        eprintln!(
+            "http-gateway: {} administrator(s) have no one-time-code secret and cannot \
+             administer; stop the gateway and run `mg-admin admin totp-reset --state-dir \
+             {state_dir} --admin <name>` for each",
+            served
+                .administrators
+                .saturating_sub(served.administrators_with_totp)
+        );
+    }
     if served.principals == 0 {
         eprintln!(
             "http-gateway: no principals are enrolled, so nobody can log in; stop the gateway \
@@ -132,8 +198,11 @@ fn main() {
     }
     // The lock lives as long as the process serves: no second gateway or mg-admin can
     // write this directory meanwhile.
-    let (gateway, _lock) = served.into_parts();
-    let gateway = Arc::new(gateway);
+    let (mut gateway, _lock) = served.into_parts();
+    if let Some(clearance) = mesh_sync_clearance {
+        gateway = gateway.with_sync_clearance(clearance);
+    }
+    let gateway = Arc::new(gateway.with_login_source_limit(login_burst, login_per_sec));
 
     if let (Some(mesh_bind), Some(identity_dir)) = (mesh_bind, mesh_identity_dir) {
         match start_mesh(
@@ -143,6 +212,8 @@ fn main() {
             &mesh_service,
             &mesh_purpose,
             &mesh_bind,
+            mesh,
+            &wrap,
         ) {
             Ok(addr) => eprintln!(
                 "http-gateway: serving SyncRecords over PQ-mTLS on {addr} as {mesh_service}"
@@ -154,12 +225,15 @@ fn main() {
         }
     }
 
-    if let Err(e) = http_gateway::serve_shared(&bind, gateway) {
+    if let Err(e) = http_gateway::serve_shared_with(&bind, gateway, bind_policy, edge) {
         eprintln!("http-gateway: failed to bind {bind}: {e}");
         exit(1);
     }
 }
 
+// The mesh door needs everything the serve options name for it, the limits (WP-11)
+// and the keystore passphrase (WP-50) among them.
+#[allow(clippy::too_many_arguments)]
 fn start_mesh(
     gateway: &Arc<DurableGateway>,
     state_dir: &str,
@@ -167,8 +241,10 @@ fn start_mesh(
     service: &str,
     purpose: &str,
     bind: &str,
+    limits: MeshLimits,
+    wrap: &RootWrap,
 ) -> Result<SocketAddr, String> {
-    let identity = ServiceIdentity::load(identity_dir, service)?;
+    let identity = ServiceIdentity::load(identity_dir, service, wrap)?;
     let policy_path = StateDir::new(state_dir).policy();
     let text = std::fs::read_to_string(&policy_path)
         .map_err(|e| format!("cannot read {}: {e}", policy_path.display()))?;
@@ -179,6 +255,7 @@ fn start_mesh(
         DefaultPdp::new(policy),
         bind,
         purpose,
+        limits,
     )
     .map_err(|e| format!("cannot bind {bind}: {e}"))
 }

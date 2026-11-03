@@ -5,14 +5,20 @@
 //! ## Guarantees & limits
 //! - **Zeroization** uses `zeroize` — an audited implementation whose drop glue is not
 //!   elided and which clears the backing storage. (Replaces the previous home-rolled
-//!   `write_volatile`.)
-//! - **Swap protection**: on construction the secret's pages are `mlock`ed (Unix); on
-//!   drop the bytes are zeroized and then `munlock`ed. mlock is **best-effort** — if
-//!   `RLIMIT_MEMLOCK` is exhausted or the platform lacks it, the secret is held
-//!   unlocked (zeroization still applies) and [`is_locked`](SecretBytes::is_locked)
-//!   reports `false`. On non-Unix targets locking is a no-op. Operators running the
-//!   enclosure should raise `RLIMIT_MEMLOCK` (or grant `CAP_IPC_LOCK`) so key material
-//!   locks reliably.
+//!   `write_volatile`.) [`SecretArray::new`] also wipes the by-value array it was
+//!   given once it has been copied to the heap.
+//! - **Swap protection** is process-wide: services call [`lock_process_memory`] at start
+//!   (`mlockall(MCL_CURRENT | MCL_FUTURE)`), so every page, secret or not, stays in RAM
+//!   for the life of the process. Until that succeeds, each secret's own pages are
+//!   `mlock`ed on construction as a fallback. Drop **never** unlocks: Linux locks are
+//!   page-granular and not reference-counted, so unlocking one small secret's range
+//!   would also unlock a page a long-lived key shares. Locked pages stay locked until
+//!   the process exits. [VLD-ANB-MIDGARD-0036]
+//! - Locking is **best-effort**: if `RLIMIT_MEMLOCK` is too low or the platform lacks
+//!   it, the secret is held unlocked (zeroization still applies) and
+//!   [`is_locked`](SecretBytes::is_locked) reports `false`. On non-Unix targets locking
+//!   is a no-op. Operators should set `RLIMIT_MEMLOCK` to unlimited (or grant
+//!   `CAP_IPC_LOCK` with an unlimited limit) so the process lock succeeds.
 //! - **Residual**: copies a *caller* leaves in CPU registers or spills to the stack
 //!   are outside these types' control. Construct secrets at their final size and never
 //!   grow them — a `Vec` realloc would move the buffer out from under the lock and
@@ -21,7 +27,7 @@
 //! Secret types deliberately do **not** implement `Clone` — copying key material must
 //! be explicit via `expose`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Once;
 
 use zeroize::Zeroize;
@@ -29,6 +35,8 @@ use zeroize::Zeroize;
 /// How many secrets this process failed to lock into RAM.
 static LOCK_FAILURES: AtomicU64 = AtomicU64::new(0);
 static LOCK_FAILURE_WARNING: Once = Once::new();
+/// Whether [`lock_process_memory`] has locked every current and future page.
+static PROCESS_LOCKED: AtomicBool = AtomicBool::new(false);
 
 /// How many secrets this process has failed to `mlock` since it started. A non-zero
 /// count means key material may reach swap; services export it as a metric. [MG-SEC-08]
@@ -51,9 +59,10 @@ fn report_lock_failure(len: usize) {
 
 /// Lock a byte range into RAM so it is never paged to swap. Best-effort: returns
 /// whether the lock succeeded, and reports a failure through [`mlock_failures`] and a
-/// one-time warning. Zero-length ranges are never locked.
+/// one-time warning. Zero-length ranges are never locked, and nothing is done once the
+/// whole process is locked.
 fn lock_pages(ptr: *const u8, len: usize) -> bool {
-    if len == 0 {
+    if len == 0 || process_locked() {
         return false;
     }
     #[cfg(unix)]
@@ -73,27 +82,61 @@ fn lock_pages(ptr: *const u8, len: usize) -> bool {
     }
 }
 
-/// Undo [`lock_pages`] for the same range. No-op on a range that was not locked.
-fn unlock_pages(ptr: *const u8, len: usize) {
-    if len == 0 {
-        return;
+/// Whether the whole process is locked into RAM (see [`lock_process_memory`]).
+fn process_locked() -> bool {
+    PROCESS_LOCKED.load(Ordering::Relaxed)
+}
+
+/// Lock every current and future page of this process into RAM with
+/// `mlockall(MCL_CURRENT | MCL_FUTURE)`, so no secret can reach swap and no secret's
+/// drop can unlock a page another secret shares. Services call this once at start,
+/// through `service_runtime::harden_process`. Idempotent. [VLD-ANB-MIDGARD-0036]
+///
+/// Best-effort: on failure the process keeps running with per-secret locks and this
+/// returns the reason. It is only attempted when `RLIMIT_MEMLOCK` is unlimited: with a
+/// finite limit, `MCL_FUTURE` would make every allocation past the limit fail, turning
+/// ordinary growth into an out-of-memory abort.
+pub fn lock_process_memory() -> Result<(), String> {
+    if process_locked() {
+        return Ok(());
     }
     #[cfg(unix)]
     {
-        // SAFETY: same range previously passed to `mlock`; the allocation is still
-        // live at drop time.
-        unsafe {
-            let _ = libc::munlock(ptr as *const libc::c_void, len);
+        let mut lim = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: `lim` is a valid, writable rlimit for getrlimit to fill.
+        if unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut lim) } != 0 {
+            return Err(format!(
+                "getrlimit(RLIMIT_MEMLOCK) failed: {}",
+                std::io::Error::last_os_error()
+            ));
         }
+        if lim.rlim_cur != libc::RLIM_INFINITY {
+            return Err(format!(
+                "RLIMIT_MEMLOCK is {} bytes, not unlimited",
+                lim.rlim_cur
+            ));
+        }
+        // SAFETY: mlockall takes only flags and mutates no memory.
+        if unsafe { libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE) } != 0 {
+            return Err(format!(
+                "mlockall failed: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        PROCESS_LOCKED.store(true, Ordering::Relaxed);
+        Ok(())
     }
     #[cfg(not(unix))]
     {
-        let _ = (ptr, len);
+        Err("mlockall is not available on this platform".to_string())
     }
 }
 
-/// Variable-length secret bytes: mlocked on construction, zeroized (and munlocked) on
-/// drop. Backs the long-lived PQ secret keys.
+/// Variable-length secret bytes: mlocked on construction (unless the whole process is
+/// locked), zeroized on drop. Backs the long-lived PQ secret keys.
 pub struct SecretBytes {
     buf: Vec<u8>,
     locked: bool,
@@ -122,20 +165,17 @@ impl SecretBytes {
         self.buf.is_empty()
     }
 
-    /// Whether the secret's pages are locked into RAM (mlock succeeded).
+    /// Whether the secret's pages are locked into RAM: its own mlock succeeded, or the
+    /// whole process is locked. An empty secret has no pages and is never locked.
     pub fn is_locked(&self) -> bool {
-        self.locked
+        self.locked || (!self.buf.is_empty() && process_locked())
     }
 }
 
 impl Drop for SecretBytes {
     fn drop(&mut self) {
-        // Capture the range before zeroize resets the length.
-        let (ptr, len) = (self.buf.as_ptr(), self.buf.len());
+        // Zeroize only. Unlocking here would unlock whole pages other secrets share.
         self.buf.zeroize();
-        if self.locked {
-            unlock_pages(ptr, len);
-        }
     }
 }
 
@@ -145,17 +185,20 @@ impl core::fmt::Debug for SecretBytes {
     }
 }
 
-/// Fixed-length secret bytes, mlocked + zeroized on drop. Preferred for known key
-/// sizes (its stable heap address makes the lock robust).
+/// Fixed-length secret bytes, mlocked on construction (unless the whole process is
+/// locked) and zeroized on drop. Preferred for known key sizes (its stable heap address
+/// makes the lock robust).
 pub struct SecretArray<const N: usize> {
     buf: Box<[u8; N]>,
     locked: bool,
 }
 
 impl<const N: usize> SecretArray<N> {
-    /// Wrap a fixed-size array.
-    pub fn new(buf: [u8; N]) -> Self {
+    /// Wrap a fixed-size array. The by-value `buf` is wiped once it has been copied to
+    /// the heap.
+    pub fn new(mut buf: [u8; N]) -> Self {
         let boxed = Box::new(buf);
+        buf.zeroize();
         let locked = lock_pages(boxed.as_ptr(), N);
         Self { buf: boxed, locked }
     }
@@ -175,19 +218,17 @@ impl<const N: usize> SecretArray<N> {
         &mut self.buf
     }
 
-    /// Whether the secret's pages are locked into RAM (mlock succeeded).
+    /// Whether the secret's pages are locked into RAM: its own mlock succeeded, or the
+    /// whole process is locked.
     pub fn is_locked(&self) -> bool {
-        self.locked
+        self.locked || (N > 0 && process_locked())
     }
 }
 
 impl<const N: usize> Drop for SecretArray<N> {
     fn drop(&mut self) {
-        let ptr = self.buf.as_ptr();
+        // Zeroize only. Unlocking here would unlock whole pages other secrets share.
         self.buf.as_mut_slice().zeroize();
-        if self.locked {
-            unlock_pages(ptr, N);
-        }
     }
 }
 
@@ -231,5 +272,48 @@ mod tests {
         let s = SecretBytes::new(Vec::new());
         assert!(!s.is_locked(), "a zero-length secret has no pages to lock");
         assert!(s.is_empty());
+    }
+
+    // [AC-51.3] [VLD-ANB-MIDGARD-0036] Dropping a secret must never unlock pages: Linux
+    // locks are page-granular, so unlocking a small secret's range would also unlock a
+    // long-lived key on the same page. The drops below run the real path, and the
+    // module is held to having no munlock call at all (the name is split so this test
+    // does not match itself).
+    #[test]
+    fn drop_does_not_unlock_pages() {
+        let keep = SecretArray::<32>::new([7; 32]);
+        let locked_before = keep.is_locked();
+        drop(SecretArray::<32>::new([1; 32]));
+        drop(SecretBytes::new(vec![2; 48]));
+        assert_eq!(keep.is_locked(), locked_before || process_locked());
+        assert_eq!(keep.expose(), &[7; 32]);
+
+        let src = include_str!("secret.rs");
+        let call = concat!("mun", "lock(");
+        assert!(
+            !src.contains(call),
+            "secret.rs must not call munlock: a per-secret unlock removes a neighbour's lock"
+        );
+    }
+
+    // [AC-51.3] [VLD-ANB-MIDGARD-0036]
+    #[test]
+    fn lock_process_memory_is_idempotent_and_best_effort() {
+        // Either outcome is acceptable (CI hosts usually have a finite RLIMIT_MEMLOCK).
+        // What matters: it never panics, once it has succeeded a repeat succeeds too,
+        // and is_locked() follows the process lock.
+        let first = lock_process_memory();
+        let second = lock_process_memory();
+        if first.is_ok() {
+            assert!(second.is_ok(), "a locked process stays locked");
+        }
+        assert_eq!(process_locked(), first.is_ok() || second.is_ok());
+        let s = SecretArray::<32>::new([3; 32]);
+        if process_locked() {
+            assert!(s.is_locked());
+        }
+        if let Err(why) = first {
+            assert!(!why.is_empty());
+        }
     }
 }

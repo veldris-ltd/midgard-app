@@ -3,12 +3,16 @@
 # staged for compose into the cluster, verify the model there, and turn on the chart's
 # modelServing for mimir-server. Safe to run again. [FR-MI-1] [AC-MI-7] [RC-33]
 #
-#   bash deploy/kind/model.sh
+#   bash deploy/kind/model.sh [--development]
 #
 # Downloads nothing. It needs:
 #   - the cluster from deploy/kind/up.sh
 #   - the model staged by `bash deploy/compose/stage-model.sh` (the midgard-models volume:
-#     the weights, the signed manifest and the model-signing public key)
+#     the weights and the signed manifest)
+#   - the model-signing public key: deploy/trust/model-signing.pub in this checkout,
+#     committed by the key ceremony; or, with --development, the development key
+#     `stage-model.sh --development` left in the midgard-model-trust volume. The trust
+#     ConfigMap is built from that, never from the models volume. [VLD-ANB-MIDGARD-0028]
 #   - the llama.cpp image already pulled by its pinned digest
 #
 # The weights go into a PersistentVolumeClaim, `mimir-models`, on the node that holds
@@ -31,10 +35,23 @@ LLAMA_PINNED=ghcr.io/ggml-org/llama.cpp@sha256:bbf6fde2eedbe1b6c8ee9d93a54ea4606
 LLAMA_LOCAL=midgard/llama-cpp:bbf6fde2
 GGUF=granite-3.3-2b-instruct-Q4_K_M.gguf
 LOADER=mimir-model-loader
+ANCHOR=deploy/trust/model-signing.pub
+development=0
+case "${1:-}" in
+    --development) development=1 ;;
+    "") ;;
+    *) echo "usage: $0 [--development]" >&2; exit 2 ;;
+esac
 
 native() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else echo "$1"; fi; }
 fromvolume() { docker run --rm --network none -v midgard-models:/models "$IMAGE" "$@"; }
 
+if [ "$development" = 0 ] && [ ! -s "$ANCHOR" ]; then
+    echo "model: $ANCHOR is not committed. The key ceremony publishes the model-signing" >&2
+    echo "  key's public half there (docs/ops/KEY_CEREMONY.md); mimir-server trusts no other." >&2
+    echo "  For a model staged with stage-model.sh --development, run: $0 --development" >&2
+    exit 1
+fi
 fromvolume test -f /models/granite/model.manifest || {
     echo "model: stage it first: bash deploy/compose/stage-model.sh PATH/TO/$GGUF" >&2
     exit 1
@@ -68,7 +85,13 @@ docker save --platform "$platform" -o "$(native "$work/llama-cpp.tar")" "$LLAMA_
 $KIND load image-archive "$(native "$work/llama-cpp.tar")" --name "$CLUSTER"
 
 echo "--- the model-signing trust key"
-fromvolume cat /models/trust/model-signing.pub > "$work/model-signing.pub"
+if [ "$development" = 1 ]; then
+    echo "WARNING: this deployment trusts a development model-signing key; production anchors come from deploy/trust" >&2
+    docker run --rm --network none -v midgard-model-trust:/model-trust:ro "$IMAGE" \
+        cat /model-trust/model-signing.pub > "$work/model-signing.pub"
+else
+    cp "$ANCHOR" "$work/model-signing.pub"
+fi
 $KUBECTL -n "$NS" create configmap mimir-model-trust \
     --from-file="$(native "$work/model-signing.pub")" --dry-run=client -o yaml \
     | $KUBECTL -n "$NS" apply -f - >/dev/null

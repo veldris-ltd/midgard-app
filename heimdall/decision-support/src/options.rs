@@ -106,10 +106,19 @@ impl OptionSet {
             Some(items) => items.iter().map(parse_option).collect::<Result<_, _>>()?,
         };
 
-        Ok(OptionSet {
+        let set = OptionSet {
             options,
             unsupported,
-        })
+        };
+        // Duplicate or gapped ranks are a malformed response, not something to
+        // repair: the operator must see the order the model meant, or nothing.
+        // [VLD-ANB-MIDGARD-0079]
+        if !set.is_well_ranked() {
+            return Err(DecisionError::Parse(
+                "options must be ranked 1..n without gaps or duplicates".into(),
+            ));
+        }
+        Ok(set)
     }
 
     /// Whether the ranks are well-formed: strictly increasing and distinct, starting
@@ -119,6 +128,60 @@ impl OptionSet {
             .iter()
             .enumerate()
             .all(|(i, o)| o.rank as usize == i + 1)
+    }
+}
+
+/// A course of action **every one of whose citations resolved against the
+/// picture**. Only the decision-support adapter can make one (the constructor is
+/// crate-private), and its fields are read-only, so anything built from it — the
+/// workflow's proposed action and its sealed audit lineage — can only carry
+/// evidence that exists. [FR-H-4] [VLD-ANB-MIDGARD-0079]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroundedOption {
+    coa: CourseOfAction,
+}
+
+impl GroundedOption {
+    /// Wrap a course of action the adapter has grounded. Crate-private: grounding
+    /// is the adapter's job alone.
+    pub(crate) fn new(coa: CourseOfAction) -> Self {
+        Self { coa }
+    }
+
+    /// Rank within the grounded option set (1 = best).
+    pub fn rank(&self) -> u32 {
+        self.coa.rank
+    }
+
+    /// Short title.
+    pub fn title(&self) -> &str {
+        &self.coa.title
+    }
+
+    /// Plain-English summary.
+    pub fn summary(&self) -> &str {
+        &self.coa.summary
+    }
+
+    /// The cited evidence, every item of which resolved against the picture.
+    pub fn citations(&self) -> &[Citation] {
+        &self.coa.citations
+    }
+
+    /// The model's stated expected effect.
+    pub fn expected_effect(&self) -> &str {
+        &self.coa.expected_effect
+    }
+
+    /// The model's stated risks.
+    pub fn risks(&self) -> &[String] {
+        &self.coa.risks
+    }
+
+    /// The underlying course of action (a copy for display; it no longer carries
+    /// the grounding guarantee).
+    pub fn into_inner(self) -> CourseOfAction {
+        self.coa
     }
 }
 

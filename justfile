@@ -64,9 +64,12 @@ compose-smoke:
     bash deploy/compose/smoke.sh
 
 # Stage the default Granite model (Apache-2.0) for compose: copy the downloaded GGUF
-# into the models volume, sign it with a development model key and verify it.
-model-stage GGUF="":
-    bash deploy/compose/stage-model.sh {{GGUF}}
+# into the models volume, sign it and verify it against the committed anchor
+# deploy/trust/model-signing.pub. `just model-stage --development GGUF` signs with a
+# development key instead (start compose with compose.dev-model.yaml as well).
+# [VLD-ANB-MIDGARD-0028]
+model-stage *ARGS:
+    bash deploy/compose/stage-model.sh {{ARGS}}
 
 # Serve Granite through compose on throwaway state: a certified inference call must be
 # answered by the real model. Needs the llama.cpp server image pinned in
@@ -88,8 +91,10 @@ kind-smoke:
 # Serve Granite on the kind cluster: load the pinned llama.cpp image and the model staged
 # for compose (`just model-stage`) into the cluster, verify it there, and turn on the
 # chart's modelServing. Keep it across `kind-up` with MIDGARD_KIND_MODEL=granite.
-kind-granite:
-    bash deploy/kind/model.sh
+# `just kind-granite --development` trusts the development key `model-stage
+# --development` made, in place of deploy/trust/model-signing.pub.
+kind-granite *ARGS:
+    bash deploy/kind/model.sh {{ARGS}}
 
 kind-down:
     kind delete cluster --name midgard
@@ -141,6 +146,65 @@ lint:
     cargo clippy -p midgard-client-enclosure -p midgard-client-inference --features test-backend --all-targets -- -D warnings
     cargo clippy -p telemetry --all-targets -- -D warnings
     cargo clippy -p heimdall-store -p mimir-bridge -p admin-orchestrator -p mg-model --features backend-fips --all-targets -- -D warnings
+
+# The insecure test backend cannot reach a release binary, and the compile guard that
+# stops it still fires. pqc-agility's `test-backend` is a seeded, forgeable RNG for
+# `cargo test` only; its release guard is keyed on the `midgard_release` cfg its
+# build.rs sets for release-profile builds. CI runs this as the `check-backends` job.
+# [RT-08] [NFR-PQ-3] [VLD-ANB-MIDGARD-0067]
+check-backends:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Each package with the features Cargo resolved for it, one per line ("name
+    # version (path) feat,feat"), over normal and build edges and every target. Read
+    # from `{p} {f}` rather than from the feature-edge graph, whose forward walk does
+    # not show a feature the root package's own [features] turn on in a dependency.
+    resolved() { cargo tree "$@" --offline --locked --target all -e normal,build -f '{p} {f}' --prefix none; }
+    insecure() { grep -E '^[a-z0-9_-]+ v[^ ]+ .*(^| |,)test-backend(,| |$)' | sed 's/ (\*)$//' | sort -u; }
+    # (a) The workspace build graph, features unified as `cargo build --workspace`
+    # would, selects backend-fips and never test-backend, in any crate. The
+    # feature-graph form of this check runs too.
+    bash tools/ci/no-test-backend.sh
+    tree="$(resolved --workspace)"
+    grep -qE '^pqc-agility v[^ ]+ .*backend-fips' <<<"$tree" || {
+        echo "check-backends: the workspace build does not resolve pqc-agility with backend-fips" >&2
+        exit 1
+    }
+    if insecure <<<"$tree" | grep .; then
+        echo "check-backends: the workspace build resolves the INSECURE test backend (above)" >&2
+        exit 1
+    fi
+    echo "check-backends: the workspace build resolves pqc-agility with backend-fips and never test-backend"
+    # (b) Each package the release builds a binary from, resolved on its own as the
+    # release gate builds it, enables test-backend nowhere in its graph.
+    pkgs="$(bash tools/ci/release-artefacts.sh --rows | awk '{ print $1 }' | sort -u)"
+    [ -n "$pkgs" ] || { echo "check-backends: the release matrix names no package" >&2; exit 1; }
+    bad=0
+    for pkg in $pkgs; do
+        if resolved -p "$pkg" | insecure | grep .; then
+            echo "check-backends: release package $pkg resolves the INSECURE test backend (above); see what enables it with:" >&2
+            echo "  cargo tree -p $pkg -e normal,build,features -i pqc-agility" >&2
+            bad=1
+        fi
+    done
+    [ "$bad" -eq 0 ] || exit 1
+    echo "check-backends: no release package ($(wc -w <<<"$pkgs") of them) resolves test-backend"
+    # (c) Negative control: a release build with test-backend must fail on the guard.
+    log="$(mktemp)"
+    trap 'rm -f "$log"' EXIT
+    if cargo build -p pqc-agility --release --offline --locked --features test-backend >"$log" 2>&1; then
+        echo "check-backends: a release build with test-backend SUCCEEDED; the compile guard is gone" >&2
+        exit 1
+    fi
+    grep -q 'INSECURE (seeded, forgeable RNG)' "$log" || {
+        echo "check-backends: the release build with test-backend failed, but not on the INSECURE guard:" >&2
+        cat "$log" >&2
+        exit 1
+    }
+    echo "check-backends: a release build with test-backend fails on the INSECURE guard"
+    # (d) Positive control: the release build with the FIPS backend succeeds.
+    cargo build -p pqc-agility --release --offline --locked --features backend-fips
+    echo "check-backends: the release build with backend-fips succeeds"
 
 # Run all tests.
 # IMPORTANT: the crypto crates gate their backend tests behind a feature; running
@@ -293,17 +357,26 @@ scan-advisory path:
 # Refresh the vendored advisory database. THE ONLY ONLINE STEP in the gate,
 # mirroring deploy/acceptance/Dockerfile's posture. Commit the result and review
 # the diff — a shrinking advisory count means something went wrong.
-advisory-db-refresh:
+#
+# `from` names a clone already fetched, so the offline toolchain can do the rest:
+# the scheduled advisory-refresh job clones on the runner and passes it here.
+# (VLD-ANB-MIDGARD-0076)
+advisory-db-refresh from="":
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    git clone -q --depth 1 https://github.com/rustsec/advisory-db.git "$tmp/db"
-    rev=$(git -C "$tmp/db" rev-parse HEAD)
-    date=$(git -C "$tmp/db" show -s --format=%cs HEAD)
+    db="{{from}}"
+    if [ -z "$db" ]; then
+        git clone -q --depth 1 https://github.com/rustsec/advisory-db.git "$tmp/db"
+        db="$tmp/db"
+    fi
+    # A clone made by another user (the runner, outside the container) is still read.
+    rev=$(git -c safe.directory='*' -C "$db" rev-parse HEAD)
+    date=$(git -c safe.directory='*' -C "$db" show -s --format=%cs HEAD)
     rm -rf vendor/advisory-db/crates
-    cp -r "$tmp/db/crates" vendor/advisory-db/
-    cp "$tmp/db/LICENSE.txt" vendor/advisory-db/
+    cp -r "$db/crates" vendor/advisory-db/
+    cp "$db/LICENSE.txt" vendor/advisory-db/
     n=$(find vendor/advisory-db/crates -name 'RUSTSEC-*.md' | wc -l | tr -d ' ')
     sed -i.bak \
         -e "s|^revision = .*|revision = \"$rev\"|" \
@@ -319,17 +392,24 @@ advisory-db-refresh:
 # to review and knows which packages it speaks for: `mg-scan` refuses an npm package
 # it was not filtered for. Run it again whenever the lockfile gains a package. Commit
 # the result and review the diff. [FR-MS-6] [AC-RF-SC-5b]
-advisory-db-npm-refresh:
+#
+# `from` names that export already downloaded and unpacked, as for
+# `advisory-db-refresh`. (VLD-ANB-MIDGARD-0076)
+advisory-db-npm-refresh from="":
     #!/usr/bin/env bash
     set -euo pipefail
     source=https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    curl -fsSL -o "$tmp/npm.zip" "$source"
-    mkdir "$tmp/osv"
-    unzip -q "$tmp/npm.zip" -d "$tmp/osv"
+    osv="{{from}}"
+    if [ -z "$osv" ]; then
+        curl -fsSL -o "$tmp/npm.zip" "$source"
+        mkdir "$tmp/osv"
+        unzip -q "$tmp/npm.zip" -d "$tmp/osv"
+        osv="$tmp/osv"
+    fi
     cargo run -q --release -p mg-sbom -- --pnpm-lock pnpm-lock.yaml --list-packages > "$tmp/packages.txt"
-    cargo run -q --release -p mg-scan -- import-osv --from "$tmp/osv" --packages "$tmp/packages.txt" \
+    cargo run -q --release -p mg-scan -- import-osv --from "$osv" --packages "$tmp/packages.txt" \
         --out vendor/advisory-db-npm --date "$(date -u +%F)" --source "$source"
 
 # Build every JavaScript artefact twice and require the two to be bit-identical: the
@@ -343,6 +423,8 @@ js-build *only:
 # The signing key is named explicitly and is never searched for: set
 # MIDGARD_SIGNING_KEYSTORE to a keystore produced by `just keygen`. Unset means
 # the stage fails, which is the point — a release that cannot sign must not pass.
+# Its root is wrapped under the passphrase in MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE
+# (else the file MIDGARD_KEYSTORE_PASSPHRASE_FILE names). [VLD-ANB-MIDGARD-0007]
 sign path:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -351,10 +433,13 @@ sign path:
     # artefacts were proven bit-reproducible for this build.
     repro=()
     [ -n "${MIDGARD_REPRO_REPORT:-}" ] && [ -f "${MIDGARD_REPRO_REPORT}" ] && repro=(--repro "${MIDGARD_REPRO_REPORT}")
-    cargo run -q --release -p mg-sign -- sign --keystore "$MIDGARD_SIGNING_KEYSTORE" "${repro[@]}" "{{path}}"
+    pass=()
+    [ -n "${MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE:-}" ] && pass=(--keystore-passphrase-file "${MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE}")
+    cargo run -q --release -p mg-sign -- sign --keystore "$MIDGARD_SIGNING_KEYSTORE" "${pass[@]}" "${repro[@]}" "{{path}}"
 
 # Generate a signing keystore and export its trust anchor. Local/dev use; real
-# key ceremonies, rotation and distribution are RF-SC-8.
+# key ceremonies, rotation and distribution are RF-SC-8. The keystore's root is wrapped
+# under the passphrase in the file MIDGARD_KEYSTORE_PASSPHRASE_FILE names.
 keygen keystore="mg.keystore" anchor="mg.pub":
     cargo run -q --release -p mg-sign -- keygen --keystore "{{keystore}}" --export-verifying-key "{{anchor}}"
 

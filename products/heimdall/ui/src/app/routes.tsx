@@ -1,4 +1,4 @@
-import { createHashRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router'; // v7, one router package [AC-P4.2]
 import { OperatingPictureScreen } from '../screens/OperatingPictureScreen';
 import { FeedsScreen } from '../screens/FeedsScreen';
 import { EntitiesScreen } from '../screens/EntitiesScreen';

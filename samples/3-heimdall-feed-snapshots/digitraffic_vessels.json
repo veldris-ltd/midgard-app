@@ -273,14 +273,12 @@
    "shipType": 80,
    "timestamp": 1792621401998
   },
-  "300000000": {
-   "callSign": "",
+  "small-craft-212": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 300000000,
-   "name": "NATO WARSHIP",
+   "mmsi": "small-craft-212",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -449,14 +447,12 @@
    "shipType": 70,
    "timestamp": 1792632016361
   },
-  "230941570": {
-   "callSign": "OI2932",
+  "small-craft-101": {
    "destination": "",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230941570,
-   "name": "MERIKUOKKA",
+   "mmsi": "small-craft-101",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -561,14 +557,12 @@
    "shipType": 70,
    "timestamp": 1792639310063
   },
-  "265513350": {
-   "callSign": "SCRI",
+  "small-craft-151": {
    "destination": "KAPELLSKAAAR",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265513350,
-   "name": "PILOT 571 SE",
+   "mmsi": "small-craft-151",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 5,
@@ -753,14 +747,12 @@
    "shipType": 70,
    "timestamp": 1792647474232
   },
-  "230194550": {
-   "callSign": "OHA7052",
+  "small-craft-94": {
    "destination": "",
    "draught": 10,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230194550,
-   "name": "MT5308",
+   "mmsi": "small-craft-94",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 4,
@@ -785,14 +777,12 @@
    "shipType": 80,
    "timestamp": 1792647954008
   },
-  "230005750": {
-   "callSign": "OJ-6604",
+  "small-craft-5": {
    "destination": "HANKO",
    "draught": 24,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230005750,
-   "name": "PILOT L-142",
+   "mmsi": "small-craft-5",
    "posType": 15,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -801,14 +791,12 @@
    "shipType": 50,
    "timestamp": 1792648241834
   },
-  "265030790": {
-   "callSign": "SFE4801",
+  "small-craft-139": {
    "destination": "LULEA PILOT CH 11",
    "draught": 16,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265030790,
-   "name": "PILOT 226 SE",
+   "mmsi": "small-craft-139",
    "posType": 1,
    "referencePointA": 15,
    "referencePointB": 0,
@@ -865,14 +853,12 @@
    "shipType": 60,
    "timestamp": 1792649867939
   },
-  "265568520": {
-   "callSign": "SDAK",
+  "small-craft-163": {
    "destination": "",
    "draught": 20,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265568520,
-   "name": "SILVERO",
+   "mmsi": "small-craft-163",
    "posType": 3,
    "referencePointA": 7,
    "referencePointB": 16,
@@ -897,14 +883,12 @@
    "shipType": 80,
    "timestamp": 1792650311228
   },
-  "265519620": {
-   "callSign": "SDQX",
+  "small-craft-157": {
    "destination": "SANDHAMN",
    "draught": 23,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265519620,
-   "name": "PILOT 116 SE",
+   "mmsi": "small-craft-157",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 5,
@@ -1009,14 +993,12 @@
    "shipType": 60,
    "timestamp": 1792654377501
   },
-  "230158530": {
-   "callSign": "OJ8926",
+  "small-craft-80": {
    "destination": "LAKE SAIMAA",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230158530,
-   "name": "ETELA-SAVO 2482",
+   "mmsi": "small-craft-80",
    "posType": 15,
    "referencePointA": 5,
    "referencePointB": 4,
@@ -1105,14 +1087,12 @@
    "shipType": 241,
    "timestamp": 1792656401139
   },
-  "265036840": {
-   "callSign": "SFE4927",
+  "small-craft-141": {
    "destination": "CH16 FOR INFO",
    "draught": 12,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265036840,
-   "name": "OCEAN POET",
+   "mmsi": "small-craft-141",
    "posType": 15,
    "referencePointA": 4,
    "referencePointB": 10,
@@ -1121,14 +1101,12 @@
    "shipType": 90,
    "timestamp": 1792656670217
   },
-  "230991670": {
-   "callSign": "OG2940",
+  "small-craft-118": {
    "destination": "HELSINKI",
    "draught": 23,
    "eta": 662720,
    "imo": 0,
-   "mmsi": 230991670,
-   "name": "AJO",
+   "mmsi": "small-craft-118",
    "posType": 1,
    "referencePointA": 4,
    "referencePointB": 13,
@@ -1169,14 +1147,12 @@
    "shipType": 60,
    "timestamp": 1792657816976
   },
-  "265648120": {
-   "callSign": "SFC2084",
+  "small-craft-178": {
    "destination": "RESSEL.SE",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265648120,
-   "name": "KARRAN",
+   "mmsi": "small-craft-178",
    "posType": 15,
    "referencePointA": 11,
    "referencePointB": 3,
@@ -1217,14 +1193,12 @@
    "shipType": 60,
    "timestamp": 1792658451407
   },
-  "265688200": {
-   "callSign": "SFC8865",
+  "small-craft-182": {
    "destination": "VATTENFALL",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265688200,
-   "name": "VENDELA",
+   "mmsi": "small-craft-182",
    "posType": 15,
    "referencePointA": 8,
    "referencePointB": 4,
@@ -1281,14 +1255,12 @@
    "shipType": 60,
    "timestamp": 1792659414523
   },
-  "265563260": {
-   "callSign": "SLOV",
+  "small-craft-162": {
    "destination": "JAKOBSTAD",
    "draught": 24,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265563260,
-   "name": "PILOT 760 SE",
+   "mmsi": "small-craft-162",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 7,
@@ -1297,14 +1269,12 @@
    "shipType": 50,
    "timestamp": 1792659724115
   },
-  "111265583": {
-   "callSign": "SE JRJ",
+  "small-craft-2": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 111265583,
-   "name": "LIFEGUARD 003",
+   "mmsi": "small-craft-2",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -1329,14 +1299,12 @@
    "shipType": 70,
    "timestamp": 1792660095221
   },
-  "265794120": {
-   "callSign": "SFE2083",
+  "small-craft-192": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265794120,
-   "name": "DRAKEN ",
+   "mmsi": "small-craft-192",
    "posType": 15,
    "referencePointA": 2,
    "referencePointB": 14,
@@ -1377,14 +1345,12 @@
    "shipType": 70,
    "timestamp": 1792660577194
   },
-  "230087400": {
-   "callSign": "OH5763",
+  "small-craft-43": {
    "destination": "",
    "draught": 10,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230087400,
-   "name": "WELLAMO",
+   "mmsi": "small-craft-43",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -1393,14 +1359,12 @@
    "shipType": 34,
    "timestamp": 1792661255963
   },
-  "265615040": {
-   "callSign": "SFRT",
+  "small-craft-172": {
    "destination": "BALLSTAD",
    "draught": 30,
    "eta": 752413,
    "imo": 0,
-   "mmsi": 265615040,
-   "name": "FROG TAURUS",
+   "mmsi": "small-craft-172",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 11,
@@ -1441,14 +1405,12 @@
    "shipType": 70,
    "timestamp": 1792662594496
   },
-  "265832560": {
-   "callSign": "7SA2901",
+  "small-craft-195": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265832560,
-   "name": "RESCUE ANNA SOFIA",
+   "mmsi": "small-craft-195",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 1,
@@ -1473,14 +1435,12 @@
    "shipType": 70,
    "timestamp": 1792662820943
   },
-  "265015990": {
-   "callSign": "7SA2070",
+  "small-craft-138": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 10,
    "eta": 234240,
    "imo": 0,
-   "mmsi": 265015990,
-   "name": "RESCUE SVEN SALEN",
+   "mmsi": "small-craft-138",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 5,
@@ -1505,14 +1465,12 @@
    "shipType": 60,
    "timestamp": 1792663266737
   },
-  "230038140": {
-   "callSign": "OJ9482",
+  "small-craft-25": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230038140,
-   "name": "LOHI ",
+   "mmsi": "small-craft-25",
    "posType": 15,
    "referencePointA": 4,
    "referencePointB": 11,
@@ -1521,14 +1479,12 @@
    "shipType": 70,
    "timestamp": 1792664127488
   },
-  "265719480": {
-   "callSign": "SJRU",
+  "small-craft-186": {
    "destination": "PILOT CH 11",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265719480,
-   "name": "PILOT 216 SE",
+   "mmsi": "small-craft-186",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -1537,14 +1493,12 @@
    "shipType": 50,
    "timestamp": 1792664310339
   },
-  "265617170": {
-   "callSign": "SGUL",
+  "small-craft-173": {
    "destination": "SODERTALJE",
    "draught": 19,
    "eta": 705226,
    "imo": 0,
-   "mmsi": 265617170,
-   "name": "HARRY",
+   "mmsi": "small-craft-173",
    "posType": 1,
    "referencePointA": 16,
    "referencePointB": 3,
@@ -1569,14 +1523,12 @@
    "shipType": 52,
    "timestamp": 1792664548207
   },
-  "265530850": {
-   "callSign": "7SA2177",
+  "small-craft-160": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265530850,
-   "name": "RESCUE D SILVIA",
+   "mmsi": "small-craft-160",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 6,
@@ -1633,14 +1585,12 @@
    "shipType": 70,
    "timestamp": 1792665927879
   },
-  "265687160": {
-   "callSign": "SFB7553",
+  "small-craft-181": {
    "destination": "WWW.BATTAXI.SE",
    "draught": 9,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265687160,
-   "name": "DOC",
+   "mmsi": "small-craft-181",
    "posType": 1,
    "referencePointA": 2,
    "referencePointB": 9,
@@ -1649,14 +1599,12 @@
    "shipType": 60,
    "timestamp": 1792665997064
   },
-  "230941810": {
-   "callSign": "OH2384",
+  "small-craft-103": {
    "destination": "UUSIKAUPUNKI",
    "draught": 18,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230941810,
-   "name": "KALA 6",
+   "mmsi": "small-craft-103",
    "posType": 0,
    "referencePointA": 19,
    "referencePointB": 3,
@@ -1713,14 +1661,12 @@
    "shipType": 80,
    "timestamp": 1792666936074
   },
-  "230099160": {
-   "callSign": "OH6852",
+  "small-craft-47": {
    "destination": "",
    "draught": 8,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230099160,
-   "name": "KRICKAN",
+   "mmsi": "small-craft-47",
    "posType": 15,
    "referencePointA": 6,
    "referencePointB": 5,
@@ -1729,14 +1675,12 @@
    "shipType": 51,
    "timestamp": 1792667132544
   },
-  "265669230": {
-   "callSign": "SGFW",
+  "small-craft-180": {
    "destination": "",
    "draught": 28,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265669230,
-   "name": "RALPH   ",
+   "mmsi": "small-craft-180",
    "posType": 15,
    "referencePointA": 5,
    "referencePointB": 12,
@@ -1745,14 +1689,12 @@
    "shipType": 52,
    "timestamp": 1792667180227
   },
-  "230115770": {
-   "callSign": "OG9671",
+  "small-craft-65": {
    "destination": "VAASA",
    "draught": 20,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230115770,
-   "name": "TIIRA",
+   "mmsi": "small-craft-65",
    "posType": 1,
    "referencePointA": 4,
    "referencePointB": 11,
@@ -1777,14 +1719,12 @@
    "shipType": 60,
    "timestamp": 1792667343260
   },
-  "265002050": {
-   "callSign": "8SMN",
+  "small-craft-137": {
    "destination": "",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265002050,
-   "name": "POLIS 139 9970",
+   "mmsi": "small-craft-137",
    "posType": 15,
    "referencePointA": 10,
    "referencePointB": 5,
@@ -1793,14 +1733,12 @@
    "shipType": 55,
    "timestamp": 1792667384390
   },
-  "265505410": {
-   "callSign": "SFC5176",
+  "small-craft-147": {
    "destination": "SANDHAMN",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265505410,
-   "name": "PILOT 151 SE",
+   "mmsi": "small-craft-147",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 4,
@@ -1809,14 +1747,12 @@
    "shipType": 50,
    "timestamp": 1792667443039
   },
-  "265518870": {
-   "callSign": "7SA2185",
+  "small-craft-156": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 9,
    "eta": 283456,
    "imo": 0,
-   "mmsi": 265518870,
-   "name": "RESCUE O WALLENIUS",
+   "mmsi": "small-craft-156",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 6,
@@ -1841,14 +1777,12 @@
    "shipType": 60,
    "timestamp": 1792667625805
   },
-  "265044980": {
-   "callSign": "SFE4875",
+  "small-craft-142": {
    "destination": "",
    "draught": 0,
    "eta": 67649,
    "imo": 0,
-   "mmsi": 265044980,
-   "name": "HAMNSKAER",
+   "mmsi": "small-craft-142",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -1937,14 +1871,12 @@
    "shipType": 0,
    "timestamp": 1792668550208
   },
-  "111265584": {
-   "callSign": "SE JRK",
+  "small-craft-3": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 111265584,
-   "name": "LIFEGUARD 004",
+   "mmsi": "small-craft-3",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -2049,14 +1981,12 @@
    "shipType": 80,
    "timestamp": 1792668996998
   },
-  "265697460": {
-   "callSign": "SFC8854",
+  "small-craft-183": {
    "destination": "VATTENFALL ",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265697460,
-   "name": "ELISE ",
+   "mmsi": "small-craft-183",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -2065,14 +1995,12 @@
    "shipType": 90,
    "timestamp": 1792669019031
   },
-  "265506960": {
-   "callSign": "SHTZ",
+  "small-craft-148": {
    "destination": "PATROL",
    "draught": 12,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265506960,
-   "name": "SWE COAST GUARD 311",
+   "mmsi": "small-craft-148",
    "posType": 3,
    "referencePointA": 13,
    "referencePointB": 9,
@@ -2289,14 +2217,12 @@
    "shipType": 55,
    "timestamp": 1792670441650
   },
-  "265591570": {
-   "callSign": "SBRC",
+  "small-craft-170": {
    "destination": "WWW.BATTAXI.SE",
    "draught": 12,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265591570,
-   "name": "LANGVIK",
+   "mmsi": "small-craft-170",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -2449,14 +2375,12 @@
    "shipType": 80,
    "timestamp": 1792671639835
   },
-  "265640190": {
-   "callSign": "SBAT",
+  "small-craft-177": {
    "destination": "VARMDO",
    "draught": 24,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265640190,
-   "name": "RING",
+   "mmsi": "small-craft-177",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -2497,14 +2421,12 @@
    "shipType": 60,
    "timestamp": 1792671958570
   },
-  "230028460": {
-   "callSign": "OHA2191",
+  "small-craft-21": {
    "destination": "MSPKULJETUS.FI ",
    "draught": 12,
    "eta": 591872,
    "imo": 0,
-   "mmsi": 230028460,
-   "name": "AQUILA ",
+   "mmsi": "small-craft-21",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 3,
@@ -2641,14 +2563,12 @@
    "shipType": 70,
    "timestamp": 1792672999014
   },
-  "265582580": {
-   "callSign": "SLGP",
+  "small-craft-164": {
    "destination": "89AN",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265582580,
-   "name": "KANHOLMEN",
+   "mmsi": "small-craft-164",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -2657,14 +2577,12 @@
    "shipType": 60,
    "timestamp": 1792673169372
   },
-  "265745680": {
-   "callSign": "7SA2681",
+  "small-craft-189": {
    "destination": "",
    "draught": 9,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265745680,
-   "name": "RESCUE TEEA",
+   "mmsi": "small-craft-189",
    "posType": 15,
    "referencePointA": 7,
    "referencePointB": 1,
@@ -2721,14 +2639,12 @@
    "shipType": 70,
    "timestamp": 1792673748881
   },
-  "230182220": {
-   "callSign": "OHA5145",
+  "small-craft-90": {
    "destination": "SURVEY",
    "draught": 0,
    "eta": 713920,
    "imo": 0,
-   "mmsi": 230182220,
-   "name": "NORDENSKIOLD",
+   "mmsi": "small-craft-90",
    "posType": 1,
    "referencePointA": 4,
    "referencePointB": 3,
@@ -2897,14 +2813,12 @@
    "shipType": 60,
    "timestamp": 1792675385140
   },
-  "265066760": {
-   "callSign": "",
+  "small-craft-144": {
    "destination": "",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265066760,
-   "name": "LIVE FIRING EXERCISE",
+   "mmsi": "small-craft-144",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -2945,14 +2859,12 @@
    "shipType": 60,
    "timestamp": 1792675846273
   },
-  "230195880": {
-   "callSign": "OHA7267",
+  "small-craft-96": {
    "destination": "SURVEY",
    "draught": 8,
    "eta": 699584,
    "imo": 0,
-   "mmsi": 230195880,
-   "name": "SALMI",
+   "mmsi": "small-craft-96",
    "posType": 1,
    "referencePointA": 4,
    "referencePointB": 3,
@@ -2961,14 +2873,12 @@
    "shipType": 70,
    "timestamp": 1792675880989
   },
-  "265508900": {
-   "callSign": "SIDM",
+  "small-craft-149": {
    "destination": "BECKHOLMEN",
    "draught": 22,
    "eta": 445440,
    "imo": 0,
-   "mmsi": 265508900,
-   "name": "ELLEN",
+   "mmsi": "small-craft-149",
    "posType": 15,
    "referencePointA": 21,
    "referencePointB": 1,
@@ -3105,14 +3015,12 @@
    "shipType": 90,
    "timestamp": 1792677369544
   },
-  "265666670": {
-   "callSign": "SLAJ",
+  "small-craft-179": {
    "destination": "SODERTALJE",
    "draught": 20,
    "eta": 680864,
    "imo": 0,
-   "mmsi": 265666670,
-   "name": "TRUCKEN",
+   "mmsi": "small-craft-179",
    "posType": 15,
    "referencePointA": 13,
    "referencePointB": 5,
@@ -3169,14 +3077,12 @@
    "shipType": 90,
    "timestamp": 1792677517026
   },
-  "265519660": {
-   "callSign": "SDVH",
+  "small-craft-158": {
    "destination": "SKELLEFTEA",
    "draught": 23,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265519660,
-   "name": "PILOT 120 SE",
+   "mmsi": "small-craft-158",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 5,
@@ -3185,14 +3091,12 @@
    "shipType": 50,
    "timestamp": 1792677540048
   },
-  "265513130": {
-   "callSign": "SGAN",
+  "small-craft-150": {
    "destination": "",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265513130,
-   "name": "PILOT 751 SE",
+   "mmsi": "small-craft-150",
    "posType": 1,
    "referencePointA": 15,
    "referencePointB": 0,
@@ -3233,14 +3137,12 @@
    "shipType": 36,
    "timestamp": 1792678134776
   },
-  "230162620": {
-   "callSign": "OHA2430",
+  "small-craft-83": {
    "destination": "PIRTTISAARI<>KALKSTR",
    "draught": 14,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230162620,
-   "name": "TEKLA II",
+   "mmsi": "small-craft-83",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 5,
@@ -3249,14 +3151,12 @@
    "shipType": 60,
    "timestamp": 1792678494231
   },
-  "276752000": {
-   "callSign": "ES2731",
+  "small-craft-206": {
    "destination": "PALDISKI",
    "draught": 15,
    "eta": 26624,
    "imo": 0,
-   "mmsi": 276752000,
-   "name": "AHTO-27",
+   "mmsi": "small-craft-206",
    "posType": 3,
    "referencePointA": 13,
    "referencePointB": 5,
@@ -3265,14 +3165,12 @@
    "shipType": 50,
    "timestamp": 1792678498559
   },
-  "230111560": {
-   "callSign": "OF-4112",
+  "small-craft-61": {
    "destination": "KALAJOKI",
    "draught": 10,
    "eta": 746624,
    "imo": 0,
-   "mmsi": 230111560,
-   "name": "AINO",
+   "mmsi": "small-craft-61",
    "posType": 15,
    "referencePointA": 6,
    "referencePointB": 5,
@@ -3329,14 +3227,12 @@
    "shipType": 52,
    "timestamp": 1792678642862
   },
-  "230110880": {
-   "callSign": "LI25",
+  "small-craft-53": {
    "destination": "VUOKALA",
    "draught": 23,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230110880,
-   "name": "PILOT L125",
+   "mmsi": "small-craft-53",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 5,
@@ -3345,14 +3241,12 @@
    "shipType": 50,
    "timestamp": 1792678658023
   },
-  "230046600": {
-   "callSign": "OH7931",
+  "small-craft-32": {
    "destination": "KUMLINGE         ",
    "draught": 0,
    "eta": 652032,
    "imo": 0,
-   "mmsi": 230046600,
-   "name": "SUBSEA VIII ",
+   "mmsi": "small-craft-32",
    "posType": 15,
    "referencePointA": 19,
    "referencePointB": 3,
@@ -3425,14 +3319,12 @@
    "shipType": 70,
    "timestamp": 1792679529021
   },
-  "265585600": {
-   "callSign": "SMYB",
+  "small-craft-165": {
    "destination": "PILOT AREA CH 13",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265585600,
-   "name": "PILOT 793 SE",
+   "mmsi": "small-craft-165",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 7,
@@ -3441,14 +3333,12 @@
    "shipType": 50,
    "timestamp": 1792679802446
   },
-  "265069620": {
-   "callSign": "SFE5644",
+  "small-craft-145": {
    "destination": "PILOT AREA CH 13",
    "draught": 10,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265069620,
-   "name": "PILOT 152 SE",
+   "mmsi": "small-craft-145",
    "posType": 15,
    "referencePointA": 6,
    "referencePointB": 4,
@@ -3489,14 +3379,12 @@
    "shipType": 70,
    "timestamp": 1792679873044
   },
-  "230146100": {
-   "callSign": "OH8456",
+  "small-craft-74": {
    "destination": "SAVONLINNA",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230146100,
-   "name": "PEPPI",
+   "mmsi": "small-craft-74",
    "posType": 3,
    "referencePointA": 4,
    "referencePointB": 8,
@@ -3521,14 +3409,12 @@
    "shipType": 80,
    "timestamp": 1792680049128
   },
-  "230118650": {
-   "callSign": "OJHV",
+  "small-craft-66": {
    "destination": "SEARCH & RESCUE",
    "draught": 10,
    "eta": 67584,
    "imo": 0,
-   "mmsi": 230118650,
-   "name": "RESCUE TEIPPARI",
+   "mmsi": "small-craft-66",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -3553,14 +3439,12 @@
    "shipType": 52,
    "timestamp": 1792680425718
   },
-  "265628490": {
-   "callSign": "7SA2414",
+  "small-craft-176": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 9,
    "eta": 390528,
    "imo": 0,
-   "mmsi": 265628490,
-   "name": "RESCUE VITSTJARNA",
+   "mmsi": "small-craft-176",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 4,
@@ -3825,14 +3709,12 @@
    "shipType": 60,
    "timestamp": 1792682140042
   },
-  "111265582": {
-   "callSign": "SE JRI",
+  "small-craft-1": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 111265582,
-   "name": "LIFEGUARD 002",
+   "mmsi": "small-craft-1",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -3905,14 +3787,12 @@
    "shipType": 60,
    "timestamp": 1792682753657
   },
-  "265832550": {
-   "callSign": "7SA2900",
+  "small-craft-194": {
    "destination": "RESCUE VESSEL SWEDEN",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265832550,
-   "name": "RESCUE S-BANKEN NORD",
+   "mmsi": "small-craft-194",
    "posType": 15,
    "referencePointA": 7,
    "referencePointB": 1,
@@ -3937,14 +3817,12 @@
    "shipType": 70,
    "timestamp": 1792682826068
   },
-  "230143140": {
-   "callSign": "OH8213",
+  "small-craft-73": {
    "destination": "",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230143140,
-   "name": "SURVEY 6  ",
+   "mmsi": "small-craft-73",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 3,
@@ -4081,14 +3959,12 @@
    "shipType": 90,
    "timestamp": 1792683441359
   },
-  "265048080": {
-   "callSign": "7SA2260",
+  "small-craft-143": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265048080,
-   "name": "RESCUE D ROSENBLAD",
+   "mmsi": "small-craft-143",
    "posType": 3,
    "referencePointA": 6,
    "referencePointB": 3,
@@ -4577,14 +4453,12 @@
    "shipType": 7,
    "timestamp": 1792685281458
   },
-  "265732740": {
-   "callSign": "SIMU",
+  "small-craft-188": {
    "destination": "PILOT AREA",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265732740,
-   "name": "PILOT 219 SE",
+   "mmsi": "small-craft-188",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 5,
@@ -5121,14 +4995,12 @@
    "shipType": 52,
    "timestamp": 1792686544969
   },
-  "265719460": {
-   "callSign": "SJCA",
+  "small-craft-185": {
    "destination": "PILOT CH11",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265719460,
-   "name": "PILOT 214 SE",
+   "mmsi": "small-craft-185",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -5361,14 +5233,12 @@
    "shipType": 80,
    "timestamp": 1792687198174
   },
-  "265702340": {
-   "callSign": "7SA2540",
+  "small-craft-184": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265702340,
-   "name": "RESCUE LEIF JOHANSON",
+   "mmsi": "small-craft-184",
    "posType": 1,
    "referencePointA": 5,
    "referencePointB": 7,
@@ -5377,14 +5247,12 @@
    "shipType": 51,
    "timestamp": 1792687252197
   },
-  "265514720": {
-   "callSign": "SGVP",
+  "small-craft-153": {
    "destination": "SEROR",
    "draught": 30,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265514720,
-   "name": "PILOT 753 SE",
+   "mmsi": "small-craft-153",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 8,
@@ -5505,14 +5373,12 @@
    "shipType": 70,
    "timestamp": 1792687630508
   },
-  "230991680": {
-   "callSign": "OI-3522",
+  "small-craft-119": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230991680,
-   "name": "HEVI",
+   "mmsi": "small-craft-119",
    "posType": 15,
    "referencePointA": 7,
    "referencePointB": 5,
@@ -5601,14 +5467,12 @@
    "shipType": 80,
    "timestamp": 1792687738946
   },
-  "265767620": {
-   "callSign": "SBEQ ",
+  "small-craft-191": {
    "destination": "SODERORA       ",
    "draught": 12,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265767620,
-   "name": "SKRAKEN",
+   "mmsi": "small-craft-191",
    "posType": 0,
    "referencePointA": 5,
    "referencePointB": 10,
@@ -5809,14 +5673,12 @@
    "shipType": 70,
    "timestamp": 1792689343308
   },
-  "230992510": {
-   "callSign": "OIRN",
+  "small-craft-125": {
    "destination": "RAAHE",
    "draught": 25,
    "eta": 516866,
    "imo": 0,
-   "mmsi": 230992510,
-   "name": "KUPELI",
+   "mmsi": "small-craft-125",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 7,
@@ -5937,14 +5799,12 @@
    "shipType": 80,
    "timestamp": 1792690477400
   },
-  "230108280": {
-   "callSign": "OI-9405",
+  "small-craft-50": {
    "destination": "",
    "draught": 0,
    "eta": 67584,
    "imo": 0,
-   "mmsi": 230108280,
-   "name": "OTTO MALM",
+   "mmsi": "small-craft-50",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 3,
@@ -6129,14 +5989,12 @@
    "shipType": 80,
    "timestamp": 1792691953884
   },
-  "265587000": {
-   "callSign": "7SA2309",
+  "small-craft-168": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265587000,
-   "name": "RESCUE MATHILDA",
+   "mmsi": "small-craft-168",
    "posType": 15,
    "referencePointA": 6,
    "referencePointB": 2,
@@ -6641,14 +6499,12 @@
    "shipType": 70,
    "timestamp": 1792694354397
   },
-  "265033420": {
-   "callSign": "SFE2483",
+  "small-craft-140": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265033420,
-   "name": "LUSCA ",
+   "mmsi": "small-craft-140",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 7,
@@ -7009,14 +6865,12 @@
    "shipType": 70,
    "timestamp": 1792695327761
   },
-  "265555920": {
-   "callSign": "7SA2247",
+  "small-craft-161": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 10,
    "eta": 148160,
    "imo": 0,
-   "mmsi": 265555920,
-   "name": "RESCUE MINLOUIS",
+   "mmsi": "small-craft-161",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 6,
@@ -7169,14 +7023,12 @@
    "shipType": 70,
    "timestamp": 1792696071880
   },
-  "265593530": {
-   "callSign": "SLMJ",
+  "small-craft-171": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265593530,
-   "name": "LOTTINA",
+   "mmsi": "small-craft-171",
    "posType": 1,
    "referencePointA": 5,
    "referencePointB": 12,
@@ -7297,14 +7149,12 @@
    "shipType": 70,
    "timestamp": 1792696546989
   },
-  "265514730": {
-   "callSign": "SGVY",
+  "small-craft-154": {
    "destination": "PILOT CH 11",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265514730,
-   "name": "PILOT 754 SE",
+   "mmsi": "small-craft-154",
    "posType": 1,
    "referencePointA": 14,
    "referencePointB": 2,
@@ -7409,14 +7259,12 @@
    "shipType": 52,
    "timestamp": 1792697086401
   },
-  "265585630": {
-   "callSign": "SMWE",
+  "small-craft-167": {
    "destination": "",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265585630,
-   "name": "PILOT 792 SE",
+   "mmsi": "small-craft-167",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 7,
@@ -7473,14 +7321,12 @@
    "shipType": 70,
    "timestamp": 1792697250252
   },
-  "276013230": {
-   "callSign": "ES3942",
+  "small-craft-200": {
    "destination": "",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 276013230,
-   "name": "SAR SLAVA KAESI",
+   "mmsi": "small-craft-200",
    "posType": 15,
    "referencePointA": 5,
    "referencePointB": 5,
@@ -7649,14 +7495,12 @@
    "shipType": 80,
    "timestamp": 1792697692056
   },
-  "265618110": {
-   "callSign": "SIBT",
+  "small-craft-174": {
    "destination": "",
    "draught": 0,
    "eta": 67584,
    "imo": 0,
-   "mmsi": 265618110,
-   "name": "RIDO",
+   "mmsi": "small-craft-174",
    "posType": 1,
    "referencePointA": 13,
    "referencePointB": 4,
@@ -7665,14 +7509,12 @@
    "shipType": 70,
    "timestamp": 1792697749823
   },
-  "273389560": {
-   "callSign": "UEWE ",
+  "small-craft-196": {
    "destination": "VYBORG",
    "draught": 13,
    "eta": 152320,
    "imo": 0,
-   "mmsi": 273389560,
-   "name": "KRUTOYAR ",
+   "mmsi": "small-craft-196",
    "posType": 15,
    "referencePointA": 9,
    "referencePointB": 14,
@@ -7729,14 +7571,12 @@
    "shipType": 80,
    "timestamp": 1792697842859
   },
-  "230091080": {
-   "callSign": "OH6191",
+  "small-craft-44": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230091080,
-   "name": "PILOT L153",
+   "mmsi": "small-craft-44",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -7777,14 +7617,12 @@
    "shipType": 70,
    "timestamp": 1792697859246
   },
-  "276799000": {
-   "callSign": "ES2909",
+  "small-craft-210": {
    "destination": "PARNU PILOT BOAT",
    "draught": 25,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 276799000,
-   "name": "AHTO-02",
+   "mmsi": "small-craft-210",
    "posType": 1,
    "referencePointA": 16,
    "referencePointB": 0,
@@ -7873,14 +7711,12 @@
    "shipType": 80,
    "timestamp": 1792697932987
   },
-  "230014910": {
-   "callSign": "OJ7605",
+  "small-craft-12": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230014910,
-   "name": "MT1310",
+   "mmsi": "small-craft-12",
    "posType": 1,
    "referencePointA": 16,
    "referencePointB": 2,
@@ -7985,14 +7821,12 @@
    "shipType": 0,
    "timestamp": 1792698103997
   },
-  "230986740": {
-   "callSign": "OJ2971",
+  "small-craft-112": {
    "destination": "",
    "draught": 25,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230986740,
-   "name": "PILOT L228",
+   "mmsi": "small-craft-112",
    "posType": 0,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -8081,14 +7915,12 @@
    "shipType": 70,
    "timestamp": 1792698207153
   },
-  "230993590": {
-   "callSign": "OJHO",
+  "small-craft-129": {
    "destination": "",
    "draught": 9,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230993590,
-   "name": "RESCUE HAILIKARI",
+   "mmsi": "small-craft-129",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 5,
@@ -8177,14 +8009,12 @@
    "shipType": 52,
    "timestamp": 1792698256734
   },
-  "230992610": {
-   "callSign": "OJAA",
+  "small-craft-126": {
    "destination": "ROSLAX",
    "draught": 22,
    "eta": 851451,
    "imo": 0,
-   "mmsi": 230992610,
-   "name": "FINNO",
+   "mmsi": "small-craft-126",
    "posType": 15,
    "referencePointA": 13,
    "referencePointB": 6,
@@ -8353,14 +8183,12 @@
    "shipType": 70,
    "timestamp": 1792698341969
   },
-  "230018670": {
-   "callSign": "OJ8002",
+  "small-craft-17": {
    "destination": "UKI",
    "draught": 0,
    "eta": 646336,
    "imo": 0,
-   "mmsi": 230018670,
-   "name": "PILOT L-146",
+   "mmsi": "small-craft-17",
    "posType": 15,
    "referencePointA": 5,
    "referencePointB": 11,
@@ -8385,14 +8213,12 @@
    "shipType": 70,
    "timestamp": 1792698365932
   },
-  "265814500": {
-   "callSign": "SFE2616",
+  "small-craft-193": {
    "destination": "TUG BOAT",
    "draught": 22,
    "eta": 102400,
    "imo": 0,
-   "mmsi": 265814500,
-   "name": "KERMIT",
+   "mmsi": "small-craft-193",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 5,
@@ -8433,14 +8259,12 @@
    "shipType": 59,
    "timestamp": 1792698372315
   },
-  "265001070": {
-   "callSign": "7SA2003",
+  "small-craft-136": {
    "destination": "SWEDISH SAR VESSEL",
    "draught": 10,
    "eta": 310016,
    "imo": 0,
-   "mmsi": 265001070,
-   "name": "RESCUE VIALLA",
+   "mmsi": "small-craft-136",
    "posType": 0,
    "referencePointA": 9,
    "referencePointB": 6,
@@ -8529,14 +8353,12 @@
    "shipType": 80,
    "timestamp": 1792698409698
   },
-  "230099950": {
-   "callSign": "OH6918",
+  "small-craft-48": {
    "destination": "PORKKALA PILOT CH 09",
    "draught": 13,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230099950,
-   "name": "PILOT L244",
+   "mmsi": "small-craft-48",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -8545,14 +8367,12 @@
    "shipType": 50,
    "timestamp": 1792698412018
   },
-  "230994810": {
-   "callSign": "OJJC",
+  "small-craft-134": {
    "destination": "SAR LOVIISA AREA",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230994810,
-   "name": "RESCUE DEGERBY",
+   "mmsi": "small-craft-134",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 6,
@@ -8737,14 +8557,12 @@
    "shipType": 70,
    "timestamp": 1792698464546
   },
-  "265762030": {
-   "callSign": "SBLF",
+  "small-craft-190": {
    "destination": "",
    "draught": 14,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265762030,
-   "name": "ROMINA   ",
+   "mmsi": "small-craft-190",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 13,
@@ -8881,14 +8699,12 @@
    "shipType": 60,
    "timestamp": 1792698527304
   },
-  "230060890": {
-   "callSign": "OH3640",
+  "small-craft-36": {
    "destination": "ORRENGRUND",
    "draught": 24,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230060890,
-   "name": "PILOT L150",
+   "mmsi": "small-craft-36",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -8913,14 +8729,12 @@
    "shipType": 70,
    "timestamp": 1792698529215
   },
-  "230987190": {
-   "callSign": "OJ2500",
+  "small-craft-114": {
    "destination": "SAVONLINNA",
    "draught": 24,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230987190,
-   "name": "ROTEVA",
+   "mmsi": "small-craft-114",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 14,
@@ -8945,14 +8759,12 @@
    "shipType": 60,
    "timestamp": 1792698529845
   },
-  "230997150": {
-   "callSign": "OG9090",
+  "small-craft-135": {
    "destination": "PORI PILOT CH 9",
    "draught": 24,
    "eta": 242590,
    "imo": 0,
-   "mmsi": 230997150,
-   "name": "PILOT L134",
+   "mmsi": "small-craft-135",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -8961,14 +8773,12 @@
    "shipType": 50,
    "timestamp": 1792698532089
   },
-  "230125910": {
-   "callSign": "OJ-3545",
+  "small-craft-68": {
    "destination": "HELSINKI PILOT CH 71",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230125910,
-   "name": "PILOT L-139",
+   "mmsi": "small-craft-68",
    "posType": 0,
    "referencePointA": 10,
    "referencePointB": 6,
@@ -9041,14 +8851,12 @@
    "shipType": 36,
    "timestamp": 1792698534095
   },
-  "230111090": {
-   "callSign": "OI7501",
+  "small-craft-55": {
    "destination": "RESEARCH",
    "draught": 0,
    "eta": 67584,
    "imo": 0,
-   "mmsi": 230111090,
-   "name": "MT1305",
+   "mmsi": "small-craft-55",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 4,
@@ -9073,14 +8881,12 @@
    "shipType": 33,
    "timestamp": 1792698535011
   },
-  "265078840": {
-   "callSign": "",
+  "small-craft-146": {
    "destination": "",
    "draught": 0,
    "eta": 0,
    "imo": 0,
-   "mmsi": 265078840,
-   "name": "LIVE FIRING EXERCISE",
+   "mmsi": "small-craft-146",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -9201,14 +9007,12 @@
    "shipType": 80,
    "timestamp": 1792698539255
   },
-  "230992280": {
-   "callSign": "OI2830",
+  "small-craft-123": {
    "destination": "FAIRWAY WORKS",
    "draught": 10,
    "eta": 648128,
    "imo": 0,
-   "mmsi": 230992280,
-   "name": "MT2300",
+   "mmsi": "small-craft-123",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -9217,14 +9021,12 @@
    "shipType": 90,
    "timestamp": 1792698539339
   },
-  "230994270": {
-   "callSign": "OJID",
+  "small-craft-132": {
    "destination": "SAR",
    "draught": 20,
    "eta": 849920,
    "imo": 0,
-   "mmsi": 230994270,
-   "name": "RESCUE JENNY WIHURI",
+   "mmsi": "small-craft-132",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 16,
@@ -9329,14 +9131,12 @@
    "shipType": 70,
    "timestamp": 1792698548024
   },
-  "230111410": {
-   "callSign": "OF4183",
+  "small-craft-60": {
    "destination": "",
    "draught": 22,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230111410,
-   "name": "PILOT L117",
+   "mmsi": "small-craft-60",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 5,
@@ -9393,14 +9193,12 @@
    "shipType": 70,
    "timestamp": 1792698555208
   },
-  "230113940": {
-   "callSign": "OG-8951",
+  "small-craft-64": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230113940,
-   "name": "PILOT L133",
+   "mmsi": "small-craft-64",
    "posType": 15,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -9409,14 +9207,12 @@
    "shipType": 50,
    "timestamp": 1792698555945
   },
-  "230992370": {
-   "callSign": "OI4788",
+  "small-craft-124": {
    "destination": "FAIRWAY WORKS",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230992370,
-   "name": "MT2301",
+   "mmsi": "small-craft-124",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 4,
@@ -9473,14 +9269,12 @@
    "shipType": 80,
    "timestamp": 1792698560679
   },
-  "230193580": {
-   "callSign": "OHA6870",
+  "small-craft-92": {
    "destination": ".",
    "draught": 0,
    "eta": 240418,
    "imo": 0,
-   "mmsi": 230193580,
-   "name": "LILLI",
+   "mmsi": "small-craft-92",
    "posType": 15,
    "referencePointA": 7,
    "referencePointB": 8,
@@ -9505,14 +9299,12 @@
    "shipType": 70,
    "timestamp": 1792698562164
   },
-  "230119910": {
-   "callSign": "OJ2643",
+  "small-craft-67": {
    "destination": "TAMMISAARI",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230119910,
-   "name": "RM-11",
+   "mmsi": "small-craft-67",
    "posType": 3,
    "referencePointA": 11,
    "referencePointB": 4,
@@ -9569,14 +9361,12 @@
    "shipType": 39,
    "timestamp": 1792698564073
   },
-  "230062440": {
-   "callSign": "OF 5097",
+  "small-craft-38": {
    "destination": "KAUKAS",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230062440,
-   "name": "TARMO",
+   "mmsi": "small-craft-38",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 14,
@@ -9665,14 +9455,12 @@
    "shipType": 70,
    "timestamp": 1792698570012
   },
-  "230098780": {
-   "callSign": "OH6818",
+  "small-craft-46": {
    "destination": "",
    "draught": 0,
    "eta": 67649,
    "imo": 0,
-   "mmsi": 230098780,
-   "name": "VALVE 3",
+   "mmsi": "small-craft-46",
    "posType": 1,
    "referencePointA": 3,
    "referencePointB": 7,
@@ -9697,14 +9485,12 @@
    "shipType": 70,
    "timestamp": 1792698570493
   },
-  "265514760": {
-   "callSign": "SMYT",
+  "small-craft-155": {
    "destination": "SVARTKLUBBEN AREA",
    "draught": 25,
    "eta": 447232,
    "imo": 0,
-   "mmsi": 265514760,
-   "name": "PILOT 145 SE",
+   "mmsi": "small-craft-155",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 7,
@@ -9745,14 +9531,12 @@
    "shipType": 90,
    "timestamp": 1792698572433
   },
-  "276835000": {
-   "callSign": "ESKW",
+  "small-craft-211": {
    "destination": "EEPAS",
    "draught": 36,
    "eta": 211776,
    "imo": 0,
-   "mmsi": 276835000,
-   "name": "TORVIK",
+   "mmsi": "small-craft-211",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 13,
@@ -9825,14 +9609,12 @@
    "shipType": 52,
    "timestamp": 1792698575161
   },
-  "230018240": {
-   "callSign": "OJ7964",
+  "small-craft-15": {
    "destination": "KASKINEN PILOT CH09",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230018240,
-   "name": "PILOT L235",
+   "mmsi": "small-craft-15",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 2,
@@ -9905,14 +9687,12 @@
    "shipType": 52,
    "timestamp": 1792698578859
   },
-  "230174220": {
-   "callSign": "OHA4027",
+  "small-craft-87": {
    "destination": "RAUMA",
    "draught": 24,
    "eta": 634112,
    "imo": 0,
-   "mmsi": 230174220,
-   "name": "PRINCESS CAROLINE",
+   "mmsi": "small-craft-87",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -9969,14 +9749,12 @@
    "shipType": 60,
    "timestamp": 1792698582546
   },
-  "276001840": {
-   "callSign": "ES2850",
+  "small-craft-197": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 276001840,
-   "name": "SUNRAY",
+   "mmsi": "small-craft-197",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 13,
@@ -10049,14 +9827,12 @@
    "shipType": 60,
    "timestamp": 1792698585658
   },
-  "230018360": {
-   "callSign": "OJ7975",
+  "small-craft-16": {
    "destination": "SAR",
    "draught": 8,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230018360,
-   "name": "RESCUE KOTKA",
+   "mmsi": "small-craft-16",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 7,
@@ -10193,14 +9969,12 @@
    "shipType": 70,
    "timestamp": 1792698593522
   },
-  "230155020": {
-   "callSign": "OH9449",
+  "small-craft-79": {
    "destination": "SVINO",
    "draught": 10,
    "eta": 647872,
    "imo": 0,
-   "mmsi": 230155020,
-   "name": "SUBSEA TENDER",
+   "mmsi": "small-craft-79",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 8,
@@ -10321,14 +10095,12 @@
    "shipType": 80,
    "timestamp": 1792698606171
   },
-  "230086910": {
-   "callSign": "OH5798",
+  "small-craft-42": {
    "destination": "TURKU",
    "draught": 24,
    "eta": 680896,
    "imo": 0,
-   "mmsi": 230086910,
-   "name": "SS LOKKI",
+   "mmsi": "small-craft-42",
    "posType": 15,
    "referencePointA": 5,
    "referencePointB": 18,
@@ -10385,14 +10157,12 @@
    "shipType": 70,
    "timestamp": 1792698608198
   },
-  "230983310": {
-   "callSign": "OJKJ",
+  "small-craft-111": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230983310,
-   "name": "SAR TORBAY",
+   "mmsi": "small-craft-111",
    "posType": 15,
    "referencePointA": 8,
    "referencePointB": 8,
@@ -10449,14 +10219,12 @@
    "shipType": 60,
    "timestamp": 1792698608785
   },
-  "230021990": {
-   "callSign": "OJ8280",
+  "small-craft-18": {
    "destination": "KEMI/TORNIO PILOT",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230021990,
-   "name": "PILOT L237",
+   "mmsi": "small-craft-18",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -10465,14 +10233,12 @@
    "shipType": 50,
    "timestamp": 1792698608826
   },
-  "230939100": {
-   "callSign": "OJ7510",
+  "small-craft-99": {
    "destination": "HELSINKI LIFEBOAT",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230939100,
-   "name": "RESCUE RAUTAUOMA",
+   "mmsi": "small-craft-99",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 7,
@@ -10545,14 +10311,12 @@
    "shipType": 70,
    "timestamp": 1792698611980
   },
-  "230107940": {
-   "callSign": "OHA5367",
+  "small-craft-49": {
    "destination": "VERKAN",
    "draught": 12,
    "eta": 580431,
    "imo": 0,
-   "mmsi": 230107940,
-   "name": "FINEXPRESS",
+   "mmsi": "small-craft-49",
    "posType": 1,
    "referencePointA": 14,
    "referencePointB": 2,
@@ -10561,14 +10325,12 @@
    "shipType": 70,
    "timestamp": 1792698611980
   },
-  "230109170": {
-   "callSign": "OG 7604",
+  "small-craft-51": {
    "destination": "KOKKOLA  PILOT CH 6",
    "draught": 24,
    "eta": 221952,
    "imo": 0,
-   "mmsi": 230109170,
-   "name": "PILOT L131",
+   "mmsi": "small-craft-51",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -10689,14 +10451,12 @@
    "shipType": 80,
    "timestamp": 1792698616440
   },
-  "230981770": {
-   "callSign": "OG9644",
+  "small-craft-109": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230981770,
-   "name": "MT5309",
+   "mmsi": "small-craft-109",
    "posType": 0,
    "referencePointA": 10,
    "referencePointB": 5,
@@ -10817,14 +10577,12 @@
    "shipType": 70,
    "timestamp": 1792698619094
   },
-  "230980890": {
-   "callSign": "OH9784",
+  "small-craft-107": {
    "destination": "FIBERGHAMN",
    "draught": 15,
    "eta": 504832,
    "imo": 0,
-   "mmsi": 230980890,
-   "name": "ARVINSILMA",
+   "mmsi": "small-craft-107",
    "posType": 0,
    "referencePointA": 3,
    "referencePointB": 11,
@@ -10833,14 +10591,12 @@
    "shipType": 52,
    "timestamp": 1792698619446
   },
-  "230128680": {
-   "callSign": "OH7039",
+  "small-craft-71": {
    "destination": "N",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230128680,
-   "name": "RV90",
+   "mmsi": "small-craft-71",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 8,
@@ -10961,14 +10717,12 @@
    "shipType": 60,
    "timestamp": 1792698628723
   },
-  "230987160": {
-   "callSign": "OJ 3089",
+  "small-craft-113": {
    "destination": "",
    "draught": 18,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230987160,
-   "name": "PILOT L229",
+   "mmsi": "small-craft-113",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 3,
@@ -11057,14 +10811,12 @@
    "shipType": 60,
    "timestamp": 1792698632569
   },
-  "276014100": {
-   "callSign": "ES4025",
+  "small-craft-201": {
    "destination": "EE HUN",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 276014100,
-   "name": "SINILIND",
+   "mmsi": "small-craft-201",
    "posType": 15,
    "referencePointA": 9,
    "referencePointB": 7,
@@ -11105,14 +10857,12 @@
    "shipType": 60,
    "timestamp": 1792698634821
   },
-  "230987940": {
-   "callSign": "OJ2044",
+  "small-craft-116": {
    "destination": "HELSINKI",
    "draught": 28,
    "eta": 671744,
    "imo": 0,
-   "mmsi": 230987940,
-   "name": "JOANNA SATURNA",
+   "mmsi": "small-craft-116",
    "posType": 1,
    "referencePointA": 17,
    "referencePointB": 6,
@@ -11137,14 +10887,12 @@
    "shipType": 52,
    "timestamp": 1792698638106
   },
-  "230180500": {
-   "callSign": "OHA4887",
+  "small-craft-89": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230180500,
-   "name": "PILOT L250",
+   "mmsi": "small-craft-89",
    "posType": 0,
    "referencePointA": 13,
    "referencePointB": 3,
@@ -11265,14 +11013,12 @@
    "shipType": 90,
    "timestamp": 1792698641639
   },
-  "230981810": {
-   "callSign": "OHA6309",
+  "small-craft-110": {
    "destination": "PUUMALA",
    "draught": 23,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230981810,
-   "name": "TIKKA",
+   "mmsi": "small-craft-110",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 14,
@@ -11313,14 +11059,12 @@
    "shipType": 52,
    "timestamp": 1792698645088
   },
-  "230111350": {
-   "callSign": "OI-8009",
+  "small-craft-59": {
    "destination": "CH67 RAHJA PILOT",
    "draught": 23,
    "eta": 849920,
    "imo": 0,
-   "mmsi": 230111350,
-   "name": "PILOT L127",
+   "mmsi": "small-craft-59",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 4,
@@ -11377,14 +11121,12 @@
    "shipType": 70,
    "timestamp": 1792698646707
   },
-  "230994080": {
-   "callSign": "OG8384",
+  "small-craft-131": {
    "destination": "HYDROGRAPHIC SURVEY",
    "draught": 18,
    "eta": 835584,
    "imo": 0,
-   "mmsi": 230994080,
-   "name": "M640",
+   "mmsi": "small-craft-131",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 9,
@@ -11393,14 +11135,12 @@
    "shipType": 90,
    "timestamp": 1792698648264
   },
-  "230992260": {
-   "callSign": "OF4189",
+  "small-craft-122": {
    "destination": "FAIRWAY WORKS",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230992260,
-   "name": "MT2305",
+   "mmsi": "small-craft-122",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -11633,14 +11373,12 @@
    "shipType": 70,
    "timestamp": 1792698660140
   },
-  "230158730": {
-   "callSign": "OH9899",
+  "small-craft-81": {
    "destination": "RAAHE",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230158730,
-   "name": "RPP 508",
+   "mmsi": "small-craft-81",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 10,
@@ -11745,14 +11483,12 @@
    "shipType": 80,
    "timestamp": 1792698667765
   },
-  "265521460": {
-   "callSign": "SLPA",
+  "small-craft-159": {
    "destination": "SKELLEFTEA",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265521460,
-   "name": "PILOT 758 SE",
+   "mmsi": "small-craft-159",
    "posType": 15,
    "referencePointA": 7,
    "referencePointB": 10,
@@ -11825,14 +11561,12 @@
    "shipType": 60,
    "timestamp": 1792698670404
   },
-  "230194850": {
-   "callSign": "OHA7118",
+  "small-craft-95": {
    "destination": "--",
    "draught": 9,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230194850,
-   "name": "ROOPE-BOTNIA",
+   "mmsi": "small-craft-95",
    "posType": 15,
    "referencePointA": 11,
    "referencePointB": 4,
@@ -11921,14 +11655,12 @@
    "shipType": 70,
    "timestamp": 1792698672536
   },
-  "230937480": {
-   "callSign": "OHA4326",
+  "small-craft-98": {
    "destination": "SAR TURKU AREA",
    "draught": 10,
    "eta": 851451,
    "imo": 0,
-   "mmsi": 230937480,
-   "name": "RESCUE RIMIC",
+   "mmsi": "small-craft-98",
    "posType": 15,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -11969,14 +11701,12 @@
    "shipType": 70,
    "timestamp": 1792698675477
   },
-  "230006760": {
-   "callSign": "OJ6711",
+  "small-craft-6": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230006760,
-   "name": "PILOT L143",
+   "mmsi": "small-craft-6",
    "posType": 0,
    "referencePointA": 11,
    "referencePointB": 4,
@@ -11985,14 +11715,12 @@
    "shipType": 50,
    "timestamp": 1792698676074
   },
-  "230111080": {
-   "callSign": "OI7490",
+  "small-craft-54": {
    "destination": "FAIRWAY WORKS",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230111080,
-   "name": "MT1304",
+   "mmsi": "small-craft-54",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 4,
@@ -12049,14 +11777,12 @@
    "shipType": 70,
    "timestamp": 1792698677922
   },
-  "230153880": {
-   "callSign": "OH9309",
+  "small-craft-78": {
    "destination": "RAUMA PILOT CH 09",
    "draught": 13,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230153880,
-   "name": "L247",
+   "mmsi": "small-craft-78",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -12097,14 +11823,12 @@
    "shipType": 80,
    "timestamp": 1792698680041
   },
-  "230993760": {
-   "callSign": "OF-2451",
+  "small-craft-130": {
    "destination": "FARGSUNDET",
    "draught": 20,
    "eta": 592640,
    "imo": 0,
-   "mmsi": 230993760,
-   "name": "KUHA",
+   "mmsi": "small-craft-130",
    "posType": 0,
    "referencePointA": 10,
    "referencePointB": 10,
@@ -12289,14 +12013,12 @@
    "shipType": 90,
    "timestamp": 1792698685995
   },
-  "230045250": {
-   "callSign": "OH2244",
+  "small-craft-29": {
    "destination": "",
    "draught": 25,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230045250,
-   "name": "PILOT L148",
+   "mmsi": "small-craft-29",
    "posType": 0,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -12321,14 +12043,12 @@
    "shipType": 80,
    "timestamp": 1792698687126
   },
-  "230940100": {
-   "callSign": "OI5965",
+  "small-craft-100": {
    "destination": "SEGLINGELINJEN",
    "draught": 30,
    "eta": 81088,
    "imo": 0,
-   "mmsi": 230940100,
-   "name": "FARJA 119",
+   "mmsi": "small-craft-100",
    "posType": 3,
    "referencePointA": 16,
    "referencePointB": 1,
@@ -12385,14 +12105,12 @@
    "shipType": 52,
    "timestamp": 1792698689426
   },
-  "265732720": {
-   "callSign": "SIAP",
+  "small-craft-187": {
    "destination": "AREA.SVARTKLUBBEN",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265732720,
-   "name": "PILOT 217 SE",
+   "mmsi": "small-craft-187",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 6,
@@ -12417,14 +12135,12 @@
    "shipType": 70,
    "timestamp": 1792698690347
   },
-  "230988890": {
-   "callSign": "OJ 3544",
+  "small-craft-117": {
    "destination": "KOKKOLA PILOT CH67",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230988890,
-   "name": "PILOT L138",
+   "mmsi": "small-craft-117",
    "posType": 0,
    "referencePointA": 10,
    "referencePointB": 5,
@@ -12465,14 +12181,12 @@
    "shipType": 52,
    "timestamp": 1792698692725
   },
-  "265588910": {
-   "callSign": "SCNG",
+  "small-craft-169": {
    "destination": "ARHOLMA <> SIMPNAS",
    "draught": 14,
    "eta": 398302,
    "imo": 0,
-   "mmsi": 265588910,
-   "name": "MONSUN",
+   "mmsi": "small-craft-169",
    "posType": 1,
    "referencePointA": 4,
    "referencePointB": 15,
@@ -12529,14 +12243,12 @@
    "shipType": 60,
    "timestamp": 1792698695384
   },
-  "276005340": {
-   "callSign": "ES3168",
+  "small-craft-199": {
    "destination": "MEERUSE",
    "draught": 15,
    "eta": 584842,
    "imo": 0,
-   "mmsi": 276005340,
-   "name": "AHTO-15",
+   "mmsi": "small-craft-199",
    "posType": 1,
    "referencePointA": 18,
    "referencePointB": 2,
@@ -12577,14 +12289,12 @@
    "shipType": 80,
    "timestamp": 1792698696757
   },
-  "230011290": {
-   "callSign": "OJ7203",
+  "small-craft-8": {
    "destination": "FAIRWAY WORK",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230011290,
-   "name": "MT2306",
+   "mmsi": "small-craft-8",
    "posType": 1,
    "referencePointA": 15,
    "referencePointB": 2,
@@ -12721,14 +12431,12 @@
    "shipType": 70,
    "timestamp": 1792698701577
   },
-  "230046140": {
-   "callSign": "OH2309",
+  "small-craft-30": {
    "destination": "UTO",
    "draught": 0,
    "eta": 169280,
    "imo": 0,
-   "mmsi": 230046140,
-   "name": "VIGGEN",
+   "mmsi": "small-craft-30",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 11,
@@ -12785,14 +12493,12 @@
    "shipType": 70,
    "timestamp": 1792698703230
   },
-  "230074470": {
-   "callSign": "OI9268",
+  "small-craft-41": {
    "destination": "KAUKAS",
    "draught": 0,
    "eta": 570718,
    "imo": 0,
-   "mmsi": 230074470,
-   "name": "OLLI",
+   "mmsi": "small-craft-41",
    "posType": 15,
    "referencePointA": 6,
    "referencePointB": 14,
@@ -12801,14 +12507,12 @@
    "shipType": 52,
    "timestamp": 1792698703490
   },
-  "230093090": {
-   "callSign": "OH6348",
+  "small-craft-45": {
    "destination": "",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230093090,
-   "name": "PILOT L243",
+   "mmsi": "small-craft-45",
    "posType": 1,
    "referencePointA": 13,
    "referencePointB": 3,
@@ -12945,14 +12649,12 @@
    "shipType": 70,
    "timestamp": 1792698710969
   },
-  "230111180": {
-   "callSign": "OF4162",
+  "small-craft-56": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230111180,
-   "name": "MT3325",
+   "mmsi": "small-craft-56",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 4,
@@ -12961,14 +12663,12 @@
    "shipType": 90,
    "timestamp": 1792698712641
   },
-  "230128800": {
-   "callSign": "OH7045",
+  "small-craft-72": {
    "destination": "KASNAS AREA",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230128800,
-   "name": "OERNEN",
+   "mmsi": "small-craft-72",
    "posType": 15,
    "referencePointA": 21,
    "referencePointB": 2,
@@ -13041,14 +12741,12 @@
    "shipType": 80,
    "timestamp": 1792698714628
   },
-  "276014670": {
-   "callSign": "ES4081",
+  "small-craft-202": {
    "destination": "LEPPNEEME<>KELNASE",
    "draught": 15,
    "eta": 701406,
    "imo": 0,
-   "mmsi": 276014670,
-   "name": "NARGO",
+   "mmsi": "small-craft-202",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 7,
@@ -13105,14 +12803,12 @@
    "shipType": 52,
    "timestamp": 1792698716460
   },
-  "230125940": {
-   "callSign": "OJ-3546",
+  "small-craft-69": {
    "destination": "",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230125940,
-   "name": "PILOT L140",
+   "mmsi": "small-craft-69",
    "posType": 15,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -13169,14 +12865,12 @@
    "shipType": 70,
    "timestamp": 1792698719818
   },
-  "230046990": {
-   "callSign": "OH2372",
+  "small-craft-33": {
    "destination": "FAIRWAYWORKS",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230046990,
-   "name": "MT5300",
+   "mmsi": "small-craft-33",
    "posType": 15,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -13233,14 +12927,12 @@
    "shipType": 52,
    "timestamp": 1792698721801
   },
-  "230008800": {
-   "callSign": "OJ 6925",
+  "small-craft-7": {
    "destination": "MANTYLUOTO PILOT CH9",
    "draught": 20,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230008800,
-   "name": "PILOT L230",
+   "mmsi": "small-craft-7",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 3,
@@ -13377,14 +13069,12 @@
    "shipType": 52,
    "timestamp": 1792698726176
   },
-  "230017360": {
-   "callSign": "OI-9796",
+  "small-craft-14": {
    "destination": "",
    "draught": 6,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230017360,
-   "name": "PILOT L217",
+   "mmsi": "small-craft-14",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 4,
@@ -13473,14 +13163,12 @@
    "shipType": 80,
    "timestamp": 1792698729425
   },
-  "230987580": {
-   "callSign": "OJ-2406",
+  "small-craft-115": {
    "destination": "JOENSUU",
    "draught": 6,
    "eta": 782336,
    "imo": 0,
-   "mmsi": 230987580,
-   "name": "RESCUE VAINO",
+   "mmsi": "small-craft-115",
    "posType": 15,
    "referencePointA": 6,
    "referencePointB": 5,
@@ -13585,14 +13273,12 @@
    "shipType": 70,
    "timestamp": 1792698738327
   },
-  "265513420": {
-   "callSign": "SIKN",
+  "small-craft-152": {
    "destination": "PILOT AREA CH 13",
    "draught": 32,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265513420,
-   "name": "PILOT 755 SE",
+   "mmsi": "small-craft-152",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 4,
@@ -13601,14 +13287,12 @@
    "shipType": 50,
    "timestamp": 1792698738793
   },
-  "230126890": {
-   "callSign": "OJ-3674",
+  "small-craft-70": {
    "destination": "KUOPIO",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230126890,
-   "name": "AHTI 219",
+   "mmsi": "small-craft-70",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 10,
@@ -13617,14 +13301,12 @@
    "shipType": 70,
    "timestamp": 1792698738835
   },
-  "230928000": {
-   "callSign": "OISJ",
+  "small-craft-97": {
    "destination": "RAUMA",
    "draught": 22,
    "eta": 400128,
    "imo": 0,
-   "mmsi": 230928000,
-   "name": "MINOS",
+   "mmsi": "small-craft-97",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 16,
@@ -13649,14 +13331,12 @@
    "shipType": 52,
    "timestamp": 1792698739490
   },
-  "230045240": {
-   "callSign": "OH2243",
+  "small-craft-28": {
    "destination": "ORRENGRUND",
    "draught": 24,
    "eta": 567872,
    "imo": 0,
-   "mmsi": 230045240,
-   "name": "PILOT L149",
+   "mmsi": "small-craft-28",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 5,
@@ -13681,14 +13361,12 @@
    "shipType": 52,
    "timestamp": 1792698739917
   },
-  "230065310": {
-   "callSign": "OH3998",
+  "small-craft-39": {
    "destination": "KALAJOKIMEPE",
    "draught": 14,
    "eta": 563860,
    "imo": 0,
-   "mmsi": 230065310,
-   "name": "RPP 548",
+   "mmsi": "small-craft-39",
    "posType": 0,
    "referencePointA": 8,
    "referencePointB": 10,
@@ -13713,14 +13391,12 @@
    "shipType": 52,
    "timestamp": 1792698742203
   },
-  "230035440": {
-   "callSign": "OJ9461",
+  "small-craft-23": {
    "destination": "KOKKOLA PILOT CH67",
    "draught": 0,
    "eta": 312168,
    "imo": 0,
-   "mmsi": 230035440,
-   "name": "PILOT L239",
+   "mmsi": "small-craft-23",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -13793,14 +13469,12 @@
    "shipType": 36,
    "timestamp": 1792698746412
   },
-  "230981750": {
-   "callSign": "OG9545",
+  "small-craft-108": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230981750,
-   "name": "MT3327",
+   "mmsi": "small-craft-108",
    "posType": 1,
    "referencePointA": 13,
    "referencePointB": 5,
@@ -13841,14 +13515,12 @@
    "shipType": 70,
    "timestamp": 1792698747670
   },
-  "230149160": {
-   "callSign": "OH8756",
+  "small-craft-75": {
    "destination": "HANKO",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230149160,
-   "name": "PILOT L245",
+   "mmsi": "small-craft-75",
    "posType": 0,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -13921,14 +13593,12 @@
    "shipType": 60,
    "timestamp": 1792698748958
   },
-  "230169030": {
-   "callSign": "OHA3332",
+  "small-craft-85": {
    "destination": "HELSINKI",
    "draught": 28,
    "eta": 612352,
    "imo": 0,
-   "mmsi": 230169030,
-   "name": "RODNY",
+   "mmsi": "small-craft-85",
    "posType": 15,
    "referencePointA": 6,
    "referencePointB": 13,
@@ -14033,14 +13703,12 @@
    "shipType": 80,
    "timestamp": 1792698753024
   },
-  "230991980": {
-   "callSign": "OF4074",
+  "small-craft-121": {
    "destination": "",
    "draught": 0,
    "eta": 67649,
    "imo": 0,
-   "mmsi": 230991980,
-   "name": "MT2112",
+   "mmsi": "small-craft-121",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 8,
@@ -14225,14 +13893,12 @@
    "shipType": 80,
    "timestamp": 1792698763242
   },
-  "230991780": {
-   "callSign": "OI4812",
+  "small-craft-120": {
    "destination": "PORT TOWAGE",
    "draught": 20,
    "eta": 555998,
    "imo": 0,
-   "mmsi": 230991780,
-   "name": "JOONAS",
+   "mmsi": "small-craft-120",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 9,
@@ -14257,14 +13923,12 @@
    "shipType": 80,
    "timestamp": 1792698766527
   },
-  "230109470": {
-   "callSign": "",
+  "small-craft-52": {
    "destination": "HANKO",
    "draught": 26,
    "eta": 658816,
    "imo": 0,
-   "mmsi": 230109470,
-   "name": "PILOT L129",
+   "mmsi": "small-craft-52",
    "posType": 3,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -14273,14 +13937,12 @@
    "shipType": 50,
    "timestamp": 1792698767224
   },
-  "230044550": {
-   "callSign": "OJ2477",
+  "small-craft-27": {
    "destination": "HELSINKI",
    "draught": 20,
    "eta": 439296,
    "imo": 0,
-   "mmsi": 230044550,
-   "name": "YOLDIA",
+   "mmsi": "small-craft-27",
    "posType": 15,
    "referencePointA": 4,
    "referencePointB": 8,
@@ -14305,14 +13967,12 @@
    "shipType": 70,
    "timestamp": 1792698767391
   },
-  "230055040": {
-   "callSign": "OH-3114",
+  "small-craft-34": {
    "destination": "HELSINKI",
    "draught": 20,
    "eta": 660864,
    "imo": 0,
-   "mmsi": 230055040,
-   "name": "MIINA",
+   "mmsi": "small-craft-34",
    "posType": 15,
    "referencePointA": 20,
    "referencePointB": 3,
@@ -14401,14 +14061,12 @@
    "shipType": 80,
    "timestamp": 1792698772158
   },
-  "230033880": {
-   "callSign": "OJ9333",
+  "small-craft-22": {
    "destination": "HELSINKI PILOT CH 71",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230033880,
-   "name": "PILOT L238",
+   "mmsi": "small-craft-22",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -14417,14 +14075,12 @@
    "shipType": 50,
    "timestamp": 1792698772803
   },
-  "230017350": {
-   "callSign": "OJ7876",
+  "small-craft-13": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230017350,
-   "name": "PILOTS L234",
+   "mmsi": "small-craft-13",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 2,
@@ -14433,14 +14089,12 @@
    "shipType": 50,
    "timestamp": 1792698774218
   },
-  "276797000": {
-   "callSign": "ES2904",
+  "small-craft-209": {
    "destination": "ROHUNEEME",
    "draught": 15,
    "eta": 426944,
    "imo": 0,
-   "mmsi": 276797000,
-   "name": "AHTO-29",
+   "mmsi": "small-craft-209",
    "posType": 1,
    "referencePointA": 17,
    "referencePointB": 0,
@@ -14465,14 +14119,12 @@
    "shipType": 60,
    "timestamp": 1792698775727
   },
-  "230193670": {
-   "callSign": "OHA6882",
+  "small-craft-93": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230193670,
-   "name": "L252",
+   "mmsi": "small-craft-93",
    "posType": 1,
    "referencePointA": 14,
    "referencePointB": 3,
@@ -14513,14 +14165,12 @@
    "shipType": 70,
    "timestamp": 1792698776471
   },
-  "230059740": {
-   "callSign": "OH3540",
+  "small-craft-35": {
    "destination": "SAR GULF OF FINLAND",
    "draught": 9,
    "eta": 851451,
    "imo": 0,
-   "mmsi": 230059740,
-   "name": "RESCUE AKTIA",
+   "mmsi": "small-craft-35",
    "posType": 0,
    "referencePointA": 8,
    "referencePointB": 6,
@@ -14545,14 +14195,12 @@
    "shipType": 52,
    "timestamp": 1792698777676
   },
-  "276756000": {
-   "callSign": "ES2735",
+  "small-craft-207": {
    "destination": "HUNDIPEA",
    "draught": 15,
    "eta": 293705,
    "imo": 0,
-   "mmsi": 276756000,
-   "name": "AHTO-28",
+   "mmsi": "small-craft-207",
    "posType": 1,
    "referencePointA": 13,
    "referencePointB": 7,
@@ -14625,14 +14273,12 @@
    "shipType": 60,
    "timestamp": 1792698782364
   },
-  "230163320": {
-   "callSign": "OHA2562",
+  "small-craft-84": {
    "destination": "KASNAS",
    "draught": 17,
    "eta": 67649,
    "imo": 0,
-   "mmsi": 230163320,
-   "name": "VILLE 2",
+   "mmsi": "small-craft-84",
    "posType": 1,
    "referencePointA": 6,
    "referencePointB": 6,
@@ -14705,14 +14351,12 @@
    "shipType": 52,
    "timestamp": 1792698783793
   },
-  "230022910": {
-   "callSign": "OJ8369",
+  "small-craft-19": {
    "destination": "",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230022910,
-   "name": "MT2307",
+   "mmsi": "small-craft-19",
    "posType": 1,
    "referencePointA": 15,
    "referencePointB": 3,
@@ -14817,14 +14461,12 @@
    "shipType": 70,
    "timestamp": 1792698788608
   },
-  "230011590": {
-   "callSign": "OJ7253",
+  "small-craft-9": {
    "destination": "OULU PILOT CH67",
    "draught": 23,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230011590,
-   "name": "PILOT L144",
+   "mmsi": "small-craft-9",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 4,
@@ -14865,14 +14507,12 @@
    "shipType": 70,
    "timestamp": 1792698790159
   },
-  "230161450": {
-   "callSign": "OHA2259",
+  "small-craft-82": {
    "destination": "ISOKARI PILOT CH71",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230161450,
-   "name": "L248",
+   "mmsi": "small-craft-82",
    "posType": 0,
    "referencePointA": 14,
    "referencePointB": 3,
@@ -14897,14 +14537,12 @@
    "shipType": 70,
    "timestamp": 1792698794729
   },
-  "230992750": {
-   "callSign": "OJDT",
+  "small-craft-128": {
    "destination": "KORPO",
    "draught": 24,
    "eta": 619776,
    "imo": 0,
-   "mmsi": 230992750,
-   "name": "SVAERTAN",
+   "mmsi": "small-craft-128",
    "posType": 1,
    "referencePointA": 0,
    "referencePointB": 0,
@@ -14945,14 +14583,12 @@
    "shipType": 70,
    "timestamp": 1792698796842
   },
-  "276551000": {
-   "callSign": "ES2577",
+  "small-craft-204": {
    "destination": "MUUGA",
    "draught": 13,
    "eta": 0,
    "imo": 0,
-   "mmsi": 276551000,
-   "name": "AHTO 21",
+   "mmsi": "small-craft-204",
    "posType": 3,
    "referencePointA": 9,
    "referencePointB": 5,
@@ -14961,14 +14597,12 @@
    "shipType": 50,
    "timestamp": 1792698797259
   },
-  "276784000": {
-   "callSign": "ES2819",
+  "small-craft-208": {
    "destination": "HUNDIPEA",
    "draught": 0,
    "eta": 644032,
    "imo": 0,
-   "mmsi": 276784000,
-   "name": "AHTO-01",
+   "mmsi": "small-craft-208",
    "posType": 1,
    "referencePointA": 13,
    "referencePointB": 5,
@@ -15057,14 +14691,12 @@
    "shipType": 70,
    "timestamp": 1792698801916
   },
-  "230943910": {
-   "callSign": "",
+  "small-craft-104": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230943910,
-   "name": "NAVI TEST",
+   "mmsi": "small-craft-104",
    "posType": 15,
    "referencePointA": 10,
    "referencePointB": 0,
@@ -15153,14 +14785,12 @@
    "shipType": 80,
    "timestamp": 1792698807961
   },
-  "230025470": {
-   "callSign": "OJ8640",
+  "small-craft-20": {
    "destination": "FAIRWAY WORKS",
    "draught": 10,
    "eta": 445421,
    "imo": 0,
-   "mmsi": 230025470,
-   "name": "MT1322",
+   "mmsi": "small-craft-20",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 3,
@@ -15201,14 +14831,12 @@
    "shipType": 70,
    "timestamp": 1792698809688
   },
-  "230180470": {
-   "callSign": "OHA4883",
+  "small-craft-88": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230180470,
-   "name": "L249",
+   "mmsi": "small-craft-88",
    "posType": 0,
    "referencePointA": 7,
    "referencePointB": 9,
@@ -15233,14 +14861,12 @@
    "shipType": 60,
    "timestamp": 1792698810584
   },
-  "230046580": {
-   "callSign": "OH2344",
+  "small-craft-31": {
    "destination": "MARIEHAMN AREA",
    "draught": 15,
    "eta": 514856,
    "imo": 0,
-   "mmsi": 230046580,
-   "name": "SVANTE G  ",
+   "mmsi": "small-craft-31",
    "posType": 15,
    "referencePointA": 11,
    "referencePointB": 6,
@@ -15345,14 +14971,12 @@
    "shipType": 33,
    "timestamp": 1792698814771
   },
-  "230151590": {
-   "callSign": "OH9033",
+  "small-craft-77": {
    "destination": "PILOT 246",
    "draught": 14,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230151590,
-   "name": "L246",
+   "mmsi": "small-craft-77",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 4,
@@ -15361,14 +14985,12 @@
    "shipType": 50,
    "timestamp": 1792698814861
   },
-  "230151360": {
-   "callSign": "OH9009",
+  "small-craft-76": {
    "destination": "ML R  O",
    "draught": 10,
    "eta": 0,
    "imo": 0,
-   "mmsi": 230151360,
-   "name": "ARAMIS",
+   "mmsi": "small-craft-76",
    "posType": 15,
    "referencePointA": 10,
    "referencePointB": 5,
@@ -15393,14 +15015,12 @@
    "shipType": 60,
    "timestamp": 1792698815722
   },
-  "230980670": {
-   "callSign": "OG9204",
+  "small-craft-106": {
    "destination": "KEMI/TORNIO-PILOTING",
    "draught": 25,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230980670,
-   "name": "PILOT L135",
+   "mmsi": "small-craft-106",
    "posType": 0,
    "referencePointA": 11,
    "referencePointB": 5,
@@ -15425,14 +15045,12 @@
    "shipType": 80,
    "timestamp": 1792698816429
   },
-  "230038800": {
-   "callSign": "OJ9747",
+  "small-craft-26": {
    "destination": "PORI PILOT CH 09",
    "draught": 15,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230038800,
-   "name": "PILOT L241",
+   "mmsi": "small-craft-26",
    "posType": 0,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -15441,14 +15059,12 @@
    "shipType": 50,
    "timestamp": 1792698816832
   },
-  "276432000": {
-   "callSign": "ES2061",
+  "small-craft-203": {
    "destination": "HUNDIPEA",
    "draught": 10,
    "eta": 658556,
    "imo": 0,
-   "mmsi": 276432000,
-   "name": "EVA-318",
+   "mmsi": "small-craft-203",
    "posType": 3,
    "referencePointA": 12,
    "referencePointB": 7,
@@ -15553,14 +15169,12 @@
    "shipType": 60,
    "timestamp": 1792698826433
   },
-  "230941690": {
-   "callSign": "OJPI",
+  "small-craft-102": {
    "destination": "PORI OFFSHORE",
    "draught": 16,
    "eta": 301696,
    "imo": 0,
-   "mmsi": 230941690,
-   "name": "WIND SERVANT",
+   "mmsi": "small-craft-102",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 10,
@@ -15601,14 +15215,12 @@
    "shipType": 70,
    "timestamp": 1792698828774
   },
-  "230003110": {
-   "callSign": "OJ-6235",
+  "small-craft-4": {
    "destination": "RAAHE",
    "draught": 24,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230003110,
-   "name": "PILOT L141",
+   "mmsi": "small-craft-4",
    "posType": 0,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -15617,14 +15229,12 @@
    "shipType": 50,
    "timestamp": 1792698828816
   },
-  "230061400": {
-   "callSign": "OH3673",
+  "small-craft-37": {
    "destination": "HAMNSUNDET AREA",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230061400,
-   "name": "RESCUE BJOERKSKAER",
+   "mmsi": "small-craft-37",
    "posType": 15,
    "referencePointA": 8,
    "referencePointB": 4,
@@ -15697,14 +15307,12 @@
    "shipType": 60,
    "timestamp": 1792698835286
   },
-  "230112370": {
-   "callSign": "OG 8397",
+  "small-craft-63": {
    "destination": "HELSINKI",
    "draught": 15,
    "eta": 69120,
    "imo": 0,
-   "mmsi": 230112370,
-   "name": "HESSU",
+   "mmsi": "small-craft-63",
    "posType": 1,
    "referencePointA": 21,
    "referencePointB": 2,
@@ -15953,14 +15561,12 @@
    "shipType": 70,
    "timestamp": 1792698846151
   },
-  "230111240": {
-   "callSign": "OI7008",
+  "small-craft-58": {
    "destination": "FAIRWAY WORK",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230111240,
-   "name": "MT3319",
+   "mmsi": "small-craft-58",
    "posType": 1,
    "referencePointA": 8,
    "referencePointB": 7,
@@ -16033,14 +15639,12 @@
    "shipType": 54,
    "timestamp": 1792698850581
   },
-  "230980160": {
-   "callSign": "OGVY",
+  "small-craft-105": {
    "destination": "MARIEHAMN",
    "draught": 21,
    "eta": 670878,
    "imo": 0,
-   "mmsi": 230980160,
-   "name": "SUBSEA VI",
+   "mmsi": "small-craft-105",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 10,
@@ -16049,14 +15653,12 @@
    "shipType": 52,
    "timestamp": 1792698850581
   },
-  "230994480": {
-   "callSign": "OG8502",
+  "small-craft-133": {
    "destination": "SURVEY",
    "draught": 18,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230994480,
-   "name": "M620",
+   "mmsi": "small-craft-133",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 7,
@@ -16097,14 +15699,12 @@
    "shipType": 60,
    "timestamp": 1792698851647
   },
-  "265623130": {
-   "callSign": "SEXL",
+  "small-craft-175": {
    "destination": "FAIRWAY WORK",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265623130,
-   "name": "SEKTOR",
+   "mmsi": "small-craft-175",
    "posType": 1,
    "referencePointA": 17,
    "referencePointB": 3,
@@ -16289,14 +15889,12 @@
    "shipType": 70,
    "timestamp": 1792698859282
   },
-  "230013790": {
-   "callSign": "OJ-7460",
+  "small-craft-11": {
    "destination": "RAHJA-PILOT CH67",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230013790,
-   "name": "PILOT L233",
+   "mmsi": "small-craft-11",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 2,
@@ -16337,14 +15935,12 @@
    "shipType": 60,
    "timestamp": 1792698859575
   },
-  "230992640": {
-   "callSign": "OIRX",
+  "small-craft-127": {
    "destination": "VERKAN",
    "draught": 24,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230992640,
-   "name": "FISKO",
+   "mmsi": "small-craft-127",
    "posType": 1,
    "referencePointA": 14,
    "referencePointB": 6,
@@ -16353,14 +15949,12 @@
    "shipType": 60,
    "timestamp": 1792698861714
   },
-  "230111650": {
-   "callSign": "OF-4195",
+  "small-craft-62": {
    "destination": "TURKU",
    "draught": 18,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230111650,
-   "name": "GAIA",
+   "mmsi": "small-craft-62",
    "posType": 1,
    "referencePointA": 11,
    "referencePointB": 8,
@@ -16465,14 +16059,12 @@
    "shipType": 70,
    "timestamp": 1792698867426
   },
-  "230012280": {
-   "callSign": "OJ7310",
+  "small-craft-10": {
    "destination": "VAASA PILOT CH09",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230012280,
-   "name": "PILOT L231",
+   "mmsi": "small-craft-10",
    "posType": 1,
    "referencePointA": 10,
    "referencePointB": 2,
@@ -16481,14 +16073,12 @@
    "shipType": 50,
    "timestamp": 1792698867510
   },
-  "230036770": {
-   "callSign": "OJ9557",
+  "small-craft-24": {
    "destination": "OULU PILOT CH67",
    "draught": 10,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230036770,
-   "name": "PILOT L240",
+   "mmsi": "small-craft-24",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 3,
@@ -16561,14 +16151,12 @@
    "shipType": 70,
    "timestamp": 1792698872191
   },
-  "230111190": {
-   "callSign": "OHA7173",
+  "small-craft-57": {
    "destination": "FIHEL",
    "draught": 17,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230111190,
-   "name": "MERIHOYLA",
+   "mmsi": "small-craft-57",
    "posType": 1,
    "referencePointA": 7,
    "referencePointB": 6,
@@ -16625,14 +16213,12 @@
    "shipType": 60,
    "timestamp": 1792698873335
   },
-  "230174140": {
-   "callSign": "OHA4017",
+  "small-craft-86": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230174140,
-   "name": "JEHU",
+   "mmsi": "small-craft-86",
    "posType": 0,
    "referencePointA": 15,
    "referencePointB": 3,
@@ -16737,14 +16323,12 @@
    "shipType": 33,
    "timestamp": 1792698879596
   },
-  "276003580": {
-   "callSign": "ES2999",
+  "small-craft-198": {
    "destination": "HUNDIPEA",
    "draught": 25,
    "eta": 750356,
    "imo": 0,
-   "mmsi": 276003580,
-   "name": "AHTO- 07",
+   "mmsi": "small-craft-198",
    "posType": 3,
    "referencePointA": 14,
    "referencePointB": 4,
@@ -16881,14 +16465,12 @@
    "shipType": 60,
    "timestamp": 1792698883690
   },
-  "265585620": {
-   "callSign": "SMTZ",
+  "small-craft-166": {
    "destination": "PILOT CH 11",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 265585620,
-   "name": "PILOT 791 SE",
+   "mmsi": "small-craft-166",
    "posType": 1,
    "referencePointA": 14,
    "referencePointB": 3,
@@ -16913,14 +16495,12 @@
    "shipType": 60,
    "timestamp": 1792698884133
   },
-  "230193440": {
-   "callSign": "OHA6849",
+  "small-craft-91": {
    "destination": "",
    "draught": 0,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230193440,
-   "name": "L253",
+   "mmsi": "small-craft-91",
    "posType": 1,
    "referencePointA": 14,
    "referencePointB": 3,
@@ -16961,14 +16541,12 @@
    "shipType": 60,
    "timestamp": 1792698885615
   },
-  "276582000": {
-   "callSign": "ES2603",
+  "small-craft-205": {
    "destination": "ROHUNEEME",
    "draught": 15,
    "eta": 699456,
    "imo": 0,
-   "mmsi": 276582000,
-   "name": "AHTO 23",
+   "mmsi": "small-craft-205",
    "posType": 1,
    "referencePointA": 9,
    "referencePointB": 5,
@@ -17009,14 +16587,12 @@
    "shipType": 60,
    "timestamp": 1792698886272
   },
-  "230070870": {
-   "callSign": "OH4485",
+  "small-craft-40": {
    "destination": "KEMI PILOT CH67",
    "draught": 25,
    "eta": 1596,
    "imo": 0,
-   "mmsi": 230070870,
-   "name": "PILOT L151",
+   "mmsi": "small-craft-40",
    "posType": 1,
    "referencePointA": 12,
    "referencePointB": 3,

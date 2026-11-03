@@ -15,8 +15,41 @@ use bifrost_rollout::{RolloutPlan, VersionId};
 
 pub mod agent;
 pub mod durable;
-pub use agent::AgentReport;
-pub use durable::{DurableFleet, FleetIoError};
+pub use agent::{AgentReport, ChannelAssignment};
+pub use durable::{DurableFleet, DurableFleetError, FleetIoError};
+
+/// Why the fleet refused a check-in or a channel assignment. [VLD-ANB-MIDGARD-0042]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FleetError {
+    /// The channel is not one this fleet declares.
+    UnknownChannel(String),
+    /// The installation is registered on another channel; only an operator moves it.
+    ChannelMismatch {
+        /// The channel the installation is registered on.
+        registered: String,
+        /// The channel the report named.
+        reported: String,
+    },
+    /// No installation has that id.
+    UnknownInstallation(String),
+}
+
+impl std::fmt::Display for FleetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownChannel(c) => write!(f, "channel \"{c}\" is not configured"),
+            Self::ChannelMismatch {
+                registered,
+                reported,
+            } => write!(
+                f,
+                "the installation is registered on channel \"{registered}\", not \"{reported}\""
+            ),
+            Self::UnknownInstallation(i) => write!(f, "no installation \"{i}\""),
+        }
+    }
+}
+impl std::error::Error for FleetError {}
 
 /// A recorded agent check-in: the version + health an installation last reported,
 /// and when the manager last heard from it (its clock). [FR-B-3]
@@ -90,7 +123,7 @@ pub struct Drift {
 /// The fleet: declarative channel desires plus installation actuals, backed by
 /// live agent check-ins. Still clock-free — the caller supplies `now` — but now it
 /// records real agent reports and can flag nodes that have gone silent. [FR-B-3]
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Fleet {
     channels: BTreeMap<String, VersionId>,
     installs: BTreeMap<String, Installation>,
@@ -139,12 +172,55 @@ impl Fleet {
     /// Updates the installation's actual version (so drift/reconcile see live
     /// state) and the node's last-seen/health. This is what the PQ-mTLS fleet
     /// listener calls for each authenticated check-in. [FR-B-3] [RC-17]
-    pub fn check_in(&mut self, report: AgentReport, now: u64) {
-        self.register(Installation::new(
-            report.install_id.clone(),
-            report.channel.clone(),
-            report.version.clone(),
-        ));
+    ///
+    /// The report must name a declared channel ([`FleetError::UnknownChannel`]).
+    /// An installation seen for the first time is registered, pinned to that
+    /// channel; after that its channel comes from its registration, a report naming
+    /// another is refused ([`FleetError::ChannelMismatch`]) and only
+    /// [`Fleet::assign_channel`] moves it. A refused report changes nothing. Returns
+    /// whether the installation's channel, version or health changed (a check-in
+    /// that only refreshes last-seen returns `false`). [VLD-ANB-MIDGARD-0042]
+    pub fn check_in(&mut self, report: AgentReport, now: u64) -> Result<bool, FleetError> {
+        let changed = self.vet_check_in(&report)?;
+        self.record_check_in(report, now);
+        Ok(changed)
+    }
+
+    /// What [`Fleet::check_in`] would decide, without changing anything.
+    pub(crate) fn vet_check_in(&self, report: &AgentReport) -> Result<bool, FleetError> {
+        if !self.channels.contains_key(&report.channel) {
+            return Err(FleetError::UnknownChannel(report.channel.clone()));
+        }
+        let Some(install) = self.installs.get(&report.install_id) else {
+            return Ok(true);
+        };
+        if install.channel != report.channel {
+            return Err(FleetError::ChannelMismatch {
+                registered: install.channel.clone(),
+                reported: report.channel.clone(),
+            });
+        }
+        Ok(install.version != report.version
+            || self
+                .checkins
+                .get(&report.install_id)
+                .is_none_or(|c| c.version != report.version || c.healthy != report.healthy))
+    }
+
+    /// Apply a check-in without the channel rules: what a journal written before
+    /// they existed replays as. [VLD-ANB-MIDGARD-0042]
+    pub(crate) fn record_check_in(&mut self, report: AgentReport, now: u64) {
+        match self.installs.get_mut(&report.install_id) {
+            Some(install) => {
+                install.channel = report.channel.clone();
+                install.version = report.version.clone();
+            }
+            None => self.register(Installation::new(
+                report.install_id.clone(),
+                report.channel.clone(),
+                report.version.clone(),
+            )),
+        }
         self.checkins.insert(
             report.install_id,
             CheckIn {
@@ -153,6 +229,61 @@ impl Fleet {
                 last_seen: now,
             },
         );
+    }
+
+    /// Refresh an installation's last-seen time, if it has checked in.
+    pub(crate) fn touch(&mut self, install_id: &str, now: u64) {
+        if let Some(c) = self.checkins.get_mut(install_id) {
+            c.last_seen = now;
+        }
+    }
+
+    /// Move an installation to another declared channel: the operator's action, and
+    /// the only way an installation's channel changes after it registers.
+    /// [VLD-ANB-MIDGARD-0042]
+    pub fn assign_channel(&mut self, install_id: &str, channel: &str) -> Result<(), FleetError> {
+        self.vet_assign_channel(install_id, channel)?;
+        self.record_assign_channel(install_id, channel);
+        Ok(())
+    }
+
+    /// What [`Fleet::assign_channel`] would decide, without changing anything.
+    pub(crate) fn vet_assign_channel(
+        &self,
+        install_id: &str,
+        channel: &str,
+    ) -> Result<(), FleetError> {
+        if !self.channels.contains_key(channel) {
+            return Err(FleetError::UnknownChannel(channel.to_string()));
+        }
+        if !self.installs.contains_key(install_id) {
+            return Err(FleetError::UnknownInstallation(install_id.to_string()));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_assign_channel(&mut self, install_id: &str, channel: &str) {
+        if let Some(install) = self.installs.get_mut(install_id) {
+            install.channel = channel.to_string();
+        }
+    }
+
+    /// Every recorded check-in, by installation id.
+    pub(crate) fn checkins(&self) -> impl Iterator<Item = (&str, &CheckIn)> {
+        self.checkins.iter().map(|(id, c)| (id.as_str(), c))
+    }
+
+    /// Rebuild a fleet from its parts (a journal snapshot).
+    pub(crate) fn from_parts(
+        channels: BTreeMap<String, VersionId>,
+        installs: BTreeMap<String, Installation>,
+        checkins: BTreeMap<String, CheckIn>,
+    ) -> Self {
+        Self {
+            channels,
+            installs,
+            checkins,
+        }
     }
 
     /// The most recent check-in from `install_id`, if any.

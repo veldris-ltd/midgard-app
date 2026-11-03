@@ -24,7 +24,9 @@
 #
 # A real release reads, and has no default for:
 #   MIDGARD_SIGNING_KEYSTORE   the release signing keystore (ML-DSA-87)
+#   MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE  the passphrase its root is wrapped under
 #   MIDGARD_BIFROST_KEYSTORE   the Bifrost admission keystore (ML-DSA-65)
+#   MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE  the passphrase its root is wrapped under
 #   MIDGARD_BIFROST_REGISTRY   the Bifrost artefact registry directory
 # and the pinned anchors deploy/trust/release-trust.pub and deploy/trust/bifrost-trust.pub
 # (MIDGARD_TRUST_ANCHORS and MIDGARD_BIFROST_ANCHOR name others).
@@ -97,10 +99,18 @@ if [ "$dry_run" -eq 1 ]; then
     # Outside the checkout, like real key material, and gone when this exits.
     scratch="$(mktemp -d)"
     echo "release: DRY RUN — throwaway keys and registry in $scratch; nothing is published"
+    # Throwaway passphrases too: keystores wrap their root under one. [VLD-ANB-MIDGARD-0007]
+    for name in release admission; do
+        (umask 077; head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n' >"$scratch/$name.passphrase")
+    done
+    export MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE="$scratch/release.passphrase"
+    export MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE="$scratch/admission.passphrase"
     cargo run -q --release -p mg-sign -- keygen --key-id dry-run-release \
-        --keystore "$scratch/release.keystore" --export-verifying-key "$scratch/release.pub"
+        --keystore "$scratch/release.keystore" --export-verifying-key "$scratch/release.pub" \
+        --keystore-passphrase-file "$MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE"
     cargo run -q --release -p mg-sign -- keygen --key-id dry-run-admission --alg ML-DSA-65 \
-        --keystore "$scratch/admission.keystore" --export-verifying-key "$scratch/admission.pub"
+        --keystore "$scratch/admission.keystore" --export-verifying-key "$scratch/admission.pub" \
+        --keystore-passphrase-file "$MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE"
     export MIDGARD_SIGNING_KEYSTORE="$scratch/release.keystore"
     export MIDGARD_TRUST_ANCHORS="$scratch/release.pub"
     admission_keystore="$scratch/admission.keystore"
@@ -109,6 +119,8 @@ if [ "$dry_run" -eq 1 ]; then
 else
     : "${MIDGARD_SIGNING_KEYSTORE:?the release signing keystore is not configured (docs/ops/PKI.md)}"
     admission_keystore="${MIDGARD_BIFROST_KEYSTORE:?the Bifrost admission keystore is not configured (docs/ops/PKI.md)}"
+    : "${MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE:?the release keystore passphrase is not configured (docs/ops/PKI.md)}"
+    : "${MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE:?the admission keystore passphrase is not configured (docs/ops/PKI.md)}"
     registry="${MIDGARD_BIFROST_REGISTRY:?the Bifrost registry directory is not configured (docs/ops/PKI.md)}"
     export MIDGARD_TRUST_ANCHORS="${MIDGARD_TRUST_ANCHORS:-deploy/trust/release-trust.pub}"
     admission_anchor="${MIDGARD_BIFROST_ANCHOR:-deploy/trust/bifrost-trust.pub}"
@@ -187,6 +199,7 @@ while read -r id _ component file; do
         --id "$id" --version "$version" --component "$component" \
         --repro "$out/$id.repro.json" \
         --keystore "$admission_keystore" \
+        --keystore-passphrase-file "$MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE" \
         --release-anchor "$MIDGARD_TRUST_ANCHORS" --admission-anchor "$admission_anchor" </dev/null \
         | tee -a "$out/registered.txt" || fail "$id was gated but the registry refused it"
 done < "$out/artefacts.txt"

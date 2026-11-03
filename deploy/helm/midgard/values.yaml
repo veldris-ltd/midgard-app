@@ -6,10 +6,25 @@ namespace: midgard-enclosure
 createNamespace: true
 
 image:
-  # Release: "<registry>/<service>:<tag>", each image re-verifying its binary's signature
-  # before it runs (deploy/images/entrypoint.sh).
+  # Release: "<registry>/<service>@<digest>", each image re-verifying its binary's
+  # signature before it runs (its entrypoint, mg-verify --run-service: see
+  # deploy/images/service.Dockerfile). The verifier and its key travel inside the
+  # image, so only the digest binds a pod to the signed build: a release chart pins
+  # every image by digest, and does not render while a service's digest is empty.
+  # deploy/helm/set-digests.sh writes them from the signed images.lock of a release.
+  # [VLD-ANB-MIDGARD-0012]
   registry: registry.enclosure.local/midgard
+  digests:
+    http-gateway: ""
+    mimir-server: ""
+    bifrost-fleet: ""
+    heimdall-feed: ""
+    forge-worker: ""
+  # true renders "<registry>/<service>:<tag>" for a service with no digest, with
+  # imagePullPolicy Always: for development clusters only, never a release.
+  allowTag: false
   tag: "0.1.0-rc.1"
+  # Used for image.single only: a digest pulls IfNotPresent, a tag Always.
   pullPolicy: IfNotPresent
   # Set to one image holding every binary (the compose image) to run each service's
   # binary directly instead — for development clusters only; nothing is verified.
@@ -18,6 +33,51 @@ image:
 # The pinned public release trust key mg-verify checks every image against before it
 # runs. Provisioned by the key ceremony (RT-35). Unused with image.single.
 trustKeyConfigMap: midgard-release-trust
+
+# The image the `seed` init container unpacks a service's seed.tar with (services with
+# seed: true). A release service image runs on distroless, with no shell or tar, so
+# seeding needs its own small image with both: by default Google's distroless
+# base-debian12 debug-nonroot, whose BusyBox provides sh and tar, and nothing runs in it
+# but the one unpack command. It runs as the service's user, with the same hardened
+# securityContext, and mounts only the state volume and the seed Secret. Pinned by
+# digest, always: the chart refuses a digest that is not sha256:<64 hex>. Mirror it into
+# the enclosure's registry and set repository to match. With image.single the single
+# image is used instead, and this is unused. [VLD-ANB-MIDGARD-0068]
+# The digest is the multi-arch index digest of
+# gcr.io/distroless/base-debian12:debug-nonroot, read with
+# `docker buildx imagetools inspect` on 2026-11-01 (linux/amd64 manifest
+# sha256:23f77acf6d1b00a5d63ed914c2afa1e1a64eb473388be5eed8b8937b08266af8).
+seedImage:
+  repository: gcr.io/distroless/base-debian12
+  digest: sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+  pullPolicy: IfNotPresent
+
+# Where each service's identity, keystore passphrase and seed come from. [NFR-SEC-1]
+# [VLD-ANB-MIDGARD-0018] See README.md beside this file.
+#   kubernetes       Secrets "<name>-identity", "<name>-keystore-passphrase" and
+#                    "<name>-seed", created outside the chart. They live in etcd and in
+#                    every etcd backup, so outside the kind profile (image.single) the
+#                    render fails unless acknowledgeEtcdEncryption is true: set it only
+#                    once etcd encrypts Secrets at rest (EncryptionConfiguration with a
+#                    KMS v2 provider).
+#   csi              Secrets Store CSI driver volumes, from SecretProviderClass objects
+#                    of the same names that the operator supplies; nothing is written to
+#                    etcd.
+#   externalSecrets  ExternalSecret objects (external-secrets.io/v1beta1) from
+#                    externalSecrets.storeRef populate the same Secret names, so the pod
+#                    template is the same as for kubernetes.
+secrets:
+  provider: kubernetes
+  acknowledgeEtcdEncryption: false
+  externalSecrets:
+    # The SecretStore or ClusterSecretStore holding the files. Required for the
+    # externalSecrets provider.
+    storeRef: { name: "", kind: ClusterSecretStore }
+    # Remote key for Secret "<name>-..." is "<keyPrefix><name>-...", one property per file.
+    keyPrefix: midgard/
+    refreshInterval: 1h
+    # Keystores and seeds are binary: store each property base64-encoded.
+    decodingStrategy: Base64
 
 # Namespace-wide resource ceiling.
 quota:
@@ -32,28 +92,44 @@ defaultResources:
   requests: { cpu: 100m, memory: 64Mi }
   limits: { cpu: "1", memory: 512Mi }
 
+# Who may reach the health ports (/healthz, /readyz, /metrics on 9090), which carry no
+# identity check of their own. [VLD-ANB-MIDGARD-0027]
+#   podLabel   the app.kubernetes.io/name of the scraper pod: a port whose from: lists
+#              "metrics-scraper" admits pods with this label. Label your Prometheus pod
+#              app.kubernetes.io/name=metrics-scraper, or set this to its name.
+#   nodeCidrs  node address ranges admitted to those ports too, for CNIs that apply
+#              NetworkPolicy to the kubelet's probes; empty admits no node range.
+scraper:
+  podLabel: metrics-scraper
+  nodeCidrs: []
+
 # The services. Each holds a single-writer state directory (sealed journals and a
 # PQ-signed ledger, locked while it runs), so each is a one-replica StatefulSet with
 # its own volume: a second replica would be refused the lock, not share the load.
 #
 # Per service:
 #   args            the binary's options (/identity, /state and /jobs are the mounts)
-#   ports           each port, and the app names allowed to reach it ("*" = any pod)
+#   ports           each port, and the app names allowed to reach it. Name workloads:
+#                   "*" (any pod) refuses to render. "metrics-scraper" stands for the
+#                   scraper above, and also admits scraper.nodeCidrs.
 #   probe           the HTTP readiness/liveness endpoint
-#   identity        mount Secret "<name>-identity" (what `mg-admin mesh issue` wrote)
-#   seed            on first start, unpack Secret "<name>-seed" (seed.tar) into /state
+#   identity        mount "<name>-identity" (what `mg-admin mesh issue` wrote) at
+#                   /identity, and "<name>-keystore-passphrase" (key `passphrase`) at
+#                   /keystore-passphrase (copied owner-only into memory), both
+#                   from secrets.provider
+#   seed            on first start, unpack "<name>-seed" (seed.tar) into /state
 #   storage         the state volume's size
 #   jobsConfigMap   mount this ConfigMap at /jobs
 #   talksTo         the service ports this one may reach (egress)
 #   sourcesSecret   mount this Secret at /secrets (forge-worker's --secrets-dir)
 #   nodeSelector, tolerations, affinity   the pod's placement
-# Secrets and the jobs ConfigMap are provisioned outside the chart
-# (deploy/kind/bootstrap-secrets.sh for a local cluster).
+# Secrets and the jobs ConfigMap are provisioned outside the chart, from key custody
+# (deploy/kind/bootstrap-secrets.sh for a local kind cluster only).
 services:
   - name: http-gateway
     enabled: true
     binary: http-gateway
-    args: ["--state-dir", "/state", "--bind", "0.0.0.0:7710",
+    args: ["--state-dir", "/state", "--bind", "0.0.0.0:7710", "--allow-non-loopback",
            "--mesh-bind", "0.0.0.0:7711", "--mesh-identity-dir", "/identity"]
     ports:
       - { name: http, port: 7710, from: [console-edge] }
@@ -63,15 +139,28 @@ services:
     seed: true
     storage: 256Mi
 
+  # Inference admission control, at its defaults: max_tokens is clamped to
+  # --max-tokens; a prompt over --max-prompt-bytes is refused PROMPT_TOO_LARGE; more
+  # than --max-concurrent calls in flight (twice the sidecar's two slots), or
+  # --max-concurrent-per-identity for one caller, are refused BUSY; a completion waits
+  # at most --infer-timeout seconds on the sidecar. [VLD-ANB-MIDGARD-0016]
+  # Every --reload-interval seconds it looks for STOP in /state, and with modelServing
+  # re-reads /state/revoked.list and the model trust key and re-checks the verified
+  # manifest: STOP, or the model id in revoked.list, stops inference (readiness false,
+  # calls refused SERVING_STOPPED or MODEL_REVOKED) until it is removed
+  # (docs/ops/RUNBOOKS.md RB-8). [VLD-ANB-MIDGARD-0057]
   - name: mimir-server
     enabled: true
     binary: mimir-server
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
            "--purposes", "investigation", "--bind", "0.0.0.0:7720",
-           "--health-bind", "0.0.0.0:9090"]
+           "--health-bind", "$(POD_IP):9090",
+           "--max-tokens", "1024", "--max-prompt-bytes", "262144",
+           "--max-concurrent", "4", "--max-concurrent-per-identity", "2",
+           "--infer-timeout", "60", "--reload-interval", "60"]
     ports:
       - { name: mesh, port: 7720, from: [mimir-probe] }
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     seed: true
@@ -81,10 +170,10 @@ services:
     enabled: true
     binary: bifrost-fleet
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
-           "--bind", "0.0.0.0:7740", "--health-bind", "0.0.0.0:9090"]
+           "--bind", "0.0.0.0:7740", "--health-bind", "$(POD_IP):9090"]
     ports:
       - { name: mesh, port: 7740, from: [fleet-agent, fleet-operator] }
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     seed: true
@@ -94,10 +183,10 @@ services:
     enabled: true
     binary: heimdall-feed
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
-           "--bind", "0.0.0.0:7730", "--health-bind", "0.0.0.0:9090"]
+           "--bind", "0.0.0.0:7730", "--health-bind", "$(POD_IP):9090"]
     ports:
       - { name: mesh, port: 7730, from: [feed-source, picture-analyst] }
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     seed: true
@@ -108,9 +197,9 @@ services:
     binary: forge-worker
     args: ["--identity-dir", "/identity", "--state-dir", "/state",
            "--jobs", "/jobs/jobs.json", "--gateway", "http-gateway:7711",
-           "--health-bind", "0.0.0.0:9090"]
+           "--health-bind", "$(POD_IP):9090"]
     ports:
-      - { name: health, port: 9090, from: ["*"] }
+      - { name: health, port: 9090, from: [metrics-scraper] }
     probe: { port: 9090, path: /readyz }
     identity: true
     storage: 128Mi
@@ -124,10 +213,9 @@ services:
 # Serve a real model behind `service` instead of the reference engine. [FR-MI-1]
 # [AC-MI-7] A sidecar runs the engine in the pod, listening on 127.0.0.1:8080 only.
 # mimir-server verifies the model in /models/<modelDir> before it serves: a manifest
-# signed by the key in trustConfigMap (key model-signing.pub, from `mg-model keygen`),
-# and weights whose size, format and SHA-256 match it. modelsClaim is a
-# PersistentVolumeClaim holding the staged model directories; mimir-server mounts it
-# read-only, and the sidecar not at all. [MG-SEC-14] The sidecar loads by path, so
+# signed by the key in trustConfigMap, and weights whose size, format and SHA-256
+# match it. modelsClaim is a PersistentVolumeClaim holding the staged model
+# directories; mimir-server mounts it read-only, and the sidecar not at all. [MG-SEC-14] The sidecar loads by path, so
 # mimir-server copies the weights it verified, from the file it verified them through
 # and hashing them again, into /serve — an emptyDir only it writes, at most
 # serveSizeLimit — read-only and under their signed file name, then writes
@@ -135,9 +223,21 @@ services:
 # with sidecarArgs only once that marker exists, so point sidecarArgs at
 # /serve/<weights file>. It is ready only while the sidecar is healthy and the staged
 # copy is unchanged.
+# trustConfigMap holds the committed anchor: key model-signing.pub, built from
+# deploy/trust/model-signing.pub (published by the key ceremony; deploy/kind/model.sh
+# creates it from the checkout), mounted read-only at /model-trust. It is never built
+# from the models claim, and mimir-server refuses a trust key inside the model
+# directory. Without it, the pod does not start (fail closed). [VLD-ANB-MIDGARD-0028]
 modelServing:
   enabled: false
   service: mimir-server
+  # The model's accreditation, passed to `service` as --model-marking whether or not a
+  # real model is enabled: the highest marking of data it may be given, LEVEL or
+  # LEVEL:COMPARTMENT,... (UNCLASSIFIED, CONFIDENTIAL, SECRET, TOP_SECRET). A request
+  # marked above it is refused by policy and the refusal audited. UNCLASSIFIED refuses
+  # every marked prompt; raise it only to the model's actual accreditation.
+  # [VLD-ANB-MIDGARD-0034]
+  modelMarking: UNCLASSIFIED
   # llama-cpp (CPU, GGUF) or vllm (GPU, safetensors).
   engine: llama-cpp
   image: ghcr.io/ggml-org/llama.cpp:server@sha256:bbf6fde2eedbe1b6c8ee9d93a54ea4606e90a4eda18681a7f8b4b6ed0cbc9f00

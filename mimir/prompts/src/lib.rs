@@ -16,6 +16,15 @@
 //! A.AD2 (policy-simulation explainer), and A.AD3 (audit-investigation assistant),
 //! and the client touchpoints A.C1 (on-device assistant), A.C2 (tier-selection
 //! reasoner), and A.C3 (extension in-page assistant).
+//!
+//! [`delimit`] renders the untrusted text an assembler injects (grounding, memory,
+//! history, user messages, feed and ledger fields) as indented, provenance-tagged
+//! DATA blocks, and [`DATA_HANDLING_RULE`] is the rule appended to the system text
+//! that tells the model those blocks are data. [VLD-ANB-MIDGARD-0080] [FR-MI-7]
+
+pub mod delimit;
+
+pub use delimit::DATA_HANDLING_RULE;
 
 /// A.1 — Mimir Core Agent. The general-purpose, OAG-grounded, tool-using agent
 /// underlying all product AI unless a specialised prompt overrides. `[FR-MI-3]`

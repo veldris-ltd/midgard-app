@@ -11,7 +11,9 @@
 //! names do not line up (the policy crate's `CONFIDENTIAL` is "internal"); the order
 //! does, and the order is what is enforced.
 
-use policy::ClassificationLevel;
+use std::collections::BTreeSet;
+
+use policy::{ClassificationLevel, Compartment, Marking};
 
 /// The bands, lowest first; a band's position is its level.
 pub const BANDS: [&str; 4] = ["open", "internal", "restricted", "confidential"];
@@ -31,9 +33,59 @@ pub fn level_of(band: &str) -> Option<ClassificationLevel> {
         .map(ClassificationLevel)
 }
 
+/// A marking from `BAND[:COMPARTMENT,...]`, as `--resource-marking` takes it: a band
+/// and, after a colon, the compartments it requires. [VLD-ANB-MIDGARD-0063]
+pub fn parse_marking(spec: &str) -> Result<Marking, String> {
+    let (name, compartments) = match spec.split_once(':') {
+        Some((name, list)) => (name, Some(list)),
+        None => (spec, None),
+    };
+    let level = level_of(name).ok_or_else(|| {
+        format!("a marking band is open, internal, restricted or confidential, not '{name}'")
+    })?;
+    let mut set = BTreeSet::new();
+    for c in compartments.into_iter().flat_map(|l| l.split(',')) {
+        let c = c.trim();
+        if c.is_empty() {
+            return Err(format!("'{spec}' names an empty compartment"));
+        }
+        set.insert(Compartment(c.to_string()));
+    }
+    Ok(Marking {
+        level,
+        compartments: set,
+    })
+}
+
+/// The marking a mesh resource has when its service is given none: open, with no
+/// compartments.
+pub fn open_marking() -> Marking {
+    Marking {
+        level: ClassificationLevel::UNCLASSIFIED,
+        compartments: BTreeSet::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_resource_marking_is_a_band_and_its_compartments() {
+        // [VLD-ANB-MIDGARD-0063]
+        assert_eq!(parse_marking("open").unwrap(), open_marking());
+        let m = parse_marking("restricted:OPS-N,OPS-S").unwrap();
+        assert_eq!(m.level, level_of("restricted").unwrap());
+        assert_eq!(
+            m.compartments,
+            [Compartment("OPS-N".into()), Compartment("OPS-S".into())]
+                .into_iter()
+                .collect()
+        );
+        assert!(parse_marking("secret").is_err());
+        assert!(parse_marking("internal:").is_err());
+        assert!(parse_marking("internal:A,,B").is_err());
+    }
 
     #[test]
     fn bands_round_trip_and_nothing_else_is_a_band() {

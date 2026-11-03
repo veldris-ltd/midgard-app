@@ -11,7 +11,8 @@
 # CLAIMS.md is what it renders, and nothing else is edited by hand. The check holds a
 # row to what it cites:
 #
-#   - every evidence path exists, and a line anchor is inside its file;
+#   - every evidence path exists, and a line anchor is inside its file; an anchor written
+#     path:line:token also requires that line to contain token;
 #   - every named test is a #[test] function in the file it names;
 #   - every acceptance criterion id is one the specification or the gate knows;
 #   - a row at `operable` or `production` names a service test: a step of a script that
@@ -112,22 +113,34 @@ problem() {
 
 lines_in() { wc -l < "$1" | tr -d ' '; }
 
-# anchored WHO WHAT VALUE: VALUE is `path` or `path:line`; the path exists and the line is
-# inside it.
+# anchored WHO WHAT VALUE: VALUE is `path`, `path:line` or `path:line:token`; the path
+# exists and the line is inside it. With a token, the cited line must contain it (a plain
+# substring), so the anchor fails when the code it names moves away from that line.
+# (VLD-ANB-MIDGARD-0087) [AC-25.3]
 anchored() {
-    local who="$1" what="$2" value="$3" path line
+    local who="$1" what="$2" value="$3" path line token="" has_token=0
     path="${value%%:*}"
     line=""
     [ "$path" = "$value" ] || line="${value#*:}"
+    if [ "${line%%:*}" != "$line" ]; then
+        token="${line#*:}"
+        line="${line%%:*}"
+        has_token=1
+    fi
     if [ ! -f "$path" ]; then
         problem "$who: $what $value names a file that does not exist"
         return
     fi
-    [ -z "$line" ] && return
+    [ -z "$line" ] && [ "$has_token" -eq 0 ] && return
     case "$line" in
         ''|*[!0-9]*|0) problem "$who: $what $value has a line anchor that is not a line number" ;;
-        *) [ "$line" -le "$(lines_in "$path")" ] \
-            || problem "$who: $what $value points past the end of the file ($(lines_in "$path") lines)" ;;
+        *) if [ "$line" -gt "$(lines_in "$path")" ]; then
+               problem "$who: $what $value points past the end of the file ($(lines_in "$path") lines)"
+           elif [ "$has_token" -eq 1 ] && [ -z "$token" ]; then
+               problem "$who: $what $value has an empty token after its line anchor"
+           elif [ "$has_token" -eq 1 ] && ! sed -n "${line}p" "$path" | tr -d '\r' | grep -qF -- "$token"; then
+               problem "$who: $what $value: line $line does not contain '$token'"
+           fi ;;
     esac
 }
 
