@@ -8,6 +8,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
 use http_gateway::cli::{loopback_addr, parse, Command as Cli};
+use http_gateway::BindPolicy;
 
 const BIN: &str = env!("CARGO_BIN_EXE_http-gateway");
 
@@ -107,12 +108,25 @@ fn the_parser_says_what_each_command_line_means() {
         parse(&argv(&["--dev", "[::1]:8080"])),
         Ok(Cli::Dev("[::1]:8080".parse().unwrap()))
     );
-    let Ok(Cli::Serve(serve)) = parse(&argv(&["--state-dir", "/state", "--bind", "0.0.0.0:7710"]))
-    else {
+    let Ok(Cli::Serve(serve)) = parse(&argv(&[
+        "--state-dir",
+        "/state",
+        "--bind",
+        "0.0.0.0:7710",
+        "--allow-non-loopback",
+    ])) else {
         panic!("a state directory serves");
     };
     assert_eq!(serve.state_dir, "/state");
     assert_eq!(serve.bind, "0.0.0.0:7710");
+    assert_eq!(serve.bind_policy, BindPolicy::AllowNonLoopback);
+    // Without the flag, another interface is refused before anything is opened.
+    // [RC-24] [VLD-ANB-MIDGARD-0032]
+    assert!(parse(&argv(&["--state-dir", "/state", "--bind", "0.0.0.0:7710"])).is_err());
+    let Ok(Cli::Serve(serve)) = parse(&argv(&["--state-dir", "/state"])) else {
+        panic!("a state directory serves on the default loopback address");
+    };
+    assert_eq!(serve.bind_policy, BindPolicy::LoopbackOnly);
     assert!(parse(&[]).is_err());
 }
 

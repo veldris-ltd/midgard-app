@@ -62,6 +62,9 @@ services:
       - /state
       - --bind
       - 0.0.0.0:7710
+      # The plaintext edge on the container's interface, published to the host's
+      # loopback only; TLS termination fronts it off-host. [VLD-ANB-MIDGARD-0032]
+      - --allow-non-loopback
       - --mesh-bind
       - 0.0.0.0:7711
       - --mesh-identity-dir

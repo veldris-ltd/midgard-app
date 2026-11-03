@@ -19,7 +19,7 @@ readonly TRUST=/trust/release-trust.pub
 # its development mode (--dev) listens on loopback only, so it is of no use in an
 # image. [MG-SEC-06]
 if [ "$#" -eq 0 ]; then
-    echo "::fatal:: ${SERVICE} was started with no options — refusing to start. Pass the service's own options as the container's arguments (for http-gateway: --state-dir DIR --bind ADDR ...)." >&2
+    echo "::fatal:: ${SERVICE} was started with no options — refusing to start. Pass the service's own options as the container's arguments (for http-gateway: --state-dir DIR --bind 0.0.0.0:7710 --allow-non-loopback ...)." >&2
     exit 2
 fi
 

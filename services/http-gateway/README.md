@@ -71,7 +71,8 @@ Options of the state-directory mode:
 | `--state-dir DIR` | the state directory `mg-admin init` created (required) |
 | `--audit-pin FILE` | the audit verifying key the ledger is checked under, kept outside `DIR`; default `DIR/trust/audit.pub`, with a warning [MG-SEC-05] |
 | `--checkpoint-mirror DIR` | a directory on another mount (NFS, an object-store FUSE mount, a separate volume) that every audit ledger checkpoint is also written to. The ledger must not be behind it at boot; an append whose checkpoint it does not take fails. It must exist and lie outside the state directory; give each enclosure its own. Default: none, the checkpoint is kept beside the ledger only. See `docs/ops/BACKUP_RESTORE.md` [MG-SEC-05] |
-| `--bind ADDR` | the HTTP bind address (default `127.0.0.1:7710`) |
+| `--bind ADDR` | the HTTP bind address (default `127.0.0.1:7710`); loopback only unless `--allow-non-loopback` is given |
+| `--allow-non-loopback` | let `--bind` name an address that is not loopback, for a container behind PQ-mTLS or TLS 1.3 termination. The edge speaks plaintext HTTP; without the flag such an address is a usage error. Development mode has no such override [RC-24] [VLD-ANB-MIDGARD-0032] |
 | `--allow-origin URL` | a browser origin for the CORS allowlist, repeatable |
 | `--mesh-bind ADDR`, `--mesh-identity-dir DIR` | serve the PQ-mTLS mesh door (together) |
 | `--mesh-service NAME`, `--mesh-purpose P` | the mesh identity's service name and the purpose of mesh calls |
@@ -86,7 +87,8 @@ Point a console at it (Midgard core surface):
 
 ```bash
 VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
-# or set VITE_GATEWAY_URL to a non-default edge, e.g. http://127.0.0.1:8080/api/v1
+# or set VITE_GATEWAY_URL to a non-default edge, e.g. http://127.0.0.1:8080/api/v1;
+# plaintext http:// is accepted for loopback only, anything else must be https://
 ```
 
 ## Endpoints (`/api/v1`)

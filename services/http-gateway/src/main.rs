@@ -2,12 +2,17 @@
 //!
 //! Usage:
 //!   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
-//!                [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
+//!                [--allow-non-loopback] [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
 //!                 [--mesh-purpose P] [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
 //!       origin to the CORS allowlist, which is otherwise empty.
+//!
+//!       ADDR (default 127.0.0.1:7710) must be loopback unless --allow-non-loopback is
+//!       given: the edge speaks plaintext HTTP, so another interface is only for a
+//!       gateway behind PQ-mTLS or TLS 1.3 termination, as in a container. Any other
+//!       address is a usage error. [RC-24] [VLD-ANB-MIDGARD-0032]
 //!
 //!       --audit-pin names the audit verifying key the ledger is checked under — a
 //!       copy of `trust/audit.pub` kept outside DIR (a read-only mount, a config
@@ -96,6 +101,7 @@ fn main() {
         audit_pin,
         checkpoint_mirror,
         bind,
+        bind_policy,
         origins,
         mesh_bind,
         mesh_identity_dir,
@@ -183,7 +189,7 @@ fn main() {
         }
     }
 
-    if let Err(e) = http_gateway::serve_shared_with(&bind, gateway, edge) {
+    if let Err(e) = http_gateway::serve_shared_with(&bind, gateway, bind_policy, edge) {
         eprintln!("http-gateway: failed to bind {bind}: {e}");
         exit(1);
     }
