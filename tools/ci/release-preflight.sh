@@ -71,6 +71,19 @@ else
     bad "node and pnpm (or corepack) are not installed; the UI bundles and the SDK package cannot be built"
 fi
 
+# 2c. The release chart: rendered on the runner with helm, its images pinned by the
+#     digests set-digests.sh lifts from the signed images.lock. [VLD-ANB-MIDGARD-0012]
+if command -v "${HELM:-helm}" >/dev/null 2>&1; then
+    ok "helm, to render the digest-pinned release chart"
+else
+    bad "helm is not installed; the release chart cannot be rendered"
+fi
+if [ -f deploy/helm/set-digests.sh ] && [ -x deploy/helm/set-digests.sh ]; then
+    ok "deploy/helm/set-digests.sh"
+else
+    bad "deploy/helm/set-digests.sh is missing or not executable"
+fi
+
 # 3. Key material: named explicitly, readable, and never inside the checkout.
 for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE; do
     path="${!var:-}"

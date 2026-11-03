@@ -12,7 +12,26 @@ capabilities:
 {{- end -}}
 {{- range .Values.services }}
 {{- if .enabled }}
-{{- $image := $.Values.image.single | default (printf "%s/%s:%s" $.Values.image.registry .name $.Values.image.tag) }}
+{{- /* The image: image.single as given (kind, development); else pinned by digest; else,
+only with image.allowTag (development), by tag and pulled every time. A release chart
+does not render without every digest. [VLD-ANB-MIDGARD-0012] */ -}}
+{{- $digest := index (default dict $.Values.image.digests) .name | default "" }}
+{{- $image := "" }}
+{{- $pullPolicy := $.Values.image.pullPolicy }}
+{{- if $.Values.image.single }}
+{{- $image = $.Values.image.single }}
+{{- else if $digest }}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) }}
+{{- fail (printf "image.digests.%s is %q, not sha256:<64 lower-case hex digits>" .name $digest) }}
+{{- end }}
+{{- $image = printf "%s/%s@%s" $.Values.image.registry .name $digest }}
+{{- $pullPolicy = "IfNotPresent" }}
+{{- else if $.Values.image.allowTag }}
+{{- $image = printf "%s/%s:%s" $.Values.image.registry .name $.Values.image.tag }}
+{{- $pullPolicy = "Always" }}
+{{- else }}
+{{- fail (printf "image.digests.%s is empty: release charts pin images by digest (deploy/helm/set-digests.sh); set image.allowTag=true only for a development cluster" .name) }}
+{{- end }}
 {{- $eb := $.Values.egressBroker }}
 {{- $broker := and $eb.enabled (eq .name $eb.service) }}
 {{- $ms := $.Values.modelServing }}
@@ -53,6 +72,10 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .name }}
         app.kubernetes.io/part-of: midgard
+      annotations:
+        # Whether the pod's image is pinned by digest, so a cluster audit can list the
+        # pods that are not. [VLD-ANB-MIDGARD-0012]
+        midgard.veldris.io/image-pinned: {{ contains "@sha256:" $image | toString | quote }}
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -82,7 +105,7 @@ spec:
         # whose source is not one of the broker's local ports.
         - name: egress-config
           image: {{ $image }}
-          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          imagePullPolicy: {{ $pullPolicy }}
           {{- if $.Values.image.single }}
           command: ["forge-egress"]
           {{- else }}
@@ -109,7 +132,7 @@ spec:
         # volume. Later starts keep what the service has written.
         - name: seed
           image: {{ $image }}
-          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          imagePullPolicy: {{ $pullPolicy }}
           # The volume's root belongs to the node, so leave its own mode and times alone.
           command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
@@ -123,7 +146,7 @@ spec:
       containers:
         - name: {{ .name }}
           image: {{ $image }}
-          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          imagePullPolicy: {{ $pullPolicy }}
           {{- if $.Values.image.single }}
           command: [{{ .binary | quote }}]
           {{- else }}

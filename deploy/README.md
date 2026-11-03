@@ -51,9 +51,9 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   per enabled service — non-root, read-only rootfs, dropped capabilities,
   readiness/liveness probes, resource requests/limits, and a zero-downtime rolling
   strategy (`maxUnavailable: 0`).
-- **`k8s/enclosure.yaml`** — the chart rendered with its release values
-  (`helm template`), for `kubectl apply` without Helm. Generated: regenerate it when
-  the chart changes.
+- **`k8s/enclosure.yaml`** — the chart rendered for a development cluster
+  (`helm template` with `image.allowTag=true`), for `kubectl apply` without Helm.
+  Generated: regenerate it when the chart changes.
 - **`acceptance/`** — the offline acceptance harness (`run-airgapped.sh`, the
   `verify-*.sh` suites, and the pinned toolchain `Dockerfile`).
 - **`trust/`** — the pinned public release trust key `mg-verify` checks against.
@@ -63,12 +63,39 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
 ## Applying
 
 ```bash
-# Render + apply the concrete manifest (or `helm install midgard deploy/helm/midgard`):
+# Apply the development rendering (images by tag), on a development cluster:
 kubectl apply -f deploy/k8s/enclosure.yaml
+# Or a release: its signed, digest-pinned values (target/release-out/chart/values.yaml):
+helm install midgard deploy/helm/midgard -f chart/values.yaml
 ```
 
 The release pipeline (`.github/workflows/release.yml`) builds and PQ-signs one
 `service.Dockerfile` image per shippable artefact from the verified bundle.
+
+### Images by digest
+
+Each image re-verifies its binary before it runs, but the verifier, its key and the
+entrypoint travel inside the image, so only the image's digest binds a pod to the
+signed build: a tag can be moved in the registry to an image that skips the check.
+[VLD-ANB-MIDGARD-0012]
+
+- **`image.digests`** in `helm/midgard/values.yaml` holds one `sha256:` digest per
+  service, empty by default. The chart renders `<registry>/<service>@<digest>`, pulled
+  `IfNotPresent`, and annotates each pod `midgard.veldris.io/image-pinned: "true"`.
+  It refuses to render while a digest is empty or not `sha256:` and 64 hex digits.
+- **`helm/set-digests.sh IMAGES.LOCK [VALUES] [--out FILE]`** sets them from the
+  `images.lock` that `images/build.sh` writes and the release signs, refusing a lock
+  that lacks a service or carries a malformed digest. The `release-images` job runs it
+  and renders the chart with the result; `chart/values.yaml` and `chart/enclosure.yaml`
+  are signed and published with the release. `air-gap-bundle/install.sh` pins the
+  images it builds the same way.
+- **`image.allowTag: true`** is for development clusters only: a service with no digest
+  is rendered by tag, pulled `Always`, and annotated `image-pinned: "false"`. The
+  committed `k8s/enclosure.yaml` is rendered this way until a release produces
+  digests; `kind/values.yaml` sets it too, beside `image.single`.
+- The acceptance probes (`acceptance/deployment/*.yaml`) name an all-zero digest that
+  `run-deployment-tier.sh` replaces with `MIDGARD_PROBE_IMAGE`, pinned by digest, and
+  never applies.
 
 ## Status & scope
 

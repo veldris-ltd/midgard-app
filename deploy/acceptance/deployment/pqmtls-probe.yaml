@@ -35,7 +35,9 @@ spec:
       type: RuntimeDefault
   containers:
     - name: responder
-      image: registry.enclosure.local/midgard/pqmtls-probe:0.0.0
+      # A sentinel: run-deployment-tier.sh substitutes MIDGARD_PROBE_IMAGE, pinned by
+      # digest, and refuses to apply this all-zero one. [VLD-ANB-MIDGARD-0012]
+      image: registry.enclosure.local/midgard/pqmtls-probe@sha256:0000000000000000000000000000000000000000000000000000000000000000
       command: ["pqmtls-probe"]
       args: ["responder", "--listen", "0.0.0.0:8443", "--ca-seed", "__CA_SEED__"]
       ports:
@@ -139,7 +141,9 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: initiator
-          image: registry.enclosure.local/midgard/pqmtls-probe:0.0.0
+          # A sentinel: run-deployment-tier.sh substitutes MIDGARD_PROBE_IMAGE, pinned by
+          # digest, and refuses to apply this all-zero one. [VLD-ANB-MIDGARD-0012]
+          image: registry.enclosure.local/midgard/pqmtls-probe@sha256:0000000000000000000000000000000000000000000000000000000000000000
           command: ["/bin/sh", "-c"]
           # Wait for the responder Service to accept connections, then handshake.
           args:

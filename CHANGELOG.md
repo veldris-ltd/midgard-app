@@ -713,6 +713,20 @@ CONTRIBUTING.md for the version policy.
   byte is malformed, on the test and FIPS backends alike. Ticket single use at the
   gateway was already proven by `a_second_connection_resumes_and_the_ticket_is_single_use`.
   [VLD-ANB-MIDGARD-0092] [VLD-ANB-MIDGARD-0093]
+- **Images are deployed by digest, not by a tag that can be moved.**
+  [VLD-ANB-MIDGARD-0012] The verifier, its key and the entrypoint travel inside each
+  service image, so only the digest binds a pod to the signed build. The Helm chart
+  gains `image.digests`, one per service, renders `<registry>/<service>@<digest>` and
+  annotates each pod `midgard.veldris.io/image-pinned`; it refuses to render while a
+  digest is empty or malformed unless `image.allowTag=true` (development only, pulled
+  `Always`). `deploy/helm/set-digests.sh` sets the digests from the signed
+  `images.lock`; the `release-images` job renders the chart with them and signs and
+  publishes `chart/values.yaml` and `chart/enclosure.yaml`, and the signing-runner
+  preflight now requires helm. `air-gap-bundle/install.sh` deploys the images it built
+  by digest. The committed `deploy/k8s/enclosure.yaml` is now the development
+  rendering (tags, `imagePullPolicy: Always`). The acceptance probes name an all-zero
+  sentinel digest that `run-deployment-tier.sh` replaces with `MIDGARD_PROBE_IMAGE`,
+  pinned by digest, or refuses to run.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

@@ -56,7 +56,7 @@ KUBECONFIG               admin/deployer context for the staging cluster
 MIDGARD_NAMESPACE        default: midgard-enclosure
 MIDGARD_PKCS11_MODULE    path to the HSM PKCS#11 .so
 MIDGARD_HSM_KEY_LABEL    token label of the release signing key (default: midgard-release)
-MIDGARD_PROBE_IMAGE      optional: an image carrying pqmtls-probe and mimir-probe
+MIDGARD_PROBE_IMAGE      the image carrying pqmtls-probe and mimir-probe, by digest
 ```
 Tools on PATH: `kubectl`, `pkcs11-tool` (opensc).
 
@@ -64,7 +64,7 @@ In the namespace, the live inference check needs the Secret `mimir-probe-identit
 mesh identity `mg-admin mesh issue --service mimir-probe` writes), and `mimir-server`
 serving a real model through the chart's `modelServing`.
 
-The `pqmtls-probe` image (`registry.enclosure.local/midgard/pqmtls-probe:0.0.0`)
+The `pqmtls-probe` image (`registry.enclosure.local/midgard/pqmtls-probe`)
 is built from the workspace with the probe binary baked in:
 
 ```bash
@@ -81,6 +81,13 @@ seed drawn from `/dev/urandom` for each run and prints as `probe CA seed: <n>`, 
 run can be reproduced from its log. A manifest that still holds the placeholder is
 never applied. [VLD-ANB-MIDGARD-0075]
 
+The probe manifests name their image by an all-zero digest, a sentinel the runner
+replaces and never applies, because a tag can be moved in the registry to another
+image and a digest cannot. `MIDGARD_PROBE_IMAGE` is `<image>@sha256:<digest>`, or a
+tag docker resolves to its digest (`docker image inspect`, so the image must have been
+pushed or pulled); otherwise checks 2 and 4 fail closed before anything is applied, or
+SKIP without `MIDGARD_PROBE_IMAGE` under `ALLOW_SKIP=1`. [VLD-ANB-MIDGARD-0012]
+
 ## Running
 
 ```bash
@@ -94,10 +101,12 @@ ALLOW_SKIP=1 KUBECONFIG=~/.kube/staging just deploy-accept
 A local kind cluster (`just kind-up`) exercises clustering and cross-host PQ-mTLS.
 Once `just kind-granite` serves a real model, it also makes RC-40.4's certified
 inference call and reports the CPU completion and latency. It has no HSM or GPU, so
-RC-40.3 and RC-40.4 SKIP and the best result is exit 3 — never a promotion:
+RC-40.3 and RC-40.4 SKIP and the best result is exit 3, never a promotion. The image
+built locally has no registry digest until it is pushed to a registry the cluster pulls
+from, so give that reference (a bare `midgard/dev:local` is refused):
 
 ```bash
-ALLOW_SKIP=1 MIDGARD_PROBE_IMAGE=midgard/dev:local just deploy-accept
+ALLOW_SKIP=1 MIDGARD_PROBE_IMAGE=localhost:5001/midgard/dev@sha256:<digest> just deploy-accept
 ```
 
 ## Release promotion

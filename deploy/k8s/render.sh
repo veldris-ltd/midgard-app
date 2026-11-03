@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render deploy/k8s/enclosure.yaml — the Helm chart with its release values, for
+# Render deploy/k8s/enclosure.yaml — the Helm chart for a development cluster, for
 # `kubectl apply` without Helm — or check that the committed file is exactly what the
 # chart renders, so the two cannot drift. [NFR-SEC-1] [RC-18]
 #
@@ -15,11 +15,17 @@ OUT=deploy/k8s/enclosure.yaml
 
 render() {
     cat <<'EOF'
-# Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default,
-# release values: a default-deny, egress-denied namespace (NFR-PRV-1), a resource
-# quota, and one hardened, verify-before-run StatefulSet per service — non-root,
-# read-only rootfs, dropped capabilities, probes, resource limits, its own volume —
-# with per-port ingress and egress NetworkPolicies. [NFR-SEC-1] [AC-B-1] [RC-18]
+# Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default
+# values and image.allowTag=true: a default-deny, egress-denied namespace
+# (NFR-PRV-1), a resource quota, and one hardened, verify-before-run StatefulSet per
+# service — non-root, read-only rootfs, dropped capabilities, probes, resource limits,
+# its own volume — with per-port ingress and egress NetworkPolicies. [NFR-SEC-1]
+# [AC-B-1] [RC-18]
+#
+# This is a development rendering: images are referenced by tag with pullPolicy
+# Always because no release has produced digests yet; the signed release rendering
+# is target/release-out/chart/enclosure.yaml, pinned by digest.
+# [VLD-ANB-MIDGARD-0012]
 #
 # Every service expects Secrets "<service>-identity" (and "<service>-seed" where it
 # seeds state) and the forge-jobs ConfigMap to exist; provision them from your key
@@ -28,7 +34,8 @@ render() {
 # GENERATED — do not edit. Regenerate with:  bash deploy/k8s/render.sh
 # (CI fails if this file is not what the chart renders.)
 EOF
-    $HELM template midgard deploy/helm/midgard --namespace default | tr -d '\r'
+    $HELM template midgard deploy/helm/midgard --namespace default \
+        --set image.allowTag=true | tr -d '\r'
 }
 
 if [ "${1:-}" = "--check" ]; then

@@ -237,6 +237,8 @@ here if any is missing:
 2. **Offline advisory database.** The RustSec database is vendored at
    `vendor/advisory-db`, with the licence policy and exception tables in
    `supply-chain/`. The scan stage (`mg-scan`) reads nothing else.
+   Helm, on the runner itself, renders the release chart with its images pinned by
+   the digests `deploy/helm/set-digests.sh` lifts from the signed `images.lock`.
 3. **Key material, as runner secrets naming files outside the checkout:**
    - `MIDGARD_SIGNING_KEYSTORE_PATH`: the release keystore (ML-DSA-87);
    - `MIDGARD_BIFROST_KEYSTORE_PATH`: the Bifrost admission keystore (ML-DSA-65), for

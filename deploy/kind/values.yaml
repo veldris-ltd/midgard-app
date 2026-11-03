@@ -5,6 +5,8 @@
 image:
   single: midgard/dev:local
   pullPolicy: Never
+  # No digests either: the image is built here, not released. [VLD-ANB-MIDGARD-0012]
+  allowTag: true
 
 quota:
   requestsCpu: "4"

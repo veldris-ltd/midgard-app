@@ -37,7 +37,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: probe
-          image: registry.enclosure.local/midgard/mimir-probe:0.0.0
+          # A sentinel: run-deployment-tier.sh substitutes MIDGARD_PROBE_IMAGE, pinned by
+          # digest, and refuses to apply this all-zero one. [VLD-ANB-MIDGARD-0012]
+          image: registry.enclosure.local/midgard/mimir-probe@sha256:0000000000000000000000000000000000000000000000000000000000000000
           command: ["mimir-probe"]
           args: ["--identity-dir", "/identity", "--addr", "mimir-server:7720",
                  "--purpose", "investigation", "--max-tokens", "32",
