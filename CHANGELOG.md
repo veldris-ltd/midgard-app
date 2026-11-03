@@ -1094,6 +1094,13 @@ CONTRIBUTING.md for the version policy.
   for `decode_message` lives in `crypto/pq-mtls/fuzz`, outside the workspace and the CI
   gate, run on the release runner. [VLD-ANB-MIDGARD-0010] [VLD-ANB-MIDGARD-0044]
   [NFR-SEC-1]
+- **The `commits` job takes GitHub's word only for the merges GitHub makes.**
+  `tools/ci/verify-commits.sh` accepted any commit GitHub reported verified, so a key
+  registered on GitHub but not in `deploy/trust/allowed_signers` could sign into the
+  protected history. Now every commit must verify against `allowed_signers`, except a
+  two-parent merge committed as one of `MIDGARD_MERGE_COMMITTERS`, the only kind for
+  which GitHub's verdict is asked. With no key in `allowed_signers` the job fails on
+  both forges. [VLD-ANB-MIDGARD-0069]
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**

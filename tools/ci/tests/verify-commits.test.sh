@@ -5,10 +5,10 @@
 #   bash tools/ci/tests/verify-commits.test.sh
 #
 # The claim under test: a change set passes only when every commit in it is signed by a
-# key the base's allowed_signers lists, or verified by the forge, or is a merge by the
-# forge that adds nothing of its own; an unsigned commit, one signed by an unlisted key,
-# and one signed by a key the change itself adds are refused and named; with no usable
-# allowed_signers and no forge to ask, nothing passes.
+# key the base's allowed_signers lists, or is a two-parent merge by the forge that the
+# forge verifies or that adds nothing of its own; an unsigned commit, one signed by an
+# unlisted key (whatever the forge says of it), and one signed by a key the change itself
+# adds are refused and named; with no usable allowed_signers, nothing passes.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -166,19 +166,33 @@ forge=(MIDGARD_FORGE=github GITHUB_REPOSITORY=veldris-ltd/midgard-app GITHUB_TOK
 g reset -q --hard base
 commit_as stranger registered-on-github
 if out="$(verify "${forge[@]}" STUB_VERIFIED=true base 2>&1)"; then
-    grep -q "^ok      $(short HEAD) registered-on-github — verified by GitHub" <<<"$out" && ! grep -q not-a-real-token <<<"$out" &&
-        pass "on GitHub, a commit the forge verifies passes, and the token is not printed" || fail "the forge's verdict is reported: $out"
+    fail "on GitHub, a commit the forge verifies but allowed_signers does not list is refused: $out"
 else
-    fail "on GitHub, a commit the forge verifies passes: $out"
+    grep -q "^FAILED  $(short HEAD) registered-on-github — signed, but not by a key deploy/trust/allowed_signers lists" <<<"$out" &&
+        ! grep -q not-a-real-token <<<"$out" &&
+        pass "on GitHub, a commit the forge verifies but allowed_signers does not list is refused, and the token is not printed" ||
+        fail "the unlisted key is named: $out"
 fi
-verify "${forge[@]}" STUB_VERIFIED=false base >/dev/null 2>&1 && fail "on GitHub, a commit the forge does not verify is refused" ||
-    pass "on GitHub, a commit the forge does not verify is refused"
-if out="$(verify "${forge[@]}" STUB_VERIFIED=true missing-base 2>&1)"; then
-    grep -q 'only GitHub.s verification counts' <<<"$out" &&
-        pass "with no allowed_signers yet, GitHub's verification still counts, with a warning" || fail "the warning is given: $out"
+! grep -q "commits/$(git -C "$repo" rev-parse HEAD)" "$work/gh.log" 2>/dev/null &&
+    pass "the forge is not asked about a commit that is not its own merge" || fail "the forge is asked only about its merges"
+verify "${forge[@]}" STUB_VERIFIED=true missing-base >/dev/null 2>&1 &&
+    fail "with no allowed_signers, GitHub's verification lets no commit through" ||
+    pass "with no allowed_signers, GitHub's verification lets no commit through"
+# A merge GitHub made and signed, with a change of its own (a conflict resolved on the
+# web): only the forge's verdict can pass it.
+g reset -q --hard base
+g checkout -q -b gh-topic && commit_as maintainer gh-topic && g checkout -q main
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff --no-commit gh-topic >/dev/null
+echo resolved > "$repo/README.md" && g add -A
+GIT_COMMITTER_EMAIL=noreply@github.com g commit -q -m "Merge gh-topic"
+if out="$(verify "${forge[@]}" STUB_VERIFIED=true base 2>&1)"; then
+    grep -q "^ok      $(short HEAD) Merge gh-topic — a merge by noreply@github.com, verified by GitHub" <<<"$out" &&
+        pass "on GitHub, a two-parent merge by the forge that it verifies passes" || fail "the forge's verdict on its merge is reported: $out"
 else
-    fail "with no allowed_signers yet, GitHub's verification still counts: $out"
+    fail "on GitHub, a two-parent merge by the forge that it verifies passes: $out"
 fi
+verify "${forge[@]}" STUB_VERIFIED=false base >/dev/null 2>&1 && fail "on GitHub, a merge the forge does not verify is judged as any merge" ||
+    pass "on GitHub, a merge the forge does not verify is judged as any merge"
 verify MIDGARD_FORGE=github GITHUB_REPOSITORY=veldris-ltd/midgard-app "PATH=$work/stubs:$PATH" "STUB_LOG=$work/gh.log" \
     STUB_VERIFIED=true base >/dev/null 2>&1 && fail "without a token the forge is not asked" ||
     pass "without a token the forge is not asked"

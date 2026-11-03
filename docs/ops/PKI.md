@@ -206,8 +206,11 @@ reads the file as the base has it, a key takes effect for the commits after the 
 that adds it is merged, never for that change itself. Rotating a key is such a change:
 add the new line, and remove the old one once nothing still to be merged is signed by
 it. A removal is recorded in `CHANGELOG.md` with the key's fingerprint and the reason.
-The first keys go in the same way, verified by GitHub instead (the job accepts GitHub's
-verification while the file lists no key); until they are in, the job fails on CodeLab.
+The first keys cannot go in that way: while the file lists no key the job fails on
+every change on both forges, the one that adds the keys included (GitHub's verification
+counts for the merges it makes, not for a maintainer's commits). That change is signed,
+reviewed by the other maintainer, and merged with the `commits` job failing on it, once;
+the job passes for the changes after it.
 
 On the signing runners the committed file is not the authority: a commit that added a
 key would otherwise verify a tag on itself. The runner holds its own copy, and the tag

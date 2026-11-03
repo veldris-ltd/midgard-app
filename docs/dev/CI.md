@@ -103,7 +103,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 |---|---|---|
 | `selftest` | host | the CI scripts' own tests pass and both pipelines call the same jobs |
 | `provenance` | host | changed sources under governed trees cite a requirement |
-| `commits` | host | every commit the change brings is signed by a key in `deploy/trust/allowed_signers`, or verified by GitHub, or is a forge merge that adds nothing of its own |
+| `commits` | host | every commit the change brings is signed by a key in `deploy/trust/allowed_signers`, or is a two-parent forge merge that GitHub verifies or that adds nothing of its own |
 | `vendor` | host | `/vendor` is exactly the crates `Cargo.lock` names, and Cargo is pinned to it |
 | `claims` | host | every row of `docs/compliance/claims.toml` cites files, lines and tests that exist, and `CLAIMS.md` is what it renders |
 | `gate-record` | host | the committed gate record is what its logs give, and the README and GA_READINESS status tables are what it gives |
@@ -445,12 +445,13 @@ thing from inside the pipeline, on both forges, so a rule that was never applied
 was turned off, is noticed. It checks every commit between the change's base and its
 head: a commit passes when git verifies its SSH signature against
 `deploy/trust/allowed_signers` as the base commit has it (so a change cannot add the key
-that vouches for it), or, on GitHub, when GitHub reports it verified, or when it is a
-merge by the forge (`noreply@github.com`, or the identities in the CI variable
-`MIDGARD_MERGE_COMMITTERS`) whose combined diff is empty. It names every commit that
-fails. With no key in `allowed_signers` and no forge to ask it fails closed: until the
-maintainers' keys are committed there (docs/ops/PKI.md, "Git signing") the job can pass
-on GitHub only, and fails on CodeLab.
+that vouches for it), or when it is a two-parent merge by the forge (`noreply@github.com`,
+or the identities in the CI variable `MIDGARD_MERGE_COMMITTERS`) that, on GitHub,
+GitHub reports verified, or whose combined diff is empty. GitHub's verdict counts for
+its own merges only: a commit signed by a key GitHub knows but `allowed_signers` does
+not list fails. It names every commit that fails. With no key in `allowed_signers` it
+fails closed on both forges, until the maintainers' keys are committed there
+(docs/ops/PKI.md, "Git signing").
 
 Tag creation is a ruleset of its own because a bypass actor bypasses every rule in its
 ruleset: in the immutability ruleset it would let a release manager move or delete a
