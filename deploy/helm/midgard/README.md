@@ -54,7 +54,7 @@ that encrypts `secrets` with a
 backed by your key custody, not `identity` or a static `aescbc` key on the control-plane
 disk. Outside the kind profile (`image.single` empty) the render fails until you set
 `secrets.acknowledgeEtcdEncryption: true`, so the decision is recorded in your values.
-`deploy/k8s/enclosure.yaml` is rendered with it set; its header says so.
+`deploy/k8s/enclosure.yaml` is not: it is rendered with the `csi` provider.
 
 ### `csi`: Secrets Store CSI driver
 
