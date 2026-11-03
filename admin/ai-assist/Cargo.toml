@@ -9,6 +9,9 @@ description = "The admin panel's three ADVISORY AI touchpoints — A.AD1 copilot
 [dependencies]
 # The verbatim A.AD1/A.AD2/A.AD3 system prompts.
 mimir-prompts = { path = "../../mimir/prompts" }
+# The OS CSPRNG each prompt's DATA-block boundary is drawn from (and, in the tests,
+# the WebAuthn assertion behind an authenticated admin session). [VLD-ANB-MIDGARD-0080]
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
 # The live inference transport (PQ-mTLS to the Mimir gateway) behind the seam. The
 # Mock/Unavailable copilots keep working with no bridge configured. [RT-45]
 mimir-bridge = { path = "../../mimir/bridge" }
@@ -18,8 +21,6 @@ mimir-bridge = { path = "../../mimir/bridge" }
 admin-privilege = { path = "../privilege" }
 admin-identity = { path = "../identity" }
 audit-writer = { path = "../../crypto/audit-writer", features = ["backend-fips"] }
-# A real WebAuthn assertion is needed to build an authenticated admin session. [RC-30]
-pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
 
 [lib]
 path = "src/lib.rs"

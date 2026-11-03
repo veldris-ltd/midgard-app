@@ -1081,6 +1081,41 @@ CONTRIBUTING.md for the version policy.
   directory before upgrading. `AuthAssertion` carries `client_data`,
   `WebAuthnCredential` carries `sign_count`, and `AuthOutcome` and `Login` carry
   `passkey_count`.
+- **Untrusted text in a prompt is data, never an instruction or a header.** Every
+  prompt assembler concatenated grounding facts, memory, history, user messages and
+  feed, ledger, schema and page fields into the model input verbatim, so anyone who
+  could write an object property, submit an observation or share a page selection
+  could forge a `=== SYSTEM ===` block. [VLD-ANB-MIDGARD-0080] [FR-MI-7]
+  - `mimir_prompts::delimit` (no dependencies) renders untrusted text as a DATA block:
+    `DATA label= source= boundary=`, every line indented two spaces, C0 controls
+    (bar newline and tab), DEL, U+200B to U+200F, U+2028, U+2029 and U+FEFF removed,
+    the boundary neutralised inside the data (`[boundary-removed]`), each field
+    bounded at 16 KiB with a `[truncated N bytes]` marker, then `END boundary=`.
+    Headers count only as whole lines at column zero. `delimit::Boundary` is the
+    per-request token, drawn from the OS CSPRNG for every prompt.
+  - The agent runtime puts grounding (`fabric`), memory (`agent-memory`), history
+    (`task-history`) and the user message (`user`) in DATA blocks, appends the
+    verbatim `mimir_prompts::DATA_HANDLING_RULE` to the SYSTEM block, and returns
+    `AssembledPrompt::system_text` and `body_text` beside `text` for role-separated
+    delivery. `Pipeline::with_boundary` fixes the boundary for tests. Grounding fact
+    lines pass every field through `delimit::inline`. The marker lines are counted,
+    so the token accounting stays exact; each untrusted section costs two more lines
+    and the rule about 70 words, so a budget near its limit may trim one more fact.
+  - Heimdall decision support (`picture`, `operator`), the admin copilot
+    (`admin-state`, `admin`), simulation explainer (`policy-simulation`, `admin`) and
+    audit assistant (`ledger`, `admin`), Forge AI assist (`dataset-schema`, `user`),
+    Bifrost release risk (`release`), the on-device assistant (`local-store`, `user`)
+    and the extension broker (`web-page`, `enclosure`) use the same renderer and
+    expose `system_text` and `body_text`. Trusted sections (the transform library; the
+    copilot's role, policy and contract; the on-device and broker policy, tier and
+    contract) now sit with the system prompt, ahead of the data. Entity fields,
+    column names, release facts and context ids stay on one line. The tier-selection
+    prompt holds only values the client computes and is unchanged.
+  - The rule given to the model is advisory; the indentation, the boundary and the
+    character cleaning are the controls. The broker (no crypto dependencies, KDD-2)
+    and the client inference crate (no CSPRNG under its test backend) draw their
+    boundary from the standard library's randomly keyed hasher
+    (`Boundary::from_std_entropy`).
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

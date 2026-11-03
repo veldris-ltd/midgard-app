@@ -77,6 +77,7 @@ mod tests {
 
     fn prompt() -> AssembledPrompt {
         AssembledPrompt {
+            boundary: mimir_prompts::delimit::Boundary::fixed("b"),
             system: "A7".into(),
             release_context: "cve: none".into(),
         }

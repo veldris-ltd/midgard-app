@@ -24,11 +24,9 @@ fabric = { path = "../../services/fabric" }
 # The governed loop writes PQ-signed audit lineage for every gate decision and
 # halt through the governance spine (INV-6). [NFR-PQ-3]
 governance = { path = "../../services/governance" }
-
-[dev-dependencies]
-# The AC-MI-2 test grounds against a real fabric (built over the governance
-# spine); pqc-agility supplies the Rng the spine's audit key is generated from.
-pqc-agility = { path = "../../crypto/pqc-agility" }
+# The OS CSPRNG each assembly draws its DATA-block boundary from; the AC-MI-2 test
+# also generates the governance spine's audit key with it. [VLD-ANB-MIDGARD-0080]
+pqc-agility = { path = "../../crypto/pqc-agility", features = ["backend-fips"] }
 
 [lib]
 path = "src/lib.rs"

@@ -20,19 +20,92 @@
 //! user) must fit, or assembly is **rejected** rather than silently trimmed;
 //! only the trimmable layers are truncated to fit, grounding first and by
 //! relevance. [NFR-AI-1] [NFR-PERF-1]
+//!
+//! Untrusted layers are data, never instructions. Grounding, memory, history and
+//! the user message are each rendered as a provenance-tagged DATA block
+//! ([`mimir_prompts::delimit`]): every line indented, control and zero-width
+//! characters removed, each item bounded, the per-request [`Boundary`] neutralised
+//! inside the data. Headers are recognised only at column zero, so no tenant text
+//! can forge a `=== SYSTEM ===` block, and the SYSTEM block carries
+//! [`mimir_prompts::DATA_HANDLING_RULE`]. The SYSTEM block and the body are also
+//! returned separately ([`AssembledPrompt::system_text`],
+//! [`AssembledPrompt::body_text`]) so an adapter can send them with separate
+//! roles. [VLD-ANB-MIDGARD-0080] [FR-MI-7]
 
+use mimir_prompts::delimit;
 use oag_retriever::Grounding;
+use pqc_agility::{OsRng, Rng};
 
 use crate::guardrail::{AllowAll, GuardVerdict, InputGuardrail};
 
-const H_SYSTEM: &str = "=== SYSTEM ===";
-const H_CONTRACT: &str = "=== OUTPUT_CONTRACT ===";
-const H_POLICY: &str = "=== POLICY ===";
-const H_GROUNDING: &str = "=== GROUNDING ===";
-const H_MEMORY: &str = "=== MEMORY ===";
-const H_TOOLS: &str = "=== TOOLS ===";
-const H_HISTORY: &str = "=== HISTORY ===";
-const H_USER: &str = "=== USER ===";
+// Layer headers. Each is a header only as a whole line at column zero; untrusted
+// text is indented inside a DATA block, so a line that merely contains a header
+// string is data. Downstream code that splits an assembled prompt by layer must
+// match headers that way (`mimir_prompts::delimit::is_header_line`), never by
+// substring. [VLD-ANB-MIDGARD-0080]
+
+/// Layer 1 header (system prompt). Matched only as a whole column-zero line.
+pub const H_SYSTEM: &str = "=== SYSTEM ===";
+/// Layer 1 header (output contract). Matched only as a whole column-zero line.
+pub const H_CONTRACT: &str = "=== OUTPUT_CONTRACT ===";
+/// Layer 2 header. Matched only as a whole column-zero line.
+pub const H_POLICY: &str = "=== POLICY ===";
+/// Layer 3 header. Matched only as a whole column-zero line.
+pub const H_GROUNDING: &str = "=== GROUNDING ===";
+/// Layer 4 header. Matched only as a whole column-zero line.
+pub const H_MEMORY: &str = "=== MEMORY ===";
+/// Layer 5 header. Matched only as a whole column-zero line.
+pub const H_TOOLS: &str = "=== TOOLS ===";
+/// Layer 6 header. Matched only as a whole column-zero line.
+pub const H_HISTORY: &str = "=== HISTORY ===";
+/// Layer 7 header. Matched only as a whole column-zero line.
+pub const H_USER: &str = "=== USER ===";
+
+pub use mimir_prompts::delimit::Boundary;
+
+/// A fresh random DATA boundary for one assembly: eight bytes from
+/// `pqc_agility::OsRng`, as sixteen hex characters. [VLD-ANB-MIDGARD-0080]
+pub fn random_boundary() -> Boundary {
+    let mut bytes = [0u8; 8];
+    OsRng.fill(&mut bytes);
+    Boundary::from_random_bytes(bytes)
+}
+
+/// One DATA-delimited section: its layer header and its block's marker lines.
+struct Section {
+    header: &'static str,
+    open: String,
+    close: String,
+}
+
+impl Section {
+    fn new(header: &'static str, label: &str, source: &str, boundary: &Boundary) -> Self {
+        // Labels and sources are constants and a Boundary is always a valid
+        // token, so the marker line cannot be refused.
+        let open = delimit::open_line(label, source, boundary.as_str())
+            .expect("constant label and source, and a Boundary is a token");
+        Self {
+            header,
+            open,
+            close: delimit::close_line(boundary.as_str()),
+        }
+    }
+
+    /// The header and marker lines' token cost, paid once the first item is in.
+    fn cost(&self, counter: &dyn TokenCounter) -> usize {
+        counter.count(self.header) + counter.count(&self.open) + counter.count(&self.close)
+    }
+
+    /// The section's text around already-rendered items.
+    fn render(&self, items: &[String]) -> String {
+        let mut lines: Vec<&str> = Vec::with_capacity(items.len() + 3);
+        lines.push(self.header);
+        lines.push(&self.open);
+        lines.extend(items.iter().map(String::as_str));
+        lines.push(&self.close);
+        lines.join("\n")
+    }
+}
 
 /// Counts tokens in a string. The default is a deterministic word proxy; a real
 /// per-family tokenizer swaps in behind this trait (Phase 3 adapters).
@@ -81,8 +154,18 @@ pub struct AssemblyConfig {
 /// The assembled prompt and its accounting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledPrompt {
-    /// The final, authority-ordered prompt text (layers 1–7).
+    /// The final, authority-ordered prompt text (layers 1–7):
+    /// `system_text + "\n\n" + body_text`.
     pub text: String,
+    /// The SYSTEM block (system prompt, data-handling rule, output contract) —
+    /// the only text with system authority. Empty only if a layer-8 sanitise
+    /// rewrite reflowed the SYSTEM block, in which case all of `text` is body.
+    pub system_text: String,
+    /// Everything after the SYSTEM block: policy, tools and the DATA-delimited
+    /// grounding, memory, history and user layers.
+    pub body_text: String,
+    /// The boundary this assembly's DATA blocks carry.
+    pub boundary: Boundary,
     /// Citations of the grounding facts that were included (the evidence
     /// actually presented to the model).
     pub included_citations: Vec<String>,
@@ -134,6 +217,8 @@ impl std::error::Error for AssemblyError {}
 pub struct Pipeline {
     counter: Box<dyn TokenCounter>,
     guardrail: Box<dyn InputGuardrail>,
+    /// A fixed DATA boundary; `None` draws a random one per assembly.
+    boundary: Option<Boundary>,
 }
 
 impl Default for Pipeline {
@@ -148,6 +233,7 @@ impl Pipeline {
         Self {
             counter: Box::new(WordCounter),
             guardrail: Box::new(AllowAll),
+            boundary: None,
         }
     }
 
@@ -163,41 +249,44 @@ impl Pipeline {
         self
     }
 
+    /// Use a fixed DATA boundary (tests asserting exact layout). Without one, every
+    /// [`Pipeline::assemble`] call draws a fresh [`random_boundary`].
+    pub fn with_boundary(mut self, boundary: Boundary) -> Self {
+        self.boundary = Some(boundary);
+        self
+    }
+
     fn count(&self, s: &str) -> usize {
         self.counter.count(s)
     }
 
-    /// Fill a trimmable section greedily under the remaining budget, returning the
-    /// rendered block, how many items were included, and the updated running
-    /// total. Items are consumed in the order given (callers pre-sort by priority).
+    /// Fill a trimmable section greedily under the remaining budget, returning how
+    /// many of the already-rendered `items` were included and the updated running
+    /// total. `section_cost` (the header and DATA marker lines) is paid with the
+    /// first item, so the accounting matches the rendered block exactly. Items are
+    /// consumed in the order given (callers pre-sort by priority).
     fn fill(
         &self,
-        header: &str,
+        section_cost: usize,
         items: &[String],
         budget: usize,
         mut running: usize,
-    ) -> (String, usize, usize) {
-        let header_tokens = self.count(header);
-        let mut included: Vec<&str> = Vec::new();
+    ) -> (usize, usize) {
+        let mut included = 0;
         for item in items {
-            let add = if included.is_empty() {
-                header_tokens + self.count(item)
+            let add = if included == 0 {
+                section_cost + self.count(item)
             } else {
                 self.count(item)
             };
             if running + add <= budget {
                 running += add;
-                included.push(item);
+                included += 1;
             } else {
                 break;
             }
         }
-        let block = if included.is_empty() {
-            String::new()
-        } else {
-            format!("{header}\n{}", included.join("\n"))
-        };
-        (block, included.len(), running)
+        (included, running)
     }
 
     /// Assemble the eight layers. Rejects if the non-trimmable core cannot fit;
@@ -209,11 +298,16 @@ impl Pipeline {
         cfg: &AssemblyConfig,
     ) -> Result<AssembledPrompt, AssemblyError> {
         let budget = cfg.budget_tokens;
+        let boundary = self.boundary.clone().unwrap_or_else(random_boundary);
+        let b = boundary.as_str();
 
-        // Non-trimmable core.
+        // Non-trimmable core. The SYSTEM block is trusted text only; the
+        // data-handling rule tells the model what the DATA blocks below are.
         let sys_block = format!(
-            "{H_SYSTEM}\n{}\n{H_CONTRACT}\n{}",
-            layers.system, layers.output_contract
+            "{H_SYSTEM}\n{}\n{}\n{H_CONTRACT}\n{}",
+            layers.system,
+            mimir_prompts::delimit::DATA_HANDLING_RULE,
+            layers.output_contract
         );
         let policy_block = format!("{H_POLICY}\n{}", layers.policy);
         let tools_block = if layers.tools.is_empty() {
@@ -221,7 +315,8 @@ impl Pipeline {
         } else {
             format!("{H_TOOLS}\n{}", layers.tools.join("\n"))
         };
-        let user_block = format!("{H_USER}\n{}", layers.user_message);
+        let user_block = Section::new(H_USER, "USER", "user", &boundary)
+            .render(&[delimit::render_item(b, layers.user_message)]);
 
         let core = self.count(&sys_block)
             + self.count(&policy_block)
@@ -236,11 +331,27 @@ impl Pipeline {
 
         let mut running = core;
 
-        // Layer 3: grounding, highest relevance first (facts are pre-sorted).
-        let fact_lines: Vec<String> = layers.grounding.facts.iter().map(|f| f.line()).collect();
-        let (grounding_block, g_incl, running_after_g) =
-            self.fill(H_GROUNDING, &fact_lines, budget, running);
+        // Layer 3: grounding, highest relevance first (facts are pre-sorted). Each
+        // fact line is already one line with its fields cleaned (ground.rs).
+        let fact_lines: Vec<String> = layers
+            .grounding
+            .facts
+            .iter()
+            .map(|f| delimit::render_item(b, &f.line()))
+            .collect();
+        let g_section = Section::new(H_GROUNDING, "GROUNDING", "fabric", &boundary);
+        let (g_incl, running_after_g) = self.fill(
+            g_section.cost(self.counter.as_ref()),
+            &fact_lines,
+            budget,
+            running,
+        );
         running = running_after_g;
+        let grounding_block = if g_incl == 0 {
+            String::new()
+        } else {
+            g_section.render(&fact_lines[..g_incl])
+        };
         let included_citations: Vec<String> = layers
             .grounding
             .facts
@@ -251,23 +362,53 @@ impl Pipeline {
         let dropped_facts = fact_lines.len() - g_incl;
 
         // Layer 4: memory (lowest relevance is dropped — caller supplies best first).
-        let (memory_block, m_incl, running_after_m) =
-            self.fill(H_MEMORY, &layers.memory, budget, running);
+        let memory_items: Vec<String> = layers
+            .memory
+            .iter()
+            .map(|m| delimit::render_item(b, m))
+            .collect();
+        let m_section = Section::new(H_MEMORY, "MEMORY", "agent-memory", &boundary);
+        let (m_incl, running_after_m) = self.fill(
+            m_section.cost(self.counter.as_ref()),
+            &memory_items,
+            budget,
+            running,
+        );
         running = running_after_m;
         let dropped_memory = layers.memory.len() - m_incl;
+        let memory_block = if m_incl == 0 {
+            String::new()
+        } else {
+            m_section.render(&memory_items[..m_incl])
+        };
 
         // Layer 6: history, most-recent-first for inclusion (oldest dropped).
-        let mut recent: Vec<String> = layers.history.clone();
-        recent.reverse();
-        let (history_block_rev, h_incl, running_after_h) =
-            self.fill(H_HISTORY, &recent, budget, running);
+        let recent: Vec<String> = layers
+            .history
+            .iter()
+            .rev()
+            .map(|h| delimit::render_item(b, h))
+            .collect();
+        let h_section = Section::new(H_HISTORY, "HISTORY", "task-history", &boundary);
+        let (h_incl, running_after_h) = self.fill(
+            h_section.cost(self.counter.as_ref()),
+            &recent,
+            budget,
+            running,
+        );
         running = running_after_h;
         let dropped_history = layers.history.len() - h_incl;
         // Restore chronological order within the included window for the prompt.
-        let history_block = restore_history_order(&history_block_rev);
+        let history_block = if h_incl == 0 {
+            String::new()
+        } else {
+            let mut window = recent[..h_incl].to_vec();
+            window.reverse();
+            h_section.render(&window)
+        };
 
         // Canonical layer order 1→7.
-        let mut parts = vec![sys_block, policy_block];
+        let mut parts = vec![sys_block.clone(), policy_block];
         if !grounding_block.is_empty() {
             parts.push(grounding_block);
         }
@@ -295,30 +436,27 @@ impl Pipeline {
         let token_count = self.count(&text);
         debug_assert_eq!(token_count, running, "token accounting must be exact");
 
+        // Split off the SYSTEM block for role-separated delivery. A sanitise rewrite
+        // that reflowed it leaves no trusted prefix, so the whole text is body: the
+        // degraded case grants nothing system authority.
+        let (system_text, body_text) = match text
+            .strip_prefix(sys_block.as_str())
+            .and_then(|rest| rest.strip_prefix("\n\n"))
+        {
+            Some(body) => (sys_block, body.to_string()),
+            None => (String::new(), text.clone()),
+        };
+
         Ok(AssembledPrompt {
             text,
+            system_text,
+            body_text,
+            boundary,
             included_citations,
             dropped_facts,
             dropped_memory,
             dropped_history,
             token_count,
         })
-    }
-}
-
-/// Restore chronological order of history lines that were included most-recent
-/// first, keeping the header on top.
-fn restore_history_order(reversed_block: &str) -> String {
-    if reversed_block.is_empty() {
-        return String::new();
-    }
-    let mut lines = reversed_block.lines();
-    let header = lines.next().unwrap_or("");
-    let mut body: Vec<&str> = lines.collect();
-    body.reverse();
-    if body.is_empty() {
-        header.to_string()
-    } else {
-        format!("{header}\n{}", body.join("\n"))
     }
 }
