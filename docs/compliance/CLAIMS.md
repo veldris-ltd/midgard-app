@@ -889,14 +889,14 @@ heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose
 **Limit.** Observations carry no marking, and a timestamp inside the accepted window is still the feed's own assertion. A feed that restarts its sequence below its last is refused until it continues above it or is re-registered.
 
 - Source:
-  - [`heimdall/feed-server/src/lib.rs:309`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:312`](../../heimdall/feed-server/src/lib.rs)
   - [`heimdall/store/src/picture_store.rs:115`](../../heimdall/store/src/picture_store.rs)
-  - [`heimdall/feed-server/src/lib.rs:696`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/feed-server/src/lib.rs:296`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/feed-server/src/lib.rs:356`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:725`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:299`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:359`](../../heimdall/feed-server/src/lib.rs)
   - [`heimdall/feed-gateway/src/authenticator.rs:138`](../../heimdall/feed-gateway/src/authenticator.rs)
   - [`heimdall/feed-gateway/src/replay.rs:105`](../../heimdall/feed-gateway/src/replay.rs)
-  - [`heimdall/feed-server/src/lib.rs:166`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:169`](../../heimdall/feed-server/src/lib.rs)
 - Tests:
   - [`heimdall/picture-sync/tests/rc_26.rs::rc_26_unsigned_feed_is_rejected_at_the_boundary`](../../heimdall/picture-sync/tests/rc_26.rs)
   - [`heimdall/feed-server/tests/limits.rs::a_flood_of_distinct_keys_ten_times_the_cap_keeps_the_picture_bounded`](../../heimdall/feed-server/tests/limits.rs)

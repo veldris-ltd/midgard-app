@@ -71,6 +71,12 @@ CONTRIBUTING.md for the version policy.
   removal as unreadable: serving stops `MODEL_REVOKED` with "the revocation list …
   has been removed" until it is restored. A deployment that never had a list is
   unchanged. [VLD-ANB-MIDGARD-0057]
+- **An oversized feed observation no longer uses up its sequence, and its refusal is
+  audited.** heimdall-feed checks the size and attribute bounds before the replay
+  guard records the sequence, so the feed can resend at the same sequence once the
+  observation fits. The refusal still replies `MALFORMED`, and is now in the ledger as
+  `Ingest refused: oversized observation` with reason `oversized`
+  (`REASON_OVERSIZED`). [VLD-ANB-MIDGARD-0017] [VLD-ANB-MIDGARD-0041]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as
