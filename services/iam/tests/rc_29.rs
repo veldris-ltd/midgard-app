@@ -1,18 +1,20 @@
 //! RC-29 — Given a user, when they authenticate, then credentials + MFA are verified
 //! before a PQ-signed token is minted; the directory survives restart; federation
-//! works when configured. [RC-29]
+//! works when configured. A passkey's signature counter is recorded and survives a
+//! restart. [RC-29] [VLD-ANB-MIDGARD-0084]
 #![cfg(feature = "backend-fips")]
 
 use std::collections::BTreeSet;
 
 use iam::{
-    federated_login, verify_token, Activation, AuthError, Authenticator, Credentials, Directory,
-    DurableDirectory, Enrollment, Idp, InMemoryDirectory, MfaProof, PasswordHasher, Pbkdf2Hasher,
-    PqFederation, TotpSecret, UserRecord,
+    federated_login, verify_token, Activation, AuthAssertion, AuthError, Authenticator, ClientData,
+    Credentials, Directory, DurableDirectory, Enrollment, Idp, InMemoryDirectory, MfaProof,
+    PasswordHasher, Pbkdf2Hasher, PqFederation, TotpSecret, UserRecord, WebAuthnCredential,
+    WebAuthnPolicy, PASSKEY_SIG_ALG,
 };
 use policy::{ClassificationLevel, Clearance, Purpose, Role};
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::{Rng, SigId};
+use pqc_agility::{Rng, SigId, SigningKey};
 
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
 
@@ -385,7 +387,8 @@ fn encode_v1(subject: &str, e: &Enrollment) -> Vec<u8> {
 
 /// [AC-15.2] [VLD-ANB-MIDGARD-0002] A directory written by an earlier build opens,
 /// its entries without a pending activation; what is written now is the tagged
-/// record (version 3 since WP-57), carrying the activation across a restart.
+/// record (version 3 since WP-57, 4 since WP-58), carrying the activation across a
+/// restart.
 #[test]
 fn the_directory_reads_v1_records_and_writes_v2() {
     let dir_path = std::env::temp_dir().join(format!("iam-rc29-v1v2-{}.log", std::process::id()));
@@ -428,8 +431,8 @@ fn the_directory_reads_v1_records_and_writes_v2() {
     assert_ne!(records[0][0], 0xFF, "the earlier record is untagged");
     assert_eq!(
         &records[1][..3],
-        &[0xFF, 3, 0],
-        "the new record is tagged v3"
+        &[0xFF, 4, 0],
+        "the new record is tagged v4"
     );
 
     let dir = DurableDirectory::open(&dir_path, sealer(5)).unwrap();
@@ -593,8 +596,8 @@ fn the_directory_reads_v2_records_and_replays_totp_steps() {
     assert_eq!(written.len(), 3);
     assert_eq!(
         &written[2][..3],
-        &[0xFF, 3, 0],
-        "a full record is tagged v3"
+        &[0xFF, 4, 0],
+        "a full record is tagged v4 (WP-58)"
     );
 
     let dir = DurableDirectory::open(&dir_path, sealer(6)).unwrap();
@@ -603,4 +606,200 @@ fn the_directory_reads_v2_records_and_replays_totp_steps() {
     assert!(hasher.verify(b"a new password", &entry.credentials.password_hash));
 
     let _ = std::fs::remove_file(&dir_path);
+}
+
+/// The origin the passkey tests' relying party serves.
+const ORIGIN: &str = "https://console.enclosure.local";
+
+/// An analyst with a password and one passkey, no assertion yet accepted, and the
+/// passkey's signing key.
+fn with_passkey(hasher: &Pbkdf2Hasher) -> (Enrollment, SigningKey) {
+    let provider = fips_provider();
+    let sig = provider.sig_for(PASSKEY_SIG_ALG).unwrap();
+    let (vk, sk) = sig.keypair(&mut SeedRng(58)).unwrap();
+    let enrollment = Enrollment {
+        user: analyst_user(),
+        credentials: Credentials {
+            password_hash: hasher.hash(b"correct horse battery staple"),
+            passkeys: vec![WebAuthnCredential {
+                credential_id: b"grace-key".to_vec(),
+                public_key: vk,
+                rp_id: "console.enclosure.local".into(),
+                sign_count: 0,
+            }],
+            ..Credentials::default()
+        },
+    };
+    (enrollment, sk)
+}
+
+/// An assertion for `challenge` from `ORIGIN`, user present and verified, presenting
+/// signature counter `count`.
+fn passkey_assertion(
+    cred: &WebAuthnCredential,
+    sk: &SigningKey,
+    challenge: &[u8],
+    count: u32,
+) -> AuthAssertion {
+    let provider = fips_provider();
+    let sig = provider.sig_for(PASSKEY_SIG_ALG).unwrap();
+    let client_data_json = WebAuthnCredential::client_data_json(challenge, ORIGIN);
+    let authenticator_data = cred.authenticator_data(0x01 | 0x04, count);
+    let payload = WebAuthnCredential::signed_payload(&authenticator_data, &client_data_json);
+    AuthAssertion {
+        credential_id: cred.credential_id.clone(),
+        authenticator_data,
+        client_data_json,
+        client_data: ClientData {
+            type_: "webauthn.get".into(),
+            challenge: challenge.to_vec(),
+            origin: ORIGIN.into(),
+        },
+        signature: sig.sign(sk, &payload).unwrap(),
+    }
+}
+
+/// [AC-58.5] [VLD-ANB-MIDGARD-0084] A recorded signature counter is a small tagged
+/// record that is replayed on reopening; a lower counter writes nothing, an unknown
+/// passkey records nothing, and replacing the credentials keeps the counter. A
+/// version 3 enrollment, written before counters existed, opens with counter 0.
+#[test]
+fn a_passkey_sign_count_survives_a_restart() {
+    let dir_path = std::env::temp_dir().join(format!("iam-rc29-v4-{}.log", std::process::id()));
+    let _ = std::fs::remove_file(&dir_path);
+    let hasher = Pbkdf2Hasher::new(1000);
+    let (grace, _) = with_passkey(&hasher);
+    let records = || {
+        let (_, records) =
+            audit_writer::SealedJournal::open(&dir_path, sealer(9), b"iam-directory-v1").unwrap();
+        records
+    };
+    {
+        // The previous build's record: tagged version 3, no activation, no step, and
+        // no passkey counters.
+        let (mut journal, _) =
+            audit_writer::SealedJournal::open(&dir_path, sealer(9), b"iam-directory-v1").unwrap();
+        fn put(o: &mut Vec<u8>, b: &[u8]) {
+            o.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            o.extend_from_slice(b);
+        }
+        let mut v3 = vec![0xFF, 3, 0];
+        v3.extend_from_slice(&encode_v1("grace", &grace));
+        // encode_v1 writes no passkeys: replace its count of 0 with this one passkey.
+        v3.truncate(v3.len() - 4);
+        v3.extend_from_slice(&1u32.to_le_bytes());
+        let key = &grace.credentials.passkeys[0];
+        put(&mut v3, &key.credential_id);
+        v3.push(key.public_key.alg().as_u8());
+        put(&mut v3, key.public_key.as_bytes());
+        put(&mut v3, key.rp_id.as_bytes());
+        v3.extend_from_slice(&[0, 0]); // no activation, no TOTP step
+        journal.append(&v3).unwrap();
+    }
+
+    {
+        let mut dir = DurableDirectory::open(&dir_path, sealer(9)).expect("a v3 directory opens");
+        assert_eq!(dir.get("grace"), Some(&grace), "every v3 field survives");
+        assert!(dir.record_passkey_count("grace", b"grace-key", 7).unwrap());
+        assert!(dir.record_passkey_count("grace", b"grace-key", 5).unwrap());
+        assert!(!dir.record_passkey_count("grace", b"other-key", 9).unwrap());
+        assert!(!dir.record_passkey_count("nobody", b"grace-key", 9).unwrap());
+    }
+    let written = records();
+    assert_eq!(written.len(), 2, "a lower counter writes nothing");
+    assert_eq!(
+        &written[1][..3],
+        &[0xFF, 4, 2],
+        "a counter record is tagged v4 kind 2"
+    );
+
+    {
+        let mut dir = DurableDirectory::open(&dir_path, sealer(9)).unwrap();
+        let entry = dir.get("grace").unwrap();
+        assert_eq!(
+            entry.credentials.passkeys[0].sign_count, 7,
+            "the counter is replayed"
+        );
+        let mut credentials = grace.credentials.clone();
+        credentials.password_hash = hasher.hash(b"a new password");
+        assert!(dir.update_credentials("grace", credentials).unwrap());
+        assert_eq!(
+            dir.get("grace").unwrap().credentials.passkeys[0].sign_count,
+            7
+        );
+    }
+    let written = records();
+    assert_eq!(
+        &written[2][..3],
+        &[0xFF, 4, 0],
+        "a full record is tagged v4"
+    );
+
+    let dir = DurableDirectory::open(&dir_path, sealer(9)).unwrap();
+    let entry = dir.get("grace").unwrap();
+    assert_eq!(
+        entry.credentials.passkeys[0].sign_count, 7,
+        "the full record keeps it"
+    );
+    assert!(hasher.verify(b"a new password", &entry.credentials.password_hash));
+
+    let _ = std::fs::remove_file(&dir_path);
+}
+
+/// [AC-58.5] [VLD-ANB-MIDGARD-0084] A passkey login through the authenticator reports
+/// the credential and counter it accepted; once recorded, the same assertion is
+/// refused as a bad second factor and a later counter logs in. With the default
+/// policy, which names no origin, no assertion verifies.
+#[test]
+fn a_passkey_login_through_the_authenticator_records_the_counter() {
+    let idp = Idp::generate("enclave-idp", &mut SeedRng(1)).unwrap();
+    let hasher = Pbkdf2Hasher::new(1000);
+    let (grace, sk) = with_passkey(&hasher);
+    let cred = grace.credentials.passkeys[0].clone();
+    let mut dir = InMemoryDirectory::new();
+    dir.enroll("grace", grace);
+    let policy = WebAuthnPolicy {
+        origins: vec![ORIGIN.into()],
+        require_uv: true,
+    };
+    let challenge = b"a-fresh-login-challenge";
+
+    let attempt = |dir: &InMemoryDirectory, policy: WebAuthnPolicy, count: u32| {
+        Authenticator::new(&idp, dir, &hasher)
+            .with_webauthn_policy(policy)
+            .authenticate_full(
+                "grace",
+                b"correct horse battery staple",
+                MfaProof::WebAuthn {
+                    assertion: passkey_assertion(&cred, &sk, challenge, count),
+                    challenge,
+                },
+                Purpose("investigation".into()),
+                NOW,
+                TTL,
+            )
+    };
+    assert_eq!(
+        attempt(&dir, WebAuthnPolicy::default(), 3),
+        Err(AuthError::BadMfa),
+        "the default policy accepts no origin"
+    );
+
+    let first = attempt(&dir, policy.clone(), 3).expect("the passkey logs in");
+    assert_eq!(first.passkey_count, Some((b"grace-key".to_vec(), 3)));
+    assert_eq!(first.totp_step, None);
+    assert!(verify_token(idp.provider(), idp.verifying_key(), &first.token, NOW).is_ok());
+    assert!(dir.record_passkey_count("grace", b"grace-key", 3));
+    assert_eq!(
+        dir.enrollment("grace").unwrap().credentials.passkeys[0].sign_count,
+        3
+    );
+
+    assert_eq!(
+        attempt(&dir, policy.clone(), 3),
+        Err(AuthError::BadMfa),
+        "the same counter is refused"
+    );
+    let next = attempt(&dir, policy, 4).expect("a later counter logs in");
+    assert_eq!(next.passkey_count, Some((b"grace-key".to_vec(), 4)));
 }

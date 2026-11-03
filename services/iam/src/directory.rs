@@ -6,17 +6,22 @@
 //!
 //! ## Record format
 //! Every record written now is **tagged and versioned**: `0xFF, version, kind, body`.
-//! Version 3, kind 0 is a full enrollment followed by its pending activation, if any
+//! Version 4, kind 0 is a full enrollment followed by its pending activation, if any
 //! (a tag, then the code hash, the expiry and whether the TOTP factor is confirmed),
-//! then the last accepted TOTP step, if any (a tag, then the step). Version 3, kind 1
-//! is a TOTP step: a subject and the step it last logged in with, appended on every
-//! accepted code so a login does not rewrite the whole enrollment; replay keeps the
-//! greater of the entry's step and the record's. A version 2 enrollment is the same
-//! without the step, and a record that does not start with `0xFF` is the original,
-//! untagged version 1; both are read unchanged, so a directory written by an earlier
-//! build still opens. Their entries have no last accepted step (and version 1 no
-//! pending activation). Later fields extend the tagged form rather than breaking it
-//! again. [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0026]
+//! then the last accepted TOTP step, if any (a tag, then the step), then the signature
+//! counter of each passkey, in order. Version 3, kind 1 is a TOTP step: a subject and
+//! the step it last logged in with, appended on every accepted code so a login does
+//! not rewrite the whole enrollment; replay keeps the greater of the entry's step and
+//! the record's. Version 4, kind 2 is a passkey counter: a subject, a credential id
+//! and the signature counter last accepted for it, appended on every accepted
+//! assertion and replayed the same way. A version 3 enrollment is a version 4 one
+//! without the counters, a version 2 enrollment is also without the step, and a
+//! record that does not start with `0xFF` is the original, untagged version 1; all
+//! are read unchanged, so a directory written by an earlier build still opens. Their
+//! passkeys have counter 0, their entries have no last accepted step before version
+//! 3 (and version 1 no pending activation). Later fields extend the tagged form
+//! rather than breaking it again. [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0026]
+//! [VLD-ANB-MIDGARD-0084]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -32,14 +37,19 @@ const DOMAIN: &[u8] = b"iam-directory-v1";
 /// The first byte of a tagged record. An untagged (version 1) record starts with
 /// the little-endian length of its subject instead.
 const TAGGED: u8 = 0xFF;
-/// The tagged record version written now.
-const RECORD_VERSION: u8 = 3;
-/// The previous tagged version: an enrollment with no last accepted TOTP step.
+/// The tagged record version written now for enrollments and passkey counters.
+const RECORD_VERSION: u8 = 4;
+/// The version that added the last accepted TOTP step: an enrollment with no passkey
+/// counters, and the TOTP step record, which is still written at this version.
+const RECORD_VERSION_3: u8 = 3;
+/// The first tagged version: an enrollment with no last accepted TOTP step.
 const RECORD_VERSION_2: u8 = 2;
 /// A tagged record holding a full enrollment.
 const KIND_ENROLLMENT: u8 = 0;
 /// A tagged record holding a principal's last accepted TOTP step.
 const KIND_TOTP_STEP: u8 = 1;
+/// A tagged record holding the signature counter last accepted for one passkey.
+const KIND_PASSKEY_COUNT: u8 = 2;
 
 /// A principal approved under dual control who has not yet activated their account.
 /// The gateway mints the credentials at approval and hands the approver a single-use
@@ -127,6 +137,12 @@ impl DurableDirectory {
                         advance(&mut entry.credentials, step);
                     }
                 }
+                Record::PasskeyCount(subject, credential_id, count) => {
+                    // Nor does a counter for a passkey no longer enrolled.
+                    if let Some(entry) = entries.get_mut(&subject) {
+                        advance_count(&mut entry.credentials, &credential_id, count);
+                    }
+                }
             }
         }
         Ok(Self { journal, entries })
@@ -151,11 +167,10 @@ impl DurableDirectory {
         let Some(entry) = self.entries.get(subject) else {
             return Ok(false);
         };
-        // Replacing the credentials never winds the last accepted TOTP step back.
+        // Replacing the credentials never winds the last accepted TOTP step, or a
+        // kept passkey's counter, back.
         let mut credentials = credentials;
-        if let Some(step) = entry.credentials.totp_last_step {
-            advance(&mut credentials, step);
-        }
+        keep_progress(&entry.credentials, &mut credentials);
         let updated = Enrollment {
             user: entry.user.clone(),
             credentials,
@@ -182,6 +197,38 @@ impl DurableDirectory {
         }
         self.journal.append(&encode_totp_step(subject, step))?;
         advance(&mut entry.credentials, step);
+        Ok(true)
+    }
+
+    /// Record that `subject` has just logged in with the passkey `credential_id`,
+    /// presenting signature counter `count`: append a small sealed counter record and
+    /// update memory, so an assertion with that counter, or an earlier one, is refused
+    /// from now on, across a restart too. A counter at or below the one already
+    /// recorded writes nothing. `Ok(false)` if `subject` is not enrolled or has no such
+    /// passkey. As for [`Self::record_totp_step`], call it under the same lock as the
+    /// verification and do not let the login complete if it fails.
+    /// [VLD-ANB-MIDGARD-0084]
+    pub fn record_passkey_count(
+        &mut self,
+        subject: &str,
+        credential_id: &[u8],
+        count: u32,
+    ) -> Result<bool, AuditError> {
+        let Some(key) = self.entries.get_mut(subject).and_then(|entry| {
+            entry
+                .credentials
+                .passkeys
+                .iter_mut()
+                .find(|k| k.credential_id == credential_id)
+        }) else {
+            return Ok(false);
+        };
+        if count <= key.sign_count {
+            return Ok(true);
+        }
+        self.journal
+            .append(&encode_passkey_count(subject, credential_id, count))?;
+        key.sign_count = count;
         Ok(true)
     }
 
@@ -233,6 +280,28 @@ pub trait Directory {
 /// Keep the greater of `credentials`' last accepted TOTP step and `step`.
 fn advance(credentials: &mut Credentials, step: u64) {
     credentials.totp_last_step = Some(credentials.totp_last_step.map_or(step, |s| s.max(step)));
+}
+
+/// Keep the greater of the counter recorded for `credential_id` and `count`.
+fn advance_count(credentials: &mut Credentials, credential_id: &[u8], count: u32) {
+    if let Some(key) = credentials
+        .passkeys
+        .iter_mut()
+        .find(|k| k.credential_id == credential_id)
+    {
+        key.sign_count = key.sign_count.max(count);
+    }
+}
+
+/// Carry `old`'s last accepted TOTP step and passkey counters into `new`, so replacing
+/// credentials never makes a spent code or counter usable again.
+fn keep_progress(old: &Credentials, new: &mut Credentials) {
+    if let Some(step) = old.totp_last_step {
+        advance(new, step);
+    }
+    for key in &old.passkeys {
+        advance_count(new, &key.credential_id, key.sign_count);
+    }
 }
 
 /// The updated enrollment, if `subject`'s password hash is still `current`.
@@ -299,11 +368,8 @@ impl InMemoryDirectory {
     pub fn update_credentials(&mut self, subject: &str, credentials: Credentials) -> bool {
         match self.entries.get_mut(subject) {
             Some(entry) => {
-                let last = entry.credentials.totp_last_step;
-                entry.credentials = credentials;
-                if let Some(step) = last {
-                    advance(&mut entry.credentials, step);
-                }
+                let old = std::mem::replace(&mut entry.credentials, credentials);
+                keep_progress(&old, &mut entry.credentials);
                 true
             }
             None => false,
@@ -320,6 +386,31 @@ impl InMemoryDirectory {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Record that `subject` has just logged in with the passkey `credential_id`,
+    /// presenting signature counter `count`, so that counter and every earlier one is
+    /// refused from now on. `false` if `subject` is not enrolled or has no such
+    /// passkey. [VLD-ANB-MIDGARD-0084]
+    pub fn record_passkey_count(
+        &mut self,
+        subject: &str,
+        credential_id: &[u8],
+        count: u32,
+    ) -> bool {
+        match self.entries.get_mut(subject) {
+            Some(entry)
+                if entry
+                    .credentials
+                    .passkeys
+                    .iter()
+                    .any(|k| k.credential_id == credential_id) =>
+            {
+                advance_count(&mut entry.credentials, credential_id, count);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -368,8 +459,8 @@ fn put_str(o: &mut Vec<u8>, s: &str) {
     put_bytes(o, s.as_bytes());
 }
 
-/// A tagged version-3 record: the enrollment, its pending activation, then its last
-/// accepted TOTP step.
+/// A tagged version-4 record: the enrollment, its pending activation, its last
+/// accepted TOTP step, then each passkey's signature counter.
 fn encode_entry(subject: &str, e: &Enrollment) -> Vec<u8> {
     let mut o = vec![TAGGED, RECORD_VERSION, KIND_ENROLLMENT];
     o.extend_from_slice(&encode_body(subject, e));
@@ -389,14 +480,27 @@ fn encode_entry(subject: &str, e: &Enrollment) -> Vec<u8> {
             o.extend_from_slice(&step.to_le_bytes());
         }
     }
+    for k in &e.credentials.passkeys {
+        put_u32(&mut o, k.sign_count);
+    }
     o
 }
 
 /// A tagged version-3 TOTP step record: the subject and its last accepted step.
 fn encode_totp_step(subject: &str, step: u64) -> Vec<u8> {
-    let mut o = vec![TAGGED, RECORD_VERSION, KIND_TOTP_STEP];
+    let mut o = vec![TAGGED, RECORD_VERSION_3, KIND_TOTP_STEP];
     put_str(&mut o, subject);
     o.extend_from_slice(&step.to_le_bytes());
+    o
+}
+
+/// A tagged version-4 passkey counter record: the subject, the credential id and the
+/// signature counter last accepted for it.
+fn encode_passkey_count(subject: &str, credential_id: &[u8], count: u32) -> Vec<u8> {
+    let mut o = vec![TAGGED, RECORD_VERSION, KIND_PASSKEY_COUNT];
+    put_str(&mut o, subject);
+    put_bytes(&mut o, credential_id);
+    put_u32(&mut o, count);
     o
 }
 
@@ -479,6 +583,8 @@ enum Record {
     Enrollment(String, Enrollment),
     /// The subject's last accepted TOTP step.
     TotpStep(String, u64),
+    /// The signature counter last accepted for one of the subject's passkeys.
+    PasskeyCount(String, Vec<u8>, u32),
 }
 
 /// Decode a record of any version. A tagged record that does not decode is tried as
@@ -495,7 +601,7 @@ fn decode_record(b: &[u8]) -> Result<Record, String> {
 fn decode_tagged(b: &[u8]) -> Result<Record, String> {
     let mut r = Reader { b, pos: 1 };
     let version = match (r.u8()?, r.u8()?) {
-        (RECORD_VERSION, KIND_TOTP_STEP) => {
+        (RECORD_VERSION_3, KIND_TOTP_STEP) => {
             let subject = r.string()?;
             let step = r.u64()?;
             if r.pos != b.len() {
@@ -503,7 +609,18 @@ fn decode_tagged(b: &[u8]) -> Result<Record, String> {
             }
             return Ok(Record::TotpStep(subject, step));
         }
-        (version @ (RECORD_VERSION | RECORD_VERSION_2), KIND_ENROLLMENT) => version,
+        (RECORD_VERSION, KIND_PASSKEY_COUNT) => {
+            let subject = r.string()?;
+            let credential_id = r.bytes()?;
+            let count = r.u32()? as u32;
+            if r.pos != b.len() {
+                return Err("trailing bytes".into());
+            }
+            return Ok(Record::PasskeyCount(subject, credential_id, count));
+        }
+        (version @ (RECORD_VERSION | RECORD_VERSION_3 | RECORD_VERSION_2), KIND_ENROLLMENT) => {
+            version
+        }
         (version, kind) => return Err(format!("unknown record version {version} kind {kind}")),
     };
     let (subject, mut enrollment) = decode_body(&mut r)?;
@@ -520,12 +637,17 @@ fn decode_tagged(b: &[u8]) -> Result<Record, String> {
         }),
         _ => return Err("bad activation tag".into()),
     };
-    if version == RECORD_VERSION {
+    if version >= RECORD_VERSION_3 {
         enrollment.credentials.totp_last_step = match r.u8()? {
             0 => None,
             1 => Some(r.u64()?),
             _ => return Err("bad totp-step tag".into()),
         };
+    }
+    if version >= RECORD_VERSION {
+        for key in &mut enrollment.credentials.passkeys {
+            key.sign_count = r.u32()? as u32;
+        }
     }
     if r.pos != b.len() {
         return Err("trailing bytes".into());
@@ -574,6 +696,7 @@ fn decode_body(r: &mut Reader<'_>) -> Result<(String, Enrollment), String> {
             credential_id,
             public_key,
             rp_id,
+            sign_count: 0,
         });
     }
     Ok((

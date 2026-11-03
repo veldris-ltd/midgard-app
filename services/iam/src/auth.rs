@@ -9,7 +9,7 @@ use policy::Purpose;
 
 use crate::directory::{Directory, DurableDirectory};
 use crate::idp::{Idp, IssueError};
-use crate::mfa::AuthAssertion;
+use crate::mfa::{AuthAssertion, WebAuthnPolicy};
 use crate::password::PasswordHasher;
 
 /// The second-factor proof a caller presents.
@@ -59,33 +59,51 @@ impl std::error::Error for AuthError {}
 /// A successful authentication: the minted token and, when a TOTP code was the
 /// second factor, the time step it matched. The caller persists that step with the
 /// directory's `record_totp_step` before releasing the token, under the same lock as
-/// the check, so the code cannot be used again. [VLD-ANB-MIDGARD-0026]
+/// the check, so the code cannot be used again. [VLD-ANB-MIDGARD-0026] Likewise, when
+/// a passkey was the second factor, the caller persists its signature counter with
+/// `record_passkey_count`. [VLD-ANB-MIDGARD-0084]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthOutcome {
     /// The PQ-signed access token.
     pub token: Vec<u8>,
     /// The TOTP step accepted, if the second factor was a TOTP code.
     pub totp_step: Option<u64>,
+    /// The credential id and signature counter of the passkey accepted, if the second
+    /// factor was a WebAuthn assertion. [VLD-ANB-MIDGARD-0084]
+    pub passkey_count: Option<(Vec<u8>, u32)>,
 }
 
 /// The authenticator ties an IdP (token minting), a directory (attributes +
 /// credentials), and a password hasher together. The directory is the durable one by
 /// default; any [`Directory`] authenticates through the same checks, and both the
 /// directory and the hasher may be trait objects chosen at startup.
+///
+/// A passkey assertion is checked against a [`WebAuthnPolicy`]. The default allows no
+/// origin, so no assertion verifies until [`Self::with_webauthn_policy`] names the
+/// origins served. [VLD-ANB-MIDGARD-0084]
 pub struct Authenticator<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized = DurableDirectory> {
     idp: &'a Idp,
     directory: &'a D,
     hasher: &'a H,
+    webauthn: WebAuthnPolicy,
 }
 
 impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H, D> {
-    /// Build an authenticator.
+    /// Build an authenticator, with the default (fail-closed) WebAuthn policy.
     pub fn new(idp: &'a Idp, directory: &'a D, hasher: &'a H) -> Self {
         Self {
             idp,
             directory,
             hasher,
+            webauthn: WebAuthnPolicy::default(),
         }
+    }
+
+    /// Check passkey assertions against `policy`: the origins accepted and whether
+    /// user verification is required. [VLD-ANB-MIDGARD-0084]
+    pub fn with_webauthn_policy(mut self, policy: WebAuthnPolicy) -> Self {
+        self.webauthn = policy;
+        self
     }
 
     /// Authenticate a principal and, on success, mint a PQ-signed token. Verifies
@@ -110,7 +128,8 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
     /// Authenticate exactly as [`Self::authenticate`] does and also return the TOTP
     /// step accepted, which the caller must persist before the token leaves so the code
     /// is single use. A code for the principal's last accepted step, or an earlier
-    /// one, is refused as [`AuthError::BadMfa`]. [VLD-ANB-MIDGARD-0026] [RC-29]
+    /// one, is refused as [`AuthError::BadMfa`]. [VLD-ANB-MIDGARD-0026] [RC-29] The
+    /// same holds for a passkey's signature counter. [VLD-ANB-MIDGARD-0084]
     pub fn authenticate_full(
         &self,
         subject: &str,
@@ -161,8 +180,11 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
 
         // 2. MFA — mandatory whenever the principal has a factor enrolled. A TOTP code
         // is accepted once: its step must be later than the last one accepted.
-        // [VLD-ANB-MIDGARD-0026]
+        // [VLD-ANB-MIDGARD-0026] A passkey assertion is checked against the policy,
+        // and its signature counter must be later than the last one accepted.
+        // [VLD-ANB-MIDGARD-0084]
         let mut totp_step = None;
+        let mut passkey_count = None;
         if entry.credentials.has_mfa() {
             match mfa {
                 MfaProof::Totp(code) => {
@@ -186,8 +208,15 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
                         .iter()
                         .find(|k| k.credential_id == assertion.credential_id)
                         .ok_or(AuthError::MfaRequired)?;
-                    cred.verify_assertion(self.idp.provider(), challenge, &assertion)
+                    let count = cred
+                        .verify_assertion(
+                            self.idp.provider(),
+                            &self.webauthn,
+                            challenge,
+                            &assertion,
+                        )
                         .map_err(|_| AuthError::BadMfa)?;
+                    passkey_count = Some((cred.credential_id.clone(), count));
                 }
                 MfaProof::None => return Err(AuthError::MfaRequired),
             }
@@ -200,7 +229,14 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
             .map_err(AuthError::Issue)?;
         let stale = &entry.credentials.password_hash;
         let stale = self.hasher.needs_rehash(stale).then(|| stale.clone());
-        Ok((AuthOutcome { token, totp_step }, stale))
+        Ok((
+            AuthOutcome {
+                token,
+                totp_step,
+                passkey_count,
+            },
+            stale,
+        ))
     }
 }
 
@@ -233,6 +269,9 @@ pub struct Login {
     /// The TOTP step accepted, if the second factor was a TOTP code.
     /// [VLD-ANB-MIDGARD-0026]
     pub totp_step: Option<u64>,
+    /// The passkey accepted and its signature counter, if the second factor was a
+    /// WebAuthn assertion. [VLD-ANB-MIDGARD-0084]
+    pub passkey_count: Option<(Vec<u8>, u32)>,
 }
 
 /// The authenticator with **rehash on sign-in**: the same checks as
@@ -246,16 +285,26 @@ pub struct UpgradingAuthenticator<'a, H: PasswordHasher + ?Sized, D: Directory +
     idp: &'a Idp,
     directory: &'a mut D,
     hasher: &'a H,
+    webauthn: WebAuthnPolicy,
 }
 
 impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> UpgradingAuthenticator<'a, H, D> {
-    /// Build an upgrading authenticator over a directory it may write to.
+    /// Build an upgrading authenticator over a directory it may write to, with the
+    /// default (fail-closed) WebAuthn policy.
     pub fn new(idp: &'a Idp, directory: &'a mut D, hasher: &'a H) -> Self {
         Self {
             idp,
             directory,
             hasher,
+            webauthn: WebAuthnPolicy::default(),
         }
+    }
+
+    /// Check passkey assertions against `policy`, as
+    /// [`Authenticator::with_webauthn_policy`] does. [VLD-ANB-MIDGARD-0084]
+    pub fn with_webauthn_policy(mut self, policy: WebAuthnPolicy) -> Self {
+        self.webauthn = policy;
+        self
     }
 
     /// Authenticate exactly as [`Authenticator::authenticate`] does and, on success,
@@ -271,6 +320,7 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> UpgradingAuthenticat
         ttl_secs: u64,
     ) -> Result<Login, AuthError> {
         let (outcome, stale) = Authenticator::new(self.idp, &*self.directory, self.hasher)
+            .with_webauthn_policy(self.webauthn.clone())
             .check(subject, password, mfa, purpose, now, ttl_secs)?;
         let upgrade = match stale {
             None => PasswordUpgrade::Current,
@@ -290,6 +340,7 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> UpgradingAuthenticat
             token: outcome.token,
             upgrade,
             totp_step: outcome.totp_step,
+            passkey_count: outcome.passkey_count,
         })
     }
 }
