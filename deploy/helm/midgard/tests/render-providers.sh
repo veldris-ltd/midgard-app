@@ -25,7 +25,13 @@ fail() {
     echo "FAIL  $1"
     failures=$((failures + 1))
 }
-render() { $HELM template midgard "$CHART" --namespace default "$@" 2>&1 | tr -d '\r'; }
+# A release render needs a digest for every service image (WP-37); these cases are about
+# the secrets provider, so each service gets the same placeholder digest.
+pins=()
+for s in http-gateway mimir-server bifrost-fleet heimdall-feed forge-worker; do
+    pins+=(--set "image.digests.$s=sha256:$(printf 'a%.0s' $(seq 64))")
+done
+render() { $HELM template midgard "$CHART" --namespace default "${pins[@]}" "$@" 2>&1 | tr -d '\r'; }
 
 # The workloads that hold an identity, and those that also seed state, in the values.
 workloads=(http-gateway mimir-server bifrost-fleet heimdall-feed forge-worker)
