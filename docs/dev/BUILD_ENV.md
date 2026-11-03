@@ -105,3 +105,20 @@ The crypto crates gate their backend tests behind mutually-exclusive features, s
 | `cargo test -p pqc-agility -p pq-mtls -p audit-writer --features test-backend` | agility shim, handshake, audit chain (deterministic INSECURE backend) |
 | `cargo test -p pqc-agility --features backend-fips --test fips_backend` | production FIPS 203/204/205 + X25519 backend |
 | `cargo test -p policy` | policy decision point |
+
+## Fuzzing the handshake decoder [NFR-SEC-1]
+
+`crypto/pq-mtls/fuzz` holds a libFuzzer target for `pq_mtls::decode_message`, the
+decoder every mesh listener runs on a peer's frames before any certificate is checked.
+It is a developer job, and a release-runner job before each release, not part of CI:
+cargo-fuzz needs a nightly toolchain and fetches `libfuzzer-sys` from the network, so
+the workspace excludes the directory and the offline build never sees it.
+
+```sh
+cargo +nightly install cargo-fuzz
+cd crypto/pq-mtls/fuzz
+cargo +nightly fuzz run --fuzz-dir . decode_message -- -max_total_time=600
+```
+
+`crypto/pq-mtls/fuzz/README.md` says where the corpus and any crashing inputs land. A
+crash is a security finding: report it as `SECURITY.md` describes.

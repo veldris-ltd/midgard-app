@@ -689,6 +689,15 @@ CONTRIBUTING.md for the version policy.
   and retried, rather than ending the worker. The release profile now sets
   `overflow-checks = true` across the workspace, so arithmetic on an untrusted length
   that does wrap panics instead.
+- **A hostile count can no longer size an allocation in the handshake decoder or the
+  bundle reader.** A ClientHello advertising more than 16 KEM suites or signature
+  algorithms is refused as malformed before anything is reserved for its lists. The
+  bundle reader bounds its entry and artefact counts by the bytes left in the file, so
+  an unsigned header claiming four billion of either is refused as a truncated bundle
+  by `read_bundle` and `from_bytes` instead of aborting the reader. A libFuzzer target
+  for `decode_message` lives in `crypto/pq-mtls/fuzz`, outside the workspace and the CI
+  gate, run on the release runner. [VLD-ANB-MIDGARD-0010] [VLD-ANB-MIDGARD-0044]
+  [NFR-SEC-1]
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
