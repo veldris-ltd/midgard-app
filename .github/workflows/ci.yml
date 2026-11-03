@@ -72,6 +72,7 @@ jobs:
           key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
       - run: bash tools/ci/run.sh toolchain
       - run: bash tools/ci/run.sh build
+      - run: bash tools/ci/run.sh check-backends
       - run: bash tools/ci/run.sh test
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()

@@ -5,8 +5,10 @@
 //!
 //! Security guards (RT-08): the deterministic `test-backend` uses a seeded,
 //! FORGEABLE RNG and exists only for `cargo test`. Two compile-time guards keep it
-//! out of anything shippable, backed by the `just check-backends` CI gate that no
-//! non-test crate enables it in a default build. [NFR-PQ-3]
+//! out of anything shippable, backed by the `just check-backends` CI gate (the
+//! `check-backends` job): no release binary's feature resolution enables it, a
+//! release build with it fails on guard 2, and the FIPS release build succeeds.
+//! [NFR-PQ-3] [VLD-ANB-MIDGARD-0067]
 
 // 1. The insecure test backend must never coexist with a real backend: with both
 //    on, `test-backend` could shadow FIPS in a build that looks production-ready.
@@ -14,12 +16,15 @@
 compile_error!("`test-backend` is INSECURE and must never be built with `backend-fips`");
 
 // 2. The insecure test backend must never be compiled into a RELEASE / production
-//    artefact. `debug_assertions` is off exactly in release profiles, so this fires
-//    on `cargo build --release … --features test-backend` (a shippable binary
-//    carrying forgeable crypto) while staying SILENT for `cargo test` (debug),
-//    including downstream tests that enable `test-backend` on this crate as a
-//    dependency — which a naive `not(test)` guard would wrongly reject. [RT-08]
-#[cfg(all(feature = "test-backend", not(debug_assertions)))]
+//    artefact. `midgard_release` is set by this crate's build.rs whenever Cargo
+//    builds it in the release profile or one inheriting from it. It does not follow
+//    `debug_assertions`, which a profile setting can switch back on in a release
+//    build. So this fires on `cargo build --release … --features test-backend` (a
+//    shippable binary carrying forgeable crypto) while staying SILENT for
+//    `cargo test` (dev profile), including downstream tests that enable
+//    `test-backend` on this crate as a dependency, which a naive `not(test)` guard
+//    would wrongly reject. [RT-08] [VLD-ANB-MIDGARD-0067]
+#[cfg(all(feature = "test-backend", midgard_release))]
 compile_error!(
     "`test-backend` is INSECURE (seeded, forgeable RNG) and must NEVER be in a \
      release/production build — it is for `cargo test` only. Select `backend-fips`."
