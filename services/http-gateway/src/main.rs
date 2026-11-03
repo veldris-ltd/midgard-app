@@ -76,6 +76,7 @@ use policy::DefaultPdp;
 use service_runtime::{MeshLimits, ServiceIdentity};
 
 fn main() {
+    service_runtime::harden_process("http-gateway");
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = match cli::parse(&argv) {
         Ok(Command::Help) => {

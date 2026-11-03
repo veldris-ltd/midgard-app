@@ -351,6 +351,19 @@ CONTRIBUTING.md for the version policy.
   with their zeroize features, intermediate secrets are wiped, the ML-KEM secret-key
   buffer is allocated at its final size, and a failure to lock memory is logged
   (`pqc_agility::mlock_failures`).
+- **Derived keys are wiped too, and freeing one secret no longer unlocks another.**
+  [VLD-ANB-MIDGARD-0036] The KMS data-encryption key is now `Zeroizing`, as the
+  pq-mtls traffic, resumption and ticket keys already were (`SecretArray`);
+  `SecretArray::new` wipes the array it was given; and the hybrid ML-KEM secret key
+  is written in place into a buffer of its final size instead of being appended to.
+  Dropping a secret no longer calls `munlock`, which on Linux unlocks whole pages and
+  so could unlock a long-lived key sharing the page. Instead every mesh service
+  (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-worker) locks its
+  whole process with `mlockall` at start through `service_runtime::harden_process`,
+  when `RLIMIT_MEMLOCK` is unlimited, and logs one line naming `RLIMIT_MEMLOCK` and
+  `CAP_IPC_LOCK` if it cannot; `MIDGARD_NO_MLOCKALL=1` turns it off (logged).
+  `pqc_agility::Zeroizing` is re-exported for downstream crates. RB-8 in
+  `docs/ops/RUNBOOKS.md` covers the limit.
 - **Standard hybrid key combination.** [MG-SEC-09] The hybrid secret uses the X-Wing
   combiner (SHA3-256 over both secrets, the X25519 ciphertext and public key), and
   an all-zero X25519 result is refused. This is protocol version 2.

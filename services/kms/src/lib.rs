@@ -20,7 +20,7 @@ use audit_writer::{AuditError, Sealer};
 use pqc_agility::hash::hkdf_sha256_32;
 use pqc_agility::{
     Aes256GcmAead, Ciphertext, Kem, KemPublicKey, KemSecretKey, KemSuiteId, OsRng, Rng,
-    SharedSecret, GCM_NONCE_LEN,
+    SharedSecret, Zeroizing, GCM_NONCE_LEN,
 };
 
 mod error;
@@ -215,9 +215,11 @@ impl<R: TrustRoot> Kms<R> {
     }
 }
 
-/// Derive the ephemeral data-encryption key from a KEM shared secret.
-fn derive_dek(ss: &SharedSecret) -> [u8; 32] {
-    hkdf_sha256_32(KMS_HKDF_SALT, ss.expose(), KMS_HKDF_INFO)
+/// Derive the ephemeral data-encryption key from a KEM shared secret. Returned in a
+/// [`Zeroizing`] wrapper so the DEK is wiped when the seal or unseal finishes.
+/// [VLD-ANB-MIDGARD-0036]
+fn derive_dek(ss: &SharedSecret) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(hkdf_sha256_32(KMS_HKDF_SALT, ss.expose(), KMS_HKDF_INFO))
 }
 
 /// Envelope-seal `plaintext` to `root` (encapsulate to its public key, derive a DEK,

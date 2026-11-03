@@ -88,17 +88,15 @@ impl CryptoRng for RngAdapter<'_> {}
 
 macro_rules! mlkem_ops {
     ($module:ident, $keypair:ident, $encaps:ident, $decaps:ident) => {
-        /// `(ek, dk)`, with `dk` written into a buffer of `dk_capacity` bytes so a
-        /// hybrid suite can append its X25519 half without reallocating.
-        fn $keypair(
-            a: &mut RngAdapter,
-            dk_capacity: usize,
-        ) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
+        /// `(ek, dk)`, with `dk` copied into the front of a zeroed buffer of
+        /// `sk_len` bytes, so a hybrid suite fills its X25519 half in place and the
+        /// key is never grown or reallocated.
+        fn $keypair(a: &mut RngAdapter, sk_len: usize) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
             let (ek, dk) = fips203::$module::KG::try_keygen_with_rng(a)
                 .map_err(|_| CryptoError::RngFailure)?;
             let dk_bytes = Zeroizing::new(dk.into_bytes());
-            let mut sk = Vec::with_capacity(dk_capacity.max(dk_bytes.len()));
-            sk.extend_from_slice(dk_bytes.as_slice());
+            let mut sk = vec![0u8; sk_len.max(dk_bytes.len())];
+            sk[..dk_bytes.len()].copy_from_slice(dk_bytes.as_slice());
             Ok((ek.into_bytes().to_vec(), sk))
         }
 
@@ -164,11 +162,11 @@ fn pq_sizes(param: KemId) -> (usize, usize, usize) {
 fn mlkem_keypair(
     param: KemId,
     a: &mut RngAdapter,
-    dk_capacity: usize,
+    sk_len: usize,
 ) -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
     match param {
-        KemId::MlKem768 => mlkem768_keypair(a, dk_capacity),
-        KemId::MlKem1024 => mlkem1024_keypair(a, dk_capacity),
+        KemId::MlKem768 => mlkem768_keypair(a, sk_len),
+        KemId::MlKem1024 => mlkem1024_keypair(a, sk_len),
         KemId::X25519 => Err(CryptoError::UnknownAlgorithm("X25519")),
     }
 }
@@ -238,16 +236,19 @@ impl Kem for FipsKem {
 
     fn keypair(&self, rng: &mut dyn Rng) -> Result<(KemPublicKey, KemSecretKey), CryptoError> {
         let mut a = RngAdapter { inner: rng };
-        // Sized up front: appending the X25519 half must not reallocate. [MG-SEC-08]
+        // Allocated at its final size: the X25519 half is written in place, never
+        // appended, so no reallocation leaves key bytes in freed memory. [MG-SEC-08]
+        // [VLD-ANB-MIDGARD-0036]
         let (mut pk, mut sk) =
             mlkem_keypair(self.suite.pq_component(), &mut a, self.sizes.secret_key)?;
         if self.suite.is_hybrid() {
             let x_sk = XStaticSecret::random_from_rng(&mut a);
             let x_pk = XPublicKey::from(&x_sk);
             pk.extend_from_slice(x_pk.as_bytes());
-            sk.extend_from_slice(Zeroizing::new(x_sk.to_bytes()).as_slice());
+            let (_, pq_dk_len, _) = pq_sizes(self.suite.pq_component());
+            sk[pq_dk_len..].copy_from_slice(Zeroizing::new(x_sk.to_bytes()).as_slice());
         }
-        debug_assert_eq!(sk.capacity(), self.sizes.secret_key);
+        debug_assert_eq!(sk.len(), self.sizes.secret_key);
         Ok((
             KemPublicKey::new(self.suite, pk),
             KemSecretKey::new(self.suite, SecretBytes::new(sk)),

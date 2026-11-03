@@ -41,6 +41,31 @@ pub use serve::{
     CONNECTION_STACK,
 };
 
+/// Harden the process before anything else runs: lock all of its memory into RAM
+/// (`mlockall`), so key material never reaches swap and dropping one secret cannot
+/// unlock a page another shares. Every mesh service calls this first thing in `main`.
+///
+/// Best-effort: if the lock is refused the service keeps running with per-secret locks
+/// and logs one line naming the fix. `MIDGARD_NO_MLOCKALL=1` skips the lock (logged), as
+/// an escape hatch for hosts whose memory limits cannot absorb a fully resident process.
+/// [VLD-ANB-MIDGARD-0036] [NFR-PQ-2]
+pub fn harden_process(service: &str) {
+    if std::env::var_os("MIDGARD_NO_MLOCKALL").is_some_and(|v| v == "1") {
+        eprintln!(
+            "{service}: MIDGARD_NO_MLOCKALL=1, process memory is not locked; key material \
+             is locked per secret only"
+        );
+        return;
+    }
+    if let Err(why) = pqc_agility::lock_process_memory() {
+        eprintln!(
+            "{service}: could not lock process memory ({why}); continuing with per-secret \
+             locks. Set RLIMIT_MEMLOCK to unlimited or grant CAP_IPC_LOCK to keep key \
+             material out of swap."
+        );
+    }
+}
+
 /// Seconds since the Unix epoch by the system clock — what services stamp audit
 /// entries and records with.
 pub fn unix_seconds() -> u64 {
