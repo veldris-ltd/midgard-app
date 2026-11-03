@@ -1271,6 +1271,26 @@ for t in json.load(sys.stdin):
     [ "$count" -gt 0 ] || { echo "$OPERATOR cannot read any synced $first: check clearance and purposes"; return 1; }
 }
 
+# The web console sends every header in its shared security-headers file on the page
+# and on a static asset: nginx drops the server block's headers in a location that
+# sets one of its own, as /assets/ does with Cache-Control. [VLD-ANB-MIDGARD-0064]
+check_console_headers() {
+    local base="${1:-http://127.0.0.1:5173}" names asset url response name absent=""
+    names="$(sed -n 's/^add_header \([A-Za-z-]*\) .*/\1/p' "$SRC/deploy/installer/console.security-headers.conf")"
+    [ -n "$names" ] || { echo "no header is named in console.security-headers.conf"; return 1; }
+    asset="$(curl -fsS "$base/" | { grep -o '/assets/[^"]*\.js' || true; } | sed -n 1p)"
+    [ -n "$asset" ] || { echo "the console page names no /assets/*.js"; return 1; }
+    for url in "$base/" "$base$asset"; do
+        response="$(curl -fsSI "$url")"
+        for name in $names; do
+            grep -qi "^$name:" <<<"$response" || absent+=" $name (${url#"$base"})"
+        done
+    done
+    grep -qi "^Cache-Control:" <<<"$response" || absent+=" Cache-Control ($asset)"
+    [ -z "$absent" ] || { echo "the console does not send:$absent"; return 1; }
+    echo "the console sends $(xargs <<<"$names") on / and $asset"
+}
+
 install_now() {
     step 9 "INSTALLING"
     STATUS=in-progress
@@ -1340,6 +1360,7 @@ install_now() {
         run "Replaying the Heimdall feeds and checking the picture" replay_feeds
     fi
     [ "$CONSOLE" = yes ] && run "Checking the web console is served" curl -fsS -o /dev/null http://127.0.0.1:5173/
+    [ "$CONSOLE" = yes ] && run "Checking the web console sends its security headers" check_console_headers
     ln -sf "$SRC/deploy/installer/mg-install" /usr/local/bin/mg-install
     STATUS=complete
     save_state

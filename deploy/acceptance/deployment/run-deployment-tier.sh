@@ -136,6 +136,19 @@ check_cross_host_mtls() {
     # genuine FIPS handshake + record round-trip; Job success == cross-host mTLS ok.
     local manifest="$HERE/pqmtls-probe.yaml"
     [ -f "$manifest" ] || { missing "$id" "$desc" "probe manifest $manifest"; return; }
+    # The CA seed both sides derive their anchor from is drawn afresh for each run and
+    # logged, so a run can be reproduced from its log without a fixed anchor published
+    # in the tree. A manifest still holding the placeholder is never applied.
+    # [VLD-ANB-MIDGARD-0075]
+    local seed seeded
+    seed="$(od -An -N4 -tu4 /dev/urandom | tr -d ' \n')"
+    case "$seed" in
+        '' | *[!0-9]*) note "could not draw a probe CA seed from /dev/urandom"; record FAIL "$id" "$desc"; return ;;
+    esac
+    seeded="$(mktemp)"
+    sed "s#__CA_SEED__#${seed}#g" "$manifest" > "$seeded"
+    manifest="$seeded"
+    note "probe CA seed: $seed"
     # MIDGARD_PROBE_IMAGE: another image carrying /usr/local/bin/pqmtls-probe — the
     # locally built development image on a kind cluster.
     if [ -n "${MIDGARD_PROBE_IMAGE:-}" ]; then
@@ -145,6 +158,10 @@ check_cross_host_mtls() {
             "$manifest" > "$rendered"
         manifest="$rendered"
         note "probe image: ${MIDGARD_PROBE_IMAGE}"
+    fi
+    if grep -q "__CA_SEED__" "$manifest"; then
+        note "the probe manifest still holds the __CA_SEED__ placeholder; refusing to apply it"
+        record FAIL "$id" "$desc"; return
     fi
     manifest="$(native "$manifest")"
     kubectl -n "$NS" delete -f "$manifest" --ignore-not-found >/dev/null 2>&1

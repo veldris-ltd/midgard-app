@@ -345,6 +345,7 @@ What the install protects, and what it does not yet:
 - **Encrypted, signed state.** Stores are sealed at rest (AES-256-GCM under ML-KEM-1024-wrapped keys) and every audit ledger is signed with ML-DSA and re-verified at start.
 - **Secrets stay out of files.** Passwords are typed when used and never stored or logged; the authenticator key is shown once; the install log and report hold no secrets.
 - **Verified model.** The model is checked against the upstream SHA-256, signed into a manifest and re-verified by Mimir before every start.
+- **Browser protections on every response.** The console sends its Content-Security-Policy (with `form-action 'self'` and `frame-ancestors 'none'`), Permissions-Policy, X-Content-Type-Options, Referrer-Policy, X-Frame-Options and Cross-Origin-Opener-Policy on every response, static JavaScript and CSS under `/assets/` included, from one shared file (`console.security-headers.conf`) that every nginx location includes. The installer's step "Checking the web console sends its security headers" fails the install if the page or an asset lacks any of them. `style-src` keeps `'unsafe-inline'`: the design system renders `<style>` elements for its keyframes, so the policy cannot drop it until they move into the stylesheet; the residual risk register records it.
 
 Not yet, and why it matters:
 

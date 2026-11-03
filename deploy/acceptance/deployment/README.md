@@ -75,6 +75,12 @@ cargo build --release -p pq-mtls --features backend-fips --example pqmtls_probe
 `MIDGARD_PROBE_IMAGE` substitutes another image carrying the probe at that path. The
 development image `deploy/compose/Dockerfile` builds (`midgard/dev:local`) does.
 
+Both probe pods run as user and group 10001. The CA seed the responder and initiator
+share is not in the manifest: it holds `__CA_SEED__`, which the runner replaces with a
+seed drawn from `/dev/urandom` for each run and prints as `probe CA seed: <n>`, so a
+run can be reproduced from its log. A manifest that still holds the placeholder is
+never applied. [VLD-ANB-MIDGARD-0075]
+
 ## Running
 
 ```bash
