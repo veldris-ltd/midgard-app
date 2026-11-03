@@ -559,6 +559,37 @@ CONTRIBUTING.md for the version policy.
     that class. `Credential` and `Io` are now struct variants (`secret`/`target`
     plus `detail`); log consumers that matched hosts or secret names in error text
     must use the hashed references.
+- **A certified feed can no longer freeze or replay an entity in the Heimdall
+  picture.** [VLD-ANB-MIDGARD-0015]
+  - `heimdall-feed` takes the receipt time from its own clock and fuses an
+    observation only if its `observed_at` is at most `--max-observation-skew`
+    seconds ahead (default 300) and at most `--max-observation-age` seconds behind
+    (default 604800, seven days). Anything else is refused and written to the ledger
+    as `Ingest refused: observed_at outside the accepted window`, outcome Refused,
+    reason `observed-at-out-of-window`, target the entity key.
+  - The last 4096 observation ids from each feed are remembered (in memory); a
+    repeated id is refused as `Ingest refused: replayed observation`, reason `replay`,
+    and is not counted again. The other-feed and signature refusals carry reason
+    codes too (`another-feed`, `signature`).
+  - Each track records `last_received`, the server's receipt time, and `ReadPicture`
+    gives every entity `lastReceived` and `stale` (nothing received for longer than
+    `--stale-after` seconds, default 900).
+  - The picture delta and sealed picture layout is version 2, which carries
+    `last_received`. Version 1 pictures still open (their `last_received` reads as
+    `last_seen`), but a binary from before this change cannot open a version 2
+    picture or merge a version 2 delta: replicating peers must be upgraded together.
+    The observation wire format and its signature are unchanged.
+  - A picture merge with equal `last_seen` keeps the larger `last_received`, then the
+    greater canonical bytes, so two nodes converge whatever order they merge in.
+  - `FusionEngine::ingest` and `ingest_all` take the receipt time; `Track::opened_at`
+    and `Track::observe` take both times; `FeedService::new` takes `IngestLimits`.
+  - Feeds that replay history older than seven days, such as a recorded backfill, are
+    refused until `--max-observation-age` is widened. The compose and kind smoke tests
+    now date their observations by the host clock. `mg-install` replays the bundled
+    sample feeds, which keep the times they were recorded at, by restarting
+    `heimdall-feed` with `--max-observation-age` wide enough for the oldest sample for
+    the replay only, then restarting it with the default, whether or not the replay
+    succeeded.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

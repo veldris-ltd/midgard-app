@@ -93,7 +93,9 @@ echo "$status"
 grep -q '"id":"fleet-agent-1"' <<<"$status"
 
 echo "--- two signed observations fuse into one tracked entity"
-for at in 100 110; do
+# Dated by the host clock: heimdall-feed refuses an observed_at far from its own.
+now="$(date +%s)"
+for at in "$now" "$((now + 10))"; do
     job feed-source feed-source heimdall-clients-identity \
         "[\"heimdall-source\",\"--identity-dir\",\"/identity\",\"--service\",\"feed-source-1\",\"--addr\",\"heimdall-feed:7730\",\"--kind\",\"air-track\",\"--entity\",\"KIND-1\",\"--observed-at\",\"$at\"]"
 done

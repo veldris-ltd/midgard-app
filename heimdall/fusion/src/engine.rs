@@ -48,11 +48,15 @@ impl FusionEngine {
         &mut self.picture
     }
 
-    /// Fuse one verified observation, returning the id of the entity it updated.
-    /// Correlate by key, open or extend the track, (re)assign the layer, refresh
-    /// the latest attributes for a newer observation, then classify. [FR-H-1]
-    /// [FR-H-2]
-    pub fn ingest(&mut self, obs: &VerifiedObservation) -> EntityId {
+    /// Fuse one verified observation, received at `received_at` by the caller's
+    /// clock, returning the id of the entity it updated. Correlate by key, open or
+    /// extend the track, (re)assign the layer, refresh the latest attributes for a
+    /// newer observation, then classify. Which observation is newer is still decided
+    /// by `observed_at`, so out-of-order feeds keep a monotone track; `received_at`
+    /// is recorded beside it. The engine does no clock I/O and does not bound
+    /// `observed_at`: the service that receives the observation does. [FR-H-1]
+    /// [FR-H-2] [VLD-ANB-MIDGARD-0015]
+    pub fn ingest(&mut self, obs: &VerifiedObservation, received_at: u64) -> EntityId {
         let o = obs.observation();
         let entity_id = EntityId(o.entity_key.clone());
         let (layer_id, layer) = self.layering.layer_for(&o.kind);
@@ -64,7 +68,7 @@ impl FusionEngine {
                 // for out-of-order arrivals.
                 let mut e = existing.clone();
                 let is_newer = o.observed_at >= e.track.last_seen;
-                e.track.observe(o.observed_at);
+                e.track.observe(o.observed_at, received_at);
                 e.sources.insert(o.feed_id.0.clone());
                 if is_newer {
                     e.kind = o.kind.clone();
@@ -82,7 +86,7 @@ impl FusionEngine {
                     kind: o.kind.clone(),
                     layer: layer_id.clone(),
                     sources,
-                    track: Track::opened_at(o.observed_at),
+                    track: Track::opened_at(o.observed_at, received_at),
                     classification: None,
                     latest_attrs: o.attrs.clone(),
                 }
@@ -124,13 +128,14 @@ impl FusionEngine {
         stale
     }
 
-    /// Fuse a batch of verified observations in order.
-    pub fn ingest_all<'a, I>(&mut self, observations: I)
+    /// Fuse a batch of verified observations in order, all received at
+    /// `received_at`.
+    pub fn ingest_all<'a, I>(&mut self, observations: I, received_at: u64)
     where
         I: IntoIterator<Item = &'a VerifiedObservation>,
     {
         for obs in observations {
-            self.ingest(obs);
+            self.ingest(obs, received_at);
         }
     }
 }

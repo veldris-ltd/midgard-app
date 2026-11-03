@@ -10,11 +10,18 @@
 //! 3. the observation names the source's own feed — a feed's identity is the service
 //!    its certificate names, so one source cannot speak for another;
 //! 4. its signature verifies against the key that certificate binds, through the
-//!    feed gateway's admission check — the only way to a `VerifiedObservation`.
+//!    feed gateway's admission check — the only way to a `VerifiedObservation`;
+//! 5. its `observed_at` lies inside the accepted window around the time the service
+//!    received it ([`IngestLimits`]), and its observation id has not already been
+//!    received from that feed. A feed's clock is its own assertion: without the
+//!    window one certified feed could date an observation years ahead and freeze any
+//!    entity, and without the replay check resubmitting it would inflate the count.
+//!    [VLD-ANB-MIDGARD-0015]
 //!
-//! A refusal at 3 or 4 is audited too. Admitted observations are fused and each
-//! changed entity is appended to the sealed picture journal, so a restart recovers
-//! it. [RC-13]
+//! A refusal at 3, 4 or 5 is audited too, with a reason code and the entity key.
+//! Admitted observations are fused and each changed entity is appended to the sealed
+//! picture journal, so a restart recovers it. [RC-13] The picture records when each entity was last
+//! received, and [`READ_PICTURE`] says which entities have gone stale.
 //!
 //! The picture is bounded by [`PictureLimits`]: an observation with too many or too
 //! large attributes is malformed, and a new entity that would pass the entity cap,
@@ -27,19 +34,19 @@
 //! Responses are one outcome byte ([`outcome`]) followed by UTF-8: a message, or for
 //! [`READ_PICTURE`] a page of the picture as JSON.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use audit_writer::LedgerStore;
+use audit_writer::{LedgerStore, SealedEntry};
 use gateway::{RequestHandler, Router};
-use governance::{GovContext, Governance};
+use governance::{AuditContext, GovContext, Governance, Outcome};
 use heimdall_feed_gateway::{
     decode_signed_observation, FeedGateway, FeedRegistry, VerifiedObservation,
 };
 use heimdall_fusion::FusionEngine;
 use heimdall_picture::{
-    Attr, ClassificationSource, EntityId, FeedId, LayerId, Picture, PictureDelta, PictureLimits,
-    TrackedEntity,
+    Attr, ClassificationSource, EntityId, FeedId, LayerId, ObservationId, Picture, PictureDelta,
+    PictureLimits, TrackedEntity,
 };
 use heimdall_store::{DurablePicture, StoreError};
 use policy::{ClassificationLevel, Clearance, Purpose, Resource};
@@ -97,13 +104,88 @@ pub enum FuseOutcome {
     },
 }
 
-/// The fused picture and its sealed, durable copy, kept in step, within its limits.
+/// The reason code a refusal for an `observed_at` outside the window is audited with.
+pub const REASON_OUT_OF_WINDOW: &str = "observed-at-out-of-window";
+/// The reason code a refusal for a repeated observation id is audited with.
+pub const REASON_REPLAY: &str = "replay";
+/// How many recent observation ids are remembered per feed for replay refusal.
+pub const REPLAY_RING_CAPACITY: usize = 4096;
+
+/// How far a feed's `observed_at` may stray from the time the service receives the
+/// observation, and when an entity no longer received counts as stale. All in
+/// seconds. [VLD-ANB-MIDGARD-0015]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IngestLimits {
+    /// How far ahead of receipt `observed_at` may be (feed clock drift).
+    pub max_future_skew: u64,
+    /// How far behind receipt `observed_at` may be (delayed or backfilled feeds).
+    pub max_age: u64,
+    /// How long after its last receipt an entity is reported as stale.
+    pub stale_after: u64,
+}
+
+impl Default for IngestLimits {
+    /// Five minutes ahead, seven days behind, stale after fifteen minutes.
+    fn default() -> Self {
+        Self {
+            max_future_skew: 300,
+            max_age: 604_800,
+            stale_after: 900,
+        }
+    }
+}
+
+impl IngestLimits {
+    /// Whether an observation the feed dates `observed_at` may be fused when it is
+    /// received at `received_at`: no more than `max_future_skew` ahead and no more
+    /// than `max_age` behind.
+    pub fn admits(&self, observed_at: u64, received_at: u64) -> bool {
+        observed_at <= received_at.saturating_add(self.max_future_skew)
+            && observed_at.saturating_add(self.max_age) >= received_at
+    }
+
+    /// Whether an entity last received at `last_received` is stale at `now`.
+    pub fn is_stale(&self, last_received: u64, now: u64) -> bool {
+        now.saturating_sub(last_received) > self.stale_after
+    }
+}
+
+/// The observation ids most recently received from one feed: the order they came
+/// in, to forget the oldest, and a set to look them up in. Memory only, so a restart
+/// admits one more copy of each, which the window bounds. [VLD-ANB-MIDGARD-0015]
+#[derive(Default)]
+struct RecentIds {
+    order: VecDeque<ObservationId>,
+    seen: BTreeSet<ObservationId>,
+}
+
+impl RecentIds {
+    fn contains(&self, id: &ObservationId) -> bool {
+        self.seen.contains(id)
+    }
+
+    fn insert(&mut self, id: ObservationId) {
+        if !self.seen.insert(id.clone()) {
+            return;
+        }
+        self.order.push_back(id);
+        if self.order.len() > REPLAY_RING_CAPACITY {
+            if let Some(oldest) = self.order.pop_front() {
+                self.seen.remove(&oldest);
+            }
+        }
+    }
+}
+
+/// The fused picture and its sealed, durable copy, kept in step, within its limits,
+/// and the observation ids recently received from each feed.
 pub struct PictureState {
     engine: FusionEngine,
     durable: DurablePicture,
     limits: PictureLimits,
     /// Entities each feed has contributed to, kept in step with the picture.
     per_feed: BTreeMap<String, usize>,
+    recent_ids: BTreeMap<String, RecentIds>,
 }
 
 impl PictureState {
@@ -124,6 +206,7 @@ impl PictureState {
             durable,
             limits: PictureLimits::default(),
             per_feed,
+            recent_ids: BTreeMap::new(),
         }
     }
 
@@ -157,11 +240,22 @@ impl PictureState {
         Ok(())
     }
 
+    /// Whether this observation's id has already been received from its feed (within
+    /// the last [`REPLAY_RING_CAPACITY`] from that feed). [VLD-ANB-MIDGARD-0015]
+    pub fn is_replay(&self, observation: &VerifiedObservation) -> bool {
+        let o = observation.observation();
+        self.recent_ids
+            .get(&o.feed_id.0)
+            .is_some_and(|ids| ids.contains(&o.id))
+    }
+
     /// Fuse a verified observation received at `now` and journal the entity it
     /// changed. An observation that would open a new entity past the overall or its
     /// feed's cap first evicts every entity not seen for `evict_after`, removing each
     /// from the journal too; if that makes no room it is [`FuseOutcome::Full`] and
-    /// the observation is not fused. [VLD-ANB-MIDGARD-0017]
+    /// the observation is not fused. [VLD-ANB-MIDGARD-0017] A fused observation's id is
+    /// remembered for its feed at once, so a resubmission is a replay even if sealing
+    /// failed. [VLD-ANB-MIDGARD-0015]
     pub fn fuse(
         &mut self,
         observation: &VerifiedObservation,
@@ -181,7 +275,11 @@ impl PictureState {
             }
         }
 
-        let id = self.engine.ingest(observation);
+        let id = self.engine.ingest(observation, now);
+        self.recent_ids
+            .entry(o.feed_id.0.clone())
+            .or_default()
+            .insert(o.id.clone());
         let Some(entity) = self.engine.picture().entity(&id).cloned() else {
             return Ok(FuseOutcome::Fused {
                 entity: id,
@@ -252,12 +350,15 @@ pub struct FeedService<S: LedgerStore> {
     purpose: Purpose,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     metrics: Arc<MetricsRegistry>,
+    limits: IngestLimits,
 }
 
 impl<S: LedgerStore + Send + 'static> FeedService<S> {
     /// Assemble the service. `resource` is what requests are authorised against and
     /// `purpose` the purpose they are audited under; `provider` verifies feed
-    /// signatures.
+    /// signatures; `clock` gives the receipt time observations are bounded against
+    /// under `limits`.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: PictureState,
         governance: Governance<S>,
@@ -266,6 +367,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         purpose: Purpose,
         clock: Arc<dyn Fn() -> u64 + Send + Sync>,
         metrics: Arc<MetricsRegistry>,
+        limits: IngestLimits,
     ) -> Arc<Self> {
         metrics.describe(
             "feed_requests_total",
@@ -289,7 +391,13 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             purpose,
             clock,
             metrics,
+            limits,
         })
+    }
+
+    /// The audit ledger's sealed entries, oldest first (for verification and tests).
+    pub fn audit_entries(&self) -> Vec<SealedEntry> {
+        lock(&self.governance).audit_entries().to_vec()
     }
 
     /// The router the PQ-mTLS gateway serves: [`INGEST`] and [`READ_PICTURE`].
@@ -343,6 +451,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         }
 
         let feed = signed.observation.feed_id.0.clone();
+        let entity_key = signed.observation.entity_key.clone();
         if feed != peer.id.0 {
             return self.refuse(
                 peer,
@@ -350,6 +459,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 "Ingest refused: observation from another feed",
                 &feed,
                 "a source submits only its own feed's observations",
+                refusal("another-feed", &entity_key),
             );
         }
         let mut registry = FeedRegistry::new();
@@ -364,6 +474,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                     "Ingest refused: feed signature rejected",
                     &feed,
                     &format!("the observation was rejected: {e}"),
+                    refusal("signature", &entity_key),
                 )
             }
         };
@@ -373,11 +484,40 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             return self.reply(INGEST, outcome::MALFORMED, &e);
         }
 
-        let (fused, entities) = {
-            let mut state = lock(&self.state);
-            let fused = state.fuse(&verified, now);
-            (fused, state.picture().entity_count())
-        };
+        // The service's own clock is the receipt time; the feed's `observed_at` is
+        // only accepted near it. [VLD-ANB-MIDGARD-0015]
+        let received_at = now;
+        if !self
+            .limits
+            .admits(verified.observation().observed_at, received_at)
+        {
+            return self.refuse(
+                peer,
+                now,
+                "Ingest refused: observed_at outside the accepted window",
+                &feed,
+                "the observation time is outside the accepted window",
+                refusal(REASON_OUT_OF_WINDOW, &entity_key),
+            );
+        }
+
+        // The replay check and the fusion that records the id happen under one lock,
+        // so two concurrent copies cannot both be fused.
+        let mut state = lock(&self.state);
+        if state.is_replay(&verified) {
+            drop(state);
+            return self.refuse(
+                peer,
+                now,
+                "Ingest refused: replayed observation",
+                &feed,
+                "this observation has already been received from this feed",
+                refusal(REASON_REPLAY, &entity_key),
+            );
+        }
+        let fused = state.fuse(&verified, received_at);
+        let entities = state.picture().entity_count();
+        drop(state);
         self.metrics
             .set_gauge("picture_entities", &[], entities as f64);
         match fused {
@@ -401,6 +541,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                     &feed,
                     "picture-full: the picture holds as many entities as it may and none \
                      is stale enough to evict",
+                    refusal("picture-full", &entity_key),
                 )
             }
             Err(e) => self.reply(
@@ -472,7 +613,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Ok(page) => page,
             Err(e) => return self.reply(READ_PICTURE, outcome::MALFORMED, &e),
         };
-        let body = picture_page(lock(&self.state).picture(), &page);
+        let body = picture_page(lock(&self.state).picture(), &page, now, &self.limits);
         self.reply(READ_PICTURE, outcome::ACCEPTED, &body)
     }
 
@@ -483,9 +624,15 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         action: &str,
         feed: &str,
         message: &str,
+        audit: AuditContext,
     ) -> Vec<u8> {
-        let recorded =
-            lock(&self.governance).record_event(&peer.id.0, action, &format!("feed:{feed}"), now);
+        let recorded = lock(&self.governance).record_event_with(
+            &peer.id.0,
+            action,
+            &format!("feed:{feed}"),
+            now,
+            audit,
+        );
         let message = match recorded {
             Ok(_) => message.to_string(),
             Err(_) => format!("{message} (not audited)"),
@@ -529,11 +676,33 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The audit context of an ingest refusal: outcome, reason code and the entity key
+/// the observation named. [VLD-ANB-MIDGARD-0015]
+fn refusal(reason: &str, entity_key: &str) -> AuditContext {
+    AuditContext {
+        outcome: Outcome::Refused,
+        reason: Some(reason.to_string()),
+        target: Some(
+            entity_key
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(128)
+                .collect(),
+        ),
+        ..AuditContext::default()
+    }
+}
+
 fn count(value: u64) -> Json {
     Json::Int(i64::try_from(value).unwrap_or(i64::MAX))
 }
 
-fn entity_json(entity: &TrackedEntity, omit_attributes: bool) -> Json {
+fn entity_json(
+    entity: &TrackedEntity,
+    omit_attributes: bool,
+    now: u64,
+    limits: &IngestLimits,
+) -> Json {
     let classification = entity.classification.as_ref().map_or(Json::Null, |c| {
         Json::obj(vec![
             ("label", Json::s(&c.label)),
@@ -571,6 +740,11 @@ fn entity_json(entity: &TrackedEntity, omit_attributes: bool) -> Json {
         ),
         ("firstSeen", count(entity.track.first_seen)),
         ("lastSeen", count(entity.track.last_seen)),
+        ("lastReceived", count(entity.track.last_received)),
+        (
+            "stale",
+            Json::Bool(limits.is_stale(entity.track.last_received, now)),
+        ),
         ("observations", count(entity.track.observation_count)),
         ("classification", classification),
         ("attributes", Json::Obj(attributes)),
@@ -656,7 +830,7 @@ impl PageRequest {
 /// The JSON body of one picture page, at most [`MAX_PAGE_BODY`] bytes: the limit is
 /// halved until it fits. An entity too large to fit on a page by itself is sent
 /// with its attributes left out and `attributesOmitted` set.
-fn picture_page(picture: &Picture, page: &PageRequest) -> String {
+fn picture_page(picture: &Picture, page: &PageRequest, now: u64, limits: &IngestLimits) -> String {
     let layers: Vec<Json> = picture
         .layers()
         .map(|layer| {
@@ -675,7 +849,7 @@ fn picture_page(picture: &Picture, page: &PageRequest) -> String {
             .filter(shown)
             .skip(page.offset)
             .take(limit)
-            .map(|e| entity_json(e, omit_attributes))
+            .map(|e| entity_json(e, omit_attributes, now, limits))
             .collect();
         let returned = entities.len();
         Json::obj(vec![

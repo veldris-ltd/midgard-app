@@ -1162,6 +1162,29 @@ issue_feed_identities() {
         done' sh $feeds
 }
 
+# Restart heimdall-feed with --max-observation-age set to $1 seconds, or with its
+# compose defaults when called with no argument, and wait until it is healthy. The
+# override file lives only for the restart, so later dc calls never see it.
+replay_feed_server() {
+    local override="$SITE/compose.replay.yaml" rc
+    if [ -n "${1-}" ]; then
+        cat >"$override" <<EOF
+services:
+  heimdall-feed:
+    entrypoint: [heimdall-feed, --identity-dir, /identity, --state-dir, /state,
+                 --bind, "0.0.0.0:7730", --health-bind, "0.0.0.0:9090",
+                 --max-observation-age, "$1"]
+EOF
+        rc=0
+        dc -f "$override" up -d --no-deps --force-recreate --wait heimdall-feed || rc=$?
+        rm -f "$override"
+        return "$rc"
+    else
+        rm -f "$override"
+        dc up -d --no-deps --force-recreate --wait heimdall-feed
+    fi
+}
+
 # Replay the chosen feeds' observations into Heimdall, each signed by its feed's own
 # identity, then check the picture holds them.
 replay_feeds() {
@@ -1180,6 +1203,17 @@ replay_feeds() {
         return 0
     fi
     echo "replaying $(wc -l <"$dir/observations.tsv") observations from: $feeds"
+    # heimdall-feed refuses observations more than seven days old (VLD-ANB-MIDGARD-0015),
+    # and the samples keep the times they were recorded at. For the replay only, restart it
+    # with --max-observation-age wide enough for the oldest sample; it goes back to the
+    # default afterwards, whether or not the replay succeeded.
+    local oldest age rc=0
+    oldest="$(cut -f4 "$dir/observations.tsv" | sort -n | head -n1)"
+    [ -n "$oldest" ] || { echo "no observations to replay"; return 1; }
+    age=$(( $(date +%s) - oldest + 86400 ))
+    [ "$age" -gt 604800 ] || age=604800
+    echo "allowing observations up to $(( age / 86400 )) days old while the samples replay"
+    replay_feed_server "$age"
     # shellcheck disable=SC2016
     dc run --rm --no-deps -T -v "$dir:/feeds:ro" --entrypoint sh feed-source -c '
         tab="$(printf "\t")"; ok=0; refused=0
@@ -1192,7 +1226,9 @@ replay_feeds() {
             fi
         done < /feeds/observations.tsv
         echo "accepted $ok, refused $refused"
-        [ "$ok" -gt 0 ] && [ "$refused" -eq 0 ]'
+        [ "$ok" -gt 0 ] && [ "$refused" -eq 0 ]' || rc=$?
+    replay_feed_server
+    [ "$rc" -eq 0 ] || return "$rc"
     echo "$digest" >"$dir/.replayed"
     local picture entities
     picture="$(dc run --rm -T picture 2>/dev/null)"

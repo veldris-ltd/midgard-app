@@ -8,6 +8,7 @@
 //!               [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
 //!               [--max-entities N] [--max-entities-per-feed N] [--max-attrs N]
 //!               [--max-attr-bytes N] [--evict-after SECONDS]
+//!               [--max-observation-skew S] [--max-observation-age S] [--stale-after S]
 //! heimdall-feed --identity-dir DIR --state-dir DIR --compact [--service NAME]
 //! ```
 //!
@@ -40,6 +41,13 @@
 //! `--compact` folds `picture.journal` into `picture.sealed` and exits, so the snapshot
 //! alone holds the picture: run it, with the service stopped, before rolling back to a
 //! build that reads only `picture.sealed`.
+//!
+//! An observation is fused only if its `observed_at` is at most
+//! `--max-observation-skew` seconds ahead of the service's clock (default 300) and at
+//! most `--max-observation-age` seconds behind it (default 604800, seven days); any
+//! other is refused and audited. The picture marks an entity stale once nothing has
+//! been received for it for `--stale-after` seconds (default 900).
+//! [VLD-ANB-MIDGARD-0015]
 
 use std::collections::BTreeSet;
 use std::net::TcpListener;
@@ -48,7 +56,7 @@ use std::sync::{Arc, RwLock};
 
 use gateway::Gateway;
 use governance::Governance;
-use heimdall_feed_server::{FeedService, PictureState};
+use heimdall_feed_server::{FeedService, IngestLimits, PictureState};
 use heimdall_picture::PictureLimits;
 use heimdall_store::DurablePicture;
 use policy::{
@@ -67,7 +75,8 @@ const USAGE: &str = "usage: heimdall-feed --identity-dir DIR --state-dir DIR [--
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
                      [--rate-per-sec N] [--requests-per-conn N] [--max-entities N] \
                      [--max-entities-per-feed N] [--max-attrs N] [--max-attr-bytes N] \
-                     [--evict-after SECONDS]\n       \
+                     [--evict-after SECONDS] \
+                     [--max-observation-skew S] [--max-observation-age S] [--stale-after S]\n       \
                      heimdall-feed --identity-dir DIR --state-dir DIR --compact [--service NAME]";
 
 /// The id of the service's audit ledger.
@@ -94,6 +103,9 @@ fn main() {
             "max-attrs",
             "max-attr-bytes",
             "evict-after",
+            "max-observation-skew",
+            "max-observation-age",
+            "stale-after",
         ],
         &["compact"],
     ) {
@@ -184,6 +196,12 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
     let identity_dir = args.require("identity-dir")?;
     let state_dir = Path::new(args.require("state-dir")?);
     let purpose = args.get("purpose").unwrap_or("situational-awareness");
+    let defaults = IngestLimits::default();
+    let ingest_limits = IngestLimits {
+        max_future_skew: seconds(args, "max-observation-skew", defaults.max_future_skew)?,
+        max_age: seconds(args, "max-observation-age", defaults.max_age)?,
+        stale_after: seconds(args, "stale-after", defaults.stale_after)?,
+    };
     let logger = Logger::new(service, &StdoutJsonSink);
 
     let state_ready = Arc::new(Toggle::new("picture", false));
@@ -237,6 +255,7 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
         Purpose(purpose.to_string()),
         Arc::new(unix_seconds),
         metrics.clone(),
+        ingest_limits,
     );
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
     let gateway = apply_mesh_limits(
@@ -282,4 +301,14 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
         ],
     );
     serve_mesh_with(service, listener, gateway, metrics, limits.listener)
+}
+
+/// A whole number of seconds from `--flag`, or `default` when it is not given.
+fn seconds(args: &Args, flag: &str, default: u64) -> Result<u64, String> {
+    match args.get(flag) {
+        Some(s) => s
+            .parse::<u64>()
+            .map_err(|_| format!("--{flag} must be a whole number of seconds, not '{s}'")),
+        None => Ok(default),
+    }
 }

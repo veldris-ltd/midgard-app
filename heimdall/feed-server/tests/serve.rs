@@ -120,6 +120,11 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
             "127.0.0.1:0",
             "--health-bind",
             "127.0.0.1:0",
+            // The observations below are dated in logical time (100, 110, ...), so the
+            // window behind the server's clock is opened all the way; the window itself
+            // is proved in tests/ingest_window.rs. [VLD-ANB-MIDGARD-0015]
+            "--max-observation-age",
+            &u64::MAX.to_string(),
         ])
         .args(extra)
         .stdout(Stdio::piped())

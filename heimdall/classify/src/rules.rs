@@ -171,7 +171,7 @@ mod tests {
             kind: kind.into(),
             layer: LayerId("air".into()),
             sources: std::collections::BTreeSet::new(),
-            track: Track::opened_at(1),
+            track: Track::opened_at(1, 1),
             classification: None,
             latest_attrs: map,
         }

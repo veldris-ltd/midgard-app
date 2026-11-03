@@ -78,6 +78,7 @@ fn entity(id: &str, layer: &str, feed: &str, label: &str, last_seen: u64) -> Tra
             first_seen: 100,
             last_seen,
             observation_count: 2,
+            last_received: last_seen,
         },
         classification: Some(Classification {
             label: label.into(),
