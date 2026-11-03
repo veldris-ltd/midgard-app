@@ -38,7 +38,10 @@
 //! a supported family this node can serve, and weights whose size, format and SHA-256
 //! match it. A release older than the last one this service accepted for that model, or
 //! the same version with different signed content, is refused: the floor is kept in
-//! `--state-dir` as `model-release.floor`.
+//! `--state-dir` as `model-release.floor`. The trust key never lives inside
+//! `--model-dir`: it is the pinned anchor the image carries at
+//! `/etc/midgard/trust/model-signing.pub` (from `deploy/trust`), or a trust volume of its
+//! own, and a key inside the model directory is refused at start. [VLD-ANB-MIDGARD-0028]
 //!
 //! The sidecar loads its weights by path, so it is never given the model directory.
 //! The verified weights are staged into `--serve-dir`, a directory only this service
@@ -399,6 +402,26 @@ fn serve_dir(args: &Args, model_dir: &Path) -> Result<PathBuf, String> {
     Ok(serve.to_path_buf())
 }
 
+/// The trust key file: never inside the model directory. Whoever can write the weights
+/// and their manifest must not also be able to write the key that vouches for them; the
+/// anchor comes from the pinned trust set (/etc/midgard/trust, from deploy/trust) or a
+/// trust volume of its own. [VLD-ANB-MIDGARD-0028]
+fn trust_path<'a>(args: &'a Args, model_dir: &Path) -> Result<&'a str, String> {
+    let trust = args.require("model-trust")?;
+    let canonical = |path: &Path| {
+        path.canonicalize()
+            .map_err(|e| format!("cannot use {}: {e}", path.display()))
+    };
+    if canonical(Path::new(trust))?.starts_with(canonical(model_dir)?) {
+        return Err(
+            "--model-trust must not live inside --model-dir: the anchor and the weights it \
+             vouches for cannot share a writable location"
+                .into(),
+        );
+    }
+    Ok(trust)
+}
+
 /// The chat template for a model family.
 fn adapter_for(family: &str) -> Option<Box<dyn FamilyAdapter>> {
     Some(match family {
@@ -493,10 +516,12 @@ fn sidecar_backend(
 ) -> Result<(Arc<SidecarBackend>, StagedWeights, LogFields, ModelRecheck), String> {
     let dir = Path::new(args.require("model-dir")?);
     let serve = serve_dir(args, dir)?;
+    let trust_path = trust_path(args, dir)?;
     // Before anything is verified: a sidecar (re)started from here on waits for this
     // model to be staged. [MG-SEC-14]
     withdraw_staged(&serve).map_err(|e| format!("cannot use {}: {e}", serve.display()))?;
-    let trust_path = Path::new(args.require("model-trust")?);
+    // The path trust_path checked is the one the re-verify loop re-reads.
+    let trust_path = Path::new(trust_path);
     let trust = read_trust_key(trust_path)?;
     let mut floor =
         ReleaseFloor::open(state_dir.join(MODEL_FLOOR_FILE)).map_err(|e| e.to_string())?;

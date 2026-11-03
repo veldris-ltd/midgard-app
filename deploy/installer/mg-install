@@ -487,9 +487,15 @@ services_of() {
     echo "$s"
 }
 
+# Until the key ceremony commits the model-signing anchor, the model is signed with a
+# development key whose public half lives in a trust volume of its own, never in the
+# models volume. [VLD-ANB-MIDGARD-0028]
+model_dev() { [ ! -s "$SRC/deploy/trust/model-signing.pub" ]; }
+
 dc() {
     local files=(-f "$SRC/deploy/compose/compose.yaml")
     has mimir && [ "$MODEL" = granite ] && files+=(-f "$SRC/deploy/compose/compose.granite.yaml")
+    has mimir && [ "$MODEL" = granite ] && model_dev && files+=(-f "$SRC/deploy/compose/compose.dev-model.yaml")
     files+=(-f "$SITE/compose.site.yaml")
     docker compose "${files[@]}" "$@"
 }
@@ -1390,17 +1396,23 @@ enrol_admins() {
 }
 
 stage_model() {
-    local file="${ANSWER[MODEL_FILE]:-}" dl="$INSTALL_DIR/downloads"
+    local file="${ANSWER[MODEL_FILE]:-}" dl="$INSTALL_DIR/downloads" mode=()
+    model_dev && mode=(--development)
     # Staged means a format 2 manifest: one signed over its own bytes, which
     # mimir-server checks before parsing it. An older manifest is signed again. [MG-SEC-14]
+    # With a development key, its public half must be in midgard-model-trust as well:
+    # an install staged before the anchor left the models volume is signed again.
+    # [VLD-ANB-MIDGARD-0028]
     if docker run --rm -v midgard-models:/models "$DEV_IMAGE" sh -c \
-        'head -n 1 /models/granite/model.manifest 2>/dev/null | grep -qx "midgard-model-manifest 2"' 2>/dev/null; then
+        'head -n 1 /models/granite/model.manifest 2>/dev/null | grep -qx "midgard-model-manifest 2"' 2>/dev/null \
+        && { ! model_dev || docker run --rm -v midgard-model-trust:/model-trust:ro "$DEV_IMAGE" \
+            test -s /model-trust/model-signing.pub 2>/dev/null; }; then
         echo "the model is already staged"
         return 0
     fi
     if docker run --rm -v midgard-models:/models "$DEV_IMAGE" test -f "/models/granite/$GRANITE_GGUF" 2>/dev/null; then
-        echo "the model's manifest predates format 2; signing it again"
-        bash "$SRC/deploy/compose/stage-model.sh"
+        echo "the model is staged but not signed as this release expects; signing it again"
+        bash "$SRC/deploy/compose/stage-model.sh" "${mode[@]}"
         return 0
     fi
     if [ -z "$file" ]; then
@@ -1411,7 +1423,7 @@ stage_model() {
             mv "$file.part" "$file"
         fi
     fi
-    bash "$SRC/deploy/compose/stage-model.sh" "$file"
+    bash "$SRC/deploy/compose/stage-model.sh" "${mode[@]}" "$file"
     [ "$file" = "$dl/$GRANITE_GGUF" ] && rm -f "$file"
     return 0
 }
@@ -1946,7 +1958,7 @@ cmd_backup() {
     note "  sealed keys. Protect the backup as you would the server itself."
     echo
     dc stop >/dev/null 2>&1
-    for v in $(docker volume ls -q --filter label=com.docker.compose.project=midgard) midgard-models midgard-model-signing midgard-model-signing-passphrase; do
+    for v in $(docker volume ls -q --filter label=com.docker.compose.project=midgard) midgard-models midgard-model-signing midgard-model-signing-passphrase midgard-model-trust; do
         docker volume inspect "$v" >/dev/null 2>&1 || continue
         docker run --rm --network none -u 0 -v "$v:/v:ro" -v "$dest:/b" "$DEV_IMAGE" \
             tar -C /v -czf "/b/$v.tar.gz" . && ok "$v" && n=$((n + 1))
@@ -1974,7 +1986,7 @@ cmd_uninstall() {
         ask PURGE "Type DELETE to confirm:" ""
         [ "$REPLY" = DELETE ] || die "Nothing was deleted."
         dc down -v --remove-orphans
-        docker volume rm midgard-models midgard-model-signing >/dev/null 2>&1 || true
+        docker volume rm midgard-models midgard-model-signing midgard-model-signing-passphrase midgard-model-trust >/dev/null 2>&1 || true
         docker image rm "$DEV_IMAGE" "$CONSOLE_IMAGE" >/dev/null 2>&1 || true
         rm -f /usr/local/bin/mg-install
         rm -rf "$INSTALL_DIR"

@@ -5,7 +5,7 @@
 //! mg-model keygen --out DIR [--key-id ID]
 //! mg-model sign   --weights FILE --id ID --family FAMILY --version V --quantisation Q
 //!                 --licence SPDX --keystore FILE [--osi-approved] [--redistributable]
-//!                 [--min-gpus N] [--min-vram-gb N] [--multinode] [--sha256 HEX] [--out FILE]
+//!                 --sha256 HEX [--min-gpus N] [--min-vram-gb N] [--multinode] [--out FILE]
 //! mg-model verify --dir DIR --trust FILE
 //! mg-model pack   --dir DIR --model-trust FILE --keystore FILE --out FILE
 //! mg-model unpack --bundle FILE --bundle-trust FILE --model-trust FILE --out DIR
@@ -13,21 +13,27 @@
 //!
 //! `keygen` writes `DIR/model-signing.keystore`, the ML-DSA-65 signing key sealed at
 //! rest, and `DIR/model-signing.pub`, the trust key `mimir-server --model-trust` reads.
-//! It never overwrites either. Keep the keystore in staging; only the public key goes
-//! into the enclosure.
+//! It never overwrites either. The keystore is format version 2: its custody root is
+//! wrapped under the keystore passphrase, and keygen refuses to run without one. Keep the
+//! keystore in staging; only the public key goes into the enclosure, through the pinned
+//! trust set (`deploy/trust/model-signing.pub`, published by the key ceremony), never
+//! through the volume that holds the weights. [VLD-ANB-MIDGARD-0028]
 //!
 //! `sign` streams the weights through SHA-256 and recognises their format from their
 //! first bytes: GGUF or safetensors, and nothing else. It signs the digest, the file's
 //! name, format, quantisation and size, the family, the licence and the hardware the
 //! model needs, and writes `model.manifest` beside the weights (or `--out`), never over
 //! an existing file. The manifest is format 2: signed over its own bytes, so the plane
-//! checks the signature before it parses the file. With `--sha256`, the digest the
-//! upstream published must match what was read, or nothing is signed. [MG-SEC-14]
+//! checks the signature before it parses the file. `--sha256` is required: the digest
+//! the upstream published must match what was read, or nothing is signed, so a download
+//! whose digest was never checked is never signed. [MG-SEC-14] [VLD-ANB-MIDGARD-0028]
 //!
 //! `verify` runs the plane's load gate on a model directory: the signature against the
 //! trust key, the family, the hardware against this node, and the weights' size, format
 //! and digest. Exit 1 on any refusal, 2 on bad usage. It keeps no release floor: the
-//! anti-rollback check is `mimir-server`'s, against the releases it has served.
+//! anti-rollback check is `mimir-server`'s, against the releases it has served. Like
+//! `mimir-server`, it refuses a trust file inside the model directory, and so do `pack`
+//! and `unpack`. [VLD-ANB-MIDGARD-0028]
 //!
 //! `pack` carries a model across the air gap as one signed bundle. [AC-MS-3] [FR-B-5]
 //! It runs the load gate on `--dir` first, so only a model that verifies is packed, and
@@ -65,7 +71,7 @@ const USAGE: &str = "usage:
   mg-model keygen --out DIR [--key-id ID]
   mg-model sign   --weights FILE --id ID --family FAMILY --version V --quantisation Q
                   --licence SPDX --keystore FILE [--osi-approved] [--redistributable]
-                  [--min-gpus N] [--min-vram-gb N] [--multinode] [--sha256 HEX] [--out FILE]
+                  --sha256 HEX [--min-gpus N] [--min-vram-gb N] [--multinode] [--out FILE]
   mg-model verify --dir DIR --trust FILE
   mg-model pack   --dir DIR --model-trust FILE --keystore FILE --out FILE
   mg-model unpack --bundle FILE --bundle-trust FILE --model-trust FILE --out DIR
@@ -214,6 +220,9 @@ fn keygen(args: &Args) -> Result<String, Failure> {
 
 fn sign(args: &Args) -> Result<String, Failure> {
     let weights = Path::new(require(args, "weights")?);
+    // Before anything is read: a digest nobody checked is never signed.
+    // [VLD-ANB-MIDGARD-0028]
+    let published = require(args, "sha256")?;
     let name = weights
         .file_name()
         .and_then(|n| n.to_str())
@@ -260,12 +269,10 @@ fn sign(args: &Args) -> Result<String, Failure> {
         ))
     })?;
     let digest = hex(&found.sha256);
-    if let Some(published) = args.get("sha256") {
-        if !published.trim().eq_ignore_ascii_case(&digest) {
-            return Err(Failure::Run(format!(
-                "the weights' SHA-256 is {digest}, not the published {published}; nothing signed"
-            )));
-        }
+    if !published.trim().eq_ignore_ascii_case(&digest) {
+        return Err(Failure::Run(format!(
+            "the weights' SHA-256 is {digest}, not the published {published}; nothing signed"
+        )));
     }
 
     let keystore_path = require(args, "keystore")?;
@@ -319,8 +326,21 @@ fn sign(args: &Args) -> Result<String, Failure> {
     ))
 }
 
-/// Run the plane's load gate on a model directory, trusting the key in `trust_path`.
+/// Run the plane's load gate on a model directory, trusting the key in `trust_path`,
+/// which must not be inside the directory: the anchor and the weights it vouches for
+/// never share a writable location. [VLD-ANB-MIDGARD-0028]
 fn load_gate(dir: &Path, trust_path: &str) -> Result<VerifiedModel, Failure> {
+    let canonical = |path: &Path| {
+        path.canonicalize()
+            .map_err(|e| Failure::Run(format!("cannot use {}: {e}", path.display())))
+    };
+    if canonical(Path::new(trust_path))?.starts_with(canonical(dir)?) {
+        return Err(Failure::Run(format!(
+            "the trust file {trust_path} must not live inside the model directory {}: the \
+             anchor and the weights it vouches for cannot share a writable location",
+            dir.display()
+        )));
+    }
     let trust = std::fs::read_to_string(trust_path)
         .map_err(|e| format!("cannot read {trust_path}: {e}"))
         .and_then(|text| parse_trust_key(&text).map_err(|e| format!("{trust_path}: {e}")))

@@ -183,10 +183,9 @@ services:
 # Serve a real model behind `service` instead of the reference engine. [FR-MI-1]
 # [AC-MI-7] A sidecar runs the engine in the pod, listening on 127.0.0.1:8080 only.
 # mimir-server verifies the model in /models/<modelDir> before it serves: a manifest
-# signed by the key in trustConfigMap (key model-signing.pub, from `mg-model keygen`),
-# and weights whose size, format and SHA-256 match it. modelsClaim is a
-# PersistentVolumeClaim holding the staged model directories; mimir-server mounts it
-# read-only, and the sidecar not at all. [MG-SEC-14] The sidecar loads by path, so
+# signed by the key in trustConfigMap, and weights whose size, format and SHA-256
+# match it. modelsClaim is a PersistentVolumeClaim holding the staged model
+# directories; mimir-server mounts it read-only, and the sidecar not at all. [MG-SEC-14] The sidecar loads by path, so
 # mimir-server copies the weights it verified, from the file it verified them through
 # and hashing them again, into /serve — an emptyDir only it writes, at most
 # serveSizeLimit — read-only and under their signed file name, then writes
@@ -194,6 +193,11 @@ services:
 # with sidecarArgs only once that marker exists, so point sidecarArgs at
 # /serve/<weights file>. It is ready only while the sidecar is healthy and the staged
 # copy is unchanged.
+# trustConfigMap holds the committed anchor: key model-signing.pub, built from
+# deploy/trust/model-signing.pub (published by the key ceremony; deploy/kind/model.sh
+# creates it from the checkout), mounted read-only at /model-trust. It is never built
+# from the models claim, and mimir-server refuses a trust key inside the model
+# directory. Without it, the pod does not start (fail closed). [VLD-ANB-MIDGARD-0028]
 modelServing:
   enabled: false
   service: mimir-server

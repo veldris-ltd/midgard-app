@@ -44,6 +44,7 @@ result-*
 # committed (deploy/trust/README.md). They hold public keys only.
 !/deploy/trust/release-trust.pub
 !/deploy/trust/bifrost-trust.pub
+!/deploy/trust/model-signing.pub
 
 # --- Secrets: never in the repo. Keys are issued at runtime by KMS/HSM. ---
 # [STD:OWASP ASVS V14.3]

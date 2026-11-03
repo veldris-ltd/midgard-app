@@ -8,10 +8,15 @@
 #   docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.yaml \
 #       run --rm probe --prompt "What is an audit ledger?" --max-tokens 64
 #
-# stage-model.sh fills the external volume `midgard-models`: the weights, the manifest
-# signed by a development model key, and that key's public half. mimir-server verifies
-# the model before it serves: the signature, the family, and the weights' size, format
-# and SHA-256. It exits if any fails. The llama.cpp server joins mimir-server's network
+# stage-model.sh fills the external volume `midgard-models`: the weights and their signed
+# manifest, nothing else. mimir-server verifies the model before it serves: the
+# signature, the family, and the weights' size, format and SHA-256. It exits if any
+# fails. The key it trusts is never in that volume: it is the pinned anchor
+# deploy/trust/model-signing.pub, which the image carries at /etc/midgard/trust and the
+# key ceremony publishes. Until the ceremony has, mimir-server does not start (fail
+# closed). For a development key (stage-model.sh --development), add
+# deploy/compose/compose.dev-model.yaml, which reads the key from a trust volume of its
+# own instead. [VLD-ANB-MIDGARD-0028] The llama.cpp server joins mimir-server's network
 # namespace and listens only on its loopback address, so nothing else on the mesh can
 # reach it, and it cannot reach anything but mimir-server.
 #
@@ -41,7 +46,7 @@ services:
       - --model-dir
       - /models/granite
       - --model-trust
-      - /models/trust/model-signing.pub
+      - /etc/midgard/trust/model-signing.pub
       - --serve-dir
       - /serve
       - --sidecar

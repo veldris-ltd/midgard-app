@@ -74,6 +74,10 @@ for image in $images; do
     done
     cp "$verified/mg-verify" "$ctx/mg-verify"
     cp "$trust" "$ctx/release-trust.pub"
+    # The committed trust set, model-signing.pub among it, for /etc/midgard/trust.
+    # [VLD-ANB-MIDGARD-0028]
+    mkdir -p "$ctx/deploy"
+    cp -R deploy/trust "$ctx/deploy/trust"
 
     tag="$registry/$image:$version"
     echo "--- $tag ($(echo $bins))"

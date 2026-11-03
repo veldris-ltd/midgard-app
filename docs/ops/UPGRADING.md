@@ -175,11 +175,22 @@ Only for `mimir-server` serving a real model (`--engine llama-cpp` or `vllm`):
    ```bash
    rm MODEL_DIR/model.manifest
    mg-model sign --weights MODEL_DIR/model.gguf --id ... --family ... --version ... \
-       --quantisation ... --licence ... --keystore model-signing.keystore
+       --quantisation ... --licence ... --sha256 PUBLISHED_SHA256 \
+       --keystore model-signing.keystore
    mg-model verify --dir MODEL_DIR --trust model-signing.pub
    ```
-   On compose, `bash deploy/compose/stage-model.sh` does this.
-2. Give `mimir-server` a `--serve-dir` that only it can write. It stages the verified
+   `mg-model sign` now requires `--sha256`, the digest the upstream published. On
+   compose, `bash deploy/compose/stage-model.sh` does this.
+2. Move the trust key out of the models volume. `mimir-server` refuses a
+   `--model-trust` inside `--model-dir`, and compose and the chart now trust the pinned
+   anchor `deploy/trust/model-signing.pub` (in the image at
+   `/etc/midgard/trust/model-signing.pub`; the chart's `mimir-model-trust` ConfigMap is
+   built from it). A key an earlier `stage-model.sh` left under the models volume is no
+   longer read: once the key ceremony has committed the anchor, re-sign under the
+   staging key and run `bash deploy/compose/stage-model.sh`; until then, run it with
+   `--development` and add `deploy/compose/compose.dev-model.yaml`. Without either,
+   `mimir-server` does not start (fail closed). [VLD-ANB-MIDGARD-0028]
+3. Give `mimir-server` a `--serve-dir` that only it can write. It stages the verified
    weights there, and the sidecar loads them from there, read-only — never from the model
    directory. `deploy/compose/compose.granite.yaml` and the Helm chart show the wiring.
 

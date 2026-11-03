@@ -311,6 +311,23 @@ CONTRIBUTING.md for the version policy.
   `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`. The README, BACKUP_RESTORE, DR_PLAN, PKI,
   KEY_CEREMONY, UPGRADING and DATA_RESIDENCY documents now describe the custody the
   software delivers. [VLD-ANB-MIDGARD-0007] [NFR-PQ-2]
+- **The model trust anchor no longer lives beside the weights it vouches for (WP-66).**
+  The model-signing public key is a pinned anchor, `deploy/trust/model-signing.pub`,
+  published by the key ceremony with the release and Bifrost anchors and carried
+  read-only in the images at `/etc/midgard/trust`; compose passes `--model-trust
+  /etc/midgard/trust/model-signing.pub`, and `deploy/kind/model.sh` builds the
+  `mimir-model-trust` ConfigMap from the committed file, never from the models volume.
+  Until the ceremony commits it, a deployment serving a real model fails closed, and the
+  release preflight refuses a release without it. `mimir-server` and `mg-model
+  verify`/`pack`/`unpack` refuse a trust key inside the model directory. `mg-model sign`
+  requires `--sha256`, so a download whose digest was never checked is never signed.
+  `stage-model.sh` no longer writes a key into `midgard-models`: by default it signs
+  with the keystore provisioned from the staging enclave and checks the result against
+  the committed anchor; `--development` generates a development key (keystore version
+  2 under a passphrase) whose public half goes into a volume of its own,
+  `midgard-model-trust`, read by `compose.dev-model.yaml`, with a warning. Installs
+  staged by an earlier release must stage again (`mg-install` does so itself).
+  [VLD-ANB-MIDGARD-0028]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

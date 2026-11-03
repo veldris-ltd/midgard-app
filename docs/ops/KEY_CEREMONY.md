@@ -33,12 +33,34 @@ of it) destroyed. [VLD-ANB-MIDGARD-0007]
 |---|---|---|
 | `deploy/trust/release-trust.pub` | the release signing key's public half (ML-DSA-87) | `tools/ci/release-preflight.sh`, `mg-verify`, every image's entrypoint |
 | `deploy/trust/bifrost-trust.pub` | the Bifrost admission key's public half (ML-DSA-65) | `tools/ci/release-preflight.sh`, `mg-bundle import` |
+| `deploy/trust/model-signing.pub` | the model-signing key's public half (ML-DSA-65) | `tools/ci/release-preflight.sh`, `mimir-server`'s load gate, `mg-model verify` |
 | `deploy/trust/allowed_signers` | the SSH keys that may sign a release tag | `tools/ci/verify-tag.sh` |
 | `docs/ops/ceremonies/<date>-release-keys.md` | the ceremony record: digests, fingerprints, self-test, machine isolation, sign-off | the reviewer of the ceremony commit |
 
-All four are public and committed in one signed commit. The private keystores, and
+All five are public and committed in one signed commit. The private keystores, and
 the confidential custody register (contact details, and fragment holders when key
 fragmentation is chosen), never enter this repository.
+
+## The model-signing key
+
+The ceremony also generates the model-signing key (ML-DSA-65) that signs every model
+manifest `mimir-server` loads. [VLD-ANB-MIDGARD-0028] With `mg-model` from this
+repository, on the ceremony machine, with the holder's passphrase file:
+
+```bash
+MIDGARD_KEYSTORE_PASSPHRASE_FILE=PASSPHRASE_FILE mg-model keygen --out OUT_DIR
+```
+
+It writes `OUT_DIR/model-signing.keystore`, a keystore version 2 whose root is wrapped
+under that passphrase, and `OUT_DIR/model-signing.pub`. The public file is committed as
+`deploy/trust/model-signing.pub` with the others; the keystore and its passphrase go to
+the staging enclave, where models are signed, and never into an enclosure or a volume
+that holds weights. To stage a model on compose with it, provision the keystore into the
+`midgard-model-signing` volume and its passphrase into `midgard-model-signing-passphrase`
+(as `passphrase`), then run `bash deploy/compose/stage-model.sh`: the model must verify
+against the committed file. After the ceremony, re-sign the Granite demo manifest under
+the new key, and remove any development key from existing installs (`docker volume rm
+midgard-model-signing midgard-model-trust` after re-staging).
 
 ## After the ceremony
 

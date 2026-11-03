@@ -227,7 +227,11 @@ naming files on that runner:
 | `MIDGARD_BIFROST_REGISTRY_PATH` | the Bifrost registry directory |
 
 On GitHub these are repository secrets; on GitLab, CI/CD variables. The public halves
-are committed as `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub`.
+are committed as `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub`,
+beside `deploy/trust/model-signing.pub`, the model-signing key's public half. The
+preflight (`release-preflight`) refuses a release unless all three are committed, each
+with a key of the right algorithm and nothing private, so a release cannot ship without
+the anchor mimir-server's load gate trusts. [VLD-ANB-MIDGARD-0028]
 The keystores are mounted read-only into the toolchain container; nothing else of the
 runner's environment reaches it.
 

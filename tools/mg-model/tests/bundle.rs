@@ -55,6 +55,14 @@ fn signed_model(dir: &Path, name: &str) -> (PathBuf, PathBuf, Vec<u8>) {
     let mut weights = b"GGUF\x03\x00\x00\x00".to_vec();
     weights.extend((0..3_000_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8));
     std::fs::write(&weights_path, &weights).unwrap();
+    // The published digest `sign` requires. [VLD-ANB-MIDGARD-0028]
+    let digest = pqc_agility::hash::sha256(&weights)
+        .iter()
+        .fold(String::new(), |mut s, b| {
+            use std::fmt::Write;
+            let _ = write!(s, "{b:02x}");
+            s
+        });
     let keystore = keys.join("model-signing.keystore");
     let out = mg_model(&[
         "sign",
@@ -74,6 +82,8 @@ fn signed_model(dir: &Path, name: &str) -> (PathBuf, PathBuf, Vec<u8>) {
         "--redistributable",
         "--keystore",
         s(&keystore),
+        "--sha256",
+        &digest,
     ]);
     assert!(out.status.success(), "{}", text(&out));
     (model, keys.join("model-signing.pub"), weights)

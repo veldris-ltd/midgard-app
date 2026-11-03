@@ -334,7 +334,7 @@ So you know exactly what it did, and what to remove by hand if you ever need to:
 | Administrator passkeys, until handed over | `/opt/midgard/admin-passkeys`, mode 0700 |
 | The command `mg-install` | a link at `/usr/local/bin/mg-install` |
 | Images | `midgard-acceptance:1.82.0`, `midgard/dev:local`, `midgard/console:local`, and the pinned llama.cpp image with Granite |
-| Volumes | `midgard_*` (one per service's state and identity), `midgard-models`, `midgard-model-signing` |
+| Volumes | `midgard_*` (one per service's state and identity), `midgard-models`, `midgard-model-signing`, `midgard-model-signing-passphrase`, `midgard-model-trust` |
 | Containers and networks | the `midgard` Compose project; networks `midgard_edge` (no masquerade, bridge `mg-edge0`) and `midgard_mesh` (internal) |
 | A firewall rule | two rules in Docker's `DOCKER-USER` chain (and ip6tables' if Docker manages one), tagged `midgard-edge-egress`, that stop anything on `midgard_edge` reaching outside the server; `sudo iptables -S DOCKER-USER` shows them |
 | A system service | `midgard-edge-egress.service` in `/etc/systemd/system`, enabled, which runs `/usr/local/sbin/midgard-edge-egress` to put the rules back after a reboot or a Docker restart |
@@ -361,7 +361,7 @@ Not yet, and why it matters:
 
 - **The images are built from source and unsigned.** Signed, verify-before-run release images arrive with the first tagged release.
 - **Key custody is in software.** The enclosure's keys are sealed files in a Docker volume, not in an HSM. Protect the server, and its backups, accordingly.
-- **The model-signing key is a development key** kept on the same server. In production it stays in a separate staging enclave.
+- **The model-signing key is a development key** kept on the same server, until the key ceremony commits `deploy/trust/model-signing.pub`. Its public half is kept in a volume of its own (`midgard-model-trust`), never beside the weights. In production the key stays in a separate staging enclave, and Mimir trusts only the committed anchor.
 - **Certificates do not expire.** To rotate a service's identity, remove its identity files from its volume and re-run the installer.
 - **The tunnel is the transport security for the console.** The gateway speaks plain HTTP on loopback; the SSH tunnel encrypts it between your computer and the server.
 

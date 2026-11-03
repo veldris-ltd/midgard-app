@@ -74,6 +74,11 @@ COPY deploy/compose/mimir-policy.json deploy/compose/fleet-policy.json \
      deploy/compose/fleet-channels.json deploy/compose/heimdall-policy.json \
      deploy/compose/core-ontology.json deploy/compose/core-policy.json /etc/midgard/
 COPY deploy/compose/forge/ /etc/midgard/forge/
+# The pinned public trust set, read-only: mimir-server's --model-trust is
+# /etc/midgard/trust/model-signing.pub, never a file in the models volume. Until the key
+# ceremony commits deploy/trust/model-signing.pub, a Granite deployment fails closed.
+# [VLD-ANB-MIDGARD-0028]
+COPY deploy/trust/ /etc/midgard/trust/
 RUN chmod 0755 /usr/local/bin/midgard-init /usr/local/bin/midgard-ready
 
 USER 10001
