@@ -48,6 +48,11 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **The audit view hides a row whose target the caller may not read.** An approval's
+  `APPROVAL` rows, and an action's own row, name their target; they are now shown only
+  to a caller who may read that target, as `GET /approvals` already filtered, so the
+  ledger view is no oracle for a compartmented object behind a human gate.
+  [VLD-ANB-MIDGARD-0031] [VLD-ANB-MIDGARD-0038]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

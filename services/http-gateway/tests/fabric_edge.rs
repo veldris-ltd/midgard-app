@@ -798,6 +798,45 @@ fn the_audit_view_hides_rows_about_objects_the_caller_cannot_read() {
     assert_eq!(header(&r, "X-Audit-Filtered"), Some("true"));
 }
 
+/// An approval's ledger rows name its target. A principal who may not read that
+/// target does not see them — the same filter the approvals list applies — so the view
+/// is not an oracle for a compartmented object behind a human gate; the operator, who
+/// may read it, still does. [VLD-ANB-MIDGARD-0031] [VLD-ANB-MIDGARD-0038] [AC-20.1]
+/// [NFR-SEC-2]
+#[test]
+fn the_audit_view_hides_approval_rows_whose_target_the_caller_cannot_read() {
+    let (mut gw, token) = session();
+    let uncompartmented = UserRecord {
+        clearance: Clearance {
+            level: demo_approver().clearance.level,
+            compartments: BTreeSet::new(),
+        },
+        ..demo_approver()
+    };
+    gw.provision_login("analyst", "analyst-password", uncompartmented)
+        .expect("the analyst provisions in memory");
+
+    let seed = "aircraft/AC-2214";
+    let id = request_approval(&gw, &token, "Ground aircraft", seed);
+    let resource = format!("approval:{id}");
+
+    let (_, operator_rows) = audit_view(&gw, &token);
+    assert!(
+        operator_rows
+            .iter()
+            .any(|row| field(row, "resource") == resource),
+        "the cleared operator should see the approval row"
+    );
+
+    let analyst = login(&gw, "analyst", "analyst-password");
+    let (r, rows) = audit_view(&gw, &analyst);
+    for row in &rows {
+        assert_ne!(field(row, "resource"), resource, "{}", row.encode());
+        assert_ne!(row.str_field("target"), Some(seed), "{}", row.encode());
+    }
+    assert_eq!(header(&r, "X-Audit-Filtered"), Some("true"));
+}
+
 /// A role that may Read anything but holds no ReadAudit rule is refused the ledger
 /// view, and the refusal is itself a ledger row. [VLD-ANB-MIDGARD-0031] [AC-20.2]
 #[test]
