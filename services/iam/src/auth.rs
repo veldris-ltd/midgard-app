@@ -113,6 +113,15 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
             return Err(AuthError::UnknownSubject);
         };
 
+        // 0. An account approved but not yet activated has no password of its owner's
+        // choosing, and its second factor is not yet theirs: it cannot log in. The
+        // password work is spent so the refusal looks like any wrong password.
+        // [VLD-ANB-MIDGARD-0002]
+        if entry.credentials.password_hash.is_empty() || entry.credentials.activation.is_some() {
+            self.hasher.spend_verification(password);
+            return Err(AuthError::BadPassword);
+        }
+
         // 1. Password (constant-time verify against the stored hash).
         if !self
             .hasher

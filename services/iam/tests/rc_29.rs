@@ -6,8 +6,9 @@
 use std::collections::BTreeSet;
 
 use iam::{
-    federated_login, verify_token, AuthError, Authenticator, Credentials, DurableDirectory,
-    Enrollment, Idp, MfaProof, PasswordHasher, Pbkdf2Hasher, PqFederation, TotpSecret, UserRecord,
+    federated_login, verify_token, Activation, AuthError, Authenticator, Credentials,
+    DurableDirectory, Enrollment, Idp, InMemoryDirectory, MfaProof, PasswordHasher, Pbkdf2Hasher,
+    PqFederation, TotpSecret, UserRecord,
 };
 use policy::{ClassificationLevel, Clearance, Purpose, Role};
 use pqc_agility::backend::fips::provider as fips_provider;
@@ -72,6 +73,7 @@ fn credentials_and_mfa_are_verified_before_a_token_is_minted() {
                 password_hash: hasher.hash(b"correct horse battery staple"),
                 totp: Some(totp.clone()),
                 passkeys: vec![],
+                activation: None,
             },
         },
     )
@@ -165,6 +167,7 @@ fn the_directory_survives_a_restart() {
                     password_hash: hash.clone(),
                     totp: None,
                     passkeys: vec![],
+                    activation: None,
                 },
             },
         )
@@ -281,4 +284,171 @@ fn federation_mints_a_local_token_from_a_verified_upstream_assertion() {
         TTL
     )
     .is_err());
+}
+
+/// The analyst enrollment the activation tests use: approved under dual control, so
+/// it has a TOTP secret but no password of its own yet and a pending activation.
+fn unactivated(hasher: &Pbkdf2Hasher) -> Enrollment {
+    Enrollment {
+        user: analyst_user(),
+        credentials: Credentials {
+            password_hash: String::new(),
+            totp: Some(TotpSecret::new(vec![7u8; 20])),
+            passkeys: vec![],
+            activation: Some(Activation {
+                code_hash: hasher.hash(b"0123456789abcdef0123456789abcdef"),
+                expires_at: NOW + 72 * 3600,
+                totp_confirmed: false,
+            }),
+        },
+    }
+}
+
+/// [AC-15.3] [VLD-ANB-MIDGARD-0002] An approved but unactivated record cannot log in,
+/// whatever is presented, and is refused exactly like a wrong password; once the
+/// principal has activated it, it logs in with both factors.
+#[test]
+fn an_unactivated_record_refuses_login_with_the_same_401() {
+    let idp = Idp::generate("enclave-idp", &mut SeedRng(1)).unwrap();
+    let hasher = Pbkdf2Hasher::new(1000);
+    let mut dir = InMemoryDirectory::new();
+    dir.enroll("dana", unactivated(&hasher));
+    let totp = TotpSecret::new(vec![7u8; 20]);
+
+    let attempt = |dir: &InMemoryDirectory, password: &[u8]| {
+        Authenticator::new(&idp, dir, &hasher).authenticate(
+            "dana",
+            password,
+            MfaProof::Totp(totp.code_at(NOW)),
+            Purpose("investigation".into()),
+            NOW,
+            TTL,
+        )
+    };
+    // The empty password matches the empty hash in no hasher; the activation code is
+    // not a password either.
+    for presented in [&b""[..], b"0123456789abcdef0123456789abcdef", b"anything"] {
+        assert_eq!(attempt(&dir, presented), Err(AuthError::BadPassword));
+    }
+
+    // A record with a password set but the activation still pending is refused too.
+    let mut half = unactivated(&hasher);
+    half.credentials.password_hash = hasher.hash(b"a password of twelve");
+    dir.enroll("dana", half.clone());
+    assert_eq!(
+        attempt(&dir, b"a password of twelve"),
+        Err(AuthError::BadPassword)
+    );
+
+    // Activated: the activation is gone and both factors log in.
+    half.credentials.activation = None;
+    assert!(dir.update_credentials("dana", half.credentials));
+    assert!(attempt(&dir, b"a password of twelve").is_ok());
+}
+
+/// The original, untagged record encoding, kept here to write a directory as an
+/// earlier build did.
+fn encode_v1(subject: &str, e: &Enrollment) -> Vec<u8> {
+    fn put(o: &mut Vec<u8>, b: &[u8]) {
+        o.extend_from_slice(&(b.len() as u32).to_le_bytes());
+        o.extend_from_slice(b);
+    }
+    let mut o = Vec::new();
+    put(&mut o, subject.as_bytes());
+    o.extend_from_slice(&(e.user.roles.len() as u32).to_le_bytes());
+    for r in &e.user.roles {
+        put(&mut o, r.0.as_bytes());
+    }
+    o.push(e.user.clearance.level.0);
+    o.extend_from_slice(&(e.user.clearance.compartments.len() as u32).to_le_bytes());
+    for c in &e.user.clearance.compartments {
+        put(&mut o, c.0.as_bytes());
+    }
+    o.extend_from_slice(&(e.user.purposes.len() as u32).to_le_bytes());
+    for p in &e.user.purposes {
+        put(&mut o, p.0.as_bytes());
+    }
+    put(&mut o, e.credentials.password_hash.as_bytes());
+    match &e.credentials.totp {
+        Some(t) => {
+            o.push(1);
+            put(&mut o, t.secret());
+        }
+        None => o.push(0),
+    }
+    o.extend_from_slice(&0u32.to_le_bytes()); // no passkeys
+    o
+}
+
+/// [AC-15.2] [VLD-ANB-MIDGARD-0002] A directory written by an earlier build opens,
+/// its entries without a pending activation; what is written now is the tagged
+/// version-2 record, carrying the activation across a restart.
+#[test]
+fn the_directory_reads_v1_records_and_writes_v2() {
+    let dir_path = std::env::temp_dir().join(format!("iam-rc29-v1v2-{}.log", std::process::id()));
+    let _ = std::fs::remove_file(&dir_path);
+    let hasher = Pbkdf2Hasher::new(1000);
+    let legacy = Enrollment {
+        user: analyst_user(),
+        credentials: Credentials {
+            password_hash: hasher.hash(b"pw"),
+            totp: Some(TotpSecret::new(vec![9u8; 20])),
+            passkeys: vec![],
+            activation: None,
+        },
+    };
+    {
+        // An earlier build's directory: one untagged record in the same journal.
+        let (mut journal, _) =
+            audit_writer::SealedJournal::open(&dir_path, sealer(5), b"iam-directory-v1").unwrap();
+        journal.append(&encode_v1("erin", &legacy)).unwrap();
+    }
+
+    {
+        let mut dir = DurableDirectory::open(&dir_path, sealer(5)).expect("a v1 directory opens");
+        let entry = dir.get("erin").expect("the v1 entry is read");
+        assert_eq!(
+            entry, &legacy,
+            "every v1 field survives and activation defaults"
+        );
+        assert!(entry.credentials.activation.is_none());
+        dir.enroll("dana", unactivated(&hasher)).unwrap();
+    }
+
+    let records = {
+        let (_, records) =
+            audit_writer::SealedJournal::open(&dir_path, sealer(5), b"iam-directory-v1").unwrap();
+        records
+    };
+    assert_eq!(records.len(), 2);
+    assert_ne!(records[0][0], 0xFF, "the earlier record is untagged");
+    assert_eq!(
+        &records[1][..3],
+        &[0xFF, 2, 0],
+        "the new record is tagged v2"
+    );
+
+    let dir = DurableDirectory::open(&dir_path, sealer(5)).unwrap();
+    assert_eq!(dir.get("erin"), Some(&legacy));
+    assert_eq!(
+        dir.get("dana"),
+        Some(&unactivated_with(&hasher, dir.get("dana")))
+    );
+    let activation = dir.get("dana").unwrap().credentials.activation.as_ref();
+    let activation = activation.expect("the activation survives a restart");
+    assert_eq!(activation.expires_at, NOW + 72 * 3600);
+    assert!(!activation.totp_confirmed);
+    assert!(hasher.verify(b"0123456789abcdef0123456789abcdef", &activation.code_hash));
+
+    let _ = std::fs::remove_file(&dir_path);
+}
+
+/// `unactivated` with the hash just read back (a fresh hash has a fresh salt).
+fn unactivated_with(hasher: &Pbkdf2Hasher, read: Option<&Enrollment>) -> Enrollment {
+    let mut expected = unactivated(hasher);
+    expected.credentials.activation.as_mut().unwrap().code_hash = read
+        .and_then(|e| e.credentials.activation.as_ref())
+        .map(|a| a.code_hash.clone())
+        .unwrap_or_default();
+    expected
 }

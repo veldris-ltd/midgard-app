@@ -881,6 +881,27 @@ CONTRIBUTING.md for the version policy.
     responder a slice of ticket keys). Earlier tickets are refused and the client
     falls back to a full handshake; a client built before this change cannot use a
     resumption-enabled gateway. No deployment enables resumption.
+- **Dual-control enrolment covers the credentials, not only the name.**
+  [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
+  - A request no longer carries a password hash or TOTP secret; one that does is
+    refused. The gateway creates the credentials at approval and returns a single-use,
+    128-bit activation code, valid for 72 hours, to the approver, who hands it to the
+    principal out of band. The principal sends it with the password they choose to the
+    new `POST /api/v1/activate` (throttled and audited like login) and receives their
+    TOTP secret there; neither administrator ever holds the second factor, and an
+    approved account cannot log in until it is activated.
+  - Roles and purposes must be ones the served policy names, and compartments are
+    letters, digits and hyphens; the listing shows the whole record, and the approver
+    names the subject they approve (`mg-admin enrol approve --subject`).
+  - A directory write that fails at approval leaves the enrolment parked for its
+    approver to complete; `POST /api/v1/admin/enrolments/reject` (`mg-admin enrol
+    reject --reason`) discards a waiting request. A gateway without a durable identity
+    directory refuses requests with 501 instead of parking them.
+  - `mg-admin enrol request` no longer reads a password or takes `--totp`. Identity
+    directory records are now tagged and versioned; directories written earlier still
+    open, but one written by this version does not open on an older build, so back up
+    the state directory before upgrading. Waiting enrolments from an earlier build are
+    kept without their credentials and are rewritten on first boot.
 
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser

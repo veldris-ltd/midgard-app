@@ -180,13 +180,13 @@ stated_in = ["docs/launch/pipeline/build-deck.js:351"]
 [[claim]]
 id = "dual-control-enrolment"
 area = "Core: fabric, identity and governance"
-claim = "Enrolling a principal online needs two different administrators, each proving possession of a post-quantum passkey, and the enrolment is audited."
+claim = "Enrolling a principal online needs two different administrators, each proving possession of a post-quantum passkey, and the enrolment is audited. Neither administrator holds the principal's credentials: they are generated at approval and activated by the principal with a single-use code that sets their password and gives them their TOTP factor. Roles and purposes are limited to those the served policy names, the approver sees the full record, and a failed approval can be retried or the enrolment rejected."
 status = "operable"
 criteria = ["AC-AD-3", "AC-AD-4"]
-evidence = ["services/http-gateway/src/admin_api.rs:274"]
-tests = ["services/http-gateway/tests/admin_enrolment.rs::an_enrolment_needs_a_second_administrator_and_survives_a_restart"]
-service_tests = ["tools/mg-admin/tests/enrol.rs::two_administrators_enrol_a_principal_through_a_running_gateway"]
-stated_in = ["CHANGELOG.md:71"]
+evidence = ["services/http-gateway/src/admin_api.rs:274", "services/http-gateway/src/admin_api.rs:360", "services/http-gateway/src/activation.rs:27", "services/iam/src/auth.rs:120"]
+tests = ["services/http-gateway/tests/admin_enrolment.rs::an_enrolment_needs_a_second_administrator_and_survives_a_restart", "services/http-gateway/tests/admin_enrolment.rs::a_requester_cannot_supply_credential_material", "services/http-gateway/tests/admin_enrolment.rs::approval_returns_an_activation_code_and_no_second_factor_secret", "services/http-gateway/tests/admin_enrolment.rs::activation_is_single_use_and_first_login_needs_both_factors", "services/http-gateway/tests/admin_enrolment.rs::roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_full_record", "services/http-gateway/tests/admin_enrolment.rs::a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected", "services/iam/tests/rc_29.rs::an_unactivated_record_refuses_login_with_the_same_401", "services/iam/tests/rc_29.rs::the_directory_reads_v1_records_and_writes_v2"]
+service_tests = ["tools/mg-admin/tests/enrol.rs::two_administrators_enrol_a_principal_through_a_running_gateway", "tools/mg-admin/tests/enrol.rs::enrol_reject_removes_a_parked_enrolment"]
+stated_in = ["CHANGELOG.md:71", "CHANGELOG.md:56", "CHANGELOG.md:138"]
 
 # ---- Admin -----------------------------------------------------------------------------
 
@@ -232,7 +232,7 @@ evidence = ["products/admin/ui/src/main.tsx:17"]
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
-stated_in = ["README.md:816", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544", "README.md:812", "CHANGELOG.md:112"]
+stated_in = ["README.md:816", "CHANGELOG.md:97", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544", "README.md:812", "CHANGELOG.md:112", "README.md:824"]
 
 # ---- Mimir -----------------------------------------------------------------------------
 
@@ -476,7 +476,7 @@ evidence = ["justfile:373", "tools/ci/release.sh:170", "tools/ci/pipelines.sh:52
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component"]
 service_tests = ["tools/ci/run.sh:320", "tools/ci/tests/pipelines.test.sh:73", "tools/ci/run.sh:225"]
 limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them."
-stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402", "README.md:746"]
+stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402", "README.md:746", "README.md:754"]
 
 [[claim]]
 id = "offline-build"
@@ -499,7 +499,7 @@ evidence = ["tools/mg-verify/src/main.rs:267", "deploy/images/service.Dockerfile
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_refuses_an_unverified_binary_and_does_not_exec", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_a_verified_binary_with_the_given_arguments", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_without_a_service_name_is_a_usage_error", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_an_artefact_path_is_a_usage_error", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_no_service_options_refuses_to_start", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_trust_anchor_comes_only_from_its_own_command_line"]
 service_tests = ["deploy/images/build.sh:103"]
 limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly. The release chart binds each pod to the signed image by digest (deploy/helm/set-digests.sh), so a tag moved in the registry cannot substitute an image that skips the check."
-stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83", "README.md:756", "CHANGELOG.md:98"]
+stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:83", "README.md:756", "CHANGELOG.md:98", "README.md:768"]
 
 [[claim]]
 id = "acceptance-gate"
@@ -561,4 +561,4 @@ id = "likan"
 area = "Outside this repository"
 claim = "Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here."
 status = "external"
-stated_in = ["README.md:837"]
+stated_in = ["README.md:837", "README.md:845"]

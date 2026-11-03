@@ -279,17 +279,28 @@ Access is denied unless a written rule grants it: role, marking and purpose must
 
 ### `dual-control-enrolment` (operable)
 
-Enrolling a principal online needs two different administrators, each proving possession of a post-quantum passkey, and the enrolment is audited.
+Enrolling a principal online needs two different administrators, each proving possession of a post-quantum passkey, and the enrolment is audited. Neither administrator holds the principal's credentials: they are generated at approval and activated by the principal with a single-use code that sets their password and gives them their TOTP factor. Roles and purposes are limited to those the served policy names, the approver sees the full record, and a failed approval can be retried or the enrolment rejected.
 
 - Criteria: AC-AD-3, AC-AD-4
 - Source:
-  - [`services/http-gateway/src/admin_api.rs:274`](../../services/http-gateway/src/admin_api.rs)
+  - [`services/http-gateway/src/admin_api.rs:360`](../../services/http-gateway/src/admin_api.rs)
+  - [`services/http-gateway/src/activation.rs:27`](../../services/http-gateway/src/activation.rs)
+  - [`services/iam/src/auth.rs:120`](../../services/iam/src/auth.rs)
 - Tests:
   - [`services/http-gateway/tests/admin_enrolment.rs::an_enrolment_needs_a_second_administrator_and_survives_a_restart`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::a_requester_cannot_supply_credential_material`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::approval_returns_an_activation_code_and_no_second_factor_secret`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::activation_is_single_use_and_first_login_needs_both_factors`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_full_record`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/iam/tests/rc_29.rs::an_unactivated_record_refuses_login_with_the_same_401`](../../services/iam/tests/rc_29.rs)
+  - [`services/iam/tests/rc_29.rs::the_directory_reads_v1_records_and_writes_v2`](../../services/iam/tests/rc_29.rs)
 - Service tests:
   - [`tools/mg-admin/tests/enrol.rs::two_administrators_enrol_a_principal_through_a_running_gateway`](../../tools/mg-admin/tests/enrol.rs)
+  - [`tools/mg-admin/tests/enrol.rs::enrol_reject_removes_a_parked_enrolment`](../../tools/mg-admin/tests/enrol.rs)
 - Stated at:
   - [`CHANGELOG.md:56`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:138`](../../CHANGELOG.md)
 
 ## Admin
 
@@ -356,7 +367,7 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
-  - [`README.md:812`](../../README.md)
+  - [`README.md:824`](../../README.md)
   - [`CHANGELOG.md:97`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
@@ -710,7 +721,7 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
   - [`tools/ci/run.sh:320`](../../tools/ci/run.sh)
   - [`tools/ci/tests/pipelines.test.sh:73`](../../tools/ci/tests/pipelines.test.sh)
 - Stated at:
-  - [`README.md:742`](../../README.md)
+  - [`README.md:754`](../../README.md)
   - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
   - [`docs/launch/pipeline/build-deck.js:402`](../../docs/launch/pipeline/build-deck.js)
 
@@ -747,7 +758,7 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
 - Stated at:
-  - [`README.md:756`](../../README.md)
+  - [`README.md:768`](../../README.md)
   - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
   - [`CHANGELOG.md:83`](../../CHANGELOG.md)
@@ -833,5 +844,5 @@ Alignment with NIST SP 800-53, OWASP ASVS and ISO 27001.
 Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here.
 
 - Stated at:
-  - [`README.md:833`](../../README.md)
+  - [`README.md:845`](../../README.md)
 

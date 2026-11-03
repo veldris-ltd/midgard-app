@@ -5,7 +5,10 @@
 //! state directory — registers only its public half, and binds a standard role for a
 //! bounded time. The `enrol` commands run against a live gateway: each fetches a
 //! single-use challenge issued to the administrator it names, answers it with the
-//! administrator's passkey, and sends the request. A requested enrolment waits until a second administrator approves it.
+//! administrator's passkey, and sends the request. A requested enrolment waits until a
+//! second administrator approves it, and carries no credentials: the gateway creates
+//! them at approval and returns a single-use activation code, which the approver hands
+//! to the principal out of band. [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -18,14 +21,12 @@ use admin_identity::{
 use attest::Keystore;
 use http_gateway::json::Json;
 use http_gateway::state_dir::{StateDir, StateLock};
-use iam::{PasswordHasher, Pbkdf2Hasher, TotpSecret};
 use kms::{Kms, KmsSealer};
 use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
+use pqc_agility::{OsRng, SecretBytes, SigningKey};
 
 use crate::http_client::post_json;
-use crate::{list, read_password, record_admin_event, Failure, Options};
-use crate::{TOTP_ISSUER, TOTP_SECRET_LEN};
+use crate::{list, record_admin_event, Failure, Options};
 
 /// The longest an administrator's role binding may run, in days.
 const MAX_BINDING_DAYS: u64 = 3_650;
@@ -154,7 +155,7 @@ pub(crate) fn admin_add(o: &Options) -> Result<String, Failure> {
     ))
 }
 
-// ---- enrol request | approve | list (online) -------------------------------------------
+// ---- enrol request | approve | reject | list (online) ----------------------------------
 
 /// The administrator named by `--admin`, and their passkey from `--keystore`.
 fn device(o: &Options) -> Result<(String, SoftwareAdminAuthenticator), Failure> {
@@ -235,30 +236,17 @@ pub(crate) fn enrol_request(o: &Options) -> Result<String, Failure> {
     let compartments = o.get("compartments").map(list).unwrap_or_default();
     let clearance = o.require("clearance")?;
     let justification = o.require("justification")?;
-    let password = read_password()?;
     let (admin, device) = device(o)?;
 
-    let totp = o.flag("totp").then(|| {
-        let mut secret = vec![0u8; TOTP_SECRET_LEN];
-        OsRng.fill(&mut secret);
-        secret
-    });
-    // Only the hash leaves this machine, at the production work factor the gateway
-    // requires.
-    let mut principal = vec![
+    // Who the principal is and what they may do; how they authenticate is set by the
+    // gateway at approval and by the principal at activation.
+    let principal = vec![
         ("subject", Json::s(subject)),
         ("roles", strings(&roles)),
         ("clearance", Json::s(clearance)),
         ("compartments", strings(&compartments)),
         ("purposes", strings(&purposes)),
-        (
-            "passwordHash",
-            Json::s(&Pbkdf2Hasher::production().hash(password.as_bytes())),
-        ),
     ];
-    if let Some(secret) = &totp {
-        principal.push(("totpSecret", Json::s(&hex_of(secret))));
-    }
 
     let mut body = signed(gateway, &admin, &device)?;
     body.push(("justification", Json::s(justification)));
@@ -270,33 +258,58 @@ pub(crate) fn enrol_request(o: &Options) -> Result<String, Failure> {
     )?;
 
     let id = reply.str_field("id").unwrap_or_default();
-    let mut message = format!(
+    Ok(format!(
         "enrolment {id} of '{subject}' is waiting for a second administrator to approve it"
-    );
-    if let Some(secret) = totp {
-        message.push_str(
-            "\nTOTP second factor — give this to the principal for their authenticator app, \
-             then discard it; it is not shown again:\n  ",
-        );
-        message.push_str(&TotpSecret::new(secret).provisioning_uri(TOTP_ISSUER, subject));
-    }
-    Ok(message)
+    ))
 }
 
 pub(crate) fn enrol_approve(o: &Options) -> Result<String, Failure> {
     let gateway = o.require("gateway")?;
     let id = o.require("id")?;
+    let subject = o.require("subject")?;
     let (admin, device) = device(o)?;
     let mut body = signed(gateway, &admin, &device)?;
     body.push(("id", Json::s(id)));
+    body.push(("subject", Json::s(subject)));
     let reply = post_json(
         gateway,
         "/api/v1/admin/enrolments/approve",
         &Json::obj(body).encode(),
     )?;
+    let code = reply
+        .str_field("activationCode")
+        .ok_or_else(|| Failure::Run("the gateway sent no activation code".into()))?;
+    let expires = match reply.get("activationExpiresAt") {
+        Some(Json::Int(at)) => format!(" (unix time {at})"),
+        _ => String::new(),
+    };
     Ok(format!(
-        "approved {id}: '{}' is enrolled and can log in",
+        "approved {id}: '{}' is enrolled and must activate before logging in\n\
+         activation code — hand it to '{subject}' yourself, out of band, then discard it; \
+         it is shown once, works once and expires in 72 hours{expires}:\n  {code}\n\
+         '{subject}' activates with POST /api/v1/activate \
+         {{\"username\",\"activationCode\",\"password\"}} and receives their TOTP second \
+         factor there.",
         reply.str_field("enrolled").unwrap_or_default()
+    ))
+}
+
+pub(crate) fn enrol_reject(o: &Options) -> Result<String, Failure> {
+    let gateway = o.require("gateway")?;
+    let id = o.require("id")?;
+    let reason = o.require("reason")?;
+    let (admin, device) = device(o)?;
+    let mut body = signed(gateway, &admin, &device)?;
+    body.push(("id", Json::s(id)));
+    body.push(("reason", Json::s(reason)));
+    let reply = post_json(
+        gateway,
+        "/api/v1/admin/enrolments/reject",
+        &Json::obj(body).encode(),
+    )?;
+    Ok(format!(
+        "rejected {id}: the enrolment of '{}' is discarded",
+        reply.str_field("rejected").unwrap_or_default()
     ))
 }
 
@@ -316,13 +329,31 @@ pub(crate) fn enrol_list(o: &Options) -> Result<String, Failure> {
     let mut message = format!("{} enrolment(s) waiting for approval", rows.len());
     for row in rows {
         let field = |key: &str| row.str_field(key).unwrap_or_default().to_string();
+        let names = |key: &str| match row.get(key) {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .filter_map(|item| match item {
+                    Json::Str(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(","),
+            _ => String::new(),
+        };
         let _ = write!(
             message,
-            "\n  {}  subject={}  clearance={}  requested-by={}",
+            "\n  {}  subject={}  roles={}  clearance={}  compartments={}  purposes={}  \
+             mfa={}  requested-by={}  justification={:?}  state={}",
             field("id"),
             field("subject"),
+            names("roles"),
             field("clearance"),
+            names("compartments"),
+            names("purposes"),
+            field("mfa"),
             field("requestedBy"),
+            field("justification"),
+            field("state"),
         );
     }
     Ok(message)

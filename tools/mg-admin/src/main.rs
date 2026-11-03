@@ -2,8 +2,9 @@
 //!
 //! It creates the directory and its custody keys, and enrols the principals who log in
 //! to the gateway. Everything it writes stays under `--state-dir`; it never reaches the
-//! network, and the only secret it prints is a TOTP enrolment URI the operator asked
-//! for. [RC-29] [NFR-SEC-2] [NFR-PRV-1]
+//! network, and the only secrets it prints are a TOTP enrolment URI the operator asked
+//! for and, under dual control, the activation code an approver hands to the new
+//! principal. [RC-29] [NFR-SEC-2] [NFR-PRV-1]
 //!
 //! Usage:
 //!   mg-admin init --state-dir <dir> [--checkpoint-mirror <dir>]
@@ -12,7 +13,7 @@
 //!   mg-admin user list --state-dir <dir>
 //!   mg-admin import --state-dir <dir> --file <objects.jsonl>
 //!   mg-admin admin add --state-dir <dir> --admin <name> --role <role> --keystore <path>
-//!   mg-admin enrol request|approve|list --gateway <url> --admin <name> --keystore <path> ..
+//!   mg-admin enrol request|approve|reject|list --gateway <url> --admin <name> --keystore <path> ..
 //!   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir>
 //!                       [--days <n>] [--clearance <band>] [--compartments <c,..>]
 //!                       [--purposes <p,..>]
@@ -81,8 +82,11 @@ USAGE:
                      [--scope <subsystem>] [--days <n>]
   mg-admin enrol request --gateway <url> --admin <name> --keystore <path> \\
                          --subject <name> --roles <r,..> --clearance <band> \\
-                         --purposes <p,..> --justification <text> [--compartments <c,..>] [--totp]
-  mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> --id <enrolment>
+                         --purposes <p,..> --justification <text> [--compartments <c,..>]
+  mg-admin enrol approve --gateway <url> --admin <name> --keystore <path> --id <enrolment> \\
+                         --subject <name>
+  mg-admin enrol reject  --gateway <url> --admin <name> --keystore <path> --id <enrolment> \\
+                         --reason <text>
   mg-admin enrol list    --gateway <url> --admin <name> --keystore <path>
   mg-admin mesh issue --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
                       [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
@@ -122,11 +126,18 @@ COMMANDS:
              Model-Steward, Release-Manager or Auditor — in --scope (default iam) for
              --days (default 365). Recorded in the audit ledger.
   enrol      enrol a principal while the gateway runs, under dual control. `request`
-             hashes the password (read from a pipe) locally and asks the gateway at
-             --gateway, a loopback URL such as http://127.0.0.1:7710, to enrol them;
-             the request waits until a *different* IAM administrator runs `approve`.
-             `list` shows what is waiting. Each command signs a fresh challenge,
-             issued to that administrator alone, with the administrator's passkey.
+             asks the gateway at --gateway, a loopback URL such as
+             http://127.0.0.1:7710, to enrol them with roles and purposes the served
+             policy names; no password or second factor is sent. The request waits
+             until a *different* IAM administrator runs `approve`, naming the
+             --subject they approve: the gateway then creates the credentials and
+             prints a single-use activation code, valid for 72 hours, for the approver
+             to hand to the principal out of band. The principal sends it to
+             POST /api/v1/activate with the password they choose, and receives their
+             TOTP second factor; until then they cannot log in. `reject` discards a
+             waiting request with a --reason. `list` shows each waiting request in
+             full. Each command signs a fresh challenge, issued to that administrator
+             alone, with the administrator's passkey.
   mesh issue give a service its mesh identity in --out: its own identity and audit-signing
              keystores (secrets, for that service alone), a certificate for --roles signed
              by the enclosure's issuer, mesh.anchor, the trust anchor every service
@@ -239,11 +250,16 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "purposes",
                 "justification",
             ],
-            &["totp"],
+            &[],
         )?),
         ["enrol", "approve", rest @ ..] => admin::enrol_approve(&options(
             rest,
-            &["gateway", "admin", "keystore", "id"],
+            &["gateway", "admin", "keystore", "id", "subject"],
+            &[],
+        )?),
+        ["enrol", "reject", rest @ ..] => admin::enrol_reject(&options(
+            rest,
+            &["gateway", "admin", "keystore", "id", "reason"],
             &[],
         )?),
         ["enrol", "list", rest @ ..] => {

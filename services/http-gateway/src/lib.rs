@@ -18,6 +18,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod activation;
 pub mod admin_api;
 pub mod approval_journal;
 pub mod boot;
@@ -129,6 +130,24 @@ impl Directory for Logins {
             Logins::Durable(directory) => {
                 directory.replace_password_hash(subject, current, new_hash)
             }
+        }
+    }
+}
+
+impl Logins {
+    /// Replace `subject`'s credentials, keeping their attributes: activation sets the
+    /// password and spends the code. `Ok(false)` if `subject` is not enrolled.
+    /// [VLD-ANB-MIDGARD-0002]
+    fn update_credentials(
+        &mut self,
+        subject: &str,
+        credentials: Credentials,
+    ) -> Result<bool, String> {
+        match self {
+            Logins::InMemory(directory) => Ok(directory.update_credentials(subject, credentials)),
+            Logins::Durable(directory) => directory
+                .update_credentials(subject, credentials)
+                .map_err(|e| e.to_string()),
         }
     }
 }
@@ -793,18 +812,39 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             return self.handle_admin_challenge(control, &body, now);
         }
 
+        // What an enrolment may grant: the roles and purposes the served policy names.
+        // Read before the administration lock is taken, and released at once.
+        // [VLD-ANB-MIDGARD-0002]
+        let catalogue = (req.path == "/api/v1/admin/enrolments").then(|| {
+            admin_api::RoleCatalogue::from_policy(
+                self.lock().fabric().governance().policies(),
+                LOGIN_PURPOSE,
+            )
+        });
+
         let outcome = {
             let mut admin = self.recover(control, "admin");
             match req.path.as_str() {
                 "/api/v1/admin/enrolments" => {
                     let directory = self.recover(&self.directory, "directory");
-                    let enrolled = |subject: &str| directory.enrollment(subject).is_some();
-                    admin
-                        .request_enrolment(&body, &enrolled, now)
-                        .map(|(json, actor)| {
-                            let subject = json.str_field("subject").unwrap_or_default().to_string();
-                            (json, Some((actor, "ENROLL requested", subject)))
+                    if let Logins::InMemory(_) = &*directory {
+                        // Nothing is parked that approval could never write.
+                        // [VLD-ANB-MIDGARD-0066]
+                        Err(admin_api::AdminError {
+                            status: 501,
+                            message: "this gateway serves no durable identity directory".into(),
                         })
+                    } else {
+                        let enrolled = |subject: &str| directory.enrollment(subject).is_some();
+                        let catalogue = catalogue.unwrap_or_default();
+                        admin
+                            .request_enrolment(&body, &catalogue, &enrolled, now)
+                            .map(|(json, actor)| {
+                                let subject =
+                                    json.str_field("subject").unwrap_or_default().to_string();
+                                (json, Some((actor, "ENROLL requested", subject)))
+                            })
+                    }
                 }
                 "/api/v1/admin/enrolments/approve" => {
                     let mut directory = self.recover(&self.directory, "directory");
@@ -817,9 +857,16 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                         }
                     };
                     admin
-                        .approve_enrolment(&body, &mut enrol, now)
+                        .approve_enrolment(&body, &self.hasher, &mut enrol, now)
                         .map(|(json, actor, subject)| {
                             (json, Some((actor, "ENROLL approved", subject)))
+                        })
+                }
+                "/api/v1/admin/enrolments/reject" => {
+                    admin
+                        .reject_enrolment(&body, now)
+                        .map(|(json, actor, subject)| {
+                            (json, Some((actor, "ENROLL rejected", subject)))
                         })
                 }
                 "/api/v1/admin/enrolments/list" => {
@@ -1202,6 +1249,11 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // Sign-out: authenticated by the very token it revokes. [VLD-ANB-MIDGARD-0021]
         if req.method == "POST" && req.path == "/api/v1/logout" {
             return self.handle_logout(req, rc, now);
+        }
+        // Public activation: an approved principal sets their password with the
+        // single-use code their approver handed them. [VLD-ANB-MIDGARD-0002]
+        if req.method == "POST" && req.path == "/api/v1/activate" {
+            return self.handle_activate(req, now);
         }
 
         // 1. Authenticate: verify the PQ-signed IdP token or reject.
@@ -1901,10 +1953,13 @@ fn token_rejection_class(e: &iam::TokenError) -> &'static str {
 /// An administration refusal as the client reads it: a server error is reported only
 /// by reference, a refused privilege as `refused` and a failed sign-in as
 /// `unauthorised`, each with its detail kept for the log. A refusal of the caller's
-/// own input (a malformed body, an unknown enrolment) says what was wrong.
-/// [VLD-ANB-MIDGARD-0053]
+/// own input (a malformed body, an unknown enrolment) says what was wrong, and so does
+/// a 501 for a route this gateway does not serve (no durable identity directory): a
+/// fact about its configuration, not a fault. [VLD-ANB-MIDGARD-0053]
+/// [VLD-ANB-MIDGARD-0066]
 fn admin_refusal(status: u16, message: &str) -> Response {
     match status {
+        501 => Response::json(501, error_json(message).encode()),
         500.. => Response::internal(message),
         403 => Response::json(403, error_json("refused").encode()).with_detail(message),
         401 => Response::json(401, error_json("unauthorised").encode()).with_detail(message),

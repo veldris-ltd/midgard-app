@@ -26,7 +26,9 @@ pub mod token;
 pub use auth::{
     AuthError, Authenticator, Login, MfaProof, PasswordUpgrade, UpgradingAuthenticator,
 };
-pub use directory::{Credentials, Directory, DurableDirectory, Enrollment, InMemoryDirectory};
+pub use directory::{
+    Activation, Credentials, Directory, DurableDirectory, Enrollment, InMemoryDirectory,
+};
 pub use federation::{
     federated_login, FederatedClaims, FederatedIdp, FederationError, PqFederation,
 };
