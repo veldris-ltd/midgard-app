@@ -34,7 +34,10 @@
 //!   issued for. [MG-SEC-03] [MG-SEC-02] [VLD-ANB-MIDGARD-0046]
 //! - The ticket carries the clearance and purpose the full handshake actually
 //!   authorised — the lower of the certificate's grant and the request — so a
-//!   resumed connection is re-authorised as the original was. [MG-SEC-04]
+//!   resumed connection is re-authorised as the original was. [MG-SEC-04] The
+//!   purposes the client's certificate binds come from the certificate the ticket
+//!   carries, so the resumed purpose is checked against them again.
+//!   [VLD-ANB-MIDGARD-0063]
 //! - Tickets are time-boxed (a TTL the responder enforces), name the [`TicketKey`]
 //!   that sealed them in their first byte so the responder can rotate keys and keep
 //!   the previous one, and are single-use when the caller supplies a replay guard
@@ -315,8 +318,9 @@ pub fn issue_ticket(
     rng: &mut dyn Rng,
 ) -> Result<Vec<u8>, MtlsError> {
     let not_responder = || MtlsError::Protocol("tickets are issued by the responder".into());
-    let Authorization { clearance, purpose } =
-        session.authorization().cloned().ok_or_else(not_responder)?;
+    let Authorization {
+        clearance, purpose, ..
+    } = session.authorization().cloned().ok_or_else(not_responder)?;
     let cert = session
         .peer_certificate()
         .cloned()
@@ -619,6 +623,7 @@ where
         pdp,
         &body.cert.identity,
         &body.purpose,
+        body.cert.terms.purposes.as_ref(),
         &body.posture,
         resource,
     )?;
@@ -648,6 +653,7 @@ where
         Some(Authorization {
             clearance: body.posture,
             purpose: body.purpose,
+            purposes: body.cert.terms.purposes.clone(),
         }),
         body.suite,
         traffic,
@@ -783,6 +789,7 @@ mod tests {
             Some(Authorization {
                 clearance: posture(),
                 purpose: Purpose("investigation".into()),
+                purposes: None,
             }),
             KemSuiteId::HybridX25519MlKem768,
             SecretArray::new([0x42; 32]),

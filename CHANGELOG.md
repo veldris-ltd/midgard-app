@@ -347,6 +347,30 @@ CONTRIBUTING.md for the version policy.
 - **Clearance comes from the certificate.** [MG-SEC-04] A certificate carries the
   clearance it grants (`mg-admin mesh issue --clearance`); the server authorizes the
   lower of that and what the client asks for, and keeps it on the session.
+- **Permitted purposes are certificate attributes too, and mesh services authorise
+  each request at the certified clearance.** [VLD-ANB-MIDGARD-0063]
+  - `mg-admin mesh issue`, `renew` and `upgrade` take `--purposes P[,P...]`. A
+    certificate that binds purposes is version 3 (`MGCERT3`, signed under its own
+    domain tag), and a channel declared for any other purpose is refused
+    (`AuthzError::PurposeNotCertified`). Without `--purposes` the certificate binds
+    none and is written as version 2, byte for byte as before; `renew` keeps the
+    purposes the old certificate bound. Existing `MGCERT2` certificates load, verify
+    and connect unchanged and stay unconstrained in purpose: the control takes
+    effect for a service once its clients are reissued with `--purposes`. A release
+    before this one refuses `MGCERT3` files and handshakes carrying them; roll back by
+    reissuing with that release's `mg-admin`.
+  - The gateway hands every request handler the channel's `Authorization` (the
+    certified clearance capped by the requested posture, the declared purpose and the
+    certificate's purposes). `service_runtime::mesh_context` builds the per-request
+    policy context from it; heimdall-feed, bifrost-fleet, mimir inference and the
+    gateway's mesh sync use it instead of a hand-built UNCLASSIFIED clearance.
+  - A mesh sync from a workload whose certificate binds purposes is refused whole if
+    any record is marked above the clearance it is certified at
+    (`marking-above-sync-clearance`, audited). Older certificates are not held to it.
+  - `heimdall-feed`, `bifrost-fleet` and `mimir-server` take
+    `--resource-marking BAND[:COMPARTMENT,...]` (default `open`, as before). A
+    deployment that marks a resource above open must reissue its clients with a
+    matching `--clearance`, or their channels are refused.
 - **Keys are wiped from memory.** [MG-SEC-08] The X25519 and AES libraries are built
   with their zeroize features, intermediate secrets are wiped, the ML-KEM secret-key
   buffer is allocated at its final size, and a failure to lock memory is logged

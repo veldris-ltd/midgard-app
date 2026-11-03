@@ -298,6 +298,125 @@ fn mesh_certificates_expire_revoke_and_renew() {
     }
 }
 
+/// VLD-ANB-MIDGARD-0063: `--clearance`, `--compartments` and `--purposes` are signed
+/// into the certificate (version 3) and named in the summary; without `--purposes`
+/// the certificate binds none and is still written as version 2; and a renewal keeps
+/// the purposes it bound.
+#[test]
+fn mesh_issue_binds_clearance_and_purposes_into_the_certificate() {
+    // [VLD-ANB-MIDGARD-0063] [AC-22.5]
+    let dir = scratch("attributes");
+    let dir_arg = dir.display().to_string();
+    let out = dir.with_extension("feed-clients");
+    let out_arg = out.display().to_string();
+    assert!(mg_admin(&["init", "--state-dir", &dir_arg])
+        .status
+        .success());
+
+    let issued = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "feed-source-1",
+        "--roles",
+        "feed-source",
+        "--out",
+        &out_arg,
+        "--clearance",
+        "internal",
+        "--compartments",
+        "OPS-N",
+        "--purposes",
+        "situational-awareness,training",
+    ]);
+    assert!(issued.status.success(), "{}", stderr(&issued));
+    let summary = String::from_utf8_lossy(&issued.stdout).into_owned();
+    assert!(
+        summary.contains("clearance internal:OPS-N, purposes situational-awareness,training"),
+        "{summary}"
+    );
+    let path = out.join("feed-source-1.cert");
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(pq_mtls::CERT3_MAGIC));
+    let cert = decode_cert(&bytes).unwrap();
+    assert_eq!(
+        cert.terms.clearance.level,
+        http_gateway::enclosure::level_of("internal").unwrap()
+    );
+    assert_eq!(
+        cert.terms.clearance.compartments,
+        [policy::Compartment("OPS-N".into())].into_iter().collect()
+    );
+    let purposes: std::collections::BTreeSet<policy::Purpose> = [
+        policy::Purpose("situational-awareness".into()),
+        policy::Purpose("training".into()),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(cert.terms.purposes, Some(purposes.clone()));
+    let anchor = decode_anchor(&std::fs::read(out.join("mesh.anchor")).unwrap()).unwrap();
+    verify_cert(&cert, &anchor, &fips_provider(), now()).unwrap();
+
+    // A renewal on a timer keeps what the certificate bound.
+    let renewed = mg_admin(&[
+        "mesh",
+        "renew",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "feed-source-1",
+        "--out",
+        &out_arg,
+        "--clearance",
+        "internal",
+    ]);
+    assert!(renewed.status.success(), "{}", stderr(&renewed));
+    let renewed = decode_cert(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(renewed.terms.purposes, Some(purposes));
+
+    // Without --purposes, nothing is bound and the certificate is version 2.
+    let plain = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "picture-analyst",
+        "--roles",
+        "picture-reader",
+        "--out",
+        &out_arg,
+    ]);
+    assert!(plain.status.success(), "{}", stderr(&plain));
+    assert!(String::from_utf8_lossy(&plain.stdout).contains("purposes any (none bound)"));
+    let bytes = std::fs::read(out.join("picture-analyst.cert")).unwrap();
+    assert!(bytes.starts_with(pq_mtls::CERT_MAGIC));
+    assert_eq!(decode_cert(&bytes).unwrap().terms.purposes, None);
+
+    // An empty purpose list is a usage error.
+    let empty = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "svc-empty",
+        "--roles",
+        "r",
+        "--out",
+        &out_arg,
+        "--purposes",
+        ",",
+    ]);
+    assert_eq!(empty.status.code(), Some(2), "{}", stderr(&empty));
+
+    for d in [&dir, &out] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 /// MG-SEC-02 upgrade: a service issued by an earlier release (its certificate and
 /// trust anchor in a format this release refuses, and no revocation list) is brought up
 /// to date in place. Both keystores are kept byte for byte, so its ledger and sealed

@@ -10,7 +10,14 @@
 //! - certificates are checked against their validity window on every handshake
 //!   [MG-SEC-02] and against the live revocation state [MG-SEC-03];
 //! - the responder authorises a peer at the lower of the clearance its certificate
-//!   grants and the posture it requests [MG-SEC-04];
+//!   grants and the posture it requests [MG-SEC-04]: the lower level and only the
+//!   compartments in both, so a posture above the certificate yields the
+//!   certificate's clearance, never more;
+//! - a certificate that binds purposes (version 3) admits only a channel declared for
+//!   one of them: the subject's purposes are the certificate's intersected with the
+//!   declared one, and an empty intersection is refused before the policy is asked.
+//!   A version 2 certificate binds none, and any purpose the policy allows is accepted
+//!   [VLD-ANB-MIDGARD-0063];
 //! - both sides require a hybrid (ML-KEM + X25519, X-Wing combined) suite unless a
 //!   caller explicitly opts out [MG-SEC-12].
 
@@ -187,15 +194,26 @@ fn mac(key: &[u8; 32], label: &[u8]) -> [u8; 32] {
     hmac_sha256(key, label)
 }
 
+/// Authorise `peer` to open a channel to `resource` for `purpose`, at `posture` (the
+/// effective clearance already computed from its certificate). `certified` is the set
+/// of purposes the peer's certificate binds, if it binds any: the subject's purposes
+/// are those intersected with the declared one, so a purpose outside the certificate
+/// is refused whatever the policy says. [MG-SEC-04] [VLD-ANB-MIDGARD-0063]
 pub(crate) fn authorize(
     pdp: &dyn PolicyDecisionPoint,
     peer: &WorkloadIdentity,
     purpose: &Purpose,
+    certified: Option<&BTreeSet<Purpose>>,
     posture: &Posture,
     resource: &Resource,
 ) -> Result<(), MtlsError> {
-    let mut purposes = BTreeSet::new();
-    purposes.insert(purpose.clone());
+    let purposes: BTreeSet<Purpose> = match certified {
+        Some(bound) => bound.iter().filter(|p| *p == purpose).cloned().collect(),
+        None => [purpose.clone()].into_iter().collect(),
+    };
+    if purposes.is_empty() {
+        return Err(MtlsError::Authz(AuthzError::PurposeNotCertified));
+    }
     let subject = Subject {
         id: SubjectId(peer.id.0.clone()),
         roles: peer.roles.clone(),
@@ -574,10 +592,13 @@ impl<'a> Responder<'a> {
         // The peer is authorised at what its certificate grants, capped by what it
         // asked for — never at a level it merely claims. [MG-SEC-04]
         let clearance = effective_clearance(&cert.terms.clearance, &requested);
+        // And for a purpose its certificate binds, if it binds any.
+        // [VLD-ANB-MIDGARD-0063]
         authorize(
             self.pdp,
             &cert.identity,
             &purpose,
+            cert.terms.purposes.as_ref(),
             &clearance,
             &self.channel_resource,
         )?;
@@ -590,7 +611,11 @@ impl<'a> Responder<'a> {
         let session = Session::new(
             cert.identity.clone(),
             peer_cert,
-            Some(Authorization { clearance, purpose }),
+            Some(Authorization {
+                clearance,
+                purpose,
+                purposes: cert.terms.purposes.clone(),
+            }),
             suite,
             traffic,
         )

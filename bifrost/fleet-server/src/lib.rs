@@ -31,11 +31,12 @@ use bifrost_fleet::{
     AgentReport, ChannelAssignment, DurableFleet, DurableFleetError, FleetError, NodeStatus,
 };
 use bifrost_rollout::VersionId;
-use gateway::{RequestHandler, Router};
-use governance::{GovContext, Governance};
-use policy::{ClassificationLevel, Clearance, Purpose, Resource};
-use pq_mtls::WorkloadIdentity;
+use gateway::{Authorised, RequestHandler, Router};
+use governance::Governance;
+use policy::{Purpose, Resource};
+use pq_mtls::{Authorization, WorkloadIdentity};
 use service_runtime::json::{parse, Json};
+use service_runtime::mesh_context;
 use service_runtime::strict_json::{no_repeated_keys, object, only_keys};
 use service_runtime::sync::{lock_resource, recover_noting, RECOVERED_POISONED_LOCK};
 use telemetry::{Logger, MetricsRegistry, StdoutJsonSink};
@@ -109,22 +110,37 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
     /// [`SET_CHANNEL`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
-        let check_in: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.check_in(peer, body));
+        let check_in: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.check_in(peer, auth, body)
+            },
+        ));
         let service = self.clone();
-        let status: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, _: &[u8]| service.status(peer));
+        let status: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, _: &[u8]| {
+                service.status(peer, auth)
+            },
+        ));
         let service = self.clone();
-        let set_channel: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.set_channel(peer, body));
+        let set_channel: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.set_channel(peer, auth, body)
+            },
+        ));
         Router::new()
             .route(CHECK_IN, check_in)
             .route(FLEET_STATUS, status)
             .route(SET_CHANNEL, set_channel)
     }
 
-    /// Record an agent's check-in.
-    pub fn check_in(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+    /// Record an agent's check-in from `peer`, which the channel authorised as
+    /// `authorization`.
+    pub fn check_in(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        body: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
         let report = AgentReport::decode(body);
         // A malformed check-in is still an authenticated call, and is still audited.
@@ -133,20 +149,21 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         } else {
             "CheckIn:MALFORMED"
         };
-        let decision =
-            match self
-                .governance()
-                .authorize(&self.context(peer), &self.resource, action, now)
-            {
-                Ok(decision) => decision,
-                Err(_) => {
-                    return self.reply(
-                        CHECK_IN,
-                        outcome::FAILED,
-                        "the check-in could not be audited",
-                    )
-                }
-            };
+        let decision = match self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
+            &self.resource,
+            action,
+            now,
+        ) {
+            Ok(decision) => decision,
+            Err(_) => {
+                return self.reply(
+                    CHECK_IN,
+                    outcome::FAILED,
+                    "the check-in could not be audited",
+                )
+            }
+        };
         let report = match report {
             Ok(report) => report,
             Err(e) => return self.reply(CHECK_IN, outcome::MALFORMED, e),
@@ -213,7 +230,12 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
     /// Move an installation to another configured channel: the operator's action, and
     /// the only way an installation's channel changes after it registers. The move is
     /// audited against the installation. [VLD-ANB-MIDGARD-0042]
-    pub fn set_channel(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+    pub fn set_channel(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        body: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
         let assignment = ChannelAssignment::decode(body);
         let action = if assignment.is_ok() {
@@ -221,20 +243,21 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
         } else {
             "SetChannel:MALFORMED"
         };
-        let decision =
-            match self
-                .governance()
-                .authorize(&self.context(peer), &self.resource, action, now)
-            {
-                Ok(decision) => decision,
-                Err(_) => {
-                    return self.reply(
-                        SET_CHANNEL,
-                        outcome::FAILED,
-                        "the channel assignment could not be audited",
-                    )
-                }
-            };
+        let decision = match self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
+            &self.resource,
+            action,
+            now,
+        ) {
+            Ok(decision) => decision,
+            Err(_) => {
+                return self.reply(
+                    SET_CHANNEL,
+                    outcome::FAILED,
+                    "the channel assignment could not be audited",
+                )
+            }
+        };
         let assignment = match assignment {
             Ok(assignment) => assignment,
             Err(e) => return self.reply(SET_CHANNEL, outcome::MALFORMED, e),
@@ -283,10 +306,10 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
     }
 
     /// The fleet as JSON: channels, installations with liveness, drift, convergence.
-    pub fn status(&self, peer: &WorkloadIdentity) -> Vec<u8> {
+    pub fn status(&self, peer: &WorkloadIdentity, authorization: &Authorization) -> Vec<u8> {
         let now = (self.clock)();
         let decision = self.governance().authorize(
-            &self.context(peer),
+            &mesh_context(peer, authorization, &self.purpose),
             &self.resource,
             ACTION_READ_FLEET,
             now,
@@ -361,18 +384,6 @@ impl<S: LedgerStore + Send + 'static> FleetService<S> {
             ("converged", Json::Bool(fleet.is_converged())),
         ]);
         self.reply(FLEET_STATUS, outcome::ACCEPTED, &body.encode())
-    }
-
-    fn context(&self, peer: &WorkloadIdentity) -> GovContext {
-        GovContext {
-            subject: peer.id.0.clone(),
-            roles: peer.roles.clone(),
-            clearance: Clearance {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: Default::default(),
-            },
-            purpose: self.purpose.clone(),
-        }
     }
 
     /// The governance spine, staying usable after a panic elsewhere: a recovery from

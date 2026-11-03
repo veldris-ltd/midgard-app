@@ -44,8 +44,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use audit_writer::{LedgerStore, SealedEntry};
-use gateway::{RequestHandler, Router};
-use governance::{AuditContext, GovContext, Governance, Outcome};
+use gateway::{Authorised, RequestHandler, Router};
+use governance::{AuditContext, Governance, Outcome};
 use heimdall_feed_gateway::{
     decode_signed_observation, FeedError, FeedGateway, FeedRegistry, FreshnessPolicy, ReplayGuard,
     VerifiedObservation, MAX_SEEN_PER_FEED,
@@ -56,10 +56,11 @@ use heimdall_picture::{
     TrackedEntity,
 };
 use heimdall_store::{DurablePicture, StoreError};
-use policy::{ClassificationLevel, Clearance, Purpose, Resource};
-use pq_mtls::WorkloadIdentity;
+use policy::{Purpose, Resource};
+use pq_mtls::{Authorization, WorkloadIdentity};
 use pqc_agility::SharedProvider;
 use service_runtime::json::{self, Json};
+use service_runtime::mesh_context;
 use service_runtime::sync::{lock_resource, recover_noting, RECOVERED_POISONED_LOCK};
 use telemetry::{Logger, MetricsRegistry, StdoutJsonSink};
 
@@ -418,18 +419,30 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     /// The router the PQ-mTLS gateway serves: [`INGEST`] and [`READ_PICTURE`].
     pub fn router(self: &Arc<Self>) -> Router {
         let service = self.clone();
-        let ingest: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.ingest(peer, body));
+        let ingest: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.ingest(peer, auth, body)
+            },
+        ));
         let service = self.clone();
-        let read: Arc<dyn RequestHandler> =
-            Arc::new(move |peer: &WorkloadIdentity, body: &[u8]| service.read_picture(peer, body));
+        let read: Arc<dyn RequestHandler> = Arc::new(Authorised(
+            move |peer: &WorkloadIdentity, auth: &Authorization, body: &[u8]| {
+                service.read_picture(peer, auth, body)
+            },
+        ));
         Router::new()
             .route(INGEST, ingest)
             .route(READ_PICTURE, read)
     }
 
-    /// Admit, fuse and persist one signed observation.
-    pub fn ingest(&self, peer: &WorkloadIdentity, body: &[u8]) -> Vec<u8> {
+    /// Admit, fuse and persist one signed observation from `peer`, which the channel
+    /// authorised as `authorization`.
+    pub fn ingest(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        body: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
         let signed = decode_signed_observation(body);
         // A malformed submission is still an authenticated call, and is still audited.
@@ -438,20 +451,21 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         } else {
             "Ingest:MALFORMED"
         };
-        let decision =
-            match self
-                .governance()
-                .authorize(&self.context(peer), &self.resource, action, now)
-            {
-                Ok(decision) => decision,
-                Err(_) => {
-                    return self.reply(
-                        INGEST,
-                        outcome::FAILED,
-                        "the observation could not be audited",
-                    )
-                }
-            };
+        let decision = match self.governance().authorize(
+            &mesh_context(peer, authorization, &self.purpose),
+            &self.resource,
+            action,
+            now,
+        ) {
+            Ok(decision) => decision,
+            Err(_) => {
+                return self.reply(
+                    INGEST,
+                    outcome::FAILED,
+                    "the observation could not be audited",
+                )
+            }
+        };
         let signed = match signed {
             Ok(signed) => signed,
             Err(e) => return self.reply(INGEST, outcome::MALFORMED, &e.to_string()),
@@ -621,10 +635,15 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
     /// hidden layers unless `includeHidden`. The limit is halved until the body fits
     /// in [`MAX_PAGE_BODY`]; the page says `total`, `offset`, the `limit` it used and
     /// whether it is `truncated` (more follow). [VLD-ANB-MIDGARD-0017]
-    pub fn read_picture(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    pub fn read_picture(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8> {
         let now = (self.clock)();
         match self.governance().authorize(
-            &self.context(peer),
+            &mesh_context(peer, authorization, &self.purpose),
             &self.resource,
             ACTION_READ_PICTURE,
             now,
@@ -675,18 +694,6 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Err(_) => format!("{message} (not audited)"),
         };
         self.reply(INGEST, outcome::DENIED, &message)
-    }
-
-    fn context(&self, peer: &WorkloadIdentity) -> GovContext {
-        GovContext {
-            subject: peer.id.0.clone(),
-            roles: peer.roles.clone(),
-            clearance: Clearance {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: Default::default(),
-            },
-            purpose: self.purpose.clone(),
-        }
     }
 
     /// The governance spine, staying usable after a panic elsewhere: a recovery from

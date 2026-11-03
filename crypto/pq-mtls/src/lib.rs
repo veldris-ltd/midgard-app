@@ -55,5 +55,6 @@ pub use session::{Authorization, Session};
 pub use wire::{
     decode_anchor, decode_cert, decode_message, encode_anchor, encode_cert, encode_message,
     read_frame, read_frame_limited, read_handshake_frame, run_initiator, run_responder,
-    write_frame, TcpChannel, ANCHOR_MAGIC, CERT_MAGIC, MAX_HANDSHAKE_FRAME, MAX_RECORD_FRAME,
+    write_frame, TcpChannel, ANCHOR_MAGIC, CERT3_MAGIC, CERT_MAGIC, MAX_HANDSHAKE_FRAME,
+    MAX_RECORD_FRAME,
 };

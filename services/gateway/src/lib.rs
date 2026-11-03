@@ -55,9 +55,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use policy::{PolicyDecisionPoint, Resource};
 use pq_mtls::{
-    issue_ticket, read_frame, run_responder, run_resume_responder, write_frame, IdentityCert,
-    MtlsError, Record, Responder, Role, TcpChannel, TicketKey, TransportError, TrustAnchor,
-    WorkloadIdentity, MODE_FULL, MODE_RESUME, NEW_TICKET_AAD,
+    issue_ticket, read_frame, run_responder, run_resume_responder, write_frame, Authorization,
+    IdentityCert, MtlsError, Record, Responder, Role, TcpChannel, TicketKey, TransportError,
+    TrustAnchor, WorkloadIdentity, MODE_FULL, MODE_RESUME, NEW_TICKET_AAD,
 };
 use pqc_agility::{sha256, CryptoProvider, OsRng, Rng, SigningKey};
 
@@ -81,30 +81,67 @@ pub fn close_stream(
     write_frame(stream, &sealer.seal_close(RECORD_AAD)?).map_err(MtlsError::Transport)
 }
 
+/// What a responder session authorised its peer for. Every responder session has one;
+/// a session without it is never served. [VLD-ANB-MIDGARD-0063]
+fn authorization_of(session: &pq_mtls::Session) -> Result<Authorization, MtlsError> {
+    session
+        .authorization()
+        .cloned()
+        .ok_or_else(|| MtlsError::Protocol("the session carries no authorisation".into()))
+}
+
 // ---- request handling & routing -------------------------------------------
 
 /// Handles an authenticated request. The gateway has already established the
 /// peer's identity and authorised the connection before this is called.
 pub trait RequestHandler: Send + Sync {
-    /// Produce a response for `request` from the authenticated `peer`.
-    fn handle(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8>;
+    /// Produce a response for `request` from the authenticated `peer`, which the
+    /// channel authorised as `authorization`: the clearance its certificate grants
+    /// (capped by what it asked for), its declared purpose, and the purposes its
+    /// certificate binds. [MG-SEC-04] [VLD-ANB-MIDGARD-0063]
+    fn handle(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8>;
 }
 
 /// Any `Fn(peer, request) -> response` is a handler — convenient for wiring
-/// control-plane services (fabric / governance / KMS) as closures.
+/// control-plane services (fabric / governance / KMS) as closures. A handler that
+/// needs the channel's authorisation is wrapped in [`Authorised`] instead.
 impl<F> RequestHandler for F
 where
     F: Fn(&WorkloadIdentity, &[u8]) -> Vec<u8> + Send + Sync,
 {
-    fn handle(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    fn handle(&self, peer: &WorkloadIdentity, _: &Authorization, request: &[u8]) -> Vec<u8> {
         self(peer, request)
+    }
+}
+
+/// A `Fn(peer, authorization, request) -> response` handler: one whose decisions use
+/// what the channel authorised the peer for, such as a mesh service building its
+/// per-request policy context from the certified clearance. [VLD-ANB-MIDGARD-0063]
+pub struct Authorised<F>(pub F);
+
+impl<F> RequestHandler for Authorised<F>
+where
+    F: Fn(&WorkloadIdentity, &Authorization, &[u8]) -> Vec<u8> + Send + Sync,
+{
+    fn handle(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8> {
+        (self.0)(peer, authorization, request)
     }
 }
 
 /// A trivial echo handler (useful as a health/loopback endpoint and in tests).
 pub struct EchoHandler;
 impl RequestHandler for EchoHandler {
-    fn handle(&self, _peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    fn handle(&self, _peer: &WorkloadIdentity, _: &Authorization, request: &[u8]) -> Vec<u8> {
         request.to_vec()
     }
 }
@@ -173,7 +210,12 @@ impl Router {
 }
 
 impl RequestHandler for Router {
-    fn handle(&self, peer: &WorkloadIdentity, request: &[u8]) -> Vec<u8> {
+    fn handle(
+        &self,
+        peer: &WorkloadIdentity,
+        authorization: &Authorization,
+        request: &[u8],
+    ) -> Vec<u8> {
         let (method, payload) = match parse_request(request) {
             Some(x) => x,
             None => return vec![status::BAD_REQUEST],
@@ -182,7 +224,7 @@ impl RequestHandler for Router {
             Some(h) => {
                 let mut out = Vec::with_capacity(1 + payload.len());
                 out.push(status::OK);
-                out.extend_from_slice(&h.handle(peer, payload));
+                out.extend_from_slice(&h.handle(peer, authorization, payload));
                 out
             }
             None => vec![status::NO_ROUTE],
@@ -696,6 +738,7 @@ impl Gateway {
         let mut ch = TcpChannel::new(stream);
         let session = run_responder(responder, &mut ch)?;
         let peer = session.peer().clone();
+        let authorization = authorization_of(&session)?;
         let mut stream = ch.into_stream();
 
         let (mut sealer, opener) = session.records(Role::Responder);
@@ -713,7 +756,7 @@ impl Gateway {
             }
         }
 
-        self.serve_requests(&mut stream, &peer, sealer, opener)?;
+        self.serve_requests(&mut stream, &peer, &authorization, sealer, opener)?;
         Ok(peer)
     }
 
@@ -755,8 +798,9 @@ impl Gateway {
             &mut rng,
         )?;
         let peer = resumed.client.clone();
+        let authorization = authorization_of(&resumed.session)?;
         let (sealer, opener) = resumed.session.records(Role::Responder);
-        self.serve_requests(&mut stream, &peer, sealer, opener)?;
+        self.serve_requests(&mut stream, &peer, &authorization, sealer, opener)?;
         Ok(peer)
     }
 
@@ -770,6 +814,7 @@ impl Gateway {
         &self,
         stream: &mut TcpStream,
         peer: &WorkloadIdentity,
+        authorization: &Authorization,
         mut sealer: pq_mtls::RecordSealer,
         mut opener: pq_mtls::RecordOpener,
     ) -> Result<(), MtlsError> {
@@ -806,7 +851,7 @@ impl Gateway {
             if self.max_requests_per_conn != 0 && served > self.max_requests_per_conn {
                 break;
             }
-            let response = self.handler.handle(peer, &request);
+            let response = self.handler.handle(peer, authorization, &request);
             write_frame(stream, &sealer.seal(RECORD_AAD, &response)?)
                 .map_err(MtlsError::Transport)?;
         }

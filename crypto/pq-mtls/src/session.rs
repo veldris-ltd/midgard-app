@@ -5,6 +5,8 @@
 //! [`crate::record::RecordOpener`]); a completed session hands out a sealer/opener
 //! pair via [`Session::records`]. [NFR-SEC-1]
 
+use std::collections::BTreeSet;
+
 use policy::Purpose;
 use pqc_agility::{KemSuiteId, SecretArray};
 
@@ -12,15 +14,20 @@ use crate::identity::{IdentityCert, WorkloadIdentity};
 use crate::posture::Posture;
 
 /// What the responder authorised the peer for: the effective clearance (the lower of
-/// what its certificate grants and what it asked for) and the declared purpose. A
-/// resumption ticket carries exactly this, so a resumed connection is re-authorised
-/// as the full handshake was. [MG-SEC-04]
+/// what its certificate grants and what it asked for), the declared purpose, and the
+/// purposes its certificate binds. A resumption ticket carries exactly this, so a
+/// resumed connection is re-authorised as the full handshake was. [MG-SEC-04]
+/// [VLD-ANB-MIDGARD-0063]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Authorization {
     /// The clearance the peer was authorised at.
     pub clearance: Posture,
-    /// The purpose the peer declared.
+    /// The purpose the peer declared: one its certificate binds, if it binds any.
     pub purpose: Purpose,
+    /// The purposes the peer's certificate binds; `None` for a certificate that binds
+    /// none (version 2). Services use it to tell a certificate issued with attributes
+    /// from one issued before them.
+    pub purposes: Option<BTreeSet<Purpose>>,
 }
 
 /// The peer certificate facts a session keeps so resumption can re-check them.

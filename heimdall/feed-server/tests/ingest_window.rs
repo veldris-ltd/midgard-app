@@ -27,7 +27,7 @@ use heimdall_picture::{Attr, FeedId, Observation};
 use heimdall_store::DurablePicture;
 use iam::IDP_SIG_ALG;
 use policy::{ClassificationLevel, DefaultPdp, Marking, Purpose, Resource, ResourceId, Role};
-use pq_mtls::{ServiceId, WorkloadIdentity};
+use pq_mtls::{Authorization, Posture, ServiceId, WorkloadIdentity};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{OsRng, SignatureScheme, SigningKey};
 use service_runtime::json::{parse, Json};
@@ -180,7 +180,7 @@ impl Fixture {
 
     /// Submit as radar-1: the outcome byte and the message.
     fn ingest(&self, body: &[u8]) -> (u8, String) {
-        let response = self.service.ingest(&self.radar, body);
+        let response = self.service.ingest(&self.radar, &channel(), body);
         (
             response[0],
             String::from_utf8_lossy(&response[1..]).into_owned(),
@@ -189,7 +189,7 @@ impl Fixture {
 
     /// The picture as the analyst reads it.
     fn picture(&self) -> Json {
-        let response = self.service.read_picture(&self.analyst, b"");
+        let response = self.service.read_picture(&self.analyst, &channel(), b"");
         assert_eq!(response[0], outcome::ACCEPTED);
         parse(&String::from_utf8_lossy(&response[1..])).expect("the picture is JSON")
     }
@@ -220,6 +220,17 @@ impl Fixture {
 
 /// An observation dated ten years ahead of the server's clock is refused, never fused,
 /// and its refusal is in the ledger with its reason and the entity key. [AC-23.1]
+
+/// What the channel authorised a peer with a certificate issued before attributes for:
+/// unclassified, binding no purposes. [VLD-ANB-MIDGARD-0063]
+fn channel() -> Authorization {
+    Authorization {
+        clearance: Posture::unclassified(),
+        purpose: Purpose("situational-awareness".into()),
+        purposes: None,
+    }
+}
+
 #[test]
 fn an_observation_ten_years_ahead_is_refused_and_audited() {
     let f = fixture("future");

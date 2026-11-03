@@ -7,11 +7,18 @@
 //! certificate stops working when its window closes [MG-SEC-02], and the clearance a
 //! peer is authorised at comes from what the CA granted, never from what the peer
 //! asks for [MG-SEC-04].
+//!
+//! Version 3 adds the purposes the holder may declare, so the purpose a peer opens a
+//! channel for is one the CA signed too. A certificate that binds no purposes is
+//! version 2, byte for byte, so certificates issued before version 3 still load and
+//! verify, and are unconstrained in purpose. The two versions sign under different
+//! domain tags: purposes cannot be stripped from a version 3 certificate, or added to
+//! a version 2 one, without breaking its signature. [VLD-ANB-MIDGARD-0063]
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 
-use policy::{ClassificationLevel, Role};
+use policy::{ClassificationLevel, Purpose, Role};
 use pqc_agility::hash::sha256;
 use pqc_agility::{CryptoError, CryptoProvider, SigId, Signature, SigningKey, VerifyingKey};
 
@@ -20,6 +27,8 @@ use crate::posture::Posture;
 
 /// Domain separation for the signed certificate body (version 2).
 const CERT_BODY_TAG: &[u8] = b"midgard-pqmtls-cert-v2";
+/// Domain separation for the signed certificate body (version 3: with purposes).
+const CERT_BODY_TAG_V3: &[u8] = b"midgard-pqmtls-cert-v3";
 
 /// A service/workload name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,17 +59,36 @@ pub struct CertTerms {
     /// The highest clearance the holder may be authorised at. A peer that asks for
     /// more in its handshake is held to this. [MG-SEC-04]
     pub clearance: Posture,
+    /// The purposes the holder may declare when it opens a channel; a channel declared
+    /// for any other is refused. `None`: the certificate binds no purposes (version 2,
+    /// including every certificate issued before version 3), and any purpose the
+    /// channel's policy allows is accepted. [VLD-ANB-MIDGARD-0063]
+    pub purposes: Option<BTreeSet<Purpose>>,
 }
 
 impl CertTerms {
-    /// Terms valid over `[not_before, not_after)` granting `clearance`.
+    /// Terms valid over `[not_before, not_after)` granting `clearance`, binding no
+    /// purposes (see [`CertTerms::with_purposes`]).
     pub fn new(serial: u64, not_before: u64, not_after: u64, clearance: Posture) -> Self {
         Self {
             serial,
             not_before,
             not_after,
             clearance,
+            purposes: None,
         }
+    }
+
+    /// These terms, binding the holder to `purposes`: a version 3 certificate.
+    /// [VLD-ANB-MIDGARD-0063]
+    pub fn with_purposes(mut self, purposes: impl IntoIterator<Item = Purpose>) -> Self {
+        self.purposes = Some(purposes.into_iter().collect());
+        self
+    }
+
+    /// Whether the holder may declare `purpose`: always, if the terms bind none.
+    pub fn permits_purpose(&self, purpose: &Purpose) -> bool {
+        self.purposes.as_ref().is_none_or(|p| p.contains(purpose))
     }
 
     /// Whether `now` falls inside the validity window.
@@ -271,9 +299,16 @@ pub fn canonical_identity(id: &WorkloadIdentity) -> Vec<u8> {
 
 /// Canonical, injective encoding of what the CA signs: a version tag, the identity
 /// and its terms. Also folded into the handshake transcript, so the terms each side
-/// saw are bound to the session.
+/// saw are bound to the session. Terms that bind purposes sign as version 3, under
+/// their own tag, with the purposes after the clearance; terms that bind none sign as
+/// version 2, exactly as before. [VLD-ANB-MIDGARD-0063]
 pub fn canonical_cert_body(id: &WorkloadIdentity, terms: &CertTerms) -> Vec<u8> {
-    let mut out = CERT_BODY_TAG.to_vec();
+    let tag = if terms.purposes.is_some() {
+        CERT_BODY_TAG_V3
+    } else {
+        CERT_BODY_TAG
+    };
+    let mut out = tag.to_vec();
     out.extend_from_slice(&canonical_identity(id));
     out.extend_from_slice(&terms.serial.to_le_bytes());
     out.extend_from_slice(&terms.not_before.to_le_bytes());
@@ -284,6 +319,14 @@ pub fn canonical_cert_body(id: &WorkloadIdentity, terms: &CertTerms) -> Vec<u8> 
         let cb = c.0.as_bytes();
         out.extend_from_slice(&(cb.len() as u32).to_le_bytes());
         out.extend_from_slice(cb);
+    }
+    if let Some(purposes) = &terms.purposes {
+        out.extend_from_slice(&(purposes.len() as u32).to_le_bytes());
+        for p in purposes {
+            let pb = p.0.as_bytes();
+            out.extend_from_slice(&(pb.len() as u32).to_le_bytes());
+            out.extend_from_slice(pb);
+        }
     }
     out
 }
