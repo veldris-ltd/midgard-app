@@ -171,8 +171,9 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
     let token = body.str_field("token").unwrap_or_default().to_string();
     assert!(!token.is_empty());
 
-    // Every attempt is in the audit ledger — each refusal under the name it tried, and
-    // the one success — so a spray against an account leaves lineage.
+    // Every attempt is in the audit ledger — each refusal against an enrolled name
+    // under that name, each against any other name under its keyed hash, and the one
+    // success — so a spray against an account leaves lineage. [AC-27.4]
     let audit = gw.handle(
         &Request {
             method: "GET".into(),
@@ -192,9 +193,17 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
             .count()
     };
     assert_eq!(rows("alice", "LOGIN refused"), 3, "{}", audit.body);
-    assert_eq!(rows("mallory", "LOGIN refused"), 1, "{}", audit.body);
-    assert_eq!(rows("stranger-0", "LOGIN refused"), 1, "{}", audit.body);
-    assert_eq!(rows(DEMO_USERNAME, "LOGIN refused"), 1, "{}", audit.body);
+    for unenrolled in ["mallory", "stranger-0", DEMO_USERNAME] {
+        let named = format!(r#""actor":"{unenrolled}""#);
+        assert!(!audit.body.contains(&named), "{}", audit.body);
+    }
+    // mallory, the demo name and five strangers: seven names, seven hashed actors.
+    let hashed: std::collections::BTreeSet<&str> = audit
+        .body
+        .match_indices(r#""actor":"unknown:"#)
+        .map(|(at, m)| &audit.body[at + m.len()..at + m.len() + 16])
+        .collect();
+    assert_eq!(hashed.len(), 7, "{}", audit.body);
     assert_eq!(rows("alice", "LOGIN succeeded"), 1, "{}", audit.body);
     drop(gw);
 

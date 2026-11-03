@@ -29,7 +29,7 @@ use pqc_agility::{OsRng, Rng};
 use crate::connector::{Connector, ConnectorDescriptor, ConnectorKind, SyncContext, SyncOutcome};
 use crate::connectors::file::DelimitedConnector;
 use crate::credential::CredentialRef;
-use crate::error::ConnectorError;
+use crate::error::{redact, ConnectorError};
 use crate::net;
 use crate::wire::{base64_encode, ScramSha256};
 
@@ -162,9 +162,8 @@ impl Connector for KafkaConnector {
         broker.check_versions()?;
         if let Some((user, password)) = &self.sasl {
             let secret = ctx.credentials.resolve(password)?;
-            let password = std::str::from_utf8(secret.expose()).map_err(|_| {
-                ConnectorError::Credential("the Kafka password is not UTF-8".into())
-            })?;
+            let password = std::str::from_utf8(secret.expose())
+                .map_err(|_| ConnectorError::credential("the Kafka password is not UTF-8"))?;
             broker.authenticate(user, password)?;
         }
 
@@ -182,7 +181,7 @@ impl Connector for KafkaConnector {
                 None => earliest[i],
             };
             if start < earliest[i] {
-                return Err(ConnectorError::Io(format!(
+                return Err(ConnectorError::io(format!(
                     "{}: partition {partition} no longer holds offset {start} (it starts at {}); \
                      records were deleted before they were synced",
                     self.topic, earliest[i]
@@ -250,7 +249,7 @@ struct Broker {
 
 impl Broker {
     fn io(&self, e: std::io::Error) -> ConnectorError {
-        ConnectorError::Io(format!("{}: {e}", self.peer))
+        ConnectorError::io_at(&self.peer, e.to_string())
     }
 
     /// Send one request and return the response body after its header.
@@ -273,7 +272,10 @@ impl Broker {
             .ok()
             .filter(|&s| (4..=MAX_RESPONSE).contains(&s))
             .ok_or_else(|| {
-                ConnectorError::Parse(format!("{}: a malformed response size", self.peer))
+                ConnectorError::Parse(format!(
+                    "{}: a malformed response size",
+                    redact::host(&self.peer)
+                ))
             })?;
         let mut response = vec![0u8; size];
         self.stream
@@ -283,7 +285,8 @@ impl Broker {
         if correlation != self.correlation {
             return Err(ConnectorError::Parse(format!(
                 "{}: a response for request {correlation}, not {}",
-                self.peer, self.correlation
+                redact::host(&self.peer),
+                self.correlation
             )));
         }
         response.drain(..4);
@@ -307,10 +310,10 @@ impl Broker {
                 .iter()
                 .any(|&(k, min, max)| k == key && (min..=max).contains(&version))
             {
-                return Err(ConnectorError::Io(format!(
-                    "{} does not support {name}",
-                    self.peer
-                )));
+                return Err(ConnectorError::io_at(
+                    &self.peer,
+                    format!("does not support {name}"),
+                ));
             }
         }
         Ok(())
@@ -327,9 +330,9 @@ impl Broker {
             for _ in 0..r.count()? {
                 offered.push(r.string()?.unwrap_or_default());
             }
-            return Err(ConnectorError::Credential(format!(
+            return Err(ConnectorError::credential(format!(
                 "{} does not accept SASL SCRAM-SHA-256 (it offers {})",
-                self.peer,
+                redact::host(&self.peer),
                 offered.join(", ")
             )));
         }
@@ -342,13 +345,13 @@ impl Broker {
             .map_err(|_| ConnectorError::Parse("a SCRAM challenge that is not UTF-8".into()))?;
         let client_final = scram
             .client_final(&server_first, password)
-            .map_err(ConnectorError::Credential)?;
+            .map_err(ConnectorError::credential)?;
         let server_final = self.sasl_round(client_final.as_bytes())?;
         let server_final = String::from_utf8(server_final)
             .map_err(|_| ConnectorError::Parse("a SCRAM outcome that is not UTF-8".into()))?;
         scram
             .verify_server_final(&server_final)
-            .map_err(ConnectorError::Credential)
+            .map_err(ConnectorError::credential)
     }
 
     fn sasl_round(&mut self, bytes: &[u8]) -> Result<Vec<u8>, ConnectorError> {
@@ -359,9 +362,9 @@ impl Broker {
         let code = r.i16()?;
         let message = r.string()?.unwrap_or_default();
         if code != 0 {
-            return Err(ConnectorError::Credential(format!(
+            return Err(ConnectorError::credential(format!(
                 "{}: SASL authentication failed ({}): {message}",
-                self.peer,
+                redact::host(&self.peer),
                 error_name(code)
             )));
         }
@@ -409,20 +412,20 @@ impl Broker {
                     *node == leader && h == host && i64::from(*p) == i64::from(port)
                 });
                 if !at_bootstrap {
-                    return Err(ConnectorError::Io(format!(
+                    return Err(ConnectorError::io(format!(
                         "{name} partition {partition} is led by broker {leader}, not the \
-                         bootstrap broker {host}:{port}; reading from other brokers is not \
-                         supported"
+                         bootstrap broker {}; reading from other brokers is not supported",
+                        redact::host(&format!("{host}:{port}"))
                     )));
                 }
                 partitions.push(partition);
             }
         }
         if partitions.is_empty() {
-            return Err(ConnectorError::Io(format!(
-                "{}: topic {topic} has no partitions",
-                self.peer
-            )));
+            return Err(ConnectorError::io_at(
+                &self.peer,
+                format!("topic {topic} has no partitions"),
+            ));
         }
         partitions.sort_unstable();
         Ok(partitions)
@@ -625,10 +628,10 @@ fn kafka_error(peer: &str, what: &str, code: i16) -> Result<(), ConnectorError> 
     if code == 0 {
         return Ok(());
     }
-    let detail = format!("{peer}: {what}: {} ({code})", error_name(code));
+    let detail = format!("{what}: {} ({code})", error_name(code));
     Err(match code {
-        31 | 33 | 58 => ConnectorError::Credential(detail),
-        _ => ConnectorError::Io(detail),
+        31 | 33 | 58 => ConnectorError::credential(format!("{}: {detail}", redact::host(peer))),
+        _ => ConnectorError::io_at(peer, detail),
     })
 }
 

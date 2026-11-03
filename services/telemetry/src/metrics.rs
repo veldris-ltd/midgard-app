@@ -12,6 +12,8 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use crate::escape::label_value;
+
 /// A label set, kept sorted so a metric series has one canonical key.
 type Labels = Vec<(String, String)>;
 
@@ -279,7 +281,7 @@ fn render_labels(base: &Labels, extra: &[(&str, &str)]) -> String {
     }
     let inner: Vec<String> = all
         .iter()
-        .map(|(k, v)| format!("{k}=\"{}\"", escape(&truncate(v))))
+        .map(|(k, v)| format!("{k}=\"{}\"", label_value(&truncate(v))))
         .collect();
     format!("{{{}}}", inner.join(","))
 }
@@ -292,12 +294,6 @@ fn truncate(v: &str) -> std::borrow::Cow<'_, str> {
         Some((cut, _)) => format!("{}...", &v[..cut]).into(),
         None => v.into(),
     }
-}
-
-fn escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
 }
 
 fn fmt(v: f64) -> String {

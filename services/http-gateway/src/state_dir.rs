@@ -7,6 +7,7 @@
 //! <state-dir>/
 //!   keys/idp.keystore      ML-DSA-65 issuer key; its custody root seals the directory
 //!   keys/audit.keystore    ML-DSA-65 audit key; its custody root seals ledger and store
+//!   keys/actor-hash.key    HMAC key unenrolled usernames are hashed under (0600)
 //!   trust/idp.pub          issuer verifying key, `<alg> <key-id> <hex>`
 //!   trust/audit.pub        audit verifying key, same format
 //!   policy.json            the discretionary rules the PDP enforces
@@ -65,6 +66,14 @@ impl StateDir {
     /// Where the keystores live.
     pub fn keys(&self) -> PathBuf {
         self.root.join("keys")
+    }
+
+    /// The key unenrolled usernames are hashed under before they reach the ledger:
+    /// 32 random bytes, created on first boot. Back it up with the keystores, or
+    /// `unknown:` actors written before a restore stop matching those written after.
+    /// [AC-27.4] [VLD-ANB-MIDGARD-0065]
+    pub fn actor_hash_key(&self) -> PathBuf {
+        self.keys().join("actor-hash.key")
     }
 
     /// Where the exported verifying keys live.

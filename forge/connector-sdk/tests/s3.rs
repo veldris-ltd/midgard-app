@@ -333,7 +333,7 @@ fn a_wrong_secret_a_bad_object_and_a_denied_egress_fail_closed() {
         .sync(&SyncContext::new(&Key("not the secret"), &sandbox))
         .expect_err("refused");
     assert!(
-        matches!(&e, ConnectorError::Credential(m) if m.contains("SignatureDoesNotMatch")),
+        matches!(&e, ConnectorError::Credential { detail, .. } if detail.contains("SignatureDoesNotMatch")),
         "{e}"
     );
 

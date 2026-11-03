@@ -22,7 +22,7 @@ use forge_dataset_store::{Dataset, Schema};
 use crate::connector::{Connector, ConnectorDescriptor, ConnectorKind, SyncContext, SyncOutcome};
 use crate::connectors::file::DelimitedConnector;
 use crate::credential::CredentialRef;
-use crate::error::ConnectorError;
+use crate::error::{redact, ConnectorError};
 use crate::sigv4::{self, Credentials, EMPTY_PAYLOAD_SHA256};
 use crate::{http, net};
 
@@ -161,15 +161,13 @@ impl S3Connector {
         let body = String::from_utf8_lossy(&response.body);
         let code = element(&body, "Code").unwrap_or_default();
         let message = element(&body, "Message").unwrap_or_default();
-        let detail = format!(
-            "{}:{} {path}: HTTP {} {code}: {message}",
-            self.host, self.port, response.status
-        );
+        let peer = format!("{}:{}", self.host, self.port);
+        let detail = format!("{path}: HTTP {} {code}: {message}", response.status);
         Err(match code.as_str() {
             "SignatureDoesNotMatch" | "InvalidAccessKeyId" | "AccessDenied" => {
-                ConnectorError::Credential(detail)
+                ConnectorError::credential(format!("{} {detail}", redact::host(&peer)))
             }
-            _ => ConnectorError::Io(detail),
+            _ => ConnectorError::io_at(peer, detail),
         })
     }
 
@@ -236,7 +234,7 @@ impl Connector for S3Connector {
     fn sync_incremental(&self, ctx: &SyncContext) -> Result<SyncOutcome, ConnectorError> {
         let secret = ctx.credentials.resolve(&self.secret_key)?;
         let secret = std::str::from_utf8(secret.expose())
-            .map_err(|_| ConnectorError::Credential("the secret key is not UTF-8".into()))?;
+            .map_err(|_| ConnectorError::credential("the secret key is not UTF-8"))?;
 
         let after = ctx.checkpoint.map(|c| {
             let (last_modified, key) = c.split_once(' ').unwrap_or((c, ""));

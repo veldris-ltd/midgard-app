@@ -6,6 +6,8 @@
 
 use std::sync::Mutex;
 
+use crate::escape::json_escape;
+
 /// Log severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
@@ -53,16 +55,16 @@ impl LogRecord {
     pub fn to_json(&self) -> String {
         let mut o = String::from("{");
         o.push_str(&format!("\"level\":\"{}\"", self.level.as_str()));
-        o.push_str(&format!(",\"target\":\"{}\"", esc(&self.target)));
-        o.push_str(&format!(",\"message\":\"{}\"", esc(&self.message)));
+        o.push_str(&format!(",\"target\":\"{}\"", json_escape(&self.target)));
+        o.push_str(&format!(",\"message\":\"{}\"", json_escape(&self.message)));
         if let Some(t) = &self.trace_id {
-            o.push_str(&format!(",\"trace_id\":\"{}\"", esc(t)));
+            o.push_str(&format!(",\"trace_id\":\"{}\"", json_escape(t)));
         }
         if let Some(s) = &self.span_id {
-            o.push_str(&format!(",\"span_id\":\"{}\"", esc(s)));
+            o.push_str(&format!(",\"span_id\":\"{}\"", json_escape(s)));
         }
         for (k, v) in &self.fields {
-            o.push_str(&format!(",\"{}\":\"{}\"", esc(k), esc(v)));
+            o.push_str(&format!(",\"{}\":\"{}\"", json_escape(k), json_escape(v)));
         }
         o.push('}');
         o
@@ -173,10 +175,4 @@ impl<'a> Logger<'a> {
     pub fn error(&self, message: &str, fields: &[(&str, &str)]) {
         self.log(Level::Error, message, fields);
     }
-}
-
-fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
 }
