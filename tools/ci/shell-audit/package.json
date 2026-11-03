@@ -1,0 +1,11 @@
+{
+  "name": "midgard-ci-shell-audit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned tooling for the shell-audit CI job (VLD-ANB-MIDGARD-0058); see README.md",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "http-server": "14.1.1",
+    "wait-on": "8.0.5"
+  }
+}

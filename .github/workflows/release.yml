@@ -67,6 +67,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .ci-cache
@@ -97,6 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          persist-credentials: false
           # The gate record names a commit; checking it needs the history.
           fetch-depth: 0
       - run: bash tools/ci/run.sh release-preflight
@@ -119,6 +122,8 @@ jobs:
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - run: bash tools/ci/run.sh js-build
       - run: bash tools/ci/run.sh release
       - run: bash tools/ci/run.sh release-images
@@ -142,6 +147,8 @@ jobs:
       MIDGARD_PUBLISH_TAG: ${{ inputs.publish }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release

@@ -149,6 +149,21 @@ anchor deploy/trust/bifrost-trust.pub ML-DSA-65 "Bifrost admission key"
 # [VLD-ANB-MIDGARD-0028]
 anchor deploy/trust/model-signing.pub ML-DSA-65 "model signing key"
 
+# 5. Nothing outlives a job on a self-hosted runner: a job-completed hook removes the work
+#    directory, so no checkout, token or build output is left beside the signing
+#    material for the next job. (Checkouts no longer persist the workflow token either.)
+#    [VLD-ANB-MIDGARD-0081]
+if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+    hook="${ACTIONS_RUNNER_HOOK_JOB_COMPLETED:-}"
+    if [ -z "$hook" ]; then
+        bad "ACTIONS_RUNNER_HOOK_JOB_COMPLETED is not set on this self-hosted runner; install the job-completed cleanup hook so no workspace outlives a job"
+    elif [ ! -r "$hook" ]; then
+        bad "ACTIONS_RUNNER_HOOK_JOB_COMPLETED names $hook, which is not a readable file"
+    else
+        ok "job-completed hook $hook"
+    fi
+fi
+
 if [ "$problems" -gt 0 ]; then
     echo "preflight: $problems problem(s); the release stops here, before anything is built or signed"
     exit 1

@@ -257,6 +257,14 @@ here if any is missing:
 4. **Pinned trust anchors.** The public halves from the ceremony, committed as
    `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub` (see
    `deploy/trust/README.md`).
+5. **Nothing outlives a job.** No checkout, token or build output may be left beside
+   the key material for the next job. Install a job-completed hook that removes the
+   work directory (`ACTIONS_RUNNER_HOOK_JOB_COMPLETED` in the runner's `.env`, naming
+   the script), and better still run the runner ephemeral (`./config.sh --ephemeral`,
+   re-registered for each job) as well. The preflight asserts the hook: on a self-hosted
+   runner it fails closed unless that variable names a readable script. The workflows'
+   checkouts set `persist-credentials: false`, so the job token is not written into
+   `.git/config` either (VLD-ANB-MIDGARD-0081).
 
 If any is absent, the preflight **fails closed**, so a release never ships unsigned,
 unscanned, or from a half-provisioned runner.

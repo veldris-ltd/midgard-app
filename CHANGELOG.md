@@ -507,6 +507,17 @@ CONTRIBUTING.md for the version policy.
   manifests (re-vendored by a self-hosted Renovate, by a maintainer otherwise), the
   GitHub Actions SHAs and the GitLab image digests. docs/dev/CI.md, "Dependency
   updates", has the workflow. [VLD-ANB-MIDGARD-0076]
+- **Release-time CI tooling is pinned, and no checkout keeps the workflow token.**
+  The shell-audit job, whose record gates the release, no longer runs `http-server` and
+  `wait-on` by name with `npx --yes`: they are pinned to exact versions (14.1.1 and
+  8.0.5) in `tools/ci/shell-audit/package-lock.json`, with the registry's integrity
+  hashes, installed with `npm ci --ignore-scripts` and run from its `node_modules/.bin`.
+  A selftest lint (`tools/ci/tests/npx-pin.test.sh`) refuses an unpinned `npx` under
+  `tools/`, `.github/` or in `.gitlab-ci.yml`. Every `actions/checkout` step sets
+  `persist-credentials: false` (checked by `tools/ci/tests/workflows.test.sh`), and the
+  release preflight fails closed on a self-hosted runner with no job-completed cleanup
+  hook (`ACTIONS_RUNNER_HOOK_JOB_COMPLETED`); `docs/ops/PKI.md` "Signing runner" item 5
+  is the owner action. [VLD-ANB-MIDGARD-0058] [VLD-ANB-MIDGARD-0081]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry
