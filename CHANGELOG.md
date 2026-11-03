@@ -94,6 +94,12 @@ CONTRIBUTING.md for the version policy.
   IP address, and a job reaching the egress broker must name `127.0.0.1` (the worker's
   `--egress-routes` check no longer accepts `localhost`). `live-connectors.sh` passes
   the containers' addresses. [NFR-PRV-1] [FR-F-2]
+- **`mg-admin mesh upgrade` keeps a certificate's purposes and clearance unless told
+  otherwise.** [VLD-ANB-MIDGARD-0063] Since the upgrade compared the grant asked for,
+  the routine `mesh upgrade --service X --roles Y` on a purpose-bound certificate
+  reissued it with no purposes and at clearance `open`. A flag left out now asks for
+  what the service's own certificate grants (read from a certificate this enclosure
+  signed for this service and key, expired or not); `--no-purposes` drops the binding.
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as
