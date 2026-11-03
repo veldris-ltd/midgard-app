@@ -74,6 +74,16 @@ CONTRIBUTING.md for the version policy.
   the signature covers. `MfaProof::WebAuthn` carries the parser; the edge supplies
   `webauthn_client_data::parse_client_data`. A document the parser refuses is
   `BadClientData`. [VLD-ANB-MIDGARD-0084]
+- **An administrator's challenge answers one operation only.** `POST
+  /api/v1/admin/challenge` now takes `{"admin": ..., "purpose": ...}`, the purpose
+  `request`, `approve`, `reject` or `list` (a request without one is 400), and the reply
+  echoes it. The gateway keeps the purpose with the challenge and refuses an answer
+  presented to another operation with the same 401; the passkey signs it with the
+  nonce (`AdminChallenge::for_purpose`, the signed payload now
+  `nonce ‖ user_verified ‖ purpose`), so the assertion cannot be relabelled. A challenge
+  fetched to list the parked enrolments can no longer approve one. `mg-admin enrol`
+  asks for the purpose of each command; an older `mg-admin` is refused.
+  [VLD-ANB-MIDGARD-0020]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

@@ -1,13 +1,14 @@
 //! Admin passkeys at rest: the registry of public passkeys survives a restart, an
 //! admin's own passkey rebuilt from stored key material signs in against it, and a
 //! credential that is the wrong algorithm, a mismatched pair or a second registration
-//! for the same admin is refused. [RC-30] [RC-14]
+//! for the same admin is refused. [RC-30] [RC-14] An assertion is bound to the purpose
+//! its challenge was issued for. [VLD-ANB-MIDGARD-0020]
 
 use std::path::PathBuf;
 
 use admin_identity::{
-    AdminChallenge, AdminId, DurableAdminPasskeys, IdentityError, RegisteredPasskey,
-    SoftwareAdminAuthenticator, PASSKEY_SIG_ALG,
+    verify_admin_assertion, AdminChallenge, AdminId, DurableAdminPasskeys, IdentityError,
+    RegisteredPasskey, SoftwareAdminAuthenticator, PASSKEY_SIG_ALG,
 };
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
@@ -146,5 +147,53 @@ fn a_wrong_or_repeated_credential_is_refused() {
         "a second registration would silently replace the credential"
     );
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// [RC-30] [VLD-ANB-MIDGARD-0020] The purpose a challenge is issued for is signed with
+/// its nonce: an assertion answering the nonce for `list` verifies for `list` only,
+/// not for `approve` nor for a challenge issued for no one operation, and through
+/// sign-in as well as directly.
+#[test]
+fn an_assertion_for_one_purpose_does_not_verify_for_another() {
+    let provider = fips_provider();
+    let device = SoftwareAdminAuthenticator::enrol(&provider, "alice-passkey", &mut SeedRng(51))
+        .expect("a passkey");
+    let nonce = AdminChallenge::sample(&mut SeedRng(52)).nonce;
+    let list = AdminChallenge::new(nonce).for_purpose("list");
+    let assertion = device.authenticate(&provider, &list, true).unwrap();
+
+    assert_eq!(
+        verify_admin_assertion(device.credential(), &list, &assertion, &provider),
+        Ok(())
+    );
+    for other in [
+        AdminChallenge::new(nonce).for_purpose("approve"),
+        AdminChallenge::new(nonce).for_purpose("lis"),
+        AdminChallenge::new(nonce),
+    ] {
+        assert_eq!(
+            verify_admin_assertion(device.credential(), &other, &assertion, &provider),
+            Err(IdentityError::WebAuthnRejected),
+            "{:?}",
+            other.purpose
+        );
+    }
+
+    let dir = scratch();
+    let mut registry = open(&dir.join("passkeys.journal"));
+    let alice = AdminId("alice".into());
+    registry
+        .register(alice.clone(), device.credential().clone())
+        .unwrap();
+    let approve = AdminChallenge::new(nonce).for_purpose("approve");
+    assert!(registry
+        .authenticator()
+        .sign_in(&alice, &approve, &assertion, NOW)
+        .is_err());
+    assert!(registry
+        .authenticator()
+        .sign_in(&alice, &list, &assertion, NOW)
+        .is_ok());
     let _ = std::fs::remove_dir_all(&dir);
 }

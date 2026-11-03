@@ -109,6 +109,41 @@ const MAX_COMPARTMENT_LEN: usize = 32;
 /// not say which. [VLD-ANB-MIDGARD-0008]
 const SECOND_FACTOR_REQUIRED: &str = "second factor required";
 
+/// The one administration operation a challenge is issued for, named in the challenge
+/// request's `purpose` and signed with its nonce, so an assertion answering a challenge
+/// for one operation is refused by every other. [VLD-ANB-MIDGARD-0020]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdminPurpose {
+    /// `POST /api/v1/admin/enrolments`.
+    Request,
+    /// `POST /api/v1/admin/enrolments/approve`.
+    Approve,
+    /// `POST /api/v1/admin/enrolments/reject`.
+    Reject,
+    /// `POST /api/v1/admin/enrolments/list`.
+    List,
+}
+
+impl AdminPurpose {
+    /// Every purpose, in the order the refusal names them.
+    pub const ALL: [AdminPurpose; 4] = [Self::Request, Self::Approve, Self::Reject, Self::List];
+
+    /// The name a challenge request gives, and the passkey signs.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Approve => "approve",
+            Self::Reject => "reject",
+            Self::List => "list",
+        }
+    }
+
+    /// The purpose named `name`, if it is one.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.as_str() == name)
+    }
+}
+
 /// A refusal, already mapped to its HTTP status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminError {
@@ -233,10 +268,12 @@ impl ParkedEnrolment {
     }
 }
 
-/// A challenge waiting to be answered, by the administrator it was issued to.
+/// A challenge waiting to be answered, by the administrator it was issued to, for the
+/// one operation it was issued for. [VLD-ANB-MIDGARD-0020]
 #[derive(Debug, Clone)]
 struct Challenge {
     admin: AdminId,
+    purpose: AdminPurpose,
     expires: u64,
 }
 
@@ -324,13 +361,15 @@ impl AdminControl {
     }
 
     /// `POST /api/v1/admin/challenge` — a fresh, single-use challenge to sign, bound to
-    /// the administrator the body `{"admin": ...}` names. [VLD-ANB-MIDGARD-0020]
+    /// the administrator and the operation the body `{"admin": ..., "purpose": ...}`
+    /// names: `request`, `approve`, `reject` or `list`. The purpose is signed with the
+    /// nonce, and the challenge answers that operation only. [VLD-ANB-MIDGARD-0020]
     pub fn challenge(&mut self, body: &Json, now: u64) -> Result<Json, AdminError> {
         let at = "the challenge request";
         only_keys(
             object(body, at).map_err(|e| refuse(400, e))?,
             at,
-            &["admin"],
+            &["admin", "purpose"],
         )
         .map_err(|e| refuse(400, e))?;
         let admin = AdminId(
@@ -338,6 +377,9 @@ impl AdminControl {
                 .map_err(|e| refuse(400, e))?
                 .to_string(),
         );
+        let named = text(body, at, "purpose").map_err(|e| refuse(400, e))?;
+        let purpose = AdminPurpose::from_name(named)
+            .ok_or_else(|| refuse(400, "\"purpose\" must be request, approve, reject or list"))?;
 
         self.challenges.retain(|_, c| c.expires > now);
         let challenge = AdminChallenge::sample(&mut OsRng);
@@ -364,12 +406,14 @@ impl AdminControl {
                 challenge.nonce,
                 Challenge {
                     admin,
+                    purpose,
                     expires: now.saturating_add(CHALLENGE_TTL),
                 },
             );
         }
         Ok(Json::obj(vec![
             ("challenge", Json::s(&hex_encode(&challenge.nonce))),
+            ("purpose", Json::s(purpose.as_str())),
             ("expiresIn", Json::Int(CHALLENGE_TTL as i64)),
         ]))
     }
@@ -426,7 +470,7 @@ impl AdminControl {
             .to_string();
 
         let scope = ResourceScope::all(IAM_SCOPE);
-        let (admin, challenge, assertion) = self.proof(body, now)?;
+        let (admin, challenge, assertion) = self.proof(body, AdminPurpose::Request, now)?;
         let mut session = self.sign_in(body, &admin, &challenge, &assertion, now)?;
         self.passkeys
             .authenticator()
@@ -533,7 +577,7 @@ impl AdminControl {
             .map_err(|e| refuse(400, e))?
             .to_string();
 
-        let (admin, session) = self.reauthenticated(body, now)?;
+        let (admin, session) = self.reauthenticated(body, AdminPurpose::Approve, now)?;
         self.require_enrolment_capability(&admin, now)?;
         let enrolment = self.waiting(&id)?.clone();
         let subject = enrolment.subject.clone();
@@ -629,7 +673,7 @@ impl AdminControl {
             return Err(refuse(400, "\"reason\" must say why"));
         }
 
-        let (admin, session) = self.reauthenticated(body, now)?;
+        let (admin, session) = self.reauthenticated(body, AdminPurpose::Reject, now)?;
         self.require_enrolment_capability(&admin, now)?;
         let subject = self.waiting(&id)?.subject.clone();
         match self.privilege.service().state_of(&id) {
@@ -666,7 +710,7 @@ impl AdminControl {
             &["admin", "challenge", "assertion", "totp"],
         )
         .map_err(|e| refuse(400, e))?;
-        let (admin, challenge, assertion) = self.proof(body, now)?;
+        let (admin, challenge, assertion) = self.proof(body, AdminPurpose::List, now)?;
         self.sign_in(body, &admin, &challenge, &assertion, now)?;
         let names = |values: &[String]| Json::Arr(values.iter().map(|v| Json::s(v)).collect());
         let rows = self
@@ -710,14 +754,15 @@ impl AdminControl {
         Ok(Json::obj(vec![("enrolments", Json::Arr(rows))]))
     }
 
-    /// Sign in the presenting administrator and re-authenticate them freshly: what an
-    /// approval or a rejection needs.
+    /// Sign in the presenting administrator and re-authenticate them freshly, with a
+    /// challenge issued for `purpose`: what an approval or a rejection needs.
     fn reauthenticated(
         &mut self,
         body: &Json,
+        purpose: AdminPurpose,
         now: u64,
     ) -> Result<(AdminId, AdminSession), AdminError> {
-        let (admin, challenge, assertion) = self.proof(body, now)?;
+        let (admin, challenge, assertion) = self.proof(body, purpose, now)?;
         let mut session = self.sign_in(body, &admin, &challenge, &assertion, now)?;
         self.passkeys
             .authenticator()
@@ -763,11 +808,13 @@ impl AdminControl {
 
     /// The admin, and the challenge and assertion they present, with the challenge
     /// consumed so it can never be answered twice. A challenge issued to another
-    /// administrator is refused like an unknown one, and consumed all the same.
+    /// administrator, or for another purpose than `purpose`, is refused like an unknown
+    /// one, and consumed all the same; the assertion must sign `purpose` with the nonce.
     /// [VLD-ANB-MIDGARD-0020]
     fn proof(
         &mut self,
         body: &Json,
+        purpose: AdminPurpose,
         now: u64,
     ) -> Result<(AdminId, AdminChallenge, WebAuthnAssertion), AdminError> {
         let admin = AdminId(
@@ -781,7 +828,7 @@ impl AdminControl {
                 .and_then(|b| b.try_into().ok())
                 .ok_or_else(|| refuse(400, "\"challenge\" must be 64 hex characters"))?;
         match self.challenges.remove(&nonce) {
-            Some(c) if c.expires > now && c.admin == admin => {}
+            Some(c) if c.expires > now && c.admin == admin && c.purpose == purpose => {}
             _ => return Err(refuse(401, "the challenge is unknown, used or expired")),
         }
 
@@ -805,7 +852,11 @@ impl AdminControl {
                 .map_err(|e| refuse(400, e))?,
             signature: Signature::new(PASSKEY_SIG_ALG, signature),
         };
-        Ok((admin, AdminChallenge::new(nonce), assertion))
+        Ok((
+            admin,
+            AdminChallenge::new(nonce).for_purpose(purpose.as_str()),
+            assertion,
+        ))
     }
 
     /// Sign the administrator in with both factors: the passkey assertion, then the

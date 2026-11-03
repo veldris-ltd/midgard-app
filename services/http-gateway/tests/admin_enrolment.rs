@@ -224,14 +224,18 @@ fn post_at(gw: &DurableGateway, path: &str, body: &str, token: Option<&str>, now
 /// passkey `assertion`, and the fields after them (`"totp":"…"`, or nothing).
 type Proof = (String, String, String);
 
-/// The `challenge`, `assertion` and `totp` fields for `admin`, answering `challenge`
-/// with their passkey (claiming user verification as `user_verified` says) and the
-/// code for the current step.
-fn answer(admin: &Admin, challenge: String, user_verified: bool) -> Proof {
+/// The `challenge`, `assertion` and `totp` fields for `admin`, answering `challenge`,
+/// issued for `purpose`, with their passkey (claiming user verification as
+/// `user_verified` says) and the code for the current step.
+fn answer(admin: &Admin, challenge: String, user_verified: bool, purpose: &str) -> Proof {
     let nonce: [u8; 32] = unhex(&challenge).try_into().unwrap();
     let assertion = admin
         .device
-        .authenticate(&fips_provider(), &AdminChallenge::new(nonce), user_verified)
+        .authenticate(
+            &fips_provider(),
+            &AdminChallenge::new(nonce).for_purpose(purpose),
+            user_verified,
+        )
         .unwrap();
     (
         challenge,
@@ -244,18 +248,31 @@ fn answer(admin: &Admin, challenge: String, user_verified: bool) -> Proof {
     )
 }
 
-/// A fresh challenge issued to `name`, answered by `admin` at the current step.
-fn proof_now(gw: &DurableGateway, name: &str, admin: &Admin, user_verified: bool) -> Proof {
-    answer(admin, fetch_challenge(gw, name), user_verified)
+/// A fresh challenge issued to `name` for `purpose`, answered by `admin` at the
+/// current step.
+fn proof_now(
+    gw: &DurableGateway,
+    name: &str,
+    admin: &Admin,
+    user_verified: bool,
+    purpose: &str,
+) -> Proof {
+    answer(
+        admin,
+        fetch_challenge(gw, name, purpose),
+        user_verified,
+        purpose,
+    )
 }
 
-/// Fetch a challenge for `admin`: the nonce, as hex. The gateway binds it to the
-/// administrator named. [VLD-ANB-MIDGARD-0020]
-fn fetch_challenge(gw: &DurableGateway, admin: &str) -> String {
+/// Fetch a challenge for `admin` to answer for `purpose` (`request`, `approve`,
+/// `reject` or `list`): the nonce, as hex. The gateway binds it to the administrator
+/// named and the operation. [VLD-ANB-MIDGARD-0020]
+fn fetch_challenge(gw: &DurableGateway, admin: &str, purpose: &str) -> String {
     let r = post(
         gw,
         "/api/v1/admin/challenge",
-        &format!(r#"{{"admin":"{admin}"}}"#),
+        &format!(r#"{{"admin":"{admin}","purpose":"{purpose}"}}"#),
         None,
     );
     assert_eq!(r.status, 200, "{}", r.body);
@@ -266,11 +283,11 @@ fn fetch_challenge(gw: &DurableGateway, admin: &str) -> String {
         .to_string()
 }
 
-/// Move to the next step, fetch a challenge and answer it with `admin`'s passkey and
-/// one-time code: the fields an administration request carries.
-fn proof(gw: &DurableGateway, name: &str, admin: &Admin) -> Proof {
+/// Move to the next step, fetch a challenge for `purpose` and answer it with `admin`'s
+/// passkey and one-time code: the fields an administration request carries.
+fn proof(gw: &DurableGateway, name: &str, admin: &Admin, purpose: &str) -> Proof {
     next_step();
-    proof_now(gw, name, admin, true)
+    proof_now(gw, name, admin, true, purpose)
 }
 
 /// `proof` without its one-time code: the passkey alone.
@@ -385,7 +402,7 @@ fn request(gw: &DurableGateway, devices: &Devices, subject: &str) -> String {
         "/api/v1/admin/enrolments",
         &request_with(
             "alice",
-            &proof(gw, "alice", device(devices, "alice")),
+            &proof(gw, "alice", device(devices, "alice"), "request"),
             &principal(subject),
         ),
         None,
@@ -402,7 +419,7 @@ fn enrol(gw: &DurableGateway, devices: &Devices, subject: &str) -> Response {
         "/api/v1/admin/enrolments/approve",
         &approve_body(
             "bob",
-            &proof(gw, "bob", device(devices, "bob")),
+            &proof(gw, "bob", device(devices, "bob"), "approve"),
             &id,
             subject,
         ),
@@ -474,17 +491,17 @@ fn admin_control(state: &StateDir) -> AdminControl {
     .unwrap()
 }
 
-/// A challenge from `control` at the next step, issued to `name` and answered by
-/// `admin`.
-fn direct_proof(control: &mut AdminControl, name: &str, admin: &Admin) -> Proof {
-    let body = parse(&format!(r#"{{"admin":"{name}"}}"#)).unwrap();
+/// A challenge from `control` at the next step, issued to `name` for `purpose` and
+/// answered by `admin`.
+fn direct_proof(control: &mut AdminControl, name: &str, admin: &Admin, purpose: &str) -> Proof {
+    let body = parse(&format!(r#"{{"admin":"{name}","purpose":"{purpose}"}}"#)).unwrap();
     let challenge = control
         .challenge(&body, next_step())
         .expect("a challenge")
         .str_field("challenge")
         .unwrap()
         .to_string();
-    answer(admin, challenge, true)
+    answer(admin, challenge, true, purpose)
 }
 
 #[test]
@@ -506,7 +523,7 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
         let gw = &served.gateway;
 
         // Alice requests; the enrolment is parked and olivia cannot log in.
-        let alice = proof(gw, "alice", device("alice"));
+        let alice = proof(gw, "alice", device("alice"), "request");
         let r = post(
             gw,
             "/api/v1/admin/enrolments",
@@ -530,7 +547,12 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
         let r = post(
             gw,
             "/api/v1/admin/enrolments/approve",
-            &approve_body("alice", &proof(gw, "alice", device("alice")), &id, "olivia"),
+            &approve_body(
+                "alice",
+                &proof(gw, "alice", device("alice"), "approve"),
+                &id,
+                "olivia",
+            ),
             None,
         );
         assert_eq!(r.status, 403, "{}", r.body);
@@ -539,7 +561,12 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
         let r = post(
             gw,
             "/api/v1/admin/enrolments/approve",
-            &approve_body("audra", &proof(gw, "audra", device("audra")), &id, "olivia"),
+            &approve_body(
+                "audra",
+                &proof(gw, "audra", device("audra"), "approve"),
+                &id,
+                "olivia",
+            ),
             None,
         );
         assert_eq!(r.status, 403, "{}", r.body);
@@ -555,7 +582,7 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
     )
     .expect("boots again");
     let gw = &served.gateway;
-    let bob = proof(gw, "bob", device("bob"));
+    let bob = proof(gw, "bob", device("bob"), "list");
     let listed = post(
         gw,
         "/api/v1/admin/enrolments/list",
@@ -573,7 +600,12 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
     let r = post(
         gw,
         "/api/v1/admin/enrolments/approve",
-        &approve_body("bob", &proof(gw, "bob", device("bob")), &id, "olivia"),
+        &approve_body(
+            "bob",
+            &proof(gw, "bob", device("bob"), "approve"),
+            &id,
+            "olivia",
+        ),
         None,
     );
     assert_eq!(r.status, 200, "{}", r.body);
@@ -635,7 +667,7 @@ fn a_requester_cannot_supply_credential_material() {
                 "/api/v1/admin/enrolments",
                 &request_with(
                     "alice",
-                    &proof(gw, "alice", device(&devices, "alice")),
+                    &proof(gw, "alice", device(&devices, "alice"), "request"),
                     &carrying,
                 ),
                 None,
@@ -650,7 +682,7 @@ fn a_requester_cannot_supply_credential_material() {
         let listed = post(
             gw,
             "/api/v1/admin/enrolments/list",
-            &list_body("bob", &proof(gw, "bob", device(&devices, "bob"))),
+            &list_body("bob", &proof(gw, "bob", device(&devices, "bob"), "list")),
             None,
         );
         assert_eq!(listed.status, 200, "{}", listed.body);
@@ -683,7 +715,10 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
         let requested = post(
             gw,
             "/api/v1/admin/enrolments",
-            &request_body("alice", &proof(gw, "alice", device(&devices, "alice"))),
+            &request_body(
+                "alice",
+                &proof(gw, "alice", device(&devices, "alice"), "request"),
+            ),
             None,
         );
         assert_eq!(requested.status, 200, "{}", requested.body);
@@ -698,7 +733,7 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
             "/api/v1/admin/enrolments/approve",
             &approve_body(
                 "bob",
-                &proof(gw, "bob", device(&devices, "bob")),
+                &proof(gw, "bob", device(&devices, "bob"), "approve"),
                 &id,
                 "mallory",
             ),
@@ -711,7 +746,7 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
             "/api/v1/admin/enrolments/approve",
             &approve_body(
                 "bob",
-                &proof(gw, "bob", device(&devices, "bob")),
+                &proof(gw, "bob", device(&devices, "bob"), "approve"),
                 &id,
                 "olivia",
             ),
@@ -840,7 +875,7 @@ fn roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_f
             "/api/v1/admin/enrolments",
             &request_with(
                 "alice",
-                &proof(gw, "alice", device(&devices, "alice")),
+                &proof(gw, "alice", device(&devices, "alice"), "request"),
                 &body,
             ),
             None,
@@ -864,7 +899,7 @@ fn roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_f
         "/api/v1/admin/enrolments",
         &request_with(
             "alice",
-            &proof(gw, "alice", device(&devices, "alice")),
+            &proof(gw, "alice", device(&devices, "alice"), "request"),
             &valid,
         ),
         None,
@@ -873,7 +908,7 @@ fn roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_f
     let listed = post(
         gw,
         "/api/v1/admin/enrolments/list",
-        &list_body("bob", &proof(gw, "bob", device(&devices, "bob"))),
+        &list_body("bob", &proof(gw, "bob", device(&devices, "bob"), "list")),
         None,
     );
     assert_eq!(listed.status, 200, "{}", listed.body);
@@ -910,7 +945,7 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
 
     let id = {
         let mut control = admin_control(&state);
-        let alice = direct_proof(&mut control, "alice", device(&devices, "alice"));
+        let alice = direct_proof(&mut control, "alice", device(&devices, "alice"), "request");
         let (requested, _) = control
             .request_enrolment(
                 &parse(&request_body("alice", &alice)).unwrap(),
@@ -932,7 +967,7 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
             Ok(())
         };
         let approve = |control: &mut AdminControl, admin: &str| {
-            let proof = direct_proof(control, admin, device(&devices, admin));
+            let proof = direct_proof(control, admin, device(&devices, admin), "approve");
             parse(&approve_body(admin, &proof, &id, "olivia")).unwrap()
         };
 
@@ -942,7 +977,7 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
             .expect_err("the write failed");
         assert_eq!(failed.status, 500, "{failed:?}");
         assert_eq!(control.parked(), 1, "the enrolment stays parked");
-        let bob = direct_proof(&mut control, "bob", device(&devices, "bob"));
+        let bob = direct_proof(&mut control, "bob", device(&devices, "bob"), "list");
         let listing = control
             .list_enrolments(&parse(&list_body("bob", &bob)).unwrap(), now())
             .unwrap()
@@ -995,7 +1030,11 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
             let r = post(
                 gw,
                 "/api/v1/admin/enrolments/reject",
-                &reject_body(admin, &proof(gw, admin, device(&devices, admin)), &id),
+                &reject_body(
+                    admin,
+                    &proof(gw, admin, device(&devices, admin), "reject"),
+                    &id,
+                ),
                 None,
             );
             assert_eq!(r.status, 403, "{admin}: {}", r.body);
@@ -1003,7 +1042,11 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
         let r = post(
             gw,
             "/api/v1/admin/enrolments/reject",
-            &reject_body("bob", &proof(gw, "bob", device(&devices, "bob")), &id),
+            &reject_body(
+                "bob",
+                &proof(gw, "bob", device(&devices, "bob"), "reject"),
+                &id,
+            ),
             None,
         );
         assert_eq!(r.status, 200, "{}", r.body);
@@ -1011,7 +1054,7 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
         let listed = post(
             gw,
             "/api/v1/admin/enrolments/list",
-            &list_body("bob", &proof(gw, "bob", device(&devices, "bob"))),
+            &list_body("bob", &proof(gw, "bob", device(&devices, "bob"), "list")),
             None,
         );
         assert!(
@@ -1075,10 +1118,13 @@ fn a_gateway_without_a_durable_directory_parks_nothing() {
     };
     next_step();
     let challenge = field(
-        &call("/api/v1/admin/challenge", r#"{"admin":"alice"}"#.into()),
+        &call(
+            "/api/v1/admin/challenge",
+            r#"{"admin":"alice","purpose":"request"}"#.into(),
+        ),
         "challenge",
     );
-    let proof = answer(device(&devices, "alice"), challenge, true);
+    let proof = answer(device(&devices, "alice"), challenge, true, "request");
     let r = call("/api/v1/admin/enrolments", request_body("alice", &proof));
     assert_eq!(r.status, 501, "{}", r.body);
     drop(gw);
@@ -1113,17 +1159,22 @@ fn a_passkey_without_a_second_factor_is_refused() {
             "/api/v1/admin/enrolments",
             request_with(
                 "alice",
-                &passkey_only(proof(gw, "alice", alice)),
+                &passkey_only(proof(gw, "alice", alice, "request")),
                 &principal("oscar"),
             ),
         ),
         (
             "/api/v1/admin/enrolments/approve",
-            approve_body("bob", &passkey_only(proof(gw, "bob", bob)), &id, "olivia"),
+            approve_body(
+                "bob",
+                &passkey_only(proof(gw, "bob", bob, "approve")),
+                &id,
+                "olivia",
+            ),
         ),
         (
             "/api/v1/admin/enrolments/list",
-            list_body("bob", &passkey_only(proof(gw, "bob", bob))),
+            list_body("bob", &passkey_only(proof(gw, "bob", bob, "list"))),
         ),
     ] {
         let r = post(gw, path, &body, None);
@@ -1134,7 +1185,7 @@ fn a_passkey_without_a_second_factor_is_refused() {
     }
     // A wrong code is refused the same way, and a malformed one too.
     for code in ["000000", "12345"] {
-        let (challenge, assertion, _) = proof(gw, "bob", bob);
+        let (challenge, assertion, _) = proof(gw, "bob", bob, "list");
         let wrong = (challenge, assertion, format!(r#","totp":"{code}""#));
         let r = post(
             gw,
@@ -1155,7 +1206,12 @@ fn a_passkey_without_a_second_factor_is_refused() {
     let r = post(
         gw,
         "/api/v1/admin/enrolments/approve",
-        &approve_body("bob", &proof_now(gw, "bob", bob, false), &id, "olivia"),
+        &approve_body(
+            "bob",
+            &proof_now(gw, "bob", bob, false, "approve"),
+            &id,
+            "olivia",
+        ),
         None,
     );
     assert_eq!(r.status, 200, "{}", r.body);
@@ -1208,9 +1264,9 @@ fn an_unproven_caller_learns_nothing_about_roles_or_enrolments() {
     let bob = device(&devices, "bob");
     let audra = device(&devices, "audra");
     // bob's passkey answering a challenge issued to alice: a proof that does not verify.
-    let forged = || {
+    let forged = |purpose: &str| {
         next_step();
-        let mut proof = answer(bob, fetch_challenge(gw, "alice"), true);
+        let mut proof = answer(bob, fetch_challenge(gw, "alice", purpose), true, purpose);
         proof.2 = format!(r#","totp":"{}""#, alice.totp.code_at(now()));
         proof
     };
@@ -1219,15 +1275,15 @@ fn an_unproven_caller_learns_nothing_about_roles_or_enrolments() {
     for (path, body) in [
         (
             "/api/v1/admin/enrolments",
-            request_with("alice", &forged(), unknown_role),
+            request_with("alice", &forged("request"), unknown_role),
         ),
         (
             "/api/v1/admin/enrolments/approve",
-            approve_body("alice", &forged(), missing, "nobody"),
+            approve_body("alice", &forged("approve"), missing, "nobody"),
         ),
         (
             "/api/v1/admin/enrolments/reject",
-            reject_body("alice", &forged(), missing),
+            reject_body("alice", &forged("reject"), missing),
         ),
     ] {
         let r = post(gw, path, &body, None);
@@ -1239,11 +1295,16 @@ fn an_unproven_caller_learns_nothing_about_roles_or_enrolments() {
     for (path, body) in [
         (
             "/api/v1/admin/enrolments/approve",
-            approve_body("audra", &proof(gw, "audra", audra), missing, "nobody"),
+            approve_body(
+                "audra",
+                &proof(gw, "audra", audra, "approve"),
+                missing,
+                "nobody",
+            ),
         ),
         (
             "/api/v1/admin/enrolments/reject",
-            reject_body("audra", &proof(gw, "audra", audra), missing),
+            reject_body("audra", &proof(gw, "audra", audra, "reject"), missing),
         ),
     ] {
         let r = post(gw, path, &body, None);
@@ -1254,7 +1315,7 @@ fn an_unproven_caller_learns_nothing_about_roles_or_enrolments() {
     let r = post(
         gw,
         "/api/v1/admin/enrolments",
-        &request_with("alice", &proof(gw, "alice", alice), unknown_role),
+        &request_with("alice", &proof(gw, "alice", alice, "request"), unknown_role),
         None,
     );
     assert_eq!(r.status, 400, "{}", r.body);
@@ -1262,11 +1323,11 @@ fn an_unproven_caller_learns_nothing_about_roles_or_enrolments() {
     for (path, body) in [
         (
             "/api/v1/admin/enrolments/approve",
-            approve_body("bob", &proof(gw, "bob", bob), missing, "nobody"),
+            approve_body("bob", &proof(gw, "bob", bob, "approve"), missing, "nobody"),
         ),
         (
             "/api/v1/admin/enrolments/reject",
-            reject_body("bob", &proof(gw, "bob", bob), missing),
+            reject_body("bob", &proof(gw, "bob", bob, "reject"), missing),
         ),
     ] {
         let r = post(gw, path, &body, None);
@@ -1277,12 +1338,69 @@ fn an_unproven_caller_learns_nothing_about_roles_or_enrolments() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// [VLD-ANB-MIDGARD-0020] [AC-AD-3] [AC-AD-4] A challenge is fetched for one
+/// operation and answers that operation only: bob's challenge for `list`, answered
+/// honestly, cannot approve; signed as though it were for `approve`, it cannot either;
+/// nor can a challenge fetched for `approve` whose assertion signs `list`. Each was
+/// spent trying. A challenge fetched for `approve`, and signed for it, approves.
+#[test]
+fn a_challenge_for_one_operation_cannot_be_used_for_another() {
+    let dir = scratch("purpose");
+    let (state, devices) = provision(&dir);
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
+    let gw = &served.gateway;
+    let bob = device(&devices, "bob");
+    let id = request(gw, &devices, "olivia");
+
+    next_step();
+    let honest = proof_now(gw, "bob", bob, true, "list");
+    next_step();
+    let relabelled = answer(bob, fetch_challenge(gw, "bob", "list"), true, "approve");
+    next_step();
+    let signed_for_list = answer(bob, fetch_challenge(gw, "bob", "approve"), true, "list");
+    for proof in [&honest, &relabelled, &signed_for_list] {
+        let r = post(
+            gw,
+            "/api/v1/admin/enrolments/approve",
+            &approve_body("bob", proof, &id, "olivia"),
+            None,
+        );
+        assert_eq!(r.status, 401, "{}", r.body);
+        assert_eq!(r.body, r#"{"error":"unauthorised"}"#, "{}", r.body);
+        // The challenge was consumed: it does not list either.
+        let r = post(
+            gw,
+            "/api/v1/admin/enrolments/list",
+            &list_body("bob", proof),
+            None,
+        );
+        assert_eq!(r.status, 401, "{}", r.body);
+    }
+    assert_eq!(admin_control_parked(gw, bob), 1, "still waiting");
+
+    let r = post(
+        gw,
+        "/api/v1/admin/enrolments/approve",
+        &approve_body("bob", &proof(gw, "bob", bob, "approve"), &id, "olivia"),
+        None,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+    drop(served);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// How many enrolments are parked, as bob lists them.
 fn admin_control_parked(gw: &DurableGateway, bob: &Admin) -> usize {
     let listed = post(
         gw,
         "/api/v1/admin/enrolments/list",
-        &list_body("bob", &proof(gw, "bob", bob)),
+        &list_body("bob", &proof(gw, "bob", bob, "list")),
         None,
     );
     assert_eq!(listed.status, 200, "{}", listed.body);
@@ -1315,8 +1433,8 @@ fn an_administrator_totp_code_is_single_use() {
                 None,
             )
         };
-        let first = proof_now(gw, "bob", bob, true);
-        let second = proof_now(gw, "bob", bob, true);
+        let first = proof_now(gw, "bob", bob, true, "list");
+        let second = proof_now(gw, "bob", bob, true, "list");
         assert_ne!(first.0, second.0, "two fresh challenges");
         assert_eq!(first.2, second.2, "one code");
         let r = list(&first);
@@ -1339,14 +1457,14 @@ fn an_administrator_totp_code_is_single_use() {
     let r = post(
         gw,
         "/api/v1/admin/enrolments/list",
-        &list_body("bob", &proof_now(gw, "bob", bob, true)),
+        &list_body("bob", &proof_now(gw, "bob", bob, true, "list")),
         None,
     );
     assert_eq!(r.status, 401, "still spent after a restart: {}", r.body);
     let r = post(
         gw,
         "/api/v1/admin/enrolments/list",
-        &list_body("bob", &proof(gw, "bob", bob)),
+        &list_body("bob", &proof(gw, "bob", bob, "list")),
         None,
     );
     assert_eq!(r.status, 200, "the next step's code: {}", r.body);
@@ -1386,7 +1504,7 @@ fn verifies_now(gw: &DurableGateway, admin: &str, challenge: String, device: &Ad
     post(
         gw,
         "/api/v1/admin/enrolments/list",
-        &list_body(admin, &answer(device, challenge, true)),
+        &list_body(admin, &answer(device, challenge, true, "list")),
         None,
     )
 }
@@ -1407,7 +1525,7 @@ fn a_challenge_is_bound_to_the_administrator_who_asked() {
     let gw = &served.gateway;
 
     // Alice's challenge, signed by and presented as Bob.
-    let alices = fetch_challenge(gw, "alice");
+    let alices = fetch_challenge(gw, "alice", "list");
     let r = verifies(gw, "bob", alices.clone(), device("bob"));
     assert_eq!(r.status, 401, "{}", r.body);
     // The client reads only `unauthorised`; why is logged under the request's
@@ -1418,7 +1536,7 @@ fn a_challenge_is_bound_to_the_administrator_who_asked() {
     assert_eq!(r.status, 401, "consumed: {}", r.body);
 
     // A challenge of Bob's own works.
-    let r = verifies(gw, "bob", fetch_challenge(gw, "bob"), device("bob"));
+    let r = verifies(gw, "bob", fetch_challenge(gw, "bob", "list"), device("bob"));
     assert_eq!(r.status, 200, "{}", r.body);
     drop(served);
     let _ = std::fs::remove_dir_all(&dir);
@@ -1439,9 +1557,9 @@ fn a_flood_of_challenges_cannot_evict_another_administrators() {
     .expect("boots");
     let gw = &served.gateway;
 
-    let alices = fetch_challenge(gw, "alice");
+    let alices = fetch_challenge(gw, "alice", "list");
     for _ in 0..1_000 {
-        fetch_challenge(gw, "bob");
+        fetch_challenge(gw, "bob", "list");
     }
     let bob = AdminId("bob".into());
     assert_eq!(
@@ -1467,7 +1585,14 @@ fn a_challenge_request_without_admin_is_400() {
     )
     .expect("boots");
     let gw = &served.gateway;
-    for body in ["", "{}", r#"{"admin":5}"#, r#"{"admin":"alice","extra":1}"#] {
+    for body in [
+        "",
+        "{}",
+        r#"{"admin":5}"#,
+        r#"{"admin":"alice","purpose":"list","extra":1}"#,
+        r#"{"admin":"alice"}"#,
+        r#"{"admin":"alice","purpose":"everything"}"#,
+    ] {
         let r = post(gw, "/api/v1/admin/challenge", body, None);
         assert_eq!(r.status, 400, "{body:?}: {}", r.body);
     }
@@ -1489,10 +1614,10 @@ fn unknown_administrators_get_a_nonce_but_no_table_entry() {
     )
     .expect("boots");
     let gw = &served.gateway;
-    fetch_challenge(gw, "alice");
+    fetch_challenge(gw, "alice", "list");
     let before = gw.admin_control().unwrap().outstanding();
     for i in 0..1_000 {
-        let challenge = fetch_challenge(gw, &format!("nobody-{i}"));
+        let challenge = fetch_challenge(gw, &format!("nobody-{i}"), "list");
         assert!(
             challenge.len() == 64 && challenge.bytes().all(|b| b.is_ascii_hexdigit()),
             "{challenge}"
@@ -1522,12 +1647,12 @@ fn the_global_ceiling_refuses_rather_than_evicts() {
     let held: Vec<(&str, String)> = ["alice", "bob"]
         .into_iter()
         .flat_map(|admin| (0..4).map(move |_| admin))
-        .map(|admin| (admin, fetch_challenge(gw, admin)))
+        .map(|admin| (admin, fetch_challenge(gw, admin, "list")))
         .collect();
 
     // Audra holds none and the table is full: refused, and recorded once a minute.
     let audited = gw.audit_len();
-    let audra = r#"{"admin":"audra"}"#;
+    let audra = r#"{"admin":"audra","purpose":"list"}"#;
     let r = post(gw, "/api/v1/admin/challenge", audra, None);
     assert_eq!(r.status, 429, "{}", r.body);
     assert!(
