@@ -98,6 +98,7 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
 | POST | `/query` | `query` — `filter` (exact), `where` (`eq` `ne` `lt` `lte` `gt` `gte` `contains`; `*` = any text property), `orderBy` + `descending`, `offset` + `limit`/`maxResults` (≤ 500). Returns `total`, the readable matches. A property, value or operator the schema can't answer is **400** |
 | POST | `/actions` | `applyAction` — on one object (`params.target` = `<type>/<id>`; a wildcard is **400**). A gated action needs `humanGateToken` = the id of an approval granted for this caller, action and object, else **403** |
 | GET | `/whoami` | `whoami` — the caller's subject, roles, clearance, compartments, purpose and `expiresAt`, read from their verified token |
+| POST | `/logout` | `logout` — revokes the bearer token until its expiry: **204**, and from then on that token is **401** `token revoked`. Recorded in the ledger as `LOGOUT` |
 | GET | `/approvals` | `listApprovals` — approvals whose object the caller can read |
 | POST | `/approvals` | `requestApproval` — `{actionType, target}` → a pending approval |
 | POST | `/approvals/{id}/approve` · `/approvals/{id}/reject` | `decideApproval` — needs the policy's `Approve` action; never the requester. **409** once decided |
@@ -108,7 +109,9 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
 | GET | `/identities` `/keys` `/compute` `/observability` `/resilience` `/sdk-surface` | the platform reads |
 
 Every route except `/health`, `/ready`, `/metrics` and `/login` needs a bearer
-token from `POST /login`. A missing, wrong or forged token returns `401`.
+token from `POST /login`. A missing, wrong, forged or signed-out token returns `401`,
+and so does one whose subject is no longer enrolled. A gateway serving a state
+directory keeps revocations in `revocations.journal`, so they survive a restart.
 A permitted request is audited before it is served; a denied one is audited and
 returns `403`.
 CORS is locked to `http://localhost:5173`.

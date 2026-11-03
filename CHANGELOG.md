@@ -80,6 +80,24 @@ CONTRIBUTING.md for the version policy.
   audited as `SYNC records: MALFORMED`; the ledger action `DENY SyncRecords:MALFORMED`
   is gone, and an unpermitted malformed sync is recorded as `DENY SyncRecords`.
   [VLD-ANB-MIDGARD-0073]
+- **A session can be ended at the server, and a signed-out token is refused.**
+  [VLD-ANB-MIDGARD-0021]
+  - Every session token carries a random 128-bit id, and the signed format is now
+    `midgard-token-v2`: a token minted before this change no longer verifies, so
+    everyone signs in once more after upgrading.
+  - `POST /api/v1/logout`, authenticated by the token it ends, revokes it until its
+    expiry (204) and records `LOGOUT` in the ledger with the token id. The gateway
+    refuses a revoked token (401 `token revoked`) on every route, and on a gateway
+    that issues its own tokens it also refuses one whose subject is no longer
+    enrolled (401 `subject not enrolled`). Neither refusal writes a ledger row; both
+    are counted in `/metrics` as `http_session_refusals_total`.
+  - A gateway serving a state directory journals revocations in
+    `revocations.journal`, sealed under the issuer key's custody root, so a
+    signed-out token stays refused after a restart. Revocations are purged once
+    their token has expired.
+  - The console holds the token in memory only, never in `sessionStorage`, so a
+    reload returns to sign-in. **Account → Sign out** calls `logout` before clearing
+    the session; the SDK gains `logout(baseUrl, token)`.
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

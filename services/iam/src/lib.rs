@@ -19,6 +19,7 @@ pub mod mesh_ca;
 pub mod mfa;
 pub mod oidc;
 pub mod password;
+pub mod revocation;
 pub mod store;
 pub mod token;
 
@@ -37,5 +38,6 @@ pub use password::{
     check_enrolment_hash, Argon2idHasher, PasswordHasher, Pbkdf2Hasher, DEFAULT_ITERATIONS,
     MIN_PBKDF2_ITERATIONS,
 };
+pub use revocation::RevocationList;
 pub use store::{IdentityStore, UserRecord};
 pub use token::{sign_token, verify_token, TokenClaims, TokenError};

@@ -7,6 +7,7 @@ import {
   MockGateway,
   createHttpGateway,
   login,
+  logout,
   sessionPolicy,
   whoami,
   type GatewayClient,
@@ -43,6 +44,7 @@ createRoot(document.getElementById('root')!).render(
       }
       login={login}
       whoami={whoami}
+      logout={logout}
     >
       <RouterProvider router={router} />
     </AuthGate>

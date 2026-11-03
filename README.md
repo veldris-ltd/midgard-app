@@ -388,7 +388,7 @@ VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev -- --strictPort
 
 **`429 Too Many Requests` when logging in.** Too many wrong passwords for that username. Wait the number of seconds the message gives (also sent as `Retry-After`), then log in with the right one. Restarting the gateway also clears it.
 
-**The console went back to sign-in saying "Your session has ended".** Either the token's hour ran out or the gateway was restarted: its IdP keypair is generated fresh on every start, so earlier tokens no longer verify. The console checks its token with `GET /api/v1/whoami` when it loads and returns to sign-in on any `401`. Sign in again. **Account → Sign out** ends a session on purpose.
+**The console went back to sign-in saying "Your session has ended".** Either the token's hour ran out or the gateway was restarted: its IdP keypair is generated fresh on every start, so earlier tokens no longer verify. The console returns to sign-in on any `401`. Sign in again. **Account → Sign out** ends a session on purpose, at the server: the gateway revokes the token (`POST /api/v1/logout`), so a copy of it is refused too. The console keeps its token in memory only, so reloading the page also returns to sign-in.
 
 **`401` on every login attempt.** The credentials are exactly `operator` / `midgard-demo` or `approver` / `midgard-approve`; there are no other accounts and no way to add one in this mode.
 

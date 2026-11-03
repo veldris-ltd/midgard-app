@@ -51,6 +51,24 @@ export async function login(baseUrl: string, creds: LoginCredentials): Promise<L
   return (await res.json()) as LoginResult;
 }
 
+/**
+ * End a session at the edge: `POST /logout` with the token as the bearer, so the
+ * gateway revokes it and refuses it from then on, even if a copy survives. A 401
+ * means the token was already dead (expired, revoked or re-keyed) and is not an
+ * error: the caller clears its own state either way. Throws on any other failure.
+ * [VLD-ANB-MIDGARD-0021]
+ */
+export async function logout(baseUrl: string, token: string): Promise<void> {
+  const base = baseUrl.replace(/\/$/, '');
+  const res = await fetch(`${base}/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok || res.status === 401) return;
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  throw new GatewayError(res.status, j.error ?? `logout failed: ${res.status}`);
+}
+
 /** The signed-in session as the edge reads it from the token (`GET /whoami`). */
 export interface Session {
   subject: string;

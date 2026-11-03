@@ -100,9 +100,11 @@ pub fn open_state_dir_mirrored(
     let lock = StateLock::acquire(state, "http-gateway")?;
 
     // The issuer key: tokens minted before a restart verify after it. Its custody
-    // root seals the identity directory.
+    // root seals the identity directory, and the revocations that keep a signed-out
+    // token refused after a restart too. [VLD-ANB-MIDGARD-0021]
     let idp_keystore = read_keystore(&state.idp_keystore(), "issuer")?;
     let directory_sealer = sealer(&idp_keystore);
+    let revocations_sealer = sealer(&idp_keystore);
     let passkeys_sealer = sealer(&idp_keystore);
     let roles_sealer = sealer(&idp_keystore);
     let (idp_vk, idp_sk) = unseal(idp_keystore, "issuer")?;
@@ -233,7 +235,8 @@ pub fn open_state_dir_mirrored(
         SecuredGateway::with_enclosure(fips_provider(), issuer_vk, enclosure, allowed_origins)
             .with_idp(idp, Pbkdf2Hasher::production())
             .with_directory(directory)
-            .with_admin(admin);
+            .with_admin(admin)
+            .with_revocation_journal(state.revocations(), revocations_sealer)?;
     // Records synced over the mesh are checked against the same ontology.
     let gateway = match ontology {
         Some(ontology) => gateway.with_ontology(ontology),

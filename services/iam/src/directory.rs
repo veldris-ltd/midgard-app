@@ -168,6 +168,13 @@ impl InMemoryDirectory {
         self.entries.insert(subject.to_string(), enrollment);
     }
 
+    /// Remove a principal, returning their enrollment if they were enrolled. A token
+    /// already issued to them is then refused by a verifier that checks the directory.
+    /// [VLD-ANB-MIDGARD-0021]
+    pub fn remove(&mut self, subject: &str) -> Option<Enrollment> {
+        self.entries.remove(subject)
+    }
+
     /// The number of enrolled principals.
     pub fn len(&self) -> usize {
         self.entries.len()

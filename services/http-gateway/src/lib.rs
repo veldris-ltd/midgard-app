@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -27,11 +28,13 @@ pub mod import_file;
 pub mod login_throttle;
 pub mod mesh_sync;
 pub mod ontology_file;
+pub mod revocations;
 pub mod state_dir;
 /// The JSON codec and the policy file, shared with the mesh services.
 pub use service_runtime::{json, policy_file, ListenerLimits, CONNECTION_STACK};
 use service_runtime::{strict_json, BoundedListener};
 
+use audit_writer::Sealer;
 use data::State;
 use enclosure::{EdgeError, Enclosure};
 use fabric::{InMemoryLedger, InMemoryStore, LedgerStore, ObjectStore};
@@ -51,6 +54,7 @@ use policy::{
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::{CryptoProvider, OsRng, VerifyingKey};
+use revocations::Revocations;
 use std::time::Instant;
 use telemetry::{AvailabilitySlo, HealthRegistry, MetricsRegistry, Toggle};
 
@@ -137,6 +141,10 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// allowance before any credential is checked; `None` when turned off.
     /// [VLD-ANB-MIDGARD-0005]
     login_sources: Option<RateLimiter>,
+    /// Token ids signed out before their expiry, refused on every request. In memory
+    /// unless a state directory journals them. Locks are taken revocations, then
+    /// directory, then enclosure. [VLD-ANB-MIDGARD-0021]
+    revocations: Mutex<Revocations>,
     /// Administration — dual-controlled enrolment — where a durable directory is served.
     admin: Option<Mutex<admin_api::AdminControl>>,
     /// The ontology records synced over the mesh are checked against, where a state
@@ -213,6 +221,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 login_throttle::LOGIN_SOURCE_BURST,
                 login_throttle::LOGIN_SOURCE_PER_SEC,
             )),
+            revocations: Mutex::new(Revocations::default()),
             admin: None,
             ontology: None,
             // The highest band with no compartments: existing syncs keep working, and a
@@ -295,6 +304,47 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     pub fn with_directory(mut self, directory: DurableDirectory) -> Self {
         self.directory = Mutex::new(Logins::Durable(directory));
         self
+    }
+
+    /// Keep signed-out token ids in the sealed journal at `path`, so a revocation
+    /// survives a restart as the issuer key does. Revocations whose token has already
+    /// expired are purged as it opens. Fails if the journal does not open or a record
+    /// does not authenticate. [VLD-ANB-MIDGARD-0021]
+    pub fn with_revocation_journal(
+        mut self,
+        path: impl AsRef<Path>,
+        sealer: Box<dyn Sealer>,
+    ) -> Result<Self, String> {
+        let revocations = Revocations::open(path, sealer, now_secs())
+            .map_err(|e| format!("the revocation journal does not open: {e}"))?;
+        self.revocations = Mutex::new(revocations);
+        Ok(self)
+    }
+
+    /// Revoked tokens not yet purged: what a request is checked against. For tests.
+    #[doc(hidden)]
+    pub fn revoked_count(&self) -> usize {
+        self.revocations().len()
+    }
+
+    /// Records in the revocation journal, purged or not; `None` without one. For tests.
+    #[doc(hidden)]
+    pub fn revocation_journal_len(&self) -> Option<u64> {
+        self.revocations().journal_len()
+    }
+
+    /// Remove a login principal from an in-memory directory, as de-enrolment would.
+    /// For tests: the durable directory has no removal yet. [VLD-ANB-MIDGARD-0021]
+    #[doc(hidden)]
+    pub fn remove_login(&self, username: &str) -> bool {
+        match &mut *self
+            .directory
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        {
+            Logins::InMemory(directory) => directory.remove(username).is_some(),
+            Logins::Durable(_) => false,
+        }
     }
 
     /// Serve administration — online enrolment of principals under dual control — over
@@ -535,7 +585,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         self.record_login_at(username, event, "session", response, now)
     }
 
-    /// [`Self::record_login`] against `resource`.
+    /// [`Self::record_login`] against `resource`: a sign-out names the token it ended.
+    /// A response the ledger cannot record becomes a 500. [AC-M-4]
     fn record_login_at(
         &self,
         username: &str,
@@ -553,6 +604,43 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             Ok(_) => response,
             Err(e) => Response::json(500, error_json(&format!("audit failure: {e}")).encode()),
         }
+    }
+
+    /// `POST /api/v1/logout` with the bearer → 204: the presented token is revoked
+    /// until its expiry and refused from then on, here and after a restart of a
+    /// gateway that journals revocations. Only the holder of a valid token can revoke
+    /// it, so a second sign-out with the same token is a 401 like any other use. A
+    /// revocation the journal cannot record is a 500 and the token stays valid; a
+    /// sign-out is recorded in the ledger as `LOGOUT`, naming the token id.
+    /// [VLD-ANB-MIDGARD-0021] [AC-M-4]
+    fn handle_logout(&self, req: &Request, now: u64) -> Response {
+        let claims = match self.authenticate(req, now) {
+            Ok(claims) => claims,
+            Err(resp) => return resp,
+        };
+        let revoked = self
+            .revocations()
+            .revoke(claims.token_id, claims.expires_at);
+        if let Err(e) = revoked {
+            return Response::json(
+                500,
+                error_json(&format!("sign-out not recorded: {e}")).encode(),
+            );
+        }
+        self.record_login_at(
+            &claims.subject,
+            "LOGOUT",
+            &format!("token:{}", claims.token_id_hex()),
+            Response::json(204, String::new()),
+            now,
+        )
+    }
+
+    /// The revocation list, recovering from poisoning like [`Self::lock`].
+    fn revocations(&self) -> std::sync::MutexGuard<'_, Revocations> {
+        self.revocations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The failed-login throttle, recovering from poisoning like [`Self::lock`].
@@ -880,6 +968,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         if req.method == "POST" && req.path == "/api/v1/login" {
             return self.handle_login(req, peer, now);
         }
+        // Sign-out: authenticated by the very token it revokes. [VLD-ANB-MIDGARD-0021]
+        if req.method == "POST" && req.path == "/api/v1/logout" {
+            return self.handle_logout(req, now);
+        }
 
         // 1. Authenticate: verify the PQ-signed IdP token or reject.
         let claims = match self.authenticate(req, now) {
@@ -960,15 +1052,45 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
     }
 
+    /// The verified claims of the request's bearer token, or a 401. Past the signature
+    /// and validity window, a token signed out is refused, and so is one whose subject
+    /// is no longer enrolled on a gateway that issues its own tokens and so holds the
+    /// directory they come from (a verify-only edge has none to consult). Each lock is
+    /// released before the next is taken, and none is held while serving. Neither
+    /// refusal writes a ledger row, so an unauthenticated caller cannot make the
+    /// ledger grow; both are counted in `/metrics`. [VLD-ANB-MIDGARD-0021] [NFR-SEC-1]
     fn authenticate(&self, req: &Request, now: u64) -> Result<TokenClaims, Response> {
         let token = req
             .bearer()
             .ok_or_else(|| Response::json(401, error_json("missing bearer token").encode()))?;
         let bytes = hex_decode(token)
             .map_err(|_| Response::json(401, error_json("malformed bearer token").encode()))?;
-        verify_token(&self.provider, &self.issuer_vk, &bytes, now).map_err(|e| {
+        let claims = verify_token(&self.provider, &self.issuer_vk, &bytes, now).map_err(|e| {
             Response::json(401, error_json(&format!("token rejected: {e:?}")).encode())
-        })
+        })?;
+        let revoked = self.revocations().is_revoked(&claims.token_id, now);
+        if revoked {
+            return Err(self.refuse_session("token revoked"));
+        }
+        let enrolled = self.idp.is_none()
+            || self
+                .directory
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .enrollment(&claims.subject)
+                .is_some();
+        if !enrolled {
+            return Err(self.refuse_session("subject not enrolled"));
+        }
+        Ok(claims)
+    }
+
+    /// A 401 for a token that verifies but no longer opens a session, counted by
+    /// reason in `/metrics`. [VLD-ANB-MIDGARD-0021]
+    fn refuse_session(&self, reason: &str) -> Response {
+        self.metrics
+            .inc("http_session_refusals_total", &[("reason", reason)]);
+        Response::json(401, error_json(reason).encode())
     }
 
     /// The (resource id, marking level, action) a request targets.

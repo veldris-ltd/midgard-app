@@ -12,6 +12,7 @@
 //!   policy.json            the discretionary rules the PDP enforces
 //!   ontology.json          object types, link types and actions (registered each boot)
 //!   identity.directory     enrolled principals (sealed, append-only)
+//!   revocations.journal    session tokens signed out before expiry (sealed, append-only)
 //!   governance.ledger      the PQ-signed audit ledger (sealed, append-only)
 //!   objects.store          the object fabric's objects and links (sealed, append-only)
 //!   admin/passkeys.journal administrators' public passkeys (sealed, append-only)
@@ -103,6 +104,12 @@ impl StateDir {
     /// The durable identity directory.
     pub fn directory(&self) -> PathBuf {
         self.root.join("identity.directory")
+    }
+
+    /// Session tokens signed out before their expiry, sealed under the issuer's root.
+    /// [VLD-ANB-MIDGARD-0021]
+    pub fn revocations(&self) -> PathBuf {
+        self.root.join("revocations.journal")
     }
 
     /// The durable audit ledger.
