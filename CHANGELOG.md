@@ -48,6 +48,11 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **The Heimdall, Forge, Bifrost and admin bridges no longer default to
+  UNCLASSIFIED.** `MimirOptionProvider`, `MimirSuggester`, `MimirAdvisor` and
+  `MimirCopilot` take the caller's posture in `new(inference, marking)`;
+  `with_marking` is removed, so a bridge cannot be built without declaring what its
+  prompt may hold. [VLD-ANB-MIDGARD-0034]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

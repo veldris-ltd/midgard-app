@@ -6,7 +6,7 @@
 //! assessment. Any failure surfaces as [`RiskError::Advisor`], so the rollout gate
 //! still runs on its hard rules — never defaulting to "low risk". [AC-B-6] [DD-6]
 
-use mimir_bridge::{ClassificationLevel, Inference, InferenceRequest, Marking, WorkloadClass};
+use mimir_bridge::{Inference, InferenceRequest, Marking, WorkloadClass};
 
 use crate::advisor::RiskAdvisor;
 use crate::error::RiskError;
@@ -22,15 +22,18 @@ pub struct MimirAdvisor<I: Inference> {
 
 impl<I: Inference> MimirAdvisor<I> {
     /// An advisor over `inference` (default "operations" purpose, analysis-sized budget).
-    pub fn new(inference: I) -> Self {
+    ///
+    /// `marking` is the marking of what this product renders into the prompt: the
+    /// caller's posture (level and compartments), which bounds everything the
+    /// product can show it and so everything the prompt can hold. It has no
+    /// default, so every caller says. Mimir refuses a marking its model is not
+    /// accredited for. [VLD-ANB-MIDGARD-0034]
+    pub fn new(inference: I, marking: Marking) -> Self {
         Self {
             inference,
             purpose: "operations".into(),
             max_tokens: 1024,
-            marking: Marking {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: Default::default(),
-            },
+            marking,
         }
     }
     /// Override the declared purpose of access.
@@ -41,15 +44,6 @@ impl<I: Inference> MimirAdvisor<I> {
     /// Override the generation budget.
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;
-        self
-    }
-    /// Declare the marking of what this product renders into the prompt: the
-    /// caller's posture (level and compartments), which bounds everything the
-    /// product can show it and so everything the prompt can hold. Mimir refuses a
-    /// marking its model is not accredited for. Default: UNCLASSIFIED, no
-    /// compartments. [VLD-ANB-MIDGARD-0034]
-    pub fn with_marking(mut self, marking: Marking) -> Self {
-        self.marking = marking;
         self
     }
 }
@@ -77,7 +71,9 @@ impl<I: Inference> RiskAdvisor for MimirAdvisor<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mimir_bridge::{text_completion, BridgeError, Completion};
+    use mimir_bridge::{
+        text_completion, BridgeError, ClassificationLevel, Compartment, Completion,
+    };
     use std::cell::RefCell;
 
     struct FakeInference {
@@ -99,13 +95,21 @@ mod tests {
         }
     }
 
+    /// The caller's posture each bridge is built with.
+    fn posture() -> Marking {
+        Marking {
+            level: ClassificationLevel::SECRET,
+            compartments: [Compartment("ALPHA".into())].into_iter().collect(),
+        }
+    }
+
     #[test]
     fn live_advisor_returns_model_text_and_routes_code_analysis() {
         let fake = FakeInference {
             reply: Ok(text_completion("{\"band\":\"low\"}")),
             seen: RefCell::new(None),
         };
-        let advisor = MimirAdvisor::new(fake);
+        let advisor = MimirAdvisor::new(fake, posture());
         assert_eq!(advisor.assess(&prompt()).unwrap(), "{\"band\":\"low\"}");
         let seen = advisor.inference.seen.borrow();
         let req = seen.as_ref().unwrap();
@@ -122,7 +126,7 @@ mod tests {
             reply: Err(BridgeError::Malformed("x".into())),
             seen: RefCell::new(None),
         };
-        let advisor = MimirAdvisor::new(fake);
+        let advisor = MimirAdvisor::new(fake, posture());
         assert!(matches!(
             advisor.assess(&prompt()),
             Err(RiskError::Advisor(_))
@@ -131,28 +135,14 @@ mod tests {
 
     // [VLD-ANB-MIDGARD-0034]
     #[test]
-    fn the_request_carries_the_declared_marking() {
-        let fake = || FakeInference {
+    fn the_declared_marking_is_carried() {
+        let fake = FakeInference {
             reply: Ok(text_completion("{}")),
             seen: RefCell::new(None),
         };
-        // Undeclared, the prompt is marked UNCLASSIFIED with no compartments.
-        let bare = MimirAdvisor::new(fake());
-        bare.assess(&prompt()).unwrap();
-        let seen = bare.inference.seen.borrow();
-        let marking = &seen.as_ref().unwrap().marking;
-        assert_eq!(marking.level, ClassificationLevel::UNCLASSIFIED);
-        assert!(marking.compartments.is_empty());
-
-        let posture = Marking {
-            level: ClassificationLevel::SECRET,
-            compartments: [mimir_bridge::Compartment("ALPHA".into())]
-                .into_iter()
-                .collect(),
-        };
-        let marked = MimirAdvisor::new(fake()).with_marking(posture.clone());
-        marked.assess(&prompt()).unwrap();
-        let seen = marked.inference.seen.borrow();
-        assert_eq!(seen.as_ref().unwrap().marking, posture);
+        let advisor = MimirAdvisor::new(fake, posture());
+        advisor.assess(&prompt()).unwrap();
+        let seen = advisor.inference.seen.borrow();
+        assert_eq!(seen.as_ref().unwrap().marking, posture());
     }
 }
