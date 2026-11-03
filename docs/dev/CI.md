@@ -88,6 +88,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `gate-record` | host | the committed gate record is what its logs give, and the README and GA_READINESS status tables are what it gives |
 | `numbers` | host | [`docs/compliance/NUMBERS.md`](../compliance/NUMBERS.md) is what the tree gives, and no swept document quotes a crate, line, test or criteria count that differs from it |
 | `secrets` | host | no credential is committed (gitleaks, pinned by version and checksum) |
+| `signed-commits` | host | every commit in the change (base..HEAD) is signed by a key in `deploy/trust/allowed_signers`; fails naming each commit that is not |
 | `k8s-render` | host | `deploy/k8s/enclosure.yaml` is what the Helm chart renders |
 | `toolchain` | host | builds or restores the toolchain image — the only online step; inside the published image, checks it is the one `tools/ci/toolchain.digest` pins |
 | `toolchain-publish` | host | GitLab only: pushes the toolchain image to the project registry; fails until its digest is committed. On GitHub, a no-op |
@@ -95,6 +96,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `build`, `test` | toolchain | the release build; the test suite on both crypto backends, its log kept in `target/gate` |
 | `repro` | toolchain | two normalised builds of the workspace are bit-identical |
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
+| `dependency-review` | host | monthly: both advisory snapshots refreshed, scanned, and proposed as a pull or merge request when they moved ([BUILD_ENV.md](BUILD_ENV.md), "The monthly dependency review") |
 | `acceptance` | host | the full acceptance suite under a genuine air gap, its log kept in `target/gate` |
 | `js-build` | host | every UI bundle and npm package built twice, bit-identical |
 | `release-dry-run` | toolchain | the whole release gate, throwaway keys, nothing published |
@@ -114,6 +116,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | …that touches release machinery or a UI | `release.yml`: `js-build`, `release-dry-run` | `js-build`, `release-dry-run` |
 | a push to `main` or `dev` | `ci.yml`, plus `acceptance` | the same, plus `acceptance` |
 | a `v*` tag | `release.yml`: the release | the release |
+| monthly (1st, 04:17 UTC) | `dependency-review.yml` | a pipeline schedule: `dependency-review` |
 | by hand | *Run workflow* → `mode`: `dry-run` or `release` | *Run pipeline* → `MIDGARD_RELEASE_MODE`: `dry-run`, `release` or `audit` |
 | by hand on `main` or `dev`, no mode | — (the toolchain image is built per run) | `toolchain-publish` |
 

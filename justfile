@@ -298,17 +298,26 @@ scan-advisory path:
 # Refresh the vendored advisory database. THE ONLY ONLINE STEP in the gate,
 # mirroring deploy/acceptance/Dockerfile's posture. Commit the result and review
 # the diff — a shrinking advisory count means something went wrong.
-advisory-db-refresh:
+#
+# `from` names a clone already fetched, so the offline toolchain can do the rest:
+# the scheduled dependency-review job clones on the runner and passes it here.
+# (VLD-ANB-MIDGARD-0090)
+advisory-db-refresh from="":
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    git clone -q --depth 1 https://github.com/rustsec/advisory-db.git "$tmp/db"
-    rev=$(git -C "$tmp/db" rev-parse HEAD)
-    date=$(git -C "$tmp/db" show -s --format=%cs HEAD)
+    db="{{from}}"
+    if [ -z "$db" ]; then
+        git clone -q --depth 1 https://github.com/rustsec/advisory-db.git "$tmp/db"
+        db="$tmp/db"
+    fi
+    # A clone made by another user (the runner, outside the container) is still read.
+    rev=$(git -c safe.directory='*' -C "$db" rev-parse HEAD)
+    date=$(git -c safe.directory='*' -C "$db" show -s --format=%cs HEAD)
     rm -rf vendor/advisory-db/crates
-    cp -r "$tmp/db/crates" vendor/advisory-db/
-    cp "$tmp/db/LICENSE.txt" vendor/advisory-db/
+    cp -r "$db/crates" vendor/advisory-db/
+    cp "$db/LICENSE.txt" vendor/advisory-db/
     n=$(find vendor/advisory-db/crates -name 'RUSTSEC-*.md' | wc -l | tr -d ' ')
     sed -i.bak \
         -e "s|^revision = .*|revision = \"$rev\"|" \
@@ -324,17 +333,24 @@ advisory-db-refresh:
 # to review and knows which packages it speaks for: `mg-scan` refuses an npm package
 # it was not filtered for. Run it again whenever the lockfile gains a package. Commit
 # the result and review the diff. [FR-MS-6] [AC-RF-SC-5b]
-advisory-db-npm-refresh:
+#
+# `from` names that export already downloaded and unpacked, as for
+# `advisory-db-refresh`. (VLD-ANB-MIDGARD-0090)
+advisory-db-npm-refresh from="":
     #!/usr/bin/env bash
     set -euo pipefail
     source=https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    curl -fsSL -o "$tmp/npm.zip" "$source"
-    mkdir "$tmp/osv"
-    unzip -q "$tmp/npm.zip" -d "$tmp/osv"
+    osv="{{from}}"
+    if [ -z "$osv" ]; then
+        curl -fsSL -o "$tmp/npm.zip" "$source"
+        mkdir "$tmp/osv"
+        unzip -q "$tmp/npm.zip" -d "$tmp/osv"
+        osv="$tmp/osv"
+    fi
     cargo run -q --release -p mg-sbom -- --pnpm-lock pnpm-lock.yaml --list-packages > "$tmp/packages.txt"
-    cargo run -q --release -p mg-scan -- import-osv --from "$tmp/osv" --packages "$tmp/packages.txt" \
+    cargo run -q --release -p mg-scan -- import-osv --from "$osv" --packages "$tmp/packages.txt" \
         --out vendor/advisory-db-npm --date "$(date -u +%F)" --source "$source"
 
 # Build every JavaScript artefact twice and require the two to be bit-identical: the

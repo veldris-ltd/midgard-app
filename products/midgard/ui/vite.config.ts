@@ -38,6 +38,9 @@ export default defineConfig(({ mode }) => {
         '@midgard/design-system/tokens.css': r('../../../ui/design-system/src/tokens/styles.css'),
         '@midgard/design-system': r('../../../ui/design-system/src/index.ts'),
         '@midgard/ui-shared': r('../../../ui/shared/src/index.ts'),
+        // The mock entry, ahead of '@midgard/sdk', which would otherwise also match it.
+        // Only a mock-mode build imports it. [AC-25.2]
+        '@midgard/sdk/mock': r('../../../sdk/ts/src/mock/index.ts'),
         '@midgard/sdk': r('../../../sdk/ts/src/index.ts'),
       },
     },

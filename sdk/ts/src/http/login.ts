@@ -1,5 +1,5 @@
 import type { MarkingLevel, PolicyContext } from '../types';
-import { GatewayError } from '../mock/MockGateway';
+import { GatewayError } from '../errors';
 import { assertSafeBaseUrl } from './baseUrl';
 
 /* Login: exchange operator credentials for a PQ-signed bearer token at the

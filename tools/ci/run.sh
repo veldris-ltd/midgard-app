@@ -47,6 +47,7 @@ claims|host|every row of the claims ledger cites files, lines and tests that exi
 gate-record|host|the committed gate record is what its logs give, and the status tables are what it gives
 numbers|host|docs/compliance/NUMBERS.md matches the tree, and no swept document quotes a figure that differs from it
 secrets|host|no credential is committed (gitleaks)
+signed-commits|host|every commit in the change is signed by a key in deploy/trust/allowed_signers
 k8s-render|host|deploy/k8s/enclosure.yaml is what the Helm chart renders, and each secrets provider renders as it should (needs helm)
 toolchain|host|build or restore the digest-pinned toolchain image (the only online step); inside it, check it is the pinned one
 toolchain-publish|host|push the toolchain image to the GitLab project registry; its digest must be the committed one
@@ -56,6 +57,7 @@ build|toolchain|release build of the workspace, whose graph never enables the te
 test|toolchain|the test suite, both crypto backends; its log is kept in target/gate
 repro|toolchain|two normalised builds of the workspace are bit-identical
 scan|toolchain|advisory and licence scan of the dependency graph, PR mode
+dependency-review|host|monthly: refresh both advisory snapshots, scan, and propose the change when they moved
 acceptance|host|the full acceptance suite under a genuine air gap; its log is kept in target/gate
 js-build|host|install the JS workspace and build every JavaScript artefact twice, bit-identical
 release-dry-run|toolchain|the whole release gate with throwaway keys, publishing nothing
@@ -159,6 +161,10 @@ job_secrets() {
     fi
     "$bin" detect --source . --config .gitleaks.toml --redact --no-banner
 }
+
+# Every commit in the change verifies against deploy/trust/allowed_signers. [AC-25.4]
+# (VLD-ANB-MIDGARD-0088)
+job_signed_commits() { bash tools/ci/signed-commits.sh "$@"; }
 
 job_k8s_render() {
     need "${HELM:-helm}" "k8s-render: helm is not on PATH"
@@ -318,6 +324,112 @@ job_scan() {
     in_toolchain bash -c 'mkdir -p target/ci && just sbom target/ci/workspace && just scan-advisory target/ci/workspace'
 }
 
+# --- the monthly dependency review [AC-25.6] (VLD-ANB-MIDGARD-0090) -------------------
+# The vendored advisory snapshots are refreshed on a schedule, not only by hand. The
+# downloads happen here on the runner, which has the network; the offline toolchain then
+# rewrites vendor/advisory-db and vendor/advisory-db-npm from them with the same just
+# recipes a maintainer runs, and the scan runs against the result. If either snapshot
+# moved, the change goes to chore/advisory-refresh-<date> and is proposed as a pull or
+# merge request for a person to review; nothing is merged here.
+RUSTSEC_REPO=https://github.com/rustsec/advisory-db.git
+NPM_OSV_EXPORT=https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip
+
+job_dependency_review() {
+    local work=target/dependency-review date branch base remote user token scan=passed
+    need git "dependency-review: git is needed"
+    need curl "dependency-review: curl is needed"
+    need unzip "dependency-review: unzip is needed"
+    date="$(date -u +%F)"
+    branch="chore/advisory-refresh-$date"
+    rm -rf "$work"
+    mkdir -p "$work/osv"
+
+    ci_group "fetch the RustSec database and the OSV npm export"
+    git clone -q --depth 1 "$RUSTSEC_REPO" "$work/rustsec"
+    curl -fsSL -o "$work/npm.zip" "$NPM_OSV_EXPORT"
+    unzip -q "$work/npm.zip" -d "$work/osv"
+    rm -f "$work/npm.zip"
+    ci_endgroup
+    ci_group "refresh both snapshots, offline"
+    in_toolchain just advisory-db-refresh "$work/rustsec"
+    in_toolchain just advisory-db-npm-refresh "$work/osv"
+    ci_endgroup
+    ci_group "scan against the refreshed snapshots"
+    job_scan || scan=failed
+    ci_endgroup
+
+    if [ -z "$(git status --porcelain -- vendor/advisory-db vendor/advisory-db-npm)" ]; then
+        echo "dependency-review: both snapshots are current; no change to propose"
+        if [ "$scan" != passed ]; then
+            ci_error "dependency-review: the advisory scan fails against the committed snapshots"
+            exit 1
+        fi
+        return 0
+    fi
+    {
+        echo "Monthly refresh of the vendored advisory snapshots (\`tools/ci/run.sh dependency-review\`)."
+        echo
+        echo "| Snapshot | Date | Advisories |"
+        echo "|---|---|---|"
+        for db in vendor/advisory-db vendor/advisory-db-npm; do
+            echo "| \`$db\` | $(sed -n 's/^date = "\(.*\)"/\1/p' "$db/snapshot.toml" | head -1) | $(sed -n 's/^advisory_count = //p' "$db/snapshot.toml" | head -1) |"
+        done
+        echo
+        echo "The advisory scan of the workspace against these snapshots $scan on the runner."
+        echo "Review the snapshot diff: a shrinking advisory count means something went wrong."
+    } > "$work/body.md"
+
+    case "$(ci_platform)" in
+        github)
+            : "${GH_TOKEN:?dependency-review: GH_TOKEN is not set}" "${GITHUB_REPOSITORY:?}"
+            remote="${GITHUB_SERVER_URL:-https://github.com}/$GITHUB_REPOSITORY.git"
+            base="${GITHUB_REF_NAME:?}" user=x-access-token token=GH_TOKEN
+            ;;
+        gitlab)
+            # CI_JOB_TOKEN can neither push nor open a merge request: a project access
+            # token with api scope, given only to the scheduled pipeline, does both.
+            : "${MIDGARD_MR_TOKEN:?dependency-review: MIDGARD_MR_TOKEN is not set (docs/dev/BUILD_ENV.md)}"
+            : "${CI_SERVER_URL:?}" "${CI_PROJECT_PATH:?}" "${CI_API_V4_URL:?}" "${CI_PROJECT_ID:?}"
+            remote="$CI_SERVER_URL/$CI_PROJECT_PATH.git"
+            base="${CI_COMMIT_BRANCH:?}" user=oauth2 token=MIDGARD_MR_TOKEN
+            ;;
+        *)
+            ci_error "dependency-review: the snapshots changed; review and commit vendor/advisory-db and vendor/advisory-db-npm"
+            exit 1
+            ;;
+    esac
+
+    git checkout -q -B "$branch"
+    git add -A -- vendor/advisory-db vendor/advisory-db-npm
+    git -c user.name="${MIDGARD_BOT_NAME:-midgard-dependency-review}" \
+        -c user.email="${MIDGARD_BOT_EMAIL:-dependency-review@users.noreply.invalid}" \
+        commit -q -m "chore(advisories): refresh snapshots $date"
+    # The token reaches git through a credential helper that reads it from the
+    # environment when asked, never through a command line or .git/config.
+    git -c credential.helper= \
+        -c credential.helper="!f() { echo username=$user; echo \"password=\$$token\"; }; f" \
+        push -q --force "$remote" "HEAD:refs/heads/$branch"
+    case "$(ci_platform)" in
+        github)
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$base" --head "$branch" \
+                --title "chore(advisories): refresh snapshots $date" --body-file "$work/body.md"
+            ;;
+        gitlab)
+            local header="$work/mr-token.header"
+            (umask 077 && printf 'PRIVATE-TOKEN: %s\n' "$MIDGARD_MR_TOKEN" > "$header")
+            curl --fail --silent --show-error -H @"$header" \
+                --data-urlencode "source_branch=$branch" \
+                --data-urlencode "target_branch=$base" \
+                --data-urlencode "title=chore(advisories): refresh snapshots $date" \
+                --data-urlencode "description@$work/body.md" \
+                --data-urlencode "remove_source_branch=true" \
+                "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests" >/dev/null
+            rm -f "$header"
+            echo "dependency-review: merge request opened from $branch into $base"
+            ;;
+    esac
+}
+
 job_acceptance() { bash tools/ci/gate-run.sh acceptance; }
 
 # The JavaScript artefacts, built where node is — the Rust toolchain image has none —
@@ -332,6 +444,9 @@ job_js_build() {
         corepack enable pnpm
     fi
     pnpm install --frozen-lockfile --prefer-offline
+    # The selftest job has no installed workspace, so the mock-bundle test runs here:
+    # an http build of the midgard console holds no mock fixture. [AC-25.2]
+    bash tools/ci/tests/js-mock-bundle.test.sh
     bash tools/ci/js-artefacts.sh build --all --out "${MIDGARD_JS_OUT:-target/js-out}"
 }
 

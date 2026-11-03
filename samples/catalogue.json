@@ -9,47 +9,110 @@
     "earthquakes": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "U.S. Geological Survey Earthquake Hazards Program"
+      "credit": "U.S. Geological Survey Earthquake Hazards Program",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Seismic events: place names, magnitudes and times."
+      }
     },
     "floods": {
       "publish": true,
       "licence": "Open Government Licence v3.0",
-      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Flood warning areas: place and river names."
+      }
     },
     "grid_frequency": {
       "publish": true,
       "licence": "Elexon BMRS open data licence",
-      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026"
+      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "GB system frequency readings."
+      }
     },
     "grid_fuel": {
       "publish": true,
       "licence": "Elexon BMRS open data licence",
-      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026"
+      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Generation by fuel type; 'name' is the fuel."
+      }
     },
     "grid_intensity_linked": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "Carbon Intensity API, National Energy System Operator (NESO)"
+      "credit": "Carbon Intensity API, National Energy System Operator (NESO)",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Carbon intensity by region; 'name' is the region."
+      }
     },
     "grid_intensity_other": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "Carbon Intensity API, National Energy System Operator (NESO)"
+      "credit": "Carbon Intensity API, National Energy System Operator (NESO)",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Carbon intensity by region; 'name' is the region."
+      }
     },
     "space_weather": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "NOAA Space Weather Prediction Center"
+      "credit": "NOAA Space Weather Prediction Center",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Planetary K-index readings."
+      }
     },
     "tfl": {
       "publish": true,
       "licence": "TfL open data terms",
-      "credit": "Powered by TfL Open Data"
+      "credit": "Powered by TfL Open Data",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Line status; 'name' is the line."
+      }
     },
     "weather": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "METAR reports; 'name' is the airfield."
+      }
     },
     "aircraft": {
       "publish": false,
@@ -63,139 +126,328 @@
       "publish": true,
       "licence": "Apache-2.0",
       "credit": "Veldris Ltd (ISO 3166-2 codes)",
-      "authored": "written for this repository so links to 'region' resolve"
+      "authored": "written for this repository so links to 'region' resolve",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Four ISO 3166-2 regions written for this repository."
+      }
     }
   },
   "feed_snapshots": {
     "easa_czib": {
       "publish": true,
       "licence": "Reproduction authorised with acknowledgement",
-      "credit": "Source: EASA"
+      "credit": "Source: EASA",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Conflict-zone bulletins; 'name' is the bulletin or zone."
+      }
     },
     "faa_restrictions": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "U.S. Federal Aviation Administration"
+      "credit": "U.S. Federal Aviation Administration",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Flight restrictions; 'name' is the restriction."
+      }
     },
     "floods": {
       "publish": true,
       "licence": "Open Government Licence v3.0",
-      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Flood warnings: areas and severities."
+      }
     },
     "flood_areas": {
       "publish": true,
       "licence": "Open Government Licence v3.0",
-      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Flood area polygons and descriptions."
+      }
     },
     "reservoirs": {
       "publish": true,
       "licence": "Open Government Licence v3.0",
-      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0"
+      "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Reservoir levels; 'name' is the reservoir."
+      }
     },
     "tfl": {
       "publish": true,
       "licence": "TfL open data terms",
-      "credit": "Powered by TfL Open Data"
+      "credit": "Powered by TfL Open Data",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Line status."
+      }
     },
     "jamcams": {
       "publish": true,
       "licence": "TfL open data terms",
-      "credit": "Powered by TfL Open Data"
+      "credit": "Powered by TfL Open Data",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Camera locations and links to the operator's live images; no image is committed."
+      }
     },
     "usgs": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "U.S. Geological Survey Earthquake Hazards Program"
+      "credit": "U.S. Geological Survey Earthquake Hazards Program",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Seismic events."
+      }
     },
     "tsunami": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "NOAA National and Pacific Tsunami Warning Centers"
+      "credit": "NOAA National and Pacific Tsunami Warning Centers",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Tsunami bulletins."
+      }
     },
     "metar": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Weather reports; 'name' is the airfield."
+      }
     },
     "taf": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Aerodrome forecasts; 'name' is the airfield."
+      }
     },
     "sigmet": {
       "publish": true,
       "licence": "Public domain (US Government work)",
-      "credit": "NOAA Aviation Weather Center (aviationweather.gov)"
+      "credit": "NOAA Aviation Weather Center (aviationweather.gov)",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Aviation weather warnings."
+      }
     },
     "gdacs": {
       "publish": true,
       "licence": "Reuse with attribution (European Commission reuse policy)",
-      "credit": "GDACS, European Commission Joint Research Centre and UN OCHA"
+      "credit": "GDACS, European Commission Joint Research Centre and UN OCHA",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Disaster alerts; 'name' is the event or country."
+      }
     },
     "gdelt": {
       "publish": true,
       "licence": "Free use with attribution",
-      "credit": "The GDELT Project"
+      "credit": "The GDELT Project",
+      "data_protection": {
+        "personal_data": "possible",
+        "basis": "Published by the source with attribution for free use; Veldris's legitimate interest in letting evaluators assess news surge detection. Headlines are public reporting.",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "News-volume surges with sample headlines and article links; a headline can name a person."
+      }
     },
     "ooni": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "OONI, the Open Observatory of Network Interference"
+      "credit": "OONI, the Open Observatory of Network Interference",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Censorship measurements aggregated by country; no probe addresses."
+      }
     },
     "digitraffic_vessels": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "Fintraffic / digitraffic.fi"
+      "credit": "Fintraffic / digitraffic.fi",
+      "data_protection": {
+        "personal_data": "possible",
+        "basis": "Published by the source as open data under CC BY 4.0; Veldris's legitimate interest in letting evaluators assess Midgard's maritime picture with real traffic. Small craft are pseudonymised.",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "AIS static data keyed by MMSI: name, call sign, IMO number, destination, ETA and dimensions. 212 of 1,065 records are small craft (no IMO number, hull under 24 m) and were pseudonymised with `convert.py screen --apply` (name and call sign removed, MMSI replaced by small-craft-<n>). The rest are mostly commercial ships; a vessel of 24 m or more without an IMO number may still be privately owned."
+      }
     },
     "drivebc_cams": {
       "publish": true,
       "licence": "Open Government Licence - British Columbia",
-      "credit": "Contains information licensed under the Open Government Licence - British Columbia"
+      "credit": "Contains information licensed under the Open Government Licence - British Columbia",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Camera locations and links to the operator's live images; no image is committed."
+      }
     },
     "drivebc_events": {
       "publish": true,
       "licence": "Open Government Licence - British Columbia",
-      "credit": "Contains information licensed under the Open Government Licence - British Columbia"
+      "credit": "Contains information licensed under the Open Government Licence - British Columbia",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Road events; free-text comments describe road conditions."
+      }
     },
     "nz_cams": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "NZ Transport Agency Waka Kotahi"
+      "credit": "NZ Transport Agency Waka Kotahi",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Camera locations and links to the operator's live images; no image is committed."
+      }
     },
     "nzta_roads": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "NZ Transport Agency Waka Kotahi"
+      "credit": "NZ Transport Agency Waka Kotahi",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Road events."
+      }
     },
     "mrwa_roads": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "Main Roads Western Australia"
+      "credit": "Main Roads Western Australia",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Road events."
+      }
     },
     "eccc_alerts": {
       "publish": true,
       "licence": "ECCC Data Servers End-use Licence",
-      "credit": "Environment and Climate Change Canada"
+      "credit": "Environment and Climate Change Canada",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Weather alerts."
+      }
     },
     "metservice": {
       "publish": true,
       "licence": "CC BY 4.0",
-      "credit": "MetService"
+      "credit": "MetService",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Weather warnings."
+      }
     },
     "windfarms": {
       "publish": true,
       "licence": "The Crown Estate open data licence",
-      "credit": "The Crown Estate and Crown Estate Scotland"
+      "credit": "The Crown Estate and Crown Estate Scotland",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Offshore wind sites; 'name' is the site."
+      }
     },
     "platforms": {
       "publish": true,
       "licence": "NSTA Open User Licence",
-      "credit": "North Sea Transition Authority"
+      "credit": "North Sea Transition Authority",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Offshore installations; 'name' is the installation."
+      }
     },
     "gb_grid": {
       "publish": true,
       "licence": "Elexon BMRS open data licence; CC BY 4.0",
-      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026; Carbon Intensity API, NESO"
+      "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026; Carbon Intensity API, NESO",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Grid generation and carbon intensity."
+      }
     },
     "adsb-lol-last": {
       "publish": false,
@@ -295,19 +547,40 @@
       "publish": true,
       "licence": "Reproduction authorised with acknowledgement",
       "credit": "Source: EASA",
-      "family": "aviation"
+      "family": "aviation",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Conflict-zone bulletins."
+      }
     },
     "faa-restrictions": {
       "publish": true,
       "licence": "Public domain (US Government work)",
       "credit": "U.S. Federal Aviation Administration",
-      "family": "aviation"
+      "family": "aviation",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Flight restrictions."
+      }
     },
     "airports-metar": {
       "publish": true,
       "licence": "Public domain (US Government work)",
       "credit": "NOAA Aviation Weather Center (aviationweather.gov)",
-      "family": "aviation"
+      "family": "aviation",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Weather reports; 'name' is the airfield."
+      }
     },
     "adsb-fi-aircraft": {
       "publish": false,
@@ -328,7 +601,14 @@
       "publish": true,
       "licence": "CC BY 4.0",
       "credit": "Fintraffic / digitraffic.fi",
-      "family": "maritime"
+      "family": "maritime",
+      "data_protection": {
+        "personal_data": "yes",
+        "basis": "Published by the source as open data under CC BY 4.0; Veldris's legitimate interest in letting evaluators assess Midgard's maritime picture with real traffic.",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "500 AIS position reports with MMSI, name, call sign, position and time. 110 of them are small craft that the snapshot pseudonymises, and position with time can show a person's movements. Retained pending the full-DPIA decision in docs/compliance/DATA_PROTECTION_SCREENING.md."
+      }
     },
     "aisstream": {
       "publish": false,
@@ -339,7 +619,14 @@
       "publish": true,
       "licence": "Elexon BMRS open data licence; CC BY 4.0",
       "credit": "Contains BMRS data © Elexon Limited copyright and database right 2026; Carbon Intensity API, NESO",
-      "family": "energy"
+      "family": "energy",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Grid generation; 'name' is the fuel or region."
+      }
     },
     "power-cuts": {
       "publish": false,
@@ -370,7 +657,14 @@
       "publish": true,
       "licence": "Open Government Licence v3.0",
       "credit": "Contains Environment Agency data licensed under the Open Government Licence v3.0",
-      "family": "water"
+      "family": "water",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Reservoir levels."
+      }
     },
     "storm-overflows": {
       "publish": false,
@@ -386,7 +680,14 @@
       "publish": true,
       "licence": "Network Rail data feeds licence (Open Government Licence terms)",
       "credit": "Contains information of Network Rail Infrastructure Limited; NaPTAN, Department for Transport, OGL v3.0",
-      "family": "transport"
+      "family": "transport",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Train movements by service and location; no staff or passenger data."
+      }
     },
     "national-highways": {
       "publish": false,
@@ -397,7 +698,14 @@
       "publish": true,
       "licence": "CC BY 4.0",
       "credit": "OONI, the Open Observatory of Network Interference",
-      "family": "communications"
+      "family": "communications",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Censorship measurements aggregated by country."
+      }
     },
     "telecom-infra": {
       "publish": false,
@@ -413,13 +721,27 @@
       "publish": true,
       "licence": "NASA open data policy",
       "credit": "NASA FIRMS (Fire Information for Resource Management System)",
-      "family": "hazards"
+      "family": "hazards",
+      "data_protection": {
+        "personal_data": "none",
+        "basis": "Not applicable: no personal data found. Published under the source's licence (see licence and credit).",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "Satellite thermal anomalies (fires) by position and time; no ownership data."
+      }
     },
     "gdelt-news": {
       "publish": true,
       "licence": "Free use with attribution",
       "credit": "The GDELT Project",
-      "family": "information"
+      "family": "information",
+      "data_protection": {
+        "personal_data": "possible",
+        "basis": "Published by the source with attribution for free use; Veldris's legitimate interest in letting evaluators assess news surge detection. Headlines are public reporting.",
+        "screened_on": "2026-11-02",
+        "screened_by": "Security and compliance lead",
+        "notes": "News-volume surges with sample headlines and article links; a headline can name a person."
+      }
     },
     "gulf-watch": {
       "publish": false,

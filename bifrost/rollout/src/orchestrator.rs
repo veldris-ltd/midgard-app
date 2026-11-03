@@ -70,8 +70,10 @@ pub struct RolloutReport {
     pub rings_on_target: Vec<String>,
     /// The ring whose gate failed, if any.
     pub failed_ring: Option<String>,
-    /// The fewest installations available at any instant during the rollout. With
-    /// blue-green promotion this equals the fleet size — zero downtime. [AC-B-2]
+    /// The fewest installations available at any instant during the rollout. Only
+    /// [`Orchestrator::roll_out_live`] observes it, from live install counts; from
+    /// [`Orchestrator::roll_out`] it is nominal, the fleet size by construction, and
+    /// proves nothing about downtime. [AC-B-2] (VLD-ANB-MIDGARD-0087)
     pub min_available: usize,
     /// Total installations in the plan.
     pub total_installs: usize,
@@ -79,6 +81,8 @@ pub struct RolloutReport {
 
 impl RolloutReport {
     /// Whether the rollout kept the whole fleet available throughout (no downtime).
+    /// Meaningful only for a report from [`Orchestrator::roll_out_live`]: a report
+    /// from [`Orchestrator::roll_out`] always says yes (see `min_available`).
     pub fn zero_downtime(&self) -> bool {
         self.min_available == self.total_installs
     }
@@ -106,8 +110,12 @@ impl Orchestrator {
         gate: &dyn HealthGate,
     ) -> RolloutReport {
         let total = plan.total_installs();
-        // Blue-green: the old version keeps serving until the new is healthy, so the
-        // available count never falls below the fleet size.
+        // Nominal, not observed: this model deploys nothing and counts nothing, so
+        // `min_available` is the fleet size by construction and `zero_downtime()` on
+        // this report compares it with itself. Blue-green promotion is what would keep
+        // the old version serving until the new one is healthy; only `roll_out_live`
+        // observes availability, from the agent's live install counts. The claims
+        // ledger cites that one for zero downtime. (VLD-ANB-MIDGARD-0087) [AC-B-2]
         let min_available = total;
         let mut promoted: Vec<String> = Vec::new();
 

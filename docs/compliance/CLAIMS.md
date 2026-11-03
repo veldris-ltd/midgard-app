@@ -29,9 +29,9 @@ talks to it over its own listener.
 | `production` | 0 |
 | `operable` | 23 |
 | `reference` | 19 |
-| `spec` | 5 |
+| `spec` | 4 |
 | `external` | 1 |
-| **Total** | **48** |
+| **Total** | **47** |
 
 No document is listed as wording a capability above its status.
 
@@ -71,7 +71,7 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`services/runtime/tests/security_listener.rs::an_unauthenticated_idle_mesh_connection_is_closed_at_the_timeout`](../../services/runtime/tests/security_listener.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:140`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:58`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
@@ -109,7 +109,7 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`services/http-gateway/tests/state_dir_boot.rs::a_tampered_ledger_refuses_to_boot`](../../services/http-gateway/tests/state_dir_boot.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:106`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
@@ -273,7 +273,7 @@ Access is denied unless a written rule grants it: role, marking and purpose must
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller`](../../services/http-gateway/tests/http.rs)
-  - [`deploy/kind/smoke.sh:140`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`docs/launch/pipeline/build-deck.js:351`](../../docs/launch/pipeline/build-deck.js)
 
@@ -376,7 +376,7 @@ mimir-server answers inference requests from a real model inside the enclosure: 
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
-  - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:72`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
@@ -507,7 +507,7 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
 - Service tests:
   - [`forge/worker/tests/sync.rs::the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh`](../../forge/worker/tests/sync.rs)
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:130`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:67`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
@@ -567,7 +567,7 @@ bifrost-fleet records each installation's version, liveness and drift from its c
 - Service tests:
   - [`bifrost/fleet-server/tests/serve.rs::agents_check_in_operators_read_the_fleet_and_it_survives_a_restart`](../../bifrost/fleet-server/tests/serve.rs)
   - [`deploy/compose/smoke.sh:31`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:112`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:87`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`docs/launch/pipeline/build-deck.js:405`](../../docs/launch/pipeline/build-deck.js)
 
@@ -623,7 +623,7 @@ heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose
 - Service tests:
   - [`heimdall/feed-server/tests/serve.rs::sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart`](../../heimdall/feed-server/tests/serve.rs)
   - [`deploy/compose/smoke.sh:42`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:120`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:95`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`docs/launch/pipeline/build-deck.js:391`](../../docs/launch/pipeline/build-deck.js)
   - [`docs/launch/pipeline/build-deck.js:393`](../../docs/launch/pipeline/build-deck.js)
@@ -780,7 +780,7 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/kind/values.yaml:4`](../../deploy/kind/values.yaml)
 - Service tests:
   - [`deploy/compose/smoke.sh:13`](../../deploy/compose/smoke.sh)
-  - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
+  - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
 - Stated at:
   - [`CHANGELOG.md:63`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
@@ -825,21 +825,6 @@ Alignment with NIST SP 800-53, OWASP ASVS and ISO 27001.
 
 - Source:
   - [`docs/compliance/COMPLIANCE_MATRIX.md:1`](../../docs/compliance/COMPLIANCE_MATRIX.md)
-
-### `personal-data-erasure` (spec)
-
-Personal data can be erased and exported per subject, and each durable store enforces a retention period: the directory, object and dataset journals seal each record under its own data key, erasure destroys the key and leaves a tombstone, and compaction drops shredded records.
-
-**Limit.** The audit ledger is immutable by design and is not subject to erasure.
-
-**Until it is operable, say:** "Every durable store is an append-only sealed journal: access control, encryption at rest and in transit and an immutable audit trail are provided, but no record is deleted, compacted or exported, and a replaced record (such as an earlier password hash) stays in the journal. Retention targets are documented in docs/compliance/RETENTION.md and are not enforced; subject erasure and export are not implemented."
-
-**Milestone.** The follow-on to ANUBIS WP-29: per-record data keys with crypto-shred tombstones for the directory, object and dataset journals, then erasure, export and retention through mg-admin (VLD-ANB-MIDGARD-0070).
-
-- Source:
-  - [`docs/compliance/RETENTION.md:1`](../../docs/compliance/RETENTION.md)
-  - [`services/iam/src/directory.rs:67`](../../services/iam/src/directory.rs)
-  - [`docs/compliance/DATA_RESIDENCY.md:57`](../../docs/compliance/DATA_RESIDENCY.md)
 
 ## Outside this repository
 

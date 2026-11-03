@@ -292,6 +292,67 @@ CONTRIBUTING.md for the version policy.
     root with mode 0600 or 0400, as `answers.example` always said.
   - The installer can be sourced without running, and
     `tools/ci/tests/mg-install.test.sh` tests these checks unprivileged.
+- **The published samples have a data-protection screening (WP-25 A).** Every
+  published entry in `samples/catalogue.json` carries a `data_protection` record
+  (`personal_data` none, possible or yes; basis; date; screening role; notes), which
+  `convert.py check` enforces and `samples/NOTICE.md` shows. `convert.py screen` lists
+  the fields a reviewer must assess and counts the small craft (no IMO number, hull
+  under 24 m) in the AIS vessel snapshot; `--apply` pseudonymised the 212 it found
+  (name and call sign removed, MMSI replaced by `small-craft-<n>`).
+  `docs/compliance/DATA_PROTECTION_SCREENING.md` is the screening record, and leaves
+  the full-DPIA decision, and the AIS observations sample, to the Data Protection
+  Officer. [VLD-ANB-MIDGARD-0074]
+- **The mock gateway is out of the production console bundle (WP-25 B).** The mocks
+  and their fixtures (`MockGateway`, the six product mocks) move to the subpath entry
+  `@midgard/sdk/mock`; `@midgard/sdk` itself no longer reaches them, and the gateway
+  errors move to `sdk/ts/src/errors.ts`. The midgard console imports the mock
+  dynamically, only when built with `VITE_GATEWAY=mock`, so an http build holds none
+  of it (`tools/ci/tests/js-mock-bundle.test.sh`, run by the js-build job).
+  `AuthGate`'s `mockClient` is optional, and mock mode without one fails loudly. The
+  six mock-only consoles (admin, Bifrost, clients, Forge, Heimdall, Mimir) run under
+  `AuthGate mode="mock"` with the new `DemonstrationBanner` ("Demonstration data. This
+  console runs on built-in sample data and is not connected to an enclosure.") and
+  load their mock the same way, so moving one to http is its `mode` line.
+  [VLD-ANB-MIDGARD-0086]
+- **The compliance documents match the code (WP-25 C).** `human-gated-actions` cites
+  `redeemable()` and states what it does not cover (any other principal the policy lets
+  approve can decide, with no fresh second factor; approvals are in memory);
+  `bifrost-rollout` cites `roll_out_live` and no longer counts the `roll_out` model's
+  nominal `min_available` as zero-downtime evidence; `policy-decisions` scopes marking
+  and purpose to the HTTP edge. The risk register no longer says the edge accepts any
+  non-empty token. DATA_RESIDENCY lists the controls that exist and says retention,
+  erasure and export are not yet available; BACKUP_RESTORE says custody is the version 2
+  software keystore and no HSM or TPM holds the root; RETENTION lists the parked
+  enrolments journal and what WP-15 changes about it. `claims.sh --check` accepts
+  `path:line:token` anchors and fails when the line stops containing the token.
+  [VLD-ANB-MIDGARD-0087]
+- **Every commit in a change must be signed (WP-25 D).** The new `signed-commits` job,
+  after `secrets` in the hygiene job on both forges, verifies each commit in the
+  change's range (the request's base, or the commit a push moved from, to HEAD) against
+  `deploy/trust/allowed_signers` and fails naming each one that is unsigned or signed
+  by an unlisted key. CONTRIBUTING.md says how to sign. Until the key ceremony
+  publishes `deploy/trust/allowed_signers` and authors sign, the job fails every
+  change; the owner enables the required-signatures rule on `main`.
+  [VLD-ANB-MIDGARD-0088]
+- **Gitleaks suppressions are scoped to a file (WP-25 E).** `.gitleaks.toml` has no
+  global stopword list: each of the four prose literals is allowed only in the one file
+  it occurs in (`condition = "AND"`), and the two fixture tokens of a branch outside
+  this tree are gone; that branch adds its own scoped entry when it merges.
+  [VLD-ANB-MIDGARD-0089]
+- **A monthly dependency review (WP-25 F).** `.github/workflows/dependency-review.yml`
+  (the 1st of each month, and by hand) and a GitLab schedule run the new
+  `dependency-review` job: both advisory sources are fetched on the runner,
+  `just advisory-db-refresh` and `just advisory-db-npm-refresh` (which now take an
+  already fetched input) rewrite the snapshots offline in the toolchain, the scan runs,
+  and when a snapshot moved a pull request is opened with `gh` from
+  `chore/advisory-refresh-<date>`. BUILD_ENV.md and CONTRIBUTING.md describe the
+  review. [VLD-ANB-MIDGARD-0090]
+- **A pre-commit gate (WP-25 G).** `.pre-commit-config.yaml` runs the CI secret scan on
+  what is staged (`gitleaks protect --staged` with `.gitleaks.toml`) and
+  `cargo fmt --all -- --check` as local hooks; CONTRIBUTING.md explains
+  `pre-commit install` and the pinned gitleaks version, and
+  `tools/ci/tests/precommit.test.sh` keeps both hooks in the file.
+  [VLD-ANB-MIDGARD-0091]
 - **Keystores no longer hold the custody root in the clear (WP-50).** Keystore format
   version 2 wraps each keystore's ML-KEM-1024 root, the root that also seals the
   identity directory, the audit ledger and the object store: under an operator

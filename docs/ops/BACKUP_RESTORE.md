@@ -55,14 +55,17 @@ wrapped under that keystore's passphrase (keystore format version 2: PBKDF2-HMAC
 the secret store, separately from the data backup and from the keystores, and never
 copy it into the backup vault. The backup is useless to an attacker without it, which
 is the point; without it the stores cannot be unsealed either, so a lost passphrase is
-a lost enclosure. With a hardware root (`RootWrap::External`, the GA target) the root is
-recovered from the HSM or TPM instead (see [DR_PLAN.md](DR_PLAN.md) step 4).
-[VLD-ANB-MIDGARD-0007]
+a lost enclosure. Custody today is this software keystore and nothing else: no HSM or
+TPM holds the root. Keystore version 2 can also seal the root to an external trust root
+(`RootWrap::External`, tested against the SoftHSM stand-in), which is the GA target but
+is not yet wired to a device; once it is, the root is recovered from the device instead
+(see [DR_PLAN.md](DR_PLAN.md) step 4). [VLD-ANB-MIDGARD-0007] [VLD-ANB-MIDGARD-0087]
 
 ## Restore procedure — uniform
 
 1. Recover the **trust root** first: the keystore passphrases from the secret store
-   (software tier), or the HSM/TPM with its attestation confirmed. Check each restored
+   (the software keystore, which is the only custody implemented), or, once a hardware
+   root is wired, the device with its attestation confirmed. Check each restored
    keystore unlocks with `mg-admin keystore verify --keystore FILE`.
 2. Copy the chosen snapshot's journal file(s) into the replacement node's data
    directory for that store.
