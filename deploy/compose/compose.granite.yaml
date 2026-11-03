@@ -50,6 +50,12 @@ services:
       # [VLD-ANB-MIDGARD-0016]
       - --max-concurrent
       - "4"
+      # How often STOP and revoked.list in /state, the model trust file and the
+      # verified manifest are re-checked: `touch /state/STOP`, or the model id in
+      # /state/revoked.list, stops inference within it (docs/ops/RUNBOOKS.md RB-8).
+      # [VLD-ANB-MIDGARD-0057]
+      - --reload-interval
+      - "60"
     volumes:
       - mimir-models:/models:ro
       - mimir-serve:/serve

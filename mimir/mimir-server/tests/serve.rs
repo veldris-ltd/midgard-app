@@ -4,6 +4,11 @@
 //! the service reports ready and holds its state directory; and after a hard kill it
 //! restarts on the same ledger, recovering and continuing its audit sequence.
 //! [FR-MI-8] [NFR-SEC-1] [RC-33] [RC-09] [AC-MI-8]
+//!
+//! While it serves, a revoked model id, an operator's stop file or a withdrawn model
+//! trust key stops inference within the reload interval, after the completions in
+//! flight drain, and serving resumes once they are gone. [VLD-ANB-MIDGARD-0057]
+//! [AC-67.1] [AC-67.2] [AC-67.3] [AC-67.4]
 #![cfg(feature = "backend-fips")]
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -80,6 +85,20 @@ struct Running {
     mesh: String,
     health: String,
     recovered: String,
+    log: Arc<Mutex<Vec<String>>>,
+}
+
+impl Running {
+    /// The first log line with `message` so far.
+    fn logged(&self, message: &str) -> Option<String> {
+        let needle = format!("\"message\":\"{message}\"");
+        self.log
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|line| line.contains(&needle))
+            .cloned()
+    }
 }
 
 impl Drop for Running {
@@ -134,13 +153,20 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
             }
         }
     };
-    // Keep draining the connection log so the pipe never fills.
-    std::thread::spawn(move || lines.for_each(drop));
+    // Keep draining the log so the pipe never fills, and keep it for the test.
+    let log = Arc::new(Mutex::new(vec![serving.clone()]));
+    let kept = log.clone();
+    std::thread::spawn(move || {
+        lines
+            .map_while(Result::ok)
+            .for_each(|line| kept.lock().unwrap().push(line))
+    });
     Running {
         child,
         mesh: field(&serving, "mesh").expect("mesh address"),
         health: field(&serving, "health").expect("health address"),
         recovered: field(&serving, "recovered_audit_entries").expect("recovered count"),
+        log,
     }
 }
 
@@ -273,6 +299,12 @@ fn inference_is_served_over_pqmtls_audited_and_survives_a_restart() {
 /// A `llama-server` stand-in on loopback: healthy, streaming `reply` for every
 /// completion, and recording each request body it was sent.
 fn fake_sidecar(reply: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+    fake_sidecar_holding(reply, Duration::ZERO)
+}
+
+/// [`fake_sidecar`], holding each completion open for `hold` before it answers. Each
+/// connection is served on a thread of its own, so health checks are answered meanwhile.
+fn fake_sidecar_holding(reply: &'static str, hold: Duration) -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -280,42 +312,47 @@ fn fake_sidecar(reply: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut request_line = String::new();
-            if reader.read_line(&mut request_line).is_err() {
-                continue;
-            }
-            let mut length = 0;
-            loop {
-                let mut line = String::new();
-                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
-                    break;
+            let seen = seen.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request_line = String::new();
+                if reader.read_line(&mut request_line).is_err() {
+                    return;
                 }
-                let lower = line.to_ascii_lowercase();
-                if let Some(value) = lower.strip_prefix("content-length:") {
-                    length = value.trim().parse().unwrap_or(0);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    let lower = line.to_ascii_lowercase();
+                    if let Some(value) = lower.strip_prefix("content-length:") {
+                        length = value.trim().parse().unwrap_or(0);
+                    }
                 }
-            }
-            let mut body = vec![0u8; length];
-            let _ = reader.read_exact(&mut body);
-            if request_line.starts_with("GET /health") {
-                let _ = stream
-                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 15\r\n\r\n{\"status\":\"ok\"}");
-                continue;
-            }
-            seen.lock()
-                .unwrap()
-                .push(String::from_utf8_lossy(&body).into_owned());
-            let events = format!(
+                let mut body = vec![0u8; length];
+                let _ = reader.read_exact(&mut body);
+                if request_line.starts_with("GET /health") {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 15\r\n\r\n{\"status\":\"ok\"}",
+                    );
+                    return;
+                }
+                seen.lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&body).into_owned());
+                std::thread::sleep(hold);
+                let events = format!(
                 "data: {{\"choices\":[{{\"text\":\"{reply}\"}}]}}\n\n\
                  data: {{\"choices\":[{{\"text\":\"\"}}],\"usage\":{{\"prompt_tokens\":9,\"completion_tokens\":4}}}}\n\n\
                  data: [DONE]\n\n"
             );
-            let _ = write!(
+                let _ = write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n{events}",
                 events.len()
             );
+            });
         }
     });
     (addr, requests)
@@ -651,4 +688,287 @@ fn a_burst_over_the_rate_limit_is_throttled() {
         assert!(text(&out.stderr).contains(junk[0]), "{}", text(&out.stderr));
     }
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Poll `ready` every 50 ms for up to 10 s; how long it took.
+fn within_10s(what: &str, mut ready: impl FnMut() -> bool) -> Duration {
+    let start = Instant::now();
+    while !ready() {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "not within 10 s: {what}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    start.elapsed()
+}
+
+/// A served Granite model behind a fake sidecar, re-checked every second.
+struct ModelFixture {
+    root: PathBuf,
+    server_identity: PathBuf,
+    consumers: PathBuf,
+    state: PathBuf,
+    trust: PathBuf,
+    args: Vec<String>,
+}
+
+impl ModelFixture {
+    fn new(tag: &str, sidecar: &str) -> Self {
+        let root = scratch(tag);
+        let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+        let server_identity = root.join("server");
+        let consumers = root.join("consumers");
+        let state = root.join("state");
+        issue(
+            &idp,
+            &server_identity,
+            "mimir-server",
+            &["inference-server"],
+        );
+        issue(&idp, &consumers, "forge-worker", &["inference-consumer"]);
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("policy.json"), POLICY).unwrap();
+        let (model, trust) = signed_model(&root);
+        let serve = root.join("serve");
+        std::fs::create_dir_all(&serve).unwrap();
+        let args = [
+            "--engine",
+            "llama-cpp",
+            "--model-dir",
+            &model.display().to_string(),
+            "--model-trust",
+            &trust.display().to_string(),
+            "--serve-dir",
+            &serve.display().to_string(),
+            "--sidecar",
+            sidecar,
+            "--reload-interval",
+            "1",
+        ]
+        .map(String::from)
+        .to_vec();
+        Self {
+            root,
+            server_identity,
+            consumers,
+            state,
+            trust,
+            args,
+        }
+    }
+
+    fn start(&self) -> Running {
+        start_with(&self.server_identity, &self.state, &strs(&self.args))
+    }
+
+    fn probe(&self, server: &Running) -> Output {
+        probe(&self.consumers, "forge-worker", &server.mesh)
+    }
+}
+
+/// `/readyz` is 503 with the `model-verified` check failing.
+fn not_ready(server: &Running) -> bool {
+    let (status, body) = get(&server.health, "/readyz");
+    status == 503 && body.contains("model-verified")
+}
+
+fn ready(server: &Running) -> bool {
+    get(&server.health, "/readyz").0 == 200
+}
+
+/// The probe was refused with `code`.
+fn refused_with(out: &Output, code: &str) {
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stdout));
+    assert!(text(&out.stderr).contains(code), "{}", text(&out.stderr));
+}
+
+#[test]
+fn a_revoked_model_stops_serving_within_the_interval() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.1]
+    let (sidecar, _) = fake_sidecar("ok");
+    let fx = ModelFixture::new("revoked", &sidecar);
+    let server = fx.start();
+    let serving = server.logged("serving").unwrap();
+    assert_eq!(field(&serving, "reload_interval").as_deref(), Some("1s"));
+    let served = fx.probe(&server);
+    assert!(served.status.success(), "{}", text(&served.stderr));
+
+    let list = fx.state.join("revoked.list");
+    std::fs::write(&list, "# withdrawn: eval regression\ngranite-test\n").unwrap();
+    let took = within_10s("readiness drops", || not_ready(&server));
+    eprintln!("revocation took effect in {took:?}");
+    refused_with(&fx.probe(&server), "MODEL_REVOKED");
+    let stopped = server.logged("serving stopped").unwrap();
+    assert_eq!(field(&stopped, "reason").as_deref(), Some("MODEL_REVOKED"));
+    assert!(
+        field(&stopped, "detail").unwrap().contains("revoked"),
+        "{stopped}"
+    );
+    within_10s("the refusal is counted", || {
+        get(&server.health, "/metrics")
+            .1
+            .contains("inference_refused_total{reason=\"model_revoked\"} 1")
+    });
+
+    // Another model's revocation is not this one's: serving resumes.
+    std::fs::write(&list, "some-other-model\n").unwrap();
+    within_10s("readiness returns", || ready(&server));
+    assert!(server.logged("serving resumed").is_some());
+    let served = fx.probe(&server);
+    assert!(served.status.success(), "{}", text(&served.stderr));
+    drop(server);
+
+    // The refusal is in the ledger: a served call, the refused call's decision and its
+    // refusal, and the call after the resume.
+    let server = fx.start();
+    assert_eq!(server.recovered, "4");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&fx.root);
+}
+
+#[test]
+fn the_stop_file_disengages_and_removing_it_resumes() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.2]
+    let (sidecar, _) = fake_sidecar("ok");
+    let fx = ModelFixture::new("stop", &sidecar);
+    let reference = ["--reload-interval".to_string(), "1".to_string()].to_vec();
+    for args in [fx.args.clone(), reference] {
+        let server = start_with(&fx.server_identity, &fx.state, &strs(&args));
+        within_10s("ready", || ready(&server));
+        let served = fx.probe(&server);
+        assert!(served.status.success(), "{}", text(&served.stderr));
+
+        let stop = fx.state.join("STOP");
+        std::fs::write(&stop, "").unwrap();
+        let took = within_10s("readiness drops", || not_ready(&server));
+        eprintln!("the stop file took effect in {took:?}");
+        refused_with(&fx.probe(&server), "SERVING_STOPPED");
+        let stopped = server.logged("serving stopped").unwrap();
+        assert_eq!(
+            field(&stopped, "reason").as_deref(),
+            Some("SERVING_STOPPED")
+        );
+        within_10s("the refusal is counted", || {
+            get(&server.health, "/metrics")
+                .1
+                .contains("inference_refused_total{reason=\"serving_stopped\"} 1")
+        });
+
+        std::fs::remove_file(&stop).unwrap();
+        within_10s("readiness returns", || ready(&server));
+        assert!(server.logged("serving resumed").is_some());
+        let served = fx.probe(&server);
+        assert!(served.status.success(), "{}", text(&served.stderr));
+        drop(server);
+    }
+
+    // A service started while the stop file is there is never ready, and the reference
+    // engine takes no revocation list.
+    std::fs::write(fx.state.join("STOP"), "").unwrap();
+    let server = start_with(&fx.server_identity, &fx.state, &strs(&fx.args));
+    assert!(not_ready(&server));
+    refused_with(&fx.probe(&server), "SERVING_STOPPED");
+    drop(server);
+    let (identity_arg, state_arg) = (
+        fx.server_identity.display().to_string(),
+        fx.state.display().to_string(),
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .args(server_args(&identity_arg, &state_arg))
+        .args(["--revocation-file", "revoked.list"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        text(&out.stderr).contains("--revocation-file needs --engine"),
+        "{}",
+        text(&out.stderr)
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .args(server_args(&identity_arg, &state_arg))
+        .args(["--reload-interval", "0"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        text(&out.stderr).contains("--reload-interval"),
+        "{}",
+        text(&out.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&fx.root);
+}
+
+#[test]
+fn a_replaced_trust_anchor_stops_serving() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.3]
+    let (sidecar, _) = fake_sidecar("ok");
+    let fx = ModelFixture::new("anchor", &sidecar);
+    let server = fx.start();
+    let served = fx.probe(&server);
+    assert!(served.status.success(), "{}", text(&served.stderr));
+
+    // Another ML-DSA-65 key in the trust file: the manifest no longer verifies.
+    let original = std::fs::read(&fx.trust).unwrap();
+    let other = fx.root.join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    let (_, other_trust) = signed_model(&other);
+    std::fs::copy(&other_trust, &fx.trust).unwrap();
+    let took = within_10s("readiness drops", || not_ready(&server));
+    eprintln!("the replaced anchor took effect in {took:?}");
+    let stopped = server.logged("serving stopped").unwrap();
+    assert_eq!(field(&stopped, "reason").as_deref(), Some("MODEL_REVOKED"));
+    assert!(
+        field(&stopped, "detail")
+            .unwrap()
+            .contains("the manifest signature does not verify"),
+        "{stopped}"
+    );
+    refused_with(&fx.probe(&server), "MODEL_REVOKED");
+
+    std::fs::write(&fx.trust, original).unwrap();
+    within_10s("readiness returns", || ready(&server));
+    let served = fx.probe(&server);
+    assert!(served.status.success(), "{}", text(&served.stderr));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&fx.root);
+}
+
+#[test]
+fn in_flight_completion_drains_before_stop_is_logged() {
+    // [VLD-ANB-MIDGARD-0057] [AC-67.4]
+    let (sidecar, requests) = fake_sidecar_holding("Olsen holds case 42.", Duration::from_secs(3));
+    let fx = ModelFixture::new("drain", &sidecar);
+    let server = fx.start();
+    let (consumers, mesh) = (fx.consumers.clone(), server.mesh.clone());
+    let in_flight = std::thread::spawn(move || probe(&consumers, "forge-worker", &mesh));
+    within_10s("the completion reaches the sidecar", || {
+        !requests.lock().unwrap().is_empty()
+    });
+
+    std::fs::write(fx.state.join("STOP"), "").unwrap();
+    within_10s("serving stops", || {
+        server.logged("serving stopped").is_some()
+    });
+    assert!(
+        server.logged("drained").is_none(),
+        "not drained while the completion is held"
+    );
+    assert!(!in_flight.is_finished(), "the completion is still running");
+    refused_with(&fx.probe(&server), "SERVING_STOPPED");
+
+    let completed = in_flight.join().unwrap();
+    assert!(completed.status.success(), "{}", text(&completed.stderr));
+    assert!(text(&completed.stdout).contains("Olsen holds case 42."));
+    within_10s("drained is logged", || server.logged("drained").is_some());
+    let drained = server.logged("drained").unwrap();
+    assert_eq!(field(&drained, "completions").as_deref(), Some("1"));
+    refused_with(&fx.probe(&server), "SERVING_STOPPED");
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        1,
+        "nothing served after the stop"
+    );
+    drop(server);
+    let _ = std::fs::remove_dir_all(&fx.root);
 }

@@ -12,6 +12,8 @@ Index:
 - [RB-5: Break-glass emergency access](#rb-5-break-glass)
 - [RB-6: Apply a high-risk config change](#rb-6-high-risk-config)
 - [RB-7: Verify the audit chain](#rb-7-verify-audit)
+- [RB-8: Disengage Mimir inference](#rb-8-disengage-mimir-inference)
+- [RB-9: Rotate or withdraw the model trust anchor](#rb-9-rotate-or-withdraw-the-model-trust-anchor)
 
 Release engineering (not an in-enclosure operational task):
 - [Execute the GA gate — readiness §4 A–C](RUNBOOK_ga_gate.md)
@@ -85,3 +87,50 @@ verified restore within RTO/RPO and rejects a tampered backup.
 2. A break means either tampering or a truncated/spliced ledger — treat as **Sev-1**
    (integrity compromise); do not continue serving from a store whose chain fails.
 3. **Verify:** the chain re-verifies end-to-end; record the attestation result.
+
+## RB-8: Disengage Mimir inference
+**Trigger:** a model's approval is withdrawn (licence, CVE, evaluation regression), or
+inference must stop now, for an incident or on command. [VLD-ANB-MIDGARD-0057]
+
+mimir-server re-reads two files in its state directory (`--state-dir`, `/state` in
+compose and Helm) every `--reload-interval` seconds (default 60). Writing there needs
+host or volume access, which is the authority this switch requires; there is no network
+endpoint for it.
+
+1. To stop all inference, create the stop file: `touch /state/STOP` (for example
+   `docker compose exec mimir-server touch /state/STOP`, or
+   `kubectl exec <mimir-server pod> -- touch /state/STOP`). Calls are refused
+   `SERVING_STOPPED`.
+2. To withdraw one model, add its manifest id (the `model` field of the `serving` log
+   line) on a line of its own to `/state/revoked.list` (or the `--revocation-file`
+   path); `#` starts a comment. Calls are refused `MODEL_REVOKED`. An unreadable or
+   malformed list also stops serving: it fails closed.
+3. Within one interval the log says `serving stopped` with the `reason` and `detail`,
+   then `drained` once the completions already admitted have returned (at most
+   `--infer-timeout` later; `drain timed out` if they have not).
+4. To resume, delete `/state/STOP`, or remove the id from `revoked.list` (only once the
+   model is approved again). Within one interval the log says `serving resumed`.
+5. **Verify:** while stopped, `GET /readyz` on the health port returns 503 with
+   `model-verified` failing, so an orchestrator stops routing; `mimir-probe` is refused
+   `SERVING_STOPPED` or `MODEL_REVOKED`; `/metrics` counts
+   `inference_refused_total{reason="serving_stopped"}` or `{reason="model_revoked"}`.
+   The ledger holds each refused call as its decision entry followed by an
+   `Infer:SERVING_STOPPED` or `Infer:MODEL_REVOKED` entry; verify it per RB-7. After
+   resuming, `/readyz` returns 200 and a probe is served.
+
+## RB-9: Rotate or withdraw the model trust anchor
+**Trigger:** the model-signing key is rotated, or suspected of exposure.
+[VLD-ANB-MIDGARD-0057]
+1. Re-sign the approved model manifests with the new key (`mg-model sign`) and stage
+   them beside the weights.
+2. Replace the model trust file mimir-server reads (`--model-trust`; in Helm the
+   `model-signing.pub` key of the `trustConfigMap`) with the new public key from
+   `mg-model keygen`.
+3. A running service re-checks its manifest against the trust file every reload
+   interval: a manifest the new key does not verify stops serving, refused
+   `MODEL_REVOKED`, with `the manifest signature does not verify` in the
+   `serving stopped` log line. Restart the service on the re-signed manifest; to
+   withdraw a key with no replacement, replacing the trust file is enough to stop
+   serving everywhere it is mounted.
+4. **Verify:** the restarted service logs `serving` with the expected `model` and
+   `model_version`, `/readyz` returns 200 and `mimir-probe` is served.

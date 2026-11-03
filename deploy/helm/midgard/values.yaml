@@ -68,6 +68,11 @@ services:
   # than --max-concurrent calls in flight (twice the sidecar's two slots), or
   # --max-concurrent-per-identity for one caller, are refused BUSY; a completion waits
   # at most --infer-timeout seconds on the sidecar. [VLD-ANB-MIDGARD-0016]
+  # Every --reload-interval seconds it looks for STOP in /state, and with modelServing
+  # re-reads /state/revoked.list and the model trust key and re-checks the verified
+  # manifest: STOP, or the model id in revoked.list, stops inference (readiness false,
+  # calls refused SERVING_STOPPED or MODEL_REVOKED) until it is removed
+  # (docs/ops/RUNBOOKS.md RB-8). [VLD-ANB-MIDGARD-0057]
   - name: mimir-server
     enabled: true
     binary: mimir-server
@@ -76,7 +81,7 @@ services:
            "--health-bind", "0.0.0.0:9090",
            "--max-tokens", "1024", "--max-prompt-bytes", "262144",
            "--max-concurrent", "4", "--max-concurrent-per-identity", "2",
-           "--infer-timeout", "60"]
+           "--infer-timeout", "60", "--reload-interval", "60"]
     ports:
       - { name: mesh, port: 7720, from: [mimir-probe] }
       - { name: health, port: 9090, from: ["*"] }
