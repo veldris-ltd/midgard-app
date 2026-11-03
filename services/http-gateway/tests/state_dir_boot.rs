@@ -110,6 +110,7 @@ fn call(
             body: body.into(),
             authorization: token.map(|t| format!("Bearer {t}")),
             origin: None,
+            forwarded_for: None,
         },
         NOW,
     )

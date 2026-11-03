@@ -214,6 +214,7 @@ fn post_at(gw: &DurableGateway, path: &str, body: &str, token: Option<&str>, now
             body: body.into(),
             authorization: token.map(|t| format!("Bearer {t}")),
             origin: None,
+            forwarded_for: None,
         },
         now,
     )
@@ -1067,6 +1068,7 @@ fn a_gateway_without_a_durable_directory_parks_nothing() {
                 body,
                 authorization: None,
                 origin: None,
+                forwarded_for: None,
             },
             now(),
         )
@@ -1363,6 +1365,7 @@ fn a_development_gateway_serves_no_administration() {
             body: String::new(),
             authorization: None,
             origin: None,
+            forwarded_for: None,
         },
         NOW,
     );

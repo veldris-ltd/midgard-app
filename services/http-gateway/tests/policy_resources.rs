@@ -81,6 +81,7 @@ fn call(
             body: body.into(),
             authorization: Some(format!("Bearer {token}")),
             origin: None,
+            forwarded_for: None,
         },
         NOW,
     )

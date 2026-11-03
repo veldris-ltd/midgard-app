@@ -60,6 +60,13 @@ CONTRIBUTING.md for the version policy.
   check, so a bad proof is one 401 whatever the body names. An auditor approving or
   rejecting now gets 403 before the id is looked up. [VLD-ANB-MIDGARD-0002]
   [VLD-ANB-MIDGARD-0066]
+- **Clients behind a reverse proxy no longer share one login allowance.** The
+  gateway's new repeatable `--trusted-proxy IP` names the operator's proxies; a login,
+  activation or administration request from one is charged to the right-most address
+  in its `X-Forwarded-For` that is not itself a trusted proxy, and the throttled-source
+  ledger row names that address. The header is ignored from any other peer, a list
+  over 1,024 bytes is refused with 400, and the allowance is still never keyed on the
+  username. [VLD-ANB-MIDGARD-0005]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

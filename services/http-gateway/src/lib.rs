@@ -13,7 +13,7 @@
 //! origin allowlist. `[DD-6] [NFR-SEC-1]`
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -218,6 +218,10 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// allowance before any credential is checked; `None` when turned off.
     /// [VLD-ANB-MIDGARD-0005]
     login_sources: Option<RateLimiter>,
+    /// The proxies whose `X-Forwarded-For` names the client for that allowance; from
+    /// any other peer the header is ignored. Empty unless configured.
+    /// [VLD-ANB-MIDGARD-0005]
+    trusted_proxies: BTreeSet<IpAddr>,
     /// Token ids signed out before their expiry, refused on every request. In memory
     /// unless a state directory journals them. Locks are taken revocations, then
     /// directory, then enclosure. [VLD-ANB-MIDGARD-0021]
@@ -333,6 +337,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 login_throttle::LOGIN_SOURCE_BURST,
                 login_throttle::LOGIN_SOURCE_PER_SEC,
             )),
+            trusted_proxies: BTreeSet::new(),
             revocations: Mutex::new(Revocations::default()),
             admin: None,
             ontology: None,
@@ -392,6 +397,16 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// limit off. [VLD-ANB-MIDGARD-0005]
     pub fn with_login_source_limit(mut self, burst: f64, per_sec: f64) -> Self {
         self.login_sources = (burst > 0.0).then(|| RateLimiter::new(burst, per_sec));
+        self
+    }
+
+    /// Believe `X-Forwarded-For` from `proxies`, the operator's reverse proxies, when
+    /// charging a login or administration attempt to its source: a request whose
+    /// socket peer is one of them is charged to the client the header names (see
+    /// [`http::forwarded_client`]), so clients behind one proxy no longer share one
+    /// allowance. From any other peer the header is ignored. [VLD-ANB-MIDGARD-0005]
+    pub fn with_trusted_proxies(mut self, proxies: impl IntoIterator<Item = IpAddr>) -> Self {
+        self.trusted_proxies = proxies.into_iter().map(|ip| ip.to_canonical()).collect();
         self
     }
 
@@ -552,7 +567,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
         // A source past its allowance is refused before any password is checked; the
         // ledger hears of it at most once a minute, with the count since.
-        if let Some(source) = self.over_source_allowance(peer) {
+        if let Some(source) = self.over_source_allowance(req, peer) {
             self.count_login("source_throttled");
             let refused = source_refused();
             let record = self.throttle().note_source_throttled(&source, now);
@@ -727,16 +742,33 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             .inc("login_attempts_total", &[("outcome", outcome)]);
     }
 
-    /// Take one login or administration attempt from `peer`'s source allowance: the
-    /// source address if it is past it, to be refused with [`source_refused`]; `None`
-    /// if it is within it, or the source is unknown (an in-process caller) or the
-    /// limit off. [VLD-ANB-MIDGARD-0005]
-    fn over_source_allowance(&self, peer: Option<SocketAddr>) -> Option<String> {
+    /// Take one login or administration attempt from the source allowance of the
+    /// client `req` came from (see [`Self::client_source`]): that address if it is past
+    /// it, to be refused with [`source_refused`] and named on the ledger; `None` if it
+    /// is within it, or the source is unknown (an in-process caller) or the limit off.
+    /// The bucket is the address's alone, never the username's, so a spray across
+    /// names still drains it. [VLD-ANB-MIDGARD-0005]
+    pub(crate) fn over_source_allowance(
+        &self,
+        req: &Request,
+        peer: Option<SocketAddr>,
+    ) -> Option<String> {
         let (Some(sources), Some(peer)) = (&self.login_sources, peer) else {
             return None;
         };
-        let source = peer.ip().to_string();
+        let source = self.client_source(req, peer).to_string();
         (!sources.allow(&source)).then_some(source)
+    }
+
+    /// The address a request from socket peer `peer` is charged to: the client named
+    /// in its `X-Forwarded-For` when `peer` is a trusted proxy and the header names
+    /// one, and `peer` itself otherwise. [VLD-ANB-MIDGARD-0005]
+    fn client_source(&self, req: &Request, peer: SocketAddr) -> IpAddr {
+        let ip = peer.ip().to_canonical();
+        if !self.trusted_proxies.contains(&ip) {
+            return ip;
+        }
+        http::forwarded_client(req.forwarded_for.as_deref(), &self.trusted_proxies).unwrap_or(ip)
     }
 
     /// Every attempt is recorded in the same ledger as every access decision, so a
@@ -864,7 +896,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// Each source address draws on the same allowance as its logins, so a refused
     /// address cannot turn to the administration routes. [VLD-ANB-MIDGARD-0005]
     fn handle_admin(&self, req: &Request, peer: Option<SocketAddr>, now: u64) -> Response {
-        if self.over_source_allowance(peer).is_some() {
+        if self.over_source_allowance(req, peer).is_some() {
             return source_refused();
         }
         let Some(control) = &self.admin else {
@@ -2339,6 +2371,7 @@ mod tests {
             body: body.to_string(),
             authorization: bearer.map(|t| format!("Bearer {t}")),
             origin: None,
+            forwarded_for: None,
         }
     }
 

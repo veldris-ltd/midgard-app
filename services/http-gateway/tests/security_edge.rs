@@ -410,6 +410,7 @@ fn login_request(username: &str, password: &str) -> Request {
         body: format!(r#"{{"username":"{username}","password":"{password}"}}"#),
         authorization: None,
         origin: None,
+        forwarded_for: None,
     }
 }
 
@@ -441,6 +442,7 @@ fn ledger_actions(gw: &SecuredGateway, limit: usize) -> Vec<String> {
             body: String::new(),
             authorization: Some(format!("Bearer {token}")),
             origin: None,
+            forwarded_for: None,
         },
         NOW,
     );
@@ -593,6 +595,75 @@ fn a_flooding_source_is_refused_before_verification() {
     assert_eq!(reply.status, 200, "a correct password still yields a token");
 }
 
+/// The operator's reverse proxy, as `--trusted-proxy` names it.
+const PROXY: &str = "10.0.0.1";
+
+/// `n` wrong logins arriving from `peer`, each under a name of its own and the
+/// `X-Forwarded-For` that `forwarded(i)` gives: the responses in order.
+fn spray_forwarded(
+    gw: &SecuredGateway,
+    peer: SocketAddr,
+    forwarded: impl Fn(usize) -> String,
+    n: usize,
+) -> Vec<Response> {
+    (0..n)
+        .map(|i| {
+            let mut request = login_request(&format!("spray-fwd-{i}"), "wrong");
+            request.forwarded_for = Some(forwarded(i));
+            gw.handle_from(&request, Some(peer), NOW)
+        })
+        .collect()
+}
+
+#[test]
+fn clients_behind_a_trusted_proxy_draw_on_separate_allowances() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.3]
+    let gw = quota_gateway().with_trusted_proxies([PROXY.parse().unwrap()]);
+    let proxy: SocketAddr = format!("{PROXY}:5000").parse().unwrap();
+    // The client writes what it likes on the left; the proxy appends the address it
+    // was reached from, and only that is believed.
+    let replies = spray_forwarded(&gw, proxy, |i| format!("203.0.113.{i}, 198.51.100.7"), 25);
+    for (i, reply) in replies.iter().enumerate() {
+        let expected = if i < 20 { 401 } else { 429 };
+        assert_eq!(reply.status, expected, "attempt {i}: {}", reply.body);
+    }
+    let actions = ledger_actions(&gw, 10);
+    assert!(
+        actions.iter().any(|a| a == "LOGIN source throttled"),
+        "{actions:?}"
+    );
+
+    // Another client behind the same proxy still has its whole allowance, and so does
+    // one the proxy reached through a second trusted hop.
+    for forwarded in ["198.51.100.8", "198.51.100.9, 10.0.0.1"] {
+        let replies = spray_forwarded(&gw, proxy, |_| forwarded.to_string(), 20);
+        assert!(
+            replies.iter().all(|r| r.status == 401),
+            "{forwarded}: {:?}",
+            replies.iter().map(|r| r.status).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn a_forwarded_for_from_an_untrusted_peer_is_ignored() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.3]
+    let gw = quota_gateway().with_trusted_proxies([PROXY.parse().unwrap()]);
+    let direct: SocketAddr = "10.0.0.9:5000".parse().unwrap();
+    // A new forged client every time: the bucket is still the peer's own.
+    let replies = spray_forwarded(&gw, direct, |i| format!("198.51.100.{i}"), 25);
+    for (i, reply) in replies.iter().enumerate() {
+        let expected = if i < 20 { 401 } else { 429 };
+        assert_eq!(reply.status, expected, "attempt {i}: {}", reply.body);
+    }
+
+    // From the trusted proxy, an entry that is not an address stops the walk: what
+    // is left of it is the client's, so the attempt is charged to the proxy.
+    let proxy: SocketAddr = format!("{PROXY}:5000").parse().unwrap();
+    let replies = spray_forwarded(&gw, proxy, |i| format!("198.51.100.{i}, not-an-ip"), 25);
+    assert_eq!(replies[20].status, 429, "{}", replies[20].body);
+}
+
 #[test]
 fn a_source_throttle_is_recorded_once_per_minute() {
     // [VLD-ANB-MIDGARD-0005] [AC-11.3]
@@ -632,6 +703,7 @@ fn source_throttling_applies_to_admin_routes() {
         body: String::new(),
         authorization: None,
         origin: None,
+        forwarded_for: None,
     };
     for i in 0..25 {
         let reply = gw.handle_from(&challenge, Some(peer), NOW);
@@ -654,6 +726,7 @@ fn activate_request(username: &str, code: &str) -> Request {
         ),
         authorization: None,
         origin: None,
+        forwarded_for: None,
     }
 }
 
@@ -759,6 +832,37 @@ fn the_login_limit_flags_are_parsed() {
     assert_eq!((serve.login_burst, serve.login_per_sec), (50.0, 2.0));
     assert!(args(&["--login-burst", "many"]).is_err());
     assert!(args(&["--login-per-sec", "-1"]).is_err());
+}
+
+#[test]
+fn the_trusted_proxy_flag_is_repeatable_and_takes_addresses() {
+    // [VLD-ANB-MIDGARD-0005]
+    let args = |extra: &[&str]| {
+        let mut argv = vec!["--state-dir".to_string(), "/state".to_string()];
+        argv.extend(extra.iter().map(|s| s.to_string()));
+        cli::parse(&argv)
+    };
+    let Ok(cli::Command::Serve(serve)) = args(&[]) else {
+        panic!("a state directory serves");
+    };
+    assert!(
+        serve.trusted_proxies.is_empty(),
+        "no proxy is trusted unless named"
+    );
+    let Ok(cli::Command::Serve(serve)) =
+        args(&["--trusted-proxy", "10.0.0.1", "--trusted-proxy", "fd00::1"])
+    else {
+        panic!("--trusted-proxy is an option");
+    };
+    assert_eq!(
+        serve.trusted_proxies,
+        vec![
+            "10.0.0.1".parse::<std::net::IpAddr>().unwrap(),
+            "fd00::1".parse().unwrap()
+        ]
+    );
+    assert!(args(&["--trusted-proxy", "proxy.internal"]).is_err());
+    assert!(args(&["--trusted-proxy", "10.0.0.0/8"]).is_err());
 }
 
 // ---- WP-12: the lockout reserves attempts, and a flood cannot clear it ------------
@@ -1020,6 +1124,7 @@ fn approval_ids_are_collapsed() {
         body: String::new(),
         authorization: None,
         origin: None,
+        forwarded_for: None,
     };
     let decide = gw.handle(&request("POST", "/api/v1/approvals/abc-123/approve"), 0);
     assert_eq!(decide.status, 401, "{}", decide.body);

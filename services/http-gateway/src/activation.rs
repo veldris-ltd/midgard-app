@@ -74,7 +74,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
         // A source past its allowance is refused before any code is checked; it draws
         // on the same allowance as the address's logins. [VLD-ANB-MIDGARD-0005]
-        if self.over_source_allowance(peer).is_some() {
+        if self.over_source_allowance(req, peer).is_some() {
             return source_refused();
         }
         // A password too short to keep is refused before any work is spent on it.
