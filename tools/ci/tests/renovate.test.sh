@@ -26,7 +26,9 @@ fail() {
 # The configuration as `a.b.0.c=value` lines, one per scalar.
 flatten() {
     if command -v jq >/dev/null 2>&1; then
-        jq -r 'paths(scalars) as $p | "\($p | map(tostring) | join("."))=\(getpath($p))"' "$1"
+        # paths(scalars) would skip false and null leaves (jq keeps only the paths whose
+        # filter is truthy), and "automerge": false is one of the settings checked.
+        jq -r 'paths(type != "object" and type != "array") as $p | "\($p | map(tostring) | join("."))=\(getpath($p))"' "$1"
     elif command -v node >/dev/null 2>&1; then
         node -e '
             const walk = (v, p) => v !== null && typeof v === "object"
