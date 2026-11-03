@@ -112,6 +112,12 @@ fn run(args: &Args) -> Result<(), String> {
         "Forge job runs, by job and outcome.",
     );
     if let Some(bind) = args.get("health-bind") {
+        if bind.starts_with("0.0.0.0") || bind.starts_with("[::]") {
+            eprintln!(
+                "forge-worker: WARNING health port binds every interface ({bind}); restrict \
+                 it with NetworkPolicy or a pod address. [VLD-ANB-MIDGARD-0027]"
+            );
+        }
         let mut health = HealthRegistry::new();
         health.register(Box::new(Toggle::new("jobs", true)));
         spawn_health_port(bind, Arc::new(health), metrics.clone())

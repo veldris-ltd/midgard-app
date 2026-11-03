@@ -224,6 +224,20 @@ CONTRIBUTING.md for the version policy.
   securityContext. The signing-runner preflight requires the runtime and seed images,
   and `tools/ci/tests/service-image.test.sh` replaces the entrypoint script's test.
   [VLD-ANB-MIDGARD-0068] [AC-B-1] [NFR-PQ-3]
+- **The mesh services' health and metrics ports are no longer open to every pod in
+  the cluster.** [VLD-ANB-MIDGARD-0027] In the Helm chart the four 9090 health ports
+  admit only the scraper — pods labelled
+  `app.kubernetes.io/name=metrics-scraper` (`scraper.podLabel`), plus any node
+  ranges in `scraper.nodeCidrs` for CNIs that police the kubelet's probes — instead
+  of `from: ["*"]`, and a port whose `from` is `"*"` now fails `helm template` naming
+  the service and port. Each StatefulSet gets `POD_IP` from the downward API and the
+  health port binds `$(POD_IP):9090`, not every interface. `deploy/k8s/enclosure.yaml`
+  is re-rendered, and `tools/ci/tests/k8s-ingress.test.sh` (run by `selftest`) fails
+  on any ingress rule without a `from:`. The services warn at start when the health
+  port binds `0.0.0.0`. Compose keeps `0.0.0.0:9090` on its internal, unpublished
+  mesh network; that residual is in the residual risk register. Upgrading: label
+  your Prometheus pod `app.kubernetes.io/name=metrics-scraper` (or set
+  `scraper.podLabel`) before upgrading the chart, or scraping stops.
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

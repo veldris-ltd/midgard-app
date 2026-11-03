@@ -213,6 +213,12 @@ spec:
                 values: ["mimir-probe"]
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # Who may reach bifrost-fleet, port by port.
@@ -237,6 +243,12 @@ spec:
                 values: ["fleet-agent","fleet-operator"]
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # Who may reach heimdall-feed, port by port.
@@ -261,6 +273,12 @@ spec:
                 values: ["feed-source","picture-analyst"]
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # Who may reach forge-worker, port by port.
@@ -277,6 +295,12 @@ spec:
   ingress:
     - ports:
         - { protocol: TCP, port: 9090 }
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: ["metrics-scraper"]
 ---
 # Source: midgard/templates/workload.yaml
 # The service ports forge-worker may reach.
@@ -482,6 +506,11 @@ spec:
           env:
             - name: MIDGARD_SERVICE
               value: http-gateway
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
           args: ["--state-dir","/state","--bind","0.0.0.0:7710","--allow-non-loopback","--mesh-bind","0.0.0.0:7711","--mesh-identity-dir","/identity"]
           ports:
             - name: http
@@ -601,7 +630,12 @@ spec:
           env:
             - name: MIDGARD_SERVICE
               value: mimir-server
-          args: ["--identity-dir","/identity","--state-dir","/state","--purposes","investigation","--bind","0.0.0.0:7720","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+          args: ["--identity-dir","/identity","--state-dir","/state","--purposes","investigation","--bind","0.0.0.0:7720","--health-bind","$(POD_IP):9090","--max-tokens","1024","--max-prompt-bytes","262144","--max-concurrent","4","--max-concurrent-per-identity","2","--infer-timeout","60","--reload-interval","60"]
           ports:
             - name: mesh
               containerPort: 7720
@@ -720,7 +754,12 @@ spec:
           env:
             - name: MIDGARD_SERVICE
               value: bifrost-fleet
-          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7740","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7740","--health-bind","$(POD_IP):9090"]
           ports:
             - name: mesh
               containerPort: 7740
@@ -839,7 +878,12 @@ spec:
           env:
             - name: MIDGARD_SERVICE
               value: heimdall-feed
-          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7730","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+          args: ["--identity-dir","/identity","--state-dir","/state","--bind","0.0.0.0:7730","--health-bind","$(POD_IP):9090"]
           ports:
             - name: mesh
               containerPort: 7730
@@ -930,7 +974,12 @@ spec:
           env:
             - name: MIDGARD_SERVICE
               value: forge-worker
-          args: ["--identity-dir","/identity","--state-dir","/state","--jobs","/jobs/jobs.json","--gateway","http-gateway:7711","--health-bind","0.0.0.0:9090"]
+            # The pod's own address, so the health port binds it ("$(POD_IP):9090")
+            # rather than every interface. [VLD-ANB-MIDGARD-0027]
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+          args: ["--identity-dir","/identity","--state-dir","/state","--jobs","/jobs/jobs.json","--gateway","http-gateway:7711","--health-bind","$(POD_IP):9090"]
           ports:
             - name: health
               containerPort: 9090

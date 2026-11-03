@@ -215,12 +215,15 @@ fn run(args: &Args, limits: &MeshLimits, picture_limits: PictureLimits) -> Resul
     health.register(Box::new(state_ready.clone()));
     health.register(Box::new(mesh_ready.clone()));
     let metrics = Arc::new(MetricsRegistry::new());
-    let health_addr = spawn_health_port(
-        args.get("health-bind").unwrap_or("0.0.0.0:9090"),
-        Arc::new(health),
-        metrics.clone(),
-    )
-    .map_err(|e| format!("cannot bind the health port: {e}"))?;
+    let health_bind = args.get("health-bind").unwrap_or("0.0.0.0:9090");
+    if health_bind.starts_with("0.0.0.0") || health_bind.starts_with("[::]") {
+        eprintln!(
+            "heimdall-feed: WARNING health port binds every interface ({health_bind}); restrict \
+             it with NetworkPolicy or a pod address. [VLD-ANB-MIDGARD-0027]"
+        );
+    }
+    let health_addr = spawn_health_port(health_bind, Arc::new(health), metrics.clone())
+        .map_err(|e| format!("cannot bind the health port: {e}"))?;
 
     let _lock = DirLock::acquire(state_dir, "feed.lock", service)?;
     let identity = ServiceIdentity::load(identity_dir, service)?;
