@@ -3,7 +3,7 @@
 //! Usage:
 //!   http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
 //!                [--allow-origin URL]... [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME]
-//!                 [--mesh-purpose P]]
+//!                 [--mesh-purpose P] [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
 //!       Serve the enclosure in DIR, created by `mg-admin init`: persisted keys, the
 //!       durable store, ledger and identity directory, and DIR/policy.json. Nothing
 //!       is seeded and there is no built-in login. Each --allow-origin adds a browser
@@ -40,6 +40,13 @@
 //!       answers 429 before checking any password. Under compose every client shares
 //!       the proxy's address, so this is one allowance for the whole site there.
 //!       [VLD-ANB-MIDGARD-0005]
+//!
+//!       --mesh-sync-clearance is the highest marking a sync may write: a band (`open`,
+//!       `internal`, `restricted`, `confidential`) and, after a colon, the compartments
+//!       it may carry, comma-separated. The default is the highest band with no
+//!       compartments, so syncing a compartmented object needs an explicit grant. A sync
+//!       may also never lower an object's marking, widen its purposes or touch an
+//!       object under a human gate. [VLD-ANB-MIDGARD-0001]
 //!   http-gateway --dev [ADDR]
 //!       Development mode (default 127.0.0.1:7710): an illustrative data set seeded
 //!       into an in-memory fabric, the published demo logins, an ephemeral issuer key.
@@ -98,6 +105,7 @@ fn main() {
         mesh,
         login_burst,
         login_per_sec,
+        mesh_sync_clearance,
     } = args;
 
     let state = StateDir::new(&state_dir);
@@ -149,7 +157,10 @@ fn main() {
     }
     // The lock lives as long as the process serves: no second gateway or mg-admin can
     // write this directory meanwhile.
-    let (gateway, _lock) = served.into_parts();
+    let (mut gateway, _lock) = served.into_parts();
+    if let Some(clearance) = mesh_sync_clearance {
+        gateway = gateway.with_sync_clearance(clearance);
+    }
     let gateway = Arc::new(gateway.with_login_source_limit(login_burst, login_per_sec));
 
     if let (Some(mesh_bind), Some(identity_dir)) = (mesh_bind, mesh_identity_dir) {

@@ -142,6 +142,10 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// The ontology records synced over the mesh are checked against, where a state
     /// directory declares one. [FR-F-4]
     ontology: Option<ontology_file::Ontology>,
+    /// The highest marking a mesh sync may write: every synced record's marking must be
+    /// dominated by it. Configuration, not a certificate attribute. [FR-F-4]
+    /// [VLD-ANB-MIDGARD-0001]
+    sync_clearance: Clearance,
     /// Password hasher for login verification (Argon2id/PBKDF2 seam, RT-29).
     hasher: Pbkdf2Hasher,
     // ---- observability (in-enclosure; nothing egresses) [RC-33] ----
@@ -211,6 +215,12 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             )),
             admin: None,
             ontology: None,
+            // The highest band with no compartments: existing syncs keep working, and a
+            // compartmented object needs an explicit grant.
+            sync_clearance: Clearance {
+                level: ClassificationLevel::TOP_SECRET,
+                compartments: BTreeSet::new(),
+            },
             hasher: Pbkdf2Hasher::production(),
             metrics,
             health,
@@ -309,6 +319,14 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// boot. Without it, nothing can be synced. [FR-F-4]
     pub fn with_ontology(mut self, ontology: ontology_file::Ontology) -> Self {
         self.ontology = Some(ontology);
+        self
+    }
+
+    /// Let records synced over the mesh carry markings up to `clearance`, its band and
+    /// compartments. By default a sync may write any band but no compartment.
+    /// [FR-F-4] [VLD-ANB-MIDGARD-0001]
+    pub fn with_sync_clearance(mut self, clearance: Clearance) -> Self {
+        self.sync_clearance = clearance;
         self
     }
 

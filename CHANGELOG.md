@@ -60,6 +60,26 @@ CONTRIBUTING.md for the version policy.
     a GitLab instance needs"); until then merge-request pipelines fail. GitLab's `test`
     job now records `network=offline`, which the gate record refuses: record the gate
     from a GitHub run or locally.
+- **A mesh sync can no longer declassify an object or undo a human-gated change.**
+  `SyncRecords` replaced each object it named in full, marking and purposes included,
+  after one batch decision against a fixed resource, so a compromised Forge worker
+  could re-sync a confidential object as open or revert a change a named human
+  approved. A sync is now refused whole, with nothing written, if any record would
+  lower the stored object's marking (`marking-downgrade`), widen its purposes
+  (`purpose-widening`), carry a marking above the gateway's sync clearance
+  (`marking-above-sync-clearance`) or touch an object with a pending, approved or
+  redeemed human-gate approval (`human-gated-target`). Each refusal is audited as
+  `SYNC refused: <reason>` against the object, and the worker is told only the id it
+  sent. The sync clearance is set with `--mesh-sync-clearance BAND[:COMPARTMENT,...]`
+  (`SecuredGateway::with_sync_clearance`); the default, the highest band with no
+  compartments, keeps existing syncs working, and a deployment that syncs
+  compartmented objects must now grant them. [VLD-ANB-MIDGARD-0001]
+- **The mesh door decides before it reads.** A sync is authorised on `SyncRecords`
+  before its records are parsed, so a workload the policy does not permit gets the
+  plain denial and no ontology detail. A malformed sync from a permitted workload is
+  audited as `SYNC records: MALFORMED`; the ledger action `DENY SyncRecords:MALFORMED`
+  is gone, and an unpermitted malformed sync is recorded as `DENY SyncRecords`.
+  [VLD-ANB-MIDGARD-0073]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry
