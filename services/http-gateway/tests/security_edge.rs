@@ -643,6 +643,100 @@ fn source_throttling_applies_to_admin_routes() {
     assert_eq!(reply.status, 429, "{}", reply.body);
 }
 
+/// An activation for `username` with `code`, under a password long enough to keep.
+fn activate_request(username: &str, code: &str) -> Request {
+    Request {
+        method: "POST".into(),
+        path: "/api/v1/activate".into(),
+        query: String::new(),
+        body: format!(
+            r#"{{"username":"{username}","activationCode":"{code}","password":"long enough to keep"}}"#
+        ),
+        authorization: None,
+        origin: None,
+    }
+}
+
+#[test]
+fn source_throttling_applies_to_activation() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.3]
+    let gw = quota_gateway();
+    let peer: SocketAddr = "10.0.0.9:5000".parse().unwrap();
+    for i in 0..25 {
+        let reply = gw.handle_from(
+            &activate_request(&format!("spray-{i}"), "00"),
+            Some(peer),
+            NOW,
+        );
+        let expected = if i < 20 { 401 } else { 429 };
+        assert_eq!(reply.status, expected, "attempt {i}: {}", reply.body);
+    }
+    assert_eq!(
+        gw.login_throttle_stats().0,
+        20,
+        "the refused attempts never reached the throttle or a code check"
+    );
+    // The address's login attempts draw on the same allowance.
+    let reply = gw.handle_from(&login_request("someone", "wrong"), Some(peer), NOW);
+    assert_eq!(reply.status, 429, "{}", reply.body);
+    let other: SocketAddr = "10.0.0.10:5000".parse().unwrap();
+    let reply = gw.handle_from(&activate_request("someone", "00"), Some(other), NOW);
+    assert_eq!(
+        reply.status, 401,
+        "another address is unaffected: {}",
+        reply.body
+    );
+}
+
+#[test]
+fn activation_fields_are_bounded_before_the_throttle_or_the_ledger() {
+    // [VLD-ANB-MIDGARD-0005] [AC-11.1]
+    let gw = quota_gateway();
+    let before = (gw.audit_len(), gw.login_throttle_stats());
+    let long_name = "n".repeat(MAX_USERNAME_BYTES + 1);
+    let long_code = "0".repeat(65);
+    for (what, request) in [
+        ("a long name", activate_request(&long_name, "00")),
+        (
+            "a name with a control character",
+            activate_request(r"ol\u0007ivia", "00"),
+        ),
+        ("a long code", activate_request("olivia", &long_code)),
+    ] {
+        let reply = gw.handle(&request, NOW);
+        assert_eq!(reply.status, 400, "{what}: {}", reply.body);
+        assert!(
+            reply.body.contains("exceed their limits"),
+            "{what}: {}",
+            reply.body
+        );
+    }
+    let long_password = Request {
+        body: format!(
+            r#"{{"username":"olivia","activationCode":"00","password":"{}"}}"#,
+            "p".repeat(MAX_PASSWORD_BYTES + 1)
+        ),
+        ..activate_request("olivia", "00")
+    };
+    assert_eq!(
+        gw.handle(&long_password, NOW).status,
+        400,
+        "a long password"
+    );
+    assert_eq!(
+        (gw.audit_len(), gw.login_throttle_stats()),
+        before,
+        "nothing was kept, tracked or recorded"
+    );
+    let at_limit = "n".repeat(MAX_USERNAME_BYTES);
+    let reply = gw.handle(&activate_request(&at_limit, "00"), NOW);
+    assert_eq!(
+        reply.status, 401,
+        "a name at the limit is checked: {}",
+        reply.body
+    );
+}
+
 #[test]
 fn the_login_limit_flags_are_parsed() {
     // [VLD-ANB-MIDGARD-0005]

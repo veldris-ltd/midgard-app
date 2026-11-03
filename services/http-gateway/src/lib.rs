@@ -1320,7 +1320,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // Public activation: an approved principal sets their password with the
         // single-use code their approver handed them. [VLD-ANB-MIDGARD-0002]
         if req.method == "POST" && req.path == "/api/v1/activate" {
-            return self.handle_activate(req, now);
+            return self.handle_activate(req, peer, now);
         }
 
         // 1. Authenticate: verify the PQ-signed IdP token or reject.

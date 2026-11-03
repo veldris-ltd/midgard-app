@@ -111,8 +111,8 @@ A mesh certificate authority that issues, renews and revokes workload certificat
 **Milestone.** Services renew their own certificates before expiry (RF-IAM-6).
 
 - Source:
-  - [`tools/mg-admin/src/mesh.rs:212`](../../tools/mg-admin/src/mesh.rs)
-  - [`tools/mg-admin/src/mesh.rs:368`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:215`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:372`](../../tools/mg-admin/src/mesh.rs)
   - [`crypto/pq-mtls/src/revocation.rs:1`](../../crypto/pq-mtls/src/revocation.rs)
   - [`services/runtime/src/identity.rs:74`](../../services/runtime/src/identity.rs)
 - Tests:
@@ -430,7 +430,7 @@ Enrolling a principal online needs two different administrators, each proving po
   - [`services/http-gateway/src/admin_api.rs:360`](../../services/http-gateway/src/admin_api.rs)
   - [`services/http-gateway/src/admin_totp.rs:1`](../../services/http-gateway/src/admin_totp.rs)
   - [`admin/identity/src/session.rs:1`](../../admin/identity/src/session.rs)
-  - [`services/http-gateway/src/activation.rs:27`](../../services/http-gateway/src/activation.rs)
+  - [`services/http-gateway/src/activation.rs:38`](../../services/http-gateway/src/activation.rs)
   - [`services/iam/src/auth.rs:120`](../../services/iam/src/auth.rs)
 - Tests:
   - [`services/http-gateway/tests/admin_enrolment.rs::an_enrolment_needs_a_second_administrator_and_survives_a_restart`](../../services/http-gateway/tests/admin_enrolment.rs)

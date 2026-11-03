@@ -9,22 +9,38 @@
 //! provisioning URI, so the principal and nobody else holds the second factor. Every
 //! failure is one uniform 401 that counts towards the name's lockout, exactly like a
 //! login, and every attempt is in the audit ledger. [VLD-ANB-MIDGARD-0002]
+//!
+//! It is bounded and throttled as a login is: every field is capped before anything
+//! keeps or hashes it, each source address draws on the same allowance as its logins,
+//! and an attempt is reserved under the throttle's lock before its code is checked.
+//! [VLD-ANB-MIDGARD-0005] [VLD-ANB-MIDGARD-0019]
+
+use std::net::SocketAddr;
 
 use fabric::{LedgerStore, ObjectStore};
 use iam::{Directory, PasswordHasher};
 
 use crate::http::{Request, Response};
 use crate::json::{parse, Json};
+use crate::login_throttle::{Outcome, Refusal, MAX_PASSWORD_BYTES, MAX_USERNAME_BYTES};
 use crate::strict_json::{object, only_keys, text};
-use crate::{error_json, SecuredGateway};
+use crate::{error_json, source_refused, Attempt, SecuredGateway};
 
 /// The shortest password a principal may choose at activation, in characters.
 pub const MIN_PASSWORD_CHARS: usize = 12;
 /// The issuer named in the TOTP provisioning URI, as `mg-admin` names it.
 const TOTP_ISSUER: &str = "Midgard";
+/// The longest activation code accepted, in bytes: twice the 32 hex characters an
+/// approval mints. [VLD-ANB-MIDGARD-0005]
+pub const MAX_ACTIVATION_CODE_BYTES: usize = 64;
 
 impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
-    pub(crate) fn handle_activate(&self, req: &Request, now: u64) -> Response {
+    pub(crate) fn handle_activate(
+        &self,
+        req: &Request,
+        peer: Option<SocketAddr>,
+        now: u64,
+    ) -> Response {
         let at = "the activation";
         let fields = parse(&req.body)
             .map_err(|_| "malformed activation body".to_string())
@@ -44,6 +60,23 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             Ok(fields) => fields,
             Err(e) => return Response::json(400, error_json(&e).encode()),
         };
+        // Every field is bounded before the throttle, the directory or the ledger sees
+        // it, as a login's are. [VLD-ANB-MIDGARD-0005]
+        if username.len() > MAX_USERNAME_BYTES
+            || username.chars().any(char::is_control)
+            || code.len() > MAX_ACTIVATION_CODE_BYTES
+            || password.len() > MAX_PASSWORD_BYTES
+        {
+            return Response::json(
+                400,
+                error_json("activation fields exceed their limits").encode(),
+            );
+        }
+        // A source past its allowance is refused before any code is checked; it draws
+        // on the same allowance as the address's logins. [VLD-ANB-MIDGARD-0005]
+        if self.over_source_allowance(peer).is_some() {
+            return source_refused();
+        }
         // A password too short to keep is refused before any work is spent on it.
         if password.chars().count() < MIN_PASSWORD_CHARS {
             return Response::json(
@@ -65,11 +98,36 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             )
             .with_retry_after(seconds)
         };
-        // A locked name is refused before its code is checked. [NFR-SEC-1]
-        let locked = self.throttle().retry_after(&username, now);
-        if let Some(seconds) = locked {
-            return self.record_login(&username, "ACTIVATE throttled", throttled(seconds), now);
+        // The attempt is reserved under the throttle's lock before its code is checked,
+        // so attempts arriving together cannot all pass a check made before any of them
+        // is recorded. A locked name is refused before its code is checked.
+        // [NFR-SEC-1] [VLD-ANB-MIDGARD-0019]
+        let begun = self.throttle().begin_attempt(&username, now);
+        match begun {
+            Ok(()) => {}
+            Err(Refusal::Locked { retry_after }) => {
+                return self.record_login(
+                    &username,
+                    "ACTIVATE throttled",
+                    throttled(retry_after),
+                    now,
+                );
+            }
+            Err(Refusal::Busy { retry_after }) => {
+                return Response::json(
+                    429,
+                    error_json("an activation for this name is already being checked").encode(),
+                )
+                .with_retry_after(retry_after);
+            }
         }
+        // Released however the check ends, a panic included, so a slot cannot leak.
+        let mut attempt = Attempt {
+            throttle: &self.login_throttle,
+            username: &username,
+            now,
+            finished: false,
+        };
 
         let outcome = {
             let mut directory = self
@@ -108,7 +166,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
 
         let (event, response) = match outcome {
             Ok(uri) => {
-                self.throttle().record_success(&username);
+                attempt.finish_attempt(Outcome::Success);
                 let mut reply = vec![("activated", Json::s(&username))];
                 if let Some(uri) = &uri {
                     reply.push(("otpauth", Json::s(uri)));
@@ -118,14 +176,17 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     Response::json(200, Json::obj(reply).encode()),
                 )
             }
-            Err(Some(e)) => (
-                "ACTIVATE failed",
-                Response::json(
-                    500,
-                    error_json(&format!("the activation was not recorded: {e}")).encode(),
-                ),
-            ),
-            Err(None) => match self.throttle().record_failure(&username, now) {
+            Err(Some(e)) => {
+                attempt.finish_attempt(Outcome::Error);
+                (
+                    "ACTIVATE failed",
+                    Response::json(
+                        500,
+                        error_json(&format!("the activation was not recorded: {e}")).encode(),
+                    ),
+                )
+            }
+            Err(None) => match attempt.finish_attempt(Outcome::Failure) {
                 Some(seconds) => ("ACTIVATE refused, locked", throttled(seconds)),
                 None => (
                     "ACTIVATE refused",

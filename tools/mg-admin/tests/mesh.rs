@@ -540,6 +540,99 @@ fn mesh_upgrade_recertifies_the_existing_keys_in_place() {
     }
 }
 
+/// VLD-ANB-MIDGARD-0063: upgrading a current certificate to bind purposes, or to a
+/// different clearance or roles, reissues it for the same key with what was asked for;
+/// only a certificate that already grants exactly that is kept.
+#[test]
+fn mesh_upgrade_reissues_a_current_certificate_whose_grant_differs() {
+    let dir = scratch("upgrade-grant");
+    let dir_arg = dir.display().to_string();
+    let out = dir.with_extension("svc");
+    let out_arg = out.display().to_string();
+    assert!(mg_admin(&["init", "--state-dir", &dir_arg])
+        .status
+        .success());
+    let issued = mg_admin(&[
+        "mesh",
+        "issue",
+        "--state-dir",
+        &dir_arg,
+        "--service",
+        "svc-grant",
+        "--roles",
+        "inference-server",
+        "--out",
+        &out_arg,
+    ]);
+    assert!(issued.status.success(), "{}", stderr(&issued));
+    let cert_path = out.join("svc-grant.cert");
+    let before = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_eq!(before.terms.purposes, None, "issued binding no purposes");
+
+    let upgrade = |extra: &[&str]| {
+        let mut args = vec![
+            "mesh",
+            "upgrade",
+            "--state-dir",
+            &dir_arg,
+            "--service",
+            "svc-grant",
+            "--out",
+            &out_arg,
+        ];
+        args.extend_from_slice(extra);
+        mg_admin(&args)
+    };
+    let bound = upgrade(&["--roles", "inference-server", "--purposes", "investigation"]);
+    assert!(bound.status.success(), "{}", stderr(&bound));
+    assert!(
+        !String::from_utf8_lossy(&bound.stdout).contains("already current"),
+        "{}",
+        String::from_utf8_lossy(&bound.stdout)
+    );
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    let investigation: std::collections::BTreeSet<policy::Purpose> =
+        [policy::Purpose("investigation".into())].into();
+    assert_eq!(cert.terms.purposes, Some(investigation.clone()));
+    assert_eq!(cert.identity.verifying_key, before.identity.verifying_key);
+    assert_ne!(cert.terms.serial, before.terms.serial, "a new certificate");
+
+    let again = upgrade(&["--roles", "inference-server", "--purposes", "investigation"]);
+    assert!(again.status.success(), "{}", stderr(&again));
+    assert!(String::from_utf8_lossy(&again.stdout).contains("already current"));
+
+    let cleared = upgrade(&[
+        "--roles",
+        "inference-server",
+        "--purposes",
+        "investigation",
+        "--clearance",
+        "internal",
+    ]);
+    assert!(cleared.status.success(), "{}", stderr(&cleared));
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_ne!(
+        cert.terms.clearance, before.terms.clearance,
+        "the new clearance"
+    );
+    assert_eq!(cert.terms.purposes, Some(investigation));
+
+    let roles = upgrade(&[
+        "--roles",
+        "inference-server,retriever",
+        "--clearance",
+        "internal",
+    ]);
+    assert!(roles.status.success(), "{}", stderr(&roles));
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert!(cert.identity.roles.contains(&Role("retriever".into())));
+    assert_eq!(cert.terms.purposes, None, "no --purposes binds none");
+
+    for d in [&dir, &out] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 /// MG-SEC-05 upgrade: a mesh service's own ledger written before ledgers had
 /// checkpoints stops the service starting; `audit checkpoint --identity-dir` verifies
 /// it under the service's audit keystore and records its first checkpoint, after which

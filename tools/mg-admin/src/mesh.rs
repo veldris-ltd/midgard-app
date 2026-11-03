@@ -27,6 +27,9 @@
 //! keystores — the audit keystore signs the service's ledger and seals its state, so a
 //! new one would lock the service out of both. A service that is already current is
 //! left alone, apart from a missing revocation list, which is written. [MG-SEC-02]
+//! A certificate is current only if it also grants what the upgrade asks for, so
+//! `--roles`, `--clearance` or `--purposes` that differ from it reissue it.
+//! [VLD-ANB-MIDGARD-0063]
 //!
 //! The issuer keystore opens under the keystore passphrase; the service's own
 //! keystores are written (and, for `upgrade`, read) under `--identity-passphrase-file`,
@@ -351,9 +354,10 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
 /// current formats, keeping both of its keystores. The certificate is reissued for the
 /// identity key already in `--out`, with `--roles` (an old certificate cannot be read
 /// for them) and the usual `--days`, `--clearance` and `--purposes`. A certificate that is already
-/// current, issued to this service for this key by this enclosure, is kept; then only
-/// a trust anchor or revocation list that is missing or out of date is rewritten.
-/// [MG-SEC-02] [MG-SEC-03]
+/// current, issued to this service for this key by this enclosure with the roles,
+/// clearance and purposes asked for, is kept; then only a trust anchor or revocation
+/// list that is missing or out of date is rewritten. [MG-SEC-02] [MG-SEC-03]
+/// [VLD-ANB-MIDGARD-0063]
 pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
     let state = StateDir::new(o.require("state-dir")?);
     let service = o.require("service")?;
@@ -399,6 +403,9 @@ pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
         .filter(|cert| {
             cert.identity.id.0 == service
                 && cert.identity.verifying_key == identity_key.verifying_key
+                && cert.identity.roles == roles
+                && cert.terms.clearance == clearance
+                && cert.terms.purposes == purposes
                 && pq_mtls::verify_cert(cert, &anchor, idp.provider(), now_secs()).is_ok()
         });
     let mut done = Vec::new();
