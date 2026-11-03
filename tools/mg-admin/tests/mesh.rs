@@ -542,7 +542,8 @@ fn mesh_upgrade_recertifies_the_existing_keys_in_place() {
 
 /// VLD-ANB-MIDGARD-0063: upgrading a current certificate to bind purposes, or to a
 /// different clearance or roles, reissues it for the same key with what was asked for;
-/// only a certificate that already grants exactly that is kept.
+/// only a certificate that already grants exactly that is kept. A flag left out keeps
+/// what the certificate grants, and `--no-purposes` drops the binding.
 #[test]
 fn mesh_upgrade_reissues_a_current_certificate_whose_grant_differs() {
     let dir = scratch("upgrade-grant");
@@ -615,18 +616,52 @@ fn mesh_upgrade_reissues_a_current_certificate_whose_grant_differs() {
         cert.terms.clearance, before.terms.clearance,
         "the new clearance"
     );
-    assert_eq!(cert.terms.purposes, Some(investigation));
+    assert_eq!(cert.terms.purposes, Some(investigation.clone()));
+    let internal = cert.terms.clearance.clone();
 
-    let roles = upgrade(&[
-        "--roles",
-        "inference-server,retriever",
-        "--clearance",
-        "internal",
-    ]);
+    // The routine upgrade, with only --roles: a flag left out keeps what the
+    // certificate grants, so nothing is widened and nothing reissued.
+    let routine = upgrade(&["--roles", "inference-server"]);
+    assert!(routine.status.success(), "{}", stderr(&routine));
+    assert!(
+        String::from_utf8_lossy(&routine.stdout).contains("already current"),
+        "{}",
+        String::from_utf8_lossy(&routine.stdout)
+    );
+    let kept = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_eq!(
+        kept, cert,
+        "the purpose-bound certificate is kept as it was"
+    );
+
+    let roles = upgrade(&["--roles", "inference-server,retriever"]);
     assert!(roles.status.success(), "{}", stderr(&roles));
     let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
     assert!(cert.identity.roles.contains(&Role("retriever".into())));
-    assert_eq!(cert.terms.purposes, None, "no --purposes binds none");
+    assert_eq!(
+        cert.terms.purposes,
+        Some(investigation),
+        "a reissue keeps the purposes"
+    );
+    assert_eq!(cert.terms.clearance, internal, "and the clearance");
+
+    // Dropping the binding takes an explicit flag, and not alongside --purposes.
+    let both = upgrade(&[
+        "--roles",
+        "inference-server,retriever",
+        "--purposes",
+        "investigation",
+        "--no-purposes",
+    ]);
+    assert_eq!(both.status.code(), Some(2), "{}", stderr(&both));
+    let dropped = upgrade(&["--roles", "inference-server,retriever", "--no-purposes"]);
+    assert!(dropped.status.success(), "{}", stderr(&dropped));
+    let cert = decode_cert(&std::fs::read(&cert_path).unwrap()).unwrap();
+    assert_eq!(cert.terms.purposes, None, "--no-purposes binds none");
+    assert_eq!(
+        cert.terms.clearance, internal,
+        "the clearance is still kept"
+    );
 
     for d in [&dir, &out] {
         let _ = std::fs::remove_dir_all(d);
