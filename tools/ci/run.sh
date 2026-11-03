@@ -482,13 +482,18 @@ job_acceptance() { bash tools/ci/gate-run.sh acceptance; }
 # here, as building the toolchain image is for Rust; --frozen-lockfile makes it install
 # exactly what pnpm-lock.yaml pins, by integrity hash, or fail. A runner with no route
 # to the registry installs from a store filled in advance (`pnpm fetch`).
+# --ignore-scripts: this runs on the signing runner, so no dependency's lifecycle script
+# runs. None is needed: esbuild and rollup take their native binaries from the optional
+# per-platform packages the lockfile pins (esbuild's postinstall only checks for one,
+# and downloads one if it is missing), and the workspace's own packages have none.
+# [VLD-ANB-MIDGARD-0058]
 job_js_build() {
     need node "js-build: node is not on PATH"
     if ! command -v pnpm >/dev/null 2>&1; then
         need corepack "js-build: neither pnpm nor corepack is on PATH"
         corepack enable pnpm
     fi
-    pnpm install --frozen-lockfile --prefer-offline
+    pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
     # The selftest job has no installed workspace, so the mock-bundle test runs here:
     # an http build of the midgard console holds no mock fixture. [AC-25.2]
     bash tools/ci/tests/js-mock-bundle.test.sh

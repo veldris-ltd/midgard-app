@@ -1126,6 +1126,11 @@ CONTRIBUTING.md for the version policy.
   so no release could start. Both GitHub jobs on the signing runner and GitLab's
   `.signing` now map them from the `_PATH` secrets the preflight names, which
   `workflows.test.sh` checks. [VLD-ANB-MIDGARD-0007]
+- **`js-build` runs no dependency's install scripts.** It runs on the signing runner,
+  and `pnpm install` ran every lifecycle script in the tree. It now passes
+  `--ignore-scripts`; esbuild and rollup take their binaries from the per-platform
+  packages the lockfile pins. `npx-pin.test.sh` refuses a CI `pnpm install` without
+  it. [VLD-ANB-MIDGARD-0058]
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**
