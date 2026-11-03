@@ -71,6 +71,19 @@ ci_runner() {
     echo "${RUNNER_NAME:-${CI_RUNNER_DESCRIPTION:-$(hostname 2>/dev/null || echo unknown)}}"
 }
 
+# Whether the runner is one the project provisions itself, where releases are signed,
+# rather than one the forge hosts. GitHub says so in RUNNER_ENVIRONMENT, and a GitHub
+# runner that does not say is taken to be self-hosted. A GitLab job that asks is a
+# release job, which runs only on the `kms` runner, so every GitLab job is. A
+# developer's shell is not. [VLD-ANB-MIDGARD-0035]
+ci_self_hosted() {
+    case "$(ci_platform)" in
+        github) [ "${RUNNER_ENVIRONMENT:-self-hosted}" != github-hosted ] ;;
+        gitlab) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Where this run can be looked up, or nothing outside CI.
 ci_run_url() {
     if [ -n "${GITHUB_RUN_ID:-}" ]; then

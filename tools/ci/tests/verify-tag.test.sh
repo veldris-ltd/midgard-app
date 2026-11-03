@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Tests for tools/ci/verify-tag.sh, against throwaway repositories and keys.
-# [AC-RF-CA-6a]
+# [AC-RF-CA-6a] [VLD-ANB-MIDGARD-0035] [AC-P2.1] [AC-P2.2] [AC-P2.4]
 #
 #   bash tools/ci/tests/verify-tag.test.sh
 #
 # The claim under test: a release tag passes only when it is annotated, signed, and
-# signed by a key the committed allowed-signers file lists.
+# signed by a key the allowed-signers file lists; when the tagged commit is on main as
+# the remote has it; and, where a runner pins its own allowed-signers file, only when
+# the committed copy is that file, so a key the tagged commit adds verifies nothing. A
+# self-hosted runner with no pinned copy verifies nothing either.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -28,16 +31,25 @@ ssh-keygen -q -t ed25519 -N '' -C stranger -f "$work/stranger" >/dev/null
 repo="$work/repo"
 mkdir -p "$repo/deploy/trust"
 git init -q "$repo"
+git init -q --bare "$work/origin.git"
+git -C "$repo" remote add origin "$work/origin.git"
 git -C "$repo" config core.autocrlf false
 g() { git -C "$repo" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
 signed_tag() { # signed_tag NAME KEY
     g -c gpg.format=ssh -c user.signingkey="$work/$2" tag -s -a "$1" -m "$1"
 }
-verify() { (cd "$repo" && unset GITHUB_REF_TYPE GITHUB_REF_NAME CI_COMMIT_TAG && VERIFY_TAG_ROOT="$repo" bash "$script" "$@"); }
+# verify [VAR=VALUE...] [ARG...]: run the script on the repository, with only those
+# runner settings, so the result is the same inside a pipeline as outside.
+verify() {
+    local vars=()
+    while [ "$#" -gt 0 ] && [[ "$1" == *=* ]]; do vars+=("$1"); shift; done
+    (cd "$repo" && env -u GITHUB_REF_TYPE -u GITHUB_REF_NAME -u CI_COMMIT_TAG -u GITHUB_ACTIONS -u GITLAB_CI         -u RUNNER_ENVIRONMENT -u MIDGARD_ALLOWED_SIGNERS_PATH VERIFY_TAG_ROOT="$repo" "${vars[@]}" bash "$script" "$@")
+}
 
 printf 'release@example.invalid namespaces="git" %s\n' "$(cat "$work/release.pub")" > "$repo/deploy/trust/allowed_signers"
 echo readme > "$repo/README.md"
 g add -A && g commit -q -m base
+g push -q origin HEAD:refs/heads/main
 
 signed_tag v1.0.0 release
 if out="$(verify v1.0.0 2>&1)"; then
@@ -76,6 +88,69 @@ verify v1.0.0 >/dev/null 2>&1 && fail "an empty allowed-signers file verifies no
 verify v1.0.0 >/dev/null 2>&1 && fail "an allowed-signers file holding a private key is refused" || pass "an allowed-signers file holding a private key is refused"
 sed 's/namespaces="git"/namespaces="file"/' "$work/kept" > "$repo/deploy/trust/allowed_signers"
 verify v1.0.0 >/dev/null 2>&1 && fail "a key listed for another namespace does not sign tags" || pass "a key listed for another namespace does not sign tags"
+
+cp "$work/kept" "$repo/deploy/trust/allowed_signers"
+verify v1.0.0 >/dev/null 2>&1 && pass "a tag on main verifies" || fail "a tag on main verifies"
+
+# tag_on_a_commit_not_on_main_is_refused [AC-P2.2]: signed by a listed key, and on a
+# branch that origin/main does not contain.
+g checkout -q -b topic v1.0.0
+echo topic >> "$repo/README.md"
+g commit -q -am topic
+signed_tag v1.1.0 release
+if out="$(verify v1.1.0 2>&1)"; then fail "tag_on_a_commit_not_on_main_is_refused"; else
+    grep -q 'the tagged commit is not on main' <<<"$out" && pass "tag_on_a_commit_not_on_main_is_refused" ||
+        fail "tag_on_a_commit_not_on_main_is_refused, saying why: $out"
+fi
+verify --no-ancestry v1.1.0 >/dev/null 2>&1 && pass "--no-ancestry skips the main check, for these tests" ||
+    fail "--no-ancestry skips the main check, for these tests"
+verify GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted --no-ancestry v1.1.0 >/dev/null 2>&1 &&
+    fail "--no-ancestry is refused in a pipeline" || pass "--no-ancestry is refused in a pipeline"
+g push -q origin topic:refs/heads/main
+verify v1.1.0 >/dev/null 2>&1 && pass "once main holds the commit, the tag verifies: main is fetched afresh" ||
+    fail "once main holds the commit, the tag verifies: main is fetched afresh"
+
+# runner_pinned_signers_are_used [AC-P2.1]: the tagged commit adds a key to the
+# committed file and signs with it; the runner's copy, outside the checkout, decides.
+mkdir -p "$work/runner"
+cp "$work/kept" "$work/runner/allowed_signers"
+printf 'stranger@example.invalid namespaces="git" %s
+' "$(cat "$work/stranger.pub")" >> "$repo/deploy/trust/allowed_signers"
+g commit -q -am "add a key"
+signed_tag v1.2.0 stranger
+g push -q origin topic:refs/heads/main
+pinned="MIDGARD_ALLOWED_SIGNERS_PATH=$work/runner/allowed_signers"
+if out="$(verify "$pinned" v1.2.0 2>&1)"; then fail "runner_pinned_signers_are_used: a key only the tagged commit lists is refused"; else
+    grep -q 'the committed allowed_signers differs from the runner-pinned copy' <<<"$out" &&
+        pass "runner_pinned_signers_are_used: a key only the tagged commit lists is refused, the copies differing" ||
+        fail "runner_pinned_signers_are_used: the copies differ, and it says so: $out"
+fi
+verify v1.2.0 >/dev/null 2>&1 && pass "on a developer's shell the committed file is still used" ||
+    fail "on a developer's shell the committed file is still used"
+cp "$repo/deploy/trust/allowed_signers" "$work/runner/allowed_signers"
+if out="$(verify "$pinned" GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted v1.2.0 2>&1)"; then
+    grep -q 'Good "git" signature for stranger@example.invalid' <<<"$out" &&
+        pass "runner_pinned_signers_are_used: with matching copies and a listed key, it passes" ||
+        fail "runner_pinned_signers_are_used: the signer is named: $out"
+else
+    fail "runner_pinned_signers_are_used: with matching copies and a listed key, it passes: $out"
+fi
+verify "MIDGARD_ALLOWED_SIGNERS_PATH=$repo/deploy/trust/allowed_signers" v1.2.0 >/dev/null 2>&1 &&
+    fail "a pinned copy inside the checkout is refused" || pass "a pinned copy inside the checkout is refused"
+verify "MIDGARD_ALLOWED_SIGNERS_PATH=$work/runner/absent" v1.2.0 >/dev/null 2>&1 &&
+    fail "a pinned path that names no file is refused" || pass "a pinned path that names no file is refused"
+
+# self_hosted_without_pinned_signers_fails_closed [AC-P2.4]
+for runner in "GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted" "GITLAB_CI=true"; do
+    # shellcheck disable=SC2086 # two settings, split on purpose
+    if out="$(verify $runner v1.2.0 2>&1)"; then fail "self_hosted_without_pinned_signers_fails_closed ($runner)"; else
+        grep -q 'MIDGARD_ALLOWED_SIGNERS_PATH is not set' <<<"$out" && grep -q 'docs/ops/PKI.md, "Signing runner"' <<<"$out" &&
+            pass "self_hosted_without_pinned_signers_fails_closed ($runner), pointing to PKI.md" ||
+            fail "self_hosted_without_pinned_signers_fails_closed ($runner), saying why: $out"
+    fi
+done
+verify GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted v1.2.0 >/dev/null 2>&1 &&
+    pass "a hosted runner may use the committed file" || fail "a hosted runner may use the committed file"
 
 if [ "$failures" -gt 0 ]; then
     echo "verify-tag tests: $failures failure(s)"

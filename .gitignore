@@ -64,6 +64,8 @@ result-*
 
 # The saved toolchain image and pinned tools CI keeps between jobs (tools/ci/run.sh).
 .ci-cache/
+# The release gate's checkout of main, beside the tagged one (tools/ci/verify-tag.sh).
+.ci-trusted/
 # Raw audit-tool reports; the records under clients/shells/*/audits are what is kept.
 /shell-audit/
 # GitLab dotenv report written by tools/ci/lib.sh.

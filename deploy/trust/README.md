@@ -14,8 +14,12 @@ a refusal, never a pass. [NFR-PQ-3] [AC-B-1]
 | `allowed_signers` | SSH (ed25519) | the keys that may sign a release tag | `tools/ci/verify-tag.sh`: the release's `release-tag` job, before anything is built |
 
 All four hold **public** keys, safe to commit. `allowed_signers` is in git's
-allowed-signers format (see `docs/ops/PKI.md`, "Git signing"). The three `.pub` files
-each hold one or more lines in the format `mg-sign keygen --export-verifying-key` (and
+allowed-signers format (see `docs/ops/PKI.md`, "Git signing"). On the signing runners
+the committed copy is kept for review only: a tag verifies against the runner's own
+copy (`MIDGARD_ALLOWED_SIGNERS_PATH`), and only when this file is byte-for-byte the
+same, so a key added here takes effect once it is on the runners too (VLD-ANB-MIDGARD-0035;
+`docs/ops/PKI.md`, "Signing runner"). The three `.pub` files each
+hold one or more lines in the format `mg-sign keygen --export-verifying-key` (and
 `mg-model keygen`) writes:
 
 ```text

@@ -33,7 +33,7 @@ in_env() {
     env -u GITHUB_ACTIONS -u GITLAB_CI -u GITHUB_SHA -u CI_COMMIT_SHA -u GITHUB_REF_TYPE \
         -u GITHUB_REF_NAME -u CI_COMMIT_TAG -u GITHUB_BASE_REF -u CI_MERGE_REQUEST_DIFF_BASE_SHA \
         -u MIDGARD_DIFF_BASE -u CI_COMMIT_BEFORE_SHA -u MIDGARD_FORGE -u RUNNER_NAME \
-        -u CI_RUNNER_DESCRIPTION -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY \
+        -u CI_RUNNER_DESCRIPTION -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY -u RUNNER_ENVIRONMENT \
         "${vars[@]}" bash -c '. "$0"; "$@"' "$lib" "$@"
 }
 
@@ -69,6 +69,14 @@ expect "a merge request's base" 0a1b2c in_env CI_MERGE_REQUEST_DIFF_BASE_SHA=0a1
 expect "a push's previous commit, GitHub" 111aaa in_env MIDGARD_DIFF_BASE=111aaa -- ci_base_ref
 expect "a push's previous commit, GitLab" 222bbb in_env CI_COMMIT_BEFORE_SHA=222bbb -- ci_base_ref
 expect "a new branch has no base" "" in_env CI_COMMIT_BEFORE_SHA=0000000000000000000000000000000000000000 -- ci_base_ref
+
+# --- the runner: self-hosted, where releases are signed, or not [VLD-ANB-MIDGARD-0035] ---
+self_hosted() { if in_env "$@" -- ci_self_hosted; then echo yes; else echo no; fi; }
+expect "a self-hosted GitHub runner" yes self_hosted GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted
+expect "a GitHub-hosted runner" no self_hosted GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted
+expect "a GitHub runner that does not say counts as self-hosted" yes self_hosted GITHUB_ACTIONS=true
+expect "a GitLab release job is on the kms runner" yes self_hosted GITLAB_CI=true
+expect "a developer's shell is not a signing runner" no self_hosted
 
 # --- errors, in each system's own form --------------------------------------------------
 expect "an error annotation on GitHub" "::error file=src/a.rs::broken" in_env GITHUB_ACTIONS=true -- ci_error broken src/a.rs

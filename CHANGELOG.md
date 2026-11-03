@@ -507,6 +507,26 @@ CONTRIBUTING.md for the version policy.
   manifests (re-vendored by a self-hosted Renovate, by a maintainer otherwise), the
   GitHub Actions SHAs and the GitLab image digests. docs/dev/CI.md, "Dependency
   updates", has the workflow. [VLD-ANB-MIDGARD-0076]
+- **A release tag no longer vouches for itself.** The release's tag gate verified a tag
+  against `deploy/trust/allowed_signers` from the tagged commit, with that commit's own
+  scripts, and never checked that the commit was on `main`; so a commit that added a key
+  could verify a tag on itself, and its scripts would run beside the signing material.
+  Now `tools/ci/verify-tag.sh` verifies against the signing runner's own copy of
+  `allowed_signers` (`MIDGARD_ALLOWED_SIGNERS_PATH`, outside the workspace), refuses the
+  tag unless the committed file is byte-for-byte that copy, and refuses a tagged commit
+  that is not an ancestor of `origin/main`, fetched afresh. On a self-hosted runner with
+  no pinned copy it refuses every tag. Both pipelines' preflight jobs check out `main`
+  a second time into `.ci-trusted` and run `release-tag` and `release-preflight` from
+  there before anything from the tagged commit runs (`tools/ci/pipelines.sh` counts
+  those calls as the same jobs). The preflight now also refuses an allowed-signers copy
+  or keystore inside the job's workspace, an unreachable docker daemon, and an
+  `in-toolchain.sh` that does not build with `--network none`. New
+  `tools/ci/github-rules.sh` applies the repository rulesets as code, among them a
+  `v*` tag-creation rule whose only bypass actor is the `release-managers` team, kept
+  apart from the immutability ruleset so that no one can move or delete a published tag.
+  Owner actions: create the team and apply the rulesets, provision the runners' copy of
+  `allowed_signers`, run the runners ephemeral (`docs/ops/PKI.md`, "Signing runner",
+  items 5 to 8). [VLD-ANB-MIDGARD-0035]
 - **Release-time CI tooling is pinned, and no checkout keeps the workflow token.**
   The shell-audit job, whose record gates the release, no longer runs `http-server` and
   `wait-on` by name with `npx --yes`: they are pinned to exact versions (14.1.1 and
