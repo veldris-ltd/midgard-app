@@ -94,6 +94,9 @@ jobs:
     name: signing-runner preflight
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
     runs-on: [self-hosted, kms]
+    # The protected `release` environment: v* tags only, and a second maintainer
+    # approves before anything runs on the signing runner. [VLD-ANB-MIDGARD-0035]
+    environment: release
     env:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
@@ -134,6 +137,7 @@ jobs:
     name: gate, admit, account
     needs: [preflight, shell-audits]
     runs-on: [self-hosted, kms]
+    environment: release
     env:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}

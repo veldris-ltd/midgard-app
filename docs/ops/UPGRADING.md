@@ -29,13 +29,20 @@ The short version, for each way of running Midgard:
 | Model manifests are format 2, signed over their own bytes; a model sidecar loads a staged copy of the verified weights. | MG-SEC-14 | A format-1 manifest is refused, and `mimir-server` with `--engine llama-cpp` or `vllm` needs `--serve-dir`. → [Step 6](#6--re-sign-models-and-give-the-sidecar-a-serve-directory). |
 | The image no longer reads `MIDGARD_RELEASE_TRUST_KEY`. | MG-SEC-14 | Verification always uses `/trust/release-trust.pub`. Remove the variable from your environment; it has no effect. |
 | Keystores are format version 2: the custody root is wrapped under a passphrase, and every program that opens one needs `--keystore-passphrase-file` or `MIDGARD_KEYSTORE_PASSPHRASE_FILE`. | VLD-ANB-MIDGARD-0007 | A version 1 keystore (root in the clear) is refused everywhere. → [Keystores](#keystores-wrap-the-custody-root). |
+| Audit ledger entries are schema 2; identity directory records are version 3, then 4. | VLD-ANB-MIDGARD-0054, VLD-ANB-MIDGARD-0026, VLD-ANB-MIDGARD-0084 | One-way: once the new build has written to them, an earlier build cannot open the ledger or the directory. Rolling back means restoring the backup. → [Step 1](#1--back-up) and [Rolling back](#rolling-back). |
+| Administrators prove each request with a passkey **and** a one-time code the gateway checks. | VLD-ANB-MIDGARD-0008 | An administrator with no TOTP secret gets 401 on every administration route, `enrol` included, until one is set. → [Step 5a](#5a--give-every-administrator-a-totp-secret). |
+| Session tokens are `midgard-token-v2`. | VLD-ANB-MIDGARD-0021 | A token minted before the upgrade no longer verifies: **everyone signs in again**. Nothing to run; tell your users. |
+| Heimdall observations are format version 2 (a sequence inside the signed bytes). | VLD-ANB-MIDGARD-0041 | A version 1 observation is refused. **Rebuild every feed source** and deploy it with `heimdall-feed`. → [Step 6a](#6a--rebuild-every-heimdall-feed-source). |
 
 ## 1 — Back up
 
 Take the backup in [BACKUP_RESTORE.md](BACKUP_RESTORE.md) of the gateway's state
 directory, every service's state directory, and every identity directory. The steps below
 write new certificates and checkpoints and rewrite each keystore once, wrapped (the keys
-inside are kept), but a backup is how you go back. Keep the pre-migration keystores in
+inside are kept), but a backup is how you go back. The new build also rewrites the
+audit ledgers (entry schema 2) and the identity directory (record versions 3 and 4) the
+first time it writes to them, and no earlier build opens either afterwards: the backup is
+the **only** way back ([Rolling back](#rolling-back)). Keep the pre-migration keystores in
 the secret store, not on the host, until the release has soaked, then destroy them: they
 hold the custody root in the clear.
 
@@ -51,8 +58,20 @@ ledger while it is adopted. Then install the new binaries or images.
 Before anything opens a keystore, give each keystore holder a passphrase and migrate its
 keystores. Compose `init` and `mg-install`'s repair do this themselves: each holder gets a
 random passphrase in a volume of its own (`<holder>-passphrase`), and every version 1
-keystore is migrated under it. By hand, for each holder (the state directory's `keys/`
-and the gateway's mesh identity share one; each other service directory has its own):
+keystore is migrated under it. By hand, migrate the state directory's audit keystore
+**first, and without `--state-dir`**:
+
+```bash
+mg-admin keystore migrate --keystore STATE/keys/audit.keystore --keystore-passphrase-file /secrets/gateway.passphrase
+```
+
+Given `--state-dir`, `keystore migrate` records the migration in the gateway's ledger,
+which it opens with `STATE/keys/audit.keystore`; that only works once the audit keystore
+is version 2 and the ledger has been adopted in [step 3](#3--adopt-the-audit-ledgers). So
+migrate every keystore here without `--state-dir`, and after step 3 record each one with
+`mg-admin keystore verify --state-dir STATE --keystore FILE --keystore-passphrase-file FILE`.
+Then, for each holder (the state directory's `keys/` and the gateway's mesh identity
+share one; each other service directory has its own):
 
 ```bash
 umask 077; head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n' > /secrets/mimir.passphrase
@@ -132,9 +151,11 @@ mg-admin mesh upgrade --state-dir STATE --service mimir-server --roles inference
 rewrites `mesh.anchor`, and writes the current signed `mesh.crl`. It keeps both
 keystores. That matters: a service's audit keystore signs its ledger and is the root its
 sealed state is encrypted under, so a new one — which is what `mg-admin mesh issue`
-makes — would leave the service unable to open either. `--days` (default 30) and
-`--clearance` (default `open`) apply as at issue. On a service that is already current it
-changes nothing.
+makes — would leave the service unable to open either. `--days` (default 30),
+`--clearance` (default `open`) and `--purposes` apply as at issue. On a service whose
+certificate is already current, and grants exactly the roles, clearance and purposes
+asked for, it changes nothing; a certificate whose grant differs is reissued, so
+`--purposes` binds purposes into a certificate that had none. [VLD-ANB-MIDGARD-0063]
 
 The services, roles and directories the compose deployment uses (`deploy/compose/init.sh`):
 
@@ -168,6 +189,24 @@ http-gateway --state-dir STATE --audit-pin /etc/midgard/audit.pin \
   (a read-only mount, a config map). Without it the gateway pins the copy inside the state
   directory and says so at start.
 
+## 5a — Give every administrator a TOTP secret
+
+Administration now takes a passkey assertion and a one-time code, and the gateway checks
+the code against the administrator's secret in `STATE/admin/totp.journal`. Administrators
+enrolled by an earlier build have no secret there, so every request they make, `enrol`
+included, is refused with 401 until they have one. Compose `init` and `mg-install` do not
+do this for you: each administrator scans the URI it prints. With the gateway stopped, for
+each administrator:
+
+```bash
+mg-admin admin totp-reset --state-dir STATE --admin NAME --keystore-passphrase-file /secrets/gateway.passphrase
+```
+
+It prints the new `otpauth://` URI once; hand it to that administrator only, and have them
+add it to their authenticator before the gateway starts. Each reset is recorded as
+`ROTATE administrator totp`. The gateway's start-up line says how many administrators
+still have no secret; it should say none. [VLD-ANB-MIDGARD-0008]
+
 ## 6 — Re-sign models and give the sidecar a serve directory
 
 Only for `mimir-server` serving a real model (`--engine llama-cpp` or `vllm`):
@@ -195,13 +234,24 @@ Only for `mimir-server` serving a real model (`--engine llama-cpp` or `vllm`):
    weights there, and the sidecar loads them from there, read-only — never from the model
    directory. `deploy/compose/compose.granite.yaml` and the Helm chart show the wiring.
 
+## 6a — Rebuild every Heimdall feed source
+
+Observations are format version 2: each carries its feed's sequence inside the signed
+bytes, and `heimdall-feed` refuses a version 1 observation ("unsupported observation
+format version 1 (no sequence)"). Rebuild every feed source from this release and deploy
+it together with `heimdall-feed`; a source left on the earlier build has every
+observation refused. Pictures and deltas are not affected. [VLD-ANB-MIDGARD-0041]
+
 ## 7 — Start and check
 
 Start the gateway first, then the mesh services. Each one re-verifies its ledger, its
 certificate and its revocation list at start and refuses to start if anything is wrong;
 its log says which file and why. Then:
 
-- sign in to the console with an existing user (their password hash is upgraded now);
+- sign in to the console with an existing user (their password hash is upgraded now).
+  Every session from before the upgrade has ended: tokens are `midgard-token-v2`, so
+  everyone signs in once more. [VLD-ANB-MIDGARD-0021]
+- make one administration request as each administrator, with their new one-time code;
 - `mg-admin user list --state-dir STATE` with the gateway stopped, or the console's
   admin views, to see the enrolments are intact;
 - on compose, `just compose-probe` for one audited inference call over the mesh.
@@ -215,3 +265,17 @@ its log says which file and why. Then:
   newer list into every directory named; running services pick it up within 30 seconds.
 - **Check the break-glass role bindings.** A grant now needs the requester to hold
   `breakglass.request` and a different administrator holding `breakglass.approve`.
+
+## Rolling back
+
+There is no in-place rollback. The audit ledgers (entry schema 2), the identity directory
+(record versions 3 and 4) and the keystores (version 2) written by this release do not
+open on an earlier build. To go back:
+
+1. Stop the gateway and every mesh service.
+2. Restore the backup from [step 1](#1--back-up): the state directory, every service's
+   state directory and every identity directory, all from the same backup.
+3. Restore the version 1 keystores from the secret store, and start the earlier build.
+
+Anything recorded after the upgrade (ledger entries, enrolments, sealed state) is lost
+with the restore; export what you need first.

@@ -68,6 +68,19 @@ tr -d '\r' < "$workflows/release.yml" | grep -B3 -A3 'path: .ci-trusted' | grep 
 tr -d '\r' < "$gitlab" | grep -q '^    - git clone --branch main --depth [0-9]* "$CI_REPOSITORY_URL" .ci-trusted$' &&
     pass "GitLab: .ci-trusted is a clone of main" || fail "GitLab: .ci-trusted is a clone of main"
 
+# Both jobs that run on the signing runner are behind the protected `release`
+# environment, so only a v* tag reaches them, and only once a second maintainer has
+# approved the deployment. [VLD-ANB-MIDGARD-0035]
+for job in preflight release; do
+    tr -d '' < "$workflows/release.yml" | awk -v job="$job" '
+        $0 ~ "^  " job ":$" { on = 1; next }
+        on && /^  [a-z]/ { on = 0 }
+        on && /^    environment: release$/ { found = 1 }
+        END { exit !found }' &&
+        pass "GitHub: the $job job runs in the release environment" ||
+        fail "GitHub: the $job job runs in the release environment"
+done
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"
     exit 1
