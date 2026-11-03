@@ -1,8 +1,9 @@
 //! RC-30 — Given an admin, when they authenticate, then a **real WebAuthn assertion
 //! is verified**; no session is authenticated without one. Negative tests: a forged
-//! signature, an absent/wrong credential, a replayed (wrong-challenge) assertion, and
-//! a non-user-verified assertion are all denied — none yields an `AdminSession`.
-//! [RC-30]
+//! signature, an absent/wrong credential and a replayed (wrong-challenge) assertion are
+//! all denied — none yields an `AdminSession`. A genuine assertion yields a session
+//! holding the passkey factor alone, which is not MFA until the relying party records
+//! a second factor. [RC-30] [AC-10.1] [VLD-ANB-MIDGARD-0008]
 #![cfg(feature = "backend-fips")]
 
 use admin_identity::{
@@ -47,7 +48,8 @@ fn a_genuine_user_verified_assertion_authenticates() {
         .sign_in(&AdminId("alice".into()), &ch, &asr, 1000)
         .expect("real assertion → authenticated session");
     assert_eq!(session.admin(), &AdminId("alice".into()));
-    assert!(session.has_mfa());
+    assert_eq!(session.factor_names(), vec!["webauthn"]);
+    assert!(!session.has_mfa(), "a passkey alone is one factor");
 }
 
 #[test]

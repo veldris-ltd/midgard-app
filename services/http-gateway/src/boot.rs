@@ -42,6 +42,7 @@ use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey, VerifyingKey};
 
 use crate::admin_api::AdminControl;
+use crate::admin_totp::DurableAdminTotp;
 use crate::approval_journal::APPROVALS_DOMAIN;
 use crate::enclosure::Enclosure;
 use crate::ontology_file::parse_ontology;
@@ -67,6 +68,9 @@ pub struct ServedEnclosure {
     pub actions: usize,
     /// Administrators with a registered passkey, who can enrol principals online.
     pub administrators: usize,
+    /// Of those, administrators with a TOTP secret enrolled: a passkey alone does not
+    /// administer. [VLD-ANB-MIDGARD-0008]
+    pub administrators_with_totp: usize,
     lock: StateLock,
 }
 
@@ -107,6 +111,7 @@ pub fn open_state_dir_mirrored(
     let directory_sealer = sealer(&idp_keystore);
     let revocations_sealer = sealer(&idp_keystore);
     let passkeys_sealer = sealer(&idp_keystore);
+    let totp_sealer = sealer(&idp_keystore);
     let roles_sealer = sealer(&idp_keystore);
     let (idp_vk, idp_sk) = unseal(idp_keystore, "issuer")?;
     let idp = Idp::from_key(IDP_KEY_ID, idp_vk, idp_sk)
@@ -192,14 +197,19 @@ pub fn open_state_dir_mirrored(
         .map_err(|e| format!("the identity directory does not open: {e}"))?;
     let principals = directory.len();
 
-    // Administration: passkeys and role bindings sealed under the issuer's root, the
-    // dual-control ledger and parked enrolments under the audit root. The privilege
-    // service signs with its own copy of the audit key, into its own ledger.
+    // Administration: passkeys, administrators' TOTP secrets and role bindings sealed
+    // under the issuer's root, the dual-control ledger and parked enrolments under the
+    // audit root. The privilege service signs with its own copy of the audit key, into
+    // its own ledger.
     std::fs::create_dir_all(state.admin())
         .map_err(|e| format!("cannot create {}: {e}", state.admin().display()))?;
     let passkeys =
         DurableAdminPasskeys::open(state.admin_passkeys(), passkeys_sealer, fips_provider())
             .map_err(|e| format!("administrator passkeys do not open: {e}"))?;
+    // Created on first use; one that does not authenticate refuses to boot.
+    // [VLD-ANB-MIDGARD-0008]
+    let totp = DurableAdminTotp::open(state.admin_totp(), totp_sealer)
+        .map_err(|e| format!("administrator one-time-code secrets do not open: {e}"))?;
     let roles =
         DurableIdentityDirectory::open(state.admin_roles(), roles_sealer, RoleCatalog::standard())
             .map_err(|e| format!("administrator roles do not open: {e}"))?;
@@ -217,12 +227,14 @@ pub fn open_state_dir_mirrored(
     .map_err(|e| format!("the dual-control service does not open: {e:?}"))?;
     let admin = AdminControl::open(
         passkeys,
+        totp,
         roles,
         privilege,
         state.admin_pending(),
         pending_sealer,
     )?;
     let administrators = admin.administrators();
+    let administrators_with_totp = admin.administrators_with_totp();
 
     // Human-gate approvals are journalled under the same root as the object store and
     // replayed, so a pending or approved gate survives a restart and a used one stays
@@ -274,6 +286,7 @@ pub fn open_state_dir_mirrored(
         object_types,
         actions,
         administrators,
+        administrators_with_totp,
         lock,
     })
 }

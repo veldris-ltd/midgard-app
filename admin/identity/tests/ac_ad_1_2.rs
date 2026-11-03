@@ -3,11 +3,15 @@
 //! AC-AD-2  no single role grants all capabilities; the Auditor can mutate nothing.
 //! AC-AD-1  sign-in requires MFA; entering an admin scope requires step-up re-auth.
 //! Plus: bindings are scoped and expiring. `[FR-AD-2]`
+//!
+//! MFA is two distinct factors, one phishing-resistant: a passkey alone, whatever its
+//! user-verification flag claims, is not; a second factor the relying party verified
+//! is. [AC-10.1] [AC-10.2] [VLD-ANB-MIDGARD-0008]
 
 use admin_identity::{
-    AdminAuthenticator, AdminChallenge, AdminId, IdentityDirectory, IdentityError, ResourceScope,
-    RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, WebAuthnAssertion, ROLE_AUDITOR,
-    ROLE_SECURITY_OFFICER,
+    AdminAuthenticator, AdminChallenge, AdminId, AuthFactor, IdentityDirectory, IdentityError,
+    ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, WebAuthnAssertion,
+    ROLE_AUDITOR, ROLE_SECURITY_OFFICER,
 };
 use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::Rng;
@@ -127,17 +131,17 @@ fn assert_for(
 }
 
 #[test]
-fn ac_ad_1_a_non_user_verified_or_unknown_admin_gets_no_session() {
+fn ac_ad_1_an_unknown_admin_or_a_wrong_signature_gets_no_session() {
     let (authr, device) = setup();
     let ch = challenge(10);
 
-    // A verified assertion WITHOUT user verification is single-factor → no session.
-    let no_uv = assert_for(&authr, &device, &ch, false);
+    // An assertion over another challenge does not verify → no session.
+    let other = assert_for(&authr, &device, &challenge(11), true);
     assert_eq!(
         authr
-            .sign_in(&AdminId("alice".into()), &ch, &no_uv, 1000)
+            .sign_in(&AdminId("alice".into()), &ch, &other, 1000)
             .unwrap_err(),
-        IdentityError::MfaRequired
+        IdentityError::WebAuthnRejected
     );
 
     // An unregistered admin cannot sign in at all.
@@ -150,17 +154,82 @@ fn ac_ad_1_a_non_user_verified_or_unknown_admin_gets_no_session() {
     );
 }
 
+/// [AC-10.1] [VLD-ANB-MIDGARD-0008] A passkey assertion claiming user verification
+/// signs in, but the session holds one factor: it is not MFA and cannot step into a
+/// scope. (`PrivilegeService::submit` refuses such a session with `MfaRequired`:
+/// `admin/privilege/tests/ac_ad_3_4_13.rs::ac_ad_1_a_passkey_alone_cannot_request_or_approve`.)
+#[test]
+fn ac_ad_1_a_passkey_alone_does_not_satisfy_mfa() {
+    let (authr, device) = setup();
+    let ch = challenge(20);
+    let uv = assert_for(&authr, &device, &ch, true);
+    let mut s = authr
+        .sign_in(&AdminId("alice".into()), &ch, &uv, 1000)
+        .expect("a verified assertion signs in");
+    assert!(s.uv_claimed(), "the claim is recorded for audit");
+    assert_eq!(s.factor_names(), vec!["webauthn"]);
+    assert!(!s.has_mfa(), "a passkey alone is one factor");
+
+    let ch2 = challenge(21);
+    let fresh = assert_for(&authr, &device, &ch2, true);
+    assert_eq!(
+        authr.step_up(&mut s, ResourceScope::all("kms"), &ch2, &fresh, 1000),
+        Err(IdentityError::WeakStepUpFactor)
+    );
+    let ch3 = challenge(22);
+    let fresh = assert_for(&authr, &device, &ch3, true);
+    assert_eq!(
+        authr.reauth(&mut s, &ch3, &fresh, 1000),
+        Err(IdentityError::WeakStepUpFactor)
+    );
+}
+
+/// [AC-10.2] [VLD-ANB-MIDGARD-0008] The user-verification flag is a hint: an assertion
+/// signed with it false still signs in, and once the relying party records a second
+/// factor it verified, the session holds {WebAuthn, Totp} and satisfies MFA.
+#[test]
+fn ac_ad_1_a_second_factor_not_the_uv_flag_grants_mfa() {
+    let (authr, device) = setup();
+    let ch = challenge(30);
+    let no_uv = assert_for(&authr, &device, &ch, false);
+    let mut s = authr
+        .sign_in(&AdminId("alice".into()), &ch, &no_uv, 1000)
+        .expect("the flag gates nothing");
+    assert!(!s.uv_claimed());
+    assert!(!s.has_mfa());
+
+    s.record_factor(AuthFactor::Totp);
+    assert!(s.has_mfa());
+    assert_eq!(
+        s.factors().iter().copied().collect::<Vec<_>>(),
+        vec![AuthFactor::Totp, AuthFactor::WebAuthn]
+    );
+    assert_eq!(s.factor_names(), vec!["totp", "webauthn"]);
+
+    // A second non-phishing-resistant factor alone would not do either.
+    let ch2 = challenge(31);
+    let asr = assert_for(&authr, &device, &ch2, false);
+    let mut other = authr
+        .sign_in(&AdminId("alice".into()), &ch2, &asr, 1000)
+        .unwrap();
+    other.record_factor(AuthFactor::WebAuthn);
+    assert!(!other.has_mfa(), "the same factor twice is one factor");
+}
+
 #[test]
 fn ac_ad_1_mfa_sign_in_then_step_up_required_to_enter_scope() {
     let (authr, device) = setup();
     let kms = ResourceScope::all("kms");
 
-    // A user-verified WebAuthn assertion signs in (MFA satisfied).
+    // A WebAuthn assertion signs in; with the second factor the relying party
+    // verified, MFA is satisfied. [AC-10.2]
     let ch = challenge(1);
     let asr = assert_for(&authr, &device, &ch, true);
     let mut s = authr
         .sign_in(&AdminId("alice".into()), &ch, &asr, 1000)
         .expect("webauthn sign-in ok");
+    assert!(!s.has_mfa());
+    s.record_factor(AuthFactor::Totp);
     assert!(s.has_mfa());
 
     // Before entering the scope, it is not authorised — step-up is required.
@@ -171,15 +240,15 @@ fn ac_ad_1_mfa_sign_in_then_step_up_required_to_enter_scope() {
         })
     );
 
-    // A step-up whose assertion lacks user verification is refused.
+    // A step-up whose assertion answers another challenge is refused.
     let ch2 = challenge(2);
-    let weak = assert_for(&authr, &device, &ch2, false);
+    let stale = assert_for(&authr, &device, &challenge(1), true);
     assert_eq!(
-        authr.step_up(&mut s, kms.clone(), &ch2, &weak, 1000),
-        Err(IdentityError::WeakStepUpFactor)
+        authr.step_up(&mut s, kms.clone(), &ch2, &stale, 1000),
+        Err(IdentityError::WebAuthnRejected)
     );
 
-    // A fresh user-verified step-up succeeds; the scope is now authorised.
+    // A fresh step-up succeeds; the scope is now authorised.
     let ch3 = challenge(3);
     let strong = assert_for(&authr, &device, &ch3, true);
     authr
@@ -204,6 +273,7 @@ fn ac_ad_1_fresh_reauth_tracks_the_latest_re_authentication() {
     let mut s = authr
         .sign_in(&AdminId("alice".into()), &ch, &asr, 1000)
         .unwrap();
+    s.record_factor(AuthFactor::Totp);
 
     // Sign-in is itself a fresh re-auth.
     assert!(s.has_fresh_reauth(1000, 120));

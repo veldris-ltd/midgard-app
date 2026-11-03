@@ -30,6 +30,15 @@
 //!
 //! A parked enrolment is sealed at rest, so it survives a restart until it is settled.
 //!
+//! ## Two factors, both verified here
+//! A passkey assertion is one factor, possession of the administrator's keystore, and
+//! its `userVerified` flag is whatever the client signed: it is recorded for audit and
+//! trusted for nothing. Every administration request also carries `totp`, a one-time
+//! code the gateway checks against the administrator's secret in
+//! [`DurableAdminTotp`], accepting each code once. Only then does the session hold two
+//! factors and satisfy the privilege service's MFA check. A missing, wrong or reused
+//! code is the same 401, "second factor required". [VLD-ANB-MIDGARD-0008]
+//!
 //! A challenge is bound to the administrator who asked for it: the request names
 //! them, and only they can answer it. Each registered administrator holds at most
 //! [`MAX_CHALLENGES_PER_ADMIN`] at once, a fifth replacing their own oldest, so a flood
@@ -43,8 +52,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use admin_identity::{
-    AdminChallenge, AdminId, AdminSession, DurableAdminPasskeys, DurableIdentityDirectory,
-    ResourceScope, WebAuthnAssertion, PASSKEY_SIG_ALG,
+    AdminChallenge, AdminId, AdminSession, AuthFactor, DurableAdminPasskeys,
+    DurableIdentityDirectory, ResourceScope, WebAuthnAssertion, PASSKEY_SIG_ALG,
 };
 use admin_privilege::{
     ActionClass, ActionState, AdminActionRequest, Disposition, DurablePrivilege,
@@ -54,6 +63,7 @@ use iam::{Activation, Credentials, Enrollment, PasswordHasher, TotpSecret, UserR
 use policy::{Clearance, Compartment, PolicySet, Purpose, Role};
 use pqc_agility::{OsRng, Rng, Signature};
 
+use crate::admin_totp::DurableAdminTotp;
 use crate::enclosure::{band, level_of};
 use crate::json::Json;
 use crate::strict_json::{object, only_keys, optional_bool, strings, text};
@@ -65,16 +75,6 @@ pub const CHALLENGE_TTL: u64 = 120;
 pub const STEP_UP_MAX_AGE: u64 = 300;
 /// How recent an approver's re-authentication must be, in seconds.
 pub const REAUTH_MAX_AGE: u64 = 120;
-/// How long an activation code issued at approval stays usable, in seconds (72 h).
-/// [VLD-ANB-MIDGARD-0002]
-pub const ACTIVATION_TTL: u64 = 72 * 3_600;
-/// What the approver is told about the second factor: the principal provisions it
-/// themselves, at activation.
-pub const MFA_AT_ACTIVATION: &str = "totp at activation";
-/// The activation code's length in bytes (128 bits); it travels as 32 hex characters.
-const ACTIVATION_CODE_LEN: usize = 16;
-/// The TOTP secret minted at approval, in bytes: the length `mg-admin` uses.
-const TOTP_SECRET_LEN: usize = 20;
 /// The most challenges one administrator may hold at once; a further one replaces
 /// their own oldest. [VLD-ANB-MIDGARD-0020]
 pub const MAX_CHALLENGES_PER_ADMIN: usize = 4;
@@ -85,6 +85,16 @@ pub const MAX_CHALLENGES: usize = 1_024;
 /// How often a refusal at the ceiling is recorded, in seconds; those between are
 /// counted onto the next record. [VLD-ANB-MIDGARD-0020]
 const REFUSAL_RECORD_INTERVAL: u64 = 60;
+/// How long an activation code issued at approval stays usable, in seconds (72 h).
+/// [VLD-ANB-MIDGARD-0002]
+pub const ACTIVATION_TTL: u64 = 72 * 3_600;
+/// What the approver is told about the second factor: the principal provisions it
+/// themselves, at activation.
+pub const MFA_AT_ACTIVATION: &str = "totp at activation";
+/// The activation code's length in bytes (128 bits); it travels as 32 hex characters.
+const ACTIVATION_CODE_LEN: usize = 16;
+/// The TOTP secret minted at approval, in bytes: the length `mg-admin` uses.
+const TOTP_SECRET_LEN: usize = 20;
 /// The scope every principal enrolment is requested in.
 const IAM_SCOPE: &str = "iam";
 /// Parked enrolments carry no credential material from version 2 on.
@@ -95,6 +105,9 @@ const OP_PARKED: u8 = 0;
 const OP_SETTLED: u8 = 1;
 /// The longest compartment name a request may give.
 const MAX_COMPARTMENT_LEN: usize = 32;
+/// The one refusal for a missing, malformed, wrong or reused one-time code: it does
+/// not say which. [VLD-ANB-MIDGARD-0008]
+const SECOND_FACTOR_REQUIRED: &str = "second factor required";
 
 /// A refusal, already mapped to its HTTP status.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +122,34 @@ fn refuse(status: u16, message: impl Into<String>) -> AdminError {
     AdminError {
         status,
         message: message.into(),
+    }
+}
+
+/// Who an administration request was authenticated as, and with what: for the
+/// gateway's audit record. [VLD-ANB-MIDGARD-0008]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminActor {
+    /// The administrator.
+    pub admin: String,
+    /// The factors the gateway verified, joined with `+`: `totp+webauthn`.
+    pub factors: String,
+    /// Whether the passkey assertion claimed user verification: a client-set hint,
+    /// recorded, never relied on.
+    pub uv_claimed: bool,
+}
+
+impl AdminActor {
+    fn of(session: &AdminSession) -> Self {
+        Self {
+            admin: session.admin().0.clone(),
+            factors: session.factor_names().join("+"),
+            uv_claimed: session.uv_claimed(),
+        }
+    }
+
+    /// The evidence an audit record carries: `factors=totp+webauthn uv-claimed=false`.
+    pub fn evidence(&self) -> String {
+        format!("factors={} uv-claimed={}", self.factors, self.uv_claimed)
     }
 }
 
@@ -199,10 +240,11 @@ struct Challenge {
     expires: u64,
 }
 
-/// Administration of a served enclosure: passkeys, role bindings, the dual-control
-/// service, and the enrolments it has parked.
+/// Administration of a served enclosure: passkeys, administrators' one-time-code
+/// secrets, role bindings, the dual-control service, and the enrolments it has parked.
 pub struct AdminControl {
     passkeys: DurableAdminPasskeys,
+    totp: DurableAdminTotp,
     roles: DurableIdentityDirectory,
     privilege: DurablePrivilege,
     journal: SealedJournal,
@@ -216,9 +258,11 @@ pub struct AdminControl {
 impl AdminControl {
     /// Assemble administration over its durable parts, replaying the parked enrolments
     /// sealed in `pending_path`. Parked enrolments an earlier build sealed with their
-    /// credentials are re-parked without them.
+    /// credentials are re-parked without them. `totp` holds each administrator's second
+    /// factor. [VLD-ANB-MIDGARD-0008]
     pub fn open(
         passkeys: DurableAdminPasskeys,
+        totp: DurableAdminTotp,
         roles: DurableIdentityDirectory,
         privilege: DurablePrivilege,
         pending_path: impl AsRef<Path>,
@@ -227,6 +271,7 @@ impl AdminControl {
         let (journal, parked) = open_pending(pending_path.as_ref(), pending_sealer)?;
         Ok(Self {
             passkeys,
+            totp,
             roles,
             privilege,
             journal,
@@ -246,6 +291,12 @@ impl AdminControl {
     /// naming them is recorded by name. [AC-27.4]
     pub fn is_administrator(&self, name: &str) -> bool {
         self.passkeys.admins().iter().any(|admin| admin.0 == name)
+    }
+
+    /// Administrators with a TOTP secret enrolled: those who can administer, since a
+    /// passkey alone is not enough. [VLD-ANB-MIDGARD-0008]
+    pub fn administrators_with_totp(&self) -> usize {
+        self.totp.administrators_with_totp()
     }
 
     /// Enrolments waiting for a second administrator.
@@ -351,7 +402,7 @@ impl AdminControl {
         catalogue: &RoleCatalogue,
         enrolled: &dyn Fn(&str) -> bool,
         now: u64,
-    ) -> Result<(Json, String), AdminError> {
+    ) -> Result<(Json, AdminActor), AdminError> {
         let at = "the request";
         only_keys(
             object(body, at).map_err(|e| refuse(400, e))?,
@@ -360,6 +411,7 @@ impl AdminControl {
                 "admin",
                 "challenge",
                 "assertion",
+                "totp",
                 "justification",
                 "principal",
             ],
@@ -372,7 +424,7 @@ impl AdminControl {
 
         let scope = ResourceScope::all(IAM_SCOPE);
         let (admin, challenge, assertion) = self.proof(body, now)?;
-        let mut session = self.sign_in(&admin, &challenge, &assertion, now)?;
+        let mut session = self.sign_in(body, &admin, &challenge, &assertion, now)?;
         self.passkeys
             .authenticator()
             .step_up(&mut session, scope.clone(), &challenge, &assertion, now)
@@ -434,6 +486,7 @@ impl AdminControl {
         let subject = principal.subject.clone();
         let clearance = band(policy::ClassificationLevel(principal.level));
         self.parked.insert(id.clone(), principal);
+        let actor = AdminActor::of(&session);
 
         Ok((
             Json::obj(vec![
@@ -442,7 +495,7 @@ impl AdminControl {
                 ("clearance", Json::s(clearance)),
                 ("state", Json::s("waiting for a second administrator")),
             ]),
-            admin.0,
+            actor,
         ))
     }
 
@@ -460,12 +513,12 @@ impl AdminControl {
         hasher: &dyn PasswordHasher,
         enrol: &mut dyn FnMut(&str, Enrollment) -> Result<(), String>,
         now: u64,
-    ) -> Result<(Json, String, String), AdminError> {
+    ) -> Result<(Json, AdminActor, String), AdminError> {
         let at = "the approval";
         only_keys(
             object(body, at).map_err(|e| refuse(400, e))?,
             at,
-            &["admin", "challenge", "assertion", "id", "subject"],
+            &["admin", "challenge", "assertion", "totp", "id", "subject"],
         )
         .map_err(|e| refuse(400, e))?;
         let id = text(body, at, "id")
@@ -540,7 +593,7 @@ impl AdminControl {
                     Json::Int(now.saturating_add(ACTIVATION_TTL) as i64),
                 ),
             ]),
-            admin.0,
+            AdminActor::of(&session),
             subject,
         ))
     }
@@ -554,12 +607,12 @@ impl AdminControl {
         &mut self,
         body: &Json,
         now: u64,
-    ) -> Result<(Json, String, String), AdminError> {
+    ) -> Result<(Json, AdminActor, String), AdminError> {
         let at = "the rejection";
         only_keys(
             object(body, at).map_err(|e| refuse(400, e))?,
             at,
-            &["admin", "challenge", "assertion", "id", "reason"],
+            &["admin", "challenge", "assertion", "totp", "id", "reason"],
         )
         .map_err(|e| refuse(400, e))?;
         let id = text(body, at, "id")
@@ -597,7 +650,7 @@ impl AdminControl {
                 ("rejectedBy", Json::s(&admin.0)),
                 ("reason", Json::s(&reason)),
             ]),
-            admin.0,
+            AdminActor::of(&session),
             subject,
         ))
     }
@@ -610,11 +663,11 @@ impl AdminControl {
         only_keys(
             object(body, at).map_err(|e| refuse(400, e))?,
             at,
-            &["admin", "challenge", "assertion"],
+            &["admin", "challenge", "assertion", "totp"],
         )
         .map_err(|e| refuse(400, e))?;
         let (admin, challenge, assertion) = self.proof(body, now)?;
-        self.sign_in(&admin, &challenge, &assertion, now)?;
+        self.sign_in(body, &admin, &challenge, &assertion, now)?;
         let names = |values: &[String]| Json::Arr(values.iter().map(|v| Json::s(v)).collect());
         let rows = self
             .parked
@@ -665,7 +718,7 @@ impl AdminControl {
         now: u64,
     ) -> Result<(AdminId, AdminSession), AdminError> {
         let (admin, challenge, assertion) = self.proof(body, now)?;
-        let mut session = self.sign_in(&admin, &challenge, &assertion, now)?;
+        let mut session = self.sign_in(body, &admin, &challenge, &assertion, now)?;
         self.passkeys
             .authenticator()
             .reauth(&mut session, &challenge, &assertion, now)
@@ -747,17 +800,33 @@ impl AdminControl {
         Ok((admin, AdminChallenge::new(nonce), assertion))
     }
 
+    /// Sign the administrator in with both factors: the passkey assertion, then the
+    /// one-time code in `body`'s `totp`, checked here and spent. The code is looked at
+    /// only once the passkey has verified, so nobody without the passkey can spend an
+    /// administrator's codes. A missing, malformed, wrong or reused code is one 401.
+    /// [VLD-ANB-MIDGARD-0008]
     fn sign_in(
-        &self,
+        &mut self,
+        body: &Json,
         admin: &AdminId,
         challenge: &AdminChallenge,
         assertion: &WebAuthnAssertion,
         now: u64,
     ) -> Result<AdminSession, AdminError> {
-        self.passkeys
+        let mut session = self
+            .passkeys
             .authenticator()
             .sign_in(admin, challenge, assertion, now)
-            .map_err(|e| refuse(401, e.to_string()))
+            .map_err(|e| refuse(401, e.to_string()))?;
+        let code = match body.get("totp") {
+            Some(Json::Str(code)) => code.as_str(),
+            _ => return Err(refuse(401, SECOND_FACTOR_REQUIRED)),
+        };
+        self.totp
+            .verify(&admin.0, code, now)
+            .map_err(|_| refuse(401, SECOND_FACTOR_REQUIRED))?;
+        session.record_factor(AuthFactor::Totp);
+        Ok(session)
     }
 }
 

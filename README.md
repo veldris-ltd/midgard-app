@@ -506,18 +506,18 @@ Tokens and the audit ledger survive a restart.
 
 ### Administrators and online enrolment
 
-Users can also be enrolled **while the gateway runs**, under dual control. One administrator requests, and a different one approves. Administrators prove who they are with a post-quantum passkey (ML-DSA-65), not a password.
+Users can also be enrolled **while the gateway runs**, under dual control. One administrator requests, and a different one approves. Administrators prove who they are with two factors on every request: a post-quantum passkey (ML-DSA-65) and a one-time code from their authenticator app, not a password.
 
-Make two administrators first, with the gateway stopped. Each gets a passkey in a sealed keystore file that is **theirs to keep**. Only its public half is registered in the state directory:
+Make two administrators first, with the gateway stopped. Each gets a passkey in a sealed keystore file that is **theirs to keep**, and a TOTP second factor whose `otpauth` URI is printed once for their authenticator app. Only the passkey's public half is registered in the state directory:
 
 ```bash
 ./target/release/mg-admin admin add --state-dir ./enclosure --admin alice --role IAM-Admin --keystore ./alice.passkey
 ./target/release/mg-admin admin add --state-dir ./enclosure --admin bob   --role IAM-Admin --keystore ./bob.passkey
 ```
 
-Roles are `IAM-Admin`, `Security-Officer`, `Model-Steward`, `Release-Manager` and `Auditor`. A binding covers `--scope` (default `iam`) for `--days` (default 365). Enrolling needs `IAM-Admin`.
+Roles are `IAM-Admin`, `Security-Officer`, `Model-Steward`, `Release-Manager` and `Auditor`. A binding covers `--scope` (default `iam`) for `--days` (default 365). Enrolling needs `IAM-Admin`. An administrator who loses their authenticator gets a new secret with `mg-admin admin totp-reset --state-dir ./enclosure --admin <name>`, with the gateway stopped; administrators made by an earlier release need one too before they can administer.
 
-Then, with the gateway running, alice requests and bob approves:
+Then, with the gateway running, alice requests and bob approves. Each command asks for the current code from the administrator's authenticator app, or takes it as `--totp <code>`:
 
 ```bash
 ./target/release/mg-admin enrol request \
@@ -546,7 +546,7 @@ The reply's `otpauth` URI goes into her authenticator app; she logs in with her 
 - The code works once, and expires 72 hours after the approval. A password must be at least 12 characters.
 - alice cannot approve her own request, and an administrator without the IAM user capability cannot approve it. `enrol list` shows each waiting request in full, and `enrol approve` names the subject being approved.
 - `enrol reject --id <enrolment id> --reason <text>` discards a waiting request. If the approval cannot be written, the same approver runs `enrol approve` again.
-- A waiting request survives a gateway restart. Each command signs a fresh single-use challenge, issued to the administrator it names and answerable by no one else.
+- A waiting request survives a gateway restart. Each command signs a fresh single-use challenge, issued to the administrator it names and answerable by no one else, and the gateway accepts each one-time code once, so a second command within the same 30 seconds waits for the next code. The passkey alone is refused.
 - Requests, approvals and refusals all appear in the audit ledger.
 - `--gateway` must be a loopback address, because administration runs over plain HTTP.
 

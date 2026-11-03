@@ -8,8 +8,9 @@
 use std::path::PathBuf;
 
 use admin_identity::{
-    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, IdentityDirectory, ResourceScope,
-    RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_AUDITOR, ROLE_IAM_ADMIN,
+    AdminAuthenticator, AdminChallenge, AdminId, AdminSession, AuthFactor, IdentityDirectory,
+    ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_AUDITOR,
+    ROLE_IAM_ADMIN,
 };
 use admin_privilege::{
     ActionClass, ActionState, AdminActionRequest, Disposition, DurablePrivilege, PrivError,
@@ -87,6 +88,9 @@ fn ready_session(admin: &str, scope: &ResourceScope) -> AdminSession {
     let mut s = authr
         .sign_in(&AdminId(admin.into()), &ch, &asr, NOW)
         .unwrap();
+    // The relying party verified a one-time code: the second factor. A passkey alone
+    // is not MFA. [AC-10.2] [VLD-ANB-MIDGARD-0008]
+    s.record_factor(AuthFactor::Totp);
     let (ch2, asr2) = sign(2);
     authr
         .step_up(&mut s, scope.clone(), &ch2, &asr2, NOW)

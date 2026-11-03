@@ -5,7 +5,13 @@
 //! in with both factors. A waiting enrolment can be rejected. A gateway that is not on
 //! loopback is refused. [FR-AD-5] [RC-29] [RC-30] [AC-15.3] [AC-15.5]
 //! [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
+//!
+//! Every enrol command also sends a one-time code from the TOTP secret `admin add`
+//! printed, and the gateway accepts each code once, so the tests hand each command a
+//! code for a step it has not used. [AC-10.4] [VLD-ANB-MIDGARD-0008]
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -137,9 +143,51 @@ fn totp_of(uri: &str) -> iam::TotpSecret {
     iam::TotpSecret::new(out)
 }
 
+/// Administrators' TOTP secrets, as `admin add` printed them, and the last step each
+/// has sent a code for.
+#[derive(Default)]
+struct Codes {
+    secrets: RefCell<BTreeMap<String, iam::TotpSecret>>,
+    used: RefCell<BTreeMap<String, u64>>,
+}
+
+impl Codes {
+    /// Keep the secret in the `otpauth://` URI `printed` shows for `admin`.
+    fn learn(&self, admin: &str, printed: &str) {
+        assert!(
+            printed.contains(&format!("otpauth://totp/Midgard:{admin}?")),
+            "{printed}"
+        );
+        self.secrets
+            .borrow_mut()
+            .insert(admin.to_string(), totp_of(printed));
+    }
+
+    /// A code for `admin` the gateway has not seen: the current step's, else the next
+    /// one's (accepted within the gateway's one step of skew), else, once both are
+    /// spent, the current one's after waiting for the clock.
+    fn code(&self, admin: &str) -> String {
+        let secrets = self.secrets.borrow();
+        let secret = secrets.get(admin).expect("a known administrator");
+        loop {
+            let current = now() / 30;
+            let step = self
+                .used
+                .borrow()
+                .get(admin)
+                .map_or(current, |last| current.max(last + 1));
+            if step <= current + 1 {
+                self.used.borrow_mut().insert(admin.to_string(), step);
+                return secret.code_at(step * 30);
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+    }
+}
+
 /// `mg-admin init` a state directory with IAM administrators alice and bob: the
-/// directory and where each administrator's passkey is.
-fn two_administrators(tag: &str) -> (PathBuf, impl Fn(&str) -> PathBuf) {
+/// directory, where each administrator's passkey is, and their TOTP secrets.
+fn two_administrators(tag: &str) -> (PathBuf, impl Fn(&str) -> PathBuf, Codes) {
     let dir = scratch(tag);
     let dir_arg = dir.display().to_string();
     let init = mg_admin(&["init", "--state-dir", &dir_arg], "");
@@ -147,6 +195,7 @@ fn two_administrators(tag: &str) -> (PathBuf, impl Fn(&str) -> PathBuf) {
 
     let base = dir.clone();
     let keystore = move |admin: &str| base.with_extension(format!("{admin}.passkey"));
+    let codes = Codes::default();
     for admin in ["alice", "bob"] {
         let path = keystore(admin).display().to_string();
         let added = mg_admin(
@@ -166,8 +215,9 @@ fn two_administrators(tag: &str) -> (PathBuf, impl Fn(&str) -> PathBuf) {
         );
         assert!(added.status.success(), "{}", stderr(&added));
         assert!(keystore(admin).is_file());
+        codes.learn(admin, &stdout(&added));
     }
-    (dir, keystore)
+    (dir, keystore, codes)
 }
 
 /// The arguments `enrol request` takes for olivia.
@@ -195,7 +245,7 @@ fn enrolment_id(requested: &Output) -> String {
 
 #[test]
 fn two_administrators_enrol_a_principal_through_a_running_gateway() {
-    let (dir, keystore) = two_administrators("dual");
+    let (dir, keystore, codes) = two_administrators("dual");
     let dir_arg = dir.display().to_string();
     let again = mg_admin(
         &[
@@ -232,6 +282,7 @@ fn two_administrators_enrol_a_principal_through_a_running_gateway() {
     let run = |command: &[&str], admin: &str, extra: &[&str]| {
         let mut args: Vec<String> = command.iter().map(|s| s.to_string()).collect();
         args.extend(as_admin(admin));
+        args.extend(["--totp".to_string(), codes.code(admin)]);
         args.extend(extra.iter().map(|s| s.to_string()));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         mg_admin(&refs, "")
@@ -319,6 +370,7 @@ fn two_administrators_enrol_a_principal_through_a_running_gateway() {
     // Administration never leaves loopback.
     let mut remote: Vec<String> = ["enrol", "list"].iter().map(|s| s.to_string()).collect();
     remote.extend(as_admin("bob"));
+    remote.extend(["--totp".to_string(), "000000".to_string()]);
     remote[3] = "http://192.0.2.10:7710".to_string();
     let refs: Vec<&str> = remote.iter().map(String::as_str).collect();
     let refused = mg_admin(&refs, "");
@@ -337,7 +389,7 @@ fn two_administrators_enrol_a_principal_through_a_running_gateway() {
 
 #[test]
 fn enrol_reject_removes_a_parked_enrolment() {
-    let (dir, keystore) = two_administrators("reject");
+    let (dir, keystore, codes) = two_administrators("reject");
     let gateway = serve(&dir);
     let run = |command: &[&str], admin: &str, extra: &[&str]| {
         let mut args: Vec<String> = command.iter().map(|s| s.to_string()).collect();
@@ -348,6 +400,8 @@ fn enrol_reject_removes_a_parked_enrolment() {
             admin.to_string(),
             "--keystore".to_string(),
             keystore(admin).display().to_string(),
+            "--totp".to_string(),
+            codes.code(admin),
         ]);
         args.extend(extra.iter().map(|s| s.to_string()));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -378,6 +432,209 @@ fn enrol_reject_removes_a_parked_enrolment() {
     assert!(again.status.success(), "{}", stderr(&again));
 
     let _ = std::fs::remove_dir_all(&dir);
+    for admin in ["alice", "bob"] {
+        let _ = std::fs::remove_file(keystore(admin));
+    }
+}
+
+/// GET the audit trail with `token`: the response body.
+fn audit_trail(gateway: &str, token: &str) -> String {
+    let addr = gateway.trim_start_matches("http://");
+    let mut stream = TcpStream::connect(addr).unwrap();
+    write!(
+        stream,
+        "GET /api/v1/audit?limit=200 HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer \
+         {token}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    reply
+}
+
+/// [AC-10.4] [VLD-ANB-MIDGARD-0008] Administration needs the one-time code as well as
+/// the passkey: without one mg-admin stops before contacting the gateway, a wrong or
+/// reset-away code is refused by it, and with the code the request goes through, the
+/// assertion's user-verification flag signed truthfully. A passkey keystore of the
+/// current format opens with no local gate, so the flag is false; once WP-50 wraps
+/// the passkey under a passphrase it is true after the unwrap, and a wrong passphrase
+/// stops mg-admin first (`a_wrong_passkey_passphrase_stops_before_the_gateway`).
+#[test]
+fn administration_needs_the_passphrase_and_a_one_time_code() {
+    let (dir, keystore, codes) = two_administrators("mfa");
+    let dir_arg = dir.display().to_string();
+
+    // A lost authenticator: alice's secret is replaced, offline, and audited.
+    let old = codes.secrets.borrow()["alice"].clone();
+    let reset = mg_admin(
+        &[
+            "admin",
+            "totp-reset",
+            "--state-dir",
+            &dir_arg,
+            "--admin",
+            "alice",
+        ],
+        "",
+    );
+    assert!(reset.status.success(), "{}", stderr(&reset));
+    codes.learn("alice", &stdout(&reset));
+    let unknown = mg_admin(
+        &[
+            "admin",
+            "totp-reset",
+            "--state-dir",
+            &dir_arg,
+            "--admin",
+            "mallory",
+        ],
+        "",
+    );
+    assert_eq!(unknown.status.code(), Some(1), "{}", stderr(&unknown));
+
+    // A principal who may read the audit trail.
+    let reader = mg_admin(
+        &[
+            "user",
+            "add",
+            "--state-dir",
+            &dir_arg,
+            "--subject",
+            "reader",
+            "--roles",
+            "operator",
+            "--clearance",
+            "internal",
+            "--purposes",
+            "operations",
+        ],
+        &format!("{PASSWORD}\n"),
+    );
+    assert!(reader.status.success(), "{}", stderr(&reader));
+
+    let gateway = serve(&dir);
+    let list = |code: Option<&str>| {
+        let mut args = vec![
+            "enrol".to_string(),
+            "list".to_string(),
+            "--gateway".to_string(),
+            gateway.clone(),
+            "--admin".to_string(),
+            "alice".to_string(),
+            "--keystore".to_string(),
+            keystore("alice").display().to_string(),
+        ];
+        if let Some(code) = code {
+            args.extend(["--totp".to_string(), code.to_string()]);
+        }
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        mg_admin(&refs, "")
+    };
+
+    // No code: a usage error before the gateway is contacted.
+    let none = list(None);
+    assert_eq!(none.status.code(), Some(2), "{}", stderr(&none));
+    assert!(stderr(&none).contains("one-time code"), "{}", stderr(&none));
+    // The gateway refuses a code from the secret the reset replaced.
+    let stale = list(Some(&old.code_at(now())));
+    assert_eq!(stale.status.code(), Some(1), "{}", stderr(&stale));
+    // The gateway says only `unauthorised`; "second factor required" stays in its
+    // log. [VLD-ANB-MIDGARD-0053]
+    assert!(
+        stderr(&stale).contains("the gateway refused (401): unauthorised"),
+        "{}",
+        stderr(&stale)
+    );
+
+    // The passkey and the current code: the request goes through.
+    let mut args: Vec<String> = ["enrol", "request"].iter().map(|s| s.to_string()).collect();
+    args.extend([
+        "--gateway".to_string(),
+        gateway.clone(),
+        "--admin".to_string(),
+        "alice".to_string(),
+        "--keystore".to_string(),
+        keystore("alice").display().to_string(),
+        "--totp".to_string(),
+        codes.code("alice"),
+    ]);
+    args.extend(REQUEST_OLIVIA.iter().map(|s| s.to_string()));
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let requested = mg_admin(&refs, "");
+    assert!(requested.status.success(), "{}", stderr(&requested));
+    let listed = list(Some(&codes.code("alice")));
+    assert!(listed.status.success(), "{}", stderr(&listed));
+    assert!(
+        stdout(&listed).starts_with("1 enrolment(s)"),
+        "{}",
+        stdout(&listed)
+    );
+
+    // The ledger shows both factors, the flag as signed, the refusal and the reset.
+    let (status, body) = post(
+        &gateway,
+        "/api/v1/login",
+        &format!(r#"{{"username":"reader","password":"{PASSWORD}"}}"#),
+    );
+    assert_eq!(status, 200, "{body}");
+    let token = body
+        .split("\"token\":\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("a token");
+    let trail = audit_trail(&gateway, token);
+    for shown in [
+        // WP-50: `uv-claimed=true` once the passkey opens under its passphrase.
+        "principal:olivia factors=totp+webauthn uv-claimed=false",
+        r#""actor":"alice","action":"ADMIN refused (401)""#,
+        r#""action":"ROTATE administrator totp""#,
+    ] {
+        assert!(trail.contains(shown), "{shown}: {trail}");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+    for admin in ["alice", "bob"] {
+        let _ = std::fs::remove_file(keystore(admin));
+    }
+}
+
+/// [AC-10.4] [VLD-ANB-MIDGARD-0008] A wrong passkey passphrase stops mg-admin before it
+/// contacts the gateway. Completes on merge with WP-50, which wraps the passkey
+/// keystore under `--passkey-passphrase-file`; then fold this into
+/// `administration_needs_the_passphrase_and_a_one_time_code`, write the passkeys with
+/// a passphrase there and expect `uv-claimed=true`.
+#[test]
+#[ignore = "completes on merge with WP-50: the passkey keystore has no passphrase before it"]
+fn a_wrong_passkey_passphrase_stops_before_the_gateway() {
+    let (dir, keystore, codes) = two_administrators("passphrase");
+    let wrong = dir.with_extension("wrong-passphrase");
+    std::fs::write(&wrong, "not the passkey passphrase\n").unwrap();
+    // Nothing listens here: reaching for the gateway would fail differently.
+    let refused = mg_admin(
+        &[
+            "enrol",
+            "list",
+            "--gateway",
+            "http://127.0.0.1:9",
+            "--admin",
+            "alice",
+            "--keystore",
+            &keystore("alice").display().to_string(),
+            "--passkey-passphrase-file",
+            &wrong.display().to_string(),
+            "--totp",
+            &codes.code("alice"),
+        ],
+        "",
+    );
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert!(
+        stderr(&refused).contains("passkey keystore"),
+        "{}",
+        stderr(&refused)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(&wrong);
     for admin in ["alice", "bob"] {
         let _ = std::fs::remove_file(keystore(admin));
     }
