@@ -111,8 +111,8 @@ A mesh certificate authority that issues, renews and revokes workload certificat
 **Milestone.** Services renew their own certificates before expiry (RF-IAM-6).
 
 - Source:
-  - [`tools/mg-admin/src/mesh.rs:215`](../../tools/mg-admin/src/mesh.rs)
-  - [`tools/mg-admin/src/mesh.rs:372`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:217`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:382`](../../tools/mg-admin/src/mesh.rs)
   - [`crypto/pq-mtls/src/revocation.rs:1`](../../crypto/pq-mtls/src/revocation.rs)
   - [`services/runtime/src/identity.rs:74`](../../services/runtime/src/identity.rs)
 - Tests:
@@ -253,11 +253,11 @@ An enclosure's object types, link types and actions come from an ontology file w
 mg-admin import adds objects and links from a JSON Lines file with a published record schema. Every record is checked against the ontology and the store before anything is written, and one bad line refuses the whole file. A mesh sync may raise but never lower an object's marking, never widen its purposes, and never touch an object under a human gate.
 
 - Source:
-  - [`tools/mg-admin/src/main.rs:376`](../../tools/mg-admin/src/main.rs)
+  - [`tools/mg-admin/src/main.rs:378`](../../tools/mg-admin/src/main.rs)
   - [`services/http-gateway/src/import_file.rs:91`](../../services/http-gateway/src/import_file.rs)
   - [`contracts/schema/import-record.v1.schema.json`](../../contracts/schema/import-record.v1.schema.json)
   - [`services/http-gateway/src/mesh_sync.rs:258`](../../services/http-gateway/src/mesh_sync.rs)
-  - [`tools/mg-admin/src/main.rs:421`](../../tools/mg-admin/src/main.rs)
+  - [`tools/mg-admin/src/main.rs:423`](../../tools/mg-admin/src/main.rs)
 - Tests:
   - [`services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it`](../../services/http-gateway/tests/import_file.rs)
   - [`services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer`](../../services/http-gateway/tests/contract_schemas.rs)

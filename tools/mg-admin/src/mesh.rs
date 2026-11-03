@@ -28,8 +28,10 @@
 //! new one would lock the service out of both. A service that is already current is
 //! left alone, apart from a missing revocation list, which is written. [MG-SEC-02]
 //! A certificate is current only if it also grants what the upgrade asks for, so
-//! `--roles`, `--clearance` or `--purposes` that differ from it reissue it.
-//! [VLD-ANB-MIDGARD-0063]
+//! `--roles`, `--clearance` or `--purposes` that differ from it reissue it. A flag left
+//! out asks for what the service's certificate already grants: an upgrade never drops
+//! a purpose binding or lowers a clearance unless told to (`--no-purposes`,
+//! `--clearance`). [VLD-ANB-MIDGARD-0063]
 //!
 //! The issuer keystore opens under the keystore passphrase; the service's own
 //! keystores are written (and, for `upgrade`, read) under `--identity-passphrase-file`,
@@ -357,7 +359,12 @@ pub(crate) fn mesh_issue(o: &Options) -> Result<String, Failure> {
 /// current, issued to this service for this key by this enclosure with the roles,
 /// clearance and purposes asked for, is kept; then only a trust anchor or revocation
 /// list that is missing or out of date is rewritten. [MG-SEC-02] [MG-SEC-03]
-/// [VLD-ANB-MIDGARD-0063]
+///
+/// Without `--clearance` or `--compartments`, the clearance asked for is the one the
+/// service's existing certificate grants, and without `--purposes` its purposes:
+/// `--no-purposes` drops them. Only a certificate this enclosure signed, for this
+/// service and key, is read for them, expired or not; otherwise the defaults of
+/// `mesh issue` apply. [VLD-ANB-MIDGARD-0063]
 pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
     let state = StateDir::new(o.require("state-dir")?);
     let service = o.require("service")?;
@@ -367,8 +374,11 @@ pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
         return Err(Failure::Usage("--roles needs at least one role".into()));
     }
     let days = lifetime_days(o)?;
-    let clearance = granted_clearance(o)?;
-    let purposes = bound_purposes(o)?;
+    if o.flag("no-purposes") && o.get("purposes").is_some() {
+        return Err(Failure::Usage(
+            "--purposes and --no-purposes cannot be given together".into(),
+        ));
+    }
     let out = Path::new(o.require("out")?);
     let key_path = identity_keystore(out, service);
     let audit_path = out.join(format!("{service}.audit.keystore"));
@@ -397,17 +407,37 @@ pub(crate) fn mesh_upgrade(o: &Options) -> Result<String, Failure> {
     let anchor = idp.trust_anchor();
     let crl = current_crl(&state, &idp)?;
 
-    let current = std::fs::read(&cert_path)
+    // The service's own certificate, from this enclosure, for this key: what a flag left
+    // out carries over from. It is checked at its own start, so an expired one still
+    // counts; one in an earlier format does not decode, and the defaults apply.
+    let existing = std::fs::read(&cert_path)
         .ok()
         .and_then(|bytes| decode_cert(&bytes).ok())
         .filter(|cert| {
             cert.identity.id.0 == service
                 && cert.identity.verifying_key == identity_key.verifying_key
-                && cert.identity.roles == roles
-                && cert.terms.clearance == clearance
-                && cert.terms.purposes == purposes
-                && pq_mtls::verify_cert(cert, &anchor, idp.provider(), now_secs()).is_ok()
+                && pq_mtls::verify_cert(cert, &anchor, idp.provider(), cert.terms.not_before)
+                    .is_ok()
         });
+    let clearance = match &existing {
+        Some(cert) if o.get("clearance").is_none() && o.get("compartments").is_none() => {
+            cert.terms.clearance.clone()
+        }
+        _ => granted_clearance(o)?,
+    };
+    let purposes = match bound_purposes(o)? {
+        Some(purposes) => Some(purposes),
+        None if o.flag("no-purposes") => None,
+        None => existing
+            .as_ref()
+            .and_then(|cert| cert.terms.purposes.clone()),
+    };
+    let current = existing.filter(|cert| {
+        cert.identity.roles == roles
+            && cert.terms.clearance == clearance
+            && cert.terms.purposes == purposes
+            && pq_mtls::verify_cert(cert, &anchor, idp.provider(), now_secs()).is_ok()
+    });
     let mut done = Vec::new();
     if current.is_none() {
         let grant = describe_grant(&clearance, &purposes);
