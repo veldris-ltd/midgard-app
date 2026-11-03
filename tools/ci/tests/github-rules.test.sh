@@ -74,7 +74,7 @@ fi
 grep -q -- '-X' "$work/log" && fail "a dry run writes nothing: $(cat "$work/log")" || pass "a dry run writes nothing"
 
 # The payload printed after a ruleset's POST line, up to the next call.
-payload() { awk -v name="\"name\": \"$1\"" '/^(POST|PUT) / { on = 0 } index($0, name) { on = 1 } on' <<<"$out"; }
+payload() { awk -v name="\"name\": \"$1\"" '/^(POST|PUT) |^github-rules: / { on = 0 } index($0, name) { on = 1 } on' <<<"$out"; }
 creation="$(payload "release tags are created by release managers")"
 grep -q '"include": \["refs/tags/v\*"\]' <<<"$creation" && grep -q '"target": "tag"' <<<"$creation" &&
     grep -q '"rules": \[{ "type": "creation" }\]' <<<"$creation" &&
