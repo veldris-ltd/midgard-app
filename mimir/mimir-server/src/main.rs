@@ -10,6 +10,7 @@
 //! mimir-server --identity-dir DIR --state-dir DIR --purposes P[,P...]
 //!              [--service NAME] [--bind ADDR] [--health-bind ADDR]
 //!              [--resource-marking BAND[:COMPARTMENT,...]]
+//!              [--model-marking LEVEL[:COMPARTMENT,...]]
 //!              [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE
 //!               --serve-dir DIR [--sidecar ADDR]]
 //!              [--max-connections N] [--idle-timeout SECONDS]
@@ -28,6 +29,15 @@
 //! certificate grants. [VLD-ANB-MIDGARD-0063]
 //! PQ-mTLS is served on `--bind` (default `0.0.0.0:7720`); `/healthz`, `/readyz` and
 //! `/metrics` on `--health-bind` (default `0.0.0.0:9090`).
+//!
+//! `--model-marking` is the model's accreditation: the highest marking of data it may
+//! be given, as a level (`UNCLASSIFIED`, `CONFIDENTIAL`, `SECRET` or `TOP_SECRET`) and
+//! optionally `:` and the compartments it holds, comma-separated. Every request
+//! carries the marking of the data in its prompt, and policy refuses (and audits) any
+//! call whose marking the accreditation does not dominate. The default, `UNCLASSIFIED`
+//! with no compartments, refuses every marked prompt. A served completion is followed
+//! in the ledger by an `Infer:COMPLETE` entry carrying the SHA-256 of the prompt and of
+//! the completion. [VLD-ANB-MIDGARD-0034]
 //!
 //! `--engine` chooses what answers. `reference`, the default, is the deterministic
 //! in-process engine. `llama-cpp` and `vllm` serve a real model through an
@@ -96,6 +106,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gateway::{Gateway, RequestHandler};
 use governance::Governance;
+use model_server::marking::{accreditation, marking_label, parse_marking as parse_model_marking};
 use model_server::{
     parse_revocation_list, parse_trust_key, probe, reference_registry, stage_verified_weights,
     withdraw_staged, Clock, FamilyAdapter, GemmaAdapter, GraniteAdapter, InferenceHandler,
@@ -116,6 +127,7 @@ use telemetry::{HealthRegistry, Logger, MetricsRegistry, ReadinessCheck, StdoutJ
 const USAGE: &str = "usage: mimir-server --identity-dir DIR [--keystore-passphrase-file PATH] --state-dir DIR --purposes P[,P...] \
                      [--service NAME] [--bind ADDR] [--health-bind ADDR] \
                      [--resource-marking BAND[:COMPARTMENT,...]] \
+                     [--model-marking LEVEL[:COMPARTMENT,...]] \
                      [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE \
                      --serve-dir DIR [--sidecar ADDR]] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
@@ -469,6 +481,7 @@ fn main() {
             "infer-timeout",
             "reload-interval",
             "revocation-file",
+            "model-marking",
             "engine",
             "model-dir",
             "model-trust",
@@ -598,6 +611,10 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         Some(spec) => parse_marking(spec).map_err(|e| format!("--resource-marking: {e}"))?,
         None => open_marking(),
     };
+    // The model's accreditation; undeclared, it is cleared for unmarked data only.
+    // [VLD-ANB-MIDGARD-0034]
+    let model_marking = parse_model_marking(args.get("model-marking").unwrap_or("UNCLASSIFIED"))
+        .map_err(|e| format!("--model-marking: {e}"))?;
     let engine = match args.get("engine").unwrap_or("reference") {
         "reference" => EngineChoice::Reference,
         "llama-cpp" => EngineChoice::LlamaCpp,
@@ -698,6 +715,8 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
     let server = Server::bootstrap(probe(), &registry, None)
         .map_err(|e| format!("no model can be served on this node: {e}"))?;
     let engine_id = server.selection().backend_id.clone();
+    // UNCLASSIFIED is the floor: a request is authorised against its own marking, and
+    // a malformed one against this. [VLD-ANB-MIDGARD-0034]
     let resource = |id: &str| Resource {
         id: ResourceId(id.into()),
         marking: marking.clone(),
@@ -720,7 +739,8 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         .on_refusal(Arc::new(move |reason| {
             let reason = reason.to_ascii_lowercase();
             refused.inc("inference_refused_total", &[("reason", &reason)]);
-        })),
+        }))
+        .with_model_clearance(accreditation(&model_marking)),
     );
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
     let gateway = apply_mesh_limits(
@@ -756,11 +776,12 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         .local_addr()
         .map_err(|e| format!("the mesh port has no address: {e}"))?;
     mesh_ready.set(true);
-    let (mesh, health_text, roles, recovered) = (
+    let (mesh, health_text, roles, recovered, marking) = (
         mesh_addr.to_string(),
         health_addr.to_string(),
         identity.roles().join(","),
         recovered.to_string(),
+        marking_label(&model_marking),
     );
     let limits_text = limits.to_string();
     let inference_text = format!(
@@ -778,6 +799,7 @@ fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), St
         ("limits", &limits_text),
         ("inference_limits", &inference_text),
         ("reload_interval", &reload_text),
+        ("model_marking", &marking),
     ];
     fields.extend(model_fields.iter().map(|(k, v)| (*k, v.as_str())));
     logger.info("serving", &fields);

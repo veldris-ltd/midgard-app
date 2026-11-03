@@ -57,6 +57,9 @@ does not render without every digest. [VLD-ANB-MIDGARD-0012] */ -}}
 {{- if .sourcesSecret }}
 {{- $args = concat $args (list "--secrets-dir" "/secrets") }}
 {{- end }}
+{{- if eq .name $ms.service }}
+{{- $args = concat $args (list "--model-marking" $ms.modelMarking) }}
+{{- end }}
 {{- if $model }}
 {{- $args = concat $args (list "--engine" $ms.engine "--model-dir" (printf "/models/%s" $ms.modelDir) "--model-trust" "/model-trust/model-signing.pub" "--serve-dir" "/serve" "--sidecar" "127.0.0.1:8080") }}
 {{- end }}

@@ -32,6 +32,7 @@ pub mod backend;
 pub mod backends;
 pub mod handler;
 pub mod hardware;
+pub mod marking;
 // The Model Registry (artefact system of record) is built on the ML-DSA
 // verify-on-load gate, so it shares ModelLoader's `backend-fips` gating.
 #[cfg(feature = "backend-fips")]
@@ -68,8 +69,8 @@ pub use backend::{
 };
 pub use backends::{Engine, GpuDockerBackend, LaunchSpec, LocalReference, SidecarBackend};
 pub use handler::{
-    Clock, InferenceHandler, InferenceLimits, LogicalClock, RefusalHook, ServingState,
-    MODEL_REVOKED, SERVING_STOPPED,
+    completion_sha256, prompt_sha256, Clock, InferenceHandler, InferenceLimits, LogicalClock,
+    RefusalHook, ServingState, MODEL_REVOKED, SERVING_STOPPED,
 };
 pub use hardware::{probe, HwProfile, NodeProfile};
 #[cfg(feature = "backend-fips")]

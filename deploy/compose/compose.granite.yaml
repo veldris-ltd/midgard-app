@@ -41,6 +41,11 @@ services:
       - 0.0.0.0:7720
       - --health-bind
       - 0.0.0.0:9090
+      # The Granite demo model is not accredited for marked data: every prompt marked
+      # above UNCLASSIFIED is refused by policy, and the refusal audited.
+      # [VLD-ANB-MIDGARD-0034]
+      - --model-marking
+      - UNCLASSIFIED
       - --engine
       - llama-cpp
       - --model-dir
@@ -72,6 +77,10 @@ services:
       retries: 120
 
   mimir-llamacpp:
+    # Trust assumption: mimir-server sends each prompt to llama.cpp, and receives the
+    # completion, in clear over the loopback inside the shared network namespace. Any
+    # process in that namespace can read them, so nothing else may ever join it.
+    # Recorded in docs/compliance/RESIDUAL_RISK_REGISTER.md. [VLD-ANB-MIDGARD-0034]
     # The multi-arch index, pinned by digest: each host pulls its native build.
     image: ghcr.io/ggml-org/llama.cpp:server@sha256:bbf6fde2eedbe1b6c8ee9d93a54ea4606e90a4eda18681a7f8b4b6ed0cbc9f00
     network_mode: "service:mimir-server"

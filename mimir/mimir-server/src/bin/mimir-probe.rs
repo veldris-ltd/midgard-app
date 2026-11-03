@@ -5,7 +5,7 @@
 //! ```text
 //! mimir-probe --identity-dir DIR --addr HOST:PORT --purpose P
 //!             [--service NAME] [--server NAME] [--system TEXT] [--prompt TEXT]
-//!             [--max-tokens N]
+//!             [--max-tokens N] [--marking LEVEL[:COMPARTMENT,...]]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME
@@ -13,20 +13,21 @@
 //! and `Infer`. The service at `--addr` must hold the mesh identity `--server` (default
 //! `mimir-server`); any other is refused before the prompt is sent. `--system` is sent
 //! as the request's system text, which the model's family template places in its
-//! system turn (default: none, so the prompt is rendered alone).
+//! system turn (default: none, so the prompt is rendered alone). `--marking` is the
+//! marking the request declares for its prompt (default `UNCLASSIFIED`); one the
+//! service's model is not accredited for is refused. [VLD-ANB-MIDGARD-0034]
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use mimir_bridge::{Inference, MimirEndpoint, PqMtlsClient};
+use model_server::marking::parse_marking;
 use model_server::{InferenceRequest, WorkloadClass};
 use policy::ClassificationLevel;
 use pq_mtls::{Posture, ServiceId};
 use service_runtime::{Args, ServiceIdentity};
 
-const USAGE: &str = "usage: mimir-probe --identity-dir DIR [--keystore-passphrase-file PATH] --addr HOST:PORT --purpose P \
-                     [--service NAME] [--server NAME] [--system TEXT] [--prompt TEXT] \
-                     [--max-tokens N]";
+const USAGE: &str = "usage: mimir-probe --identity-dir DIR [--keystore-passphrase-file PATH]                      --addr HOST:PORT --purpose P                      [--service NAME] [--server NAME] [--system TEXT] [--prompt TEXT]                      [--max-tokens N] [--marking LEVEL[:COMPARTMENT,...]]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -42,6 +43,7 @@ fn main() {
             "system",
             "prompt",
             "max-tokens",
+            "marking",
         ],
         &[],
     ) {
@@ -68,6 +70,8 @@ fn run(args: &Args) -> Result<String, String> {
             .map_err(|_| format!("--max-tokens must be a whole number, not '{n}'"))?,
         None => 16,
     };
+    let marking = parse_marking(args.get("marking").unwrap_or("UNCLASSIFIED"))
+        .map_err(|e| format!("--marking: {e}"))?;
     let identity = ServiceIdentity::load(
         args.require("identity-dir")?,
         service,
@@ -100,6 +104,7 @@ fn run(args: &Args) -> Result<String, String> {
             quant_pref: None,
             backend_override: None,
             max_tokens,
+            marking,
             prompt: args.get("prompt").unwrap_or("ping").to_string(),
         })
         .map_err(|e| e.to_string())?;

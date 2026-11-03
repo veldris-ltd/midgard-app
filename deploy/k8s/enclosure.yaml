@@ -698,7 +698,7 @@ spec:
                 fieldRef: { fieldPath: status.podIP }
             - name: MIDGARD_KEYSTORE_PASSPHRASE_FILE
               value: /keystore-passphrase/passphrase
-          args: ["--identity-dir","/identity","--state-dir","/state","--purposes","investigation","--bind","0.0.0.0:7720","--health-bind","$(POD_IP):9090","--max-tokens","1024","--max-prompt-bytes","262144","--max-concurrent","4","--max-concurrent-per-identity","2","--infer-timeout","60","--reload-interval","60"]
+          args: ["--identity-dir","/identity","--state-dir","/state","--purposes","investigation","--bind","0.0.0.0:7720","--health-bind","$(POD_IP):9090","--max-tokens","1024","--max-prompt-bytes","262144","--max-concurrent","4","--max-concurrent-per-identity","2","--infer-timeout","60","--reload-interval","60","--model-marking","UNCLASSIFIED"]
           ports:
             - name: mesh
               containerPort: 7720

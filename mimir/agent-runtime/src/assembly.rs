@@ -177,6 +177,11 @@ pub struct AssembledPrompt {
     /// Citations of the grounding facts that were included (the evidence
     /// actually presented to the model).
     pub included_citations: Vec<String>,
+    /// The highest classification level (`marking_level`) among the included
+    /// grounding facts, 0 when none was included: the level of the fabric data in
+    /// the prompt, which the inference request's marking carries.
+    /// [VLD-ANB-MIDGARD-0034]
+    pub max_marking_level: u8,
     /// Grounding facts dropped to fit the budget.
     pub dropped_facts: usize,
     /// Memory items dropped to fit the budget.
@@ -395,6 +400,14 @@ impl Pipeline {
             .take(g_incl)
             .map(|f| f.citation.clone())
             .collect();
+        let max_marking_level = layers
+            .grounding
+            .facts
+            .iter()
+            .take(g_incl)
+            .map(|f| f.marking_level)
+            .max()
+            .unwrap_or(0);
         let dropped_facts = fact_lines.len() - g_incl;
 
         // Layer 4: memory (lowest relevance is dropped — caller supplies best first).
@@ -467,6 +480,7 @@ impl Pipeline {
             body_text,
             boundary,
             included_citations,
+            max_marking_level,
             dropped_facts,
             dropped_memory,
             dropped_history,

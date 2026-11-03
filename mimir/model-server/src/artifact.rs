@@ -993,7 +993,7 @@ fn check_file_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     bytes
         .iter()

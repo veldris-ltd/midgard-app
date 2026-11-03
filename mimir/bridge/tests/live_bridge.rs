@@ -154,6 +154,7 @@ fn request() -> InferenceRequest {
         quant_pref: None,
         backend_override: None,
         max_tokens: 16,
+        marking: model_server::marking::unclassified(),
         prompt: "who is assigned to case 42?".into(),
     }
 }

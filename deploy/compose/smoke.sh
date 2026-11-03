@@ -26,7 +26,7 @@ compose restart mimir-server
 compose up -d --wait mimir-server
 second="$(compose run --rm probe)"
 echo "$second"
-grep -q 'audit_seq=1' <<<"$second"
+grep -q 'audit_seq=2' <<<"$second"  # a served call is its decision and its Infer:COMPLETE entry
 
 echo "--- an installation checks in with the fleet manager"
 compose run --rm fleet-agent --channel stable --version 0.0.9

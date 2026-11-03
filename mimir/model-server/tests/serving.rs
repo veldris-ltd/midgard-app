@@ -19,6 +19,7 @@ fn req(prompt: &str, quant: Option<Quant>) -> InferenceRequest {
         quant_pref: quant,
         backend_override: None,
         max_tokens: 32,
+        marking: model_server::marking::unclassified(),
         prompt: prompt.to_string(),
     }
 }

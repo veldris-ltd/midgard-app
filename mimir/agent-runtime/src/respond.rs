@@ -12,6 +12,7 @@
 use mimir_prompts::{A1_DEFAULT_OUTPUT_CONTRACT, A1_MIMIR_CORE_AGENT};
 use model_server::{InferenceRequest, Server, WorkloadClass};
 use oag_retriever::{formulate_plan, ground, GroundingSource, PolicyContext, RetrievalPlan};
+use policy::{ClassificationLevel, Marking};
 
 use crate::assembly::{AssemblyConfig, AssemblyError, Layers, Pipeline};
 
@@ -168,6 +169,13 @@ pub fn respond(
         quant_pref: None,
         backend_override: None,
         max_tokens: cfg.max_tokens,
+        // The marking of what the prompt holds: the highest level among the included
+        // facts, and the caller's compartments, which bound everything the fabric
+        // let them read. [VLD-ANB-MIDGARD-0034]
+        marking: Marking {
+            level: ClassificationLevel(assembled.max_marking_level),
+            compartments: ctx.clearance.compartments.clone(),
+        },
         prompt: assembled.body_text.clone(),
     };
     match server.infer(server.prepare(&req)) {

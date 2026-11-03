@@ -180,6 +180,7 @@ fn request(prompt: &str, max_tokens: u32) -> InferenceRequest {
         quant_pref: None,
         backend_override: None,
         max_tokens,
+        marking: model_server::marking::unclassified(),
         prompt: prompt.into(),
     }
 }

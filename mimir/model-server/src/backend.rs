@@ -9,6 +9,8 @@
 //! ([`crate::backends::GpuDockerBackend`]) plugs into the same seam and is
 //! selected automatically wherever the hardware supports it. [FR-MI-1]
 
+use policy::Marking;
+
 use crate::hardware::HwProfile;
 use crate::quant::Quant;
 
@@ -89,6 +91,10 @@ pub struct PreparedRequest {
     pub max_tokens: u32,
     /// The resolved quantisation.
     pub quant: Quant,
+    /// The marking of the data in the prompt, carried from the request so that what
+    /// serves it can be checked against it. It is never sent to an engine.
+    /// [VLD-ANB-MIDGARD-0034]
+    pub marking: Marking,
 }
 
 impl PreparedRequest {
