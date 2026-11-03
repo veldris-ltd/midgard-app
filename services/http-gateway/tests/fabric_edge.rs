@@ -503,6 +503,122 @@ fn search_around_walks_real_links_in_both_directions_under_access_control() {
     assert!(!other.encode().contains("SF-NORTH-2"), "{}", other.encode());
 }
 
+/// The search-around response, node for node and edge for edge, as the code produced
+/// it before WP-43 split `search_around` into seed resolution, link collection and a
+/// clearance filter. Order is pinned, not only membership: nodes in discovery order,
+/// edges in the order their links were first met. [VLD-ANB-MIDGARD-0094] [AC-43.1]
+/// [DD-1] [NFR-SEC-2]
+#[test]
+fn search_around_output_is_stable_across_the_refactor() {
+    let (gw, token) = session();
+    let walk = |seed: &str, hops: i64, limit: Option<i64>| {
+        let body = match limit {
+            Some(limit) => format!(r#"{{"seedId":"{seed}","hops":{hops},"limit":{limit}}}"#),
+            None => format!(r#"{{"seedId":"{seed}","hops":{hops}}}"#),
+        };
+        let r = call(
+            &gw,
+            "POST",
+            "/api/v1/search-around",
+            "",
+            &body,
+            Some(&token),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        json(&r)
+    };
+    let node_ids = |g: &Json| -> Vec<String> {
+        items(g.get("nodes").expect("nodes"))
+            .iter()
+            .map(|n| field(n, "id").to_string())
+            .collect()
+    };
+    let edges = |g: &Json| -> Vec<(String, String, String)> {
+        items(g.get("edges").expect("edges"))
+            .iter()
+            .map(|e| {
+                (
+                    field(e, "from").to_string(),
+                    field(e, "to").to_string(),
+                    field(e, "label").to_string(),
+                )
+            })
+            .collect()
+    };
+    let shape = |g: &Json| {
+        (
+            matches!(g.get("truncated"), Some(Json::Bool(true))),
+            g.get("nodeLimit").and_then(Json::as_i64),
+            g.get("seedObjects").and_then(Json::as_i64),
+        )
+    };
+
+    let one = walk("aircraft/AC-2214", 2, None);
+    assert_eq!(
+        node_ids(&one),
+        [
+            "aircraft/AC-2214",
+            "facility/FAC-NORTH",
+            "crew_member/CR-101",
+            "crew_member/CR-102",
+            "route/RT-N-S",
+            "maintenance_event/ME-88121",
+            "sensor_feed/SF-TRANSPONDER-4",
+            "aircraft/AC-2261",
+        ]
+    );
+    let edge =
+        |from: &str, to: &str, label: &str| (from.to_string(), to.to_string(), label.to_string());
+    assert_eq!(
+        edges(&one),
+        [
+            edge(
+                "aircraft/AC-2214",
+                "facility/FAC-NORTH",
+                "based at → Facility"
+            ),
+            edge(
+                "aircraft/AC-2214",
+                "crew_member/CR-101",
+                "assigned → Crew Member"
+            ),
+            edge(
+                "aircraft/AC-2214",
+                "crew_member/CR-102",
+                "assigned → Crew Member"
+            ),
+            edge("aircraft/AC-2214", "route/RT-N-S", "operates → Route"),
+            edge(
+                "maintenance_event/ME-88121",
+                "aircraft/AC-2214",
+                "on → Aircraft"
+            ),
+            edge(
+                "sensor_feed/SF-TRANSPONDER-4",
+                "aircraft/AC-2214",
+                "observes → Aircraft"
+            ),
+            edge(
+                "aircraft/AC-2261",
+                "facility/FAC-NORTH",
+                "based at → Facility"
+            ),
+            edge("aircraft/AC-2261", "route/RT-N-S", "operates → Route"),
+        ]
+    );
+    assert_eq!(shape(&one), (false, Some(60), Some(1)));
+
+    // Four readable aircraft, three admitted in id order; every neighbour would be a
+    // fourth node, so it and its edge are cut and the walk says so.
+    let all = walk("aircraft/*", 1, Some(3));
+    assert_eq!(
+        node_ids(&all),
+        ["aircraft/AC-2198", "aircraft/AC-2214", "aircraft/AC-2261"]
+    );
+    assert!(edges(&all).is_empty(), "{:?}", edges(&all));
+    assert_eq!(shape(&all), (true, Some(3), Some(4)));
+}
+
 #[test]
 fn every_audit_row_is_verified_against_its_ml_dsa_signature() {
     let (gw, token) = session();

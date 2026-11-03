@@ -35,6 +35,17 @@ CONTRIBUTING.md for the version policy.
   `attest`, pinned by revision. `deploy/trust/ceremony.sh` is removed; its claims are
   that repository's tests, and its contract test runs this repository's release
   checks against what the app publishes. [RT-35] [AC-RF-CA-6a]
+- **Search-around is split into seed resolution, link collection and a clearance
+  filter.** `Enclosure::search_around` is now orchestration over `seed_roots`,
+  `adjacent_links` and a `Walk` whose `admit` applies the per-node read check through
+  an injected predicate, so the filter is unit-tested on its own. Responses are
+  unchanged, node for node and edge for edge, which a golden test pins. One policy
+  outcome changes: a single-seed walk is audited on the seed's own id
+  (`object:<type>/<key>`) when a rule permits that and otherwise on its type's id
+  (`object-type:<type>`), under the seed's marking, so a policy that permits only
+  `object-type:<type>` walks from one object of the type as it reads it, instead of
+  refusing the walk. A deny on either id still hides the seed as unknown.
+  [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
