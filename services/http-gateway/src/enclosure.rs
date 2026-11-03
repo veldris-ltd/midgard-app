@@ -698,15 +698,7 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
                         .filter(|o| can_read(gov, ctx, o))
                         .map(|o| o.id.clone())
                         .collect();
-                    let resource = Resource {
-                        id: ResourceId(ty.to_string()),
-                        marking: Marking {
-                            level: ClassificationLevel::UNCLASSIFIED,
-                            compartments: BTreeSet::new(),
-                        },
-                        allowed_purposes: [ctx.purpose.clone()].into_iter().collect(),
-                    };
-                    (ids, resource)
+                    (ids, fabric::type_resource(ty, &ctx.purpose))
                 }
                 _ => match store.get_object(seed) {
                     Some(o) if can_read(gov, ctx, o) => (vec![o.id.clone()], resource_of(o)),
@@ -1415,12 +1407,10 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
 
 // ---- projection helpers ---------------------------------------------------------
 
+/// One object as a policy resource, under the fabric's scheme (`object:<type>/<key>`).
+/// [VLD-ANB-MIDGARD-0023]
 fn resource_of(obj: &ObjectInstance) -> Resource {
-    Resource {
-        id: ResourceId(obj.id.clone()),
-        marking: obj.marking.clone(),
-        allowed_purposes: obj.allowed_purposes.clone(),
-    }
+    fabric::object_resource(obj)
 }
 
 /// The per-object read check, exactly as the fabric's query engine applies it.
@@ -1429,7 +1419,7 @@ fn can_read<L: LedgerStore>(
     ctx: &PolicyContext,
     obj: &ObjectInstance,
 ) -> bool {
-    gov.permits(ctx, &resource_of(obj), "Read")
+    fabric::can_read_object(gov, ctx, obj)
 }
 
 fn audit_id(seq: u64) -> String {

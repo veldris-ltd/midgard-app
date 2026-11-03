@@ -23,6 +23,14 @@
 //! types, an unknown effect or version, and duplicate rule ids all refuse the whole
 //! file. `"resource": "*"` means any resource; `"purpose"` is optional and, when
 //! absent, the rule applies under any purpose.
+//!
+//! Resource ids. A rule names what it covers in one scheme, the same on every route
+//! (`fabric::resource`): `object-type:<type>` for an object type, `object:<type>/<key>`
+//! for one object, a literal path such as `/api/v1/audit` for a route, and `*` for
+//! any. A type rule covers a query of that type, a search-around from it and every
+//! object of it a result could include; an `object:` rule also filters query
+//! results, search-around nodes and action targets. [VLD-ANB-MIDGARD-0023]
+//! [NFR-SEC-2]
 
 use std::fmt;
 

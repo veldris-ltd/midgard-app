@@ -8,10 +8,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use audit_writer::LedgerStore;
 use governance::{GovContext, Governance};
-use policy::{Resource, ResourceId};
 
 use crate::error::FabricError;
 use crate::object::ObjectInstance;
+use crate::resource::can_read_object;
 use crate::store::ObjectStore;
 use crate::types::TypeRegistry;
 use crate::value::Value;
@@ -34,12 +34,7 @@ pub struct Query {
 /// (the query as a whole is audited once by the caller). Reused for base results
 /// and for traversed neighbours.
 fn can_read<L: LedgerStore>(gov: &Governance<L>, ctx: &GovContext, obj: &ObjectInstance) -> bool {
-    let resource = Resource {
-        id: ResourceId(obj.id.clone()),
-        marking: obj.marking.clone(),
-        allowed_purposes: obj.allowed_purposes.clone(),
-    };
-    gov.permits(ctx, &resource, "Read")
+    can_read_object(gov, ctx, obj)
 }
 
 /// Run a query. Uses the inverted index for the first equality filter, then

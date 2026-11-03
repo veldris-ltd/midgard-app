@@ -1101,13 +1101,29 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// The (resource id, marking level, action) a request targets.
     fn resource_action(&self, req: &Request) -> (String, ClassificationLevel, &'static str) {
         match (req.method.as_str(), req.path.as_str()) {
-            ("POST", "/api/v1/query") | ("POST", "/api/v1/search-around") => {
+            // Both name the object type they read under the fabric's resource-id
+            // scheme, so a type-scoped rule holds on either: a query names it, and a
+            // search-around takes it from its seed (`<type>/*` or `<type>/<key>`).
+            // [VLD-ANB-MIDGARD-0023]
+            ("POST", "/api/v1/query") => {
                 let ot = parse(&req.body)
                     .ok()
                     .and_then(|b| b.str_field("objectType").map(str::to_string))
                     .unwrap_or_default();
                 let level = self.marking_for(&ot);
-                (format!("object-type:{ot}"), level, "Read")
+                (fabric::type_resource_id(&ot).0, level, "Read")
+            }
+            ("POST", "/api/v1/search-around") => {
+                let ot = parse(&req.body)
+                    .ok()
+                    .and_then(|b| {
+                        b.str_field("seedId")
+                            .and_then(|seed| seed.split('/').next())
+                            .map(str::to_string)
+                    })
+                    .unwrap_or_default();
+                let level = self.marking_for(&ot);
+                (fabric::type_resource_id(&ot).0, level, "Read")
             }
             ("POST", "/api/v1/actions") | ("POST", "/api/v1/approvals") => {
                 (req.path.clone(), self.marking_for("__actions__"), "Apply")

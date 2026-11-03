@@ -8,7 +8,8 @@ use audit_writer::verify_chain;
 use fabric::{
     ActionFunction, ActionType, Cardinality, Effect, Fabric, FabricError, FunctionRuntime,
     Governance, InMemoryStore, Interface, LinkInstance, LinkType, ObjectInstance, ObjectStore,
-    ObjectType, PolicyContext, PropertyType, Query, TypeRegistry, Value, ValueType, FABRIC_SIG_ALG,
+    ObjectType, PolicyContext, PropertyType, Query, Search, TypeRegistry, Value, ValueType,
+    FABRIC_SIG_ALG,
 };
 use policy::{
     Action, ClassificationLevel, Clearance, Compartment, DefaultPdp, Effect as PolicyEffect,
@@ -656,4 +657,62 @@ fn compartments_are_enforced_on_read() {
         res.results.is_empty(),
         "missing compartment must exclude the object"
     );
+}
+
+// ---- the resource-id scheme [VLD-ANB-MIDGARD-0023] --------------------------
+
+/// Types and objects are named one way for policy, and a type-scoped deny holds on a
+/// search as it does on a query. [AC-19.3] [NFR-SEC-2]
+#[test]
+fn type_and_object_resource_ids_are_stable() {
+    assert_eq!(
+        fabric::type_resource_id("aircraft").0,
+        "object-type:aircraft"
+    );
+    assert_eq!(
+        fabric::object_resource_id("aircraft/AC-1").0,
+        "object:aircraft/AC-1"
+    );
+
+    let mut fab = build_fabric();
+    let deny_cases = DefaultPdp::new(
+        PolicySet::new(vec![
+            rule("read", "analyst", "Read"),
+            Rule {
+                selector: Selector::Resource(fabric::type_resource_id("case")),
+                effect: PolicyEffect::Deny,
+                ..rule("no-cases", "analyst", "Read")
+            },
+        ])
+        .unwrap(),
+    );
+    *fab.governance_mut() = Governance::new(deny_cases, &mut SeedRng(2)).unwrap();
+    fab.store_mut().put_object(case("case/1", "Fraud", "open"));
+    fab.store_mut().put_object(person(
+        "person/1",
+        "Ada",
+        "ops",
+        ClassificationLevel::UNCLASSIFIED,
+        &["investigation"],
+    ));
+    let c = ctx(
+        "alice",
+        &["analyst"],
+        ClassificationLevel::SECRET,
+        "investigation",
+    );
+    let search = |object_type: &str| Search {
+        object_type: object_type.into(),
+        conditions: vec![],
+        order_by: None,
+        descending: false,
+        offset: 0,
+        limit: 10,
+    };
+    assert!(matches!(
+        fab.search(&c, &search("case"), 1),
+        Err(FabricError::Denied)
+    ));
+    let people = fab.search(&c, &search("person"), 1).unwrap();
+    assert_eq!(people.total, 1, "other types are still served");
 }
