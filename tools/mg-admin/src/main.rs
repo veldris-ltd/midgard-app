@@ -25,7 +25,7 @@
 //!   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
 //!   mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir>
 //!                         [--days <n>] [--clearance <band>] [--compartments <c,..>]
-//!                         [--purposes <p,..>]
+//!                         [--purposes <p,..> | --no-purposes]
 //!   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
 //!   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file>
 //!                             --ledger-id <id> [--audit-pin <file>]
@@ -117,7 +117,7 @@ USAGE:
   mg-admin mesh revoke --state-dir <dir> --cert <file> --out <dir,..>
   mg-admin mesh upgrade --state-dir <dir> --service <name> --roles <r,..> --out <dir> \\
                         [--days <n>] [--clearance <band>] [--compartments <c,..>] \\
-                        [--purposes <p,..>]
+                        [--purposes <p,..> | --no-purposes]
   mg-admin audit checkpoint --state-dir <dir> --audit-pin <file> [--checkpoint-mirror <dir>]
   mg-admin audit checkpoint --identity-dir <dir> --service <name> --ledger <file> \\
                             --ledger-id <id> [--audit-pin <file>]
@@ -194,7 +194,9 @@ COMMANDS:
              certificate for the key it already holds (with --roles, as at issue), and
              rewrite mesh.anchor and mesh.crl in the current formats. Both keystores are
              kept, so its audit ledger and sealed state still open. A current service is
-             left alone. Run it for every service directory after upgrading.
+             left alone. Without --clearance or --purposes it keeps the clearance and
+             purposes its certificate grants; --no-purposes drops the purposes. Run it
+             for every service directory after upgrading.
   audit checkpoint
              on upgrade: verify the governance and dual-control ledgers written before
              ledgers had checkpoints under the audit key pinned in --audit-pin, and
@@ -368,7 +370,7 @@ fn run(argv: &[String]) -> Result<String, Failure> {
                 "compartments",
                 "purposes",
             ],
-            &[],
+            &["no-purposes"],
         )?),
         ["mesh", "revoke", rest @ ..] => {
             mesh::mesh_revoke(&options(rest, &["state-dir", "cert", "out"], &[])?)

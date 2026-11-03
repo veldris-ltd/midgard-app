@@ -167,11 +167,14 @@ mg-admin mesh upgrade --state-dir STATE --service mimir-server --roles inference
 rewrites `mesh.anchor`, and writes the current signed `mesh.crl`. It keeps both
 keystores. That matters: a service's audit keystore signs its ledger and is the root its
 sealed state is encrypted under, so a new one — which is what `mg-admin mesh issue`
-makes — would leave the service unable to open either. `--days` (default 30),
-`--clearance` (default `open`) and `--purposes` apply as at issue. On a service whose
-certificate is already current, and grants exactly the roles, clearance and purposes
-asked for, it changes nothing; a certificate whose grant differs is reissued, so
-`--purposes` binds purposes into a certificate that had none. [VLD-ANB-MIDGARD-0063]
+makes — would leave the service unable to open either. `--days` defaults to 30. Without
+`--clearance` or `--purposes`, the service keeps the clearance and purposes its
+certificate already grants (a certificate in an earlier format grants none, so the
+defaults of `mesh issue` apply: clearance `open`, no purposes); `--no-purposes` drops a
+purpose binding. On a service whose certificate is already current, and grants exactly
+the roles, clearance and purposes asked for, it changes nothing; a certificate whose
+grant differs is reissued, so `--purposes` binds purposes into a certificate that had
+none. [VLD-ANB-MIDGARD-0063]
 
 The services, roles and directories the compose deployment uses (`deploy/compose/init.sh`):
 
