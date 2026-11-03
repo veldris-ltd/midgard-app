@@ -19,6 +19,8 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use attest::keystore::test_support::test_passphrase;
+use attest::RootWrap;
 use http_gateway::boot::open_state_dir;
 use http_gateway::state_dir::StateDir;
 
@@ -35,6 +37,10 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn mg_admin(args: &[&str], stdin: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_mg-admin"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -65,8 +71,13 @@ fn serve(dir: &Path) -> String {
         .local_addr()
         .unwrap()
         .port();
-    let served = open_state_dir(&StateDir::new(dir), Vec::new(), &pin(&StateDir::new(dir)))
-        .expect("the enclosure boots");
+    let served = open_state_dir(
+        &StateDir::new(dir),
+        Vec::new(),
+        &pin(&StateDir::new(dir)),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("the enclosure boots");
     let addr = format!("127.0.0.1:{port}");
     let bind = addr.clone();
     thread::spawn(move || {

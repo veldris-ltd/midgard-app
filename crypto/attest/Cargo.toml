@@ -17,12 +17,23 @@ backend-fips = ["pqc-agility/backend-fips", "kms?/backend-fips"]
 # with `default-features = false` and never pull `kms` in just to check a
 # signature.
 custody = ["dep:kms"]
+# Keystore fixtures for tests downstream: the inert test passphrase and the retained
+# version 1 encoder (attest::keystore::test_support, present with `custody`).
+# Dev-dependencies only.
+# [VLD-ANB-MIDGARD-0007]
+test-support = []
 
 [dependencies]
 # No external crates: the envelope, the attestation JSON, and the keystore are
 # hand-rolled deterministic encoders, in the style of tools/mg-sbom. [NFR-OSS-1]
 pqc-agility = { path = "../../crypto/pqc-agility" }
 kms = { path = "../../services/kms", optional = true }
+
+[dev-dependencies]
+# The integration tests use the keystore fixtures (test passphrase, version 1
+# encoder). No default features, so the verifier-only test run stays verifier-only.
+# [VLD-ANB-MIDGARD-0007]
+attest = { path = ".", default-features = false, features = ["test-support"] }
 
 [lib]
 path = "src/lib.rs"

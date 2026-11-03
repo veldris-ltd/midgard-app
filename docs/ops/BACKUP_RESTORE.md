@@ -44,14 +44,22 @@ log, which is always valid and re-verifiable).
      and re-taken. **A backup is not "done" until it has been verified.**
 3. Retain snapshots per policy (e.g. 7 daily + 4 weekly); older snapshots are pruned.
 
-**Do not** back up decrypted state, and **do not** copy the trust-root secret into the
-data backup — the root lives in the HSM/TPM and is recovered separately (see
-[DR_PLAN.md](DR_PLAN.md) step 4). The backup is useless to an attacker without it, which
-is the point.
+**Do not** back up decrypted state. In the software tier the custody root is inside
+each keystore file (`keys/*.keystore`, and each mesh service's identity directory),
+wrapped under that keystore's passphrase (keystore format version 2: PBKDF2-HMAC-SHA256,
+600,000 iterations, AES-256-GCM). **The passphrase is the recovery secret**: hold it in
+the secret store, separately from the data backup and from the keystores, and never
+copy it into the backup vault. The backup is useless to an attacker without it, which
+is the point; without it the stores cannot be unsealed either, so a lost passphrase is
+a lost enclosure. With a hardware root (`RootWrap::External`, the GA target) the root is
+recovered from the HSM or TPM instead (see [DR_PLAN.md](DR_PLAN.md) step 4).
+[VLD-ANB-MIDGARD-0007]
 
 ## Restore procedure — uniform
 
-1. Recover the **trust root** first (HSM/TPM / escrow) and confirm its attestation.
+1. Recover the **trust root** first: the keystore passphrases from the secret store
+   (software tier), or the HSM/TPM with its attestation confirmed. Check each restored
+   keystore unlocks with `mg-admin keystore verify --keystore FILE`.
 2. Copy the chosen snapshot's journal file(s) into the replacement node's data
    directory for that store.
 3. **Boot the store** via its `open()` — this **replays** the journal into memory and

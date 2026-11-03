@@ -431,11 +431,13 @@ cargo build --release -p http-gateway -p mg-admin
 ./target/release/mg-admin init --state-dir ./enclosure
 ```
 
+Every command that opens a keystore (`mg-admin`, `http-gateway`, the mesh services, `mg-sign`, `mg-register`, `mg-bundle`, `mg-model`) reads its passphrase from `--keystore-passphrase-file FILE`, or from the file `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names, and refuses to run with neither. The file must be at least 16 bytes and readable by its owner only. Never pass a passphrase on the command line, and never keep the file beside the keystore. A keystore written by an earlier release (format version 1, which held the root in the clear) is refused until `mg-admin keystore migrate --keystore FILE` converts it; `mg-admin keystore verify --keystore FILE` checks one unlocks.
+
 This writes:
 
 | Path | What it is |
 |---|---|
-| `keys/idp.keystore`, `keys/audit.keystore` | the ML-DSA-65 issuer and audit keys, each sealed under its own ML-KEM-1024 custody root. **Protect `keys/` as a secret**: whoever can read it can sign as the enclosure and read its data. |
+| `keys/idp.keystore`, `keys/audit.keystore` | the ML-DSA-65 issuer and audit keys, each sealed under its own ML-KEM-1024 custody root. The root is in the file only wrapped under the keystore passphrase (PBKDF2-HMAC-SHA256, 600,000 iterations, AES-256-GCM; keystore format version 2). `keys/` is created 0700 and each keystore 0600. **Keep the passphrase apart from `keys/` and its backups**: the passphrase and the file together sign as the enclosure and read its data, and a lost passphrase is a lost enclosure. |
 | `trust/idp.pub`, `trust/audit.pub` | their verifying keys, safe to distribute. Keep a copy of `trust/audit.pub` **outside** the state directory: it is the key the gateway checks the audit ledger with (`--audit-pin`). |
 | `governance.ledger`, `governance.ledger.checkpoint` | the audit ledger, created empty, and the signed checkpoint of its length and last entry |
 | `policy.json` | the discretionary rules the PDP enforces. The starter file lets role `operator` Read and Apply. |
@@ -559,7 +561,7 @@ The reply's `otpauth` URI goes into her authenticator app; she logs in with her 
 | **Schema and policy changes need a restart** | The gateway reads `ontology.json` and `policy.json` at startup. |
 | **Most administration is offline** | Enrolment works while the gateway runs, but `init`, `user add`, `import` and `admin add` need `midgard.lock`, which the gateway holds, so stop it first. A gateway killed outright leaves the lock behind. On Linux the next start detects that its holder is gone and takes it over; elsewhere you remove it after confirming nothing is running. |
 | **No administration console** | Online enrolment is command-line only. A browser cannot produce the post-quantum passkey assertions administrators sign with. |
-| **Software key custody** | The keystores are files. HSM-backed custody is not wired in. |
+| **Software key custody** | The keystores are files, their custody roots wrapped under an operator passphrase (PBKDF2-HMAC-SHA256, 600,000 iterations, AES-256-GCM). The keystore format also takes a root sealed to an external trust root (`RootWrap::External` over `kms::TrustRoot`), tested against the SoftHSM stand-in, but no HSM or TPM driver is wired in: hardware custody remains the GA target. |
 | **Platform views are still fixed data** | Identities, keys, compute, observability and resilience views come from `data.rs`. |
 
 ---

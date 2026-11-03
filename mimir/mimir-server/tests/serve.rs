@@ -15,10 +15,12 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use iam::{Idp, IDP_SIG_ALG};
 use policy::Role;
 use pq_mtls::{encode_anchor, encode_cert, ServiceId, WorkloadIdentity};
@@ -63,9 +65,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -130,6 +141,10 @@ fn start(identity: &Path, state: &Path) -> Running {
 fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
     let (identity, state) = (identity.display().to_string(), state.display().to_string());
     let mut child = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity, &state))
         .args(extra)
         .stdout(Stdio::piped())
@@ -172,6 +187,10 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
 
 fn probe(identity: &Path, service: &str, addr: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mimir-probe"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &identity.display().to_string(),
@@ -273,6 +292,10 @@ fn inference_is_served_over_pqmtls_audited_and_survives_a_restart() {
         state.display().to_string(),
     );
     let second = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity_arg, &state_arg))
         .output()
         .unwrap();
@@ -299,12 +322,38 @@ fn inference_is_served_over_pqmtls_audited_and_survives_a_restart() {
 /// A `llama-server` stand-in on loopback: healthy, streaming `reply` for every
 /// completion, and recording each request body it was sent.
 fn fake_sidecar(reply: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
-    fake_sidecar_holding(reply, Duration::ZERO)
+    fake_sidecar_holding(reply, Gate::open())
 }
 
-/// [`fake_sidecar`], holding each completion open for `hold` before it answers. Each
-/// connection is served on a thread of its own, so health checks are answered meanwhile.
-fn fake_sidecar_holding(reply: &'static str, hold: Duration) -> (String, Arc<Mutex<Vec<String>>>) {
+/// Holds a fake sidecar's completions until the test releases it, so a test about a
+/// completion in flight does not depend on how fast the runner is.
+#[derive(Clone)]
+struct Gate(Arc<(Mutex<bool>, Condvar)>);
+
+impl Gate {
+    fn open() -> Gate {
+        Gate(Arc::new((Mutex::new(true), Condvar::new())))
+    }
+    fn shut() -> Gate {
+        Gate(Arc::new((Mutex::new(false), Condvar::new())))
+    }
+    fn release(&self) {
+        *self.0 .0.lock().unwrap() = true;
+        self.0 .1.notify_all();
+    }
+    fn wait(&self) {
+        let (open, released) = &*self.0;
+        let mut open = open.lock().unwrap();
+        while !*open {
+            open = released.wait(open).unwrap();
+        }
+    }
+}
+
+/// [`fake_sidecar`], holding each completion open until `gate` is released before it
+/// answers. Each connection is served on a thread of its own, so health checks are
+/// answered meanwhile.
+fn fake_sidecar_holding(reply: &'static str, gate: Gate) -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -313,6 +362,7 @@ fn fake_sidecar_holding(reply: &'static str, hold: Duration) -> (String, Arc<Mut
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             let seen = seen.clone();
+            let gate = gate.clone();
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut request_line = String::new();
@@ -341,7 +391,7 @@ fn fake_sidecar_holding(reply: &'static str, hold: Duration) -> (String, Arc<Mut
                 seen.lock()
                     .unwrap()
                     .push(String::from_utf8_lossy(&body).into_owned());
-                std::thread::sleep(hold);
+                gate.wait();
                 let events = format!(
                 "data: {{\"choices\":[{{\"text\":\"{reply}\"}}]}}\n\n\
                  data: {{\"choices\":[{{\"text\":\"\"}}],\"usage\":{{\"prompt_tokens\":9,\"completion_tokens\":4}}}}\n\n\
@@ -504,6 +554,10 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
     );
     let args = engine(&sidecar);
     let tampered = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(server_args(&identity_arg, &state_arg))
         .args(strs(&args))
         .output()
@@ -569,6 +623,10 @@ fn the_sidecar_loads_a_staged_copy_that_a_swap_in_the_model_directory_never_reac
     );
     let refused = |extra: &[String]| -> String {
         let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+            .env(
+                "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+                attest::keystore::test_support::shared_test_passphrase_file(),
+            )
             .args(server_args(&identity_arg, &state_arg))
             .args(extra)
             .output()
@@ -937,7 +995,8 @@ fn a_replaced_trust_anchor_stops_serving() {
 #[test]
 fn in_flight_completion_drains_before_stop_is_logged() {
     // [VLD-ANB-MIDGARD-0057] [AC-67.4]
-    let (sidecar, requests) = fake_sidecar_holding("Olsen holds case 42.", Duration::from_secs(3));
+    let gate = Gate::shut();
+    let (sidecar, requests) = fake_sidecar_holding("Olsen holds case 42.", gate.clone());
     let fx = ModelFixture::new("drain", &sidecar);
     let server = fx.start();
     let (consumers, mesh) = (fx.consumers.clone(), server.mesh.clone());
@@ -957,6 +1016,7 @@ fn in_flight_completion_drains_before_stop_is_logged() {
     assert!(!in_flight.is_finished(), "the completion is still running");
     refused_with(&fx.probe(&server), "SERVING_STOPPED");
 
+    gate.release();
     let completed = in_flight.join().unwrap();
     assert!(completed.status.success(), "{}", text(&completed.stderr));
     assert!(text(&completed.stdout).contains("Olsen holds case 42."));

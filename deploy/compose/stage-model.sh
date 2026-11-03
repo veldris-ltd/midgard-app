@@ -14,8 +14,11 @@
 # Safe to run again.
 #
 # The signing key is a DEVELOPMENT key, kept in the volume `midgard-model-signing` on
-# this machine. In production the key stays in the staging enclave, and only signed
-# manifests and the public key cross into the enclosure.
+# this machine, its custody root wrapped under a random passphrase kept in a volume of
+# its own, `midgard-model-signing-passphrase`; a keystore an earlier release wrote
+# (version 1) is migrated first. In production the key stays in the staging enclave,
+# and only signed manifests and the public key cross into the enclosure.
+# [VLD-ANB-MIDGARD-0007]
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
@@ -27,6 +30,7 @@ URL="https://huggingface.co/ibm-granite/granite-3.3-2b-instruct-GGUF/resolve/$RE
 IMAGE="${MIDGARD_IMAGE:-midgard/dev:local}"
 MODELS=midgard-models
 SIGNING=midgard-model-signing
+SIGNING_PASSPHRASE=midgard-model-signing-passphrase
 source="${1:-}"
 
 docker image inspect "$IMAGE" >/dev/null 2>&1 || {
@@ -36,6 +40,7 @@ docker image inspect "$IMAGE" >/dev/null 2>&1 || {
 }
 docker volume create "$MODELS" >/dev/null
 docker volume create "$SIGNING" >/dev/null
+docker volume create "$SIGNING_PASSPHRASE" >/dev/null
 
 if docker run --rm -v "$MODELS:/models" "$IMAGE" test -f "/models/granite/$GGUF"; then
     echo "stage-model: the weights are already in $MODELS"
@@ -52,9 +57,18 @@ else
         mv /models/granite/$GGUF.part /models/granite/$GGUF" < "$source"
 fi
 
-docker run --rm -u 0 --network none -v "$MODELS:/models" -v "$SIGNING:/keys" "$IMAGE" sh -c "
+docker run --rm -u 0 --network none -v "$MODELS:/models" -v "$SIGNING:/keys" \
+    -v "$SIGNING_PASSPHRASE:/keystore-passphrase" \
+    -e MIDGARD_KEYSTORE_PASSPHRASE_FILE=/keystore-passphrase/passphrase "$IMAGE" sh -c "
     set -e
-    [ -f /keys/model-signing.keystore ] || mg-model keygen --out /keys
+    if [ ! -s /keystore-passphrase/passphrase ]; then
+        (umask 077; head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \\n' >/keystore-passphrase/passphrase)
+    fi
+    if [ -f /keys/model-signing.keystore ]; then
+        mg-admin keystore migrate --keystore /keys/model-signing.keystore
+    else
+        mg-model keygen --out /keys
+    fi
     mkdir -p /models/trust
     cp /keys/model-signing.pub /models/trust/model-signing.pub
     rm -f /models/granite/model.manifest

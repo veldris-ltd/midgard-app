@@ -15,6 +15,10 @@ backend-fips = [
     "service-runtime/backend-fips",
 ]
 
+[dev-dependencies]
+# Keystore fixtures: the inert test passphrase. [VLD-ANB-MIDGARD-0007]
+attest = { path = "../../crypto/attest", features = ["test-support"] }
+
 [[bin]]
 name = "mg-model"
 path = "src/main.rs"

@@ -39,7 +39,8 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:7710";
 /// The usage text.
 pub const USAGE: &str = "\
 usage:
-  http-gateway --state-dir DIR [--audit-pin FILE] [--checkpoint-mirror DIR] [--bind ADDR]
+  http-gateway --state-dir DIR [--keystore-passphrase-file FILE] [--audit-pin FILE]
+               [--checkpoint-mirror DIR] [--bind ADDR]
                [--allow-non-loopback] [--allow-origin URL]...
                [--mesh-bind ADDR --mesh-identity-dir DIR [--mesh-service NAME] [--mesh-purpose P]
                 [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
@@ -60,7 +61,11 @@ usage:
       on a loopback ADDR only (default 127.0.0.1:7710)
   --allow-non-loopback lets a state-directory gateway bind an address that is not
       loopback; the plaintext edge must then sit behind PQ-mTLS or TLS 1.3 termination.
-      Development mode has no override.";
+      Development mode has no override.
+
+  The keystores' custody roots are wrapped under a passphrase read from
+  --keystore-passphrase-file, or the file MIDGARD_KEYSTORE_PASSPHRASE_FILE names;
+  with neither the gateway refuses to start.";
 
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq)]
@@ -78,6 +83,9 @@ pub enum Command {
 pub struct ServeArgs {
     /// The state directory `mg-admin init` created.
     pub state_dir: String,
+    /// The file holding the keystores' passphrase. `None` falls back to
+    /// `MIDGARD_KEYSTORE_PASSPHRASE_FILE`, read by `main`. [VLD-ANB-MIDGARD-0007]
+    pub keystore_passphrase_file: Option<String>,
     /// The audit verifying key the ledger is checked under, kept outside the state
     /// directory. `None` pins the copy inside it. [MG-SEC-05]
     pub audit_pin: Option<String>,
@@ -166,6 +174,7 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
     let mut state_dir = None;
     let mut serve = ServeArgs {
         state_dir: String::new(),
+        keystore_passphrase_file: None,
         audit_pin: None,
         checkpoint_mirror: None,
         bind: DEFAULT_BIND.to_string(),
@@ -194,6 +203,12 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         match flag.as_str() {
             "--state-dir" if state_dir.is_none() => state_dir = Some(value.clone()),
             "--state-dir" => return Err("--state-dir given twice".into()),
+            "--keystore-passphrase-file" if serve.keystore_passphrase_file.is_none() => {
+                serve.keystore_passphrase_file = Some(value.clone())
+            }
+            "--keystore-passphrase-file" => {
+                return Err("--keystore-passphrase-file given twice".into())
+            }
             "--audit-pin" if serve.audit_pin.is_none() => serve.audit_pin = Some(value.clone()),
             "--audit-pin" => return Err("--audit-pin given twice".into()),
             "--checkpoint-mirror" if serve.checkpoint_mirror.is_none() => {

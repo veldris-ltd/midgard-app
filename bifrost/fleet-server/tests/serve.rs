@@ -14,7 +14,9 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use iam::{Idp, IDP_SIG_ALG};
 use policy::Role;
 use pq_mtls::{encode_anchor, encode_cert, ServiceId, WorkloadIdentity};
@@ -70,9 +72,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -104,6 +115,10 @@ impl Drop for Running {
 
 fn start(identity: &Path, state: &Path) -> Running {
     let mut child = Command::new(env!("CARGO_BIN_EXE_bifrost-fleet"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &identity.display().to_string(),
@@ -147,6 +162,10 @@ fn start(identity: &Path, state: &Path) -> Running {
 
 fn agent(clients: &Path, service: &str, addr: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_bifrost-agent"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &clients.display().to_string(),

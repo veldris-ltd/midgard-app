@@ -32,6 +32,10 @@ pub enum SignError {
     KeyUnreadable { path: PathBuf, reason: String },
     /// Writing an output file failed.
     Write { path: PathBuf, reason: String },
+    /// A keystore parsed, but the wrap given does not unlock its custody root: a
+    /// wrong passphrase, another trust root, or the other wrap kind. Never reported
+    /// as corruption. `[VLD-ANB-MIDGARD-0007]`
+    KeystoreLocked(String),
 }
 
 impl fmt::Display for SignError {
@@ -68,6 +72,7 @@ impl fmt::Display for SignError {
             SignError::Write { path, reason } => {
                 write!(f, "cannot write {}: {reason}", path.display())
             }
+            SignError::KeystoreLocked(reason) => write!(f, "keystore locked: {reason}"),
         }
     }
 }

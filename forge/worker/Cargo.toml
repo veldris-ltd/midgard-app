@@ -41,7 +41,8 @@ service-runtime = { path = "../../services/runtime" }
 # The end-to-end test syncs into a real enclosure through the gateway's mesh door.
 http-gateway = { path = "../../services/http-gateway" }
 iam = { path = "../../services/iam" }
-attest = { path = "../../crypto/attest" }
+# Keystore fixtures: the inert test passphrase. [VLD-ANB-MIDGARD-0007]
+attest = { path = "../../crypto/attest", features = ["test-support"] }
 pq-mtls = { path = "../../crypto/pq-mtls" }
 
 [[bin]]

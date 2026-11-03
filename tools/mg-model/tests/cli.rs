@@ -17,6 +17,10 @@ fn scratch(tag: &str) -> PathBuf {
 
 fn mg_model(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mg-model"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .output()
         .unwrap()

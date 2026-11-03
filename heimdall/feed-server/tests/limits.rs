@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
-use attest::Keystore;
+use attest::keystore::test_support::test_passphrase;
+use attest::{Keystore, RootWrap};
 use gateway::Gateway;
 use governance::Governance;
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
@@ -415,9 +416,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -488,7 +498,12 @@ fn read_picture_pages_never_exceed_the_frame_cap() {
     let identities = dir.join("identities");
     issue(&idp, &identities, "heimdall-feed", &["feed-gateway"]);
     issue(&idp, &identities, "analyst", &["picture-reader"]);
-    let server = ServiceIdentity::load(&identities, "heimdall-feed").unwrap();
+    let server = ServiceIdentity::load(
+        &identities,
+        "heimdall-feed",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp());
     let gateway = Gateway::new(
         Arc::new(fips_provider()),
@@ -510,7 +525,12 @@ fn read_picture_pages_never_exceed_the_frame_cap() {
         )
     });
 
-    let analyst = ServiceIdentity::load(&identities, "analyst").unwrap();
+    let analyst = ServiceIdentity::load(
+        &identities,
+        "analyst",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let mut request = PageRequest {
         limit: heimdall_feed_server::MAX_PAGE_LIMIT,
         ..PageRequest::default()

@@ -15,7 +15,9 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use heimdall_feed_gateway::{encode_signed_observation, sign_observation};
 use heimdall_feed_server::{outcome, INGEST};
 use heimdall_picture::{FeedId, Observation};
@@ -74,9 +76,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -112,6 +123,10 @@ fn start(identity: &Path, state: &Path) -> Running {
 
 fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
     let mut child = Command::new(env!("CARGO_BIN_EXE_heimdall-feed"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &identity.display().to_string(),
@@ -161,6 +176,10 @@ fn start_with(identity: &Path, state: &Path, extra: &[&str]) -> Running {
 
 fn source(dir: &Path, service: &str, addr: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_heimdall-source"))
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args([
             "--identity-dir",
             &dir.display().to_string(),
@@ -268,7 +287,12 @@ fn sources_feed_the_picture_analysts_read_it_and_it_survives_a_restart() {
             .with_sequence(1),
     )
     .unwrap();
-    let radar_1 = ServiceIdentity::load(&clients, "radar-1").unwrap();
+    let radar_1 = ServiceIdentity::load(
+        &clients,
+        "radar-1",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let response = client::call(
         &radar_1,
         &server.mesh,
@@ -442,7 +466,12 @@ fn replay_state_persists_across_requests() {
     std::fs::create_dir_all(&state).unwrap();
     std::fs::write(state.join("policy.json"), POLICY).unwrap();
 
-    let radar_1 = ServiceIdentity::load(&clients, "radar-1").unwrap();
+    let radar_1 = ServiceIdentity::load(
+        &clients,
+        "radar-1",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let signed = sign_observation(
         &FipsSig::new(radar_1.cert.identity.sig_alg),
         &radar_1.signing_key,

@@ -38,6 +38,8 @@ telemetry = { path = "../telemetry" }
 [dev-dependencies]
 # Tests certify service identities with a real issuer, as `mg-admin mesh issue` does.
 iam = { path = "../iam" }
+# Keystore fixtures: the inert test passphrase. [VLD-ANB-MIDGARD-0007]
+attest = { path = "../../crypto/attest", features = ["test-support"] }
 
 [lib]
 path = "src/lib.rs"

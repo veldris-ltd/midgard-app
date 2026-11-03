@@ -19,7 +19,9 @@
 //! Keys. A bundle and every artefact in it are signed with the Bifrost admission key,
 //! ML-DSA-65 (`BIFROST_SIG_ALG`), the only algorithm import accepts:
 //!   --keystore      a sealed keystore (`mg-sign keygen --alg ML-DSA-65`); the signing key
-//!                   is unsealed in memory only
+//!                   is unsealed in memory only. Its root is wrapped under the passphrase
+//!                   in --keystore-passphrase-file, or the file
+//!                   MIDGARD_KEYSTORE_PASSPHRASE_FILE names. [VLD-ANB-MIDGARD-0007]
 //!   --trust-anchor  the `<alg> <key-id> <hex>` lines a keygen exports; each ML-DSA-65
 //!                   anchor in the file is tried in turn
 //!   --key, --trust-key  the older plaintext `alg=`/`keyid=`/`vk=`/`sk=` hex files, kept
@@ -105,6 +107,7 @@ fn pack(args: &[String]) -> ExitCode {
     let mut label = None;
     let mut key = None;
     let mut keystore = None;
+    let mut passphrase_file = None;
     let mut specs = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -114,6 +117,7 @@ fn pack(args: &[String]) -> ExitCode {
             "--label" => label = it.next().cloned(),
             "--key" => key = it.next().cloned(),
             "--keystore" => keystore = it.next().cloned(),
+            "--keystore-passphrase-file" => passphrase_file = it.next().cloned(),
             other => specs.push(other.to_string()),
         }
     }
@@ -133,7 +137,11 @@ fn pack(args: &[String]) -> ExitCode {
         Ok(specs) => specs,
         Err(e) => return fail(&e),
     };
-    let signing_key = match signing_key(keystore.as_deref(), key.as_deref()) {
+    let signing_key = match signing_key(
+        keystore.as_deref(),
+        key.as_deref(),
+        passphrase_file.as_deref(),
+    ) {
         Ok(k) => k,
         Err(e) => return fail(&e),
     };
@@ -252,11 +260,20 @@ fn do_import(args: &[String]) -> ExitCode {
 /// The bundle signing key, from a sealed keystore or a plaintext key file. Only the
 /// Bifrost admission algorithm is accepted: a bundle signed with anything else could
 /// never be imported.
-fn signing_key(keystore: Option<&str>, keyfile: Option<&str>) -> Result<SigningKey, String> {
+fn signing_key(
+    keystore: Option<&str>,
+    keyfile: Option<&str>,
+    passphrase_file: Option<&str>,
+) -> Result<SigningKey, String> {
     let key = match (keystore, keyfile) {
         (Some(path), None) => {
-            let keystore = attest::Keystore::read(Path::new(path))
-                .map_err(|e| format!("cannot open the keystore: {e}"))?;
+            let passphrase = attest::keystore::load_passphrase(
+                passphrase_file,
+                std::env::var(attest::keystore::PASSPHRASE_ENV).ok(),
+            )?;
+            let keystore =
+                attest::Keystore::read(Path::new(path), &attest::RootWrap::Passphrase(&passphrase))
+                    .map_err(|e| format!("cannot open the keystore: {e}"))?;
             let alg = keystore.alg;
             let root = keystore
                 .into_signing_root()

@@ -88,6 +88,21 @@ repository = "https://github.com/veldris-ltd/midgard-app"
 homepage = "https://veldris.io"
 publish = false
 
+# Keystores wrap their custody root under PBKDF2-HMAC-SHA256 at 600 000 iterations
+# (attest::keystore). Unoptimised, that work dominates every test that opens a
+# keystore, so the digest crates are built optimised in dev and test builds too.
+# Release builds are unaffected. [VLD-ANB-MIDGARD-0007]
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.block-buffer]
+opt-level = 3
+
 [profile.release]
 # Deterministic release profile — no incremental artefacts, stable codegen.
 # Supports bit-reproducible builds. [AC-M-6] [NFR-OSS-1]

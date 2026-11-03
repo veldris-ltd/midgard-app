@@ -48,7 +48,8 @@
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-use attest::Keystore;
+use attest::keystore::{passphrase_file, PASSPHRASE_ENV, PASSPHRASE_FLAG};
+use attest::{Keystore, RootWrap};
 use bifrost_artefact::{generate_sbom, SbomComponent, BIFROST_SIG_ALG};
 use bifrost_bundle::{
     import_streaming, pack_streaming_open, BundleError, OpenArtefact, DEFAULT_CHUNK_SIZE,
@@ -67,7 +68,10 @@ const USAGE: &str = "usage:
                   [--min-gpus N] [--min-vram-gb N] [--multinode] [--sha256 HEX] [--out FILE]
   mg-model verify --dir DIR --trust FILE
   mg-model pack   --dir DIR --model-trust FILE --keystore FILE --out FILE
-  mg-model unpack --bundle FILE --bundle-trust FILE --model-trust FILE --out DIR";
+  mg-model unpack --bundle FILE --bundle-trust FILE --model-trust FILE --out DIR
+
+keygen, sign and pack also take --keystore-passphrase-file FILE (default: the file
+MIDGARD_KEYSTORE_PASSPHRASE_FILE names); the keystore's root is wrapped under it.";
 
 /// The component kind a model's files travel as.
 const MODEL_BUNDLE: &str = "model-bundle";
@@ -89,7 +93,7 @@ fn main() {
         exit(2);
     };
     let result = match command.as_str() {
-        "keygen" => parse(rest, &["out", "key-id"], &[]).and_then(|a| keygen(&a)),
+        "keygen" => parse(rest, &["out", "key-id", PASSPHRASE_FLAG], &[]).and_then(|a| keygen(&a)),
         "sign" => parse(
             rest,
             &[
@@ -100,6 +104,7 @@ fn main() {
                 "quantisation",
                 "licence",
                 "keystore",
+                PASSPHRASE_FLAG,
                 "min-gpus",
                 "min-vram-gb",
                 "sha256",
@@ -109,9 +114,12 @@ fn main() {
         )
         .and_then(|a| sign(&a)),
         "verify" => parse(rest, &["dir", "trust"], &[]).and_then(|a| verify(&a)),
-        "pack" => {
-            parse(rest, &["dir", "model-trust", "keystore", "out"], &[]).and_then(|a| pack(&a))
-        }
+        "pack" => parse(
+            rest,
+            &["dir", "model-trust", "keystore", "out", PASSPHRASE_FLAG],
+            &[],
+        )
+        .and_then(|a| pack(&a)),
         "unpack" => parse(rest, &["bundle", "bundle-trust", "model-trust", "out"], &[])
             .and_then(|a| unpack(&a)),
         "-h" | "--help" | "help" => {
@@ -135,6 +143,18 @@ fn main() {
 
 fn parse(argv: &[String], valued: &[&str], flags: &[&str]) -> Result<Args, Failure> {
     Args::parse(argv, valued, flags).map_err(Failure::Usage)
+}
+
+/// The keystore passphrase: `--keystore-passphrase-file`, else the file
+/// `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names; with neither, a usage error naming both.
+/// [VLD-ANB-MIDGARD-0007]
+fn keystore_passphrase(args: &Args) -> Result<pqc_agility::SecretBytes, Failure> {
+    let path = passphrase_file(
+        args.get(PASSPHRASE_FLAG),
+        std::env::var(PASSPHRASE_ENV).ok(),
+    )
+    .map_err(Failure::Usage)?;
+    RootWrap::passphrase_from_file(&path).map_err(|e| Failure::Run(e.to_string()))
 }
 
 fn require<'a>(args: &'a Args, key: &str) -> Result<&'a str, Failure> {
@@ -177,8 +197,12 @@ fn keygen(args: &Args) -> Result<String, Failure> {
         .map_err(|e| Failure::Run(format!("cannot create {}: {e}", out.display())))?;
     let key = Keystore::generate(key_id, VELDRIS_MODEL_SIG_ALG, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot generate the signing key: {e}")))?;
-    key.write(&keystore_path)
-        .map_err(|e| Failure::Run(format!("cannot write the keystore: {e}")))?;
+    key.write(
+        &keystore_path,
+        &RootWrap::Passphrase(&keystore_passphrase(args)?),
+        &mut OsRng,
+    )
+    .map_err(|e| Failure::Run(format!("cannot write the keystore: {e}")))?;
     std::fs::write(&trust_path, key.export_verifying_key())
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", trust_path.display())))?;
     Ok(format!(
@@ -245,8 +269,11 @@ fn sign(args: &Args) -> Result<String, Failure> {
     }
 
     let keystore_path = require(args, "keystore")?;
-    let keystore = Keystore::read(Path::new(keystore_path))
-        .map_err(|e| Failure::Run(format!("cannot open the keystore: {e}")))?;
+    let keystore = Keystore::read(
+        Path::new(keystore_path),
+        &RootWrap::Passphrase(&keystore_passphrase(args)?),
+    )
+    .map_err(|e| Failure::Run(format!("cannot open the keystore: {e}")))?;
     if keystore.alg != VELDRIS_MODEL_SIG_ALG {
         return Err(Failure::Run(format!(
             "{keystore_path} holds a {} key; model manifests are signed with {}",
@@ -347,8 +374,11 @@ fn pack(args: &Args) -> Result<String, Failure> {
         )));
     }
     let keystore_path = require(args, "keystore")?;
-    let keystore = Keystore::read(Path::new(keystore_path))
-        .map_err(|e| Failure::Run(format!("cannot open the keystore: {e}")))?;
+    let keystore = Keystore::read(
+        Path::new(keystore_path),
+        &RootWrap::Passphrase(&keystore_passphrase(args)?),
+    )
+    .map_err(|e| Failure::Run(format!("cannot open the keystore: {e}")))?;
     if keystore.alg != BIFROST_SIG_ALG {
         return Err(Failure::Run(format!(
             "{keystore_path} holds a {} key; bundles are signed with the Bifrost admission \

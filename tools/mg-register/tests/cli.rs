@@ -9,6 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use attest::keystore::test_support::test_passphrase;
+use attest::RootWrap;
 use attest::{Keystore, KmsSigner, Provenance};
 use pqc_agility::SigId;
 
@@ -53,13 +55,22 @@ impl Fixture {
     fn keystore(&self, name: &str, key_id: &str, alg: SigId) {
         let mut rng = pqc_agility::OsRng;
         let ks = Keystore::generate(key_id, alg, &mut rng).expect("generate keystore");
-        ks.write(&self.path(&format!("{name}.keystore"))).unwrap();
+        ks.write(
+            &self.path(&format!("{name}.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut pqc_agility::OsRng,
+        )
+        .unwrap();
         std::fs::write(self.path(&format!("{name}.pub")), ks.export_verifying_key()).unwrap();
     }
 
     /// Run the signing stage of the gate over the artefact with a named keystore.
     fn sign_with(&self, keystore: &str) {
-        let ks = Keystore::read(&self.path(&format!("{keystore}.keystore"))).unwrap();
+        let ks = Keystore::read(
+            &self.path(&format!("{keystore}.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap();
         let signer = KmsSigner::new(ks.into_signing_root().expect("unseal"));
         attest::sign_artefact(
             &self.artefact,
@@ -102,6 +113,10 @@ impl Fixture {
             args.push((k.to_string(), v.to_string()));
         }
         let mut cmd = Command::new(EXE);
+        cmd.env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        );
         for (k, v) in args {
             cmd.arg(format!("--{k}")).arg(v);
         }

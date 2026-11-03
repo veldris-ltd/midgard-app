@@ -58,6 +58,10 @@ service-runtime = { path = "../runtime" }
 gateway = { path = "../gateway" }
 pq-mtls = { path = "../../crypto/pq-mtls" }
 
+[dev-dependencies]
+# Keystore fixtures: the inert test passphrase. [VLD-ANB-MIDGARD-0007]
+attest = { path = "../../crypto/attest", features = ["test-support"] }
+
 [[bin]]
 name = "http-gateway"
 path = "src/main.rs"

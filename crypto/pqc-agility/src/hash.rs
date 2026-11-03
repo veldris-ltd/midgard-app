@@ -81,6 +81,14 @@ pub fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &m
     pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password, salt, iterations.max(1), out);
 }
 
+/// [`pbkdf2_hmac_sha256`] producing one 32-byte key, the shape the keystore's
+/// passphrase wrap and the legacy password hashes use. [VLD-ANB-MIDGARD-0007]
+pub fn pbkdf2_hmac_sha256_32(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    pbkdf2_hmac_sha256(password, salt, iterations, &mut out);
+    out
+}
+
 /// Constant-time equality over two byte slices, via the RustCrypto `subtle` crate.
 /// Slices of different lengths are never equal (the length itself is not secret).
 /// [MG-SEC-10]

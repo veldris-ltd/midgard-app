@@ -21,12 +21,16 @@
 //! boot, as does a mirror that holds nothing for a ledger with entries. `mg-admin
 //! audit checkpoint --checkpoint-mirror` verifies the ledger and (re-)seeds the
 //! mirror ([`mirror_audit_ledger`]). [MG-SEC-05]
+//!
+//! Every function here opens the keystores under the [`RootWrap`] it is given; the
+//! binary reads the operator's passphrase file, this library never reads the
+//! environment. [VLD-ANB-MIDGARD-0007]
 
 use std::path::Path;
 
 use admin_identity::{DurableAdminPasskeys, DurableIdentityDirectory, RoleCatalog};
 use admin_privilege::DurablePrivilege;
-use attest::Keystore;
+use attest::{Keystore, RootWrap};
 pub use audit_writer::Adoption;
 use audit_writer::{
     adopt_ledger, checkpoint_path, verify_chain, verify_ledger, AdoptionKeys, AuditError,
@@ -88,8 +92,9 @@ pub fn open_state_dir(
     state: &StateDir,
     allowed_origins: Vec<String>,
     audit_pin: &PinnedKey,
+    wrap: &RootWrap,
 ) -> Result<ServedEnclosure, String> {
-    open_state_dir_mirrored(state, allowed_origins, audit_pin, None)
+    open_state_dir_mirrored(state, allowed_origins, audit_pin, None, wrap)
 }
 
 /// [`open_state_dir`], with the governance ledger's checkpoints also kept in the
@@ -101,25 +106,26 @@ pub fn open_state_dir_mirrored(
     allowed_origins: Vec<String>,
     audit_pin: &PinnedKey,
     checkpoint_mirror: Option<&Path>,
+    wrap: &RootWrap,
 ) -> Result<ServedEnclosure, String> {
     let lock = StateLock::acquire(state, "http-gateway")?;
 
     // The issuer key: tokens minted before a restart verify after it. Its custody
     // root seals the identity directory, and the revocations that keep a signed-out
     // token refused after a restart too. [VLD-ANB-MIDGARD-0021]
-    let idp_keystore = read_keystore(&state.idp_keystore(), "issuer")?;
+    let idp_keystore = read_keystore(&state.idp_keystore(), "issuer", wrap)?;
     let directory_sealer = sealer(&idp_keystore);
     let revocations_sealer = sealer(&idp_keystore);
     let passkeys_sealer = sealer(&idp_keystore);
     let totp_sealer = sealer(&idp_keystore);
     let roles_sealer = sealer(&idp_keystore);
-    let (idp_vk, idp_sk) = unseal(idp_keystore, "issuer")?;
+    let (idp_vk, idp_sk) = unseal(&idp_keystore, "issuer")?;
     let idp = Idp::from_key(IDP_KEY_ID, idp_vk, idp_sk)
         .map_err(|e| format!("the issuer keystore does not hold a usable IdP key: {e}"))?;
 
     // The audit key: one ledger across restarts. Its custody root seals the ledger and
     // the object store.
-    let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+    let audit_keystore = read_keystore(&state.audit_keystore(), "audit", wrap)?;
     let ledger_sealer = sealer(&audit_keystore);
     let store_sealer = sealer(&audit_keystore);
     let privilege_ledger_sealer = sealer(&audit_keystore);
@@ -127,7 +133,7 @@ pub fn open_state_dir_mirrored(
     let pending_sealer = sealer(&audit_keystore);
     let approvals_sealer = sealer(&audit_keystore);
     let audit_alg = audit_keystore.alg;
-    let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+    let (audit_vk, audit_sk) = unseal(&audit_keystore, "audit")?;
     // The keystore that signs the ledger does not get to say which key checks it.
     // [MG-SEC-05]
     audit_pin.check(&audit_vk).map_err(|_| {
@@ -213,8 +219,7 @@ pub fn open_state_dir_mirrored(
     let roles =
         DurableIdentityDirectory::open(state.admin_roles(), roles_sealer, RoleCatalog::standard())
             .map_err(|e| format!("administrator roles do not open: {e}"))?;
-    let (privilege_vk, privilege_sk) =
-        unseal(read_keystore(&state.audit_keystore(), "audit")?, "audit")?;
+    let (privilege_vk, privilege_sk) = unseal(&audit_keystore, "audit")?;
     let privilege = DurablePrivilege::open(
         state.admin_privilege(),
         privilege_ledger_sealer,
@@ -332,8 +337,8 @@ pub fn actor_hash_key(state: &StateDir) -> Result<[u8; 32], String> {
 /// signed, empty checkpoint, so that from then on a deleted or emptied ledger refuses
 /// to boot. Refuses if a ledger is already there. `mg-admin init` calls this once.
 /// [MG-SEC-05]
-pub fn init_audit_ledger(state: &StateDir) -> Result<(), String> {
-    init_audit_ledger_mirrored(state, None)
+pub fn init_audit_ledger(state: &StateDir, wrap: &RootWrap) -> Result<(), String> {
+    init_audit_ledger_mirrored(state, None, wrap)
 }
 
 /// [`init_audit_ledger`], with every checkpoint also written to the checkpoint
@@ -343,11 +348,12 @@ pub fn init_audit_ledger(state: &StateDir) -> Result<(), String> {
 pub fn init_audit_ledger_mirrored(
     state: &StateDir,
     checkpoint_mirror: Option<&Path>,
+    wrap: &RootWrap,
 ) -> Result<(), String> {
-    let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+    let audit_keystore = read_keystore(&state.audit_keystore(), "audit", wrap)?;
     let ledger_sealer = sealer(&audit_keystore);
     let audit_alg = audit_keystore.alg;
-    let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+    let (audit_vk, audit_sk) = unseal(&audit_keystore, "audit")?;
     let ledger_id = LedgerId(LEDGER_ID.into());
     let ledger = match checkpoint_mirror {
         None => FileLedger::create(state.ledger(), ledger_sealer, ledger_id),
@@ -380,6 +386,7 @@ pub fn init_audit_ledger_mirrored(
 pub fn checkpoint_legacy_ledger(
     state: &StateDir,
     audit_pin: &PinnedKey,
+    wrap: &RootWrap,
 ) -> Result<Vec<(&'static str, Adoption)>, String> {
     let ledgers = [
         ("governance ledger", state.ledger(), LEDGER_ID),
@@ -389,13 +396,13 @@ pub fn checkpoint_legacy_ledger(
             PRIVILEGE_LEDGER_ID,
         ),
     ];
+    let audit_keystore = read_keystore(&state.audit_keystore(), "audit", wrap)?;
     let mut done = Vec::new();
     for (name, path, ledger_id) in ledgers {
-        // A fresh read per ledger: an unsealed signing key is consumed by its writer.
-        let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+        // A fresh unseal per ledger: an unsealed signing key is consumed by its writer.
         let ledger_sealer = sealer(&audit_keystore);
         let audit_alg = audit_keystore.alg;
-        let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+        let (audit_vk, audit_sk) = unseal(&audit_keystore, "audit")?;
         audit_pin
             .check(&audit_vk)
             .map_err(|_| "the audit keystore does not hold the pinned audit key".to_string())?;
@@ -434,11 +441,12 @@ pub fn mirror_audit_ledger(
     state: &StateDir,
     audit_pin: &PinnedKey,
     checkpoint_mirror: &Path,
+    wrap: &RootWrap,
 ) -> Result<usize, String> {
-    let audit_keystore = read_keystore(&state.audit_keystore(), "audit")?;
+    let audit_keystore = read_keystore(&state.audit_keystore(), "audit", wrap)?;
     let ledger_sealer = sealer(&audit_keystore);
     let audit_alg = audit_keystore.alg;
-    let (audit_vk, audit_sk) = unseal(audit_keystore, "audit")?;
+    let (audit_vk, audit_sk) = unseal(&audit_keystore, "audit")?;
     audit_pin
         .check(&audit_vk)
         .map_err(|_| "the audit keystore does not hold the pinned audit key".to_string())?;
@@ -541,8 +549,8 @@ pub fn read_audit_pin(path: &Path) -> Result<PinnedKey, String> {
     PinnedKey::read(path).map_err(|e| e.to_string())
 }
 
-fn read_keystore(path: &Path, what: &str) -> Result<Keystore, String> {
-    Keystore::read(path)
+fn read_keystore(path: &Path, what: &str, wrap: &RootWrap) -> Result<Keystore, String> {
+    Keystore::read(path, wrap)
         .map_err(|e| format!("cannot open the {what} keystore {}: {e}", path.display()))
 }
 
@@ -556,11 +564,11 @@ fn sealer(keystore: &Keystore) -> Box<dyn Sealer> {
 
 /// A keystore's verifying key and its unsealed signing key. The key is copied out of
 /// the custodian once, into the one component that signs with it.
-fn unseal(keystore: Keystore, what: &str) -> Result<(VerifyingKey, SigningKey), String> {
+fn unseal(keystore: &Keystore, what: &str) -> Result<(VerifyingKey, SigningKey), String> {
     let verifying_key = keystore.verifying_key.clone();
     let alg = keystore.alg;
     let root = keystore
-        .into_signing_root()
+        .signing_root()
         .map_err(|e| format!("cannot unseal the {what} key: {e}"))?;
     let signing_key = SigningKey::new(
         alg,

@@ -29,7 +29,9 @@ use admin_identity::{
     RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, ROLE_AUDITOR, ROLE_IAM_ADMIN,
 };
 use admin_privilege::{ActionState, DurablePrivilege};
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use audit_writer::{LedgerId, Sealer};
 use http_gateway::admin_api::{
     AdminControl, RoleCatalogue, ACTIVATION_TTL, MAX_CHALLENGES_PER_ADMIN,
@@ -110,10 +112,22 @@ fn provision(dir: &Path) -> (StateDir, Devices) {
     std::fs::create_dir_all(state.admin()).unwrap();
     let idp = Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut OsRng).unwrap();
     let audit = Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng).unwrap();
-    idp.write(&state.idp_keystore()).unwrap();
-    audit.write(&state.audit_keystore()).unwrap();
+    idp.write(
+        &state.idp_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
+    audit
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
+        .unwrap();
     // What `mg-admin init` also creates: the ledger and its signed checkpoint.
-    http_gateway::boot::init_audit_ledger(&state).unwrap();
+    http_gateway::boot::init_audit_ledger(&state, &RootWrap::Passphrase(&test_passphrase()))
+        .unwrap();
 
     let read = Rule {
         id: RuleId("operator-read".into()),
@@ -399,7 +413,7 @@ fn enrol(gw: &DurableGateway, devices: &Devices, subject: &str) -> Response {
 
 /// The custody roots' sealers, as the gateway builds them at boot.
 fn sealer(keystore: &Path) -> Box<dyn Sealer> {
-    let keystore = Keystore::read(keystore).unwrap();
+    let keystore = Keystore::read(keystore, &RootWrap::Passphrase(&test_passphrase())).unwrap();
     Box::new(KmsSealer::new(Kms::new(
         fips_provider(),
         keystore.trust_root(),
@@ -408,7 +422,11 @@ fn sealer(keystore: &Path) -> Box<dyn Sealer> {
 
 /// The dual-control service over `state`, opened as the gateway opens it.
 fn privilege(state: &StateDir) -> DurablePrivilege {
-    let keystore = Keystore::read(&state.audit_keystore()).unwrap();
+    let keystore = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let verifying_key = keystore.verifying_key.clone();
     let alg = keystore.alg;
     let root = keystore.into_signing_root().unwrap();
@@ -475,7 +493,13 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
     let device = |name: &str| &devices.iter().find(|(n, _)| *n == name).unwrap().1;
 
     let id = {
-        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots");
         assert_eq!(served.administrators, 3);
         assert_eq!(served.administrators_with_totp, 3);
         let gw = &served.gateway;
@@ -522,7 +546,13 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
         id
     }; // restart
 
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots again");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots again");
     let gw = &served.gateway;
     let bob = proof(gw, "bob", device("bob"));
     let listed = post(
@@ -585,7 +615,13 @@ fn a_requester_cannot_supply_credential_material() {
     let dir = scratch("material");
     let (state, devices) = provision(&dir);
     {
-        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots");
         let gw = &served.gateway;
         let base = principal("olivia");
         for extra in [
@@ -635,7 +671,13 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
     let dir = scratch("minted");
     let (state, devices) = provision(&dir);
     {
-        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots");
         let gw = &served.gateway;
         let requested = post(
             gw,
@@ -715,7 +757,13 @@ fn approval_returns_an_activation_code_and_no_second_factor_secret() {
 fn activation_is_single_use_and_first_login_needs_both_factors() {
     let dir = scratch("activate");
     let (state, devices) = provision(&dir);
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
     let code = field(&enrol(gw, &devices, "olivia"), "activationCode");
 
@@ -759,7 +807,13 @@ fn activation_is_single_use_and_first_login_needs_both_factors() {
 fn roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_full_record() {
     let dir = scratch("catalogue");
     let (state, devices) = provision(&dir);
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
     let principal_with = |roles: &str, purposes: &str, compartments: &str| {
         format!(
@@ -925,7 +979,13 @@ fn a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected() {
 
     // Separately: a parked enrolment rejected through the gateway.
     let rejected = {
-        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots");
         let gw = &served.gateway;
         let id = request(gw, &devices, "oscar");
         // The auditor holds no enrolment capability, and the requester cannot
@@ -1034,7 +1094,13 @@ fn a_gateway_without_a_durable_directory_parks_nothing() {
 fn a_passkey_without_a_second_factor_is_refused() {
     let dir = scratch("passkey-alone");
     let (state, devices) = provision(&dir);
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
     let alice = device(&devices, "alice");
     let bob = device(&devices, "bob");
@@ -1139,7 +1205,13 @@ fn an_administrator_totp_code_is_single_use() {
     let bob = device(&devices, "bob");
     next_step();
     {
-        let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+        let served = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .expect("boots");
         let gw = &served.gateway;
         let list = |proof: &Proof| {
             post(
@@ -1162,7 +1234,13 @@ fn an_administrator_totp_code_is_single_use() {
         assert_eq!(r.body, r#"{"error":"unauthorised"}"#, "{}", r.body);
     } // restart
 
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots again");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots again");
     let gw = &served.gateway;
     let r = post(
         gw,
@@ -1224,7 +1302,13 @@ fn a_challenge_is_bound_to_the_administrator_who_asked() {
     let dir = scratch("bound");
     let (state, devices) = provision(&dir);
     let device = |name: &str| &devices.iter().find(|(n, _)| *n == name).unwrap().1;
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
 
     // Alice's challenge, signed by and presented as Bob.
@@ -1251,7 +1335,13 @@ fn a_flood_of_challenges_cannot_evict_another_administrators() {
     let dir = scratch("flood");
     let (state, devices) = provision(&dir);
     let device = |name: &str| &devices.iter().find(|(n, _)| *n == name).unwrap().1;
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
 
     let alices = fetch_challenge(gw, "alice");
@@ -1274,7 +1364,13 @@ fn a_challenge_request_without_admin_is_400() {
     // [VLD-ANB-MIDGARD-0020] [AC-16.3]
     let dir = scratch("no-admin");
     let (state, _devices) = provision(&dir);
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
     for body in ["", "{}", r#"{"admin":5}"#, r#"{"admin":"alice","extra":1}"#] {
         let r = post(gw, "/api/v1/admin/challenge", body, None);
@@ -1290,7 +1386,13 @@ fn unknown_administrators_get_a_nonce_but_no_table_entry() {
     // [VLD-ANB-MIDGARD-0020] [AC-16.3]
     let dir = scratch("unknown");
     let (state, _devices) = provision(&dir);
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
     fetch_challenge(gw, "alice");
     let before = gw.admin_control().unwrap().outstanding();
@@ -1312,7 +1414,13 @@ fn the_global_ceiling_refuses_rather_than_evicts() {
     let dir = scratch("ceiling");
     let (state, devices) = provision(&dir);
     let device = |name: &str| &devices.iter().find(|(n, _)| *n == name).unwrap().1;
-    let served = open_state_dir(&state, Vec::new(), &pin(&state)).expect("boots");
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
     let gw = &served.gateway;
     gw.admin_control().unwrap().set_challenge_ceiling(8);
 
@@ -1367,8 +1475,11 @@ fn the_global_ceiling_refuses_rather_than_evicts() {
 /// checks. [MG-SEC-05]
 fn pin(state: &StateDir) -> audit_writer::PinnedKey {
     audit_writer::PinnedKey::new(
-        attest::Keystore::read(&state.audit_keystore())
-            .unwrap()
-            .verifying_key,
+        attest::Keystore::read(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .verifying_key,
     )
 }

@@ -35,7 +35,8 @@ service-runtime = { path = "../../services/runtime" }
 [dev-dependencies]
 # Tests issue real mesh identities with an in-enclosure issuer.
 iam = { path = "../../services/iam" }
-attest = { path = "../../crypto/attest" }
+# Keystore fixtures: the inert test passphrase. [VLD-ANB-MIDGARD-0007]
+attest = { path = "../../crypto/attest", features = ["test-support"] }
 
 [[bin]]
 name = "bifrost-fleet"

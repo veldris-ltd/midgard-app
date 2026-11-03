@@ -18,6 +18,15 @@ the keystores among named holders (`pqc_agility::shamir`). Its contract test run
 repository's `tools/ci/release-preflight.sh`, `tools/ci/verify-tag.sh`, `mg-sign` and
 `mg-verify` against what it produces.
 
+**Keystore format version 2.** Keystores now wrap their custody root under a
+passphrase (or an external trust root); a version 1 keystore, which held the root in the
+clear, is refused by the signing runner. Dvalin must pin an `attest` revision that
+writes version 2 before the next ceremony, and each keystore holder's passphrase is
+generated in the secret store and handed over separately from the keystore. Keystores
+from an earlier ceremony are converted once with `mg-admin keystore migrate`, checked
+with `mg-admin keystore verify`, and every version 1 copy (including escrow fragments
+of it) destroyed. [VLD-ANB-MIDGARD-0007]
+
 ## What the ceremony writes here
 
 | File | What it is | Checked by |

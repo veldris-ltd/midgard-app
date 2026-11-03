@@ -90,18 +90,25 @@ release_name() {
 }
 
 # The arguments that hand the signing material to the toolchain container: each
-# keystore mounted read-only at a fixed path, the registry read-write, and the
-# variables renamed to match. Nothing else from the runner's environment goes in.
+# keystore and its passphrase file mounted read-only at a fixed path, the registry
+# read-write, and the variables renamed to match. Nothing else from the runner's
+# environment goes in. [VLD-ANB-MIDGARD-0007]
 signing_mounts() {
     local -n into="$1"
     into=()
     : "${MIDGARD_SIGNING_KEYSTORE:?the release signing keystore is not configured (docs/ops/PKI.md)}"
     : "${MIDGARD_BIFROST_KEYSTORE:?the Bifrost admission keystore is not configured (docs/ops/PKI.md)}"
     : "${MIDGARD_BIFROST_REGISTRY:?the Bifrost registry directory is not configured (docs/ops/PKI.md)}"
+    : "${MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE:?the release keystore passphrase is not configured (docs/ops/PKI.md)}"
+    : "${MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE:?the admission keystore passphrase is not configured (docs/ops/PKI.md)}"
     into+=(--mount "$MIDGARD_SIGNING_KEYSTORE:/keys/release.keystore:ro"
            --env MIDGARD_SIGNING_KEYSTORE=/keys/release.keystore
+           --mount "$MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE:/keys/release.passphrase:ro"
+           --env MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE=/keys/release.passphrase
            --mount "$MIDGARD_BIFROST_KEYSTORE:/keys/admission.keystore:ro"
            --env MIDGARD_BIFROST_KEYSTORE=/keys/admission.keystore
+           --mount "$MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE:/keys/admission.passphrase:ro"
+           --env MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=/keys/admission.passphrase
            --mount "$MIDGARD_BIFROST_REGISTRY:/registry"
            --env MIDGARD_BIFROST_REGISTRY=/registry)
 }

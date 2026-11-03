@@ -5,8 +5,8 @@
 //! state directory — registers only its public half, and binds a standard role for a
 //! bounded time. The `enrol` commands run against a live gateway: each fetches a
 //! single-use challenge issued to the administrator it names, answers it with the
-//! administrator's passkey, and sends the request. A requested enrolment waits until a second administrator approves it, and
-//! carries no credentials: the gateway creates them at approval and returns a
+//! administrator's passkey, and sends the request. A requested enrolment waits until a
+//! second administrator approves it, and carries no credentials: the gateway creates them at approval and returns a
 //! single-use activation code, which the approver hands to the principal out of band.
 //! [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
 //!
@@ -15,6 +15,10 @@
 //! (`admin totp-reset` replaces a lost one). The gateway checks the code and accepts
 //! it once; the passkey assertion's user-verification flag is signed truthfully, and
 //! the gateway relies on it for nothing. [VLD-ANB-MIDGARD-0008]
+//!
+//! The passkey keystore's root is wrapped under `--passkey-passphrase-file`, which
+//! defaults to the keystore passphrase; the administrator should be given one of their
+//! own. [VLD-ANB-MIDGARD-0007]
 
 use std::fmt::Write as _;
 use std::io::{BufRead, IsTerminal, Write as _};
@@ -25,7 +29,7 @@ use admin_identity::{
     AdminChallenge, AdminId, DurableAdminPasskeys, DurableIdentityDirectory, RegisteredPasskey,
     ResourceScope, RoleBinding, RoleCatalog, SoftwareAdminAuthenticator, PASSKEY_SIG_ALG,
 };
-use attest::Keystore;
+use attest::{Keystore, RootWrap};
 use http_gateway::admin_totp::DurableAdminTotp;
 use http_gateway::json::Json;
 use http_gateway::state_dir::{StateDir, StateLock};
@@ -35,7 +39,13 @@ use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
 
 use crate::http_client::post_json;
-use crate::{list, record_admin_event, Failure, Options, TOTP_ISSUER, TOTP_SECRET_LEN};
+use crate::{
+    list, passphrase, passphrase_or_default, record_admin_event, Failure, Options, TOTP_ISSUER,
+    TOTP_SECRET_LEN,
+};
+
+/// The option naming the passphrase for an administrator's passkey keystore.
+const PASSKEY_PASSPHRASE: &str = "passkey-passphrase-file";
 
 /// The longest an administrator's role binding may run, in days.
 const MAX_BINDING_DAYS: u64 = 3_650;
@@ -113,8 +123,12 @@ pub(crate) fn admin_add(o: &Options) -> Result<String, Failure> {
         )));
     }
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let passkey_passphrase = passphrase_or_default(o, PASSKEY_PASSPHRASE)?;
+
     let _lock = StateLock::acquire(&state, "mg-admin admin add").map_err(Failure::Run)?;
-    let idp = Keystore::read(&state.idp_keystore()).map_err(|e| {
+    let idp = Keystore::read(&state.idp_keystore(), &wrap).map_err(|e| {
         Failure::Run(format!(
             "cannot open the issuer keystore (has `mg-admin init` been run?): {e}"
         ))
@@ -144,11 +158,16 @@ pub(crate) fn admin_add(o: &Options) -> Result<String, Failure> {
     // Audit first: a grant the ledger cannot record does not happen.
     record_admin_event(
         &state,
+        &wrap,
         "GRANT administrator",
         &format!("admin:{admin}:{role}:{scope}"),
     )?;
     passkey
-        .write(keystore_path)
+        .write(
+            keystore_path,
+            &RootWrap::Passphrase(&passkey_passphrase),
+            &mut OsRng,
+        )
         .map_err(|e| Failure::Run(format!("cannot write {}: {e}", keystore_path.display())))?;
     passkeys
         .register(
@@ -193,8 +212,11 @@ pub(crate) fn admin_totp_reset(o: &Options) -> Result<String, Failure> {
     let state = StateDir::new(o.require("state-dir")?);
     let admin = o.require("admin")?;
 
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+
     let _lock = StateLock::acquire(&state, "mg-admin admin totp-reset").map_err(Failure::Run)?;
-    let idp = Keystore::read(&state.idp_keystore()).map_err(|e| {
+    let idp = Keystore::read(&state.idp_keystore(), &wrap).map_err(|e| {
         Failure::Run(format!(
             "cannot open the issuer keystore (has `mg-admin init` been run?): {e}"
         ))
@@ -214,6 +236,7 @@ pub(crate) fn admin_totp_reset(o: &Options) -> Result<String, Failure> {
     // Audit first: a reset the ledger cannot record does not happen.
     record_admin_event(
         &state,
+        &wrap,
         "ROTATE administrator totp",
         &format!("admin:{admin}"),
     )?;
@@ -267,7 +290,8 @@ struct Signer {
 fn device(o: &Options) -> Result<Signer, Failure> {
     let admin = o.require("admin")?.to_string();
     let path = o.require("keystore")?;
-    let keystore = Keystore::read(Path::new(path))
+    let passkey_passphrase = passphrase_or_default(o, PASSKEY_PASSPHRASE)?;
+    let keystore = Keystore::read(Path::new(path), &RootWrap::Passphrase(&passkey_passphrase))
         .map_err(|e| Failure::Run(format!("cannot open the passkey keystore {path}: {e}")))?;
     let credential_id = keystore.key_id.clone();
     let verifying_key = keystore.verifying_key.clone();

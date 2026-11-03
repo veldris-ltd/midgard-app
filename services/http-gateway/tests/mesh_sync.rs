@@ -13,7 +13,9 @@
 
 use std::path::{Path, PathBuf};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use audit_writer::{FileLedger, LedgerId, LedgerStore};
 use fabric::{DurableObjectStore, ObjectInstance, ObjectStore, Value};
 use http_gateway::boot::{open_state_dir, DurableGateway};
@@ -69,14 +71,23 @@ fn provision(dir: &Path) -> StateDir {
     std::fs::create_dir_all(state.trust()).unwrap();
     Keystore::generate(IDP_KEY_ID, iam::IDP_SIG_ALG, &mut OsRng)
         .unwrap()
-        .write(&state.idp_keystore())
+        .write(
+            &state.idp_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     Keystore::generate(AUDIT_KEY_ID, governance::GOV_SIG_ALG, &mut OsRng)
         .unwrap()
-        .write(&state.audit_keystore())
+        .write(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     // What `mg-admin init` also creates: the ledger and its signed checkpoint.
-    http_gateway::boot::init_audit_ledger(&state).unwrap();
+    http_gateway::boot::init_audit_ledger(&state, &RootWrap::Passphrase(&test_passphrase()))
+        .unwrap();
     let rule = |id: &str, role: &str, action: &str| Rule {
         id: RuleId(id.into()),
         role: Role(role.into()),
@@ -147,9 +158,14 @@ fn link(from: &str) -> String {
 }
 
 fn audit_entries(state: &StateDir) -> usize {
-    open_state_dir(state, Vec::new(), &pin(state))
-        .unwrap()
-        .audit_entries
+    open_state_dir(
+        state,
+        Vec::new(),
+        &pin(state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .audit_entries
 }
 
 #[test]
@@ -160,9 +176,14 @@ fn a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric() {
     let analyst = workload("analyst-tool", "analyst");
 
     {
-        let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-            .unwrap()
-            .into_parts();
+        let (gateway, _lock) = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .into_parts();
         let sync = |peer: &WorkloadIdentity, records: &str| {
             split(&gateway.sync_records(peer, &legacy(), PURPOSE, records.as_bytes(), NOW))
         };
@@ -212,7 +233,11 @@ fn a_permitted_workload_syncs_records_and_nothing_else_changes_the_fabric() {
     }
 
     // Durable: the update landed, and the link was not added twice.
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     {
         let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
@@ -252,9 +277,14 @@ fn a_worker_cannot_sync_above_its_certified_clearance() {
     let internal = certified(ClassificationLevel::CONFIDENTIAL);
     let restricted_facility = r#"{"object":"facility","key":"FAC-R","marking":"restricted","purposes":["operations"],"properties":{"name":"Restricted base"}}"#;
     {
-        let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-            .unwrap()
-            .into_parts();
+        let (gateway, _lock) = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .into_parts();
 
         // A record above the certified clearance refuses the whole sync.
         let batch = [aircraft("AC-1", 100), restricted_facility.to_string()].join("\n");
@@ -288,7 +318,11 @@ fn a_worker_cannot_sync_above_its_certified_clearance() {
         assert_eq!(code, outcome::ACCEPTED, "{message}");
     }
 
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     {
         let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
@@ -302,9 +336,12 @@ fn a_worker_cannot_sync_above_its_certified_clearance() {
 /// checks. [MG-SEC-05]
 fn pin(state: &StateDir) -> audit_writer::PinnedKey {
     audit_writer::PinnedKey::new(
-        attest::Keystore::read(&state.audit_keystore())
-            .unwrap()
-            .verifying_key,
+        attest::Keystore::read(
+            &state.audit_keystore(),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .verifying_key,
     )
 }
 
@@ -331,7 +368,11 @@ fn level(band: &str) -> ClassificationLevel {
 /// Every governance ledger row, as (action, resource), read from the file the gateway
 /// writes.
 fn ledger_rows(state: &StateDir) -> Vec<(String, String)> {
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let ledger =
         FileLedger::open(state.ledger(), Box::new(sealer), LedgerId(LEDGER_ID.into())).unwrap();
@@ -359,7 +400,11 @@ fn stored(
     id: &str,
 ) -> Option<ObjectInstance> {
     drop((gateway, lock));
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
     store.get_object(id).cloned()
@@ -373,9 +418,14 @@ fn a_sync_that_lowers_a_marking_is_refused_and_changes_nothing() {
     let dir = scratch("downgrade");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     let sync = |records: &str| {
         split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW))
     };
@@ -404,7 +454,11 @@ fn a_sync_that_lowers_a_marking_is_refused_and_changes_nothing() {
         "the decision and the refusal, and no record of the batch"
     );
 
-    let audit = Keystore::read(&state.audit_keystore()).unwrap();
+    let audit = Keystore::read(
+        &state.audit_keystore(),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap();
     drop((gateway, lock));
     let sealer = KmsSealer::new(Kms::new(fips_provider(), audit.trust_root()));
     let store = DurableObjectStore::open(state.store(), Box::new(sealer), STORE_ID).unwrap();
@@ -428,9 +482,14 @@ fn a_sync_may_raise_a_marking_and_narrow_purposes() {
     let dir = scratch("narrow");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     let sync = |records: &str| {
         split(&gateway.sync_records(&worker, &legacy(), PURPOSE, records.as_bytes(), NOW))
     };
@@ -474,9 +533,14 @@ fn a_sync_above_the_sync_clearance_is_refused() {
     let record = marked("AC-1", "confidential", &["OPS-N"], &["operations"]);
 
     {
-        let (gateway, _lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-            .unwrap()
-            .into_parts();
+        let (gateway, _lock) = open_state_dir(
+            &state,
+            Vec::new(),
+            &pin(&state),
+            &RootWrap::Passphrase(&test_passphrase()),
+        )
+        .unwrap()
+        .into_parts();
         let before = ledger_rows(&state).len();
         let (code, message) =
             split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
@@ -507,9 +571,14 @@ fn a_sync_above_the_sync_clearance_is_refused() {
         parse_sync_clearance("secret").is_err(),
         "not a marking band"
     );
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     let gateway = gateway.with_sync_clearance(granted);
     let (code, message) =
         split(&gateway.sync_records(&worker, &legacy(), PURPOSE, record.as_bytes(), NOW));
@@ -526,9 +595,14 @@ fn an_unpermitted_peer_learns_nothing_from_a_malformed_sync() {
     let dir = scratch("oracle");
     let state = provision(&dir);
     let analyst = workload("analyst-tool", "analyst");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
 
     let before = ledger_rows(&state).len();
     let (code, message) =
@@ -555,9 +629,14 @@ fn a_malformed_sync_from_a_permitted_peer_is_still_audited() {
     let dir = scratch("malformed");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-        .unwrap()
-        .into_parts();
+    let (gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
 
     let before = ledger_rows(&state).len();
     let (code, message) =
@@ -583,9 +662,14 @@ fn a_sync_never_touches_a_human_gated_target() {
     let dir = scratch("gated");
     let state = provision(&dir);
     let worker = workload("forge-worker", "forge-worker");
-    let (mut gateway, lock) = open_state_dir(&state, Vec::new(), &pin(&state))
-        .unwrap()
-        .into_parts();
+    let (mut gateway, lock) = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .unwrap()
+    .into_parts();
     gateway
         .provision_login(
             "olivia",

@@ -20,6 +20,10 @@ fn argv(items: &[&str]) -> Vec<String> {
 /// blocks; a run that did start would hang the test, which is itself a failure.
 fn run(args: &[&str]) -> Output {
     Command::new(BIN)
+        .env(
+            "MIDGARD_KEYSTORE_PASSPHRASE_FILE",
+            attest::keystore::test_support::shared_test_passphrase_file(),
+        )
         .args(args)
         .stdin(Stdio::null())
         .output()
@@ -193,4 +197,61 @@ fn explicit_development_mode_serves_on_loopback() {
     let _ = child.kill();
     let _ = child.wait();
     assert!(resp.starts_with("HTTP/1.1 200 OK"), "got: {resp}");
+}
+
+/// AC-50.2: with neither `--keystore-passphrase-file` nor
+/// `MIDGARD_KEYSTORE_PASSPHRASE_FILE`, the gateway refuses to start, naming both, and
+/// never opens a keystore.
+// [AC-50.2] [VLD-ANB-MIDGARD-0007]
+#[test]
+fn services_refuse_to_start_without_a_passphrase_source() {
+    let dir = std::env::temp_dir().join("wp-50-gateway-no-passphrase");
+    let out = Command::new(BIN)
+        .env_remove("MIDGARD_KEYSTORE_PASSPHRASE_FILE")
+        .args([
+            "--state-dir",
+            dir.to_str().unwrap(),
+            "--bind",
+            "127.0.0.1:0",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("run http-gateway");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "stderr: {stderr}");
+    assert!(
+        stderr.contains("--keystore-passphrase-file"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("MIDGARD_KEYSTORE_PASSPHRASE_FILE"),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains("listening on"), "stderr: {stderr}");
+}
+
+/// `--keystore-passphrase-file` is parsed once, like every other option.
+// [VLD-ANB-MIDGARD-0007]
+#[test]
+fn the_passphrase_file_option_is_parsed_and_not_repeated() {
+    match parse(&argv(&[
+        "--state-dir",
+        "/s",
+        "--keystore-passphrase-file",
+        "/p",
+    ])) {
+        Ok(Cli::Serve(serve)) => {
+            assert_eq!(serve.keystore_passphrase_file.as_deref(), Some("/p"))
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(parse(&argv(&[
+        "--state-dir",
+        "/s",
+        "--keystore-passphrase-file",
+        "/p",
+        "--keystore-passphrase-file",
+        "/q",
+    ]))
+    .is_err());
 }

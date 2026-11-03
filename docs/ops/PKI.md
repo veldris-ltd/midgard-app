@@ -247,9 +247,13 @@ here if any is missing:
    - `MIDGARD_SIGNING_KEYSTORE_PATH`: the release keystore (ML-DSA-87);
    - `MIDGARD_BIFROST_KEYSTORE_PATH`: the Bifrost admission keystore (ML-DSA-65), for
      registry admission and the air-gap bundle;
+   - `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`: the passphrase each keystore's custody
+     root is wrapped under, a separate secret from the keystore;
    - `MIDGARD_BIFROST_REGISTRY_PATH`: the registry directory.
 
-   Each keystore file is mounted read-only into the container that uses it.
+   Each keystore file and its passphrase file is mounted read-only into the container
+   that uses it.
 4. **Pinned trust anchors.** The public halves from the ceremony, committed as
    `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub` (see
    `deploy/trust/README.md`).
@@ -257,11 +261,20 @@ here if any is missing:
 If any is absent, the preflight **fails closed**, so a release never ships unsigned,
 unscanned, or from a half-provisioned runner.
 
-**Custody today is software.** The keystores are files, sealed under an ML-KEM root in
-the same file (see `crypto/attest/src/keystore.rs`). The HSM path above (keys generated
-on-device, never exportable) is the target, and is not wired in: signing from a
-PKCS#11 token needs a signer behind the same custody seam. Until then, protect the
-keystore files as the keys themselves.
+**Custody today is software.** The keystores are files: the signing key sealed under
+an ML-KEM-1024 root, and the root wrapped under an operator passphrase with
+PBKDF2-HMAC-SHA256 (600,000 iterations, a fresh 32-byte salt) and AES-256-GCM, bound to
+the key id (keystore format version 2, `crypto/attest/src/keystore.rs`). The file
+alone, or a backup of it, does not yield the root; the file and its passphrase
+together are the key, so keep them in separate secrets. The format also takes a root
+sealed to an external `kms::TrustRoot` (`RootWrap::External`), the seam an HSM or TPM
+slots into, tested against the SoftHSM stand-in. The HSM path above (keys generated
+on-device, never exportable) is the GA target and is not wired in: signing from a
+PKCS#11 token needs a signer behind the same custody seam. Keystores written before
+format version 2 hold the root in the clear; every reader refuses them, `mg-admin
+keystore migrate` converts each once, and every other copy of the old file (backups,
+volumes, Secrets) must then be destroyed. Where a version 1 copy may have been exposed,
+re-initialise rather than migrate: migration keeps the same root. [VLD-ANB-MIDGARD-0007]
 
 ## Tested
 

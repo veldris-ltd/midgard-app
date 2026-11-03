@@ -6,7 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
+use attest::keystore::test_support::test_passphrase;
 use attest::Keystore;
+use attest::RootWrap;
 use governance::Governance;
 use iam::{Idp, IDP_SIG_ALG};
 use policy::{DefaultPdp, PolicySet, Role};
@@ -44,9 +46,18 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
             ),
         )
         .unwrap();
-    key.write(&dir.join(format!("{service}.keystore"))).unwrap();
+    key.write(
+        &dir.join(format!("{service}.keystore")),
+        &RootWrap::Passphrase(&test_passphrase()),
+        &mut OsRng,
+    )
+    .unwrap();
     audit
-        .write(&dir.join(format!("{service}.audit.keystore")))
+        .write(
+            &dir.join(format!("{service}.audit.keystore")),
+            &RootWrap::Passphrase(&test_passphrase()),
+            &mut OsRng,
+        )
         .unwrap();
     std::fs::write(dir.join(format!("{service}.cert")), encode_cert(&cert)).unwrap();
     std::fs::write(dir.join("mesh.anchor"), encode_anchor(&idp.trust_anchor())).unwrap();
@@ -55,7 +66,7 @@ fn issue(idp: &Idp, dir: &Path, service: &str, roles: &[&str]) {
 }
 
 fn refused(dir: &Path, service: &str) -> String {
-    ServiceIdentity::load(dir, service)
+    ServiceIdentity::load(dir, service, &RootWrap::Passphrase(&test_passphrase()))
         .err()
         .expect("the identity is refused")
 }
@@ -66,7 +77,12 @@ fn an_issued_identity_loads_and_its_ledger_survives_a_reopen_but_not_tampering()
     let dir = scratch("load");
     issue(&idp, &dir, "mimir-server", &["inference-server"]);
 
-    let identity = ServiceIdentity::load(&dir, "mimir-server").expect("loads");
+    let identity = ServiceIdentity::load(
+        &dir,
+        "mimir-server",
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("loads");
     assert_eq!(identity.roles(), ["inference-server"]);
     assert_eq!(identity.anchor, idp.trust_anchor());
 

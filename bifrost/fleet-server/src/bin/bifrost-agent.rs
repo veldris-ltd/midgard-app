@@ -26,7 +26,8 @@ use bifrost_fleet_server::{outcome, CHECK_IN, FLEET_STATUS, SET_CHANNEL};
 use bifrost_rollout::VersionId;
 use service_runtime::{client, Args, ServiceIdentity};
 
-const USAGE: &str = "usage: bifrost-agent --identity-dir DIR --addr HOST:PORT \
+const USAGE: &str = "usage: bifrost-agent --identity-dir DIR [--keystore-passphrase-file PATH] \
+                     --addr HOST:PORT \
                      (--channel C --version V [--install-id ID] [--unhealthy] | --status \
                      | --set-channel ID --channel C) \
                      [--service NAME] [--server NAME] [--purpose P]";
@@ -37,6 +38,7 @@ fn main() {
         &argv,
         &[
             "identity-dir",
+            "keystore-passphrase-file",
             "addr",
             "server",
             "service",
@@ -65,7 +67,14 @@ fn main() {
 
 fn run(args: &Args) -> Result<String, String> {
     let service = args.get("service").unwrap_or("fleet-agent");
-    let identity = ServiceIdentity::load(args.require("identity-dir")?, service)?;
+    let identity = ServiceIdentity::load(
+        args.require("identity-dir")?,
+        service,
+        &service_runtime::RootWrap::Passphrase(&service_runtime::load_passphrase(
+            args.get(service_runtime::PASSPHRASE_FLAG),
+            std::env::var(service_runtime::PASSPHRASE_ENV).ok(),
+        )?),
+    )?;
     let addr = args.require("addr")?;
     let purpose = args.get("purpose").unwrap_or("fleet-management");
     let server = args.get("server").unwrap_or("bifrost-fleet");
