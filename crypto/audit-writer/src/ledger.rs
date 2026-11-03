@@ -134,6 +134,11 @@ impl<S: LedgerStore> AuditWriter<S> {
         self.store.entries()
     }
 
+    /// The store, for the store-specific writes in this crate.
+    pub(crate) fn store_mut(&mut self) -> &mut S {
+        &mut self.store
+    }
+
     /// The ledger's latest signed checkpoint (for [`crate::verify::verify_ledger`]).
     /// [MG-SEC-05]
     pub fn checkpoint(&self) -> Option<&LedgerCheckpoint> {

@@ -697,6 +697,11 @@ fn record_admin_event(state: &StateDir, action: &str, resource: &str) -> Result<
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    // A partial final frame a crash left was cut off when the ledger opened: record
+    // the repair first. [VLD-ANB-MIDGARD-0040]
+    writer
+        .record_recovery(&now.to_string())
+        .map_err(|e| Failure::Run(format!("cannot record the audit ledger repair: {e}")))?;
     // Shaped like the governance spine's own records, so the audit view reads it the
     // same way.
     let id = RecordId(format!("AUD-{}", writer.entries().len()));

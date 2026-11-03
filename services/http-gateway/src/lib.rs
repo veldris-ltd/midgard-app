@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod admin_api;
@@ -57,6 +57,7 @@ use pqc_agility::backend::fips::provider as fips_provider;
 use pqc_agility::hash::hmac_sha256;
 use pqc_agility::{CryptoProvider, OsRng, Rng, VerifyingKey};
 use revocations::Revocations;
+use service_runtime::sync::{self as lock_sync, lock_resource, RECOVERED_POISONED_LOCK};
 use std::time::Instant;
 use telemetry::{
     AvailabilitySlo, HealthRegistry, LogSink, Logger, MetricsRegistry, StdoutJsonSink, Toggle,
@@ -367,11 +368,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                 ..Credentials::default()
             },
         };
-        match self
-            .directory
-            .get_mut()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-        {
+        match &mut *self.recover(&self.directory, "directory") {
             Logins::InMemory(directory) => {
                 directory.enroll(username, enrollment);
                 Ok(())
@@ -561,10 +558,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // legacy or weaker password hash is replaced with Argon2id once every check has
         // passed. [MG-SEC-11]
         let outcome = {
-            let mut directory = self
-                .directory
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut directory = self.recover(&self.directory, "directory");
             UpgradingAuthenticator::new(idp, &mut *directory, &self.hasher).authenticate(
                 username,
                 password.as_bytes(),
@@ -769,10 +763,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     }
 
     /// The failed-login throttle, recovering from poisoning like [`Self::lock`].
-    fn throttle(&self) -> std::sync::MutexGuard<'_, login_throttle::LoginThrottle> {
-        self.login_throttle
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    fn throttle(&self) -> MutexGuard<'_, login_throttle::LoginThrottle> {
+        self.recover(&self.login_throttle, "login-throttle")
     }
 
     /// `POST /api/v1/admin/*` — administration, authenticated by an administrator's
@@ -802,15 +794,10 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
 
         let outcome = {
-            let mut admin = control
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut admin = self.recover(control, "admin");
             match req.path.as_str() {
                 "/api/v1/admin/enrolments" => {
-                    let directory = self
-                        .directory
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let directory = self.recover(&self.directory, "directory");
                     let enrolled = |subject: &str| directory.enrollment(subject).is_some();
                     admin
                         .request_enrolment(&body, &enrolled, now)
@@ -820,10 +807,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                         })
                 }
                 "/api/v1/admin/enrolments/approve" => {
-                    let mut directory = self
-                        .directory
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let mut directory = self.recover(&self.directory, "directory");
                     let mut enrol = |subject: &str, enrollment: Enrollment| match &mut *directory {
                         Logins::Durable(d) => {
                             d.enroll(subject, enrollment).map_err(|e| e.to_string())
@@ -941,10 +925,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     pub fn metrics_text(&self) -> String {
         // Refresh SLO gauges so the scrape observes the current availability + any
         // breach, then render everything.
-        self.availability
-            .lock()
-            .expect("slo lock")
-            .export(&self.metrics);
+        self.availability().export(&self.metrics);
         self.metrics.render()
     }
 
@@ -957,10 +938,8 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     /// Register a minimal object type in this gateway's fabric — an id, a title and an
     /// optional `name` — for callers that only need the type to exist. Panics on a
     /// duplicate id, like any other builder misuse.
-    pub fn with_object_type(mut self, id: &str, title: &str) -> Self {
-        self.enclosure
-            .get_mut()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    pub fn with_object_type(self, id: &str, title: &str) -> Self {
+        self.lock()
             .register_named_type(id, title, now_secs())
             .expect("object type registers");
         self
@@ -968,12 +947,77 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
 
     /// Lock the enclosure, **recovering from poisoning** rather than panicking: a panic
     /// in one request handler must not take every later connection down with it.
-    /// [RT-52] [NFR-SEC-1]
-    fn lock(&self) -> std::sync::MutexGuard<'_, Enclosure<S, L>> {
-        self.enclosure
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    /// [RT-52] [NFR-SEC-1] The recovery is counted, logged and recorded in the ledger,
+    /// through the recovered guard. [VLD-ANB-MIDGARD-0030]
+    fn lock(&self) -> MutexGuard<'_, Enclosure<S, L>> {
+        let (mut enclosure, poisoned) =
+            lock_sync::recover_noting(&self.enclosure, "enclosure", &self.metrics, &logger());
+        if poisoned {
+            record_recovery(&mut enclosure, "enclosure");
+        }
+        enclosure
     }
+
+    /// Lock `mutex`, which guards security state, recovering from poisoning like
+    /// [`Self::lock`]: counted, logged, and recorded in the ledger under `name`. Locks
+    /// are taken administration -> directory -> enclosure, and the enclosure is taken
+    /// last here too. [VLD-ANB-MIDGARD-0030]
+    fn recover<'a, T>(&self, mutex: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
+        let (guard, poisoned) = lock_sync::recover_noting(mutex, name, &self.metrics, &logger());
+        if poisoned {
+            record_recovery(&mut self.lock(), name);
+        }
+        guard
+    }
+
+    /// The availability SLO, recovering from poisoning (counted and logged) rather
+    /// than failing every later request after its ledger row is written.
+    /// [VLD-ANB-MIDGARD-0030]
+    fn availability(&self) -> MutexGuard<'_, AvailabilitySlo> {
+        lock_sync::recover(&self.availability, "availability", &self.metrics, &logger())
+    }
+
+    /// Poison the availability lock the way a panicking handler would. Tests only.
+    #[doc(hidden)]
+    pub fn poison_availability_for_tests(&self) {
+        poison(&self.availability);
+    }
+
+    /// Poison the enclosure lock the way a panicking handler would. Tests only.
+    #[doc(hidden)]
+    pub fn poison_enclosure_for_tests(&self) {
+        poison(&self.enclosure);
+    }
+}
+
+/// The gateway's structured log, on stdout for the in-enclosure collector.
+fn logger() -> Logger<'static> {
+    Logger::new("http-gateway", &StdoutJsonSink)
+}
+
+/// Record in the ledger that the lock `name` was recovered after a panic poisoned it.
+/// A ledger that cannot take the entry is logged; the request carries on, since the
+/// recovery is already counted and logged. [VLD-ANB-MIDGARD-0030]
+fn record_recovery<S: ObjectStore, L: LedgerStore>(enclosure: &mut Enclosure<S, L>, name: &str) {
+    if let Err(e) = enclosure.governance_mut().record_event(
+        "system",
+        RECOVERED_POISONED_LOCK,
+        &lock_resource(name),
+        now_secs(),
+    ) {
+        logger().error(
+            "poisoned lock recovery not recorded",
+            &[("lock", name), ("reason", &e.to_string())],
+        );
+    }
+}
+
+/// Panic while holding `mutex`, and catch it, leaving the lock poisoned.
+fn poison<T>(mutex: &Mutex<T>) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = mutex.lock();
+        panic!("simulated handler panic while holding the lock");
+    }));
 }
 
 impl SecuredGateway {
@@ -1056,10 +1100,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // Availability = served without a server error. Auth/authz denials are the
         // correct outcome, not an outage.
         let served_ok = resp.status < 500;
-        self.availability
-            .lock()
-            .expect("slo lock")
-            .record(served_ok);
+        self.availability().record(served_ok);
         let latency = format!("{elapsed_ms:.3}");
         let mut fields = vec![
             ("method", req.method.as_str()),

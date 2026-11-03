@@ -10,7 +10,8 @@
 //! [`MAX_LABEL_VALUE_CHARS`] characters. [VLD-ANB-MIDGARD-0003]
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 use crate::escape::label_value;
 
@@ -95,12 +96,35 @@ struct Families {
 #[derive(Default)]
 pub struct MetricsRegistry {
     families: Mutex<Families>,
+    /// The families lock has been recovered after a panic poisoned it, rendered as
+    /// `metrics_lock_poisoned 1`. [VLD-ANB-MIDGARD-0030]
+    poisoned_once: AtomicBool,
 }
 
 impl MetricsRegistry {
     /// A new, empty registry.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Lock the families, recovering from poisoning rather than panicking every later
+    /// caller: a panic elsewhere must not turn every instrumented request into one.
+    /// The recovery is remembered and rendered as `metrics_lock_poisoned 1` (this
+    /// registry cannot count it in itself). [VLD-ANB-MIDGARD-0030]
+    fn lock_or_recover(&self) -> MutexGuard<'_, Families> {
+        self.families.lock().unwrap_or_else(|poisoned| {
+            self.poisoned_once.store(true, Ordering::Relaxed);
+            poisoned.into_inner()
+        })
+    }
+
+    /// Poison the families lock the way a panicking caller would. Tests only.
+    #[doc(hidden)]
+    pub fn poison_for_tests(&self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = self.families.lock();
+            panic!("simulated panic while holding the metrics lock");
+        }));
     }
 
     fn family<'a>(map: &'a mut Families, name: &str, kind: &'static str) -> &'a mut Family {
@@ -153,7 +177,7 @@ impl MetricsRegistry {
     /// Register help text for a metric family (optional). It may come before the
     /// family records anything.
     pub fn describe(&self, name: &str, help: &str) {
-        let mut map = self.families.lock().expect("metrics lock");
+        let mut map = self.lock_or_recover();
         match map.by_name.get_mut(name) {
             Some(f) => f.help = help.to_string(),
             None => {
@@ -164,7 +188,7 @@ impl MetricsRegistry {
 
     /// How many series family `name` holds (for assertions). [VLD-ANB-MIDGARD-0003]
     pub fn series_count(&self, name: &str) -> usize {
-        let map = self.families.lock().expect("metrics lock");
+        let map = self.lock_or_recover();
         map.by_name.get(name).map_or(0, |f| f.series.len())
     }
 
@@ -175,7 +199,7 @@ impl MetricsRegistry {
 
     /// Increment a counter by `n`.
     pub fn inc_by(&self, name: &str, labels: &[(&str, &str)], n: u64) {
-        let mut map = self.families.lock().expect("metrics lock");
+        let mut map = self.lock_or_recover();
         if let Some(Series::Counter(c)) =
             Self::series(&mut map, name, "counter", labels, || Series::Counter(0))
         {
@@ -185,7 +209,7 @@ impl MetricsRegistry {
 
     /// Set a gauge to `v`.
     pub fn set_gauge(&self, name: &str, labels: &[(&str, &str)], v: f64) {
-        let mut map = self.families.lock().expect("metrics lock");
+        let mut map = self.lock_or_recover();
         if let Some(s) = Self::series(&mut map, name, "gauge", labels, || Series::Gauge(v)) {
             *s = Series::Gauge(v);
         }
@@ -198,7 +222,7 @@ impl MetricsRegistry {
 
     /// Observe with explicit bucket bounds.
     pub fn observe_with(&self, name: &str, labels: &[(&str, &str)], v: f64, bounds: &[f64]) {
-        let mut map = self.families.lock().expect("metrics lock");
+        let mut map = self.lock_or_recover();
         if let Some(Series::Hist(h)) = Self::series(&mut map, name, "histogram", labels, || {
             Series::Hist(Histogram::new(bounds))
         }) {
@@ -208,7 +232,7 @@ impl MetricsRegistry {
 
     /// The current counter value (for assertions / SLO reads).
     pub fn counter_value(&self, name: &str, labels: &[(&str, &str)]) -> u64 {
-        let map = self.families.lock().expect("metrics lock");
+        let map = self.lock_or_recover();
         match map
             .by_name
             .get(name)
@@ -221,7 +245,7 @@ impl MetricsRegistry {
 
     /// Render the whole registry in Prometheus text exposition format. [RC-33]
     pub fn render(&self) -> String {
-        let map = self.families.lock().expect("metrics lock");
+        let map = self.lock_or_recover();
         let mut out = String::new();
         for (name, f) in map.by_name.iter() {
             out.push_str(&format!("# HELP {name} {}\n", f.help));
@@ -266,6 +290,13 @@ impl MetricsRegistry {
                     }
                 }
             }
+        }
+        if self.poisoned_once.load(Ordering::Relaxed) {
+            out.push_str(
+                "# HELP metrics_lock_poisoned The metrics lock was recovered after a panic.\n",
+            );
+            out.push_str("# TYPE metrics_lock_poisoned gauge\n");
+            out.push_str("metrics_lock_poisoned 1\n");
         }
         out
     }

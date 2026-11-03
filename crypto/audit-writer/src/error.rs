@@ -49,6 +49,11 @@ pub enum AuditError {
     /// between an entry's `fsync` and its checkpoint's can leave it one ahead.
     /// [MG-SEC-05]
     CheckpointStale { checkpoint: u64, found: u64 },
+    /// The ledger ends in a partial frame that a crash during an append cannot
+    /// explain: `found` complete frames precede it, where only a frame after the
+    /// `checkpoint`ed ones can be torn. Cutting it off would drop a complete entry.
+    /// [VLD-ANB-MIDGARD-0040]
+    TornFrame { checkpoint: u64, found: u64 },
     /// The key the ledger is checked with is not the pinned audit key. [MG-SEC-05]
     KeyNotPinned,
     /// The checkpoint mirror vouches for more entries than the local checkpoint: the
@@ -102,6 +107,12 @@ impl fmt::Display for AuditError {
             AuditError::CheckpointStale { checkpoint, found } => write!(
                 f,
                 "the ledger holds {found} entries but its checkpoint only {checkpoint}"
+            ),
+            AuditError::TornFrame { checkpoint, found } => write!(
+                f,
+                "the ledger ends in a partial frame after {found} complete entries, but only \
+                 the entry after the {checkpoint} its checkpoint vouches for can be torn by a \
+                 crash"
             ),
             AuditError::KeyNotPinned => write!(f, "the audit key is not the pinned audit key"),
             AuditError::RolledBack { mirrored, local } => write!(

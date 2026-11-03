@@ -91,10 +91,7 @@ impl<L: LedgerStore> SecuredGateway<DurableObjectStore, L> {
         body: &[u8],
         now: u64,
     ) -> Vec<u8> {
-        let mut enclosure = self
-            .enclosure
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut enclosure = self.lock();
         // Authorise before the records are read, so a workload policy does not permit
         // learns nothing about the ontology from the reply. [VLD-ANB-MIDGARD-0073]
         let context = PolicyContext {

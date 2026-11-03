@@ -31,7 +31,7 @@ pub use audit_writer::Adoption;
 use audit_writer::{
     adopt_ledger, checkpoint_path, verify_chain, verify_ledger, AdoptionKeys, AuditError,
     AuditWriter, CheckpointMirror, FileCheckpointMirror, FileLedger, LedgerId, LedgerStore,
-    PinnedKey, SealedJournal, Sealer,
+    PinnedKey, SealedJournal, Sealer, LEDGER_REPAIRED_TORN_TAIL,
 };
 use fabric::DurableObjectStore;
 use governance::Governance;
@@ -147,7 +147,7 @@ pub fn open_state_dir_mirrored(
         ),
     }
     .map_err(|e| ledger_refused(state, checkpoint_mirror, e))?;
-    let writer = AuditWriter::new(
+    let mut writer = AuditWriter::new(
         ledger,
         Box::new(FipsSig::new(audit_alg)),
         audit_sk,
@@ -164,6 +164,19 @@ pub fn open_state_dir_mirrored(
         audit_pin,
     )
     .map_err(|e| format!("the audit ledger does not re-verify: {e}"))?;
+    // A partial final frame a crash left was cut off when the ledger opened; the
+    // repair is recorded before anything else is. [VLD-ANB-MIDGARD-0040]
+    if writer
+        .record_recovery(&crate::now_secs().to_string())
+        .map_err(|e| format!("the audit ledger repair cannot be recorded: {e}"))?
+        .is_some()
+    {
+        eprintln!(
+            "http-gateway: {}: cut a partial final frame left by a crash; recorded as \
+             {LEDGER_REPAIRED_TORN_TAIL:?}",
+            state.ledger().display()
+        );
+    }
     let audit_entries = writer.entries().len();
 
     let policy_path = state.policy();
@@ -444,8 +457,7 @@ pub fn mirror_audit_ledger(
     ledger
         .start_mirroring(mirror)
         .map_err(|e| format!("cannot mirror the audit ledger's checkpoint: {e}"))?;
-    if legacy {
-        // Its first checkpoint, published to the mirror as it is recorded.
+    if legacy || ledger.recovered().is_some() {
         let mut writer = AuditWriter::new(
             ledger,
             Box::new(FipsSig::new(audit_alg)),
@@ -453,9 +465,17 @@ pub fn mirror_audit_ledger(
             audit_vk,
             ledger_id,
         );
+        if legacy {
+            // Its first checkpoint, published to the mirror as it is recorded.
+            writer
+                .seal_checkpoint()
+                .map_err(|e| format!("cannot checkpoint the audit ledger: {e}"))?;
+        }
+        // A partial final frame a crash left was cut off when the ledger opened.
+        // [VLD-ANB-MIDGARD-0040]
         writer
-            .seal_checkpoint()
-            .map_err(|e| format!("cannot checkpoint the audit ledger: {e}"))?;
+            .record_recovery(&crate::now_secs().to_string())
+            .map_err(|e| format!("the audit ledger repair cannot be recorded: {e}"))?;
         return Ok(writer.entries().len());
     }
     Ok(ledger.checkpoint().map_or(0, |c| c.count as usize))

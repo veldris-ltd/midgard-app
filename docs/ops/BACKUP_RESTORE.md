@@ -59,6 +59,13 @@ is the point.
    rejected here; fall back to the previous snapshot.
 4. Confirm the recovered head/version matches the snapshot checkpoint.
 
+A ledger that ends in a partial frame, which a crash during an append leaves, opens:
+the partial frame is cut off and the repair is recorded in the ledger as `LEDGER
+repaired: torn tail`. That holds only when the complete frames are exactly the ones
+its `.checkpoint` vouches for, so the ledger and its `.checkpoint` must still be
+copied and restored together; a partial frame the checkpoint vouches for is refused
+as truncated. [VLD-ANB-MIDGARD-0040]
+
 Restoring an older snapshot of an audit ledger rolls it back, and a checkpoint kept on
 the same disk cannot tell a restore from an attack: record each restore as an incident.
 With a checkpoint mirror (below) the gateway makes that comparison itself.

@@ -29,6 +29,7 @@ pub mod marking;
 pub mod policy_file;
 pub mod serve;
 pub mod strict_json;
+pub mod sync;
 
 pub use args::Args;
 pub use health_http::spawn_health_port;

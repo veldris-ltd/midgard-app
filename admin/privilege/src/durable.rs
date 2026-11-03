@@ -57,7 +57,15 @@ impl DurablePrivilege {
             actions.insert(entry.request.id.clone(), entry);
         }
 
-        let writer = AuditWriter::new(ledger, scheme, signing_key, verifying_key, ledger_id);
+        let mut writer = AuditWriter::new(ledger, scheme, signing_key, verifying_key, ledger_id);
+        // A partial final frame a crash left was cut off when the ledger opened: record
+        // the repair in the ledger. [VLD-ANB-MIDGARD-0040]
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        writer
+            .record_recovery(&now.to_string())
+            .map_err(|e| PrivError::Io(e.to_string()))?;
         let inner = PrivilegeService::restore(writer, actions);
         Ok(Self { inner, journal })
     }
