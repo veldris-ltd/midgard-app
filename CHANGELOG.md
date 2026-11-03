@@ -699,6 +699,21 @@ CONTRIBUTING.md for the version policy.
   gate, run on the release runner. [VLD-ANB-MIDGARD-0010] [VLD-ANB-MIDGARD-0044]
   [NFR-SEC-1]
 
+### Tests
+- **The edge's token refusals and the handshake decoder's negative paths are tested.**
+  The secured edge answers 401, naming the reason and carrying no claims, for an
+  expired token (and still serves it one second before expiry), a not-yet-valid token,
+  a token signed by another IdP, a non-hex bearer, a token without the `Bearer`
+  scheme or under `Basic`, and a token with trailing bytes; none of these writes an
+  audit row. In `crypto/pq-mtls`, the four frames of a live handshake are recorded
+  through a recording channel: every truncation and every trailing byte of each is
+  refused, the record and handshake frame readers refuse a length one over their
+  limit and a frame shorter than its prefix, a recorded ClientKeyExchange replayed to
+  a fresh responder fails its signature, and an unknown tag or certificate-presence
+  byte is malformed, on the test and FIPS backends alike. Ticket single use at the
+  gateway was already proven by `a_second_connection_resumes_and_the_ticket_is_single_use`.
+  [VLD-ANB-MIDGARD-0092] [VLD-ANB-MIDGARD-0093]
+
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
   in `services/runtime` recursed once per nesting level with no bound, and the edge
