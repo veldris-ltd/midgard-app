@@ -28,7 +28,9 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
     a shell and `tar`, which the distroless runtime does not have. It runs in its own
     image, `seedImage` in the chart's values (distroless `base-debian12:debug-nonroot`,
     whose BusyBox carries both), pinned by digest, with the same hardened
-    securityContext. Mirror it into the enclosure's registry with the service images.
+    securityContext. The `keystore-passphrase` init container, which copies each
+    service's passphrase into memory as an owner-only file, needs a shell too and runs
+    in the same image. Mirror it into the enclosure's registry with the service images.
 - **`compose/`** — Midgard on one machine with docker compose: the HTTP edge, the
   Mimir inference plane, the Bifrost fleet manager, the Heimdall feed gateway and the
   Forge worker in hardened containers (non-root, read-only rootfs, no

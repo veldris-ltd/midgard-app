@@ -183,10 +183,24 @@ spec:
         # root-owned, group-readable file, which the service refuses (a passphrase file
         # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
         # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
+        {{- if $.Values.image.single }}
         - name: keystore-passphrase
           image: {{ $image }}
-          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          imagePullPolicy: {{ $pullPolicy }}
           command: ["/bin/sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+        {{- else }}
+        {{- $tools := $.Values.seedImage }}
+        {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" ($tools.digest | default "")) }}
+        {{- fail "seedImage.digest must be sha256:<64 hex>: the seed image is pinned by digest" }}
+        {{- end }}
+        - name: keystore-passphrase
+          image: {{ printf "%s@%s" $tools.repository $tools.digest }}
+          imagePullPolicy: {{ $tools.pullPolicy | default "IfNotPresent" }}
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+        {{- end }}
           securityContext:
 {{ include "midgard.hardened" . | indent 12 }}
           resources:
