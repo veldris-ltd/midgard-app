@@ -174,6 +174,20 @@ CONTRIBUTING.md for the version policy.
   complete entry. The rest of the finding, an undetectably shortened ledger, was
   closed by the signed checkpoint and its mirror under MG-SEC-05; no other head file
   or option is added. [VLD-ANB-MIDGARD-0040]
+- **Federation assertions are scoped, short-lived and single-use.** An upstream
+  assertion carried only a subject and attributes, so `PqFederation` would have
+  accepted a captured one for ever. The payload now starts with a version byte (0x02)
+  and carries an issuer, an audience, `issued_at`, `expires_at` and a 16-byte nonce.
+  After the signature verifies, `verify` refuses a wrong issuer or audience, a
+  validity window that is empty or longer than 300 s, an `issued_at` more than 60 s
+  ahead, an expired assertion and a nonce it has already accepted; the earlier
+  unversioned payload is `Malformed`. The replay cache is purged of expired nonces on
+  every call and holds at most 4096; when full it refuses rather than evicting.
+  `PqFederation::new` takes the expected issuer and audience, `FederatedIdp::verify`
+  takes `&mut self` and the time, and `federated_login` takes `&mut dyn FederatedIdp`.
+  A deployment must share one `PqFederation` behind a `Mutex` so the cache is
+  global. The library is still not wired into any service. [VLD-ANB-MIDGARD-0049]
+  [RC-29]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry
