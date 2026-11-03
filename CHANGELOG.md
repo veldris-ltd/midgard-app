@@ -1120,6 +1120,12 @@ CONTRIBUTING.md for the version policy.
   can be scoped to that environment and no other job can read it. `pipelines.test.sh`
   refuses `apk` in any toolchain job and checks the environment. [AC-P4.5]
   (VLD-ANB-MIDGARD-0076)
+- **The release jobs are handed the keystore passphrases.** The preflight and
+  `signing_mounts` require `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+  `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, but neither forge's release jobs set them,
+  so no release could start. Both GitHub jobs on the signing runner and GitLab's
+  `.signing` now map them from the `_PATH` secrets the preflight names, which
+  `workflows.test.sh` checks. [VLD-ANB-MIDGARD-0007]
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**

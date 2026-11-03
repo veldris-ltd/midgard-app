@@ -81,6 +81,28 @@ for job in preflight release; do
         fail "GitHub: the $job job runs in the release environment"
 done
 
+# Both jobs on the signing runner are handed each keystore's passphrase file, from the
+# _PATH secret the preflight names, as they are handed the keystores: without them the
+# preflight refuses and signing_mounts stops. [VLD-ANB-MIDGARD-0007]
+# job_block FILE INDENT JOB: the lines of JOB, a key at INDENT spaces, in FILE.
+job_block() {
+    tr -d '\r' < "$1" | awk -v pre="$2" -v job="$3" '
+        $0 == pre job ":" { on = 1; next }
+        on && /^ *[^ #]/ { match($0, /^ */); if (RLENGTH <= length(pre)) on = 0 }
+        on'
+}
+for var in MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
+    for job in preflight release; do
+        job_block "$workflows/release.yml" "  " "$job" |
+            grep -qx "      $var: \${{ secrets.${var}_PATH }}" &&
+            pass "GitHub: the $job job maps $var from secrets.${var}_PATH" ||
+            fail "GitHub: the $job job maps $var from secrets.${var}_PATH"
+    done
+    job_block "$gitlab" "" .signing | grep -qx "    $var: \$${var}_PATH" &&
+        pass "GitLab: .signing maps $var from \$${var}_PATH" ||
+        fail "GitLab: .signing maps $var from \$${var}_PATH"
+done
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"
     exit 1

@@ -25,8 +25,10 @@
 #     a protected variable never reaches a merge request's pipeline;
 #   - for a release: a runner tagged `kms`, provisioned as docs/ops/PKI.md describes,
 #     with a shell executor, docker, node and pnpm, and the CI/CD variables
-#     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH,
-#     MIDGARD_BIFROST_REGISTRY_PATH and MIDGARD_ALLOWED_SIGNERS_PATH naming files on it;
+#     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH, their passphrases'
+#     MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH and
+#     MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH, MIDGARD_BIFROST_REGISTRY_PATH and
+#     MIDGARD_ALLOWED_SIGNERS_PATH naming files on it;
 #   - for the apple shell audit: a runner tagged `macos`.
 #
 # Run a release dry run, a release, or the shell audits by hand from "Run pipeline",
@@ -130,6 +132,8 @@ default:
     MIDGARD_SIGNING_KEYSTORE: $MIDGARD_SIGNING_KEYSTORE_PATH
     MIDGARD_BIFROST_KEYSTORE: $MIDGARD_BIFROST_KEYSTORE_PATH
     MIDGARD_BIFROST_REGISTRY: $MIDGARD_BIFROST_REGISTRY_PATH
+    MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: $MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH
+    MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: $MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH
 
 .on-release:
   rules:

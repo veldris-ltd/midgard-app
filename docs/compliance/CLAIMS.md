@@ -1069,7 +1069,7 @@ The workspace builds and its tests run with no network: every dependency is vend
   - [`tools/ci/in-toolchain.sh:12`](../../tools/ci/in-toolchain.sh)
   - [`tools/ci/in-toolchain.sh:60`](../../tools/ci/in-toolchain.sh)
   - [`tools/ci/vendor-check.sh`](../../tools/ci/vendor-check.sh)
-  - [`.gitlab-ci.yml:119`](../../.gitlab-ci.yml)
+  - [`.gitlab-ci.yml:121`](../../.gitlab-ci.yml)
 - Service tests:
   - [`tools/ci/run.sh:306`](../../tools/ci/run.sh)
   - [`tools/ci/tests/in-toolchain.test.sh:43`](../../tools/ci/tests/in-toolchain.test.sh)
@@ -1122,7 +1122,7 @@ Each of the 72 acceptance criteria maps to a test, and one script runs them all 
 
 - Source:
   - [`deploy/acceptance/run-airgapped.sh:10`](../../deploy/acceptance/run-airgapped.sh)
-  - [`.gitlab-ci.yml:241`](../../.gitlab-ci.yml)
+  - [`.gitlab-ci.yml:245`](../../.gitlab-ci.yml)
   - [`tools/ci/verify-tag.sh`](../../tools/ci/verify-tag.sh)
   - [`tools/ci/tests/verify-tag.test.sh`](../../tools/ci/tests/verify-tag.test.sh)
 - Service tests:

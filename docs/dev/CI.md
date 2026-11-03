@@ -328,13 +328,15 @@ touches the release machinery, and by hand on any branch.
 ### A real release
 
 Needs a signing runner provisioned as [docs/ops/PKI.md](../ops/PKI.md) describes —
-labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with four settings
+labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with six settings
 naming files on that runner, all outside the job's workspace:
 
 | Setting | What |
 |---|---|
 | `MIDGARD_SIGNING_KEYSTORE_PATH` | the release signing keystore (ML-DSA-87) |
 | `MIDGARD_BIFROST_KEYSTORE_PATH` | the Bifrost admission keystore (ML-DSA-65) |
+| `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH` | the release keystore's passphrase, a file of its own |
+| `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH` | the admission keystore's passphrase, a file of its own |
 | `MIDGARD_BIFROST_REGISTRY_PATH` | the Bifrost registry directory |
 | `MIDGARD_ALLOWED_SIGNERS_PATH` | the runner's own copy of `deploy/trust/allowed_signers`, which release tags are verified against |
 

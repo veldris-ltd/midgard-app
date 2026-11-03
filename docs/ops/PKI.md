@@ -272,9 +272,11 @@ here if any is missing:
    - `MIDGARD_SIGNING_KEYSTORE_PATH`: the release keystore (ML-DSA-87);
    - `MIDGARD_BIFROST_KEYSTORE_PATH`: the Bifrost admission keystore (ML-DSA-65), for
      registry admission and the air-gap bundle;
-   - `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
-     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`: the passphrase each keystore's custody
-     root is wrapped under, a separate secret from the keystore;
+   - `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH` and
+     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH`: the passphrase each keystore's
+     custody root is wrapped under, a separate secret from the keystore (the jobs see
+     them as `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`);
    - `MIDGARD_BIFROST_REGISTRY_PATH`: the registry directory.
 
    Each keystore file and its passphrase file is mounted read-only into the container
