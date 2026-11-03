@@ -25,9 +25,13 @@
 #      a. on GitHub with a token (GITHUB_TOKEN or GH_TOKEN, read-only), the forge says it
 #         is verified: `gh api repos/$GITHUB_REPOSITORY/commits/<sha>`,
 #         .commit.verification.verified, GitHub's own signature on the merges it makes;
-#      b. or it adds nothing of its own: its combined diff against its parents is
-#         empty, so everything it brings is in its parents, which are checked like any
-#         other commit.
+#      b. or it adds nothing of its own: its tree is exactly what `git merge-tree
+#         --write-tree` gives for its two parents, so everything it brings is in its
+#         parents, which are checked like any other commit. A combined diff is not
+#         enough: it hides a merge that keeps one parent's side of what the other
+#         changed. A merge whose parents conflict is not exempt, whatever it resolved,
+#         and neither is an octopus merge (more than two parents), which the forge
+#         never makes.
 #
 # The forge's verdict counts for its own merges only: a commit signed by a key GitHub
 # knows but allowed_signers does not list fails like any other unlisted key, so a new
@@ -108,6 +112,23 @@ fi
 [ "$signers_ok" = 1 ] || refuse "$why: no commit can be verified" \
     "The maintainers' public signing keys go in $SIGNERS_PATH (docs/ops/PKI.md, \"Git signing\")."
 
+# A forge merge is judged by merging its parents again, with `git merge-tree
+# --write-tree`, which is git 2.38 or later (the CI images have 2.39 and newer). Asked
+# for the first time a merge needs it, so an older git fails the run rather than the
+# merge.
+need_merge_tree() {
+    [ -z "${merge_tree_ok:-}" ] || return 0
+    local v major minor
+    v="$(git version)" v="${v#git version }"
+    major="${v%%.*}" minor="${v#*.}" minor="${minor%%.*}"
+    if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || [ "$major" -lt 2 ] ||
+        { [ "$major" = 2 ] && [ "$minor" -lt 38 ]; }; then
+        refuse "git $v cannot check a merge: \`git merge-tree --write-tree\` needs git 2.38 or later" \
+            "Run the job with a newer git; the toolchain image and the CI runners have one."
+    fi
+    merge_tree_ok=1
+}
+
 total=0 failed=()
 while read -r sha; do
     [ -n "$sha" ] || continue
@@ -121,16 +142,27 @@ while read -r sha; do
     parents=$(($(git rev-list --parents -n 1 "$sha" | wc -w) - 1))
     committer="$(git log -1 --format='%ce' "$sha")"
     if [ "$parents" -ge 2 ] && [[ " $MERGE_COMMITTERS " == *" $committer "* ]]; then
-        if [ "$parents" = 2 ] && [ "$api" = 1 ] &&
+        if [ "$parents" -gt 2 ]; then
+            reason="an octopus merge by $committer: the forge merges two parents at a time"
+        elif [ "$api" = 1 ] &&
             [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha" --jq '.commit.verification.verified' 2>/dev/null)" = true ]; then
             echo "ok      $line — a merge by $committer, verified by GitHub"
             continue
+        else
+            need_merge_tree
+            merged="$(git merge-tree --write-tree "$sha^1" "$sha^2" 2>/dev/null)"
+            rc=$?
+            if [ "$rc" = 0 ] && [ "$(head -n 1 <<<"$merged")" = "$(git rev-parse "$sha^{tree}")" ]; then
+                echo "ok      $line — a merge by $committer that adds nothing of its own"
+                continue
+            elif [ "$rc" = 0 ]; then
+                reason="a merge by $committer that changes what its parents did not"
+            elif [ "$rc" = 1 ]; then
+                reason="a merge by $committer whose parents conflict, so its resolution is its own"
+            else
+                reason="a merge by $committer whose parents git cannot merge again"
+            fi
         fi
-        if [ -z "$(git diff-tree --no-commit-id --cc "$sha")" ]; then
-            echo "ok      $line — a merge by $committer that adds nothing of its own"
-            continue
-        fi
-        reason="a merge by $committer that changes what its parents did not"
     elif ! git cat-file commit "$sha" | grep -q '^gpgsig'; then
         reason="not signed"
     else

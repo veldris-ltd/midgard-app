@@ -120,6 +120,45 @@ if out="$(verify base 2>&1)"; then fail "a forge merge that changes something of
         pass "a forge merge that changes something of its own is refused" || fail "the evil merge is named: $out"
 fi
 g reset -q --hard HEAD^
+# Keeping one parent's side of what the other changed leaves the combined diff empty;
+# the tree is still not the merge of its parents.
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff -s ours -m "Merge evil, dropping it" evil
+if out="$(verify base 2>&1)"; then fail "a forge merge that silently drops a parent's change is refused: $out"; else
+    grep -q "^FAILED  $(short HEAD) Merge evil, dropping it — a merge by noreply@github.com that changes what its parents did not" <<<"$out" &&
+        pass "a forge merge that silently drops a parent's change is refused" || fail "the dropping merge is named: $out"
+fi
+g reset -q --hard HEAD^
+g checkout -q -b clash base && echo theirs > "$repo/README.md" && g add -A &&
+    g -c gpg.format=ssh -c user.signingkey="$work/maintainer" commit -q -S -m clash
+g checkout -q main && echo ours > "$repo/README.md" && g add -A &&
+    g -c gpg.format=ssh -c user.signingkey="$work/maintainer" commit -q -S -m "clash on main"
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff --no-commit clash >/dev/null 2>&1
+echo ours > "$repo/README.md" && g add -A
+GIT_COMMITTER_EMAIL=noreply@github.com g commit -q -m "Merge clash"
+if out="$(verify base 2>&1)"; then fail "a forge merge whose parents conflict is refused: $out"; else
+    grep -q "^FAILED  $(short HEAD) Merge clash — a merge by noreply@github.com whose parents conflict" <<<"$out" &&
+        pass "a forge merge whose parents conflict is refused, whatever its resolution" || fail "the conflicted merge is named: $out"
+fi
+g reset -q --hard HEAD~2
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff -m "Octopus" evil topic >/dev/null
+if out="$(verify base 2>&1)"; then fail "an octopus merge by the forge is refused: $out"; else
+    grep -q "^FAILED  $(short HEAD) Octopus — an octopus merge by noreply@github.com" <<<"$out" &&
+        pass "an octopus merge by the forge is refused" || fail "the octopus merge is named: $out"
+fi
+g reset -q --hard HEAD^
+forge_merge topic
+mkdir -p "$work/oldgit"
+cat > "$work/oldgit/git" <<EOF
+#!/usr/bin/env bash
+case "\$1" in version|--version) echo "git version 2.37.1"; exit 0 ;; esac
+exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$work/oldgit/git"
+if out="$(verify "PATH=$work/oldgit:$PATH" base 2>&1)"; then fail "a git older than 2.38 cannot judge a merge, and says so: $out"; else
+    grep -q 'git 2.37.1 cannot check a merge: .*2.38 or later' <<<"$out" &&
+        pass "a git older than 2.38 cannot judge a merge, and says so" || fail "the old git is named: $out"
+fi
+g reset -q --hard HEAD^
 g merge -q --no-ff -m "Merge evil by hand" evil
 verify base >/dev/null 2>&1 && fail "an unsigned merge by anyone but the forge is refused" ||
     pass "an unsigned merge by anyone but the forge is refused"

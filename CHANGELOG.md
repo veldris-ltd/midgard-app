@@ -1101,6 +1101,12 @@ CONTRIBUTING.md for the version policy.
   two-parent merge committed as one of `MIDGARD_MERGE_COMMITTERS`, the only kind for
   which GitHub's verdict is asked. With no key in `allowed_signers` the job fails on
   both forges. [VLD-ANB-MIDGARD-0069]
+- **A forge merge is exempt only when it is exactly the merge of its parents.** The
+  `commits` job exempted a forge merge whose combined diff was empty, which hides a
+  merge that keeps one parent's side of what the other changed. It now requires the
+  merge's tree to equal `git merge-tree --write-tree` of its two parents (git 2.38 or
+  later; an older git fails the run and says so). A merge whose parents conflict, and an
+  octopus merge, are refused. [VLD-ANB-MIDGARD-0069]
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**

@@ -447,9 +447,12 @@ head: a commit passes when git verifies its SSH signature against
 `deploy/trust/allowed_signers` as the base commit has it (so a change cannot add the key
 that vouches for it), or when it is a two-parent merge by the forge (`noreply@github.com`,
 or the identities in the CI variable `MIDGARD_MERGE_COMMITTERS`) that, on GitHub,
-GitHub reports verified, or whose combined diff is empty. GitHub's verdict counts for
-its own merges only: a commit signed by a key GitHub knows but `allowed_signers` does
-not list fails. It names every commit that fails. With no key in `allowed_signers` it
+GitHub reports verified, or whose tree is exactly what `git merge-tree --write-tree`
+gives for its parents (git 2.38 or later; the job says so on an older one). A combined
+diff would hide a merge that keeps one parent's side of what the other changed. A merge
+whose parents conflict, and an octopus merge, are not exempt. GitHub's verdict counts
+for its own merges only: a commit signed by a key GitHub knows but `allowed_signers`
+does not list fails. It names every commit that fails. With no key in `allowed_signers` it
 fails closed on both forges, until the maintainers' keys are committed there
 (docs/ops/PKI.md, "Git signing").
 
