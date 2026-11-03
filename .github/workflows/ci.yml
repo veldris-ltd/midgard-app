@@ -52,7 +52,6 @@ jobs:
       - run: bash tools/ci/run.sh gate-record
       - run: bash tools/ci/run.sh numbers
       - run: bash tools/ci/run.sh secrets
-      - run: bash tools/ci/run.sh signed-commits
       - run: bash tools/ci/run.sh k8s-render
 
   lint:

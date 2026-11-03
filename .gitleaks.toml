@@ -34,7 +34,8 @@ paths = ['''^vendor/''']
 [[allowlists]]
 description = "BUILD_PLAYBOOK.md: '...Keychain, Keystore, TPM/DPAPI, Secret Service, WebCrypto/enclave...'"
 condition = "AND"
-paths = ['''^BUILD_PLAYBOOK\.md$''']
+# The history scan also sees the file's first location, readme/, in the initial import.
+paths = ['''^BUILD_PLAYBOOK\.md$''', '''^readme/BUILD_PLAYBOOK\.md$''']
 regexes = ['''WebCrypto/enclave''']
 
 [[allowlists]]

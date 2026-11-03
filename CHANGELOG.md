@@ -650,7 +650,7 @@ CONTRIBUTING.md for the version policy.
   whole process with `mlockall` at start through `service_runtime::harden_process`,
   when `RLIMIT_MEMLOCK` is unlimited, and logs one line naming `RLIMIT_MEMLOCK` and
   `CAP_IPC_LOCK` if it cannot; `MIDGARD_NO_MLOCKALL=1` turns it off (logged).
-  `pqc_agility::Zeroizing` is re-exported for downstream crates. RB-8 in
+  `pqc_agility::Zeroizing` is re-exported for downstream crates. RB-11 in
   `docs/ops/RUNBOOKS.md` covers the limit.
 - **Standard hybrid key combination.** [MG-SEC-09] The hybrid secret uses the X-Wing
   combiner (SHA3-256 over both secrets, the X25519 ciphertext and public key), and
@@ -1070,7 +1070,7 @@ CONTRIBUTING.md for the version policy.
     numbers by the clock in nanoseconds, so `mg-install`'s sample replay and the
     compose and kind smoke tests, which run it once per observation, need no change.
     A feed that restarts its sequence below its last is refused until it continues
-    above it or is re-registered; `docs/ops/RUNBOOKS.md` RB-8 says what each refusal
+    above it or is re-registered; `docs/ops/RUNBOOKS.md` RB-10 says what each refusal
     means.
 
 - **A hostile data source cannot crash or stall the Forge worker.**

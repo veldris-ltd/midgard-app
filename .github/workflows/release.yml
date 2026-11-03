@@ -76,10 +76,12 @@ jobs:
       - run: bash tools/ci/run.sh toolchain
       # The JavaScript artefacts are built on the runner, where node is; the release
       # then gates them inside the toolchain image with everything else. Vite 7 needs
-      # Node 22.12 or later (package.json engines), above the runner's default.
+      # Node 22.12 or later (package.json engines), above the runner's default. The
+      # latest 22.x, not 22.12.0 itself: that release's corepack only knows npm's old
+      # signing key and refuses to fetch pnpm.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: '22.12'
+          node-version: '22'
           package-manager-cache: false
       - run: bash tools/ci/run.sh js-build
       - run: bash tools/ci/run.sh release-dry-run

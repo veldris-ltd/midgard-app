@@ -34,8 +34,12 @@ count() { grep -cE "$1" "$2" || true; }
 hex() { printf "$1%.0s" $(seq 64); }
 
 services="$(tr -d '\r' < "$values" | sed -n '/^  digests:/,/^  [^ ]/s/^    \([a-z0-9-]*\):.*/\1/p')"
-# One container per service, and a seed init container for each service that seeds.
-containers=$(( $(tr -d '\r' < "$values" | grep -c '^  - name:') + $(tr -d '\r' < "$values" | grep -c '^    seed: true') ))
+# One container per service in a service image. Each service that seeds, and each
+# with a keystore identity, also has an init container (seed, keystore-passphrase):
+# in the pinned seedImage when rendering a release, in image.single otherwise.
+containers=$(tr -d '\r' < "$values" | grep -c '^  - name:')
+tools=$(( $(tr -d '\r' < "$values" | grep -c '^    seed: true') + $(tr -d '\r' < "$values" | grep -c '^    identity:') ))
+toolimage="$(tr -d '\r' < "$values" | sed -n '/^seedImage:/,/^[^ ]/{s/^  repository: //p}')@$(tr -d '\r' < "$values" | sed -n '/^seedImage:/,/^[^ ]/{s/^  digest: //p}')"
 check "the chart names a digest for each of the five services" \
     test "$(echo $services)" = "http-gateway mimir-server bifrost-fleet heimdall-feed forge-worker"
 
@@ -44,7 +48,13 @@ HELM="${HELM:-helm}"
 if ! command -v "$HELM" >/dev/null 2>&1; then
     echo "skip  the chart cases (helm is not on PATH)"
 else
-    render() { "$HELM" template midgard "$chart" --namespace default "$@" 2>&1 | tr -d '\r'; }
+    # Every case renders with secrets.acknowledgeEtcdEncryption=true, as deploy/k8s/render.sh
+    # does: since WP-29 the chart refuses kubernetes Secrets without it, and these cases are
+    # about image references, not secrets custody.
+    render() {
+        "$HELM" template midgard "$chart" --namespace default \
+            --set secrets.acknowledgeEtcdEncryption=true "$@" 2>&1 | tr -d '\r'
+    }
 
     # AC-37.1: the defaults are a release chart, which does not render without digests.
     if render > "$work/default.yaml"; then
@@ -60,10 +70,14 @@ else
     else
         fail "image.allowTag=true renders: $(head -3 "$work/tag.yaml")"
     fi
-    check "allowTag: no image is pinned" test "$(count '@sha256:' "$work/tag.yaml")" = 0
-    check "allowTag: every image ($containers) is pulled Always" \
+    check "allowTag: no service image is pinned" \
+        test "$(count '^ *image: registry.enclosure.local/midgard/.*@sha256:' "$work/tag.yaml")" = 0
+    check "allowTag: every init container ($tools) runs in the pinned seedImage" \
+        test "$(count "^ *image: $toolimage\$" "$work/tag.yaml")" = "$tools"
+    check "allowTag: every service image ($containers) is pulled Always" \
         test "$(count '^ *imagePullPolicy: Always$' "$work/tag.yaml")" = "$containers"
-    check "allowTag: no image is pulled IfNotPresent" test "$(count 'IfNotPresent' "$work/tag.yaml")" = 0
+    check "allowTag: only the pinned seedImage ($tools) is pulled IfNotPresent" \
+        test "$(count 'IfNotPresent' "$work/tag.yaml")" = "$tools"
     check "allowTag: every pod is annotated unpinned" \
         test "$(count 'midgard.veldris.io/image-pinned: "false"' "$work/tag.yaml")" = 5
     check "the committed deploy/k8s/enclosure.yaml is the allowTag rendering" \
@@ -78,13 +92,13 @@ else
     else
         fail "five digests render: $(head -3 "$work/pinned.yaml")"
     fi
-    check "pinned: every image ($containers) is registry/name@digest" \
+    check "pinned: every service image ($containers) is registry/name@digest" \
         test "$(count "^ *image: registry.enclosure.local/midgard/[a-z-]+@$a\$" "$work/pinned.yaml")" = "$containers"
     check "pinned: no image line carries a tag" \
         test "$(grep -E '^ *image:' "$work/pinned.yaml" | grep -vc '@sha256:')" = 0
     check "pinned: no image line names the chart's tag" test "$(count '^ *image: .*:0\.1\.0-rc\.1' "$work/pinned.yaml")" = 0
     check "pinned: every image is pulled IfNotPresent" \
-        test "$(count '^ *imagePullPolicy: IfNotPresent$' "$work/pinned.yaml")" = "$containers"
+        test "$(count '^ *imagePullPolicy: IfNotPresent$' "$work/pinned.yaml")" = "$((containers + tools))"
     check "pinned: every pod is annotated pinned" \
         test "$(count 'midgard.veldris.io/image-pinned: "true"' "$work/pinned.yaml")" = 5
 
@@ -99,7 +113,7 @@ else
     # image.single (kind) is used as given.
     render --set image.single=midgard/dev:local --set image.pullPolicy=Never > "$work/single.yaml" \
         && check "image.single is used as given" \
-            test "$(count '^ *image: midgard/dev:local$' "$work/single.yaml")" = "$containers" \
+            test "$(count '^ *image: midgard/dev:local$' "$work/single.yaml")" = "$((containers + tools))" \
         || fail "image.single renders"
 fi
 

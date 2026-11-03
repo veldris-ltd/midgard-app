@@ -14,8 +14,8 @@ Index:
 - [RB-7: Verify the audit chain](#rb-7-verify-audit)
 - [RB-8: Disengage Mimir inference](#rb-8-disengage-mimir-inference)
 - [RB-9: Rotate or withdraw the model trust anchor](#rb-9-rotate-or-withdraw-the-model-trust-anchor)
-- [RB-8: Heimdall feed observations refused as stale or replayed](#rb-8-heimdall-feed-observations-refused-as-stale-or-replayed)
-- [RB-8: A service could not lock process memory](#rb-8-memory-lock)
+- [RB-10: Heimdall feed observations refused as stale or replayed](#rb-10-heimdall-feed-observations-refused-as-stale-or-replayed)
+- [RB-11: A service could not lock process memory](#rb-11-memory-lock)
 
 Release engineering (not an in-enclosure operational task):
 - [Execute the GA gate — readiness §4 A–C](RUNBOOK_ga_gate.md)
@@ -125,9 +125,11 @@ endpoint for it.
 [VLD-ANB-MIDGARD-0057]
 1. Re-sign the approved model manifests with the new key (`mg-model sign`) and stage
    them beside the weights.
-2. Replace the model trust file mimir-server reads (`--model-trust`; in Helm the
-   `model-signing.pub` key of the `trustConfigMap`) with the new public key from
-   `mg-model keygen`.
+2. Replace the model trust anchor mimir-server reads (`--model-trust`, the pinned
+   `deploy/trust/model-signing.pub`, carried read-only in the image at
+   `/etc/midgard/trust/model-signing.pub`; in Helm the `model-signing.pub` key of the
+   `trustConfigMap`) with the new public key from `mg-model keygen`, committed
+   through a signed, reviewed change. [VLD-ANB-MIDGARD-0028]
 3. A running service re-checks its manifest against the trust file every reload
    interval: a manifest the new key does not verify stops serving, refused
    `MODEL_REVOKED`, with `the manifest signature does not verify` in the
@@ -136,7 +138,8 @@ endpoint for it.
    serving everywhere it is mounted.
 4. **Verify:** the restarted service logs `serving` with the expected `model` and
    `model_version`, `/readyz` returns 200 and `mimir-probe` is served.
-## RB-8: Heimdall feed observations refused as stale or replayed
+
+## RB-10: Heimdall feed observations refused as stale or replayed
 **Trigger:** a feed source reports `denied` from `heimdall-feed`, or the feed ledger
 shows `Ingest refused` rows with reason `observed-at-out-of-window`, `replay` or
 `sequence-unset`. [VLD-ANB-MIDGARD-0041]
@@ -167,7 +170,7 @@ shows `Ingest refused` rows with reason `observed-at-out-of-window`, `replay` or
 3. **Verify:** the source's next observation is `accepted`, and the ledger shows no
    further refusals for it.
 
-## RB-8: A service could not lock process memory
+## RB-11: A service could not lock process memory
 **Trigger:** a service logs `could not lock process memory (...)` at start, naming
 `RLIMIT_MEMLOCK` and `CAP_IPC_LOCK`. [VLD-ANB-MIDGARD-0036]
 1. The service is running, but key material is kept out of swap only per secret, not

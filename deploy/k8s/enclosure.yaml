@@ -509,10 +509,13 @@ spec:
         # root-owned, group-readable file, which the service refuses (a passphrase file
         # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
         # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
         - name: keystore-passphrase
-          image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -665,10 +668,13 @@ spec:
         # root-owned, group-readable file, which the service refuses (a passphrase file
         # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
         # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
         - name: keystore-passphrase
-          image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -821,10 +827,13 @@ spec:
         # root-owned, group-readable file, which the service refuses (a passphrase file
         # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
         # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
         - name: keystore-passphrase
-          image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -977,10 +986,13 @@ spec:
         # root-owned, group-readable file, which the service refuses (a passphrase file
         # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
         # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
         - name: keystore-passphrase
-          image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -1106,10 +1118,13 @@ spec:
         # root-owned, group-readable file, which the service refuses (a passphrase file
         # must be owner-only). The service never mounts the source. [VLD-ANB-MIDGARD-0007]
         # [VLD-ANB-MIDGARD-0018]
+        # A release service image is distroless (no shell), so, like the seed step, this
+        # runs in seedImage, pinned by digest; image.single (development) carries a
+        # shell itself. [VLD-ANB-MIDGARD-0068]
         - name: keystore-passphrase
-          image: registry.enclosure.local/midgard/forge-worker:0.1.0-rc.1
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
+          command: ["sh", "-c", "umask 077 && rm -f /keystore-passphrase/passphrase /keystore-passphrase/.passphrase && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/.passphrase && chmod 0400 /keystore-passphrase/.passphrase && mv /keystore-passphrase/.passphrase /keystore-passphrase/passphrase"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
