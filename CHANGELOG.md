@@ -274,6 +274,24 @@ CONTRIBUTING.md for the version policy.
     removal and the failure without iptables; `deploy/compose/smoke.sh` checks each
     running container's limits and that the gateway cannot connect out (skipped on
     Docker Desktop, which is not a server target).
+- **`mg-install` checks the install folder before it fills or deletes it, and the
+  Docker key before it trusts it.** [VLD-ANB-MIDGARD-0048]
+  - `MG_INSTALL_DIR` (or `INSTALL_DIR` in an answers file) must be an absolute path at
+    least two levels deep, with no `..`, not a symbolic link, not the installer's
+    repository or inside it, and whose parent is owned by root and not writable by
+    everyone. Every command refuses anything else, so `/`, `/srv` or a typo cannot
+    become the folder written, or deleted, as root. `uninstall --purge` also requires
+    the folder to hold `install.env` and be owned by root before it deletes anything.
+  - Upgrading: an install in a one-level folder such as `/midgard` is refused until it
+    is moved to, say, `/opt/midgard`.
+  - Docker's apt signing key is installed only if its fingerprint is the one Docker
+    publishes (`9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`); `gnupg` is
+    installed to check it. On Red Hat family servers a Docker repository file with
+    `gpgcheck` off is refused.
+  - The unattended install's `OPERATOR_PASSWORD_FILE` must be a regular file owned by
+    root with mode 0600 or 0400, as `answers.example` always said.
+  - The installer can be sourced without running, and
+    `tools/ci/tests/mg-install.test.sh` tests these checks unprivileged.
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry
