@@ -61,6 +61,11 @@ CONTRIBUTING.md for the version policy.
 - **The model server's prompt bound counts the system text.** `max_prompt_bytes` is
   checked against `system_prompt` and `prompt` together, so a large system turn is
   refused `PROMPT_TOO_LARGE` like a large body. [VLD-ANB-MIDGARD-0016]
+- **Mistral's tool-calling tokens are neutralised.** `[AVAILABLE_TOOLS]`,
+  `[/AVAILABLE_TOOLS]`, `[TOOL_CALLS]`, `[TOOL_RESULTS]`, `[/TOOL_RESULTS]` and
+  `[TOOL_CONTENT]` in the system or user text are escaped like the family's other
+  control tokens, so data cannot forge a tool list, call or result.
+  [VLD-ANB-MIDGARD-0060]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as
