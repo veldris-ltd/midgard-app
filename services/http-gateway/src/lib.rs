@@ -79,6 +79,16 @@ pub const DEMO_PASSWORD: &str = "midgard-demo";
 pub const DEMO_APPROVER_USERNAME: &str = "approver";
 pub const DEMO_APPROVER_PASSWORD: &str = "midgard-approve";
 
+/// The action that admits `GET /api/v1/audit`: reading the ledger is its own
+/// permission, not a generic Read. [VLD-ANB-MIDGARD-0031]
+pub const ACTION_READ_AUDIT: &str = "ReadAudit";
+/// The resource `ReadAudit` is decided on to admit the ledger view.
+pub const AUDIT_LEDGER_RESOURCE: &str = "audit-ledger";
+/// The resource whose `ReadAudit` grant shows other principals' login rows.
+pub const AUDIT_SESSIONS_RESOURCE: &str = "audit-ledger:sessions";
+/// The response header that says the ledger view omitted rows the caller may not see.
+pub const AUDIT_FILTERED_HEADER: &str = "X-Audit-Filtered";
+
 /// Where logins are looked up: in memory for development, a durable KMS-sealed
 /// directory for a deployment. Either way a login authenticates through
 /// `iam::Authenticator` — password, then any enrolled second factor. [RC-29] [RC-37]
@@ -1033,12 +1043,17 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                     let limit = body.get("limit").and_then(Json::as_i64);
                     self.lock().search_around(&ctx, &seed, hops, limit, now)
                 }),
+            // The ledger view is scoped to the caller; the header says when rows were
+            // omitted, so a partial view is never taken for the whole ledger.
+            // [VLD-ANB-MIDGARD-0031]
             ("GET", "/api/v1/audit") => {
                 let limit = req
                     .query_param("limit")
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(50);
-                Ok(self.lock().audit(&self.provider, limit))
+                let (rows, filtered) = self.lock().audit(&ctx, &self.provider, limit);
+                let filtered = if filtered { "true" } else { "false" };
+                return Response::ok(rows.encode()).with_header(AUDIT_FILTERED_HEADER, filtered);
             }
             ("GET", "/api/v1/policies") => Ok(self.lock().policies()),
             ("POST", "/api/v1/policy/simulate") => parse(&req.body)
@@ -1133,6 +1148,13 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             ("POST", path) if approval_decision(path).is_some() => {
                 (path.to_string(), self.marking_for("__actions__"), "Approve")
             }
+            // Reading the ledger is its own permission, so a generic Read on `*` does
+            // not admit it. [VLD-ANB-MIDGARD-0031]
+            ("GET", "/api/v1/audit") => (
+                AUDIT_LEDGER_RESOURCE.to_string(),
+                self.marking_for("__audit__"),
+                ACTION_READ_AUDIT,
+            ),
             (_, path) => (path.to_string(), self.marking_for(path), "Read"),
         }
     }
@@ -1695,8 +1717,9 @@ fn gov_context(claims: &TokenClaims) -> GovContext {
 
 /// The dev/login policy: permit the demo operator role to Read + Apply at the edge,
 /// and to run each seeded fabric action; permit the demo approver role to Read and to
-/// Approve human gates. Public so a test can assemble the same governance over a
-/// durable ledger. [RC-37] [NFR-AI-1]
+/// Approve human gates; permit both to read the audit ledger view, and the operator to
+/// see other principals' login rows in it. Public so a test can assemble the same
+/// governance over a durable ledger. [RC-37] [NFR-AI-1] [VLD-ANB-MIDGARD-0031]
 pub fn dev_login_policy() -> PolicySet {
     let rule = |id: String, role: &str, action: &str| Rule {
         id: RuleId(id),
@@ -1712,6 +1735,21 @@ pub fn dev_login_policy() -> PolicySet {
         rule("approver-read".into(), "approver", "Read"),
         rule("approver-approve".into(), "approver", "Approve"),
     ];
+    // Both roles may read the ledger view; only the operator also sees other
+    // principals' login rows. [VLD-ANB-MIDGARD-0031]
+    let audit = |id: &str, role: &str, resource: &str| Rule {
+        selector: Selector::Resource(ResourceId(resource.into())),
+        ..rule(id.into(), role, ACTION_READ_AUDIT)
+    };
+    rules.extend([
+        audit("operator-audit", "operator", AUDIT_LEDGER_RESOURCE),
+        audit(
+            "operator-audit-sessions",
+            "operator",
+            AUDIT_SESSIONS_RESOURCE,
+        ),
+        audit("approver-audit", "approver", AUDIT_LEDGER_RESOURCE),
+    ]);
     // The fabric authorises an action on the action's own api name, not on the edge's
     // generic "Apply" — without one rule per action, every action is denied.
     rules.extend(

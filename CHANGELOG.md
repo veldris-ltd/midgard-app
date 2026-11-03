@@ -130,6 +130,19 @@ CONTRIBUTING.md for the version policy.
   Hand-written rules on bare type ids or raw object ids stop matching, and audit
   consumers keyed on the old search-around resource need updating; the shipped
   policies use `*`. [VLD-ANB-MIDGARD-0023]
+- **The audit view is its own permission and is scoped to the caller.** Any principal
+  allowed to Read could list the whole ledger through `GET /api/v1/audit`, including
+  the ids of compartmented objects a search-around had reached and every login
+  attempt by name. The route is now admitted by `ReadAudit` on `audit-ledger`, not by
+  a generic Read. Rows about an object the caller cannot read now are omitted, as are
+  login rows about other principals unless the caller holds `ReadAudit` on
+  `audit-ledger:sessions`. Rows are omitted, not redacted, and filtered before the
+  limit; the response is still a bare array, and the `X-Audit-Filtered` header says
+  whether rows were omitted. **Deployments must add `ReadAudit` rules or the audit
+  view returns 403**: the dev policy, `deploy/compose/core-policy.json`, the installer
+  profiles, the sample configuration and `mg-admin init`'s starter policy grant it on
+  `audit-ledger` to `operator` and `approver`, and on `audit-ledger:sessions` to
+  `operator`. [VLD-ANB-MIDGARD-0031]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

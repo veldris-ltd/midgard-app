@@ -294,6 +294,9 @@ pub struct Response {
     pub allow_origin: Option<String>,
     /// Seconds before the client should retry, sent as `Retry-After`.
     pub retry_after: Option<u64>,
+    /// Further response headers a route sets, sent as given and exposed to an
+    /// allowlisted origin.
+    pub headers: Vec<(&'static str, String)>,
 }
 
 impl Response {
@@ -304,6 +307,7 @@ impl Response {
             body,
             allow_origin: None,
             retry_after: None,
+            headers: Vec::new(),
         }
     }
 
@@ -318,6 +322,7 @@ impl Response {
             body: body.to_string(),
             allow_origin: None,
             retry_after: None,
+            headers: Vec::new(),
         }
     }
 
@@ -330,6 +335,13 @@ impl Response {
     /// Ask the client to wait `seconds` before retrying.
     pub fn with_retry_after(mut self, seconds: u64) -> Self {
         self.retry_after = Some(seconds);
+        self
+    }
+
+    /// Send header `name` with `value`. Only call with a fixed name and a value the
+    /// edge itself produced, never one taken from the request.
+    pub fn with_header(mut self, name: &'static str, value: &str) -> Self {
+        self.headers.push((name, value.to_string()));
         self
     }
 
@@ -371,12 +383,20 @@ impl Response {
         if let Some(seconds) = self.retry_after {
             head.push_str(&format!("Retry-After: {seconds}\r\n"));
         }
+        for (name, value) in &self.headers {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
         // Origin-locked CORS: echo only an allowlisted origin, never `*`.
         if let Some(origin) = &self.allow_origin {
             head.push_str(&format!("Access-Control-Allow-Origin: {origin}\r\n"));
             head.push_str("Vary: Origin\r\n");
             head.push_str("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
             head.push_str("Access-Control-Allow-Headers: Content-Type, Authorization\r\n");
+            if !self.headers.is_empty() {
+                let names: Vec<&str> = self.headers.iter().map(|(name, _)| *name).collect();
+                let names = names.join(", ");
+                head.push_str(&format!("Access-Control-Expose-Headers: {names}\r\n"));
+            }
         }
         head.push_str("\r\n");
         stream.write_all(head.as_bytes())?;

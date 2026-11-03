@@ -108,7 +108,8 @@ fn init_lays_out_a_state_directory_and_never_overwrites_one() {
     }
     let policy = parse_policy(&std::fs::read_to_string(state.policy()).unwrap())
         .expect("the starter policy loads");
-    assert_eq!(policy.rules().len(), 4);
+    // Read, Apply and Approve, and ReadAudit on the ledger view. [VLD-ANB-MIDGARD-0031]
+    assert_eq!(policy.rules().len(), 7);
     let ontology = parse_ontology(&std::fs::read_to_string(state.ontology()).unwrap())
         .expect("the starter ontology loads");
     assert!(ontology.object_types.is_empty());

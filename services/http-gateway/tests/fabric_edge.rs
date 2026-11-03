@@ -3,16 +3,25 @@
 //! control, actions that genuinely mutate the store, policies and dry-runs from the
 //! enforcing PDP, and an audit view that is the PQ-signed ledger itself — driven end
 //! to end through a logged-in development gateway.
-//! [DD-1] [NFR-SEC-2] [NFR-AI-1] [NFR-PQ-3] [AC-M-4]
+//! The ledger view itself is scoped to the caller. [VLD-ANB-MIDGARD-0031]
+//! [DD-1] [NFR-SEC-2] [NFR-AI-1] [NFR-PQ-3] [AC-M-4] [AC-20.1] [AC-20.2] [AC-20.3]
 #![cfg(feature = "backend-fips")]
 
+use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use governance::Governance;
+use http_gateway::enclosure::Enclosure;
 use http_gateway::http::{Request, Response};
 use http_gateway::json::{parse, Json};
 use http_gateway::{
-    SecuredGateway, DEMO_APPROVER_PASSWORD, DEMO_APPROVER_USERNAME, DEMO_PASSWORD, DEMO_USERNAME,
+    demo_approver, demo_operator, dev_login_policy, SecuredGateway, ACTION_READ_AUDIT,
+    DEMO_APPROVER_PASSWORD, DEMO_APPROVER_USERNAME, DEMO_PASSWORD, DEMO_USERNAME,
 };
+use iam::{Idp, UserRecord};
+use policy::{Clearance, DefaultPdp, PolicySet, Purpose, Rule};
+use pqc_agility::backend::fips::provider as fips_provider;
+use pqc_agility::OsRng;
 
 fn now() -> u64 {
     SystemTime::now()
@@ -604,5 +613,166 @@ fn edge_admission_and_fabric_decisions_share_one_ledger() {
         gw.audit_len(),
         before + 2,
         "one admission decision at the edge and one read decision in the fabric, same chain"
+    );
+}
+
+/// The value of response header `name`, if the edge sent it.
+fn header<'a>(r: &'a Response, name: &str) -> Option<&'a str> {
+    r.headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
+/// The audit view as `token` sees it, with the response it came in.
+fn audit_view(gw: &SecuredGateway, token: &str) -> (Response, Vec<Json>) {
+    let r = call(gw, "GET", "/api/v1/audit", "limit=500", "", Some(token));
+    assert_eq!(r.status, 200, "{}", r.body);
+    let rows = items(&json(&r)).to_vec();
+    (r, rows)
+}
+
+/// A search-around from a compartmented seed writes the seed's object id to the
+/// ledger. A principal cleared to the same level but without the OPS-N compartment
+/// does not see that row, and is told the view was filtered; the operator, who holds
+/// OPS-N, still sees it. [VLD-ANB-MIDGARD-0031] [AC-20.1] [NFR-SEC-2]
+#[test]
+fn the_audit_view_hides_rows_about_objects_the_caller_cannot_read() {
+    let (mut gw, token) = session();
+    let uncompartmented = UserRecord {
+        clearance: Clearance {
+            level: demo_approver().clearance.level,
+            compartments: BTreeSet::new(),
+        },
+        ..demo_approver()
+    };
+    gw.provision_login("analyst", "analyst-password", uncompartmented)
+        .expect("the analyst provisions in memory");
+
+    let seed = "aircraft/AC-2214";
+    let body = format!(r#"{{"seedId":"{seed}","hops":1}}"#);
+    let r = call(
+        &gw,
+        "POST",
+        "/api/v1/search-around",
+        "",
+        &body,
+        Some(&token),
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+
+    let (_, operator_rows) = audit_view(&gw, &token);
+    assert!(
+        operator_rows
+            .iter()
+            .any(|row| field(row, "resource") == format!("object:{seed}")),
+        "the cleared operator should see the search-around row"
+    );
+
+    let analyst = login(&gw, "analyst", "analyst-password");
+    let (r, rows) = audit_view(&gw, &analyst);
+    assert!(!rows.is_empty(), "the analyst still sees the rows they may");
+    for row in &rows {
+        assert!(
+            !field(row, "resource").contains(seed),
+            "compartmented object leaked: {}",
+            row.encode()
+        );
+    }
+    assert_eq!(header(&r, "X-Audit-Filtered"), Some("true"));
+}
+
+/// A role that may Read anything but holds no ReadAudit rule is refused the ledger
+/// view, and the refusal is itself a ledger row. [VLD-ANB-MIDGARD-0031] [AC-20.2]
+#[test]
+fn reading_the_audit_needs_the_read_audit_permission() {
+    const NOW: u64 = 1_800_000_000;
+    // The dev policy, less the operator's ReadAudit rules: the operator keeps Read on
+    // `*`, the approver keeps ReadAudit and inspects the ledger.
+    let rules: Vec<Rule> = dev_login_policy()
+        .rules()
+        .iter()
+        .filter(|r| !(r.role.0 == "operator" && r.action.0 == ACTION_READ_AUDIT))
+        .cloned()
+        .collect();
+    let mut rng = OsRng;
+    let mut idp = Idp::generate("test-idp", &mut rng).expect("idp keygen");
+    idp.store_mut().upsert("operator", demo_operator());
+    idp.store_mut().upsert("approver", demo_approver());
+    let issue = |idp: &Idp, who: &str| {
+        let token = idp
+            .issue_token(who, Purpose("operations".into()), NOW, 3_600)
+            .expect("issue token");
+        token.iter().fold(String::new(), |mut hex, b| {
+            hex.push_str(&format!("{b:02x}"));
+            hex
+        })
+    };
+    let operator = issue(&idp, "operator");
+    let approver = issue(&idp, "approver");
+    let policy = PolicySet::new(rules).expect("valid policy");
+    let governance = Governance::new(DefaultPdp::new(policy), &mut rng).expect("governance");
+    let gw = SecuredGateway::with_enclosure(
+        fips_provider(),
+        idp.verifying_key().clone(),
+        Enclosure::new(governance),
+        vec![],
+    );
+
+    let r = call_at(&gw, "GET", "/api/v1/audit", "", "", Some(&operator), NOW);
+    assert_eq!(r.status, 403, "{}", r.body);
+    let r = call_at(&gw, "GET", "/api/v1/whoami", "", "", Some(&operator), NOW);
+    assert_eq!(r.status, 200, "the operator still holds Read: {}", r.body);
+
+    let r = call_at(
+        &gw,
+        "GET",
+        "/api/v1/audit",
+        "limit=500",
+        "",
+        Some(&approver),
+        NOW,
+    );
+    assert_eq!(r.status, 200, "{}", r.body);
+    let ledger = json(&r);
+    assert!(
+        items(&ledger)
+            .iter()
+            .any(|row| field(row, "actor") == "operator"
+                && field(row, "action") == "DENY ReadAudit"
+                && field(row, "resource") == "audit-ledger"),
+        "no DENY ReadAudit row on audit-ledger: {}",
+        ledger.encode()
+    );
+}
+
+/// Login rows about other principals need ReadAudit on `audit-ledger:sessions`: the
+/// approver sees only their own, the operator (who holds that grant in the dev policy)
+/// sees both. [VLD-ANB-MIDGARD-0031] [AC-20.3]
+#[test]
+fn other_principals_login_rows_need_the_sessions_grant() {
+    let (gw, operator) = session();
+    let approver = approver(&gw);
+    let session_actors = |token: &str| -> BTreeSet<String> {
+        let (_, rows) = audit_view(&gw, token);
+        rows.iter()
+            .filter(|row| field(row, "resource") == "session")
+            .map(|row| field(row, "actor").to_string())
+            .collect()
+    };
+
+    let seen_by_approver = session_actors(&approver);
+    assert_eq!(
+        seen_by_approver,
+        ["approver".to_string()].into_iter().collect(),
+        "the approver should see only their own login rows"
+    );
+    let seen_by_operator = session_actors(&operator);
+    assert_eq!(
+        seen_by_operator,
+        ["approver".to_string(), "operator".to_string()]
+            .into_iter()
+            .collect(),
+        "the operator holds the sessions grant"
     );
 }

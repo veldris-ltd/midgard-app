@@ -58,8 +58,8 @@ use iam::{
 };
 use kms::{Kms, KmsSealer};
 use policy::{
-    Action, Clearance, Compartment, Effect, PolicyError, PolicySet, Purpose, Role, Rule, RuleId,
-    Selector,
+    Action, Clearance, Compartment, Effect, PolicyError, PolicySet, Purpose, ResourceId, Role,
+    Rule, RuleId, Selector,
 };
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
 use pqc_agility::{OsRng, Rng, SecretBytes, SigningKey};
@@ -95,8 +95,8 @@ USAGE:
 COMMANDS:
   init       create <dir> with fresh issuer and audit keystores, their verifying keys
              under trust/, a starter policy.json (role operator may Read and Apply;
-             role approver may Read and Approve human gates) and an empty
-             ontology.json. Refuses a directory that already has anything
+             role approver may Read and Approve human gates; both may read
+             the audit view) and an empty ontology.json. Refuses a directory that already has anything
              in it. --checkpoint-mirror also writes the audit ledger's signed
              checkpoint to that directory, which must exist on another mount; serve
              the gateway with the same --checkpoint-mirror.
@@ -619,8 +619,11 @@ fn import_data(o: &Options) -> Result<String, Failure> {
 // ---- helpers -----------------------------------------------------------------------
 
 /// The starter rules `init` writes: role `operator` may Read and Apply, and role
-/// `approver` may Read and Approve the human gates a gated action needs. Mandatory
-/// access control and the purpose gate still apply before any of them.
+/// `approver` may Read and Approve the human gates a gated action needs. Both may read
+/// the audit ledger view (`ReadAudit` on `audit-ledger`), and the operator also sees
+/// other principals' login rows in it (`audit-ledger:sessions`). Mandatory access
+/// control and the purpose gate still apply before any of them.
+/// [VLD-ANB-MIDGARD-0031]
 fn starter_policy() -> Result<PolicySet, PolicyError> {
     let rule = |id: &str, role: &str, action: &str| Rule {
         id: RuleId(id.into()),
@@ -630,11 +633,22 @@ fn starter_policy() -> Result<PolicySet, PolicyError> {
         selector: Selector::Any,
         effect: Effect::Permit,
     };
+    let audit = |id: &str, role: &str, resource: &str| Rule {
+        selector: Selector::Resource(ResourceId(resource.into())),
+        ..rule(id, role, "ReadAudit")
+    };
     PolicySet::new(vec![
         rule("operator-read", "operator", "Read"),
         rule("operator-apply", "operator", "Apply"),
         rule("approver-read", "approver", "Read"),
         rule("approver-approve", "approver", "Approve"),
+        audit("operator-audit", "operator", "audit-ledger"),
+        audit(
+            "operator-audit-sessions",
+            "operator",
+            "audit-ledger:sessions",
+        ),
+        audit("approver-audit", "approver", "audit-ledger"),
     ])
 }
 

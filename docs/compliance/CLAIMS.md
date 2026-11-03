@@ -268,11 +268,9 @@ Access is denied unless a written rule grants it: role, marking and purpose must
 
 - Source:
   - [`services/runtime/src/policy_file.rs:1`](../../services/runtime/src/policy_file.rs)
-  - [`services/fabric/src/resource.rs:1`](../../services/fabric/src/resource.rs)
 - Tests:
   - [`services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing`](../../services/http-gateway/tests/policy_file.rs)
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
-  - [`services/http-gateway/tests/policy_resources.rs::a_type_scoped_deny_holds_on_query_search_around_and_per_object_reads`](../../services/http-gateway/tests/policy_resources.rs)
 - Service tests:
   - [`services/http-gateway/tests/http.rs::fabric_and_governance_routes_are_not_reachable_without_a_caller`](../../services/http-gateway/tests/http.rs)
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
