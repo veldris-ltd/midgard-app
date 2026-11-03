@@ -8,13 +8,16 @@
 # For each image named in supply-chain/release-artefacts.txt it:
 #   1. assembles a build context from the gate's output (DIR holds, per binary,
 #      <bin>, <bin>.sig, <bin>.att and <bin>.sbom.cdx.json), the gate-verified
-#      mg-verify, the pinned trust key and the entrypoint;
-#   2. builds deploy/images/service.Dockerfile FROM its digest-pinned base, with no
+#      mg-verify (also the image's verify-before-run entrypoint) and the pinned
+#      trust key;
+#   2. builds deploy/images/service.Dockerfile FROM its digest-pinned bases (the
+#      toolchain prep stage and the distroless runtime stage), with no
 #      network, TWICE and uncached, and requires the two image digests to be equal —
 #      the image's reproducibility stage, as mg-repro is a binary's;
-#   3. runs mg-verify inside the built image against every binary it carries, exactly
-#      as the entrypoint will before it starts one — a binary that would not start is
-#      caught here, not on a cluster.
+#   3. starts every binary it carries through the built image's entrypoint
+#      (mg-verify --run-service), exactly as a pod does: a binary that would not
+#      verify or start (a glibc mismatch with the runtime base, say) is caught here,
+#      not on a cluster.
 #
 # It writes <out>/<image>.oci.tar, the image as an OCI archive, and <out>/images.lock:
 # one "<registry>/<image>:<version> <image digest>" line per image, sorted, which the
@@ -71,9 +74,6 @@ for image in $images; do
     done
     cp "$verified/mg-verify" "$ctx/mg-verify"
     cp "$trust" "$ctx/release-trust.pub"
-    # A checkout with CRLF line endings would give the entrypoint a `#!/bin/sh\r` line,
-    # which no Linux kernel can exec: every container would die before verifying.
-    tr -d '\r' < deploy/images/entrypoint.sh > "$ctx/entrypoint.sh"
 
     tag="$registry/$image:$version"
     echo "--- $tag ($(echo $bins))"

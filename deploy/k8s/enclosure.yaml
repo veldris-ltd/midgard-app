@@ -450,11 +450,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1
-          imagePullPolicy: Always
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -564,11 +569,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.1
-          imagePullPolicy: Always
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -678,11 +688,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.1
-          imagePullPolicy: Always
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -792,11 +807,16 @@ spec:
       initContainers:
         # First start only: unpack the provisioned state (keys, policy, ledger) into the
         # volume. Later starts keep what the service has written.
+        # A release service image is distroless (no shell, no tar), so this runs in
+        # seedImage, pinned by digest; image.single (development) carries both itself.
+        # [VLD-ANB-MIDGARD-0068]
         - name: seed
-          image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.1
-          imagePullPolicy: Always
-          # The volume's root belongs to the node, so leave its own mode and times alone.
-          command: ["/bin/sh", "-c", "[ -e /state/.seeded ] || { tar --no-overwrite-dir --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
+          image: gcr.io/distroless/base-debian12@sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
+          imagePullPolicy: IfNotPresent
+          # The volume's root belongs to the node, so leave its own mode and times alone:
+          # BusyBox tar does not change an existing directory it did not create, which
+          # is what GNU tar's --no-overwrite-dir asks for (and BusyBox does not accept).
+          command: ["sh", "-c", "[ -e /state/.seeded ] || { tar --no-same-owner -xf /seed/seed.tar -C /state && touch /state/.seeded; }"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
