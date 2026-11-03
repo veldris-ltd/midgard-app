@@ -75,6 +75,14 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     tmpfs: ["/tmp"]
+    # The weights (about 1.5 GB) and two 4096-token contexts, on up to four cores.
+    # mg-install sizes these from the server. [VLD-ANB-MIDGARD-0029]
+    mem_limit: 6g
+    memswap_limit: 6g
+    cpus: 4.0
+    pids_limit: 256
+    ulimits:
+      nofile: { soft: 4096, hard: 4096 }
     # Wait for mimir-server to stage the verified weights, then run the image's own
     # server on the staged copy. [MG-SEC-14]
     entrypoint:

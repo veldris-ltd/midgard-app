@@ -11,9 +11,12 @@
 #
 # `init` runs first: it creates the enclosure (issuer and audit keys) and issues every
 # mesh workload its identity. Each service mounts only its own volumes — no service
-# sees the enclosure's keys. The mesh network is internal: nothing on it can reach
-# outside the host, and no mesh service is published on a host port; each is reachable
-# only over PQ-mTLS by a certified workload.
+# sees the enclosure's keys. The mesh network is internal and no mesh service is
+# published on a host port; each is reachable only over PQ-mTLS by a certified
+# workload. The gateway is also on `edge`, for the 127.0.0.1 publish only: `edge`
+# does no masquerade and carries no container-to-container traffic, and on a server
+# mg-install's firewall rule drops anything forwarded out of it, so neither network
+# routes anything out of the host. [VLD-ANB-MIDGARD-0061]
 #
 # The image is built locally from source and is NOT the signed release image
 # (deploy/images/service.Dockerfile verifies a release signature before it runs).
@@ -21,6 +24,12 @@
 
 name: midgard
 
+# Every service runs under cgroup limits, so a flood of idle connections, growing
+# metrics or inference load exhausts one container, not the host. These sizes are for
+# evaluation: services override them below where they need more, and mg-install
+# writes values sized from the server's cores and memory into the site overlay
+# (compose.site.yaml), which compose merges over these. Raise them the same way, in
+# an overlay of your own. [VLD-ANB-MIDGARD-0029]
 x-service: &service
   image: midgard/dev:local
   build:
@@ -31,6 +40,12 @@ x-service: &service
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   tmpfs: ["/tmp"]
+  mem_limit: 512m
+  memswap_limit: 512m
+  cpus: 1.0
+  pids_limit: 256
+  ulimits:
+    nofile: { soft: 4096, hard: 4096 }
 
 services:
   init:
@@ -78,6 +93,12 @@ services:
     networks: [edge, mesh]
     ports:
       - "127.0.0.1:7710:7710"
+    # The edge holds every client connection: more memory, threads and descriptors.
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 512
+    ulimits:
+      nofile: { soft: 8192, hard: 8192 }
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "midgard-ready", "7710", "/api/v1/health"]
@@ -106,6 +127,10 @@ services:
       - mimir-identity:/identity:ro
       - mimir-state:/state
     networks: [mesh]
+    # Inference, and with Granite the verification and staging of the weights.
+    mem_limit: 4g
+    memswap_limit: 4g
+    cpus: 4.0
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "midgard-ready", "9090", "/readyz"]
@@ -298,7 +323,21 @@ services:
       retries: 12
 
 networks:
-  edge: {}
+  # Only for publishing the gateway on 127.0.0.1: no masquerade, so nothing on it is
+  # routed out of the host, and no traffic between its containers (the console's
+  # browser reaches the gateway through the published port). `internal: true` would
+  # deny egress outright, but Docker publishes no port from an internal network. A
+  # host that NATs or forwards this subnet itself (Docker Desktop's VM does) would
+  # still route it, so the bridge has a fixed interface name, mg-edge0, and mg-install
+  # adds a firewall rule (DOCKER-USER) that drops anything forwarded from it to another
+  # interface. Without the installer, only the bridge setting applies. The name is at
+  # most 15 characters; MIDGARD_EDGE_BRIDGE changes it, so a second project (smoke.sh)
+  # can run beside this one. [VLD-ANB-MIDGARD-0061]
+  edge:
+    driver_opts:
+      com.docker.network.bridge.name: ${MIDGARD_EDGE_BRIDGE:-mg-edge0}
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.enable_icc: "false"
   mesh:
     internal: true
 

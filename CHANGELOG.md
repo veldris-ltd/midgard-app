@@ -238,6 +238,42 @@ CONTRIBUTING.md for the version policy.
   mesh network; that residual is in the residual risk register. Upgrading: label
   your Prometheus pod `app.kubernetes.io/name=metrics-scraper` (or set
   `scraper.podLabel`) before upgrading the chart, or scraping stops.
+- **Compose services run under resource limits, and the gateway has no route out of
+  the host.** [VLD-ANB-MIDGARD-0029] [VLD-ANB-MIDGARD-0061]
+  - Every service in `deploy/compose/compose.yaml` has a memory limit with no swap
+    above it, a CPU share, a PID limit and a descriptor limit: 512 MB, one core, 256
+    PIDs and 4096 descriptors by default; the gateway 1 GB, 512 PIDs and 8192
+    descriptors; mimir-server 4 GB and four cores; the Granite llama.cpp sidecar 6 GB
+    and four cores. A flood of idle connections or inference load now exhausts one
+    container, not the host. These are evaluation sizes: `mg-install` writes limits
+    sized from the server's cores and memory into `compose.site.yaml` (the gateway
+    min(1 GB, RAM/8); Mimir half the memory with Granite, a quarter without, and
+    every core but two; the rest 512 MB and one core). Sites that set interim limits
+    in their own overlay can remove them.
+  - The `edge` network the gateway is published from no longer masquerades and
+    carries no traffic between its containers, so the gateway, which was on an
+    ordinary NAT bridge, cannot open connections out of the host; the loopback
+    publish on 127.0.0.1:7710 is unchanged, and the console reaches the gateway
+    through it. The header of `compose.yaml` said nothing could reach outside the
+    host, which was true only of the mesh; it now describes both networks.
+  - The bridge setting alone is not enough where the host forwards or NATs the
+    bridge's subnet itself (Docker Desktop's VM does), so `edge`'s bridge now has a
+    fixed interface name, `mg-edge0`, and `mg-install` adds a host firewall rule: in
+    Docker's `DOCKER-USER` chain (and ip6tables' where Docker manages one), replies
+    to existing connections return, then anything forwarded from `mg-edge0` to
+    another interface is dropped. The rules are tagged `midgard-edge-egress`; a
+    systemd unit, `midgard-edge-egress.service`, puts them back after every boot and
+    Docker restart; `mg-install uninstall` removes both. A server with no iptables
+    or no `DOCKER-USER` chain (Docker's nftables backend, or `"iptables": false`)
+    fails the step rather than installing unprotected. Plain compose, without the
+    installer, still relies on the bridge setting.
+  - `tools/ci/tests/compose-limits.test.sh` (in `selftest`) fails if a long-running
+    service loses a limit or `edge` regains a route out, and checks the installer's
+    sizing; `tools/ci/tests/edge-egress.test.sh` checks the bridge name and, with
+    fake iptables and systemctl, the installer's rules, their idempotence, their
+    removal and the failure without iptables; `deploy/compose/smoke.sh` checks each
+    running container's limits and that the gateway cannot connect out (skipped on
+    Docker Desktop, which is not a server target).
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry
