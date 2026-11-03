@@ -114,7 +114,13 @@ fn picture_recovers_intact_and_is_ciphertext_at_rest() {
             .unwrap();
         store.ensure_layer(Layer::new("air", "Air")).unwrap();
         store
-            .upsert_entity(entity("v1", "maritime", "radar", "HOSTILE", 105))
+            .upsert_entity(entity(
+                "vessel-maritime-0001",
+                "maritime",
+                "radar",
+                "HOSTILE",
+                105,
+            ))
             .unwrap();
         store
             .upsert_entity(entity("a7", "air", "adsb", "FRIENDLY", 110))
@@ -127,12 +133,19 @@ fn picture_recovers_intact_and_is_ciphertext_at_rest() {
         assert_eq!(store.picture().visible_count(), 1); // air hidden
     }
 
+    // The vessel id is long so the needle below cannot turn up in random ciphertext by
+    // chance; a two-byte id such as "v1" did, in a few percent of runs.
     // At rest: no plaintext entity/label/layer identifiers, in the journal or in a
     // snapshot.
     let mut on_disk = std::fs::read(dir.join("picture.journal")).unwrap();
     on_disk.extend(std::fs::read(&path).unwrap_or_default());
     assert!(!on_disk.is_empty());
-    for needle in [b"maritime".as_slice(), b"HOSTILE", b"radar", b"v1"] {
+    for needle in [
+        b"maritime".as_slice(),
+        b"HOSTILE",
+        b"radar",
+        b"vessel-maritime-0001",
+    ] {
         assert!(
             !on_disk.windows(needle.len()).any(|w| w == needle),
             "plaintext {:?} must not be on disk",
@@ -146,7 +159,7 @@ fn picture_recovers_intact_and_is_ciphertext_at_rest() {
     assert_eq!(p.entity_count(), 2, "entities recovered");
     assert_eq!(p.layer_count(), 2, "layers recovered");
     assert_eq!(
-        p.entity(&EntityId("v1".into()))
+        p.entity(&EntityId("vessel-maritime-0001".into()))
             .unwrap()
             .classification
             .as_ref()
