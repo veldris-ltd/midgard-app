@@ -20,9 +20,9 @@
 #     it by hand on main or dev, with MIDGARD_RELEASE_MODE empty, then commit the
 #     digest it prints), and `acceptance`, which runs the suite under --network none on
 #     pushes to main and dev;
-#   - the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST (protected), set from
-#     tools/ci/toolchain.digest, and "pipelines for fork merge requests" requiring a
-#     maintainer's approval;
+#   - "pipelines for fork merge requests" requiring a maintainer's approval. The
+#     toolchain digest is declared under `variables:` below, not as a CI/CD variable:
+#     a protected variable never reaches a merge request's pipeline;
 #   - for a release: a runner tagged `kms`, provisioned as docs/ops/PKI.md describes,
 #     with a shell executor, docker, node and pnpm, and the CI/CD variables
 #     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH,
@@ -51,6 +51,11 @@ workflow:
 variables:
   # Full history: the provenance lint and the secret scan read it.
   GIT_DEPTH: "0"
+  # The toolchain image the merge-request jobs run in (.toolchain). A digest is not a
+  # secret, so it lives here, where every pipeline reads it, and not in a protected
+  # variable, which a merge request's pipeline never sees. It must be the last line of
+  # tools/ci/toolchain.digest (pipelines.test.sh checks); toolchain-publish prints both.
+  MIDGARD_TOOLCHAIN_DIGEST: "unpublished"
   MIDGARD_RELEASE_MODE:
     value: ""
     description: "Manual runs only. dry-run: gate everything, publish nothing. release: the release, on the kms runners. audit: the client shell audits."

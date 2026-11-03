@@ -490,8 +490,11 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
   use it (`extends: .docker`): `toolchain-publish`, by hand, and `acceptance`, on
   pushes to `main` and `dev`, which starts its own containers under `--network none`.
   No merge-request job runs on it.
-- **The CI/CD variable `MIDGARD_TOOLCHAIN_DIGEST`** (protected; masking not needed),
-  set to the digest line of `tools/ci/toolchain.digest`.
+- **No CI/CD variable for the toolchain digest.** `MIDGARD_TOOLCHAIN_DIGEST` is declared
+  in `.gitlab-ci.yml`'s `variables:`, as the last line of `tools/ci/toolchain.digest`
+  (`pipelines.test.sh` checks the two agree). A digest is not a secret, and a protected
+  variable never reaches a merge request's pipeline. Delete a project variable of that
+  name if one was set: it would override the file.
 - **Pipelines for fork merge requests require a maintainer's approval** (Settings →
   CI/CD → General pipelines), so code from a fork runs only once a maintainer has read
   it.
@@ -515,9 +518,9 @@ from a protected branch. To publish it, the first time and whenever
    `toolchain-publish` job builds the Dockerfile, pushes it as
    `$CI_REGISTRY_IMAGE/toolchain:<dockerfile-sha16>` and prints the digest it was
    given. It fails while that digest is not the one committed.
-2. Commit the two lines it prints to `tools/ci/toolchain.digest` through a merge
-   request, and set `MIDGARD_TOOLCHAIN_DIGEST` to the same digest. Until the variable
-   and the file agree, every `.toolchain` job fails, closed.
+2. Commit the two lines it prints to `tools/ci/toolchain.digest`, and the
+   `MIDGARD_TOOLCHAIN_DIGEST` line it prints to `.gitlab-ci.yml`, in one merge request.
+   Until the two agree, `selftest` fails, and so does every `.toolchain` job, closed.
 3. Running it again is safe: it finds the committed image published from this
    Dockerfile and pushes nothing. Keep that digest in the registry (exclude
    `toolchain` from cleanup policies), or merge-request jobs cannot start.
@@ -568,14 +571,14 @@ administrator:
 2. provides an unprivileged Docker executor for merge-request jobs;
 3. assigns the privileged Docker-in-Docker runner to protected branches and tags only,
    and tags it `protected`;
-4. runs `toolchain-publish` on `main`, commits the digest, and sets the protected CI/CD
-   variable `MIDGARD_TOOLCHAIN_DIGEST` from `tools/ci/toolchain.digest`;
+4. runs `toolchain-publish` on `main`, and commits the digest it prints to
+   `tools/ci/toolchain.digest` and `.gitlab-ci.yml`;
 5. turns on approval for pipelines from fork merge requests;
 6. exports the runner and project CI/CD settings to
    `docs/compliance/evidence/gitlab-ci-settings-<YYYY-MM-DD>.md`, recording: each
    runner, its executor, whether it is privileged, its tags and whether it runs only
-   on protected refs; the fork merge-request pipeline setting; and the
-   `MIDGARD_TOOLCHAIN_DIGEST` variable's value and protection.
+   on protected refs; the fork merge-request pipeline setting; and that no project
+   variable overrides `MIDGARD_TOOLCHAIN_DIGEST`.
 
 ## What has and has not been exercised
 

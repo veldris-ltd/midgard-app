@@ -1107,6 +1107,12 @@ CONTRIBUTING.md for the version policy.
   merge's tree to equal `git merge-tree --write-tree` of its two parents (git 2.38 or
   later; an older git fails the run and says so). A merge whose parents conflict, and an
   octopus merge, are refused. [VLD-ANB-MIDGARD-0069]
+- **GitLab merge-request jobs can find their image.** `.toolchain` jobs run in
+  `$CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST`, and the digest was a
+  protected CI/CD variable, which a merge request's pipeline never sees. It is now
+  declared in `.gitlab-ci.yml`'s `variables:`; `pipelines.test.sh` fails unless it is the
+  last line of `tools/ci/toolchain.digest`, and `toolchain-publish` prints the line for
+  both files. Until the first publish both say `unpublished`. [VLD-ANB-MIDGARD-0043]
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**

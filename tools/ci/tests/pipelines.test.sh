@@ -136,6 +136,20 @@ else
     fail "the repository's own pipeline files are refused: $out"
 fi
 
+# The merge-request jobs' image digest is declared in .gitlab-ci.yml, where a merge
+# request's pipeline can read it, and must be the one tools/ci/toolchain.digest pins.
+repo="$here/../../.."
+declared="$(tr -d '\r' < "$repo/.gitlab-ci.yml" |
+    sed -n 's/^  MIDGARD_TOOLCHAIN_DIGEST: *"\{0,1\}\([^"#[:space:]]*\)"\{0,1\}.*/\1/p' | head -n 1)"
+pinned="$(tr -d '\r' < "$repo/tools/ci/toolchain.digest" | awk 'NF { last = $1 } END { print last }')"
+if [ -z "$declared" ]; then
+    fail ".gitlab-ci.yml declares MIDGARD_TOOLCHAIN_DIGEST in its top-level variables"
+elif [ "$declared" = "$pinned" ]; then
+    pass ".gitlab-ci.yml declares MIDGARD_TOOLCHAIN_DIGEST as the last line of tools/ci/toolchain.digest"
+else
+    fail ".gitlab-ci.yml declares MIDGARD_TOOLCHAIN_DIGEST: $declared, but tools/ci/toolchain.digest ends $pinned; set MIDGARD_TOOLCHAIN_DIGEST in .gitlab-ci.yml to it"
+fi
+
 if [ "$failures" -eq 0 ]; then
     echo "pipelines tests: all passed"
 else
