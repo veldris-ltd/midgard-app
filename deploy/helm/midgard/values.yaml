@@ -52,6 +52,33 @@ seedImage:
   digest: sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9
   pullPolicy: IfNotPresent
 
+# Where each service's identity, keystore passphrase and seed come from. [NFR-SEC-1]
+# [VLD-ANB-MIDGARD-0018] See README.md beside this file.
+#   kubernetes       Secrets "<name>-identity", "<name>-keystore-passphrase" and
+#                    "<name>-seed", created outside the chart. They live in etcd and in
+#                    every etcd backup, so outside the kind profile (image.single) the
+#                    render fails unless acknowledgeEtcdEncryption is true: set it only
+#                    once etcd encrypts Secrets at rest (EncryptionConfiguration with a
+#                    KMS v2 provider).
+#   csi              Secrets Store CSI driver volumes, from SecretProviderClass objects
+#                    of the same names that the operator supplies; nothing is written to
+#                    etcd.
+#   externalSecrets  ExternalSecret objects (external-secrets.io/v1beta1) from
+#                    externalSecrets.storeRef populate the same Secret names, so the pod
+#                    template is the same as for kubernetes.
+secrets:
+  provider: kubernetes
+  acknowledgeEtcdEncryption: false
+  externalSecrets:
+    # The SecretStore or ClusterSecretStore holding the files. Required for the
+    # externalSecrets provider.
+    storeRef: { name: "", kind: ClusterSecretStore }
+    # Remote key for Secret "<name>-..." is "<keyPrefix><name>-...", one property per file.
+    keyPrefix: midgard/
+    refreshInterval: 1h
+    # Keystores and seeds are binary: store each property base64-encoded.
+    decodingStrategy: Base64
+
 # Namespace-wide resource ceiling.
 quota:
   requestsCpu: "4"
@@ -86,15 +113,18 @@ scraper:
 #                   "*" (any pod) refuses to render. "metrics-scraper" stands for the
 #                   scraper above, and also admits scraper.nodeCidrs.
 #   probe           the HTTP readiness/liveness endpoint
-#   identity        mount Secret "<name>-identity" (what `mg-admin mesh issue` wrote)
-#   seed            on first start, unpack Secret "<name>-seed" (seed.tar) into /state
+#   identity        mount "<name>-identity" (what `mg-admin mesh issue` wrote) at
+#                   /identity, and "<name>-keystore-passphrase" (key `passphrase`) at
+#                   /keystore-passphrase (copied owner-only into memory), both
+#                   from secrets.provider
+#   seed            on first start, unpack "<name>-seed" (seed.tar) into /state
 #   storage         the state volume's size
 #   jobsConfigMap   mount this ConfigMap at /jobs
 #   talksTo         the service ports this one may reach (egress)
 #   sourcesSecret   mount this Secret at /secrets (forge-worker's --secrets-dir)
 #   nodeSelector, tolerations, affinity   the pod's placement
-# Secrets and the jobs ConfigMap are provisioned outside the chart
-# (deploy/kind/bootstrap-secrets.sh for a local cluster).
+# Secrets and the jobs ConfigMap are provisioned outside the chart, from key custody
+# (deploy/kind/bootstrap-secrets.sh for a local kind cluster only).
 services:
   - name: http-gateway
     enabled: true

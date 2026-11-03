@@ -20,9 +20,12 @@ IMAGE="${MIDGARD_IMAGE:-midgard/dev:local}"
 KUBECTL="${KUBECTL:-kubectl} --context kind-$CLUSTER"
 
 # job <name> <app label> <identity secret> <command as a JSON array>: run a mesh client
-# to completion and print its output; fail if it fails.
+# to completion and print its output; fail if it fails. Its keystore passphrase comes
+# from "<identity secret minus -identity>-keystore-passphrase", copied owner-only into
+# memory as the chart does. [VLD-ANB-MIDGARD-0007] [VLD-ANB-MIDGARD-0018]
 job() {
     local name="$1" app="$2" secret="$3" command="$4"
+    local passphrase="${secret%-identity}-keystore-passphrase"
     $KUBECTL -n "$NS" delete job "$name" --ignore-not-found >/dev/null
     $KUBECTL -n "$NS" apply -f - >/dev/null <<EOF
 apiVersion: batch/v1
@@ -45,11 +48,28 @@ spec:
         runAsGroup: 10001
         fsGroup: 10001
         seccompProfile: { type: RuntimeDefault }
+      initContainers:
+        - name: keystore-passphrase
+          image: $IMAGE
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-c", "umask 077 && cat /keystore-passphrase-source/passphrase > /keystore-passphrase/passphrase && chmod 0400 /keystore-passphrase/passphrase"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - { name: keystore-passphrase-source, mountPath: /keystore-passphrase-source, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: client
           image: $IMAGE
           imagePullPolicy: Never
           command: $command
+          env:
+            - { name: MIDGARD_KEYSTORE_PASSPHRASE_FILE, value: /keystore-passphrase/passphrase }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -59,9 +79,14 @@ spec:
             limits: { cpu: 500m, memory: 256Mi }
           volumeMounts:
             - { name: identity, mountPath: /identity, readOnly: true }
+            - { name: keystore-passphrase, mountPath: /keystore-passphrase, readOnly: true }
       volumes:
         - name: identity
           secret: { secretName: $secret, defaultMode: 288 }
+        - name: keystore-passphrase-source
+          secret: { secretName: $passphrase, defaultMode: 288 }
+        - name: keystore-passphrase
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
 EOF
     local ok=0
     $KUBECTL -n "$NS" wait --for=condition=complete "job/$name" --timeout=120s >/dev/null 2>&1 || ok=1

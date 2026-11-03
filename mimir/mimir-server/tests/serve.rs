@@ -752,6 +752,21 @@ fn a_burst_over_the_rate_limit_is_throttled() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// [`within_10s`] for waits that include a full PQ-mTLS call or a reload on a slow
+/// runner. Only the drain test uses it: its sidecar is held by a gate, so how long
+/// these waits take never decides what the test proves.
+fn within_60s(what: &str, mut ready: impl FnMut() -> bool) -> Duration {
+    let start = Instant::now();
+    while !ready() {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "not within 60 s: {what}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    start.elapsed()
+}
+
 /// Poll `ready` every 50 ms for up to 10 s; how long it took.
 fn within_10s(what: &str, mut ready: impl FnMut() -> bool) -> Duration {
     let start = Instant::now();
@@ -1013,12 +1028,12 @@ fn in_flight_completion_drains_before_stop_is_logged() {
     let server = fx.start();
     let (consumers, mesh) = (fx.consumers.clone(), server.mesh.clone());
     let in_flight = std::thread::spawn(move || probe(&consumers, "forge-worker", &mesh));
-    within_10s("the completion reaches the sidecar", || {
+    within_60s("the completion reaches the sidecar", || {
         !requests.lock().unwrap().is_empty()
     });
 
     std::fs::write(fx.state.join("STOP"), "").unwrap();
-    within_10s("serving stops", || {
+    within_60s("serving stops", || {
         server.logged("serving stopped").is_some()
     });
     assert!(
@@ -1032,7 +1047,7 @@ fn in_flight_completion_drains_before_stop_is_logged() {
     let completed = in_flight.join().unwrap();
     assert!(completed.status.success(), "{}", text(&completed.stderr));
     assert!(text(&completed.stdout).contains("Olsen holds case 42."));
-    within_10s("drained is logged", || server.logged("drained").is_some());
+    within_60s("drained is logged", || server.logged("drained").is_some());
     let drained = server.logged("drained").unwrap();
     assert_eq!(field(&drained, "completions").as_deref(), Some("1"));
     refused_with(&fx.probe(&server), "SERVING_STOPPED");

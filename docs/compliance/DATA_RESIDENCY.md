@@ -55,7 +55,17 @@ are, so cross-border transfer never happens without their action.
 - Configure any cross-node replication/DR only between sites in acceptable
   jurisdictions.
 - Act as data controller for personal data; Midgard provides the processor-side
-  technical controls (access control, encryption, audit, deletion paths).
+  technical controls: access control, encryption at rest and in transit, and an
+  immutable audit trail; retention is documented in
+  [RETENTION.md](RETENTION.md) and subject erasure and export are not yet implemented
+  (follow-on work package). The durable stores are append-only: a subject's records
+  cannot be removed from them today, and a password change leaves the earlier hash in
+  the directory's journal. [VLD-ANB-MIDGARD-0070]
+- On Kubernetes, keep the enclosure's keystores, passphrases and seeds out of etcd
+  (the chart's `csi` or `externalSecrets` provider), or encrypt etcd at rest with a KMS
+  v2 provider before using Kubernetes Secrets; an etcd backup is a copy of every Secret
+  in it ([deploy/helm/midgard/README.md](../../deploy/helm/midgard/README.md)).
+  [VLD-ANB-MIDGARD-0018]
 
 See [COMPLIANCE_MATRIX.md](COMPLIANCE_MATRIX.md) for the control-level standards
 mapping and `docs/security/THREAT_MODEL.md` for the disclosure/exfiltration threats

@@ -1,4 +1,5 @@
 {{- /* Namespace, default-deny networking, DNS, quota, and the pinned trust key. */ -}}
+{{- include "midgard.validateSecrets" . -}}
 {{- if .Values.createNamespace }}
 apiVersion: v1
 kind: Namespace

@@ -730,14 +730,14 @@ just kind-up
 1. Creates the cluster, a control plane and two workers.
 2. Builds the image from this checkout and loads it into the cluster.
 3. Installs the chart into the `midgard-enclosure` namespace.
-4. Provisions the secrets: the same `init` as compose mints the enclosure's keys and every mesh identity, and each becomes a Kubernetes Secret.
+4. Provisions the secrets: the same `init` as compose mints the enclosure's keys, every mesh identity and each keystore's passphrase, and each becomes a Kubernetes Secret, the passphrase in a Secret of its own. `deploy/kind/bootstrap-secrets.sh` refuses any kubectl context that is not a kind cluster: on a real cluster the identities come from your key custody through the chart's `csi` or `externalSecrets` provider, and the `kubernetes` provider needs etcd encrypted at rest ([deploy/helm/midgard/README.md](deploy/helm/midgard/README.md)).
 5. Waits for every service.
 
 What the chart deploys:
 
 - **One single-replica `StatefulSet` per service, on its own volume.** Each service holds a single-writer, locked state directory, so a second replica would be refused, not share the load.
 - **Hardened pods.** Every pod runs non-root with a read-only root filesystem, no capabilities and the restricted pod-security profile.
-- **Seeded state.** On first start an init container unpacks the service's provisioned state from its seed Secret.
+- **Seeded state.** On first start an init container unpacks the service's seed: its keys, trust anchors and configuration (and, for the gateway, the governance ledger `mg-admin init` created), never a directory, object store or other journal, which the service creates empty. Another init container copies the keystore passphrase into memory as a file only the service's user can read.
 - **Default-deny networking.** The namespace allows nothing in or out except cluster DNS. Each port is opened only to the pods the chart names: `mimir-server` accepts only `mimir-probe`, and the gateway's mesh door only `forge-worker`.
 
 Then run every mesh client against it:
