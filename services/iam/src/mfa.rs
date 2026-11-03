@@ -5,7 +5,9 @@
 //! ## TOTP
 //! HOTP (RFC 4226) over HMAC-SHA256 with a 30-second time step and ±1-step skew.
 //! The shared secret is provisioned once and base32-encoded into an `otpauth://`
-//! URI for an authenticator app.
+//! URI for an authenticator app. A login accepts a code once: the step it matched is
+//! persisted per principal and any step at or below it is refused.
+//! [VLD-ANB-MIDGARD-0026]
 //!
 //! ## WebAuthn
 //! A passkey here is an **ML-DSA** credential (the enclosure's PQ signature scheme
@@ -57,16 +59,38 @@ impl TotpSecret {
     }
 
     /// Verify `code` against `unix_time`, allowing ±1 time step of clock skew.
-    /// Constant-time comparison. [RC-29]
+    /// Constant-time comparison. Stateless: a verifier that must refuse a second use
+    /// of a code calls [`Self::verify_step`]. [RC-29]
     pub fn verify(&self, code: &str, unix_time: u64) -> bool {
+        self.verify_step(code, unix_time, None).is_some()
+    }
+
+    /// Verify `code` against `unix_time` with ±1 step of skew and return the time
+    /// step it matched, refusing any step at or below `last_accepted`, the step this
+    /// principal last logged in with. Persisting the returned step and passing it back
+    /// next time makes every code single use (RFC 6238 section 5.2). Every candidate is
+    /// compared, in constant time, before anything is returned, so the timing does not
+    /// reveal which step matched; if the code matches more than one usable step the
+    /// earliest is taken. [VLD-ANB-MIDGARD-0026] [RC-29]
+    pub fn verify_step(
+        &self,
+        code: &str,
+        unix_time: u64,
+        last_accepted: Option<u64>,
+    ) -> Option<u64> {
         let counter = unix_time / TIME_STEP;
-        for step in [counter.wrapping_sub(1), counter, counter + 1] {
+        let mut found = 0u64;
+        let mut matched = 0u64;
+        // Latest first, so an earlier match overwrites a later one.
+        for step in [counter + 1, counter, counter.saturating_sub(1)] {
             let expected = hotp(&self.secret, step);
-            if ct_eq(expected.as_bytes(), code.as_bytes()) {
-                return true;
-            }
+            let usable = last_accepted.map_or(true, |last| step > last);
+            let hit = u64::from(ct_eq(expected.as_bytes(), code.as_bytes()) & usable);
+            let mask = hit.wrapping_neg();
+            matched = (matched & !mask) | (step & mask);
+            found |= hit;
         }
-        false
+        (found == 1).then_some(matched)
     }
 }
 

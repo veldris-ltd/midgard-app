@@ -227,12 +227,14 @@ An action the ontology marks as human-gated is refused at the edge unless the re
 
 ### `login-and-session-tokens` (operable)
 
-A principal logs in at the edge with a password, and a time-based one-time code when enrolled with one, and receives an ML-DSA-signed session token. Principals are held in a durable directory.
+A principal logs in at the edge with a password, and a time-based one-time code when enrolled with one, and receives an ML-DSA-signed session token. A one-time code is accepted once (RFC 6238 section 5.2): the step of the last code accepted is kept per principal in the directory, across restarts, and that code or an earlier one is refused. Principals are held in a durable directory.
 
 **Limit.** The console's login form has no field for the one-time code. Login fields are bounded and attempts are limited per name and per source; under compose every client shares the proxy's address, so the per-source limit is one for the whole site. Anyone who can reach the edge can lock any name for up to 15 minutes.
 
 - Source:
   - [`services/iam/src/auth.rs:1`](../../services/iam/src/auth.rs)
+  - [`services/iam/src/mfa.rs:1`](../../services/iam/src/mfa.rs)
+  - [`services/iam/src/directory.rs:1`](../../services/iam/src/directory.rs)
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
   - [`services/http-gateway/tests/login_directory.rs::a_durable_principal_needs_both_factors_and_survives_a_restart`](../../services/http-gateway/tests/login_directory.rs)

@@ -108,6 +108,36 @@ fn totp_matches_within_skew_and_rejects_outside() {
     assert!(!secret.verify("000000", t));
 }
 
+/// [AC-57.3] [VLD-ANB-MIDGARD-0026] `verify_step` returns the step a code matched and
+/// refuses that step and every earlier one once it is the last accepted, while the
+/// next step's code still verifies within the one-step skew.
+#[test]
+fn totp_verify_step_returns_the_step_and_refuses_used_or_older_steps() {
+    let secret = TotpSecret::new(b"0123456789abcdef0123456789abcdef".to_vec());
+    let t = 1_700_000_000u64;
+    let step = t / 30;
+    // With nothing accepted yet, each code within the skew returns its own step.
+    assert_eq!(secret.verify_step(&secret.code_at(t), t, None), Some(step));
+    assert_eq!(
+        secret.verify_step(&secret.code_at(t - 30), t, None),
+        Some(step - 1)
+    );
+    // Once the current step is the last accepted, it and the one before are refused.
+    let last = Some(step);
+    assert_eq!(secret.verify_step(&secret.code_at(t), t, last), None);
+    assert_eq!(secret.verify_step(&secret.code_at(t - 30), t, last), None);
+    // The next step's code is still accepted, and reported as the next step.
+    assert_eq!(
+        secret.verify_step(&secret.code_at(t + 30), t, last),
+        Some(step + 1)
+    );
+    // Outside the skew, or a wrong code, nothing matches.
+    assert_eq!(secret.verify_step(&secret.code_at(t + 61), t, None), None);
+    assert_eq!(secret.verify_step("000000", t, None), None);
+    // The stateless form is unchanged for existing callers.
+    assert!(secret.verify(&secret.code_at(t), t));
+}
+
 #[test]
 fn webauthn_assertion_verifies_and_fails_closed() {
     let provider = fips_provider();

@@ -2,7 +2,8 @@
 //! Against a durable, KMS-sealed directory an enrolled principal's password and TOTP
 //! second factor are both enforced, every refusal is the same 401, and the enrollment
 //! survives a restart. A legacy password hash is replaced with Argon2id at the next
-//! sign-in, durably. [RC-29] [RC-37] [MG-SEC-11]
+//! sign-in, durably. A TOTP code is accepted once, across a restart too.
+//! [RC-29] [RC-37] [MG-SEC-11] [VLD-ANB-MIDGARD-0026]
 #![cfg(feature = "backend-fips")]
 
 use std::path::{Path, PathBuf};
@@ -78,6 +79,10 @@ fn gateway(dir: &Path) -> SecuredGateway {
 }
 
 fn login(gw: &SecuredGateway, body: &str) -> Response {
+    login_at(gw, body, NOW)
+}
+
+fn login_at(gw: &SecuredGateway, body: &str, now: u64) -> Response {
     gw.handle(
         &Request {
             method: "POST".into(),
@@ -87,7 +92,7 @@ fn login(gw: &SecuredGateway, body: &str) -> Response {
             authorization: None,
             origin: None,
         },
-        NOW,
+        now,
     )
 }
 
@@ -207,10 +212,12 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
     assert_eq!(rows("alice", "LOGIN succeeded"), 1, "{}", audit.body);
     drop(gw);
 
-    // Restart: a new gateway over the reopened directory still knows alice.
+    // Restart: a new gateway over the reopened directory still knows alice. The code
+    // already used is spent, so she logs in with the next one. [VLD-ANB-MIDGARD-0026]
     let gw = gateway(&dir);
+    let next = secret.code_at(NOW + 30);
     assert_eq!(
-        login(&gw, &credentials("alice", PASSWORD, Some(&good))).status,
+        login(&gw, &credentials("alice", PASSWORD, Some(&next))).status,
         200
     );
 
@@ -262,5 +269,83 @@ fn a_legacy_password_hash_is_upgraded_at_the_next_sign_in() {
     // The upgraded hash survives a restart and still signs bob in.
     let gw = gateway(&dir);
     assert_eq!(login(&gw, &credentials("bob", PASSWORD, None)).status, 200);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A durable directory in `dir` holding alice with a password and `secret` as her TOTP
+/// factor.
+fn enrol_with_totp(dir: &Path, secret: &TotpSecret) {
+    open_directory(dir)
+        .enroll(
+            "alice",
+            Enrollment {
+                user: demo_operator(),
+                credentials: Credentials {
+                    password_hash: Pbkdf2Hasher::new(1_000).hash(PASSWORD.as_bytes()),
+                    totp: Some(secret.clone()),
+                    ..Credentials::default()
+                },
+            },
+        )
+        .expect("enrolls");
+}
+
+/// [AC-57.1] [VLD-ANB-MIDGARD-0026] A TOTP code logs in once: the same code five
+/// seconds later, still inside its step, is refused with the uniform 401, and the
+/// next step's code logs in.
+#[test]
+fn a_totp_code_cannot_be_reused_within_the_window() {
+    let dir = scratch("reuse");
+    let secret = TotpSecret::new(b"midgard-test-totp-secret".to_vec());
+    enrol_with_totp(&dir, &secret);
+    let gw = gateway(&dir);
+    let code = secret.code_at(NOW);
+
+    let first = login_at(&gw, &credentials("alice", PASSWORD, Some(&code)), NOW);
+    assert_eq!(first.status, 200, "{}", first.body);
+    let again = login_at(&gw, &credentials("alice", PASSWORD, Some(&code)), NOW + 5);
+    assert_eq!(again.status, 401, "{}", again.body);
+    assert!(
+        !again.body.contains("token"),
+        "a replayed code mints nothing"
+    );
+    assert_eq!(
+        again.body,
+        login_at(&gw, &credentials("stranger", "x", None), NOW + 5).body,
+        "a replay is indistinguishable from any other refusal"
+    );
+
+    let next = secret.code_at(NOW + 30);
+    let ok = login_at(&gw, &credentials("alice", PASSWORD, Some(&next)), NOW + 5);
+    assert_eq!(ok.status, 200, "{}", ok.body);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// [AC-57.2] [VLD-ANB-MIDGARD-0026] The step a login accepted is in the durable
+/// directory, so a gateway reopened over the same state still refuses the code.
+#[test]
+fn the_last_accepted_totp_step_survives_a_restart() {
+    let dir = scratch("step-restart");
+    let secret = TotpSecret::new(b"midgard-test-totp-secret".to_vec());
+    enrol_with_totp(&dir, &secret);
+    let code = secret.code_at(NOW);
+
+    let gw = gateway(&dir);
+    let ok = login(&gw, &credentials("alice", PASSWORD, Some(&code)));
+    assert_eq!(ok.status, 200, "{}", ok.body);
+    drop(gw);
+
+    let stored = open_directory(&dir)
+        .enrollment("alice")
+        .expect("alice is enrolled")
+        .credentials
+        .totp_last_step;
+    assert_eq!(stored, Some(NOW / 30));
+
+    let gw = gateway(&dir);
+    let replay = login(&gw, &credentials("alice", PASSWORD, Some(&code)));
+    assert_eq!(replay.status, 401, "{}", replay.body);
+
     let _ = std::fs::remove_dir_all(&dir);
 }
