@@ -393,6 +393,12 @@ CONTRIBUTING.md for the version policy.
   outside fixed cost bounds is refused like a wrong password, so an edited entry
   cannot weaken itself; legacy PBKDF2 entries (210,000 iterations) still sign in and
   are replaced with Argon2id at that sign-in, recorded in the audit ledger.
+- **Password storage documented as delivered.** [VLD-ANB-MIDGARD-0025] The compliance
+  matrix now states the PBKDF2 floor the code enforces (210,000 iterations, legacy
+  entries only) and the ceilings, SAD_00 gives the Argon2id parameters, the
+  login-and-session-tokens claim names the KDF and its migration, and the residual
+  risk register gains a "Password KDF" row. New tests pin the PBKDF2 floor and
+  ceiling (a tampered count is refused in under 50 ms) and the Argon2id format.
 - **Tighter checks before loading signed software.** [MG-SEC-14] Model manifests and
   bundles are checked against their signature before they are parsed; an older
   release, or the same version with different content, is refused across restarts;

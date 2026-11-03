@@ -180,7 +180,7 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// dominated by it. Configuration, not a certificate attribute. [FR-F-4]
     /// [VLD-ANB-MIDGARD-0001]
     sync_clearance: Clearance,
-    /// Password hasher for login verification (Argon2id/PBKDF2 seam, RT-29).
+    /// Password hasher: writes Argon2id, verifies legacy PBKDF2 and re-hashes it on login (RT-29).
     hasher: Pbkdf2Hasher,
     // ---- observability (in-enclosure; nothing egresses) [RC-33] ----
     metrics: Arc<MetricsRegistry>,
@@ -1039,7 +1039,7 @@ impl SecuredGateway {
             governance,
             vec!["http://localhost:5173".to_string()],
         )
-        .with_idp(idp, Pbkdf2Hasher::new(4096)); // lower work factor for a snappy dev login
+        .with_idp(idp, Pbkdf2Hasher::new(4096)); // dev only: deliberately cheap, never production
         gw.provision_login(DEMO_USERNAME, DEMO_PASSWORD, demo_operator())
             .expect("the dev login provisions in memory");
         gw.provision_login(

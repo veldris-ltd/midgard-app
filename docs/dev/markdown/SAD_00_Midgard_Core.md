@@ -435,7 +435,7 @@ Role-, marking-, and purpose-based access control evaluated at query and action 
 | Key agreement (transit) | X25519 + ML-KEM-768 (hybrid) | FIPS 203 `[NFR-PQ-1]` |
 | Bulk at rest | AES-256-GCM, keys wrapped ML-KEM-1024 | FIPS 197 / 203 `[NFR-PQ-2]` |
 | Signatures | ML-DSA (Dilithium) / SLH-DSA (SPHINCS+) | FIPS 204 / 205 `[NFR-PQ-3]` |
-| Password hashing | Argon2id | OWASP ASVS V2 |
+| Password hashing | Argon2id, m=19 MiB, t=2, p=1 (legacy PBKDF2-HMAC-SHA256 entries verified and re-hashed at sign-in) | OWASP ASVS V2 |
 | Agility | Negotiated, versioned, hot-swappable | NIST SP 1800-38 `[NFR-PQ-4]` |
 
 
