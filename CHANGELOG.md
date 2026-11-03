@@ -53,6 +53,11 @@ CONTRIBUTING.md for the version policy.
   `MimirCopilot` take the caller's posture in `new(inference, marking)`;
   `with_marking` is removed, so a bridge cannot be built without declaring what its
   prompt may hold. [VLD-ANB-MIDGARD-0034]
+- **The agent runtime marks its request for memory and history, not only
+  grounding.** `Layers.memory` and `Layers.history` are now `Vec<MarkedItem>` (text and
+  `marking_level`), and `AssembledPrompt::max_marking_level` is the highest level among
+  the included facts, memory items and history window; an item trimmed by the budget
+  does not count. [VLD-ANB-MIDGARD-0034]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

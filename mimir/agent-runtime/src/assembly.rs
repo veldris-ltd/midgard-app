@@ -132,6 +132,27 @@ impl TokenCounter for WordCounter {
     }
 }
 
+/// A memory item or history turn, with the classification level of the data it
+/// carries, so the prompt is marked for it when it is included.
+/// [VLD-ANB-MIDGARD-0034]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkedItem {
+    /// The item's text, as rendered into its DATA block.
+    pub text: String,
+    /// The classification level (`marking_level`) of what the text holds.
+    pub marking_level: u8,
+}
+
+impl MarkedItem {
+    /// An item holding `text` at `marking_level`.
+    pub fn new(text: impl Into<String>, marking_level: u8) -> Self {
+        Self {
+            text: text.into(),
+            marking_level,
+        }
+    }
+}
+
 /// The layer inputs for one assembly.
 pub struct Layers<'a> {
     /// Layer 1: system prompt (A.1), highest authority.
@@ -142,12 +163,13 @@ pub struct Layers<'a> {
     pub policy: String,
     /// Layer 3: OAG grounding (trimmed by relevance rank if needed).
     pub grounding: &'a Grounding,
-    /// Layer 4: agent memory items (trimmable).
-    pub memory: Vec<String>,
+    /// Layer 4: agent memory items, each with its marking (trimmable).
+    pub memory: Vec<MarkedItem>,
     /// Layer 5: tool schemas (never trimmed).
     pub tools: Vec<String>,
-    /// Layer 6: task history, oldest-first as supplied (trimmed oldest-first).
-    pub history: Vec<String>,
+    /// Layer 6: task history, oldest-first as supplied, each turn with its marking
+    /// (trimmed oldest-first).
+    pub history: Vec<MarkedItem>,
     /// Layer 7: the user/task message (never trimmed).
     pub user_message: &'a str,
 }
@@ -177,10 +199,11 @@ pub struct AssembledPrompt {
     /// Citations of the grounding facts that were included (the evidence
     /// actually presented to the model).
     pub included_citations: Vec<String>,
-    /// The highest classification level (`marking_level`) among the included
-    /// grounding facts, 0 when none was included: the level of the fabric data in
-    /// the prompt, which the inference request's marking carries.
-    /// [VLD-ANB-MIDGARD-0034]
+    /// The highest classification level (`marking_level`) among everything
+    /// included that carries data: the grounding facts, the memory items and the
+    /// history turns that survived the budget. 0 when none was included. It is the
+    /// level of the data in the prompt, which the inference request's marking
+    /// carries; a trimmed item does not count. [VLD-ANB-MIDGARD-0034]
     pub max_marking_level: u8,
     /// Grounding facts dropped to fit the budget.
     pub dropped_facts: usize,
@@ -341,8 +364,10 @@ impl Pipeline {
             .remove(0);
         let fact_lines: Vec<String> = layers.grounding.facts.iter().map(|f| f.line()).collect();
         let fact_lines = self.screen("grounding", &fact_lines)?;
-        let memory = self.screen("memory", &layers.memory)?;
-        let history = self.screen("history", &layers.history)?;
+        let memory_text: Vec<String> = layers.memory.iter().map(|m| m.text.clone()).collect();
+        let memory = self.screen("memory", &memory_text)?;
+        let history_text: Vec<String> = layers.history.iter().map(|h| h.text.clone()).collect();
+        let history = self.screen("history", &history_text)?;
 
         // Non-trimmable core. The SYSTEM block is trusted text only; the
         // data-handling rule tells the model what the DATA blocks below are.
@@ -400,7 +425,7 @@ impl Pipeline {
             .take(g_incl)
             .map(|f| f.citation.clone())
             .collect();
-        let max_marking_level = layers
+        let facts_level = layers
             .grounding
             .facts
             .iter()
@@ -450,6 +475,15 @@ impl Pipeline {
             window.reverse();
             h_section.render(&window)
         };
+
+        // The prompt is marked for every included item that carries data. The
+        // history window is the newest `h_incl` turns, which are the last `h_incl`
+        // of the oldest-first input. [VLD-ANB-MIDGARD-0034]
+        let max_marking_level = layers.memory[..m_incl]
+            .iter()
+            .chain(&layers.history[layers.history.len() - h_incl..])
+            .map(|item| item.marking_level)
+            .fold(facts_level, u8::max);
 
         // Canonical layer order 1→7: the SYSTEM block, then the body.
         let mut parts = vec![policy_block];

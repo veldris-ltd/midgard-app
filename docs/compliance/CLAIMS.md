@@ -684,7 +684,7 @@ A governed agent loop: plan, ground, assemble (untrusted grounding, memory, hist
 - Source:
   - [`mimir/agent-runtime/src/govloop.rs:368`](../../mimir/agent-runtime/src/govloop.rs)
   - [`mimir/agent-runtime/src/govloop.rs:190`](../../mimir/agent-runtime/src/govloop.rs)
-  - [`mimir/agent-runtime/src/assembly.rs:321`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:346`](../../mimir/agent-runtime/src/assembly.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::mutation_is_denied_when_human_denies`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::irreversible_action_forces_human_even_if_preauthorised`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
@@ -704,7 +704,7 @@ Input guardrails against prompt injection, applied to each untrusted item (groun
 **Milestone.** A classifier served by the model plane, a corpus with a stated block rate, and a service that applies them (RF-MI-7).
 
 - Source:
-  - [`mimir/agent-runtime/src/assembly.rs:276`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:300`](../../mimir/agent-runtime/src/assembly.rs)
   - [`mimir/agent-runtime/src/defend.rs:383`](../../mimir/agent-runtime/src/defend.rs)
   - [`mimir/prompts/src/delimit.rs:245`](../../mimir/prompts/src/delimit.rs)
 - Tests:
