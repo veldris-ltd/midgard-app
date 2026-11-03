@@ -456,6 +456,21 @@ CONTRIBUTING.md for the version policy.
   features, so it also catches a binary whose own default features enable the test
   backend, which the feature-graph walk of `tools/ci/no-test-backend.sh` does not
   show. [VLD-ANB-MIDGARD-0067] [RT-08]
+- **The seven consoles build with Vite 7.** `vite` moves from 5.4.21 (end of life) to
+  7.3.7 and `@vitejs/plugin-react` from 4.7.0 to 5.2.0 in every `products/*/ui`, which
+  lifts the dev-server and launch-editor advisories on Vite 5 and the build-time ones
+  under it: the lockfile now resolves esbuild 0.28.2, postcss 8.5.30, nanoid 3.3.20,
+  source-map-js 1.2.2, browserslist 4.29.3 and baseline-browser-mapping 2.11.29. No
+  `pnpm.overrides` entry was needed. `tools/ci/tests/js-toolchain.test.sh` fails the
+  selftest job if any of these resolves below its floor again. The shipped bundles
+  are unchanged in content (react, react-dom and react-router-dom are not touched);
+  every bundle hash changes, and `just js-build` still proves them bit-identical. The
+  `vite.config.ts` files are unchanged: `build.target` stays unset, so the consoles
+  take Vite 7's default target (baseline widely available: Chrome and Edge 107,
+  Firefox 104, Safari 16). Node 22.12 or later is now required (`engines`), and the
+  release dry run sets it up on the hosted runner. [VLD-ANB-MIDGARD-0047]
+  [VLD-ANB-MIDGARD-0095] [VLD-ANB-MIDGARD-0096] [VLD-ANB-MIDGARD-0097]
+  [VLD-ANB-MIDGARD-0098] [VLD-ANB-MIDGARD-0099] [VLD-ANB-MIDGARD-0100]
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

@@ -128,7 +128,7 @@ midgard/
 |---|---|
 | Design system only | Any static file server (Python, `npx serve`, …) |
 | Building / testing the platform | **Docker** (recommended — the pinned image is self-contained), *or* Rust **1.82** + [`just`](https://github.com/casey/just) locally |
-| Running a console | **Node ≥ 22** (`engines`) and **pnpm 9.12.0** (`packageManager`) |
+| Running a console | **Node ≥ 22.12** (`engines`; Vite 7 needs it) and **pnpm 9.12.0** (`packageManager`) |
 
 The Cargo workspace is pinned to Rust 1.82 (`rust-toolchain.toml`) with every dependency **vendored** (`vendor/` + `.cargo/config.toml`), so builds and tests need no network. Where a command below must reach the network, it says so.
 

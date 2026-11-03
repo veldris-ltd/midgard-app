@@ -113,6 +113,7 @@ is gated by the deployment-tier suite (RT-40), in which RC-40.3 (HSM) and RC-40.
 | Canary blind spots | Med | **ACCEPTED** | Compensating: health-gated rollout with automatic rollback (AC-M-7). Residual: that logic is a library nothing drives against a real fleet (RF-B-3), and canary signal coverage is an observability concern (RF-OBS-1). |
 | **Faulty release fan-out** | High | **PARTIAL** | *Exists:* a deterministic rollout orchestrator (ringed, health-gated, auto-reverting, never below `min_available`), tested as a library (RT-16); the registry admits only gate-verified artefacts. *Missing:* nothing drives it from the fleet manager, and the fleet agent installs nothing and cannot roll back. Carried by RF-B-3, RF-B-2. |
 | Service image carries a toolchain | Low | **MITIGATED** | A signed release service image runs on a distroless `cc-debian12` runtime stage pinned by digest: glibc and libgcc, no shell, package manager, compiler or network client for a compromised service to use, and none of the toolchain image's CVE surface. Verify-before-run is retained: the entrypoint is `mg-verify --run-service`, which verifies the binary against the pinned key and only then execs it (`tools/mg-verify/tests/ac_rf_sc_2.rs`, `run_service_*`; `tools/ci/tests/service-image.test.sh`). Residual: the chart's first-start `seed` init container runs in a separate, digest-pinned BusyBox image (`seedImage`), hardened the same way; no release image has been built on release infrastructure yet (VLD-ANB-MIDGARD-0068). |
+| Console build toolchain (Vite dev server) | Low | **ACCEPTED** | The seven consoles build with Vite 7 and `@vitejs/plugin-react` 5, a supported line, and `tools/ci/tests/js-toolchain.test.sh` fails the selftest job if `pnpm-lock.yaml` resolves vite, plugin-react, esbuild, postcss, nanoid, source-map-js, browserslist or baseline-browser-mapping below the version that lifts their advisories (VLD-ANB-MIDGARD-0047, 0095 to 0100). The toolchain does not ship: the bundles carry react, react-dom and react-router-dom only, and CI runs `vite build`, never the dev server. Residual: `pnpm dev` serves the working tree to whatever can reach its port, so the dev-server exposure is a developer-workstation concern; Vite binds it to localhost unless told otherwise, and no console config sets `server.host`. |
 
 ## SAD_04: Heimdall
 
@@ -187,6 +188,8 @@ exercised by tests, and the Admin console renders fixtures (RF-AD-1).
 | ACCEPTED | 17 |
 | OPEN | 2 |
 | **Total** | **40** |
+| ACCEPTED | 18 |
+| OPEN | 1 |
 | **Total** | **39** |
 
 ## Open items
