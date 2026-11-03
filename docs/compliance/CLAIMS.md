@@ -365,14 +365,17 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 
 ### `mimir-inference-cpu` (operable)
 
-mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited.
+mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited. The caller's system prompt reaches the model in the family's system turn, and the family's control tokens in any text are neutralised.
 
 **Limit.** One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream.
 
 - Source:
   - [`mimir/model-server/src/backends/openai_compat.rs:60`](../../mimir/model-server/src/backends/openai_compat.rs)
+  - [`mimir/model-server/src/backends/openai_compat.rs:203`](../../mimir/model-server/src/backends/openai_compat.rs)
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::inference_is_served_over_pqmtls_audited_and_survives_a_restart`](../../mimir/mimir-server/tests/serve.rs)
+  - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
+  - [`mimir/model-server/src/backends/openai_compat.rs::streams_a_completion_through_the_family_template`](../../mimir/model-server/src/backends/openai_compat.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
@@ -420,7 +423,7 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
 
 ### `model-family-routing` (reference)
 
-Routing a workload to one of several model families (Mistral, Nemotron, Gemma, Granite) and hot-swapping between them without a change to the consumer.
+Routing a workload to one of several model families (Mistral, Nemotron, Gemma, Granite) and hot-swapping between them without a change to the consumer. Each family's adapter places the system prompt in the family's system role (ahead of the user text where the family has none) and neutralises the family's control tokens in all text, so the only role markers are the template's own.
 
 **Until it is operable, say:** "Routing across model families and hot-swap between them are implemented and tested as a library against a deterministic engine (AC-MS-9). The running inference service serves one model; one real model, IBM Granite 3.3 2B on CPU, has been served end to end."
 
@@ -429,8 +432,13 @@ Routing a workload to one of several model families (Mistral, Nemotron, Gemma, G
 - Criteria: AC-MS-4, AC-MS-9
 - Source:
   - [`mimir/model-server/src/router.rs:28`](../../mimir/model-server/src/router.rs)
+  - [`mimir/model-server/src/adapter.rs:27`](../../mimir/model-server/src/adapter.rs)
+  - [`mimir/model-server/src/adapter.rs:74`](../../mimir/model-server/src/adapter.rs)
 - Tests:
   - [`mimir/model-server/tests/router.rs::ac_ms_4_workload_routes_to_the_right_family_no_consumer_change`](../../mimir/model-server/tests/router.rs)
+  - [`mimir/model-server/tests/security_adapter_tokens.rs::injected_control_tokens_survive_only_as_literals`](../../mimir/model-server/tests/security_adapter_tokens.rs)
+  - [`mimir/model-server/tests/security_adapter_tokens.rs::granite_and_nemotron_carry_the_system_text_in_their_system_turn`](../../mimir/model-server/tests/security_adapter_tokens.rs)
+  - [`mimir/model-server/tests/security_adapter_tokens.rs::an_empty_system_text_renders_the_single_turn_shape`](../../mimir/model-server/tests/security_adapter_tokens.rs)
 - Stated at:
   - [`GETTING_STARTED.md:283`](../../GETTING_STARTED.md)
 

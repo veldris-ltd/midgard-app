@@ -200,6 +200,8 @@ fn probe(identity: &Path, service: &str, addr: &str) -> Output {
             addr,
             "--purpose",
             "investigation",
+            "--system",
+            "You are Mimir.",
             "--prompt",
             "who is assigned to case 42?",
         ])
@@ -521,11 +523,15 @@ fn a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts(
     {
         let requests = requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        assert!(
-            requests[0].contains("<|start_of_role|>user<|end_of_role|>who is assigned to case 42?"),
-            "{}",
-            requests[0]
-        );
+        // The probe's system text arrives in Granite's system turn, its prompt in the
+        // user turn after it. [VLD-ANB-MIDGARD-0060] [AC-61.4]
+        let system = requests[0]
+            .find("<|start_of_role|>system<|end_of_role|>You are Mimir.<|end_of_text|>")
+            .unwrap_or_else(|| panic!("no system turn: {}", requests[0]));
+        let user = requests[0]
+            .find("<|start_of_role|>user<|end_of_role|>who is assigned to case 42?")
+            .unwrap_or_else(|| panic!("no user turn: {}", requests[0]));
+        assert!(system < user, "{}", requests[0]);
     }
     drop(server);
 

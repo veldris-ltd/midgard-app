@@ -63,6 +63,7 @@ impl Server {
     pub fn prepare(&self, req: &InferenceRequest) -> PreparedRequest {
         let quant = self.backend.descriptor().resolve_quant(req.quant_pref);
         PreparedRequest {
+            system_prompt: req.system_prompt.clone(),
             prompt: req.prompt.clone(),
             max_tokens: req.max_tokens,
             quant,

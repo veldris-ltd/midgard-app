@@ -44,11 +44,12 @@ impl<I: Inference> CopilotAdvisor for MimirCopilot<I> {
     fn draft(&self, prompt: &AssembledCopilotPrompt) -> Result<String, AdviceError> {
         let request = InferenceRequest {
             purpose: self.purpose.clone(),
+            system_prompt: prompt.system_text(),
             workload_class: WorkloadClass::Balanced,
             quant_pref: None,
             backend_override: None,
             max_tokens: self.max_tokens,
-            prompt: prompt.full_text(),
+            prompt: prompt.body_text(),
         };
         let completion = self
             .inference
@@ -93,9 +94,13 @@ mod tests {
             seen: RefCell::new(None),
         };
         let copilot = MimirCopilot::new(fake);
-        assert_eq!(copilot.draft(&prompt()).unwrap(), "{\"changes\":[]}");
+        let sent = prompt();
+        assert_eq!(copilot.draft(&sent).unwrap(), "{\"changes\":[]}");
         let seen = copilot.inference.seen.borrow();
         let req = seen.as_ref().unwrap();
+        // The system text travels apart from the delimited body. [VLD-ANB-MIDGARD-0060]
+        assert_eq!(req.system_prompt, sent.system_text());
+        assert_eq!(req.prompt, sent.body_text());
         assert_eq!(req.workload_class, WorkloadClass::Balanced);
         assert!(req.prompt.contains("rotate the signing key"));
     }

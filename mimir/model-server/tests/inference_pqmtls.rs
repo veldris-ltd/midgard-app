@@ -193,6 +193,7 @@ fn call_inference(
 fn request() -> InferenceRequest {
     InferenceRequest {
         purpose: "investigation".to_string(),
+        system_prompt: String::new(),
         workload_class: WorkloadClass::Balanced,
         quant_pref: None,
         backend_override: None,

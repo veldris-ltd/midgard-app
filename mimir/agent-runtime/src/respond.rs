@@ -159,11 +159,16 @@ pub fn respond(
 
     let req = InferenceRequest {
         purpose: ctx.purpose.0.clone(),
+        // The SYSTEM block travels in the family's system turn, apart from the body
+        // (policy, tools and the DATA-delimited layers). An empty system_text (a
+        // layer-8 rewrite reflowed it) leaves everything body, rendered alone.
+        // [VLD-ANB-MIDGARD-0060]
+        system_prompt: assembled.system_text.clone(),
         workload_class: WorkloadClass::Balanced,
         quant_pref: None,
         backend_override: None,
         max_tokens: cfg.max_tokens,
-        prompt: assembled.text.clone(),
+        prompt: assembled.body_text.clone(),
     };
     match server.infer(server.prepare(&req)) {
         Ok(c) => Ok(GroundedResponse {
