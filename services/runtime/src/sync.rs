@@ -7,7 +7,7 @@
 //! `lock_poison_recoveries_total{lock}`, logs it at error level, and clears the
 //! poison, so each poisoning is counted and logged once. A caller guarding security
 //! state also records [`RECOVERED_POISONED_LOCK`] in its audit ledger.
-//! [VLD-ANB-MIDGARD-0030]
+//! [NFR-SEC-1] [RC-33] [VLD-ANB-MIDGARD-0030]
 
 use std::sync::{Mutex, MutexGuard};
 
