@@ -677,6 +677,19 @@ CONTRIBUTING.md for the version policy.
     above it or is re-registered; `docs/ops/RUNBOOKS.md` RB-8 says what each refusal
     means.
 
+- **A hostile data source cannot crash or stall the Forge worker.**
+  [VLD-ANB-MIDGARD-0009] [VLD-ANB-MIDGARD-0011] The connector HTTP client added a
+  server-supplied chunk size to the body length with plain arithmetic, so a size of
+  `ffffffffffffffff` wrapped past the 256 MiB body cap and panicked the worker; each
+  chunk is now checked against what is left of the cap, and a size that does not fit
+  is refused as a parse error. The SCRAM-SHA-256 client used by the PostgreSQL and
+  Kafka connectors accepted any iteration count a server asked for, so one answering
+  `i=4294967295` kept the scheduler hashing for hours; counts above 1,000,000 are now
+  refused before any PBKDF2 work. A panic in one job's run is logged as a failed run
+  and retried, rather than ending the worker. The release profile now sets
+  `overflow-checks = true` across the workspace, so arithmetic on an untrusted length
+  that does wrap panics instead.
+
 ### Fixed
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
   in `services/runtime` recursed once per nesting level with no bound, and the edge
