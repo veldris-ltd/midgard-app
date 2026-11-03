@@ -219,7 +219,9 @@ token to it through the environment, never persisted in the checkout; a pull req
 opened with that token does not start other workflows, so close and reopen it (or push
 to it) to run CI. On GitLab `CI_JOB_TOKEN` can neither push nor open a merge request:
 the owner creates a project access token with `api` scope, stores it as the protected,
-masked CI/CD variable `MIDGARD_MR_TOKEN`, and creates the weekly pipeline schedule. The
+masked CI/CD variable `MIDGARD_MR_TOKEN` with its environment scope set to
+`advisory-refresh` (the environment only that job enters, as `action: access`, so no
+other job can read the token), and creates the weekly pipeline schedule. The
 token reaches `git` through a credential helper and `curl` through a header file, never
 a command line. The bot's commit is unsigned; squash-merge it through the forge (which
 signs the result) or re-sign it before merging into a branch that requires signatures.
@@ -504,8 +506,9 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
 - A `macos`-tagged runner for the `apple` shell audit. Without one that job waits, and
   the release with it.
 - For the weekly `advisory-refresh`: a pipeline schedule on the default branch and the
-  `MIDGARD_MR_TOKEN` variable ([Dependency updates](#dependency-updates)). The job uses
-  the Docker-in-Docker executor and needs to reach github.com and
+  `MIDGARD_MR_TOKEN` variable, scoped to the `advisory-refresh` environment
+  ([Dependency updates](#dependency-updates)). The job runs in the toolchain image on
+  the unprivileged executor and needs to reach github.com and
   osv-vulnerabilities.storage.googleapis.com.
 
 ### Publishing the toolchain image

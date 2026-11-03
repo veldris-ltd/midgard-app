@@ -1113,6 +1113,13 @@ CONTRIBUTING.md for the version policy.
   declared in `.gitlab-ci.yml`'s `variables:`; `pipelines.test.sh` fails unless it is the
   last line of `tools/ci/toolchain.digest`, and `toolchain-publish` prints the line for
   both files. Until the first publish both say `unpublished`. [VLD-ANB-MIDGARD-0043]
+- **GitLab's advisory refresh can run, and its token can be fenced to it.** The job ran
+  `apk add` in the toolchain image, which is Debian (`rust:1.82`), so it failed at its
+  first step; it now installs nothing, as the image has git, curl, unzip and diff. It
+  enters the `advisory-refresh` environment (`action: access`), so `MIDGARD_MR_TOKEN`
+  can be scoped to that environment and no other job can read it. `pipelines.test.sh`
+  refuses `apk` in any toolchain job and checks the environment. [AC-P4.5]
+  (VLD-ANB-MIDGARD-0076)
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**

@@ -247,7 +247,9 @@ scan:
 # GitHub): refresh both advisory snapshots, re-scan, and open a merge request with the
 # scan diff when either moved. CI_JOB_TOKEN can neither push nor open one, so the job
 # uses MIDGARD_MR_TOKEN, a project access token with api scope, set as a protected,
-# masked variable that only this scheduled job reads. See docs/dev/CI.md, "Dependency
+# masked variable scoped to the advisory-refresh environment, which only this job enters.
+# It runs in the toolchain image (Debian), which has every tool it needs, git, curl,
+# unzip and diff among them, so it installs nothing. See docs/dev/CI.md, "Dependency
 # updates". [AC-P4.5] (VLD-ANB-MIDGARD-0076)
 advisory-refresh:
   stage: hygiene
@@ -255,9 +257,10 @@ advisory-refresh:
   interruptible: false
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  before_script:
-    - apk add --no-cache bash git curl coreutils diffutils unzip sed grep gawk findutils
-    - bash tools/ci/run.sh toolchain
+  # `access`: the job reads the environment's variables and deploys nothing.
+  environment:
+    name: advisory-refresh
+    action: access
   script:
     - bash tools/ci/run.sh advisory-refresh
 
