@@ -1,16 +1,25 @@
 //! RC-14 (break-glass): grants + reviews survive a restart, recovered intact —
 //! including the authenticated approver. [MG-SEC-07]
+//!
+//! So does ending a grant early, through the store or the controller, and the
+//! one-time expiry alert. A journal record whose time-box is longer than the
+//! four-hour cap is refused on boot rather than restored. [FR-AD-8]
+//! [VLD-ANB-MIDGARD-0055]
 
 mod common;
 
 use std::path::PathBuf;
 
-use admin_breakglass::{BreakGlassState, DurableBreakGlass, GrantRequest, RecordingAlerter};
-use admin_identity::{ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
+use admin_breakglass::{
+    AlertKind, BreakGlassController, BreakGlassError, BreakGlassState, DurableBreakGlass,
+    GrantRequest, RecordingAlerter, MAX_TTL_SECS,
+};
+use admin_identity::{AdminSession, IdentityDirectory, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
+use audit_writer::{AuditWriter, InMemoryLedger, LedgerId, SealedJournal};
 use common::{directory, Admins, APPROVAL_MAX_AGE};
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
-use pqc_agility::backend::fips::provider as fips_provider;
-use pqc_agility::Rng;
+use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
+use pqc_agility::{Rng, SigId, SignatureScheme};
 
 struct SeedRng(u64);
 impl Rng for SeedRng {
@@ -130,6 +139,189 @@ fn breakglass_grants_survive_restart() {
         "duty-officer",
         "the authenticated approver is recovered"
     );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A responder and a security officer, signed in at 1 000, with their roles.
+fn people() -> (AdminSession, AdminSession, IdentityDirectory) {
+    let mut admins = Admins::new(&["responder", "duty-officer"]);
+    let responder = admins.sign_in("responder", 1_000);
+    let officer = admins.sign_in("duty-officer", 1_000);
+    let roles = directory(&[
+        ("responder", ROLE_IAM_ADMIN),
+        ("duty-officer", ROLE_SECURITY_OFFICER),
+    ]);
+    (responder, officer, roles)
+}
+
+#[test]
+fn a_closed_grant_is_still_closed_after_restart() {
+    let dir = scratch();
+    let path = dir.join("breakglass.journal");
+    let (responder, officer, roles) = people();
+    {
+        let mut store = open(&path);
+        store
+            .grant(
+                &roles,
+                req("bg-1", 3600),
+                &responder,
+                &officer,
+                1_000,
+                APPROVAL_MAX_AGE,
+            )
+            .unwrap();
+        store.close("bg-1", 1_200).unwrap();
+        assert!(!store.service().is_active("bg-1", 1_500));
+    }
+
+    // Restart: the cut time-box comes back, not the original hour.
+    let store = open(&path);
+    let s = store.service();
+    assert!(!s.is_active("bg-1", 1_500), "the close is recovered");
+    assert_eq!(s.get("bg-1").unwrap().expires_at, 1_200);
+    assert_eq!(
+        s.state("bg-1", 1_500),
+        Some(BreakGlassState::Expired),
+        "a closed grant still owes its review"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_expiry_alert_is_not_raised_again_after_restart() {
+    let dir = scratch();
+    let path = dir.join("breakglass.journal");
+    let (responder, officer, roles) = people();
+    {
+        let mut store = open(&path);
+        store
+            .grant(
+                &roles,
+                req("bg-1", 60),
+                &responder,
+                &officer,
+                1_000,
+                APPROVAL_MAX_AGE,
+            )
+            .unwrap();
+        assert_eq!(store.sweep(2_000).unwrap(), vec!["bg-1".to_string()]);
+    }
+
+    let mut store = open(&path);
+    assert!(
+        store.sweep(3_000).unwrap().is_empty(),
+        "the one-time alert was recorded"
+    );
+    assert_eq!(
+        store
+            .service()
+            .alerter()
+            .count(AlertKind::ExpiredUnreviewed),
+        0
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Write one grant record, granted at 1 000 with a time-box `ttl` long, in the
+/// store's own format and sealed as the store seals it: what an old or tampered
+/// journal would hold.
+fn write_record(path: &PathBuf, ttl: u64) {
+    fn put(o: &mut Vec<u8>, s: &str) {
+        o.extend_from_slice(&(s.len() as u32).to_le_bytes());
+        o.extend_from_slice(s.as_bytes());
+    }
+    let mut o = Vec::new();
+    for s in ["bg-1", "responder", "duty-officer", "kms", "sev-1 incident"] {
+        put(&mut o, s);
+    }
+    o.extend_from_slice(&1_000u64.to_le_bytes());
+    o.extend_from_slice(&(1_000 + ttl).to_le_bytes());
+    o.push(0); // not reviewed
+    o.push(0); // no expiry alert yet
+    let (mut journal, _) =
+        SealedJournal::open(path, Box::new(sealer()), b"midgard-admin-breakglass-v1").unwrap();
+    journal.append(&o).unwrap();
+}
+
+#[test]
+fn a_journal_record_past_the_four_hour_cap_is_refused() {
+    let dir = scratch();
+
+    // At the cap exactly, the record is restored as written.
+    let at_cap = dir.join("at-cap.journal");
+    write_record(&at_cap, MAX_TTL_SECS);
+    let store = open(&at_cap);
+    assert_eq!(
+        store.service().get("bg-1").unwrap().expires_at,
+        1_000 + MAX_TTL_SECS
+    );
+
+    // One second past it, the store will not open, as for any other invalid
+    // record, rather than restore a grant the service could never have issued.
+    let past_cap = dir.join("past-cap.journal");
+    write_record(&past_cap, MAX_TTL_SECS + 1);
+    match DurableBreakGlass::open(&past_cap, Box::new(sealer()), RecordingAlerter::new()) {
+        Err(e) => assert_eq!(e, BreakGlassError::TtlTooLong { max: MAX_TTL_SECS }),
+        Ok(_) => panic!("a grant longer than the cap was restored"),
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_controllers_close_survives_a_restart() {
+    let dir = scratch();
+    let path = dir.join("breakglass.journal");
+    let (responder, officer, roles) = people();
+    let controller = |store| {
+        let alg = SigId::MlDsa65;
+        let (vk, sk) = FipsSig::new(alg).keypair(&mut SeedRng(5)).unwrap();
+        let audit = AuditWriter::new(
+            InMemoryLedger::new(),
+            Box::new(FipsSig::new(alg)),
+            sk,
+            vk,
+            LedgerId("admin-breakglass".into()),
+        );
+        BreakGlassController::new(store, audit)
+    };
+    {
+        let mut c = controller(open(&path));
+        for id in ["bg-1", "bg-2"] {
+            c.grant(
+                &roles,
+                req(id, 3600),
+                &responder,
+                &officer,
+                APPROVAL_MAX_AGE,
+                "kms.key.rotate",
+                1_000,
+                "t0",
+            )
+            .unwrap();
+        }
+        c.close("bg-1", "duty-officer", 1_200, "t1").unwrap();
+        assert!(c.elevates("responder", "kms", "kms.key.rotate", 1_100));
+    }
+
+    // Restart: the controller's close was journalled, so bg-1 stays closed.
+    let c = controller(open(&path));
+    assert!(
+        !c.service().is_active("bg-1", 1_500),
+        "the close is recovered"
+    );
+    assert_eq!(
+        c.service().state("bg-1", 1_500),
+        Some(BreakGlassState::Expired)
+    );
+    // bg-2 is still within its time-box, but elevation tokens live in memory, so
+    // after a restart no one is elevated until a grant is issued again.
+    assert!(c.service().is_active("bg-2", 1_500));
+    assert!(!c.elevates("responder", "kms", "kms.key.rotate", 1_500));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

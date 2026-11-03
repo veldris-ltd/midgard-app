@@ -48,6 +48,21 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **Closing a break-glass grant, and its four-hour cap, survive a restart.**
+  [VLD-ANB-MIDGARD-0055] [FR-AD-8] [RC-14]
+  - `BreakGlassController` is generic over a new `GrantStore`, and by default is
+    built over the `DurableBreakGlass` journal rather than the in-memory
+    `BreakGlassService`, which is kept for tests. `DurableBreakGlass` gains `close`
+    and `sweep`, so an early close and the one-time expiry alert are journalled as
+    grants and reviews already were. The record format is unchanged: a close is the
+    grant again with its earlier `expires_at`.
+  - A journal record whose time-box is longer than `MAX_TTL_SECS` is refused on
+    boot: `DurableBreakGlass::open` fails with `BreakGlassError::TtlTooLong`, as it
+    fails on any other invalid record. `BreakGlassService::restore_grant` now
+    returns a `Result`.
+  - `BreakGlassController::service_mut` is replaced by `alerter_mut`, so grants
+    change only through the controller. Elevation tokens are still held in memory,
+    so a restart drops every elevation; that fails closed.
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

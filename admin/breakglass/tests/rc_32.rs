@@ -46,7 +46,8 @@ fn provider() -> CryptoProvider {
     p
 }
 
-type Controller = BreakGlassController<DurableAlerter<SecurityOfficerBus>, InMemoryLedger>;
+type Alerts = DurableAlerter<SecurityOfficerBus>;
+type Controller = BreakGlassController<Alerts, InMemoryLedger, BreakGlassService<Alerts>>;
 
 fn controller(bus: SecurityOfficerBus) -> Controller {
     let (vk, sk) = keypair(7);
@@ -210,7 +211,7 @@ fn alert_delivery_is_durable_across_a_transient_bus_outage() {
     assert!(c.elevates("responder", "kms", "kms.key.rotate", NOW));
 
     // A flush retries the pending alert; the bus is healthy now → delivered.
-    let delivered = c.service_mut().alerter_mut().flush();
+    let delivered = c.alerter_mut().flush();
     assert_eq!(delivered, 1);
     assert_eq!(c.service().alerter().pending(), 0);
     assert_eq!(c.service().alerter().bus().received().len(), 1);
