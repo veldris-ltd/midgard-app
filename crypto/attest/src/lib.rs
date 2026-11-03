@@ -422,7 +422,24 @@ pub fn verify_artefact(artefact: &Path, anchors: &TrustAnchors) -> Result<Verdic
         path: artefact.to_path_buf(),
         reason: e.to_string(),
     })?;
-    let artefact_sha256 = sha256(&bytes);
+    verify_artefact_bytes(&bytes, artefact, anchors)
+}
+
+/// [`verify_artefact`] over an artefact's bytes, already read: `bytes` are what is
+/// verified, and `artefact` is only where the three sidecars are found and what the
+/// verdict names; the file at that path is never opened. A caller that goes on to use
+/// the artefact uses these same bytes, so nothing swapped in at the path after the
+/// check is what it uses (`mg-verify --run-service` executes them).
+/// `[AC-B-1]` `[AC-RF-SC-2d]` `[VLD-ANB-MIDGARD-0068]`
+pub fn verify_artefact_bytes(
+    bytes: &[u8],
+    artefact: &Path,
+    anchors: &TrustAnchors,
+) -> Result<Verdict, VerifyError> {
+    if anchors.is_empty() {
+        return Err(VerifyError::NoTrustAnchors);
+    }
+    let artefact_sha256 = sha256(bytes);
 
     let read_sidecar = |p: PathBuf| -> Result<Vec<u8>, VerifyError> {
         std::fs::read(&p).map_err(|e| {

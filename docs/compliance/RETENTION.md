@@ -63,4 +63,4 @@ must, until erasure and export ship:
 Per-record data keys with crypto-shred tombstones for the directory, object and
 dataset journals (three store formats), compaction, a subject erasure and a subject
 export operation through `mg-admin`, and retention enforcement. It depends on the
-wrapped keystore roots of keystore format version 2. The audit ledger stays immutable.
+wrapped keystore roots of keystore format version 3. The audit ledger stays immutable.

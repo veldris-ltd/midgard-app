@@ -51,7 +51,7 @@ const PASSKEY_PASSPHRASE: &str = "passkey-passphrase-file";
 const MAX_BINDING_DAYS: u64 = 3_650;
 /// Whether opening the passkey keystore passes a local knowledge gate: what the
 /// assertion's user-verification flag reports. The passkey keystore is wrapped under
-/// its holder's passphrase (keystore format version 2, `--passkey-passphrase-file`), so
+/// its holder's passphrase (keystore format version 3, `--passkey-passphrase-file`), so
 /// a passkey that opens at all was unlocked with that passphrase, and the flag is
 /// signed true. The gateway never relies on the flag either way.
 /// [VLD-ANB-MIDGARD-0008] [VLD-ANB-MIDGARD-0007]

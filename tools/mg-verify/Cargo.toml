@@ -22,6 +22,12 @@ backend-fips = ["attest/backend-fips"]
 # exit code. Verification needs no key custody, so `custody` stays off.
 attest = { path = "../../crypto/attest", default-features = false }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# `--run-service` executes the bytes it verified from a sealed memfd (memfd_create,
+# F_ADD_SEALS), which std does not expose. Already in the build through pqc-agility.
+# [AC-B-1] [VLD-ANB-MIDGARD-0068]
+libc = "0.2"
+
 [dev-dependencies]
 # Building fixtures needs the signing side, so tests pull the custody feature in.
 attest = { path = "../../crypto/attest" }

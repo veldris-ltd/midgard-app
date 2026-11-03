@@ -73,8 +73,13 @@ impl Bundle {
     /// a copy of this mg-verify binary called `svc`, so a test can see whether it was
     /// started (it prints its usage text when given `--help`). Signed or not.
     fn service(tag: &str, signed: bool) -> Self {
+        Self::service_from(tag, Path::new(EXE), signed)
+    }
+
+    /// [`Bundle::service`], the artefact a copy of `binary`.
+    fn service_from(tag: &str, binary: &Path, signed: bool) -> Self {
         let b = Self::scratch(tag, "svc");
-        std::fs::copy(EXE, &b.artefact).expect("copy the binary in as svc");
+        std::fs::copy(binary, &b.artefact).expect("copy the binary in as svc");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -700,6 +705,88 @@ fn run_service_execs_a_verified_binary_with_the_given_arguments() {
     let out = b.run_service(&[("MIDGARD_SERVICE", "svc")], &["--", "--help"]);
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(stdout(&out).contains("usage:"));
+}
+
+/// The bytes `verify_artefact_bytes` is given are what it verifies: the artefact's
+/// path is only where its sidecars are found, and is never reopened. Replaced after
+/// it was read, the path no longer verifies, while the bytes read before still do.
+#[test]
+fn verify_artefact_bytes_checks_the_bytes_given_not_the_path() {
+    // [AC-B-1] [AC-RF-SC-2d] [VLD-ANB-MIDGARD-0068]
+    let b = Bundle::good("bytes-not-path");
+    let anchors = attest::TrustAnchors::parse(&std::fs::read_to_string(&b.anchors).unwrap())
+        .expect("anchors");
+    let verified = std::fs::read(&b.artefact).unwrap();
+    std::fs::write(&b.artefact, b"replaced after it was read").unwrap();
+
+    let verdict = attest::verify_artefact_bytes(&verified, &b.artefact, &anchors)
+        .expect("the bytes read before the swap still verify");
+    assert_eq!(verdict.artefact, "mg-sbom");
+    assert_eq!(verdict.artefact_sha256, attest::preimage::digest(&verified));
+    assert!(
+        attest::verify_artefact(&b.artefact, &anchors).is_err(),
+        "the replaced file does not"
+    );
+    assert!(attest::verify_artefact_bytes(b"other bytes", &b.artefact, &anchors).is_err());
+
+    // Nor is the path needed at all: removed, its bytes still verify beside its sidecars.
+    std::fs::remove_file(&b.artefact).unwrap();
+    attest::verify_artefact_bytes(&verified, &b.artefact, &anchors)
+        .expect("verified without the artefact's file");
+}
+
+/// Prints the executable this process image was loaded from, for
+/// `run_service_execs_the_bytes_it_verified_not_the_path`, which starts this test
+/// binary as a service. Ignored in a normal run.
+#[test]
+#[ignore = "a helper run as a service by another test"]
+fn print_own_executable() {
+    let exe = std::fs::read_link("/proc/self/exe").expect("readlink /proc/self/exe");
+    println!("own-executable={}", exe.display());
+}
+
+/// On Linux `--run-service` executes the bytes it verified, from a sealed in-memory
+/// file, never the path again: whatever is at the path after verification is not
+/// what runs. The service here is this test binary, signed, asked to print the file
+/// its process image came from; that is the in-memory file, not the artefact path. A
+/// swap of the path between verifying and starting cannot be timed from outside, so
+/// this shows the path is not reopened instead, and
+/// `verify_artefact_bytes_checks_the_bytes_given_not_the_path` that what is verified
+/// is the bytes read once.
+#[cfg(target_os = "linux")]
+#[test]
+fn run_service_execs_the_bytes_it_verified_not_the_path() {
+    // [AC-B-1] [NFR-PQ-3] [VLD-ANB-MIDGARD-0068]
+    let me = std::env::current_exe().expect("this test binary");
+    let b = Bundle::service_from("run-bytes", &me, true);
+    let out = b.run_service(
+        &[("MIDGARD_SERVICE", "svc")],
+        &[
+            "--exact",
+            "print_own_executable",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ],
+    );
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("verify-before-run: OK — starting svc"),
+        "{text}"
+    );
+    let exe = text
+        .lines()
+        .find_map(|l| l.split_once("own-executable=").map(|(_, exe)| exe.trim()))
+        .unwrap_or_else(|| panic!("the service did not run: {text}"));
+    assert!(
+        exe.starts_with("/memfd:"),
+        "the service ran from {exe}, not from the bytes mg-verify verified"
+    );
+    assert!(
+        !exe.contains(&*b.dir.to_string_lossy()),
+        "the artefact path was reopened: {exe}"
+    );
 }
 
 #[test]

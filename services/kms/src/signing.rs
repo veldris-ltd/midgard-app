@@ -92,8 +92,11 @@ impl SoftwareSigningRoot {
     /// Reconstruct a signing root from key material the caller has already
     /// recovered — typically by unsealing it through [`crate::TrustRoot`].
     ///
-    /// The two keys must agree on their algorithm; a mismatch is rejected here
-    /// rather than surfacing later as a confusing verification failure.
+    /// The two keys must agree on their algorithm, and must belong together: a probe
+    /// signature made with `signing_key` must verify under `verifying_key`. A
+    /// mismatch is rejected here rather than surfacing later as a confusing
+    /// verification failure, and a keystore whose stored verifying key is not its
+    /// signing key's own never yields a custodian. [NFR-PQ-3] [VLD-ANB-MIDGARD-0007]
     pub fn from_key(
         provider: CryptoProvider,
         key_id: &str,
@@ -108,9 +111,18 @@ impl SoftwareSigningRoot {
             )));
         }
         // The algorithm must be usable now, not merely nameable.
-        provider
+        let scheme = provider
             .sig_for(signing_key.alg())
             .map_err(|e| KmsError::Sign(e.to_string()))?;
+        let probe = b"midgard-kms/signing-key-probe/v1";
+        let signature = scheme
+            .sign(&signing_key, probe)
+            .map_err(|e| KmsError::Sign(e.to_string()))?;
+        scheme
+            .verify(&verifying_key, probe, &signature)
+            .map_err(|_| {
+                KmsError::Sign("the verifying key does not belong to the signing key".into())
+            })?;
         Ok(Self {
             key_id: key_id.to_string(),
             provider,
@@ -229,6 +241,26 @@ mod tests {
             ),
         )
         .expect_err("mismatched key algorithms must be rejected");
+        assert!(matches!(err, KmsError::Sign(_)));
+    }
+
+    // A verifying key that is not the signing key's own, even of the same algorithm,
+    // is refused by the probe signature: a keystore whose header names another key
+    // never loads. [NFR-PQ-3] [VLD-ANB-MIDGARD-0007]
+    #[test]
+    fn from_key_rejects_a_verifying_key_that_is_not_the_signing_keys_own() {
+        let a = root(RELEASE_SIG_ALG);
+        let b = root(RELEASE_SIG_ALG);
+        let err = SoftwareSigningRoot::from_key(
+            pqc_agility::backend::fips::provider(),
+            "k",
+            b.verifying_key().clone(),
+            pqc_agility::SigningKey::new(
+                a.algorithm(),
+                pqc_agility::SecretBytes::new(a.expose_signing_key().expose().to_vec()),
+            ),
+        )
+        .expect_err("a verifying key from another pair must be rejected");
         assert!(matches!(err, KmsError::Sign(_)));
     }
 
