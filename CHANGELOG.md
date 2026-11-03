@@ -383,6 +383,12 @@ CONTRIBUTING.md for the version policy.
   constant-time comparison are replaced by RustCrypto's `hmac`, `hkdf`, `pbkdf2` and
   `subtle`, behind the same functions, and checked against the RFC 4231, 5869, 6070
   and 7914 vectors.
+- **A hand-off for the independent cryptographic review.** [VLD-ANB-MIDGARD-0024]
+  [VLD-ANB-MIDGARD-0059] `docs/security/CRYPTO_REVIEW_HANDOFF.md` lists each
+  primitive and construction, the test files that hold its vectors and the open
+  questions for the reviewer. The hybrid combiner is pinned by a vector computed
+  outside the crate, and SHA3-256 by FIPS 202 answers
+  (`crypto/pqc-agility/tests/hybrid_kat.rs`).
 - **Stronger password storage.** [MG-SEC-11] New passwords are Argon2id. A stored hash
   outside fixed cost bounds is refused like a wrong password, so an edited entry
   cannot weaken itself; legacy PBKDF2 entries (210,000 iterations) still sign in and
