@@ -261,7 +261,8 @@ fn an_enrolment_needs_a_second_administrator_and_survives_a_restart() {
             None,
         );
         assert_eq!(r.status, 403, "{}", r.body);
-        assert!(r.body.contains("SelfApprovalDenied"), "{}", r.body);
+        // The privilege service's reason stays in the gateway's log. [VLD-ANB-MIDGARD-0053]
+        assert_eq!(r.body, r#"{"error":"refused"}"#);
         let r = post(
             gw,
             "/api/v1/admin/enrolments/approve",
@@ -383,11 +384,9 @@ fn a_challenge_is_bound_to_the_administrator_who_asked() {
     let alices = fetch_challenge(gw, "alice");
     let r = verifies(gw, "bob", alices.clone(), device("bob"));
     assert_eq!(r.status, 401, "{}", r.body);
-    assert!(
-        r.body.contains("the challenge is unknown, used or expired"),
-        "{}",
-        r.body
-    );
+    // The client reads only `unauthorised`; why is logged under the request's
+    // reference. [VLD-ANB-MIDGARD-0053]
+    assert_eq!(r.body, r#"{"error":"unauthorised"}"#, "{}", r.body);
     // The nonce was consumed: not even Alice can answer it now.
     let r = verifies(gw, "alice", alices, device("alice"));
     assert_eq!(r.status, 401, "consumed: {}", r.body);

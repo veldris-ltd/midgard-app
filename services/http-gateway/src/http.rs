@@ -297,6 +297,9 @@ pub struct Response {
     /// Further response headers a route sets, sent as given and exposed to an
     /// allowlisted origin.
     pub headers: Vec<(&'static str, String)>,
+    /// What went wrong, for the gateway's own log only: it is never written to the
+    /// client. [VLD-ANB-MIDGARD-0053]
+    pub detail: Option<String>,
 }
 
 impl Response {
@@ -308,6 +311,7 @@ impl Response {
             allow_origin: None,
             retry_after: None,
             headers: Vec::new(),
+            detail: None,
         }
     }
 
@@ -323,6 +327,7 @@ impl Response {
             allow_origin: None,
             retry_after: None,
             headers: Vec::new(),
+            detail: None,
         }
     }
 
@@ -342,6 +347,19 @@ impl Response {
     /// edge itself produced, never one taken from the request.
     pub fn with_header(mut self, name: &'static str, value: &str) -> Self {
         self.headers.push((name, value.to_string()));
+        self
+    }
+
+    /// A server error. The client reads only `{"error":"internal error"}` and the
+    /// request's reference, which the gateway adds; `detail` goes to its log under
+    /// the same reference. [VLD-ANB-MIDGARD-0053]
+    pub fn internal(detail: impl Into<String>) -> Response {
+        Response::json(500, r#"{"error":"internal error"}"#.to_string()).with_detail(detail)
+    }
+
+    /// Keep `detail` for the gateway's log; the client never reads it.
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
         self
     }
 

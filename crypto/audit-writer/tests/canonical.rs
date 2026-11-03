@@ -10,6 +10,7 @@ fn rec(actor: &str, action: &str) -> AuditRecord {
         action: Action(action.into()),
         resource: Resource("obj:1".into()),
         ts: Timestamp("2026-07-08T00:00:00Z".into()),
+        context: Default::default(),
     }
 }
 

@@ -434,6 +434,7 @@ fn audit_checkpoint_adopts_a_mesh_services_own_ledger() {
         action: Action("Infer".into()),
         resource: Resource("model:granite".into()),
         ts: Timestamp("2026-10-30T00:00:00Z".into()),
+        context: Default::default(),
     };
     {
         let identity = ServiceIdentity::load(&out, "mimir-server").expect("the identity loads");

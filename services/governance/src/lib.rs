@@ -18,6 +18,8 @@ use audit_writer::{
     Action as AuditAction, Actor, AuditRecord, AuditWriter, InMemoryLedger, LedgerId, LedgerStore,
     RecordId, Resource as AuditResource, SealedEntry, Timestamp,
 };
+/// The structured context a caller can attach to a ledger row. [VLD-ANB-MIDGARD-0052]
+pub use audit_writer::{AuditContext, Outcome};
 use policy::{
     AccessRequest, Action, Clearance, Decision, DefaultPdp, PolicyDecisionPoint, PolicySet,
     Purpose, Resource, Role, Subject, SubjectId,
@@ -160,13 +162,36 @@ impl<S: LedgerStore> Governance<S> {
         action: &str,
         now: u64,
     ) -> Result<GovDecision, GovernanceError> {
+        self.authorize_with(ctx, resource, action, now, AuditContext::default())
+    }
+
+    /// [`authorize`](Self::authorize), recording `audit` (the request's source
+    /// address and session, say) on the lineage entry. The entry's outcome is always
+    /// the decision's, Permit or Deny, whatever `audit` says. [AC-M-4]
+    /// [VLD-ANB-MIDGARD-0052]
+    pub fn authorize_with(
+        &mut self,
+        ctx: &GovContext,
+        resource: &Resource,
+        action: &str,
+        now: u64,
+        audit: AuditContext,
+    ) -> Result<GovDecision, GovernanceError> {
         let permitted = self.permits(ctx, resource, action);
-        let outcome = if permitted { "PERMIT" } else { "DENY" };
+        let (outcome, recorded) = if permitted {
+            ("PERMIT", Outcome::Permit)
+        } else {
+            ("DENY", Outcome::Deny)
+        };
         let audit_seq = self.write_audit(
             &ctx.subject,
             &format!("{outcome} {action}"),
             &resource.id.0,
             now,
+            AuditContext {
+                outcome: recorded,
+                ..audit
+            },
         )?;
         Ok(GovDecision {
             permitted,
@@ -184,22 +209,40 @@ impl<S: LedgerStore> Governance<S> {
         resource: &str,
         now: u64,
     ) -> Result<u64, GovernanceError> {
-        self.write_audit(actor, action, resource, now)
+        self.write_audit(actor, action, resource, now, AuditContext::default())
     }
 
+    /// [`record_event`](Self::record_event) with a structured context: a refusal and
+    /// its reason code, say. [AC-M-4] [VLD-ANB-MIDGARD-0052]
+    pub fn record_event_with(
+        &mut self,
+        actor: &str,
+        action: &str,
+        resource: &str,
+        now: u64,
+        audit: AuditContext,
+    ) -> Result<u64, GovernanceError> {
+        self.write_audit(actor, action, resource, now, audit)
+    }
+
+    /// Append one row. Its id is its position in the ledger, `AUD-<seq>`, the id the
+    /// edge already shows, so no two rows share one, even within a second.
+    /// [VLD-ANB-MIDGARD-0052]
     fn write_audit(
         &mut self,
         actor: &str,
         action: &str,
         resource: &str,
         now: u64,
+        context: AuditContext,
     ) -> Result<u64, GovernanceError> {
         let record = AuditRecord {
-            id: RecordId(format!("{action}:{resource}:{now}")),
+            id: RecordId(format!("AUD-{}", self.audit.entries().len())),
             actor: Actor(actor.to_string()),
             action: AuditAction(action.to_string()),
             resource: AuditResource(resource.to_string()),
             ts: Timestamp(now.to_string()),
+            context,
         };
         self.audit
             .append(record)

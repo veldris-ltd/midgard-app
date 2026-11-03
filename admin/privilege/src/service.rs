@@ -372,6 +372,7 @@ impl<S: LedgerStore> PrivilegeService<S> {
             action: Action(action_name.to_string()),
             resource: Resource(resource_id.to_string()),
             ts: Timestamp(ts.to_string()),
+            context: Default::default(),
         };
         self.writer
             .append(record)

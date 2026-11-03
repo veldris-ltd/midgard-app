@@ -43,6 +43,7 @@ pub use ledger::{AuditWriter, InMemoryLedger, LedgerStore};
 pub use mirror::{CheckpointMirror, FileCheckpointMirror};
 pub use pin::PinnedKey;
 pub use record::{
-    Action, Actor, AuditRecord, LedgerId, RecordId, Resource, SealedEntry, Timestamp,
+    Action, Actor, AuditContext, AuditRecord, LedgerId, Outcome, RecordId, Resource, SealedEntry,
+    Timestamp,
 };
 pub use verify::{verify_chain, verify_ledger};

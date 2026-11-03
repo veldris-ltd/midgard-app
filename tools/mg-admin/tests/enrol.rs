@@ -189,8 +189,10 @@ fn two_administrators_enrol_a_principal_through_a_running_gateway() {
 
     let own = run(&["enrol", "approve"], "alice", &["--id", &id], "");
     assert_eq!(own.status.code(), Some(1));
+    // The gateway says only `refused`; the privilege service's reason
+    // (SelfApprovalDenied) stays in its log. [VLD-ANB-MIDGARD-0053]
     assert!(
-        stderr(&own).contains("SelfApprovalDenied"),
+        stderr(&own).contains("the gateway refused (403): refused"),
         "{}",
         stderr(&own)
     );

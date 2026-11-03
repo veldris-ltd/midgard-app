@@ -208,5 +208,6 @@ pub fn seal_audit<S: LedgerStore>(
         action: Action(action),
         resource: Resource(resource.to_string()),
         ts: Timestamp(ts.to_string()),
+        context: Default::default(),
     })
 }

@@ -892,3 +892,62 @@ fn other_principals_login_rows_need_the_sessions_grant() {
         "the operator holds the sessions grant"
     );
 }
+
+/// The edge writes its PERMIT row before the enclosure checks the human gate, so a
+/// refusal there is written too: a gated action without a token, and a requester
+/// deciding their own approval, each leave a `REFUSED` row with its reason code and
+/// target. [NFR-AI-1] [AC-M-4] [VLD-ANB-MIDGARD-0054] [AC-26.6]
+#[test]
+fn a_refused_human_gate_and_a_self_approval_are_in_the_ledger() {
+    let (mut gw, token) = session();
+    // One principal holding both roles, so the self-approval reaches the enclosure
+    // rather than being denied by policy at the edge.
+    gw.provision_login(
+        "both",
+        "both-password",
+        iam::UserRecord {
+            roles: [
+                policy::Role("operator".into()),
+                policy::Role("approver".into()),
+            ]
+            .into_iter()
+            .collect(),
+            ..http_gateway::demo_operator()
+        },
+    )
+    .unwrap();
+
+    let r = call(
+        &gw,
+        "POST",
+        "/api/v1/actions",
+        "",
+        r#"{"actionType":"Ground aircraft","params":{"target":"aircraft/AC-2214"}}"#,
+        Some(&token),
+    );
+    assert_eq!(r.status, 403, "{}", r.body);
+
+    let both = login(&gw, "both", "both-password");
+    let id = request_approval(&gw, &both, "Ground aircraft", "aircraft/AC-2214");
+    let own = decide(&gw, &both, &id, "approve");
+    assert_eq!(own.status, 403, "{}", own.body);
+
+    let rows = audit(&gw, &token);
+    let row = |actor: &str, action: &str| {
+        items(&rows).iter().any(|r| {
+            field(r, "actor") == actor
+                && field(r, "action") == action
+                && field(r, "resource") == "aircraft/AC-2214"
+        })
+    };
+    assert!(
+        row(DEMO_USERNAME, "REFUSED Apply (human-gate-missing)"),
+        "{}",
+        rows.encode()
+    );
+    assert!(
+        row("both", "REFUSED Approve (self-approval)"),
+        "{}",
+        rows.encode()
+    );
+}

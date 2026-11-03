@@ -40,6 +40,7 @@ pub fn record(id: &str, actor: &str, action: &str, resource: &str) -> AuditRecor
         action: Action(action.into()),
         resource: Resource(resource.into()),
         ts: Timestamp("2026-07-08T00:00:00Z".into()),
+        context: Default::default(),
     }
 }
 

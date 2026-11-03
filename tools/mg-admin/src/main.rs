@@ -699,13 +699,15 @@ fn record_admin_event(state: &StateDir, action: &str, resource: &str) -> Result<
         .unwrap_or(0);
     // Shaped like the governance spine's own records, so the audit view reads it the
     // same way.
+    let id = RecordId(format!("AUD-{}", writer.entries().len()));
     writer
         .append(AuditRecord {
-            id: RecordId(format!("{action}:{resource}:{now}")),
+            id,
             actor: Actor("mg-admin".into()),
             action: AuditAction(action.into()),
             resource: AuditResource(resource.into()),
             ts: Timestamp(now.to_string()),
+            context: Default::default(),
         })
         .map_err(|e| Failure::Run(format!("cannot record {action} in the audit ledger: {e}")))
 }
