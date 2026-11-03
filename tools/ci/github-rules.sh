@@ -14,7 +14,7 @@
 #     a change only through a pull request with an approving review from a code owner
 #     (.github/CODEOWNERS), merged with a merge commit. No one may bypass it: an
 #     emergency change goes through the second maintainer (VLD-ANB-MIDGARD-0069);
-#   - "release tags are immutable" on v* tags: no deletion, no move, no update. No one
+#   - "release tags are immutable" on v* tags: signed, no deletion, no move, no update. No one
 #     may bypass it;
 #   - "release tags are created by release managers" on v* tags: only the
 #     release-managers team (--team) may create one. It is a ruleset of its own because
@@ -96,7 +96,7 @@ pull_request='{ "type": "pull_request", "parameters": { "required_approving_revi
 apply "signed history" "$(ruleset "signed history" branch '"refs/heads/main", "refs/heads/dev"' \
     "{ \"type\": \"required_signatures\" }, { \"type\": \"non_fast_forward\" }, { \"type\": \"deletion\" }, $pull_request" '')"
 apply "release tags are immutable" "$(ruleset "release tags are immutable" tag '"refs/tags/v*"' \
-    '{ "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" }' '')"
+    '{ "type": "required_signatures" }, { "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" }' '')"
 apply "release tags are created by release managers" "$(ruleset "release tags are created by release managers" tag '"refs/tags/v*"' \
     '{ "type": "creation" }' "{ \"actor_id\": $team_id, \"actor_type\": \"Team\", \"bypass_mode\": \"always\" }")"
 
