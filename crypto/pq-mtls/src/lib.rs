@@ -46,7 +46,7 @@ pub use record::{Record, RecordOpener, RecordSealer, RekeyLimits, Role};
 #[cfg(feature = "backend-fips")]
 pub use resumption::{
     issue_ticket, run_resume_initiator, run_resume_responder, ClientTicket, Resumed, TicketKey,
-    MODE_FULL, MODE_RESUME,
+    MODE_FULL, MODE_RESUME, NEW_TICKET_AAD,
 };
 pub use revocation::{
     decode_crl, encode_crl, reload_crl_file, spawn_crl_reloader, RevocationList, CRL_MAGIC,
