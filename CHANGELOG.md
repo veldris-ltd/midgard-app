@@ -1131,6 +1131,11 @@ CONTRIBUTING.md for the version policy.
   `--ignore-scripts`; esbuild and rollup take their binaries from the per-platform
   packages the lockfile pins. `npx-pin.test.sh` refuses a CI `pnpm install` without
   it. [VLD-ANB-MIDGARD-0058]
+- **The advisory refresh's write token reaches one step.** `GH_TOKEN`, with
+  `contents: write` and `pull-requests: write`, was job-level in
+  `.github/workflows/advisory-refresh.yml`, so every step had it, the toolchain build
+  included. It is now set on the `run.sh advisory-refresh` step alone, the only one
+  that pushes or calls gh; `workflows.test.sh` checks. [AC-P4.5] (VLD-ANB-MIDGARD-0076)
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**

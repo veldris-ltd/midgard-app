@@ -215,7 +215,8 @@ without a refresh fails closed until someone runs one.
 
 The write access is the scheduled job's alone. On GitHub the workflow grants
 `contents: write` and `pull-requests: write` to that job, and passes the workflow
-token to it through the environment, never persisted in the checkout; a pull request
+token through the environment of its one step that pushes and opens the pull request
+(the toolchain build never sees it), never persisted in the checkout; a pull request
 opened with that token does not start other workflows, so close and reopen it (or push
 to it) to run CI. On GitLab `CI_JOB_TOKEN` can neither push nor open a merge request:
 the owner creates a project access token with `api` scope, stores it as the protected,

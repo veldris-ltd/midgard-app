@@ -72,7 +72,7 @@ tr -d '\r' < "$gitlab" | grep -q '^    - git clone --branch main --depth [0-9]* 
 # environment, so only a v* tag reaches them, and only once a second maintainer has
 # approved the deployment. [VLD-ANB-MIDGARD-0035]
 for job in preflight release; do
-    tr -d '' < "$workflows/release.yml" | awk -v job="$job" '
+    tr -d '\r' < "$workflows/release.yml" | awk -v job="$job" '
         $0 ~ "^  " job ":$" { on = 1; next }
         on && /^  [a-z]/ { on = 0 }
         on && /^    environment: release$/ { found = 1 }
@@ -102,6 +102,17 @@ for var in MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PAS
         pass "GitLab: .signing maps $var from \$${var}_PATH" ||
         fail "GitLab: .signing maps $var from \$${var}_PATH"
 done
+
+# The advisory refresh's write token reaches only the step that pushes and opens the
+# pull request, not the toolchain build or any other step. [AC-P4.5]
+# (VLD-ANB-MIDGARD-0076)
+token_steps="$(tr -d '\r' < "$workflows/advisory-refresh.yml" | awk '
+    /^      - / { step = $0; sub(/^      - (run: *)?/, "", step) }
+    /^    steps:$/ { in_steps = 1 }
+    /github\.token|secrets\./ { print (in_steps && step != "" ? step : "outside a step") }')"
+[ "$token_steps" = "bash tools/ci/run.sh advisory-refresh" ] &&
+    pass "GitHub: the advisory refresh's token reaches the advisory-refresh step alone" ||
+    fail "GitHub: the advisory refresh's token reaches the advisory-refresh step alone; it reaches:"$'\n'"$token_steps"
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"
