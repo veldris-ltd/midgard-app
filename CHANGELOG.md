@@ -66,6 +66,11 @@ CONTRIBUTING.md for the version policy.
   `[TOOL_CONTENT]` in the system or user text are escaped like the family's other
   control tokens, so data cannot forge a tool list, call or result.
   [VLD-ANB-MIDGARD-0060]
+- **Deleting `revoked.list` no longer reverses every revocation.** Once the revocation
+  list has existed (at start-up or at a re-check since), mimir-server treats its
+  removal as unreadable: serving stops `MODEL_REVOKED` with "the revocation list …
+  has been removed" until it is restored. A deployment that never had a list is
+  unchanged. [VLD-ANB-MIDGARD-0057]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

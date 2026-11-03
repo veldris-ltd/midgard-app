@@ -553,7 +553,7 @@ mimir-server answers inference requests from a real model inside the enclosure: 
 - Source:
   - [`mimir/model-server/src/backends/openai_compat.rs:60`](../../mimir/model-server/src/backends/openai_compat.rs)
   - [`mimir/model-server/src/handler.rs:447`](../../mimir/model-server/src/handler.rs)
-  - [`mimir/mimir-server/src/main.rs:281`](../../mimir/mimir-server/src/main.rs)
+  - [`mimir/mimir-server/src/main.rs:301`](../../mimir/mimir-server/src/main.rs)
   - [`mimir/model-server/src/backends/openai_compat.rs:203`](../../mimir/model-server/src/backends/openai_compat.rs)
   - [`mimir/model-server/src/marking.rs:1`](../../mimir/model-server/src/marking.rs)
 - Tests:
@@ -613,7 +613,7 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`tools/mg-model/src/main.rs:1`](../../tools/mg-model/src/main.rs)
   - [`mimir/model-server/src/artifact.rs:427`](../../mimir/model-server/src/artifact.rs)
   - [`tools/mg-model/src/main.rs:225`](../../tools/mg-model/src/main.rs)
-  - [`mimir/mimir-server/src/main.rs:158`](../../mimir/mimir-server/src/main.rs)
+  - [`mimir/mimir-server/src/main.rs:162`](../../mimir/mimir-server/src/main.rs)
   - [`deploy/trust/README.md`](../../deploy/trust/README.md)
   - [`deploy/compose/stage-model.sh`](../../deploy/compose/stage-model.sh)
 - Tests:
