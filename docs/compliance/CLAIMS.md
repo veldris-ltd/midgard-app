@@ -353,7 +353,6 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 
 - Source:
   - [`products/admin/ui/src/main.tsx:17`](../../products/admin/ui/src/main.tsx)
-  - [`tools/ci/tests/js-toolchain.test.sh`](../../tools/ci/tests/js-toolchain.test.sh)
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:

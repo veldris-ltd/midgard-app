@@ -359,8 +359,8 @@ scan-advisory path:
 # the diff — a shrinking advisory count means something went wrong.
 #
 # `from` names a clone already fetched, so the offline toolchain can do the rest:
-# the scheduled dependency-review job clones on the runner and passes it here.
-# (VLD-ANB-MIDGARD-0090)
+# the scheduled advisory-refresh job clones on the runner and passes it here.
+# (VLD-ANB-MIDGARD-0076)
 advisory-db-refresh from="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -394,7 +394,7 @@ advisory-db-refresh from="":
 # the result and review the diff. [FR-MS-6] [AC-RF-SC-5b]
 #
 # `from` names that export already downloaded and unpacked, as for
-# `advisory-db-refresh`. (VLD-ANB-MIDGARD-0090)
+# `advisory-db-refresh`. (VLD-ANB-MIDGARD-0076)
 advisory-db-npm-refresh from="":
     #!/usr/bin/env bash
     set -euo pipefail

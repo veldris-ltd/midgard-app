@@ -469,6 +469,72 @@ fn ac_rf_sc_4f_a_stale_database_fails_naming_the_snapshot_date() {
 }
 
 #[test]
+fn snapshot_older_than_fail_after_days_fails() {
+    // The hard stop both vendored snapshots carry: six weeks, so a release cut
+    // after a missed weekly refresh fails closed. [AC-P4.3] (VLD-ANB-MIDGARD-0076)
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for vendored in ["vendor/advisory-db", "vendor/advisory-db-npm"] {
+        let text = std::fs::read_to_string(root.join(vendored).join("snapshot.toml")).unwrap();
+        assert!(
+            text.lines().any(|l| l.trim() == "fail_after_days = 45"),
+            "{vendored}/snapshot.toml must declare fail_after_days = 45"
+        );
+    }
+
+    let staleness = "[staleness]\nwarn_after_days = 30\nfail_after_days = 45\n";
+    let mut f = Fixture::new("stale45");
+    f.advisory("RUSTSEC-2026-0001", "vuln", CRITICAL, "\">= 2.0.0\"");
+    let sbom = f.sbom(&[("fine", "1.0.0", Some("MIT"))]);
+    let write_db = |date: &str| {
+        std::fs::write(
+            f.dir.join("db/snapshot.toml"),
+            format!("[snapshot]\ndate = \"{date}\"\nadvisory_count = 1\n\n{staleness}"),
+        )
+        .unwrap();
+    };
+
+    // 46 days before the fixture's today: one past the limit.
+    write_db("2026-08-27");
+    let out = f.scan(&sbom, &[]);
+    assert!(refused(&out), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("46 days old (snapshot 2026-08-27, limit 45)"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).is_empty(),
+        "no verdict from a database this old"
+    );
+
+    // At 45 days it still runs, and warns.
+    write_db("2026-08-28");
+    let out = f.scan(&sbom, &[]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("WARNING — advisory database is 45 days old"));
+
+    // The npm snapshot is held to its own limit the same way, however fresh the
+    // RustSec one is.
+    write_db("2026-10-01");
+    f.npm_db(&["react"], &[]);
+    std::fs::write(
+        f.dir.join("npm-db/snapshot.toml"),
+        format!(
+            "[snapshot]\necosystem = \"npm\"\ndate = \"2026-08-27\"\nadvisory_count = 0\n\n{staleness}"
+        ),
+    )
+    .unwrap();
+    let sbom = f.mixed_sbom(&[("npm", "react", "18.3.1", "registry")]);
+    let out = f.scan_npm(&sbom, &[]);
+    assert!(refused(&out), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("46 days old (snapshot 2026-08-27, limit 45)"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
 fn the_build_date_variable_cannot_make_an_old_database_fresh() {
     // Reproducible-build shells export SOURCE_DATE_EPOCH as a fixed instant
     // years ago. Read as "today", it would hide any amount of staleness and
@@ -808,6 +874,9 @@ fn import_osv_builds_a_snapshot_the_scan_accepts() {
     let out = import("2026-10-01");
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(stdout(&out).contains("imported 1 advisories affecting 2 locked npm package(s)"));
+    // A refresh writes the six-week hard stop, never a looser one. [AC-P4.3]
+    let manifest = std::fs::read_to_string(f.dir.join("npm-db/snapshot.toml")).unwrap();
+    assert!(manifest.contains("fail_after_days = 45"), "{manifest}");
     assert!(f
         .dir
         .join("npm-db/advisories/GHSA-aaaa-aaaa-aaaa.json")

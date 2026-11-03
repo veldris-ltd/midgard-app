@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
-import { RouterProvider } from 'react-router-dom';
+import { RouterProvider } from 'react-router'; // v7, one router package [AC-P4.2]
 import { initMode } from '@midgard/design-system';
 import { AuthGate, DemonstrationBanner } from '@midgard/ui-shared';
 import { login, whoami, type HeimdallGateway, type Session } from '@midgard/sdk';

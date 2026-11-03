@@ -1,4 +1,4 @@
-import { createHashRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router'; // v7, one router package [AC-P4.2]
 import { ReleaseConsoleScreen } from '../screens/ReleaseConsoleScreen';
 import { ArtefactsScreen } from '../screens/ArtefactsScreen';
 import { ChannelsScreen } from '../screens/ChannelsScreen';

@@ -1,4 +1,4 @@
-import { createHashRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router'; // v7, one router package [AC-P4.2]
 import { PipelineBuilderScreen } from '../screens/PipelineBuilderScreen';
 import { ConnectorsScreen } from '../screens/ConnectorsScreen';
 import { DatasetsScreen } from '../screens/DatasetsScreen';

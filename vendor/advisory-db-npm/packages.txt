@@ -48,7 +48,6 @@
 @jridgewell/resolve-uri
 @jridgewell/sourcemap-codec
 @jridgewell/trace-mapping
-@remix-run/router
 @rolldown/pluginutils
 @rollup/rollup-android-arm-eabi
 @rollup/rollup-android-arm64
@@ -89,6 +88,7 @@ baseline-browser-mapping
 browserslist
 caniuse-lite
 convert-source-map
+cookie
 csstype
 debug
 electron-to-chromium
@@ -112,10 +112,10 @@ react
 react-dom
 react-refresh
 react-router
-react-router-dom
 rollup
 scheduler
 semver
+set-cookie-parser
 source-map-js
 tinyglobby
 typescript

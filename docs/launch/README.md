@@ -114,9 +114,18 @@ libx264 (`pip install imageio-ffmpeg` provides one), Microsoft Edge (the
 recorder drives it headlessly through Playwright) and, only for exporting slide
 PNGs, PowerPoint.
 
+This pipeline is a maintainer-workstation tool. It is not a workspace member and
+nothing it builds ships, so it sits outside the release gate; its dependencies
+are pinned exactly by `pipeline/package-lock.json` (sharp 0.35.5 or later, and
+image-size held at 2.0.3 or later by an `overrides` entry, since pptxgenjs still
+asks for 1.x), and Renovate keeps them current alongside the workspace
+(`renovate.json`, docs/dev/CI.md "Dependency updates").
+`tools/ci/tests/js-toolchain.test.sh` fails if the lockfile falls below those
+floors. Install exactly what the lockfile pins, with no install scripts:
+
 ```bash
 cd docs/launch/pipeline
-npm install                                              # playwright-core, pptxgenjs, sharp, react-icons
+npm ci --ignore-scripts                                  # playwright-core, pptxgenjs, sharp, react-icons
 python prep-images.py                                    # deck fallbacks from docs/demo/screenshots
 
 # 1. the real edge, in development mode: --dev, on loopback only (MG-SEC-06), so it

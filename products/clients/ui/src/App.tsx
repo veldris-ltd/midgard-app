@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router'; // v7, one router package [AC-P4.2]
 import { ClassificationBanner, SectionLabel, Tag, ProvenanceTag } from '@midgard/design-system';
 import { ModeToggle } from '@midgard/ui-shared';
 import { ChromeWindow } from './frames/ChromeWindow';

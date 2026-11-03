@@ -35,30 +35,30 @@ held at `1.8.1` (1.9's `zeroize_derive` requires edition 2024 / Cargo ≥ 1.85),
 `base64ct` (pulled in by `argon2` / `password-hash`) at `1.6.0`, because later
 releases need edition 2024 (`cargo update -p base64ct --precise 1.6.0`).
 
-### The monthly dependency review [AC-25.6]
+### The weekly advisory refresh [AC-25.6] [AC-P4.5]
 
 The advisory data the scan judges dependencies against is vendored too:
 `vendor/advisory-db` (RustSec) and `vendor/advisory-db-npm` (OSV, filtered to what
-`pnpm-lock.yaml` pins). Renovate and Dependabot cannot operate on this vendored,
-offline workspace, so the snapshots are refreshed on a schedule instead:
+`pnpm-lock.yaml` pins). The snapshots are refreshed on a schedule, and dependencies
+by Renovate, both as pull or merge requests a person reviews
+([CI.md](CI.md), "Dependency updates"):
 
-- **Monthly**, on the 1st at 04:17 UTC, `.github/workflows/dependency-review.yml` (and a
-  GitLab pipeline schedule calling the `dependency-review` job) runs
-  `bash tools/ci/run.sh dependency-review`. It downloads both sources on the runner,
+- **Weekly**, Mondays at 03:17 UTC, `.github/workflows/advisory-refresh.yml` (and a
+  GitLab pipeline schedule calling the `advisory-refresh` job) runs
+  `bash tools/ci/run.sh advisory-refresh`. It downloads both sources on the runner,
   rewrites the two snapshots offline in the toolchain with `just advisory-db-refresh`
-  and `just advisory-db-npm-refresh`, runs the advisory scan, and, when either snapshot
-  moved, pushes `chore/advisory-refresh-<date>` and opens a pull or merge request.
-  It can also be started by hand (*Run workflow*).
-- **The review is a person's.** A maintainer reviews that request within
-  the month: the snapshot diff (a shrinking advisory count means something went
-  wrong), any new advisory the scan reports against a pinned crate or package, and
-  what to update, vendor or waive. A pull request opened with the workflow token does
-  not start the CI workflows on GitHub; close and reopen it, or push to it, so the
-  gates run before merge.
+  and `just advisory-db-npm-refresh`, re-scans, and, when either snapshot moved,
+  opens a pull or merge request whose body is the scan diff.
+- **The review is a person's.** A maintainer reviews that request within the week:
+  the snapshot diff (a shrinking advisory count means something went wrong), any new
+  advisory the scan reports against a pinned crate or package, and what to update,
+  vendor or waive. A pull request opened with the workflow token does not start the CI
+  workflows on GitHub; close and reopen it, or push to it, so the gates run before
+  merge.
 - On GitLab the job needs `MIDGARD_MR_TOKEN`, a project access token with api scope,
   as a protected, masked CI/CD variable; `CI_JOB_TOKEN` can neither push nor open a
   merge request. Create the schedule on the default branch.
-- Updating a dependency itself is still the manual step above. (VLD-ANB-MIDGARD-0090)
+  (VLD-ANB-MIDGARD-0090) (VLD-ANB-MIDGARD-0076)
 
 ## Option A — Docker (canonical; used by CI) [AC-M-5] [AC-M-6]
 

@@ -1,4 +1,4 @@
-import { createHashRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router'; // v7, one router package [AC-P4.2]
 import { WebPage, MobilePage, DesktopPage } from '../App';
 
 /* Hash routing so the gallery serves from any static path (air-gap-first,
