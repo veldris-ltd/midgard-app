@@ -46,7 +46,7 @@ use gateway::RateLimiter;
 use governance::{GovContext, Governance};
 use http::{read_request_within, refuse_at_once, Incoming, Request, Response};
 use iam::{
-    verify_token, AuthError, Credentials, Directory, DurableDirectory, Enrollment, Idp,
+    verify_token, Activation, AuthError, Credentials, Directory, DurableDirectory, Enrollment, Idp,
     InMemoryDirectory, IssueError, MfaProof, PasswordHasher, PasswordUpgrade, Pbkdf2Hasher,
     TokenClaims, UpgradingAuthenticator, UserRecord,
 };
@@ -106,6 +106,9 @@ pub const AUDIT_FILTERED_HEADER: &str = "X-Audit-Filtered";
 /// Where logins are looked up: in memory for development, a durable KMS-sealed
 /// directory for a deployment. Either way a login authenticates through
 /// `iam::Authenticator` — password, then any enrolled second factor. [RC-29] [RC-37]
+/// What [`SecuredGateway::with_check_commit_hook`] runs. [NFR-SEC-1]
+type CommitHook<S, L> = dyn Fn(&SecuredGateway<S, L>) + Send + Sync;
+
 enum Logins {
     InMemory(InMemoryDirectory),
     Durable(DurableDirectory),
@@ -253,6 +256,10 @@ pub struct SecuredGateway<S: ObjectStore = InMemoryStore, L: LedgerStore = InMem
     /// `keys/actor-hash.key`, so hashes stay comparable across restarts.
     /// [AC-27.4] [VLD-ANB-MIDGARD-0065]
     actor_hash_key: [u8; 32],
+    /// Run between a login's or an activation's unlocked check and its commit, with
+    /// the directory lock released. For tests only: what another request may do in
+    /// that gap. [NFR-SEC-1]
+    between_check_and_commit: Option<Box<CommitHook<S, L>>>,
 }
 
 /// What the gateway knows about the request it is handling, beyond the request
@@ -358,6 +365,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             log_sink: Arc::new(StdoutJsonSink),
             auth_audited: Mutex::new(BTreeMap::new()),
             actor_hash_key,
+            between_check_and_commit: None,
         }
     }
 
@@ -478,6 +486,80 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
     #[doc(hidden)]
     pub fn revocation_journal_len(&self) -> Option<u64> {
         self.revocations().journal_len()
+    }
+
+    /// Replace a login principal's password in an in-memory directory, hashed outside
+    /// the directory lock, as a password reset would. For tests: nothing serves a reset
+    /// yet. [NFR-SEC-1]
+    #[doc(hidden)]
+    pub fn reset_login_password(&self, username: &str, password: &str) -> bool {
+        let hash = self.hasher.hash(password.as_bytes());
+        match &mut *self.recover(&self.directory, "directory") {
+            Logins::InMemory(directory) => {
+                let Some(entry) = directory.enrollment(username) else {
+                    return false;
+                };
+                let credentials = Credentials {
+                    password_hash: hash,
+                    ..entry.credentials.clone()
+                };
+                directory.update_credentials(username, credentials)
+            }
+            Logins::Durable(_) => false,
+        }
+    }
+
+    /// Provision a principal approved but not yet activated: no password, and
+    /// `code`, hashed with this gateway's hasher, activating them until `expires_at`.
+    /// For tests: a deployment parks and approves enrolments through administration.
+    /// [VLD-ANB-MIDGARD-0002]
+    #[doc(hidden)]
+    pub fn provision_activation(
+        &mut self,
+        username: &str,
+        code: &str,
+        expires_at: u64,
+        user: UserRecord,
+    ) -> Result<(), String> {
+        let enrollment = Enrollment {
+            user,
+            credentials: Credentials {
+                activation: Some(Activation {
+                    code_hash: self.hasher.hash(code.as_bytes()),
+                    expires_at,
+                    totp_confirmed: false,
+                }),
+                ..Credentials::default()
+            },
+        };
+        match &mut *self.recover(&self.directory, "directory") {
+            Logins::InMemory(directory) => {
+                directory.enroll(username, enrollment);
+                Ok(())
+            }
+            Logins::Durable(directory) => directory
+                .enroll(username, enrollment)
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Run `hook` between each login's or activation's check and its commit, with the
+    /// directory lock released. For tests: it stands for another request arriving in
+    /// that gap. [NFR-SEC-1]
+    #[doc(hidden)]
+    pub fn with_check_commit_hook(
+        mut self,
+        hook: impl Fn(&SecuredGateway<S, L>) + Send + Sync + 'static,
+    ) -> Self {
+        self.between_check_and_commit = Some(Box::new(hook));
+        self
+    }
+
+    /// The test hook, if one is set. [NFR-SEC-1]
+    pub(crate) fn between_check_and_commit(&self) {
+        if let Some(hook) = &self.between_check_and_commit {
+            hook(self);
+        }
     }
 
     /// Remove a login principal from an in-memory directory, as de-enrolment would.
@@ -622,21 +704,62 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         // Password, then any enrolled second factor, then the PQ-signed token bound to
         // the principal's attributes — one path, every check fail-closed. [RC-29] A
         // legacy or weaker password hash is replaced with Argon2id once every check has
-        // passed. [MG-SEC-11] The TOTP step accepted is recorded before the directory
-        // lock is released, so two logins with one code cannot both succeed; if it
-        // cannot be recorded, no token leaves. [VLD-ANB-MIDGARD-0026] A passkey's
-        // signature counter is recorded the same way. [VLD-ANB-MIDGARD-0084]
+        // passed. [MG-SEC-11]
+        //
+        // The checks run on a snapshot of the principal's enrollment, taken under the
+        // directory lock and checked without it, so a login's Argon2id work never holds
+        // up other logins, activations or enrolments. An unknown name is checked
+        // against an empty snapshot, with the same work. [NFR-SEC-1] The lock is then
+        // taken again to commit: the enrollment must still be exactly the one checked —
+        // same password hash, same attributes, no code or counter spent meanwhile — or
+        // the login is the uniform 401. Under that lock the TOTP step accepted is
+        // recorded, so two logins with one code cannot both succeed; if it cannot be
+        // recorded, no token leaves. [VLD-ANB-MIDGARD-0026] A passkey's signature
+        // counter is recorded the same way. [VLD-ANB-MIDGARD-0084] A rehash is swapped
+        // in only while the stored hash is still the one checked. [MG-SEC-11]
+        let checked = self
+            .recover(&self.directory, "directory")
+            .enrollment(username)
+            .cloned();
+        let mut snapshot = InMemoryDirectory::new();
+        if let Some(entry) = &checked {
+            snapshot.enroll(username, entry.clone());
+        }
+        let outcome = UpgradingAuthenticator::new(idp, &mut snapshot, &self.hasher).authenticate(
+            username,
+            password.as_bytes(),
+            mfa,
+            Purpose(LOGIN_PURPOSE.into()),
+            now,
+            TOKEN_TTL,
+        );
+        self.between_check_and_commit();
         let (outcome, factor_not_recorded) = {
             let mut directory = self.recover(&self.directory, "directory");
-            let outcome = UpgradingAuthenticator::new(idp, &mut *directory, &self.hasher)
-                .authenticate(
-                    username,
-                    password.as_bytes(),
-                    mfa,
-                    Purpose(LOGIN_PURPOSE.into()),
-                    now,
-                    TOKEN_TTL,
-                );
+            let outcome = match (outcome, &checked) {
+                (Ok(_), Some(checked)) if directory.enrollment(username) != Some(checked) => {
+                    Err(AuthError::BadPassword)
+                }
+                (Ok(mut login), Some(checked)) => {
+                    if login.upgrade == PasswordUpgrade::Upgraded {
+                        let rehashed = snapshot
+                            .enrollment(username)
+                            .map(|entry| entry.credentials.password_hash.clone())
+                            .unwrap_or_default();
+                        login.upgrade = match directory.replace_password_hash(
+                            username,
+                            &checked.credentials.password_hash,
+                            rehashed,
+                        ) {
+                            Ok(true) => PasswordUpgrade::Upgraded,
+                            Ok(false) => PasswordUpgrade::Superseded,
+                            Err(e) => PasswordUpgrade::NotRecorded(e),
+                        };
+                    }
+                    Ok(login)
+                }
+                (outcome, _) => outcome,
+            };
             let step = outcome.as_ref().ok().and_then(|login| login.totp_step);
             let gone = || "the principal is no longer enrolled".to_string();
             let mut not_recorded =

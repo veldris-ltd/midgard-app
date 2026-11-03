@@ -84,6 +84,13 @@ CONTRIBUTING.md for the version policy.
   fetched to list the parked enrolments can no longer approve one. `mg-admin enrol`
   asks for the purpose of each command; an older `mg-admin` is refused.
   [VLD-ANB-MIDGARD-0020]
+- **Password hashing no longer holds the gateway's directory lock.** A login checks
+  its password (Argon2id), and any rehash, on a snapshot of the principal's enrollment
+  taken under the lock, then takes the lock again to commit only if the enrollment is
+  exactly the one checked; otherwise it is the uniform 401. Activation checks its code
+  and hashes the new password the same way, committing only while the same activation
+  is pending and unexpired. One slow hash no longer stalls every other login,
+  activation and enrolment. Unknown names still cost the same work.
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

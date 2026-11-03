@@ -13,6 +13,7 @@
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -728,6 +729,85 @@ fn activate_request(username: &str, code: &str) -> Request {
         origin: None,
         forwarded_for: None,
     }
+}
+
+// ---- NEW-8: Argon2id runs without the directory lock --------------------------------
+
+/// The activation code every activation test provisions.
+const ACTIVATION_CODE: &str = "0123456789abcdef0123456789abcdef";
+
+/// A development gateway with no per-source limit that runs `hook` once, between the
+/// first login's or activation's check and its commit.
+fn gateway_with_hook(
+    mut gw: SecuredGateway,
+    hook: impl Fn(&SecuredGateway) + Send + Sync + 'static,
+) -> SecuredGateway {
+    gw = gw.with_login_source_limit(0.0, 0.0);
+    let once = AtomicBool::new(false);
+    gw.with_check_commit_hook(move |gw| {
+        if !once.swap(true, Ordering::SeqCst) {
+            hook(gw)
+        }
+    })
+}
+
+#[test]
+fn a_password_changed_while_a_login_is_checked_does_not_log_in_with_the_old_one() {
+    // [NFR-SEC-1] [VLD-ANB-MIDGARD-0019] The hook takes the directory lock itself, so
+    // the check cannot still hold it: if it did, the login would never return.
+    let gw = gateway_with_hook(SecuredGateway::dev(), |gw| {
+        assert!(gw.reset_login_password(DEMO_USERNAME, "a different password"));
+    });
+    let reply = gw.handle(&login_request(DEMO_USERNAME, DEMO_PASSWORD), NOW);
+    assert_eq!(reply.status, 401, "{}", reply.body);
+    assert_eq!(
+        reply.body, r#"{"error":"invalid credentials"}"#,
+        "the uniform 401"
+    );
+
+    let reply = gw.handle(&login_request(DEMO_USERNAME, DEMO_PASSWORD), NOW);
+    assert_eq!(
+        reply.status, 401,
+        "the old password is gone: {}",
+        reply.body
+    );
+    let reply = gw.handle(&login_request(DEMO_USERNAME, "a different password"), NOW);
+    assert_eq!(reply.status, 200, "the new one logs in: {}", reply.body);
+}
+
+#[test]
+fn a_principal_removed_while_their_activation_is_checked_is_not_activated() {
+    // [NFR-SEC-1] [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0019]
+    let pending = || {
+        let mut gw = SecuredGateway::dev();
+        gw.provision_activation("olivia", ACTIVATION_CODE, NOW + 3_600, demo_operator())
+            .expect("provisions in memory");
+        gw
+    };
+    let gw = gateway_with_hook(pending(), |gw| assert!(gw.remove_login("olivia")));
+    let reply = gw.handle(&activate_request("olivia", ACTIVATION_CODE), NOW);
+    assert_eq!(reply.status, 401, "{}", reply.body);
+    let reply = gw.handle(&login_request("olivia", "long enough to keep"), NOW);
+    assert_eq!(reply.status, 401, "{}", reply.body);
+
+    // Spent in the gap by another activation: the second commit is refused.
+    let gw = gateway_with_hook(pending(), |gw| {
+        let reply = gw.handle(&activate_request("olivia", ACTIVATION_CODE), NOW);
+        assert_eq!(reply.status, 200, "{}", reply.body);
+    });
+    let reply = gw.handle(&activate_request("olivia", ACTIVATION_CODE), NOW);
+    assert_eq!(
+        reply.status, 401,
+        "the code was spent meanwhile: {}",
+        reply.body
+    );
+
+    // Left alone, the same activation succeeds and the password logs in.
+    let gw = gateway_with_hook(pending(), |_| {});
+    let reply = gw.handle(&activate_request("olivia", ACTIVATION_CODE), NOW);
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let reply = gw.handle(&login_request("olivia", "long enough to keep"), NOW);
+    assert_eq!(reply.status, 200, "{}", reply.body);
 }
 
 #[test]
