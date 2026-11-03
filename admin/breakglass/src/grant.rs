@@ -15,7 +15,8 @@ pub struct GrantRequest {
     pub scope: String,
     /// Mandatory written justification. `[FR-AD-8]`
     pub justification: String,
-    /// Time-box duration in seconds; must be non-zero. `[FR-AD-8]`
+    /// Time-box duration in seconds; must be non-zero and at most
+    /// [`MAX_TTL_SECS`](crate::service::MAX_TTL_SECS). `[FR-AD-8]`
     pub ttl_secs: u64,
 }
 

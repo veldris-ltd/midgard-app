@@ -188,6 +188,27 @@ CONTRIBUTING.md for the version policy.
   A deployment must share one `PqFederation` behind a `Mutex` so the cache is
   global. The library is still not wired into any service. [VLD-ANB-MIDGARD-0049]
   [RC-29]
+- **Library controls: duplicate workloads, break-glass and the client keystore
+  floor.** [VLD-ANB-MIDGARD-0051] [VLD-ANB-MIDGARD-0055] [VLD-ANB-MIDGARD-0056]
+  - `QuotaScheduler::submit` refuses a workload id that is already running or queued
+    (`Admission::Rejected`), so a resubmission no longer reserves its request twice
+    and leaks quota. [RC-43]
+  - A break-glass grant's time-box is capped at `MAX_TTL_SECS` (four hours);
+    a longer one fails with `BreakGlassError::TtlTooLong`. The requester and
+    approver were already required to be different authenticated administrators
+    (MG-SEC-07). `BreakGlassController::review` now revokes the grant's capability
+    at once, and the new `BreakGlassController::close` ends a grant early: it
+    revokes the capability, cuts the time-box so the review falls due, and seals
+    a `breakglass-closed` entry. [FR-AD-8]
+  - `SoftwareKeystore` always reports the `NonExtractable` floor: it holds its key
+    in process memory and can no longer declare `HardwareBacked`. A higher floor
+    comes from a platform keystore; `ClientCore` is now generic over the keystore
+    so one can be plugged in. [FR-C-2]
+  - API changes: `SoftwareKeystore::generate(provider, key_id, rng)` drops its floor
+    argument (tests that exercise the floor gate use `generate_at_floor` behind the
+    keystore's `test-floors` feature); `ClientCore` is `ClientCore<K: Keystore +
+    TrustRoot>`, and `ClientCore::open` keeps its argument order.
+    `midgard_client_keystore` re-exports `TrustRoot`.
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

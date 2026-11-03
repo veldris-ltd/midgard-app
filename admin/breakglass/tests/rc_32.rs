@@ -5,8 +5,8 @@
 mod common;
 
 use admin_breakglass::{
-    AlertKind, BreakGlassController, BreakGlassService, DurableAlerter, GrantRequest,
-    SecurityOfficerBus,
+    AlertKind, BreakGlassController, BreakGlassError, BreakGlassService, BreakGlassState,
+    DurableAlerter, GrantRequest, SecurityOfficerBus,
 };
 use admin_identity::{AdminSession, IdentityDirectory, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
 use audit_writer::{verify_chain, AuditWriter, InMemoryLedger, LedgerId};
@@ -214,4 +214,84 @@ fn alert_delivery_is_durable_across_a_transient_bus_outage() {
     assert_eq!(delivered, 1);
     assert_eq!(c.service().alerter().pending(), 0);
     assert_eq!(c.service().alerter().bus().received().len(), 1);
+}
+
+/// Open `bg-1` for the responder, elevating kms.key.rotate.
+fn open_grant(c: &mut Controller) {
+    let (responder, officer) = sessions();
+    c.grant(
+        &roles(),
+        request("bg-1"),
+        &responder,
+        &officer,
+        APPROVAL_MAX_AGE,
+        "kms.key.rotate",
+        NOW,
+        "t0",
+    )
+    .expect("grant opens");
+    assert!(c.elevates("responder", "kms", "kms.key.rotate", NOW));
+}
+
+/// A grant reviewed inside its time-box stops elevating at once, not at expiry, and
+/// the review is sealed. [FR-AD-8] [RC-32] [VLD-ANB-MIDGARD-0055]
+#[test]
+fn review_revokes_the_capability_immediately() {
+    let mut c = controller(SecurityOfficerBus::new());
+    open_grant(&mut c);
+
+    c.review("bg-1", "security-officer", "stand down", NOW + 10, "t1")
+        .unwrap();
+
+    // Well before NOW + TTL, the reviewed grant no longer elevates.
+    assert!(!c.elevates("responder", "kms", "kms.key.rotate", NOW + 10));
+    assert!(!c.elevates("responder", "kms", "kms.key.rotate", NOW + 11));
+    assert!(c.authority().token("bg-1").is_none());
+    assert_eq!(c.authority().active_count(NOW + 10), 0);
+
+    let last = c.audit_entries().last().unwrap();
+    assert_eq!(last.record.action.0, "breakglass-review");
+    assert_eq!(last.record.actor.0, "security-officer");
+    assert!(chain_ok(&c));
+}
+
+/// Closing a grant early revokes its capability, seals a `breakglass-closed` entry
+/// naming who closed it, and leaves the grant awaiting its post-hoc review.
+/// [FR-AD-8] [AC-AD-8] [RC-32] [VLD-ANB-MIDGARD-0055]
+#[test]
+fn close_revokes_and_audits() {
+    let mut c = controller(SecurityOfficerBus::new());
+    open_grant(&mut c);
+
+    c.close("bg-1", "responder", NOW + 20, "t1").unwrap();
+
+    assert!(!c.elevates("responder", "kms", "kms.key.rotate", NOW + 20));
+    assert!(c.authority().token("bg-1").is_none());
+    assert!(!c.service().is_active("bg-1", NOW + 20));
+    assert_eq!(
+        c.service().state("bg-1", NOW + 20),
+        Some(BreakGlassState::Expired)
+    );
+    assert_eq!(c.service().pending_reviews(NOW + 20).len(), 1);
+
+    let last = c.audit_entries().last().unwrap();
+    assert_eq!(last.record.action.0, "breakglass-closed");
+    assert_eq!(last.record.actor.0, "responder");
+    assert_eq!(last.record.resource.0, "bg-1");
+    assert!(chain_ok(&c));
+
+    // The review still has to happen, and it clears the backlog.
+    c.review("bg-1", "security-officer", "closed early", NOW + 30, "t2")
+        .unwrap();
+    assert!(c.service().all_reviewed(NOW + 30));
+
+    // A reviewed grant cannot be closed, and an unknown one is refused.
+    assert_eq!(
+        c.close("bg-1", "responder", NOW + 40, "t3").unwrap_err(),
+        BreakGlassError::AlreadyReviewed("bg-1".into())
+    );
+    assert_eq!(
+        c.close("nope", "responder", NOW + 40, "t3").unwrap_err(),
+        BreakGlassError::UnknownGrant("nope".into())
+    );
 }

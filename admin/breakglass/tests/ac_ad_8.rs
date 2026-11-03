@@ -5,6 +5,7 @@ mod common;
 
 use admin_breakglass::{
     AlertKind, BreakGlassError, BreakGlassService, BreakGlassState, GrantRequest, RecordingAlerter,
+    MAX_TTL_SECS,
 };
 use admin_identity::{AdminSession, IdentityDirectory, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
 use common::{directory, Admins, APPROVAL_MAX_AGE};
@@ -152,4 +153,44 @@ fn ac_ad_8_break_glass_is_never_unilateral() {
         BreakGlassError::SelfApprovalDenied
     );
     assert_eq!(svc.alerter().count(AlertKind::Granted), 0);
+}
+
+/// The time-box has a ceiling: u64::MAX (which would never expire) and one second
+/// over [`MAX_TTL_SECS`] are refused with no grant and no alert; the ceiling itself is
+/// accepted. `[FR-AD-8]` `[AC-AD-8]` `[VLD-ANB-MIDGARD-0055]`
+#[test]
+fn a_ttl_above_the_ceiling_is_refused() {
+    let mut svc = BreakGlassService::new(RecordingAlerter::new());
+    let (mallory, secoff) = sessions();
+    let dir = roles();
+
+    for ttl in [u64::MAX, MAX_TTL_SECS + 1] {
+        assert_eq!(
+            svc.grant(
+                &dir,
+                req("g1", "prod incident", ttl),
+                &mallory,
+                &secoff,
+                1000,
+                APPROVAL_MAX_AGE
+            )
+            .unwrap_err(),
+            BreakGlassError::TtlTooLong { max: MAX_TTL_SECS }
+        );
+    }
+    assert!(svc.get("g1").is_none());
+    assert_eq!(svc.alerter().count(AlertKind::Granted), 0);
+
+    let g = svc
+        .grant(
+            &dir,
+            req("g1", "prod incident", MAX_TTL_SECS),
+            &mallory,
+            &secoff,
+            1000,
+            APPROVAL_MAX_AGE,
+        )
+        .expect("a grant at the ceiling opens");
+    assert_eq!(g.expires_at, 1000 + 4 * 3600);
+    assert!(!svc.is_active("g1", 1000 + MAX_TTL_SECS));
 }

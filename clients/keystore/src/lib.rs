@@ -21,10 +21,20 @@
 //! derived data key. [`SoftwareKeystore`] — the deterministic dev/test custody —
 //! holds its secret in memory but offers no accessor for it, exactly as a hardware
 //! keystore offers none: the only operation is *unwrap*. `[AC-C-2]`
+//!
+//! ## The floor is honest
+//! A keystore's [`SecurityFloor`] is what its custody actually is, not what its
+//! constructor was told. [`SoftwareKeystore`] keeps its secret in process memory, so
+//! it always reports [`SecurityFloor::NonExtractable`]; a floor above that comes only
+//! from a platform keystore whose floor derives from the platform. `[FR-C-2]`
+//! `[VLD-ANB-MIDGARD-0056]`
 
 #![forbid(unsafe_code)]
 
-use kms::{SoftwareTrustRoot, TrustRoot};
+use kms::SoftwareTrustRoot;
+/// The key-holding half of custody, re-exported so a platform keystore and the
+/// generic client core name one trait. `[KDD-1]`
+pub use kms::TrustRoot;
 use pqc_agility::{Ciphertext, CryptoProvider, Kem, KemPublicKey, Rng, SharedSecret};
 
 pub mod auth;
@@ -39,6 +49,12 @@ pub use error::KeystoreError;
 /// the key-holding floors. [`Brokered`](SecurityFloor::Brokered) is a distinct
 /// case: it holds no key at all, so it satisfies no *local* floor — a brokered
 /// keystore cannot back a local store, only a broker.
+///
+/// A floor above [`NonExtractable`](SecurityFloor::NonExtractable) must come from a
+/// platform keystore implementation whose floor derives from the platform itself
+/// (Secure Enclave, StrongBox, TPM; attesting it is tracked by the RF-CL items),
+/// never from a constructor argument. [`SoftwareKeystore`] therefore always reports
+/// `NonExtractable`. `[FR-C-2]` `[VLD-ANB-MIDGARD-0056]`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SecurityFloor {
     /// Holds no key material; every privileged op is brokered. (Extension.)
@@ -97,21 +113,45 @@ pub trait Keystore {
 }
 
 /// Deterministic in-process custody for dev and tests. Holds a non-exportable
-/// ML-KEM-1024 root and declares a floor (default [`SecurityFloor::HardwareBacked`]
-/// to model a Secure-Enclave-class device; override to test floor enforcement).
+/// ML-KEM-1024 root in process memory, so its floor is always
+/// [`SecurityFloor::NonExtractable`]: it cannot claim hardware custody it does not
+/// have, and a store demanding a higher floor refuses it. `[VLD-ANB-MIDGARD-0056]`
 ///
 /// The secret key is owned by the wrapped [`SoftwareTrustRoot`] and never exposed:
 /// the only operation is [`TrustRoot::unwrap`], performed internally. A real
 /// platform keystore drops in as another [`Keystore`] + [`TrustRoot`] with the
-/// secret sealed in hardware.
+/// secret sealed in hardware and a floor the platform vouches for.
 pub struct SoftwareKeystore {
     root: SoftwareTrustRoot,
     floor: SecurityFloor,
 }
 
 impl SoftwareKeystore {
-    /// Generate a fresh non-exportable root at the given floor.
+    /// Generate a fresh non-exportable root. Its floor is
+    /// [`SecurityFloor::NonExtractable`]. `[VLD-ANB-MIDGARD-0056]`
     pub fn generate(
+        provider: &CryptoProvider,
+        key_id: &str,
+        rng: &mut dyn Rng,
+    ) -> Result<Self, KeystoreError> {
+        Self::with_floor(provider, key_id, SecurityFloor::NonExtractable, rng)
+    }
+
+    /// Generate a root that *declares* `floor`, for tests of floor enforcement only.
+    /// It is compiled only under `cfg(test)` or the `test-floors` feature, so no
+    /// release build can construct a software keystore that claims a hardware
+    /// floor. `[VLD-ANB-MIDGARD-0056]`
+    #[cfg(any(test, feature = "test-floors"))]
+    pub fn generate_at_floor(
+        provider: &CryptoProvider,
+        key_id: &str,
+        floor: SecurityFloor,
+        rng: &mut dyn Rng,
+    ) -> Result<Self, KeystoreError> {
+        Self::with_floor(provider, key_id, floor, rng)
+    }
+
+    fn with_floor(
         provider: &CryptoProvider,
         key_id: &str,
         floor: SecurityFloor,
@@ -201,15 +241,10 @@ mod tests {
     #[test]
     fn software_keystore_holds_a_non_exportable_key() {
         let provider = fips_provider();
-        let ks = SoftwareKeystore::generate(
-            &provider,
-            "device-root",
-            SecurityFloor::HardwareBacked,
-            &mut SeedRng(1),
-        )
-        .unwrap();
+        let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(1)).unwrap();
         assert!(ks.holds_key());
-        assert_eq!(ks.floor(), SecurityFloor::HardwareBacked);
+        // In-memory custody reports the floor it actually has. [VLD-ANB-MIDGARD-0056]
+        assert_eq!(ks.floor(), SecurityFloor::NonExtractable);
         assert_eq!(Keystore::key_id(&ks), "device-root");
         // It is usable as a KMS trust root — the only key operation it exposes.
         assert_eq!(ks.public_key().suite(), kms::WRAP_SUITE);
@@ -254,8 +289,12 @@ mod tests {
     #[test]
     fn generating_a_brokered_root_is_rejected() {
         let provider = fips_provider();
-        let result =
-            SoftwareKeystore::generate(&provider, "x", SecurityFloor::Brokered, &mut SeedRng(2));
+        let result = SoftwareKeystore::generate_at_floor(
+            &provider,
+            "x",
+            SecurityFloor::Brokered,
+            &mut SeedRng(2),
+        );
         assert!(matches!(result, Err(KeystoreError::BrokeredCannotHoldKey)));
     }
 }

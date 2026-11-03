@@ -24,5 +24,10 @@ midgard-client-keystore = { path = "../keystore" }
 # Bell–LaPadula dominance for clearance scoping. [NFR-SEC-2]
 policy = { path = "../../crypto/policy" }
 
+[dev-dependencies]
+# `generate_at_floor`, so the floor gate can be shown to admit a keystore that
+# meets it. Tests only. [VLD-ANB-MIDGARD-0056]
+midgard-client-keystore = { path = "../keystore", features = ["test-floors"] }
+
 [lib]
 path = "src/lib.rs"

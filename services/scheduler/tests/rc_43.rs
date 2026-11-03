@@ -107,3 +107,62 @@ fn critical_workload_preempts_best_effort_to_meet_priority() {
         vec!["batch-a"]
     );
 }
+
+/// A resubmitted running id is refused and reserves nothing, so it cannot leak quota;
+/// once completed, the id may be submitted again. [RC-43] [NFR-AVA-1]
+/// [VLD-ANB-MIDGARD-0051]
+#[test]
+fn resubmitting_a_running_workload_is_refused_and_does_not_change_used() {
+    let mut s = QuotaScheduler::new(Resources::new(4000, 8192, 0));
+    assert!(matches!(
+        s.submit(wl("pipe-1", "heimdall", Priority::Normal, 1000, 0, 0)),
+        Admission::Admitted { .. }
+    ));
+    assert_eq!(s.used(), Resources::new(1000, 0, 0));
+
+    match s.submit(wl("pipe-1", "heimdall", Priority::Normal, 1000, 0, 0)) {
+        Admission::Rejected { reason } => assert!(reason.contains("already running or queued")),
+        other => panic!("a duplicate id must be refused, got {other:?}"),
+    }
+    assert_eq!(s.used(), Resources::new(1000, 0, 0), "used is unchanged");
+    assert_eq!(ids(&s.running_ids()), vec!["pipe-1"]);
+    assert!(s.queued_ids().is_empty());
+
+    // One completion releases everything the id holds.
+    s.complete(&WorkloadId("pipe-1".into()));
+    assert_eq!(s.used(), Resources::default());
+
+    // The id is free again.
+    assert!(matches!(
+        s.submit(wl("pipe-1", "heimdall", Priority::Normal, 1000, 0, 0)),
+        Admission::Admitted { .. }
+    ));
+    assert_eq!(s.used(), Resources::new(1000, 0, 0));
+}
+
+/// A resubmitted queued id is refused and is not queued twice. [RC-43]
+/// [VLD-ANB-MIDGARD-0051]
+#[test]
+fn resubmitting_a_queued_workload_is_refused() {
+    let mut s = QuotaScheduler::new(Resources::new(1000, 1024, 0));
+    assert!(matches!(
+        s.submit(wl("hold", "heimdall", Priority::System, 1000, 512, 0)),
+        Admission::Admitted { .. }
+    ));
+    assert_eq!(
+        s.submit(wl("wait", "heimdall", Priority::Normal, 600, 256, 0)),
+        Admission::Queued
+    );
+
+    assert!(matches!(
+        s.submit(wl("wait", "heimdall", Priority::Normal, 600, 256, 0)),
+        Admission::Rejected { .. }
+    ));
+    assert_eq!(ids(&s.queued_ids()), vec!["wait"], "queued once, not twice");
+    assert_eq!(s.used(), Resources::new(1000, 512, 0));
+
+    // Completing the holder dispatches the single queued entry.
+    assert_eq!(ids(&s.complete(&WorkloadId("hold".into()))), vec!["wait"]);
+    assert_eq!(s.used(), Resources::new(600, 256, 0));
+    assert!(s.queued_ids().is_empty());
+}
