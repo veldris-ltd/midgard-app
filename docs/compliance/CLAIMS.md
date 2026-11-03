@@ -180,7 +180,7 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/src/lib.rs:469`](../../services/http-gateway/src/lib.rs)
   - [`services/http-gateway/src/lib.rs:1215`](../../services/http-gateway/src/lib.rs)
   - [`crypto/audit-writer/src/file.rs:23`](../../crypto/audit-writer/src/file.rs)
-  - [`mimir/model-server/src/handler.rs:89`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/model-server/src/handler.rs:91`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
   - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
@@ -402,7 +402,7 @@ Access is denied unless a written rule grants it: role, marking and purpose must
   - [`services/fabric/src/resource.rs:1`](../../services/fabric/src/resource.rs)
   - [`crypto/pq-mtls/src/handshake.rs:594`](../../crypto/pq-mtls/src/handshake.rs)
   - [`services/runtime/src/mesh.rs:18`](../../services/runtime/src/mesh.rs)
-  - [`mimir/model-server/src/handler.rs:157`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/model-server/src/handler.rs:159`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing`](../../services/http-gateway/tests/policy_file.rs)
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
@@ -552,7 +552,7 @@ mimir-server answers inference requests from a real model inside the enclosure: 
 
 - Source:
   - [`mimir/model-server/src/backends/openai_compat.rs:60`](../../mimir/model-server/src/backends/openai_compat.rs)
-  - [`mimir/model-server/src/handler.rs:445`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/model-server/src/handler.rs:447`](../../mimir/model-server/src/handler.rs)
   - [`mimir/mimir-server/src/main.rs:281`](../../mimir/mimir-server/src/main.rs)
   - [`mimir/model-server/src/backends/openai_compat.rs:203`](../../mimir/model-server/src/backends/openai_compat.rs)
   - [`mimir/model-server/src/marking.rs:1`](../../mimir/model-server/src/marking.rs)

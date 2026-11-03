@@ -58,6 +58,9 @@ CONTRIBUTING.md for the version policy.
   `marking_level`), and `AssembledPrompt::max_marking_level` is the highest level among
   the included facts, memory items and history window; an item trimmed by the budget
   does not count. [VLD-ANB-MIDGARD-0034]
+- **The model server's prompt bound counts the system text.** `max_prompt_bytes` is
+  checked against `system_prompt` and `prompt` together, so a large system turn is
+  refused `PROMPT_TOO_LARGE` like a large body. [VLD-ANB-MIDGARD-0016]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as
