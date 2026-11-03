@@ -5,6 +5,9 @@
 //! live sensor/asset effector), the effector's outcome is sealed into the PQ-signed
 //! audit chain, and an action the actuator cannot invoke fails closed — audited,
 //! not executed. [RT-44]
+//!
+//! WP-64: the engine and the actuator hold the same action-type catalogue.
+//! [AC-64.3] [AC-64.4] [VLD-ANB-MIDGARD-0045]
 #![cfg(feature = "backend-fips")]
 
 use std::cell::RefCell;
@@ -16,8 +19,8 @@ use pqc_agility::registry::CryptoProvider;
 use pqc_agility::{Rng, SigId, SignatureScheme, SigningKey, VerifyingKey};
 
 use heimdall_workflow::{
-    ActuationStatus, DispatchActuator, Effector, ProposedAction, WorkflowEngine, WorkflowError,
-    WorkflowState,
+    ActionClass, ActionTypeCatalog, ActuationStatus, DispatchActuator, Effector, ProposedAction,
+    WorkflowEngine, WorkflowError, WorkflowState,
 };
 
 const ALG: SigId = SigId::MlDsa65;
@@ -40,6 +43,16 @@ impl Rng for SeedRng {
     }
 }
 
+/// The deployment's action-type catalogue for these tests. `launch-drone` is listed
+/// so it can be proposed; no effector is registered for it.
+fn catalog() -> ActionTypeCatalog {
+    ActionTypeCatalog::new()
+        .with("dispatch-asset", ActionClass::Consequential)
+        .with("cue-sensor", ActionClass::Consequential)
+        .with("annotate-track", ActionClass::Informational)
+        .with("launch-drone", ActionClass::Consequential)
+}
+
 fn provider() -> CryptoProvider {
     let mut p = CryptoProvider::new();
     p.register_sig(Box::new(FipsSig::new(ALG)));
@@ -55,7 +68,7 @@ fn engine() -> (WorkflowEngine<InMemoryLedger>, VerifyingKey) {
         vk.clone(),
         LedgerId("heimdall-workflow".into()),
     );
-    (WorkflowEngine::new(writer), vk)
+    (WorkflowEngine::new(writer).with_catalog(catalog()), vk)
 }
 
 fn chain_ok(engine: &WorkflowEngine<InMemoryLedger>, vk: &VerifyingKey) -> bool {
@@ -94,7 +107,7 @@ impl Effector for RecordingEffector {
 fn approved_action_invokes_a_real_actuator_and_is_audited() {
     let (mut wf, vk) = engine();
     let log = Rc::new(RefCell::new(Vec::new()));
-    let mut actuator = DispatchActuator::new();
+    let mut actuator = DispatchActuator::new().with_catalog(catalog());
     actuator.register(
         "dispatch-asset",
         Box::new(RecordingEffector { log: log.clone() }),
@@ -133,7 +146,7 @@ fn approved_action_invokes_a_real_actuator_and_is_audited() {
 fn unactuatable_action_fails_closed_and_is_audited() {
     let (mut wf, vk) = engine();
     // The dispatcher has NO effector for this action type.
-    let mut actuator = DispatchActuator::new();
+    let mut actuator = DispatchActuator::new().with_catalog(catalog());
 
     wf.propose(
         "analyst",

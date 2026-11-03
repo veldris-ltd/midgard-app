@@ -13,7 +13,17 @@ use heimdall_picture::{
     TrackedEntity,
 };
 use heimdall_store::{DurablePicture, DurableWorkflow};
-use heimdall_workflow::{DispatchActuator, Effector, ProposedAction, WorkflowState};
+use heimdall_workflow::{
+    ActionClass, ActionTypeCatalog, DispatchActuator, Effector, ProposedAction, WorkflowState,
+};
+
+/// The deployment's action-type catalogue for this test's action types.
+/// [VLD-ANB-MIDGARD-0045]
+fn catalog() -> ActionTypeCatalog {
+    ActionTypeCatalog::new()
+        .with("dispatch-asset", ActionClass::Consequential)
+        .with("cue-sensor", ActionClass::Consequential)
+}
 
 /// A success effector for the durable-restart workflow's action type.
 struct OkEffector;
@@ -432,6 +442,7 @@ fn open_workflow(dir: &PathBuf) -> DurableWorkflow {
         LedgerId("heimdall-workflow".into()),
     )
     .unwrap()
+    .with_catalog(catalog())
 }
 
 fn verify_workflow_chain(
@@ -513,7 +524,7 @@ fn in_flight_workflows_survive_restart() {
     verify_workflow_chain(wf.audit_entries(), &fips_provider(), &vk);
 
     // ...and the workflow continues past the restart: execute the authorised action.
-    let mut actuator = DispatchActuator::new();
+    let mut actuator = DispatchActuator::new().with_catalog(catalog());
     actuator.register("dispatch-asset", Box::new(OkEffector));
     wf.execute("operator-2", "t-100", &mut actuator, "2026-07-24T00:05:00Z")
         .unwrap();

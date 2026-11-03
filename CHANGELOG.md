@@ -415,6 +415,35 @@ CONTRIBUTING.md for the version policy.
   crypto-shred mechanism planned for it and the controller's obligations;
   BACKUP_RESTORE points at it; and the claims ledger records `personal-data-erasure`
   as spec. Erasure itself is a follow-on work package. [VLD-ANB-MIDGARD-0070]
+- **Heimdall: an action's class is the deployment's, every execution has a human
+  decision, and only grounded options reach the audit lineage.**
+  [VLD-ANB-MIDGARD-0045] [VLD-ANB-MIDGARD-0079]
+  - `heimdall_workflow::ActionTypeCatalog` maps each action type to
+    `ActionClass::Consequential` or `Informational`, and parses a
+    `<type> consequential|informational` line file
+    (`deploy/compose/heimdall-actions.catalog` is the sample for the demo types).
+    `WorkflowEngine::propose` classifies from it and refuses an unlisted type with
+    `WorkflowError::UnknownActionType` before anything is audited; an engine with
+    no catalogue refuses every proposal.
+  - **Breaking:** `ProposedAction::consequential` is private and
+    `set_consequential` is removed; read the class with `class()` or
+    `is_consequential()`. Callers give the engine a catalogue with `with_catalog`
+    (`DurableWorkflow::with_catalog` for the durable store, which re-derives the
+    class of recovered records from it).
+  - `WorkflowEngine::execute` requires `Authorised` for every action, so an
+    informational action, which used to run straight from `Proposed`, now needs a
+    recorded human decision too.
+  - `DispatchActuator::with_catalog` re-checks each action: an unlisted type fails
+    with `ActuatorError::Unsupported` and a class that disagrees with the
+    catalogue with the new `ActuatorError::ClassMismatch`; with no catalogue it
+    refuses everything.
+  - Decision support offers only grounded options: `AdvisoryOptions` now carries
+    `option_set` (grounded options, re-ranked 1..n), `grounded:
+    Vec<GroundedOption>` and `rejected: Vec<RejectedOption>` with each rejected
+    option's unresolved citations; `OptionGrounding` and the `grounding` field are
+    removed. `OptionSet::parse` refuses duplicate or gapped ranks.
+    `ProposedAction::from_course_of_action` takes a `&GroundedOption`, which only
+    the adapter can make.
 - **The audit ledger can no longer be quietly shortened or deleted, or checked with a
   key of the attacker's choosing.** [MG-SEC-05]
   - Every append refreshes a signed checkpoint of the ledger's length and last entry

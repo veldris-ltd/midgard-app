@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 
 use audit_writer::{AuditWriter, FileLedger, LedgerId, SealedEntry, Sealer};
 use heimdall_workflow::{
-    ActionRecord, ActuationOutcome, Actuator, ProposedAction, WorkflowEngine, WorkflowState,
+    ActionRecord, ActionTypeCatalog, ActuationOutcome, Actuator, ProposedAction, WorkflowEngine,
+    WorkflowState,
 };
 use pqc_agility::{SignatureScheme, SigningKey, VerifyingKey};
 
@@ -85,6 +86,17 @@ impl DurableWorkflow {
             state_path,
             state_sealer,
         })
+    }
+
+    /// Use `catalog` as the deployment's action-type catalogue (builder). Until one
+    /// is supplied every proposal is refused; recovered records are re-classified
+    /// from it, so a class read back from the snapshot is never trusted over the
+    /// catalogue's. [FR-H-5] [VLD-ANB-MIDGARD-0045]
+    pub fn with_catalog(self, catalog: ActionTypeCatalog) -> Self {
+        Self {
+            engine: self.engine.with_catalog(catalog),
+            ..self
+        }
     }
 
     /// Propose an action (audited), then durably snapshot the new state.
@@ -178,7 +190,9 @@ fn encode_record(o: &mut Vec<u8>, r: &ActionRecord) {
     for c in &r.action.citations {
         put_str(o, c);
     }
-    o.push(r.action.consequential as u8);
+    // The class byte is kept so earlier snapshots still decode; it is informative
+    // only, as the engine re-derives the class from its catalogue.
+    o.push(r.action.is_consequential() as u8);
     // WorkflowState
     match &r.state {
         WorkflowState::Proposed => o.push(0),
@@ -233,15 +247,11 @@ fn decode_record(r: &mut Reader) -> Result<ActionRecord, StoreError> {
     for _ in 0..ncit {
         citations.push(r.string()?);
     }
-    let consequential = r.u8()? != 0;
-    let action = ProposedAction {
-        id,
-        action_type,
-        params,
-        rationale,
-        citations,
-        consequential,
-    };
+    // The stored class is not trusted: the record is rebuilt consequential and the
+    // engine re-classifies it from its catalogue (`with_catalog`). [VLD-ANB-MIDGARD-0045]
+    let _stored_class = r.u8()?;
+    let mut action = ProposedAction::new(id, action_type, rationale).with_citations(citations);
+    action.params = params;
     let state = match r.u8()? {
         0 => WorkflowState::Proposed,
         1 => WorkflowState::Authorised { actor: r.string()? },
